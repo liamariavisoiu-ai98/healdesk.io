@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+/* Same tokens as the marketing site so the product doesn't feel like a
+   different company. Duplicated rather than extracted into a shared package —
+   two files is not yet a problem worth a build step. Promote to
+   packages/design-tokens when a third consumer appears. */
+
+@theme {
+  --color-red: #e23a2a;
+  --color-orange: #f47b1f;
+  --color-ink: #24160f;
+  --color-paper: #fbf4ea;
+  --color-paper-2: #f5e8d6;
+  --color-muted: #8b7a6c;
+  --color-line: rgb(36 22 15 / 0.12);
+}
+
+@layer base {
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}

@@ -1,0 +1,95 @@
+@import "tailwindcss";
+
+/* =============================================================================
+   Design tokens — carried over verbatim from the original hero prototype.
+   Warm paper + red→orange gradient, deliberately not clinical-blue: this is
+   elective, cash-pay, experience-driven medicine, so the register is hospitality.
+   ============================================================================= */
+
+@theme {
+  --color-red: #e23a2a;
+  --color-orange: #f47b1f;
+  --color-ink: #24160f;
+  --color-paper: #fbf4ea;
+  --color-paper-2: #f5e8d6;
+  --color-muted: #8b7a6c;
+  --color-line: rgb(36 22 15 / 0.12);
+  --color-line-strong: rgb(36 22 15 / 0.25);
+
+  --font-display: var(--font-fraunces), Georgia, serif;
+  --font-sans: var(--font-hanken), system-ui, sans-serif;
+
+  --shadow-brand: 0 20px 44px -24px rgb(226 58 42 / 0.5);
+  --shadow-brand-lg: 0 24px 48px -20px rgb(226 58 42 / 0.66);
+
+  --ease-panel: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* Gradient is used in a dozen places; keep one definition. */
+@utility bg-brand-gradient {
+  background-image: linear-gradient(
+    105deg,
+    var(--color-red) 6%,
+    var(--color-orange) 94%
+  );
+}
+
+@utility text-brand-gradient {
+  background-image: linear-gradient(
+    105deg,
+    var(--color-red) 6%,
+    var(--color-orange) 94%
+  );
+  background-clip: text;
+  color: transparent;
+}
+
+/* =============================================================================
+   Base
+   ============================================================================= */
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background-color: var(--color-orange);
+    color: white;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--color-orange);
+    outline-offset: 3px;
+  }
+
+  /* Thin scrollbars inside the demo panes so they don't shout. */
+  .scroll-subtle {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+}
+
+/* The prototype respected reduced motion; don't regress it. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

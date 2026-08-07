@@ -1,0 +1,29 @@
+{
+  "name": "@healdesk/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start --port 3000",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf .next .turbo node_modules"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.115.0",
+    "motion": "^13.0.0",
+    "next": "^16.3.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "postcss": "^8.5.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.7.2"
+  }
+}

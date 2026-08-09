@@ -5,7 +5,27 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      // Turborepo hides environment variables from tasks unless declared, and
+      // hashes them into the cache key. Undeclared vars are not just missing —
+      // a build would also be cached as if they never mattered.
+      "env": [
+        "DATABASE_URL",
+        "MIGRATION_DATABASE_URL",
+        "BETTER_AUTH_SECRET",
+        "BETTER_AUTH_URL",
+        "HEALDESK_KMS_PROVIDER",
+        "HEALDESK_KMS_KEY_ID",
+        "HEALDESK_LOCAL_KEK",
+        "ANTHROPIC_API_KEY",
+        "HEALDESK_GATE_SECRET",
+        "NEXT_PUBLIC_SITE_URL"
+      ],
       "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "env": ["TEST_APP_URL", "TEST_MIGRATOR_URL", "HEALDESK_LOCAL_KEK"],
+      "cache": false
     },
     "dev": {
       "cache": false,

@@ -7,12 +7,19 @@
     "build": "next build",
     "start": "next start --port 3001",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
+    "db:generate:custom": "drizzle-kit generate --custom",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
+    "db:up": "bash scripts/dev-db.sh up",
+    "db:down": "bash scripts/dev-db.sh down",
+    "db:reset": "bash scripts/dev-db.sh reset",
     "clean": "rm -rf .next .turbo node_modules"
   },
   "dependencies": {
+    "better-auth": "^1.6.26",
     "drizzle-orm": "^0.45.2",
     "next": "^16.3.0",
     "pg": "^8.13.1",
@@ -25,9 +32,11 @@
     "@types/pg": "^8.11.10",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "dotenv": "^16.6.1",
     "drizzle-kit": "^0.31.1",
     "postcss": "^8.5.1",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.10"
   }
 }

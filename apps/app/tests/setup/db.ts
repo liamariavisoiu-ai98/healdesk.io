@@ -1,0 +1,71 @@
+import { drizzle } from "drizzle-orm/node-postgres";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { Pool } from "pg";
+
+/**
+ * Database harness for the isolation tests.
+ *
+ * Two pools on purpose, because the whole point of these tests is that the
+ * roles differ:
+ *
+ *   migratorPool — owns the schema. Used to set up fixtures and to inspect
+ *                  catalog state. Bypasses RLS unless tables are FORCEd, which
+ *                  is exactly what the drift test verifies.
+ *
+ *   appPool      — the runtime role. Everything the application does goes
+ *                  through this, and it must never see another clinic's rows.
+ *
+ * Set TEST_MIGRATOR_URL and TEST_APP_URL to run these. Without them the
+ * database-backed suites skip rather than fail, so `npm test` still works on a
+ * machine with no Postgres.
+ */
+
+export const MIGRATOR_URL = process.env.TEST_MIGRATOR_URL;
+export const APP_URL = process.env.TEST_APP_URL;
+
+export const hasTestDatabase = Boolean(MIGRATOR_URL && APP_URL);
+
+let migratorPool: Pool | undefined;
+let appPool: Pool | undefined;
+
+export function getMigratorPool(): Pool {
+  if (!MIGRATOR_URL) throw new Error("TEST_MIGRATOR_URL is not set.");
+  migratorPool ??= new Pool({ connectionString: MIGRATOR_URL, max: 4 });
+  return migratorPool;
+}
+
+export function getAppPool(): Pool {
+  if (!APP_URL) throw new Error("TEST_APP_URL is not set.");
+  appPool ??= new Pool({ connectionString: APP_URL, max: 4 });
+  return appPool;
+}
+
+export function getAppDb() {
+  return drizzle(getAppPool());
+}
+
+export async function runMigrations(): Promise<void> {
+  const db = drizzle(getMigratorPool());
+  await migrate(db, { migrationsFolder: "./drizzle" });
+}
+
+/**
+ * Truncate as the migrator, since the app role deliberately cannot DELETE from
+ * audit_log — append-only is enforced by grant, not convention.
+ */
+export async function truncateAll(): Promise<void> {
+  await getMigratorPool().query(`
+    truncate table
+      audit_log, security_events, transactions, appointments,
+      conversations, contacts, ad_interactions, provider_connections,
+      clinic_memberships, clinics,
+      invitation, member, organization, session, account, verification, "user"
+    restart identity cascade
+  `);
+}
+
+export async function closePools(): Promise<void> {
+  await Promise.all([migratorPool?.end(), appPool?.end()]);
+  migratorPool = undefined;
+  appPool = undefined;
+}

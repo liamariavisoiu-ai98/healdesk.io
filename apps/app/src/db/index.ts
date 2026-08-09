@@ -1,43 +1,55 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
-import * as schema from "./schema";
+import { env } from "@/lib/env";
+
+import * as authSchema from "./auth-schema";
+import * as appSchema from "./schema";
 
 /**
- * Database client.
+ * Database clients.
  *
- * Deliberately plain `pg` over a DATABASE_URL — NOT @vercel/postgres, and not
- * an edge-only driver. apps/app has to be able to move to BAA-covered infra
- * (AWS / Fly / Render + Supabase or Neon) without a rewrite, and a
- * platform-specific driver is the fastest way to lose that.
+ * ⚠️ There is deliberately NO `db` export.
+ *
+ * A general-purpose handle is how tenant isolation dies: someone imports it in
+ * a hurry, forgets `where(eq(t.clinicId, ...))`, and one clinic reads another's
+ * patients. Row-level security is the second lock, but the first lock has to be
+ * structural — so the only way to touch PHI is `withTenant()` in src/lib/tenant.ts,
+ * which opens a transaction and sets the tenant GUC before any statement runs.
+ *
+ * `unsafeDb` exists for the two places that legitimately have no tenant:
+ *   1. Better Auth's adapter (the identity plane — user, session, organization)
+ *   2. migrations and seed scripts
+ *
+ * It is named to be uncomfortable. If you are reaching for it anywhere else,
+ * you are about to write a cross-tenant leak.
  *
  * See docs/hipaa-compliance.md → "Rules that keep apps/app portable".
  */
 
-const connectionString = process.env.DATABASE_URL;
+export const schema = { ...appSchema, ...authSchema };
 
-if (!connectionString && process.env.NODE_ENV === "production") {
-  throw new Error("DATABASE_URL is required.");
-}
+const connectionString = env.databaseUrl();
 
-// Reuse the pool across hot reloads in dev; otherwise every edit leaks connections.
+// Reuse the pool across hot reloads; otherwise every edit leaks connections.
 const globalForDb = globalThis as unknown as { __healdeskPool?: Pool };
 
-const pool =
+export const pool =
   globalForDb.__healdeskPool ??
   new Pool({
     connectionString,
     max: 10,
-    // Managed Postgres (Supabase, Neon, RDS) requires TLS.
-    ssl:
-      process.env.NODE_ENV === "production"
-        ? { rejectUnauthorized: true }
-        : undefined,
+    // Managed Postgres (RDS, Supabase, Neon) requires TLS. The AWS BAA makes
+    // "encrypt in transit" a contractual obligation, not a preference.
+    ssl: env.isProduction() ? { rejectUnauthorized: true } : undefined,
   });
 
-if (process.env.NODE_ENV !== "production") {
-  globalForDb.__healdeskPool = pool;
-}
+if (!env.isProduction()) globalForDb.__healdeskPool = pool;
 
-export const db = drizzle(pool, { schema });
-export { schema };
+/**
+ * ⚠️ Bypasses tenant scoping. Identity plane and migrations only.
+ * For anything with a clinic_id, use withTenant() instead.
+ */
+export const unsafeDb = drizzle(pool, { schema });
+
+export type Database = typeof unsafeDb;

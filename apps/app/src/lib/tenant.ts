@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 
-import { unsafeDb, type Database } from "@/db";
+import { unsafeDb, type Database, type Transaction } from "@/db";
 
 import { AuditRecorder, type ActorContext, type RequestContext } from "./audit";
 
@@ -50,7 +50,7 @@ export type TenantContext = {
 
 export type TenantTx = {
   /** Tenant-scoped handle. Every PHI table is filtered to this clinic by RLS. */
-  db: Parameters<Parameters<Database["transaction"]>[0]>[0];
+  db: Transaction;
   /** Record PHI accesses here; flushed in the same transaction. */
   audit: AuditRecorder;
   clinicId: string;

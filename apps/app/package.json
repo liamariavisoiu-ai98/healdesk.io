@@ -19,6 +19,7 @@
     "clean": "rm -rf .next .turbo node_modules"
   },
   "dependencies": {
+    "@healdesk/catalog": "*",
     "better-auth": "^1.6.26",
     "drizzle-orm": "^0.45.2",
     "next": "^16.3.0",

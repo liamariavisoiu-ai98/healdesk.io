@@ -106,6 +106,21 @@ export const connectionStatusEnum = pgEnum("connection_status", [
   "error",
 ]);
 
+/**
+ * How this clinic's recovered revenue is calculated.
+ *
+ *   estimated — from the clinic's own average treatment value. No integration,
+ *               so nothing blocks the purchase. The default.
+ *   verified  — read from actual settled sales through a read-only connection.
+ *
+ * Reports must state which one produced the number. An estimate presented as a
+ * measurement is the dishonesty this product exists to replace.
+ */
+export const attributionModeEnum = pgEnum("attribution_mode", [
+  "estimated",
+  "verified",
+]);
+
 // -----------------------------------------------------------------------------
 // Tenancy
 // -----------------------------------------------------------------------------
@@ -143,8 +158,29 @@ export const clinics = pgTable(
     specialty: text("specialty").notNull(),
     timezone: text("timezone").notNull().default("America/New_York"),
 
+    /** From the purchase-flow picker. "none" is a first-class answer, not a gap. */
     bookingProvider: text("booking_provider"),
     posProvider: text("pos_provider"),
+
+    attributionMode: attributionModeEnum("attribution_mode")
+      .notNull()
+      .default("estimated"),
+
+    /**
+     * What one booked appointment is typically worth here, in USD.
+     *
+     * This is the entire input to estimated attribution, which is the default
+     * path — so it is asked during checkout rather than inferred. Inferring it
+     * from a specialty average would produce a confident number about a
+     * specific clinic derived from none of its data.
+     */
+    averageTreatmentValueUsd: numeric("average_treatment_value_usd", {
+      precision: 12,
+      scale: 2,
+    }),
+
+    /** Billing plan slug: "core" | "growth" | "multi". */
+    plan: text("plan"),
 
     /**
      * ⚠️ Whether this clinic is a HIPAA covered entity at all.
@@ -584,6 +620,57 @@ export const auditLog = pgTable(
         (actor_type = 'system')
       `,
     ),
+  ],
+);
+
+/**
+ * Click-through BAA acceptances.
+ *
+ * Self-serve acquisition only works if the business-associate agreement is
+ * click-through — if signing needs a lawyer on a call, the funnel isn't
+ * automated. That makes the acceptance record the artifact that has to hold up
+ * later, so it captures more than a boolean:
+ *
+ *   - WHICH version was accepted, and its hash, so "what did they actually
+ *     agree to" survives the document being revised
+ *   - WHO accepted, by name and email frozen at the time
+ *   - WHEN, from WHERE, and with which user agent
+ *
+ * Deliberately outside the tenant plane: acceptance happens during signup,
+ * before a clinic exists to scope it to. It carries no PHI — a clinic owner's
+ * name and work email are business contact data.
+ */
+export const baaAcceptances = pgTable(
+  "baa_acceptances",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "restrict" }),
+    /** Nullable: the accepting user may be created in the same transaction. */
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+
+    /** e.g. "2026-08-01". Matches a document in packages/legal. */
+    documentVersion: text("document_version").notNull(),
+    /** SHA-256 of the exact text shown, so a later edit can't be mistaken for what was signed. */
+    documentHash: text("document_hash").notNull(),
+
+    /** Frozen at acceptance — the FK above may go null. */
+    acceptedByName: text("accepted_by_name").notNull(),
+    acceptedByEmail: text("accepted_by_email").notNull(),
+    acceptedByTitle: text("accepted_by_title"),
+
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+
+    acceptedAt: timestamp("accepted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("baa_acceptances_org_idx").on(t.organizationId, t.acceptedAt),
+    index("baa_acceptances_version_idx").on(t.documentVersion),
   ],
 );
 

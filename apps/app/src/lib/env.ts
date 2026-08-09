@@ -49,6 +49,17 @@ export const env = {
     process.env.BETTER_AUTH_URL ?? "http://localhost:3001",
 
   /**
+   * Shared secret between the marketing site's checkout and this app's
+   * provisioning endpoint. The two run on different hosts — Vercel and AWS —
+   * so the call crosses a network boundary and must be authenticated.
+   */
+  provisionSecret: () =>
+    required(
+      "HEALDESK_PROVISION_SECRET",
+      "Shared with apps/web. Generate with: openssl rand -base64 32",
+    ),
+
+  /**
    * Key-encryption key for the credential vault.
    *
    * "local" wraps data keys with HEALDESK_LOCAL_KEK — development only, and

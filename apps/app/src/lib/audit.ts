@@ -1,6 +1,5 @@
+import type { Queryable, Transaction } from "@/db";
 import { auditLog, securityEvents } from "@/db/schema";
-
-import type { TenantTx } from "./tenant";
 
 /**
  * Audit logging.
@@ -169,7 +168,7 @@ export class AuditRecorder {
     return this.#entries.length;
   }
 
-  async flush(tx: TenantTx["db"]): Promise<void> {
+  async flush(tx: Transaction): Promise<void> {
     if (this.#entries.length === 0) return;
 
     const actor = this.actor;
@@ -215,11 +214,7 @@ export class AuditRecorder {
  * its RLS policy.
  */
 export async function recordSecurityEvent(
-  db: {
-    insert: (
-      table: typeof securityEvents,
-    ) => { values: (v: Record<string, unknown>) => Promise<unknown> };
-  },
+  db: Queryable,
   event: {
     event: string;
     actorLabel: string;

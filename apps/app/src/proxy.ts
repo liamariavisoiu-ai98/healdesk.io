@@ -15,12 +15,29 @@ import { NextResponse, type NextRequest } from "next/server";
  * handlers nor client-side navigations.
  */
 
-const PUBLIC_PATHS = ["/sign-in", "/accept-invite", "/api/auth"];
+const PUBLIC_PATHS = ["/sign-in", "/accept-invite"];
+
+/**
+ * Routes that authenticate themselves and must never be redirected.
+ *
+ * `/api/auth` is Better Auth's own surface. `/api/provision` is called
+ * server-to-server by checkout with a signed request — redirecting it to a
+ * sign-in page turns a valid API call into a 307 pointing at HTML, which is a
+ * genuinely baffling failure to debug from the caller's side.
+ *
+ * Any future machine-to-machine endpoint belongs here, and must do its own
+ * authentication. Being listed here is not an exemption from auth; it is a
+ * statement that this route does its own.
+ */
+const SELF_AUTHENTICATING_PATHS = ["/api/auth", "/api/provision"];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
+  if (
+    PUBLIC_PATHS.some((p) => pathname.startsWith(p)) ||
+    SELF_AUTHENTICATING_PATHS.some((p) => pathname.startsWith(p))
+  ) {
     return NextResponse.next();
   }
 

@@ -17,7 +17,7 @@ export const site = {
     "then shows you which recovered call became collected revenue.",
 
   cta: {
-    primary: { label: "Make It Yours", href: "#get-started" },
+    primary: { label: "Make It Yours", href: "/get-started" },
     secondary: { label: "Find Out More", href: "#how-it-works" },
   },
 

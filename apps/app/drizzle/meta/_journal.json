@@ -36,6 +36,20 @@
       "when": 1786277488604,
       "tag": "0004_baa_gate",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786279368681,
+      "tag": "0005_purchase_flow",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786279389161,
+      "tag": "0006_baa_acceptance_grants",
+      "breakpoints": true
     }
   ]
 }

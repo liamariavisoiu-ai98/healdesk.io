@@ -18,7 +18,11 @@
         "HEALDESK_LOCAL_KEK",
         "ANTHROPIC_API_KEY",
         "HEALDESK_GATE_SECRET",
-        "NEXT_PUBLIC_SITE_URL"
+        "NEXT_PUBLIC_SITE_URL",
+        "HEALDESK_APP_URL",
+        "HEALDESK_PROVISION_SECRET",
+        "STRIPE_SECRET_KEY",
+        "STRIPE_WEBHOOK_SECRET"
       ],
       "outputs": [".next/**", "!.next/cache/**", "dist/**"]
     },

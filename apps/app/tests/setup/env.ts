@@ -13,5 +13,13 @@
 process.env.HEALDESK_LOCAL_KEK ??= Buffer.alloc(32).toString("base64");
 process.env.HEALDESK_KMS_PROVIDER ??= "local";
 process.env.BETTER_AUTH_SECRET ??= "test-secret-not-used-outside-tests";
+/**
+ * Code under test connects via DATABASE_URL, while the harness is configured
+ * with TEST_APP_URL. Point one at the other so a suite can't silently end up
+ * talking to a different database than the one it seeded — which surfaces as a
+ * confusing ECONNREFUSED or, worse, passing tests against stale data.
+ */
 process.env.DATABASE_URL ??=
-  process.env.TEST_DATABASE_URL ?? "postgres://localhost:5432/healdesk_test";
+  process.env.TEST_APP_URL ??
+  process.env.TEST_DATABASE_URL ??
+  "postgres://localhost:5432/healdesk_test";

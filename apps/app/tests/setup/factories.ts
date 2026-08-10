@@ -77,6 +77,70 @@ export async function seedContact(
 }
 
 /**
+ * A conversation the agent handled, optionally one it recovered.
+ *
+ * `recovered` maps to isRecoveredMissedCall, which is what the attribution
+ * engine counts — an automatic callback of a number that rang out.
+ */
+export async function seedConversation(
+  clinicId: string,
+  options: {
+    startedAt: Date;
+    recovered?: boolean;
+    booked?: boolean;
+    contactId?: string;
+  },
+): Promise<{ conversationId: string; appointmentId: string | null }> {
+  return inTenant(clinicId, async (client) => {
+    const { rows: convo } = await client.query<{ id: string }>(
+      `insert into conversations
+         (clinic_id, channel, is_recovered_missed_call, outcome, started_at)
+       values ($1, 'voice', $2, $3, $4)
+       returning id`,
+      [
+        clinicId,
+        options.recovered ?? false,
+        options.booked ? "booked" : "qualified_no_booking",
+        options.startedAt,
+      ],
+    );
+    const conversationId = convo[0]!.id;
+
+    if (!options.booked) return { conversationId, appointmentId: null };
+
+    const contactId =
+      options.contactId ??
+      (
+        await client.query<{ id: string }>(
+          `insert into contacts (clinic_id, phone) values ($1, $2) returning id`,
+          [clinicId, `+1555${Math.floor(Math.random() * 10_000_000)}`],
+        )
+      ).rows[0]!.id;
+
+    const { rows: appt } = await client.query<{ id: string }>(
+      `insert into appointments
+         (clinic_id, contact_id, conversation_id, scheduled_for)
+       values ($1, $2, $3, $4)
+       returning id`,
+      [clinicId, contactId, conversationId, options.startedAt],
+    );
+
+    return { conversationId, appointmentId: appt[0]!.id };
+  });
+}
+
+/** Set the clinic's average appointment value, as checkout would. */
+export async function setAverageTreatmentValue(
+  clinicId: string,
+  value: number | null,
+): Promise<void> {
+  await getMigratorPool().query(
+    `update clinics set average_treatment_value_usd = $2 where id = $1`,
+    [clinicId, value],
+  );
+}
+
+/**
  * Run a callback on a migrator connection with the tenant GUC set, using the
  * same transaction-local mechanism the application uses.
  */

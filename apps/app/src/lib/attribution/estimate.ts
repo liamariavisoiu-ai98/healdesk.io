@@ -1,0 +1,198 @@
+/**
+ * Turning activity into a revenue figure — and being explicit about which kind
+ * of figure it is.
+ *
+ * Two modes:
+ *
+ *   estimated — bookings × the clinic's own average treatment value. No
+ *               integration required, which is why it is the default and why
+ *               most customers will only ever see this.
+ *   verified  — settled sales read from the clinic's own systems.
+ *
+ * The rule this file exists to enforce: **an estimate must never be presented
+ * as a measurement.** Every result carries the mode, a plain-English `basis`
+ * describing exactly how the number was derived, and a list of `caveats` for
+ * anything we could not measure.
+ *
+ * That last part matters most. The house rule from packages/leadgen — a cap, a
+ * gap, or an unsupported capability must never render as a number — applies
+ * with more force here, because this number is what the clinic decides whether
+ * to keep paying us on. When we can't compute revenue, `revenueUsd` is null,
+ * not zero. Zero is a claim; null is an admission.
+ */
+
+export type AttributionMode = "estimated" | "verified";
+
+/** Plain counts, so this is trivially testable without a database. */
+export type ActivityCounts = {
+  /** Conversations the agent handled in the period, any channel. */
+  conversationsHandled: number;
+  /**
+   * Conversations that would otherwise have been missed — after-hours,
+   * simultaneous calls, or an automatic callback of a number that rang out.
+   * This is the subset we can honestly claim credit for.
+   */
+  conversationsRecovered: number;
+  /** Recovered conversations that produced a booking. */
+  recoveredBookings: number;
+  /** All bookings from agent conversations, recovered or not. */
+  totalBookings: number;
+};
+
+export type EstimatedInput = {
+  mode: "estimated";
+  activity: ActivityCounts;
+  /** The clinic's own figure, captured at checkout. Null if never provided. */
+  averageTreatmentValueUsd: number | null;
+};
+
+export type VerifiedInput = {
+  mode: "verified";
+  activity: ActivityCounts;
+  /** Settled revenue matched to recovered bookings, in USD. */
+  matchedRevenueUsd: number;
+  /** Sales we could not tie to an appointment. Surfaced, never absorbed. */
+  unmatchedTransactionCount: number;
+  unmatchedRevenueUsd: number;
+  /** Which systems the money came from, for the basis line. */
+  sources: readonly string[];
+  /** Set when the source cannot provide history before a given date. */
+  coverageStartedAt?: Date | null;
+};
+
+export type AttributionInput = EstimatedInput | VerifiedInput;
+
+export type AttributionResult = {
+  mode: AttributionMode;
+  conversationsHandled: number;
+  conversationsRecovered: number;
+  recoveredBookings: number;
+  /**
+   * Null when it genuinely cannot be computed. Callers must render null as
+   * "not available" and never coerce it to 0.
+   */
+  revenueUsd: number | null;
+  /** Exactly how revenueUsd was derived, in words the clinic owner can check. */
+  basis: string;
+  /** What we could not measure. Rendered verbatim; never silently dropped. */
+  caveats: string[];
+};
+
+const usd = (value: number): string =>
+  value.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  });
+
+export function computeAttribution(
+  input: AttributionInput,
+): AttributionResult {
+  return input.mode === "estimated" ? estimated(input) : verified(input);
+}
+
+function estimated(input: EstimatedInput): AttributionResult {
+  const { activity, averageTreatmentValueUsd: value } = input;
+  const caveats: string[] = [];
+
+  const base = {
+    mode: "estimated" as const,
+    conversationsHandled: activity.conversationsHandled,
+    conversationsRecovered: activity.conversationsRecovered,
+    recoveredBookings: activity.recoveredBookings,
+  };
+
+  // No average value means no revenue figure. Reporting $0 would read as "we
+  // earned you nothing", which is a different and false claim.
+  if (value === null || !Number.isFinite(value) || value <= 0) {
+    return {
+      ...base,
+      revenueUsd: null,
+      basis:
+        "We don't have an average appointment value for this clinic, so we can't estimate revenue yet.",
+      caveats: [
+        "Add your average appointment value and we'll estimate recovered revenue from next month.",
+      ],
+    };
+  }
+
+  const revenueUsd = round2(activity.recoveredBookings * value);
+
+  if (activity.recoveredBookings === 0) {
+    caveats.push(
+      "No recovered bookings this period, so there is nothing to attribute.",
+    );
+  }
+
+  // Say the quiet part out loud, every time.
+  caveats.push(
+    `Estimated from your own average appointment value of ${usd(value)}, not read from a point-of-sale. Connect your booking system to replace these with measured figures.`,
+  );
+
+  return {
+    ...base,
+    revenueUsd,
+    basis: `${activity.recoveredBookings} recovered ${plural(activity.recoveredBookings, "booking")} × ${usd(value)} average = ${usd(revenueUsd)}`,
+    caveats,
+  };
+}
+
+function verified(input: VerifiedInput): AttributionResult {
+  const { activity } = input;
+  const caveats: string[] = [];
+
+  if (input.unmatchedTransactionCount > 0) {
+    // Money we saw but could not attribute. It belongs in front of the clinic,
+    // not quietly excluded from a total that then looks smaller than reality.
+    caveats.push(
+      `${input.unmatchedTransactionCount} ${plural(input.unmatchedTransactionCount, "sale")} totalling ${usd(input.unmatchedRevenueUsd)} could not be matched to an appointment and are not included above.`,
+    );
+  }
+
+  if (input.coverageStartedAt) {
+    caveats.push(
+      `Revenue is available from ${input.coverageStartedAt.toISOString().slice(0, 10)} onward; this source cannot provide earlier history.`,
+    );
+  }
+
+  const sources = input.sources.length
+    ? input.sources.join(" and ")
+    : "your connected systems";
+
+  return {
+    mode: "verified",
+    conversationsHandled: activity.conversationsHandled,
+    conversationsRecovered: activity.conversationsRecovered,
+    recoveredBookings: activity.recoveredBookings,
+    revenueUsd: round2(input.matchedRevenueUsd),
+    basis: `${usd(input.matchedRevenueUsd)} collected against ${activity.recoveredBookings} recovered ${plural(activity.recoveredBookings, "booking")}, read from ${sources}`,
+    caveats,
+  };
+}
+
+/**
+ * Period-over-period change.
+ *
+ * Returns null rather than a percentage when the previous period had no
+ * revenue: "up 100%" from zero is arithmetically true and communicates nothing.
+ */
+export function trend(
+  current: number | null,
+  previous: number | null,
+): { deltaUsd: number; percent: number | null } | null {
+  if (current === null || previous === null) return null;
+
+  const deltaUsd = round2(current - previous);
+  const percent =
+    previous > 0 ? Math.round(((current - previous) / previous) * 100) : null;
+
+  return { deltaUsd, percent };
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function plural(count: number, word: string): string {
+  return count === 1 ? word : `${word}s`;
+}

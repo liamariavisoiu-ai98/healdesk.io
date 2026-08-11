@@ -31,12 +31,18 @@ export default async function ConsolePage() {
     listJobs(),
     // Via the SECURITY DEFINER function: with no tenant set the runtime role
     // sees no clinics at all, which is the isolation working rather than a bug.
+    // Deliberately includes the slug so the list can link into each clinic —
+    // and nothing else, because anything patient-level must go through
+    // withTenant() and be audited.
     unsafeDb
-      .execute<{ id: string; name: string; timezone: string }>(
-        sql`select id, name, timezone from app_clinics_overview()`,
+      .execute<{ id: string; slug: string; name: string; timezone: string }>(
+        sql`select id, slug, name, timezone from app_clinics_overview()`,
       )
       .then((r) => (r as unknown as { rows?: unknown[] }).rows ?? r)
-      .then((r) => r as { id: string; name: string; timezone: string }[]),
+      .then(
+        (r) =>
+          r as { id: string; slug: string; name: string; timezone: string }[],
+      ),
   ]);
 
   return (
@@ -159,14 +165,16 @@ export default async function ConsolePage() {
         ) : (
           <ul className="mt-4 divide-y divide-[color:var(--color-line)] overflow-hidden rounded-2xl border border-[color:var(--color-line)] bg-white">
             {clinics.map((clinic) => (
-              <li
-                key={clinic.id}
-                className="flex items-center justify-between gap-4 px-5 py-3.5"
-              >
-                <span className="font-medium">{clinic.name}</span>
-                <span className="text-sm text-[color:var(--color-muted)]">
-                  {clinic.timezone}
-                </span>
+              <li key={clinic.id}>
+                <a
+                  href={`/c/${clinic.slug}`}
+                  className="flex items-center justify-between gap-4 px-5 py-3.5 hover:bg-[color:var(--color-paper-2)]"
+                >
+                  <span className="font-medium">{clinic.name}</span>
+                  <span className="text-sm text-[color:var(--color-muted)]">
+                    {clinic.timezone}
+                  </span>
+                </a>
               </li>
             ))}
           </ul>

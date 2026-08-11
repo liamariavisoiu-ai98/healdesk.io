@@ -13,6 +13,7 @@
  */
 
 export * from "./baa";
+export * from "./connection-steps";
 export * from "./plans";
 export * from "./platforms";
 export * from "./request-signing";

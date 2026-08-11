@@ -1,4 +1,6 @@
 import { ENTERPRISE_SUITES } from "./booking-detection.ts";
+import type { AdSignal } from "./signals/ads.ts";
+import type { HiringSignal } from "./signals/hiring.ts";
 import type { BookingDetection, MapsPlace } from "./types.ts";
 
 /**
@@ -13,6 +15,7 @@ import type { BookingDetection, MapsPlace } from "./types.ts";
 export function scoreProspect(
   place: MapsPlace,
   detection: BookingDetection,
+  signals: { ads?: AdSignal; hiring?: HiringSignal } = {},
 ): { score: number; reasons: string[] } {
   let score = 0;
   const reasons: string[] = [];
@@ -21,6 +24,34 @@ export function scoreProspect(
     score += points;
     reasons.push(`${points >= 0 ? "+" : ""}${points} ${reason}`);
   };
+
+  // Signal 3 — paid traffic. The strongest single indicator, because a clinic
+  // buying ads has already decided a new patient is worth money; the only
+  // question left is whether they catch the ones who phone instead of clicking.
+  const ads = signals.ads;
+  if (ads?.hasConversionTracking) {
+    add(
+      25,
+      `running conversion-tracked ads (${ads.platforms.join(", ")}) — paying for calls they may not answer`,
+    );
+  } else if (ads?.platforms.length) {
+    add(10, `${ads.platforms.join(", ")} tracking present — likely advertising`);
+  }
+  if (ads?.funnelTools.length) {
+    add(10, `paid funnel on ${ads.funnelTools.join(", ")}`);
+  }
+
+  // Trigger — actively hiring a front desk. Time-sensitive: a filled role is
+  // worse than no signal, because leading with it says we haven't looked recently.
+  const hiring = signals.hiring;
+  if (hiring?.postings.length && !hiring.isStale) {
+    add(
+      20,
+      `hiring a front desk right now (${hiring.postings[0]!.title}) — budget approved, decision live`,
+    );
+  } else if (hiring?.postings.length && hiring.isStale) {
+    add(0, "front-desk posting found but likely filled — do not lead with it");
+  }
 
   // Signal 0 — no online booking at all. The most primitive front desk, the
   // most leakage, and invisible to any whitelist approach.
@@ -71,14 +102,82 @@ export function scoreProspect(
 }
 
 /**
+ * How well we could actually MEASURE this clinic's revenue.
+ *
+ * Deliberately a second, independent score. The outbound score above answers
+ * "how easy is this clinic to sell to"; this one answers "if they buy, can we
+ * prove what we earned them". They are different questions, and they disagree:
+ * Zenoti and Boulevard clinics are the hardest sell (both bundle their own AI)
+ * and the cleanest integrations by a distance.
+ *
+ * Collapsing the two into one number, as this file used to, loses whichever
+ * half matters at the moment you look.
+ */
+export function scoreIntegration(detection: BookingDetection): {
+  score: number;
+  notes: string[];
+} {
+  const notes: string[] = [];
+  const provider = detection.provider;
+
+  if (!provider) {
+    notes.push(
+      "No booking platform detected — revenue would be estimated from their average treatment value unless they connect a card processor.",
+    );
+    return { score: 30, notes };
+  }
+
+  switch (provider) {
+    case "boulevard":
+    case "zenoti":
+      notes.push(
+        `${provider} exposes both check-in and settled sales — verified attribution is fully possible.`,
+      );
+      return { score: 95, notes };
+
+    case "patientnow":
+      notes.push(
+        "PatientNow exposes check-in and orders with line items. Rate limit is 1,000 requests/day, so delta sync is mandatory.",
+      );
+      return { score: 85, notes };
+
+    case "gohighlevel":
+      notes.push(
+        "GoHighLevel only sees payments it processed itself, so revenue must come from the clinic's card processor. Appointments are readable.",
+      );
+      return { score: 60, notes };
+
+    case "vagaro":
+      notes.push(
+        "Vagaro has no transactions read endpoint — revenue is webhook-forward-only, with no history before the connection date.",
+      );
+      return { score: 40, notes };
+
+    case "acuity":
+      notes.push(
+        "Acuity has no concept of arrival, so attendance can only be inferred from payment timing.",
+      );
+      return { score: 45, notes };
+
+    case "mindbody":
+      notes.push(
+        "⚠️ Mindbody's API terms prohibit the product. Serve via a read-only account and their card processor, never the API. See docs/launch-plan.md.",
+      );
+      return { score: 35, notes };
+
+    default:
+      notes.push(`${provider} is not yet assessed for integration feasibility.`);
+      return { score: 50, notes };
+  }
+}
+
+/**
  * Signals this pipeline does NOT cover, and where they'd come from.
  * Called out so the score isn't mistaken for a complete picture.
  */
 export const UNCOVERED_SIGNALS = [
   "Signal 1 — owner-operator who is also the provider (state license lookups, Instagram, About page)",
   "Signal 2 — domain age (WHOIS) and formation date (Secretary of State)",
-  "Signal 3 — ad spend (Meta Ad Library, Google Ads Transparency Center, pixel detection)",
-  "Trigger — front-desk job postings",
   "Trigger — Google review mining for 'no one answered' / 'never called back'",
   "Trigger — GLP-1 launch detection (sitemap diff, Wayback, Meta Ad Library first-seen)",
   "Exclusion — whether the clinic already runs a live AI receptionist",

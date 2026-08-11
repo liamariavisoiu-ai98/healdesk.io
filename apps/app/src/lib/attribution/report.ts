@@ -57,6 +57,8 @@ export async function buildMonthlyReport(
   options: {
     /** Any instant inside the month to report on. Defaults to last month. */
     within?: Date;
+    /** "Current time", injectable so the scheduler is deterministic in tests. */
+    now?: Date;
     actor?: ActorContext;
   } = {},
 ): Promise<MonthlyReport> {
@@ -65,7 +67,7 @@ export async function buildMonthlyReport(
     serviceName: "monthly-report",
   };
 
-  const now = new Date();
+  const now = options.now ?? new Date();
 
   return withTenant({ clinicId, actor }, async (tx) => {
     // The clinic row is read INSIDE the tenant transaction, not before it.

@@ -46,12 +46,90 @@ Output: `packages/leadgen/data/<location>.csv` — gitignored.
 | 3b. Classify | Claude, structured output, for pages the footprint pass can't settle | Catches unlisted and self-hosted schedulers the regex list would miss |
 | 4. Score | 0–100 against the fast-close signature | Score, never filter — no single signal should gate inclusion |
 
-### Scoring is not filtering
+### Two scores, not one
 
-The playbook is explicit that booking platform is a **scoring attribute, not a hard
-include/exclude**. A clinic on Zenoti scores lower (native AI likely bundled) but stays in
-the set. The real disqualifier — *does this clinic already run a live AI receptionist* —
-is not something any of these signals can see.
+`score` answers **"how easy is this clinic to sell to"**. `integration_score` answers
+**"if they buy, can we prove what we earned them"**. These used to be one number, and they
+disagree: Zenoti and Boulevard clinics are the hardest sell — both bundle their own AI —
+and the cleanest integrations by a distance. Collapsing them lost whichever half mattered
+at the moment you looked.
+
+The playbook is also explicit that booking platform is a **scoring attribute, not a hard
+include/exclude**. The real disqualifier — *does this clinic already run a live AI
+receptionist* — is not something any of these signals can see.
+
+---
+
+## Trigger signals
+
+Two signals that say *now*, rather than *eventually*.
+
+### Ad spend (Signal 3)
+
+Detected from the same rendered HTML the Stage 2 crawler already fetches, so it costs
+nothing extra — and it produces the strongest angle we have.
+
+The distinction that matters is **analytics vs conversion tracking**. Google Analytics on
+a page means they measure traffic. A Meta pixel firing `fbq('track', …)` or a Google
+`AW-` conversion id means they are *buying* it, and have already decided a new patient is
+worth paying for. Only the second justifies the ad-spend pitch.
+
+A tag is evidence of intent, not proof of current spend — pixels outlive the campaigns
+that installed them. But it never produces a false *negative* for an active advertiser,
+because you cannot run conversion tracking without one. Verify before sending: the CSV
+carries a Meta Ad Library link per prospect, which is free, public, and authoritative.
+
+> **Must be rendered HTML.** Tag managers inject these scripts client-side, so a plain
+> HTTP fetch reports "not advertising" for a clinic spending five figures a month — the
+> exact prospect we most want.
+
+### Front-desk hiring
+
+A clinic posting for a receptionist is publicly announcing the pain the product solves, at
+the moment budget is approved and a decision is live. The comparison is concrete: a
+front-desk hire is **$47,000–58,000 a year loaded for 40 hours a week**; we cover 168.
+
+Titles matched include patient care coordinator, front desk associate, medical
+receptionist and scheduling coordinator — with clinical and out-of-industry lookalikes
+(*patient care technician*, *hotel front desk*) explicitly excluded.
+
+Unlike the firmographic signals this one **decays**. A posting older than 45 days, or one
+we cannot date at all, is marked stale and never used as an opener — leading with a filled
+role tells the owner we haven't looked at them since.
+
+Company matching is deliberately conservative, and strips generic words so two unrelated
+"Med Spa"s don't match. A false positive here tells an owner we saw them hiring when they
+weren't, which destroys the credibility the signal was meant to buy.
+
+Job-board actors differ enough that hard-coding one would mean rewriting this the first
+time it changes, so `searchFrontDeskPostings()` takes the actor id and a mapper.
+
+---
+
+## The outreach angle
+
+A scored list is half the job. Two clinics can score identically and need completely
+different first sentences — one is burning ad budget on calls that ring out, the other is
+about to sign a $50k employment contract.
+
+Every prospect gets an `angle`, chosen by how *specific the proof is*, with the evidence
+and a link a human can check before sending:
+
+| Angle | When | Opens with |
+|---|---|---|
+| `paid-traffic-leak` | Conversion-tracked ads, especially with no online booking | They're buying traffic that can only book by phone |
+| `hiring-front-desk` | Fresh front-desk posting | Worth seeing what the same money buys in coverage |
+| `no-booking-path` | No self-serve booking | Every new patient has to get through on the phone |
+| `high-demand-no-capture` | 4.5★+ and 40+ reviews | Demand isn't the constraint; answering it is |
+| `generic-leakage` | Nothing specific found | Labelled low-confidence, on purpose |
+
+**The paid-traffic angle is the one to build the campaign around.** A clinic running
+conversion-tracked ads has already done the hard part — deciding a patient is worth paying
+for. The gap is that paid traffic arrives on two channels and they only instrumented one:
+the website has a pixel, a funnel and a conversion event, while the phone has whoever
+happens to be free. Position the agent as the **capture layer for traffic they already pay
+for**, not as a receptionist. That reframes the cost from headcount to media efficiency —
+a budget that already exists and is already being spent.
 
 ### What the pipeline does not cover
 

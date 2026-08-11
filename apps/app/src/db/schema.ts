@@ -710,6 +710,44 @@ export const securityEvents = pgTable(
   ],
 );
 
+/**
+ * Background jobs, and whether they are switched on.
+ *
+ * Every job here defaults to **disabled**. That is the point of the table: a
+ * monthly report job that starts running the moment it is deployed would send
+ * mail to whatever half-configured clinics happen to exist, and "we'll remember
+ * to turn it off" is not a control. Ops turns each one on deliberately, from
+ * the console, once there are real tenants to run it for.
+ *
+ * Also holds the outcome of the last run, so a job that has been silently
+ * failing for three weeks is visible rather than merely quiet.
+ *
+ * No clinic_id — these are platform-wide, and deliberately outside the tenant
+ * plane. Ops-only: see the grants in the accompanying migration.
+ */
+export const scheduledJobs = pgTable("scheduled_jobs", {
+  /** Stable identifier used in code, e.g. "monthly-report". */
+  name: text("name").primaryKey(),
+
+  enabled: boolean("enabled").notNull().default(false),
+  /** Human description of cadence. The runner owns the actual schedule. */
+  cadence: text("cadence").notNull(),
+
+  lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+  lastRunStatus: text("last_run_status"),
+  /** Short summary — counts and errors, never PHI. */
+  lastRunNote: text("last_run_note"),
+  /** Guards against two runners picking up the same job at once. */
+  runningSince: timestamp("running_since", { withTimezone: true }),
+
+  updatedBy: text("updated_by").references(() => user.id, {
+    onDelete: "set null",
+  }),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 /** Tables carrying a clinic_id, and therefore requiring RLS. Asserted by tests. */
 export const TENANT_SCOPED_TABLES = [
   "clinic_memberships",

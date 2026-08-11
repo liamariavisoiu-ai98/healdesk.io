@@ -52,15 +52,29 @@ export async function runMigrations(): Promise<void> {
 /**
  * Truncate as the migrator, since the app role deliberately cannot DELETE from
  * audit_log — append-only is enforced by grant, not convention.
+ *
+ * `scheduled_jobs` is caught in the blast radius: it has an `updated_by` FK to
+ * `user`, so CASCADE takes it out along with the rows the migration seeded.
+ * Re-seeding here keeps the job definitions where they belong (migrations)
+ * while leaving the test database in the state a fresh deployment would have —
+ * every job present and switched OFF.
  */
 export async function truncateAll(): Promise<void> {
-  await getMigratorPool().query(`
+  const pool = getMigratorPool();
+
+  await pool.query(`
     truncate table
       audit_log, security_events, transactions, appointments,
       conversations, contacts, ad_interactions, provider_connections,
-      clinic_memberships, clinics,
+      clinic_memberships, clinics, baa_acceptances,
       invitation, member, organization, session, account, verification, "user"
     restart identity cascade
+  `);
+
+  await pool.query(`
+    insert into scheduled_jobs (name, cadence, enabled) values
+      ('monthly-report', 'Monthly, on the 1st, per clinic timezone', false)
+    on conflict (name) do update set enabled = false, updated_by = null
   `);
 }
 

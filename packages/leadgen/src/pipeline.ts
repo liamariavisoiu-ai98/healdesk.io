@@ -1,9 +1,16 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { ApifyClient } from "apify-client";
 
+import { selectAngle } from "./angle.ts";
 import { detectFromHtml, detectFromMaps } from "./booking-detection.ts";
 import { classifyPage } from "./classify.ts";
-import { scoreProspect } from "./score.ts";
+import { scoreIntegration, scoreProspect } from "./score.ts";
+import { detectAdSignals, NO_AD_SIGNAL, type AdSignal } from "./signals/ads.ts";
+import {
+  matchPostingsToClinic,
+  summariseHiring,
+  type JobPosting,
+} from "./signals/hiring.ts";
 import type { BookingDetection, MapsPlace, Prospect } from "./types.ts";
 
 const MAPS_ACTOR = "compass/crawler-google-places";
@@ -25,6 +32,14 @@ export type PipelineOptions = {
   queries?: readonly string[];
   /** Cap on ambiguous sites sent to the LLM. Keeps a first run cheap. */
   maxLlmCalls?: number;
+  /**
+   * Front-desk job postings for this metro, if you have them.
+   *
+   * Passed in rather than fetched here because job-board actors differ enough
+   * that hard-coding one would mean rewriting this the first time it changes.
+   * See signals/hiring.ts → searchFrontDeskPostings.
+   */
+  jobPostings?: JobPosting[];
   log?: (message: string) => void;
 };
 
@@ -32,6 +47,7 @@ export async function runPipeline({
   location,
   queries = DEFAULT_QUERIES,
   maxLlmCalls = 50,
+  jobPostings = [],
   log = console.log,
 }: PipelineOptions): Promise<Prospect[]> {
   const apifyToken = process.env.APIFY_TOKEN;
@@ -70,6 +86,12 @@ export async function runPipeline({
   // Stage 2 — resolve what Maps could not.
   // ---------------------------------------------------------------------------
   const resolved = new Map<string, BookingDetection>();
+  /**
+   * Advertising signals, harvested from the same rendered HTML as the booking
+   * detection. Free — we already paid to fetch the page — and it is the single
+   * most useful thing to know about a prospect.
+   */
+  const adSignals = new Map<string, AdSignal>();
   const needsCrawl: MapsPlace[] = [];
 
   for (const [key, place] of unique) {
@@ -137,6 +159,10 @@ export async function runPipeline({
         continue;
       }
 
+      // Same page, second question: are they buying traffic? Costs nothing
+      // extra and produces the strongest outreach angle we have.
+      adSignals.set(key, detectAdSignals(content));
+
       const footprint = detectFromHtml(content);
 
       // Ambiguous: scheduling language, no recognised vendor. Ask the model.
@@ -182,7 +208,14 @@ export async function runPipeline({
     const detection = resolved.get(key);
     if (!detection) continue;
 
-    const { score, reasons } = scoreProspect(place, detection);
+    const ads = adSignals.get(key) ?? NO_AD_SIGNAL;
+    const hiring = summariseHiring(
+      matchPostingsToClinic(place.title ?? "", jobPostings),
+    );
+
+    const { score, reasons } = scoreProspect(place, detection, { ads, hiring });
+    const integration = scoreIntegration(detection);
+
     prospects.push({
       placeId: place.placeId ?? key,
       name: place.title ?? "(unknown)",
@@ -193,8 +226,13 @@ export async function runPipeline({
       reviewsCount: place.reviewsCount ?? null,
       rating: place.totalScore ?? null,
       detection,
+      ads,
+      hiring,
       score,
       scoreReasons: reasons,
+      integrationScore: integration.score,
+      integrationNotes: integration.notes,
+      angle: selectAngle({ place, detection, ads, hiring }),
     });
   }
 
@@ -215,6 +253,9 @@ function safeHost(url: string): string | null {
 export function toCsv(prospects: Prospect[]): string {
   const header = [
     "score",
+    "integration_score",
+    "angle",
+    "angle_headline",
     "name",
     "phone",
     "website",
@@ -226,7 +267,15 @@ export function toCsv(prospects: Prospect[]): string {
     "method",
     "provider",
     "detection_source",
+    "ad_platforms",
+    "ad_conversion_tracking",
+    "funnel_tools",
+    "hiring_front_desk",
+    "hiring_posted",
+    "evidence",
+    "proof_links",
     "reasons",
+    "integration_notes",
   ];
 
   const escape = (value: unknown): string => {
@@ -237,6 +286,9 @@ export function toCsv(prospects: Prospect[]): string {
   const rows = prospects.map((p) =>
     [
       p.score,
+      p.integrationScore,
+      p.angle.id,
+      p.angle.headline,
       p.name,
       p.phone,
       p.website,
@@ -248,7 +300,15 @@ export function toCsv(prospects: Prospect[]): string {
       p.detection.method,
       p.detection.provider,
       p.detection.source,
+      p.ads.platforms.join("|"),
+      p.ads.hasConversionTracking,
+      p.ads.funnelTools.join("|"),
+      p.hiring.postings.length > 0 && !p.hiring.isStale,
+      p.hiring.mostRecent?.toISOString().slice(0, 10) ?? "",
+      p.angle.evidence.join(" · "),
+      p.angle.proofLinks.join(" "),
       p.scoreReasons.join("; "),
+      p.integrationNotes.join("; "),
     ]
       .map(escape)
       .join(","),

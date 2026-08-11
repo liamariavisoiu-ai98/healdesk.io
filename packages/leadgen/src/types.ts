@@ -39,8 +39,24 @@ export type Prospect = {
   rating: number | null;
 
   detection: BookingDetection;
+  ads: import("./signals/ads").AdSignal;
+  hiring: import("./signals/hiring").HiringSignal;
 
-  /** 0-100. Higher = closer to the fast-close signature. */
+  /**
+   * 0-100, how closely this clinic matches the fast-close signature.
+   *
+   * Deliberately separate from `integrationScore` below. The two answer
+   * different questions and were previously one number: a Zenoti clinic is a
+   * harder sell AND the easiest integration, and collapsing that into a single
+   * figure loses the part that matters at each stage.
+   */
   score: number;
   scoreReasons: string[];
+
+  /** 0-100, how well we could actually measure this clinic's revenue. */
+  integrationScore: number;
+  integrationNotes: string[];
+
+  /** What to lead the first email with, and the evidence for it. */
+  angle: import("./angle").OutreachAngle;
 };

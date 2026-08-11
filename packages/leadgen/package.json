@@ -6,7 +6,8 @@
   "scripts": {
     "discover": "node --experimental-strip-types src/cli.ts",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf .turbo node_modules data"
+    "clean": "rm -rf .turbo node_modules data",
+    "test": "vitest run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
@@ -14,6 +15,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.10"
   }
 }

@@ -44,6 +44,11 @@ async function main(): Promise<void> {
     maxLlmCalls: Number.isFinite(maxLlm) ? maxLlm : 50,
   });
 
+  const byAngle = new Map<string, number>();
+  for (const p of prospects) {
+    byAngle.set(p.angle.id, (byAngle.get(p.angle.id) ?? 0) + 1);
+  }
+
   const here = dirname(fileURLToPath(import.meta.url));
   const outDir = join(here, "..", "data");
   await mkdir(outDir, { recursive: true });
@@ -55,9 +60,22 @@ async function main(): Promise<void> {
   const noBooking = prospects.filter((p) => !p.detection.hasOnlineBooking);
   const hot = prospects.filter((p) => p.score >= 60);
 
+  const advertising = prospects.filter((p) => p.ads.hasConversionTracking);
+  const hiringNow = prospects.filter(
+    (p) => p.hiring.postings.length > 0 && !p.hiring.isStale,
+  );
+
   console.log(`\nWrote ${prospects.length} prospects → ${outPath}`);
   console.log(`  ${noBooking.length} with no self-serve booking`);
+  console.log(`  ${advertising.length} running conversion-tracked ads`);
+  console.log(`  ${hiringNow.length} hiring a front desk right now`);
   console.log(`  ${hot.length} scoring 60+\n`);
+
+  console.log("Lead angle to open with:");
+  for (const [angle, n] of [...byAngle].sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${String(n).padStart(4)}  ${angle}`);
+  }
+  console.log();
 
   console.log("Signals this run did NOT cover:");
   for (const signal of UNCOVERED_SIGNALS) console.log(`  · ${signal}`);

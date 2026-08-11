@@ -7,7 +7,8 @@ elective healthcare.
 
 | Document | What it covers |
 | --- | --- |
-| [launch-plan.md](./launch-plan.md) | **The current plan of record.** v1 scope, the vendor decisions and their compliance conditions, the purchase flow, pricing and unit economics, and the build phases. Start here. |
+| [handover.md](./handover.md) | **Where the build stands and what's next.** What's blocked and on what, the counsel items, and the engineering left. Start here. |
+| [launch-plan.md](./launch-plan.md) | The plan of record. v1 scope, vendor decisions and their compliance conditions, the purchase flow, pricing and unit economics, and the build phases. |
 | [prd.md](./prd.md) | Product requirements — the baseline service, conversion & revenue, clinical & compliance, and the differentiator worth building the company on. |
 | [icp-niches.md](./icp-niches.md) | Which verticals to sell to, ranked by ROI-per-recovered-call. The six specialties the site ships with come from here. |
 | [leadgen-playbook.md](./leadgen-playbook.md) | How to find and qualify target clinics — targeting signals, the Apify pipeline, and trigger events. Implemented in [`packages/leadgen`](../packages/leadgen). |

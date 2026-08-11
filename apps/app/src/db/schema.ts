@@ -710,6 +710,158 @@ export const securityEvents = pgTable(
   ],
 );
 
+// -----------------------------------------------------------------------------
+// Consent and suppression  ⚠️ PHI
+// -----------------------------------------------------------------------------
+
+export const contactChannelEnum = pgEnum("contact_channel", [
+  "voice",
+  "sms",
+]);
+
+/**
+ * What kind of permission we hold.
+ *
+ * The distinction is not academic. Under the TCPA an artificial-voice call —
+ * which FCC 24-17 confirms an AI voice is — needs prior express consent, and
+ * anything promotional needs prior express *written* consent. Reactivating a
+ * lapsed patient is very likely marketing.
+ */
+export const consentTypeEnum = pgEnum("consent_type", [
+  /** Gave us the number for this purpose. Enough for treatment-related contact. */
+  "express",
+  /** Signed/checkbox agreement naming marketing. Required for promotional contact. */
+  "express_written",
+  /**
+   * The clinic asserts consent it obtained itself. Recorded distinctly because
+   * it is only as good as their record-keeping, and in a dispute the burden is
+   * on us to produce it.
+   */
+  "clinic_asserted",
+]);
+
+/**
+ * The consent ledger.
+ *
+ * This is the single artifact that decides a TCPA case. Statutory damages run
+ * $500–1,500 per call with no cap and a ready-made class, so the question is
+ * never "did we mean well" but "can you produce the consent, its source, and
+ * the exact words they agreed to".
+ *
+ * Hence exactWording: "they ticked a box" is not a defence. The text shown at
+ * the time is.
+ */
+export const consentRecords = pgTable(
+  "consent_records",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+
+    /** ⚠️ PHI. E.164. */
+    phone: text("phone").notNull(),
+    channel: contactChannelEnum("channel").notNull(),
+    consentType: consentTypeEnum("consent_type").notNull(),
+
+    /** web_form | inbound_call | sms_reply | intake | clinic_import */
+    source: text("source").notNull(),
+    /** Verbatim text the person agreed to. Not a summary of it. */
+    exactWording: text("exact_wording").notNull(),
+    /** Recording or screenshot, behind an S3-compatible URL. */
+    evidenceUri: text("evidence_uri"),
+
+    grantedAt: timestamp("granted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /** Set on revocation. Rows are never deleted — the history is the point. */
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("consent_clinic_phone_idx").on(t.clinicId, t.phone, t.channel),
+    index("consent_active_idx")
+      .on(t.clinicId, t.phone)
+      .where(sql`${t.revokedAt} is null`),
+  ],
+);
+
+/**
+ * Do-not-contact.
+ *
+ * Deliberately separate from consent revocation, and deliberately stronger. A
+ * suppression is unconditional: it outranks every consent record, applies
+ * across channels by default, and is never expired or cleaned up.
+ *
+ * Two rules encoded by the shape:
+ *
+ *   - `channel` is NULLABLE, and null means EVERY channel. Someone who says
+ *     "stop calling me" has not invited a text instead.
+ *   - Nothing here is ever deleted. Re-consent creates a new consent record; it
+ *     does not erase the record of them having asked us to stop.
+ */
+export const suppressions = pgTable(
+  "suppressions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+
+    /** ⚠️ PHI. E.164. */
+    phone: text("phone").notNull(),
+    /** NULL = all channels. The default, and the safe reading of "stop". */
+    channel: contactChannelEnum("channel"),
+
+    /** stop_reply | verbal_request | complaint | manual | national_dnc */
+    reason: text("reason").notNull(),
+    /** What they actually said, where we have it. */
+    note: text("note"),
+
+    requestedAt: timestamp("requested_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("suppression_lookup_idx").on(t.clinicId, t.phone)],
+);
+
+/**
+ * Every outbound attempt, whether or not it connected.
+ *
+ * Exists to enforce the frequency caps the healthcare exemption depends on —
+ * at most 1 per day and 3 per week per patient. Those caps are conditions of
+ * the exemption, not guidance: exceed them and the exemption simply does not
+ * apply, and the call needed consent it may not have.
+ *
+ * Logged before the attempt, so a crash mid-send counts against the cap rather
+ * than silently allowing a retry storm.
+ */
+export const contactAttempts = pgTable(
+  "contact_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+
+    /** ⚠️ PHI. E.164. */
+    phone: text("phone").notNull(),
+    channel: contactChannelEnum("channel").notNull(),
+    /** reminder | missed_call_callback | reactivation | transactional */
+    purpose: text("purpose").notNull(),
+
+    attemptedAt: timestamp("attempted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("contact_attempts_window_idx").on(
+      t.clinicId,
+      t.phone,
+      t.attemptedAt,
+    ),
+  ],
+);
+
 /**
  * Background jobs, and whether they are switched on.
  *
@@ -758,4 +910,7 @@ export const TENANT_SCOPED_TABLES = [
   "appointments",
   "transactions",
   "audit_log",
+  "consent_records",
+  "suppressions",
+  "contact_attempts",
 ] as const;

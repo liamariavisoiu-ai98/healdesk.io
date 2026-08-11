@@ -1,0 +1,375 @@
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
+
+import {
+  canContact,
+  isStopRequest,
+  recordAttempt,
+  suppress,
+} from "@/lib/compliance/contact-policy";
+import {
+  channelMayCarryPhi,
+  disclosureFor,
+  voiceDisclosure,
+} from "@/lib/compliance/disclosure";
+import { consentRecords } from "@/db/schema";
+import { withTenant } from "@/lib/tenant";
+
+import {
+  closePools,
+  hasTestDatabase,
+  runMigrations,
+  truncateAll,
+} from "./setup/db";
+import { seedClinic } from "./setup/factories";
+
+/**
+ * TCPA and disclosure controls.
+ *
+ * FCC 24-17 confirmed an AI voice is an "artificial voice" under §227(b)(1),
+ * independent of autodialer status — so every outbound call needs consent, and
+ * statutory damages are $500–1,500 each with a ready-made class. These tests
+ * exist because the cost of being wrong is measured per call.
+ */
+
+const describeDb = hasTestDatabase ? describe : describe.skip;
+const PHONE = "+15551230000";
+
+const actor = { type: "service" as const, serviceName: "test" };
+
+describe("stop request detection", () => {
+  test("catches the carrier keywords", () => {
+    for (const message of ["STOP", "stop", "Unsubscribe", "opt out", "QUIT"]) {
+      expect(isStopRequest(message), message).toBe(true);
+    }
+  });
+
+  test("catches plain English, not just the magic words", () => {
+    // The TCPA does not require someone to say STOP. Matching loosely costs a
+    // lead; matching narrowly costs $500 a call.
+    for (const message of [
+      "please don't call me again",
+      "stop calling me",
+      "take me off your list",
+      "no more texts please",
+      "Do not contact me",
+    ]) {
+      expect(isStopRequest(message), message).toBe(true);
+    }
+  });
+
+  test("does not fire on ordinary replies", () => {
+    for (const message of [
+      "Yes please book me in",
+      "Can you tell me the price?",
+      "Thanks!",
+    ]) {
+      expect(isStopRequest(message), message).toBe(false);
+    }
+  });
+});
+
+describe("disclosure", () => {
+  test("the voice opener states AI, recording AND transcription", () => {
+    const text = voiceDisclosure({ clinicName: "Radiance", channel: "voice" });
+
+    expect(text).toMatch(/not a human/i);
+    expect(text).toMatch(/recorded/i);
+    // Transcription specifically: the CIPA exposure in Ambriz is about a third
+    // party intercepting call CONTENTS, which disclosing "recording" alone
+    // does not describe.
+    expect(text).toMatch(/transcribed/i);
+    expect(text).toMatch(/representative/i);
+  });
+
+  test("Meta channels get a warning, not a welcome", () => {
+    const text = disclosureFor({
+      clinicName: "Radiance",
+      channel: "instagram_dm",
+    });
+    expect(text).toMatch(/isn't secure/i);
+    expect(text).toMatch(/don't share medical details/i);
+  });
+
+  test("Meta channels are marked as unable to carry PHI", () => {
+    // Meta states in its own Cloud API terms that it is not a Business
+    // Associate. No configuration changes that.
+    expect(channelMayCarryPhi("instagram_dm")).toBe(false);
+    expect(channelMayCarryPhi("whatsapp")).toBe(false);
+    expect(channelMayCarryPhi("voice")).toBe(true);
+    expect(channelMayCarryPhi("sms")).toBe(true);
+  });
+});
+
+describeDb("contact policy", () => {
+  beforeAll(async () => {
+    await runMigrations();
+    await truncateAll();
+  }, 60_000);
+
+  afterAll(async () => {
+    await closePools();
+  });
+
+  async function grantConsent(
+    clinicId: string,
+    type: "express" | "express_written",
+    phone = PHONE,
+  ) {
+    await withTenant({ clinicId, actor }, async (tx) => {
+      await tx.db.insert(consentRecords).values({
+        clinicId,
+        phone,
+        channel: "voice",
+        consentType: type,
+        source: "web_form",
+        exactWording: "I agree to be contacted about my appointment.",
+      });
+    });
+  }
+
+  test("refuses without consent on file", async () => {
+    const clinic = await seedClinic("tcpa-a");
+
+    const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+      canContact(tx.db, {
+        clinicId: clinic.clinicId,
+        phone: PHONE,
+        channel: "voice",
+        purpose: "reminder",
+      }),
+    );
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.allowed === false && decision.code).toBe("no_consent");
+  });
+
+  test("allows a reminder with express consent", async () => {
+    const clinic = await seedClinic("tcpa-b");
+    await grantConsent(clinic.clinicId, "express");
+
+    const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+      canContact(tx.db, {
+        clinicId: clinic.clinicId,
+        phone: PHONE,
+        channel: "voice",
+        purpose: "reminder",
+      }),
+    );
+
+    expect(decision.allowed).toBe(true);
+  });
+
+  test("refuses reactivation without WRITTEN consent", async () => {
+    // "We miss you, book again" is marketing however warmly it's phrased, and
+    // marketing needs prior express written consent.
+    const clinic = await seedClinic("tcpa-c");
+    await grantConsent(clinic.clinicId, "express");
+
+    const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+      canContact(tx.db, {
+        clinicId: clinic.clinicId,
+        phone: PHONE,
+        channel: "voice",
+        purpose: "reactivation",
+      }),
+    );
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.allowed === false && decision.code).toBe(
+      "needs_written_consent",
+    );
+  });
+
+  test("allows reactivation once written consent exists", async () => {
+    const clinic = await seedClinic("tcpa-d");
+    await grantConsent(clinic.clinicId, "express_written");
+
+    const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+      canContact(tx.db, {
+        clinicId: clinic.clinicId,
+        phone: PHONE,
+        channel: "voice",
+        purpose: "reactivation",
+      }),
+    );
+
+    expect(decision.allowed).toBe(true);
+  });
+
+  test("suppression outranks consent", async () => {
+    const clinic = await seedClinic("tcpa-e");
+    await grantConsent(clinic.clinicId, "express_written");
+
+    await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+      suppress(tx.db, {
+        clinicId: clinic.clinicId,
+        phone: PHONE,
+        reason: "stop_reply",
+      }),
+    );
+
+    const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+      canContact(tx.db, {
+        clinicId: clinic.clinicId,
+        phone: PHONE,
+        channel: "voice",
+        purpose: "reminder",
+      }),
+    );
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.allowed === false && decision.code).toBe("suppressed");
+  });
+
+  test("a stop request on one channel suppresses every channel", async () => {
+    // Someone who says "stop calling me" has not invited a text instead.
+    const clinic = await seedClinic("tcpa-f");
+    await grantConsent(clinic.clinicId, "express");
+    await withTenant({ clinicId: clinic.clinicId, actor }, async (tx) => {
+      await tx.db.insert(consentRecords).values({
+        clinicId: clinic.clinicId,
+        phone: PHONE,
+        channel: "sms",
+        consentType: "express",
+        source: "web_form",
+        exactWording: "Text me about my appointment.",
+      });
+      await suppress(tx.db, {
+        clinicId: clinic.clinicId,
+        phone: PHONE,
+        reason: "verbal_request",
+      });
+    });
+
+    for (const channel of ["voice", "sms"] as const) {
+      const decision = await withTenant(
+        { clinicId: clinic.clinicId, actor },
+        (tx) =>
+          canContact(tx.db, {
+            clinicId: clinic.clinicId,
+            phone: PHONE,
+            channel,
+            purpose: "reminder",
+          }),
+      );
+      expect(decision.allowed, channel).toBe(false);
+    }
+  });
+
+  test("enforces the one-per-day cap", async () => {
+    // A condition of the healthcare exemption, not guidance: exceed it and the
+    // exemption does not apply at all.
+    const clinic = await seedClinic("tcpa-g");
+    await grantConsent(clinic.clinicId, "express");
+
+    await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+      recordAttempt(tx.db, {
+        clinicId: clinic.clinicId,
+        phone: PHONE,
+        channel: "voice",
+        purpose: "reminder",
+      }),
+    );
+
+    const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+      canContact(tx.db, {
+        clinicId: clinic.clinicId,
+        phone: PHONE,
+        channel: "voice",
+        purpose: "reminder",
+      }),
+    );
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.allowed === false && decision.code).toBe("daily_cap");
+  });
+
+  test("exempts patient-initiated replies from the caps", async () => {
+    // Replying to someone's own message is not an unsolicited call.
+    const clinic = await seedClinic("tcpa-h");
+    await grantConsent(clinic.clinicId, "express");
+
+    await withTenant({ clinicId: clinic.clinicId, actor }, async (tx) => {
+      for (let i = 0; i < 5; i += 1) {
+        await recordAttempt(tx.db, {
+          clinicId: clinic.clinicId,
+          phone: PHONE,
+          channel: "voice",
+          purpose: "transactional",
+        });
+      }
+    });
+
+    const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+      canContact(tx.db, {
+        clinicId: clinic.clinicId,
+        phone: PHONE,
+        channel: "voice",
+        purpose: "transactional",
+      }),
+    );
+
+    expect(decision.allowed).toBe(true);
+  });
+
+  test("refuses outside quiet hours, in the recipient's local time", async () => {
+    const clinic = await seedClinic("tcpa-i");
+    await grantConsent(clinic.clinicId, "express");
+
+    const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+      canContact(tx.db, {
+        clinicId: clinic.clinicId,
+        phone: PHONE,
+        channel: "voice",
+        purpose: "reminder",
+        localHour: 22,
+      }),
+    );
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.allowed === false && decision.code).toBe("quiet_hours");
+  });
+
+  test("one clinic's consent does not authorise another's call", async () => {
+    const a = await seedClinic("tcpa-j");
+    const b = await seedClinic("tcpa-k");
+    await grantConsent(a.clinicId, "express_written");
+
+    const decision = await withTenant({ clinicId: b.clinicId, actor }, (tx) =>
+      canContact(tx.db, {
+        clinicId: b.clinicId,
+        phone: PHONE,
+        channel: "voice",
+        purpose: "reminder",
+      }),
+    );
+
+    expect(decision.allowed).toBe(false);
+  });
+
+  test("the runtime role cannot erase a suppression", async () => {
+    // Re-consent is a new consent record, never the deletion of someone having
+    // asked us to stop.
+    const clinic = await seedClinic("tcpa-l");
+    await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+      suppress(tx.db, {
+        clinicId: clinic.clinicId,
+        phone: PHONE,
+        reason: "complaint",
+      }),
+    );
+
+    const { Pool } = await import("pg");
+    const app = new Pool({ connectionString: process.env.TEST_APP_URL });
+    try {
+      await expect(app.query(`delete from suppressions`)).rejects.toMatchObject({
+        code: "42501",
+      });
+      await expect(
+        app.query(`update suppressions set reason = 'oops'`),
+      ).rejects.toMatchObject({ code: "42501" });
+    } finally {
+      await app.end();
+    }
+  });
+});

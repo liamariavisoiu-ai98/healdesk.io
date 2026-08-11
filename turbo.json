@@ -22,7 +22,8 @@
         "HEALDESK_APP_URL",
         "HEALDESK_PROVISION_SECRET",
         "STRIPE_SECRET_KEY",
-        "STRIPE_WEBHOOK_SECRET"
+        "STRIPE_WEBHOOK_SECRET",
+        "HEALDESK_EMAIL_TRANSPORT"
       ],
       "outputs": [".next/**", "!.next/cache/**", "dist/**"]
     },

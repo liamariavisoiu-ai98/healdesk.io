@@ -212,9 +212,14 @@ the database refuses anyway. They must pass before any connector code merges.
 ### Sign-in
 
 There is no public sign-up — deliberate, since this console holds patient data.
-To create the first ops account, insert an `invitation` row for your email and
-register through `/sign-in`. The Better Auth hook checks for a valid pending
-invitation and refuses otherwise.
+
+**The first operator** still has to be bootstrapped by hand: insert an
+`invitation` row for your email against `org_healdesk_internal`, then open
+`/accept-invite?id=<that id>`. After that, everyone else is invited from the
+**Team** page in the console.
+
+Invitations are the only route to an account. Ops invitations last 7 days;
+clinic-owner invitations 14.
 
 ---
 

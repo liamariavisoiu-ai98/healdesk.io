@@ -1,7 +1,6 @@
-import { sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
-import { unsafeDb } from "@/db";
+import { blockersFor, listClinics } from "@/lib/ops/clinics";
 import { listJobs } from "@/lib/scheduler/jobs";
 import { requireSession } from "@/lib/session";
 import { TenantAccessError } from "@/lib/tenant";
@@ -11,10 +10,9 @@ import { toggleJob } from "./actions";
 /**
  * The ops console.
  *
- * Internal only — there is no public sign-up, and the proxy redirects anyone
- * without a session. Deliberately plain: this is a control surface for the
- * team, not a product surface, and the important thing is that the state it
- * shows is true.
+ * Internal only — no public sign-up, and the proxy redirects anyone without a
+ * session. Deliberately plain: this is a control surface for the team, and the
+ * important property is that what it shows is true.
  */
 
 export const dynamic = "force-dynamic";
@@ -27,30 +25,22 @@ export default async function ConsolePage() {
     throw error;
   }
 
-  const [jobs, clinics] = await Promise.all([
-    listJobs(),
-    // Via the SECURITY DEFINER function: with no tenant set the runtime role
-    // sees no clinics at all, which is the isolation working rather than a bug.
-    // Deliberately includes the slug so the list can link into each clinic —
-    // and nothing else, because anything patient-level must go through
-    // withTenant() and be audited.
-    unsafeDb
-      .execute<{ id: string; slug: string; name: string; timezone: string }>(
-        sql`select id, slug, name, timezone from app_clinics_overview()`,
-      )
-      .then((r) => (r as unknown as { rows?: unknown[] }).rows ?? r)
-      .then(
-        (r) =>
-          r as { id: string; slug: string; name: string; timezone: string }[],
-      ),
-  ]);
+  const [jobs, clinics] = await Promise.all([listJobs(), listClinics()]);
+
+  const blocked = clinics.filter((c) =>
+    blockersFor(c).some((b) => b.level === "blocked"),
+  );
 
   return (
-    <main className="mx-auto max-w-4xl px-6 py-14">
-      <p className="text-xs font-bold tracking-[0.14em] text-[color:var(--color-muted)] uppercase">
-        healdesk ops
-      </p>
-      <h1 className="mt-2 text-3xl font-semibold tracking-tight">Console</h1>
+    <main className="mx-auto max-w-4xl px-6 py-12">
+      <h1 className="text-3xl font-semibold tracking-tight">Console</h1>
+
+      {blocked.length > 0 ? (
+        <p className="mt-5 rounded-xl border border-[color:var(--color-red)]/30 bg-[color:var(--color-red)]/[0.06] px-4 py-3 text-sm font-semibold">
+          {blocked.length} {blocked.length === 1 ? "clinic is" : "clinics are"}{" "}
+          blocked from handling patient data. See below.
+        </p>
+      ) : null}
 
       {/* ---------------- Scheduled jobs ---------------- */}
       <section className="mt-12">
@@ -83,16 +73,9 @@ export default async function ConsolePage() {
                       ].join(" ")}
                     />
                     <span className="font-semibold">{job.name}</span>
-                    <span
-                      className={[
-                        "rounded-full px-2.5 py-0.5 text-[11px] font-bold tracking-[0.06em] uppercase",
-                        job.enabled
-                          ? "bg-[color:var(--color-red)]/10 text-[color:var(--color-red)]"
-                          : "bg-[color:var(--color-paper-2)] text-[color:var(--color-muted)]",
-                      ].join(" ")}
-                    >
+                    <Tag tone={job.enabled ? "warn" : "muted"}>
                       {job.enabled ? "On" : "Off"}
-                    </span>
+                    </Tag>
                   </div>
                   <p className="mt-1.5 text-sm text-[color:var(--color-muted)]">
                     {job.cadence}
@@ -138,14 +121,6 @@ export default async function ConsolePage() {
                     </dd>
                   </div>
                 ) : null}
-                {job.runningSince ? (
-                  <div className="flex justify-between gap-4">
-                    <dt className="text-[color:var(--color-muted)]">Running</dt>
-                    <dd className="font-medium">
-                      since {job.runningSince.toISOString().slice(11, 16)}
-                    </dd>
-                  </div>
-                ) : null}
               </dl>
             </div>
           ))}
@@ -163,28 +138,95 @@ export default async function ConsolePage() {
             No clinics yet. They appear here once someone completes checkout.
           </p>
         ) : (
-          <ul className="mt-4 divide-y divide-[color:var(--color-line)] overflow-hidden rounded-2xl border border-[color:var(--color-line)] bg-white">
-            {clinics.map((clinic) => (
-              <li key={clinic.id}>
-                <a
-                  href={`/c/${clinic.slug}`}
-                  className="flex items-center justify-between gap-4 px-5 py-3.5 hover:bg-[color:var(--color-paper-2)]"
-                >
-                  <span className="font-medium">{clinic.name}</span>
-                  <span className="text-sm text-[color:var(--color-muted)]">
-                    {clinic.timezone}
-                  </span>
-                </a>
-              </li>
-            ))}
+          <ul className="mt-4 grid gap-3">
+            {clinics.map((clinic) => {
+              const blockers = blockersFor(clinic);
+              const worst = blockers.find((b) => b.level === "blocked");
+
+              return (
+                <li key={clinic.id}>
+                  <a
+                    href={`/c/${clinic.slug}`}
+                    className="block rounded-2xl border border-[color:var(--color-line)] bg-white p-5 transition-colors hover:border-[color:var(--color-line-strong)]"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold">{clinic.name}</span>
+                      <Tag>{clinic.specialty}</Tag>
+                      <Tag
+                        tone={
+                          clinic.dataClassification === "production"
+                            ? "ok"
+                            : "muted"
+                        }
+                      >
+                        {clinic.dataClassification}
+                      </Tag>
+                      <Tag
+                        tone={
+                          clinic.isCoveredEntity === null
+                            ? "warn"
+                            : clinic.isCoveredEntity
+                              ? "ok"
+                              : "muted"
+                        }
+                      >
+                        {clinic.isCoveredEntity === null
+                          ? "CE unknown"
+                          : clinic.isCoveredEntity
+                            ? "covered entity"
+                            : "not a CE"}
+                      </Tag>
+                      <Tag tone={clinic.baaSignedAt ? "ok" : "muted"}>
+                        {clinic.baaSignedAt ? "BAA signed" : "no BAA"}
+                      </Tag>
+                      <span className="ml-auto text-sm text-[color:var(--color-muted)]">
+                        {clinic.timezone}
+                      </span>
+                    </div>
+
+                    {worst ? (
+                      <p className="mt-3 text-sm font-semibold text-[color:var(--color-red)]">
+                        {worst.message}
+                      </p>
+                    ) : blockers.length ? (
+                      <p className="mt-3 text-sm text-[color:var(--color-muted)]">
+                        {blockers[0]!.message}
+                      </p>
+                    ) : null}
+                  </a>
+                </li>
+              );
+            })}
           </ul>
         )}
 
         <p className="mt-3 text-xs text-[color:var(--color-muted)]">
-          Names and timezones only. Anything patient-level requires opening a
-          clinic, which is scoped and audited.
+          Configuration only. Anything patient-level requires opening a clinic,
+          which is scoped and audited.
         </p>
       </section>
     </main>
+  );
+}
+
+function Tag({
+  children,
+  tone = "muted",
+}: {
+  children: React.ReactNode;
+  tone?: "muted" | "ok" | "warn";
+}) {
+  const tones = {
+    muted: "bg-[color:var(--color-paper-2)] text-[color:var(--color-muted)]",
+    ok: "bg-[color:var(--color-ink)]/[0.06] text-[color:var(--color-ink)]",
+    warn: "bg-[color:var(--color-red)]/10 text-[color:var(--color-red)]",
+  };
+
+  return (
+    <span
+      className={`rounded-full px-2.5 py-1 text-[11px] font-bold tracking-[0.06em] uppercase ${tones[tone]}`}
+    >
+      {children}
+    </span>
   );
 }

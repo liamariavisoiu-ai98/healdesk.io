@@ -2,11 +2,13 @@ import { getPlatform } from "@healdesk/catalog";
 import { desc, eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
-import { auditLog, clinics } from "@/db/schema";
+import { unsafeDb } from "@/db";
+import { auditLog, baaAcceptances, clinics } from "@/db/schema";
 import { listConnections } from "@/lib/connections/store";
 import { resolveTenantContext } from "@/lib/session";
 import { TenantAccessError, withTenant } from "@/lib/tenant";
 
+import { ClinicNav } from "./ClinicNav";
 import { disconnectPlatform } from "./actions";
 
 /**
@@ -69,6 +71,23 @@ export default async function ClinicPage({
 
   if (!data.clinic) redirect("/");
   const { clinic, connections, recentAudit } = data;
+
+  // BAA acceptances hang off the ORGANIZATION, not the clinic, because they are
+  // signed at checkout before a tenant exists. No RLS on that table for the
+  // same reason — it is identity-plane, and holds no PHI.
+  const acceptances = await unsafeDb
+    .select({
+      version: baaAcceptances.documentVersion,
+      hash: baaAcceptances.documentHash,
+      name: baaAcceptances.acceptedByName,
+      email: baaAcceptances.acceptedByEmail,
+      title: baaAcceptances.acceptedByTitle,
+      acceptedAt: baaAcceptances.acceptedAt,
+      ipAddress: baaAcceptances.ipAddress,
+    })
+    .from(baaAcceptances)
+    .where(eq(baaAcceptances.organizationId, clinic.organizationId))
+    .orderBy(desc(baaAcceptances.acceptedAt));
   const platform = clinic.bookingProvider
     ? getPlatform(clinic.bookingProvider)
     : null;
@@ -84,8 +103,9 @@ export default async function ClinicPage({
       <h1 className="mt-3 text-3xl font-semibold tracking-tight">
         {clinic.name}
       </h1>
+      <ClinicNav slug={clinicSlug} active="overview" />
 
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-6 flex flex-wrap gap-2">
         <Tag>{clinic.specialty}</Tag>
         <Tag>{clinic.timezone}</Tag>
         <Tag>{clinic.plan ?? "no plan"}</Tag>
@@ -192,11 +212,65 @@ export default async function ClinicPage({
         )}
       </section>
 
-      {/* ---------------- Audit ---------------- */}
+      {/* ---------------- BAA ---------------- */}
       <section className="mt-12">
         <h2 className="text-sm font-bold tracking-[0.08em] uppercase">
-          Recent access
+          Business associate agreement
         </h2>
+
+        {acceptances.length === 0 ? (
+          <p className="mt-4 rounded-2xl border border-[color:var(--color-line)] bg-white p-5 text-sm text-[color:var(--color-muted)]">
+            No acceptance recorded. This clinic cannot handle patient data.
+          </p>
+        ) : (
+          <div className="mt-4 grid gap-3">
+            {acceptances.map((a, index) => (
+              <div
+                key={index}
+                className="rounded-2xl border border-[color:var(--color-line)] bg-white p-5 text-sm"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold">Version {a.version}</span>
+                  <span className="text-[color:var(--color-muted)]">
+                    accepted {a.acceptedAt.toISOString().slice(0, 10)}
+                  </span>
+                  {index === 0 ? (
+                    <span className="rounded-full bg-[color:var(--color-ink)]/[0.06] px-2.5 py-1 text-[11px] font-bold uppercase">
+                      current
+                    </span>
+                  ) : null}
+                </div>
+
+                <p className="mt-2 text-[color:var(--color-muted)]">
+                  {a.name}
+                  {a.title ? `, ${a.title}` : ""} · {a.email}
+                  {a.ipAddress ? ` · from ${a.ipAddress}` : ""}
+                </p>
+
+                {/* The hash is what makes "what did they actually agree to"
+                    survive a later revision of the document. */}
+                <p className="mt-2 font-mono text-xs break-all text-[color:var(--color-muted)]">
+                  sha256 {a.hash}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ---------------- Audit ---------------- */}
+      <section className="mt-12">
+        <div className="flex items-baseline justify-between gap-4">
+          <h2 className="text-sm font-bold tracking-[0.08em] uppercase">
+            Recent access
+          </h2>
+          <a
+            href={`/c/${clinicSlug}/audit`}
+            className="text-sm font-semibold text-[color:var(--color-red)]"
+          >
+            Search all →
+          </a>
+        </div>
         <p className="mt-2 text-sm text-[color:var(--color-muted)]">
           Every read and write of this clinic&apos;s patient data, including
           this page view.

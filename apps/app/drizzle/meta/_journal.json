@@ -85,6 +85,20 @@
       "when": 1786474652676,
       "tag": "0011_clinics_overview_slug",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1786476779873,
+      "tag": "0012_clinics_overview_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1786476971511,
+      "tag": "0013_internal_org",
+      "breakpoints": true
     }
   ]
 }

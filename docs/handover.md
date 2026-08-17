@@ -5,11 +5,16 @@ Where the build stands, what is blocked, and what to do next.
 Everything that could be built without an external account or a lawyer has
 been. What remains is genuinely waiting on something.
 
-> **Step-by-step for every item in section 1 and 2 is now in
-> [blockers-runbook.md](./blockers-runbook.md)** — exact click paths, the verbatim text to
-> send each vendor, and the traps. Researched and adversarially fact-checked 17 Aug 2026.
-> Read that instead of this section when you're actually doing the work; this stays as the
-> index.
+> **Two documents now cover everything in sections 1 and 2**, researched and adversarially
+> fact-checked on 17 Aug 2026:
+>
+> - **[research-conclusions.md](./research-conclusions.md)** — plain English, end to end.
+>   What the rules actually are, why they exist, which vendors trip over them, and what it
+>   means commercially. Read this first.
+> - **[blockers-runbook.md](./blockers-runbook.md)** — the same findings as click-by-click
+>   instructions, with the verbatim text to send each vendor. Use this to do the work.
+>
+> This file stays as the index.
 
 ---
 

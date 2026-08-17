@@ -9,6 +9,10 @@ re-check anything load-bearing before you spend money on it.
 > **How to read this.** Each section has the same shape: what changed from what we
 > believed before, the steps, and the traps. Where a vendor has to answer something, the
 > exact words to send them are in a quote block — paste them verbatim.
+>
+> **New here?** Read [research-conclusions.md](./research-conclusions.md) first. Same
+> findings, written as an explanation rather than a checklist — what the rules actually are,
+> why they exist, and what they mean for the business. Come back here to do the work.
 
 ---
 

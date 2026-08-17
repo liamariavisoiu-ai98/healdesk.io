@@ -1,6 +1,39 @@
 import { Brand } from "@/components/Nav";
 import { site } from "@/lib/site";
 
+/**
+ * Data commitments, not trust badges.
+ *
+ * Competitors run a "TRUSTED & VERIFIED BY" strip of SOC 2 / ISO 27001 / HIPAA
+ * logos. We deliberately do not, for two reasons.
+ *
+ * The first is that we have earned none of them, and a badge asserting a third
+ * party reviewed us is the exact theory the FTC charged in *In re SkyMed
+ * International* (2021) — a standalone deception count for displaying a "HIPAA
+ * Compliance" seal, because it "signaled to consumers that a government agency
+ * or other third party had reviewed Respondent's information practices" when
+ * none had. There is no HIPAA certification: HHS says it "does not endorse or
+ * otherwise recognize private organizations' 'certifications'". And the FTC
+ * reaches B2B — Henry Schein paid $250,000 over claims made to dentists.
+ *
+ * The second is that these read BETTER to a clinic than badges would. Every
+ * line is a fact we can be asked to demonstrate, and the disclosure at the end
+ * turns the absence of an audit into candour rather than a gap. See
+ * docs/blockers-runbook.md §10 for the sourcing and for what to change when an
+ * audit does exist.
+ *
+ * ⚠️ Line 4 becomes FALSE the day the agent writes a booking back. Change the
+ * string in the same commit as that feature, not afterwards.
+ */
+const COMMITMENTS = [
+  "We sign a BAA with every clinic",
+  "PHI stored in US-only AWS infrastructure under a signed AWS BAA",
+  "We never use patient data to train models",
+  "Read-only access to your practice management system",
+  "Encrypted in transit and at rest with AWS KMS",
+  "Delete any patient's data on request",
+] as const;
+
 export function Footer() {
   return (
     <footer className="border-line border-t">
@@ -30,6 +63,32 @@ export function Footer() {
             Contact
           </a>
         </nav>
+      </div>
+
+      <div className="border-line mx-auto max-w-[1240px] border-t px-5 py-10 sm:px-8 lg:px-14">
+        <h2 className="text-[11px] font-bold tracking-[0.14em] uppercase">
+          How we handle patient data
+        </h2>
+
+        <ul className="mt-5 grid gap-x-8 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+          {COMMITMENTS.map((commitment) => (
+            <li key={commitment} className="flex gap-2.5 text-sm font-medium">
+              <span aria-hidden className="text-red mt-px shrink-0">
+                ✓
+              </span>
+              <span>{commitment}</span>
+            </li>
+          ))}
+        </ul>
+
+        {/* The most important element on the strip. It costs nothing to say,
+            and it is the sentence that survives a procurement review. */}
+        <p className="text-muted mt-6 max-w-[68ch] text-xs leading-relaxed">
+          No third party has audited healdesk. These are our own commitments, and
+          we will show you the architecture behind any of them. SOC&nbsp;2
+          Type&nbsp;II is on our roadmap — we&rsquo;ll publish the report date
+          when we have one.
+        </p>
       </div>
 
       <div className="border-line mx-auto max-w-[1240px] border-t px-5 py-6 sm:px-8 lg:px-14">

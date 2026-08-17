@@ -5,6 +5,12 @@ Where the build stands, what is blocked, and what to do next.
 Everything that could be built without an external account or a lawyer has
 been. What remains is genuinely waiting on something.
 
+> **Step-by-step for every item in section 1 and 2 is now in
+> [blockers-runbook.md](./blockers-runbook.md)** — exact click paths, the verbatim text to
+> send each vendor, and the traps. Researched and adversarially fact-checked 17 Aug 2026.
+> Read that instead of this section when you're actually doing the work; this stays as the
+> index.
+
 ---
 
 ## 1. Blocked on you — accounts and decisions

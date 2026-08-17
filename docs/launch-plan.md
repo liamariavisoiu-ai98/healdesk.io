@@ -125,17 +125,32 @@ asking them directly before signing.**
 You asked for the best, most compliant, cheapest option across these. The research produced one
 finding that governs everything else.
 
-### Meta will not sign a BAA — and says so in writing
+### Meta will not sign a BAA — and the ad surfaces go further than that
 
-WhatsApp Business Platform **Cloud API Terms §4.4 ("Prohibited Data")**:
+*(Citations corrected 17 Aug 2026 after re-verification — the conclusion is unchanged and
+the operative prohibition turned out to be stronger than the one originally quoted.)*
 
-> *"With regard to health information, you acknowledge that Meta is not a Business Associate or
-> Subcontractor (as those terms are defined in [HIPAA]) and that Cloud API is not HIPAA
-> compliant."*
+The business-associate disclaimer lives in the **Meta Horizon Managed Solutions Terms of
+Service §9.c ("Prohibited Data")**, effective 26 Feb 2025 — with respect to health
+information, the customer acknowledges Meta is neither its Business Associate nor its
+Subcontractor as defined in HIPAA, and that the Services are not HIPAA compliant. That
+governs Meta's business-device product, **not** advertising or messaging.
 
-Their WhatsApp Business Terms add that they make no warranty their services meet the needs of
-*"entities regulated by laws with heightened confidentiality requirements for personal data, such
-as healthcare."*
+For the surfaces that actually matter to a clinic, Meta has no BA disclaimer because it has
+something more restrictive — a flat contractual ban on health data at all. **Business Tools
+Terms §1.h** (effective 3 Nov 2025) prohibits sharing Business Tool Data that *"includes or
+is based on, directly or otherwise, health information, financial information, consumer
+report information, or other categories of sensitive information."*
+
+**The practical consequence is the inverse of the usual framing.** It is tempting to read
+"Meta isn't a business associate" as "Meta tools are fine as long as no BA relationship is
+created." That is wrong for Business Tools: health information is banned **unconditionally**,
+whether or not any BA analysis applies. A clinic cannot cure a Business Tools health-data
+problem by disclaiming a BA relationship — this is the exact fact pattern behind the
+pixel-related enforcement against health systems.
+
+WhatsApp Business Solution Terms (effective 6 Mar 2026) are **silent** on HIPAA. Silence is
+not permission and is not a BAA.
 
 There is **no tier, region, or enterprise plan that changes this.** No BAA means we may not
 disclose PHI to Meta — and as a business associate we're *directly* liable for our own

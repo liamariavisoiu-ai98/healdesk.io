@@ -153,10 +153,16 @@ Ordered by what unblocks the most.
 - **Real connection verification.** `verify.ts` currently validates the shape of
   what was pasted and reports capabilities from the catalogue. The per-platform
   HTTP calls need real credentials against real tenants.
-- **The sync engine** — delta sync with cursors, webhook ingest storing raw then
-  processing async, the reconciliation matcher, and the exception queue. Design
-  is in `docs/launch-plan.md`; nothing is built.
-- **pg-boss** for background work. Currently `runJob()` is invoked manually.
+- **Real adapters.** `packages/connectors/` has the port, the guards, the rate
+  budgets and a fixture that behaves like an awkward real platform. Only the
+  fixture is registered, on purpose: registering an unimplemented adapter would
+  let the sync engine pick it up and fail at runtime instead of at connect time.
+  Adding one is a single line in `registry.ts` plus the adapter — the engine,
+  the matcher and the reports need no changes.
+- **Nothing schedules the queue yet.** `install-queue.ts` creates the queues and
+  the worker drains them, but no cron enqueues a nightly sync. That is one
+  `boss.schedule()` call, deliberately left off until there are tenants — the
+  same reason the monthly report job ships switched off.
 - **Write-back (Channel B).** Deferred deliberately. Research is done —
   GoodHighLevel and Boulevard are the best targets, PatientNow needs
   `customeruserdefined` not `customernote` because it's a real EMR, and Vagaro
@@ -183,6 +189,23 @@ Things left undone on purpose, so nobody "fixes" them by accident.
 - **No Mindbody API, ever**, unless counsel says otherwise. Their terms bar
   caching beyond 48 hours, aggregating with third-party data, and competing
   products — all three of which describe the product.
+- **A "medium" confidence match is computed but not written back.** The matcher
+  reports it; `persistMatches()` only writes `exact` and `high` onto the
+  transaction row. A wrong link is worse than a missing one — the missing shows
+  up as a caveat the clinic can check, the wrong one silently misattributes.
+- **Unknown arrival maps to `scheduled`, never `no_show`.** "The platform can't
+  tell us" and "they didn't turn up" are different facts, and collapsing them
+  deflates attendance for every clinic on a platform without check-in.
+- **Job payloads carry ids only.** pg-boss owns its own schema, which has no
+  `clinic_id` and no RLS, so anything in a payload sits outside every control in
+  the codebase. `assertNoPhiInPayload()` enforces an allowlist — not a
+  pattern-match, because `patientName` would sail past one.
+- **The webhook URL contains a clinic id and that is not a secret.**
+  Authentication is the payload signature, checked in the adapter against that
+  clinic's own credential. Guessing an id buys you a row with
+  `signature_valid = false` and nothing else. A per-connection URL token would
+  still be better; add it when the first real webhook integration lands and you
+  know what that platform allows in a callback URL.
 
 ---
 
@@ -194,10 +217,27 @@ npm run db:up -w @healdesk/app     # Postgres in Docker, both roles, migrated
 # export the four URLs it prints
 npm run dev:web                    # marketing + checkout  → :3000
 npm run dev:app                    # ops console           → :3001
-npm test -w @healdesk/app          # 117 tests
+npm test -w @healdesk/app          # 159 tests
+npm test -w @healdesk/connectors   # 15, no database needed
 ```
 
 `db:reset` rebuilds from scratch. `db:down` removes the container.
+
+### The background worker
+
+```bash
+npm run queue:install -w @healdesk/app   # ONCE per environment, as the migrator
+npm run worker        -w @healdesk/app
+```
+
+`queue:install` is separate because pg-boss creates a schema, and CREATE is a
+privilege the runtime role deliberately does not have — it is the same privilege
+that would let application code drop `contacts`. The installer runs as the
+migrator, then grants the runtime role ordinary CRUD on the `pgboss` schema and
+nothing more. Re-running is safe.
+
+The worker is a plain Node entry point, not a Next route, so it runs as an ECS
+task or a Fly machine with nothing Vercel-shaped in the way.
 
 ### The one thing not to break
 
@@ -232,6 +272,11 @@ clinic-owner invitations 14.
 | `apps/app/README.md` | The security model, in detail |
 | `apps/app/src/lib/tenant.ts` | The only door into patient data |
 | `apps/app/src/lib/compliance/` | Consent, suppression, disclosure |
+| `apps/app/src/lib/sync/reconcile.ts` | The money rules, pure and testable. Read this one before disputing a figure |
+| `apps/app/src/lib/sync/run.ts` | One sync run: cursors, paging, per-page transactions |
+| `apps/app/src/lib/queue/boss.ts` | Queue names, payload allowlist, why the queue can't self-migrate |
+| `apps/app/src/workers/index.ts` | The background worker entry point |
 | `apps/app/drizzle/` | Migrations. Order is load-bearing: roles → tables → functions → policies → grants |
 | `packages/catalog/` | Shared between the site and the product — platforms, plans, BAA, wizard steps |
+| `packages/connectors/` | The anti-corruption layer: one canonical model, declared capabilities, the fixture clinic |
 | `packages/leadgen/` | Prospecting: signals, scoring, outreach angles |

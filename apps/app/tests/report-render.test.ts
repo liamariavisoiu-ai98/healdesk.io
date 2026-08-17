@@ -26,6 +26,7 @@ const report = (over: Partial<MonthlyReport> = {}): MonthlyReport => ({
   clinicName: "Radiance Med Spa",
   period,
   partial: false,
+  unmatched: null,
   trend: { deltaUsd: 2_200, percent: 40 },
   attribution: {
     mode: "estimated",

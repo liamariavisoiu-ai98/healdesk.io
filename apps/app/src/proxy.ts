@@ -25,11 +25,19 @@ const PUBLIC_PATHS = ["/sign-in", "/accept-invite"];
  * sign-in page turns a valid API call into a 307 pointing at HTML, which is a
  * genuinely baffling failure to debug from the caller's side.
  *
+ * `/api/webhooks` is called by booking platforms, which have no session and no
+ * way to acquire one. It authenticates on the payload signature, verified in
+ * the adapter against that clinic's own credential.
+ *
  * Any future machine-to-machine endpoint belongs here, and must do its own
  * authentication. Being listed here is not an exemption from auth; it is a
  * statement that this route does its own.
  */
-const SELF_AUTHENTICATING_PATHS = ["/api/auth", "/api/provision"];
+const SELF_AUTHENTICATING_PATHS = [
+  "/api/auth",
+  "/api/provision",
+  "/api/webhooks",
+];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

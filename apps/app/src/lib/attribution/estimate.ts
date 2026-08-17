@@ -49,8 +49,17 @@ export type EstimatedInput = {
 export type VerifiedInput = {
   mode: "verified";
   activity: ActivityCounts;
-  /** Settled revenue matched to recovered bookings, in USD. */
-  matchedRevenueUsd: number;
+  /**
+   * Settled revenue matched to recovered bookings, in USD.
+   *
+   * Null when no source could supply sales at all — a clinic that chose
+   * verified but whose connection is broken, revoked, or on a platform that
+   * cannot report money. Zero would say "the agent earned you nothing", which
+   * is a claim; null says "we couldn't measure it", which is the truth.
+   */
+  matchedRevenueUsd: number | null;
+  /** Why revenue is unmeasurable, when matchedRevenueUsd is null. */
+  unmeasurableReason?: string;
   /** Sales we could not tie to an appointment. Surfaced, never absorbed. */
   unmatchedTransactionCount: number;
   unmatchedRevenueUsd: number;
@@ -141,6 +150,27 @@ function verified(input: VerifiedInput): AttributionResult {
   const { activity } = input;
   const caveats: string[] = [];
 
+  const base = {
+    mode: "verified" as const,
+    conversationsHandled: activity.conversationsHandled,
+    conversationsRecovered: activity.conversationsRecovered,
+    recoveredBookings: activity.recoveredBookings,
+  };
+
+  // Null, not zero. See the note on matchedRevenueUsd.
+  if (input.matchedRevenueUsd === null) {
+    return {
+      ...base,
+      revenueUsd: null,
+      basis:
+        input.unmeasurableReason ??
+        "None of your connected systems could report sales for this period, so we can't show verified revenue.",
+      caveats: [
+        "Your bookings figures above are measured; only the revenue line is unavailable.",
+      ],
+    };
+  }
+
   if (input.unmatchedTransactionCount > 0) {
     // Money we saw but could not attribute. It belongs in front of the clinic,
     // not quietly excluded from a total that then looks smaller than reality.
@@ -160,10 +190,7 @@ function verified(input: VerifiedInput): AttributionResult {
     : "your connected systems";
 
   return {
-    mode: "verified",
-    conversationsHandled: activity.conversationsHandled,
-    conversationsRecovered: activity.conversationsRecovered,
-    recoveredBookings: activity.recoveredBookings,
+    ...base,
     revenueUsd: round2(input.matchedRevenueUsd),
     basis: `${usd(input.matchedRevenueUsd)} collected against ${activity.recoveredBookings} recovered ${plural(activity.recoveredBookings, "booking")}, read from ${sources}`,
     caveats,

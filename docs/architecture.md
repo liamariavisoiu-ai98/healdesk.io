@@ -30,6 +30,8 @@ healdesk.io/
 │   ├── web/          Marketing site      → Vercel project #1 (no PHI)
 │   └── app/          Product / dashboard → BAA-covered host (PHI boundary)
 ├── packages/
+│   ├── catalog/      Shared contract: platforms, plans, BAA, wizard steps
+│   ├── connectors/   Anti-corruption layer between booking platforms and us
 │   └── leadgen/      Prospecting pipeline (runs locally / in a job runner)
 └── docs/             These documents
 ```
@@ -134,6 +136,62 @@ Keep the orchestration layer behind an interface so the swap is contained.
 
 ---
 
+## packages/connectors — the anti-corruption layer
+
+**No Drizzle, no `pg`, no Next.** That is what lets the whole layer be contract-tested in
+milliseconds with no database, and stops our storage shapes leaking into what we call
+"canonical".
+
+The organising insight: an incumbent's integration is a **write** — one request, known
+outcome. Ours is a **read** — a continuous, rate-limited, partially-supported stream from
+eight vendors who disagree about whether "the patient showed up" and "we got paid" are
+representable at all.
+
+So every vendor limitation is a first-class value rather than a null:
+
+| Concept | Why it exists |
+| --- | --- |
+| `CapabilitySet` | Acuity has no arrival concept; Vagaro has no sales history. Permanent platform properties, declared, so "unsupported" reaches the customer as a sentence rather than rendering as zero |
+| `Result<T>` | One clinic being rate-limited must not abort the run for everyone else. `retryable` separates a 429 (back off) from a 401 (needs a human) |
+| `Money = string` | Floats lose cents and cents are the entire product |
+| `arrival: "unknown"` | Distinct from `no_show`. "Can't tell" is not "didn't turn up" |
+| `BUDGETS` | Zenoti allows 60 requests a minute; PatientNow allows 1,000 a **day**. That shapes the architecture — delta sync is mandatory, not an optimisation |
+| Fixture adapter | A synthetic clinic that no-shows, pays deposits weeks early and emits orphan sales, so the engine is built and demoed before any vendor grants access |
+
+Only the fixture is registered. Registering an unimplemented adapter would let the sync
+engine pick it up and fail at runtime rather than at connect time.
+
+---
+
+## The sync and reconciliation path
+
+```
+platform → adapter → sync engine → contacts/appointments/transactions
+                                       ↓
+                                   matcher → matched revenue → monthly report
+                                       ↓
+                                 exception queue → console
+```
+
+Four properties hold this together, each of which would silently corrupt a monthly figure
+if it broke:
+
+1. **Every write is an upsert** keyed on `(clinic, source, the platform's own id)`, against
+   *partial* unique indexes — Postgres treats NULLs as distinct, so a missing `targetWhere`
+   makes `ON CONFLICT` match nothing and every re-sync duplicates.
+2. **The cursor advances only on a clean run**, and every run re-reads a two-day overlap,
+   because platforms let staff backdate edits.
+3. **Network I/O never happens inside a transaction.** Each page is fetched with none open
+   and written in its own short one, so a run that dies at page 40 keeps pages 1–39.
+4. **Ambiguity produces an exception, not a guess.** A wrong match silently misattributes
+   revenue; an unmatched one shows up as a caveat the clinic can check.
+
+The queue is **pg-boss**, in the database we already have — no Redis, no fourth vendor to
+hold a BAA with, and jobs commit alongside the data they describe. Its schema has no
+`clinic_id` and no RLS, so payloads carry ids only and an allowlist enforces it.
+
+---
+
 ## packages/leadgen — prospecting
 
 TypeScript scripts implementing [leadgen-playbook.md](./leadgen-playbook.md): Apify Maps
@@ -153,6 +211,7 @@ not be co-mingled with it.
 | --- | --- | --- | --- |
 | `apps/web` | Vercel project #1 | `apps/web` | No |
 | `apps/app` | Vercel project #2 → BAA host | `apps/app` | **Yes** |
+| `apps/app` worker | Same BAA host, separate process | `apps/app` | **Yes** |
 | `packages/leadgen` | Not deployed | — | No |
 
 Two Vercel projects from one repo: each points at a different root directory with its own

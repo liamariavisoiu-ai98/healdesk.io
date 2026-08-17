@@ -711,6 +711,188 @@ export const securityEvents = pgTable(
 );
 
 // -----------------------------------------------------------------------------
+// Sync state
+// -----------------------------------------------------------------------------
+
+export const syncStatusEnum = pgEnum("sync_status", [
+  "running",
+  "ok",
+  "partial",
+  "failed",
+]);
+
+/**
+ * Where each sync got to, and what it could not reach.
+ *
+ * The cursor is what makes delta sync possible, and delta sync is not an
+ * optimisation here — PatientNow allows 1,000 requests a DAY, so a nightly
+ * full poll exhausts one clinic's entire budget. Re-reading a window already
+ * known good is a bug, not merely waste.
+ *
+ * `notes` carries what the run could not do: a page dropped to a rate limit, a
+ * platform that cannot backfill. Silence would render as complete.
+ */
+export const syncRuns = pgTable(
+  "sync_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => providerConnections.id, { onDelete: "cascade" }),
+
+    /** appointments | sales | contacts */
+    resource: text("resource").notNull(),
+    status: syncStatusEnum("status").notNull().default("running"),
+
+    /**
+     * High-water mark: everything up to here is known good. The next run starts
+     * from it, minus a small overlap, because platforms backdate edits.
+     */
+    cursorAt: timestamp("cursor_at", { withTimezone: true }),
+    /** Opaque page cursor, when a run stops mid-resource. */
+    pageCursor: text("page_cursor"),
+
+    itemsSeen: integer("items_seen").notNull().default(0),
+    itemsWritten: integer("items_written").notNull().default(0),
+
+    /** Verbatim limitations. Never summarised away. */
+    notes: jsonb("notes").$type<string[]>(),
+    error: text("error"),
+
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("sync_runs_clinic_idx").on(t.clinicId, t.resource, t.startedAt),
+    // Finding the last good cursor is the hot path on every run.
+    index("sync_runs_cursor_idx")
+      .on(t.connectionId, t.resource, t.cursorAt)
+      .where(sql`${t.status} in ('ok', 'partial')`),
+  ],
+);
+
+/**
+ * Inbound webhooks, stored raw before anything is done with them.
+ *
+ * Store-then-process, for three reasons. Platforms time out fast — Mindbody
+ * gives 10 seconds — so acknowledging quickly and working later is the only way
+ * to avoid pointless retries. Mindbody also guarantees neither ordering nor
+ * exactly-once delivery, so every provider is treated that way. And when a
+ * payload turns out to be misparsed, the original is still here.
+ *
+ * `deliveryId` is uniquely indexed per clinic: at-least-once delivery means the
+ * same event WILL arrive twice, and the database is the only place that can
+ * arbitrate that reliably.
+ */
+export const webhookEvents = pgTable(
+  "webhook_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+
+    /** The platform's own delivery id. */
+    deliveryId: text("delivery_id").notNull(),
+    /** Whether the signature verified. Unverified payloads are kept, not acted on. */
+    signatureValid: boolean("signature_valid").notNull(),
+
+    /** ⚠️ May contain PHI. Reaped on a retention schedule. */
+    rawPayload: text("raw_payload").notNull(),
+
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    processingError: text("processing_error"),
+    attempts: integer("attempts").notNull().default(0),
+
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("webhook_events_delivery_idx").on(
+      t.clinicId,
+      t.provider,
+      t.deliveryId,
+    ),
+    index("webhook_events_unprocessed_idx")
+      .on(t.clinicId, t.receivedAt)
+      .where(sql`${t.processedAt} is null`),
+  ],
+);
+
+export const exceptionKindEnum = pgEnum("exception_kind", [
+  "unmatched_sale",
+  "unmatched_appointment",
+  "ambiguous_match",
+  "missing_arrival",
+]);
+
+/**
+ * Money and visits we could not reconcile.
+ *
+ * This table is the honesty mechanism. Anything the matcher cannot place lands
+ * here rather than being excluded from a total that then looks smaller than
+ * reality — a report that quietly under-counts is the failure this product
+ * exists to replace.
+ *
+ * Sorted by amount at risk in the console, because that is the order someone
+ * should work through them.
+ */
+export const reconciliationExceptions = pgTable(
+  "reconciliation_exceptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+
+    kind: exceptionKindEnum("kind").notNull(),
+    /** Stable hash of the underlying facts, so a re-run updates rather than duplicates. */
+    fingerprint: text("fingerprint").notNull(),
+
+    transactionId: uuid("transaction_id").references(() => transactions.id, {
+      onDelete: "cascade",
+    }),
+    appointmentId: uuid("appointment_id").references(() => appointments.id, {
+      onDelete: "cascade",
+    }),
+
+    amountAtRiskUsd: numeric("amount_at_risk_usd", {
+      precision: 12,
+      scale: 2,
+    }),
+    /** Plain sentence for the console. Never contains a patient identifier. */
+    summary: text("summary").notNull(),
+
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    /** auto | manual — set when a later run matches it after all. */
+    resolvedBy: text("resolved_by"),
+
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("reconciliation_exceptions_fingerprint_idx").on(
+      t.clinicId,
+      t.fingerprint,
+    ),
+    index("reconciliation_exceptions_open_idx")
+      .on(t.clinicId, t.amountAtRiskUsd)
+      .where(sql`${t.resolvedAt} is null`),
+  ],
+);
+
+// -----------------------------------------------------------------------------
 // Consent and suppression  ⚠️ PHI
 // -----------------------------------------------------------------------------
 
@@ -913,4 +1095,7 @@ export const TENANT_SCOPED_TABLES = [
   "consent_records",
   "suppressions",
   "contact_attempts",
+  "sync_runs",
+  "webhook_events",
+  "reconciliation_exceptions",
 ] as const;

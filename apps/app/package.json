@@ -13,6 +13,8 @@
     "db:generate:custom": "drizzle-kit generate --custom",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
+    "queue:install": "tsx --env-file-if-exists=.env.local scripts/install-queue.ts",
+    "worker": "tsx --env-file-if-exists=.env.local src/workers/index.ts",
     "db:up": "bash scripts/dev-db.sh up",
     "db:down": "bash scripts/dev-db.sh down",
     "db:reset": "bash scripts/dev-db.sh reset",
@@ -20,12 +22,15 @@
   },
   "dependencies": {
     "@healdesk/catalog": "*",
+    "@healdesk/connectors": "*",
     "better-auth": "^1.6.26",
     "drizzle-orm": "^0.45.2",
     "next": "^16.3.0",
     "pg": "^8.13.1",
+    "pg-boss": "^10.3.2",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "tsx": "^4.23.12"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",

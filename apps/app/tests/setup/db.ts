@@ -64,7 +64,8 @@ export async function truncateAll(): Promise<void> {
 
   await pool.query(`
     truncate table
-      audit_log, security_events, transactions, appointments,
+      audit_log, security_events, reconciliation_exceptions,
+      webhook_events, sync_runs, transactions, appointments,
       conversations, contacts, ad_interactions, provider_connections,
       clinic_memberships, clinics, baa_acceptances,
       invitation, member, organization, session, account, verification, "user"

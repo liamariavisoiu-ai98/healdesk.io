@@ -1,6 +1,10 @@
 import { and, count, eq, gte, isNotNull, lt } from "drizzle-orm";
 
 import { appointments, clinics, conversations } from "@/db/schema";
+import {
+  reconcilePeriod,
+  type PeriodReconciliation,
+} from "@/lib/sync/reconcile-store";
 
 import type { ActorContext } from "../audit";
 import { withTenant } from "../tenant";
@@ -8,7 +12,9 @@ import { withTenant } from "../tenant";
 import {
   computeAttribution,
   trend,
+  type ActivityCounts,
   type AttributionResult,
+  type VerifiedInput,
 } from "./estimate";
 import { monthContaining, previousMonth, type Period } from "./period";
 
@@ -37,6 +43,15 @@ export type MonthlyReport = {
   trend: { deltaUsd: number; percent: number | null } | null;
   /** Whether the period is still in progress, so figures will move. */
   partial: boolean;
+  /**
+   * Money the matcher saw but could not place, for verified clinics.
+   *
+   * Aggregate only — a count and a total, no patient and no treatment — so it
+   * is safe in the same email as everything else. It appears because a total
+   * that quietly drops what it couldn't explain is worse than one that admits
+   * to it.
+   */
+  unmatched: { count: number; amountUsd: string } | null;
 };
 
 /**
@@ -116,19 +131,22 @@ export async function buildMonthlyReport(
         ? null
         : Number(clinic.averageTreatmentValueUsd);
 
+    const isVerified = clinic.attributionMode === "verified";
+
+    // Reconcile both periods so the trend compares like with like. The current
+    // period persists what it decided — matches and exceptions — while the
+    // prior one is computed read-only: re-running last month's matcher would
+    // reopen exceptions an operator has already worked.
+    const [currentMatch, priorMatch] = isVerified
+      ? await Promise.all([
+          reconcilePeriod(tx.db, clinicId, period, { now }),
+          reconcilePeriod(tx.db, clinicId, prior, { now, persist: false }),
+        ])
+      : [null, null];
+
     const attribution = computeAttribution(
-      clinic.attributionMode === "verified"
-        ? {
-            mode: "verified",
-            activity: current,
-            // Verified figures come from the connectors, which are Phase 7.
-            // Until then a clinic that selected verified gets zeroes with the
-            // reason stated, rather than an estimate quietly relabelled.
-            matchedRevenueUsd: 0,
-            unmatchedTransactionCount: 0,
-            unmatchedRevenueUsd: 0,
-            sources: [],
-          }
+      isVerified
+        ? verifiedInput(current, currentMatch!)
         : {
             mode: "estimated",
             activity: current,
@@ -137,15 +155,8 @@ export async function buildMonthlyReport(
     );
 
     const priorAttribution = computeAttribution(
-      clinic.attributionMode === "verified"
-        ? {
-            mode: "verified",
-            activity: previous,
-            matchedRevenueUsd: 0,
-            unmatchedTransactionCount: 0,
-            unmatchedRevenueUsd: 0,
-            sources: [],
-          }
+      isVerified
+        ? verifiedInput(previous, priorMatch!)
         : {
             mode: "estimated",
             activity: previous,
@@ -160,8 +171,44 @@ export async function buildMonthlyReport(
       attribution,
       trend: trend(attribution.revenueUsd, priorAttribution.revenueUsd),
       partial: now < period.end,
+      unmatched: currentMatch
+        ? {
+            count: currentMatch.unmatchedCount,
+            amountUsd: currentMatch.unmatchedUsd,
+          }
+        : null,
     };
   });
+}
+
+/**
+ * Turn a reconciliation into the shape the attribution calculator wants.
+ *
+ * The one judgement here is when revenue is unmeasurable rather than zero. No
+ * source produced a single sale row for the period, so we have no evidence
+ * either way — and a verified clinic reading "$0" would conclude the agent
+ * earned them nothing, which is a claim we cannot support.
+ */
+function verifiedInput(
+  activity: ActivityCounts,
+  reconciliation: PeriodReconciliation,
+): VerifiedInput {
+  const measurable = reconciliation.sources.length > 0;
+
+  return {
+    mode: "verified",
+    activity,
+    matchedRevenueUsd: measurable
+      ? Number(reconciliation.recoveredMatchedUsd)
+      : null,
+    unmeasurableReason: measurable
+      ? undefined
+      : "No connected system reported any sales for this period, so we can't show verified revenue. This usually means the connection needs re-authorising.",
+    unmatchedTransactionCount: reconciliation.unmatchedCount,
+    unmatchedRevenueUsd: Number(reconciliation.unmatchedUsd),
+    sources: reconciliation.sources,
+    coverageStartedAt: reconciliation.coverageStartedAt,
+  };
 }
 
 /**

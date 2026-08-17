@@ -58,6 +58,22 @@ const PHI_KEY_DENYLIST = new Set([
 const PHONE_LIKE = /(?:\+?\d[\d\s().-]{8,}\d)/;
 const EMAIL_LIKE = /[^\s@]+@[^\s@]+\.[^\s@]{2,}/;
 
+/**
+ * Canonical UUIDs, removed before the phone-number check runs.
+ *
+ * Our own primary keys are UUIDs and they are the most common thing to put in
+ * audit metadata. Some of them — `...-5678-4901-...` — match PHONE_LIKE, so
+ * without this the guard rejects roughly one write in a handful, at random,
+ * with a message accusing the caller of leaking a phone number. An intermittent
+ * false positive is worse than a loud one: it gets diagnosed as flakiness and
+ * the guard gets weakened.
+ *
+ * Stripping is safe. A UUID cannot BE a phone number, and a string containing
+ * both still has the phone part checked.
+ */
+const UUID_ANYWHERE =
+  /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+
 export class PhiInAuditError extends Error {
   constructor(reason: string) {
     super(
@@ -82,7 +98,7 @@ export function assertNoPhi(metadata: unknown, path = "metadata"): void {
     if (EMAIL_LIKE.test(metadata)) {
       throw new PhiInAuditError(`${path} contains something shaped like an email`);
     }
-    if (PHONE_LIKE.test(metadata)) {
+    if (PHONE_LIKE.test(metadata.replace(UUID_ANYWHERE, ""))) {
       throw new PhiInAuditError(
         `${path} contains something shaped like a phone number`,
       );

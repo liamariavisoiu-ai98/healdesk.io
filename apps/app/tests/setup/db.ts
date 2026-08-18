@@ -66,7 +66,7 @@ export async function truncateAll(): Promise<void> {
     truncate table
       audit_log, security_events, reconciliation_exceptions,
       webhook_events, sync_runs, transactions, appointments,
-      conversations, contacts, ad_interactions, provider_connections,
+      conversations, contacts, provider_connections,
       clinic_memberships, clinics, baa_acceptances,
       invitation, member, organization, session, account, verification, "user"
     restart identity cascade

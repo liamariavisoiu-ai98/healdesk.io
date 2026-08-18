@@ -81,6 +81,46 @@ describeDb("monthly report", () => {
     expect(report.attribution.basis).toContain("2 recovered bookings");
   });
 
+  test("counts every recovery reason, not just missed-call callbacks", async () => {
+    const clinic = await seedClinic("report-reasons");
+    await setAverageTreatmentValue(clinic.clinicId, 400);
+
+    // One booking for each way a contact reaches us that the clinic would
+    // otherwise have lost. This is the regression guard for the definition
+    // itself: under the old `is_recovered_missed_call` boolean only the last of
+    // these counted, and the other three scored zero despite being exactly what
+    // customers buy the product for. If someone narrows RECOVERED again, this
+    // fails — where the test above would still pass.
+    for (const reason of [
+      "after_hours",
+      "line_busy",
+      "rang_unanswered",
+      "missed_call_callback",
+    ] as const) {
+      await seedConversation(clinic.clinicId, {
+        startedAt: IN_JULY,
+        recoveryReason: reason,
+        booked: true,
+      });
+    }
+
+    // Answered during opening hours on a free line: we handled it, but the
+    // clinic would have too, so it is not ours to claim.
+    await seedConversation(clinic.clinicId, {
+      startedAt: IN_JULY,
+      booked: true,
+    });
+
+    const report = await buildMonthlyReport(clinic.clinicId, {
+      within: IN_JULY,
+    });
+
+    expect(report.attribution.conversationsHandled).toBe(5);
+    expect(report.attribution.conversationsRecovered).toBe(4);
+    expect(report.attribution.recoveredBookings).toBe(4);
+    expect(report.attribution.revenueUsd).toBe(1_600);
+  });
+
   test("excludes activity from other months", async () => {
     const clinic = await seedClinic("report-b");
     await setAverageTreatmentValue(clinic.clinicId, 1_000);

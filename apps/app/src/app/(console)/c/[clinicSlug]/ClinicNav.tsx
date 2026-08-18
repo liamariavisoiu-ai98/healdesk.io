@@ -3,10 +3,11 @@ export function ClinicNav({
   active,
 }: {
   slug: string;
-  active: "overview" | "sync" | "consent" | "audit" | "report";
+  active: "overview" | "hours" | "sync" | "consent" | "audit" | "report";
 }) {
   const tabs = [
     { id: "overview", label: "Overview", href: `/c/${slug}` },
+    { id: "hours", label: "Opening hours", href: `/c/${slug}/hours` },
     { id: "sync", label: "Sync & reconciliation", href: `/c/${slug}/sync` },
     { id: "consent", label: "Consent & suppression", href: `/c/${slug}/consent` },
     { id: "audit", label: "Audit", href: `/c/${slug}/audit` },

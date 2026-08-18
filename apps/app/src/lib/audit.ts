@@ -74,6 +74,16 @@ const EMAIL_LIKE = /[^\s@]+@[^\s@]+\.[^\s@]{2,}/;
 const UUID_ANYWHERE =
   /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 
+/**
+ * Long hex digests, removed for the same reason as UUIDs.
+ *
+ * A SHA-256 of a signed agreement is exactly the kind of thing audit metadata
+ * SHOULD carry, and a digit-heavy one trips PHI_LIKE at random. 32 characters
+ * is the floor deliberately: the longest possible phone number is 15 digits, so
+ * nothing this strips could ever have been one.
+ */
+const HEX_DIGEST = /\b[0-9a-f]{32,}\b/gi;
+
 export class PhiInAuditError extends Error {
   constructor(reason: string) {
     super(
@@ -98,7 +108,10 @@ export function assertNoPhi(metadata: unknown, path = "metadata"): void {
     if (EMAIL_LIKE.test(metadata)) {
       throw new PhiInAuditError(`${path} contains something shaped like an email`);
     }
-    if (PHONE_LIKE.test(metadata.replace(UUID_ANYWHERE, ""))) {
+    const withoutIdentifiers = metadata
+      .replace(UUID_ANYWHERE, "")
+      .replace(HEX_DIGEST, "");
+    if (PHONE_LIKE.test(withoutIdentifiers)) {
       throw new PhiInAuditError(
         `${path} contains something shaped like a phone number`,
       );

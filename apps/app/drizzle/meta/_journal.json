@@ -113,6 +113,41 @@
       "when": 1786979274584,
       "tag": "0015_sync_engine_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1787054434535,
+      "tag": "0016_baa_signing",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1787140834535,
+      "tag": "0017_drop_ad_attribution",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1787140835535,
+      "tag": "0018_phone_system_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1787140836535,
+      "tag": "0019_recovery_reason",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1787140837535,
+      "tag": "0020_opening_hours",
+      "breakpoints": true
     }
   ]
 }

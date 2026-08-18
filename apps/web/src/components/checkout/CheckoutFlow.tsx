@@ -1,8 +1,6 @@
 "use client";
 
 import {
-  CURRENT_BAA_VERSION,
-  currentBaaDocument,
   getPlan,
   NO_PLATFORM_ID,
   plans,
@@ -13,6 +11,7 @@ import {
 } from "@healdesk/catalog";
 import { useMemo, useState } from "react";
 
+import { AgreementStep, type AgreementResult } from "./AgreementStep";
 import {
   ChoiceCard,
   PrimaryButton,
@@ -31,9 +30,22 @@ import {
  * "No booking software" is a first-class option, not a fallback. Those clinics
  * have the most primitive front desk and therefore the most leakage — they are
  * the best prospects, and the copy must not read as a downgrade.
+ *
+ * ## Signing is step 5, payment is step 6, and that order is load-bearing
+ *
+ * A healthcare provider may not hand patient information to a supplier without
+ * a written contract first. So the business associate agreement is not a
+ * checkbox beside the price — it is its own step, and it is RECORDED IN THE
+ * DATABASE before the buyer ever sees a payment form. Step 6 carries only the
+ * resulting agreement id.
+ *
+ * The visible consequence is that abandoning at step 6 leaves a signed
+ * agreement with no account behind it. That is correct: far better to hold a
+ * signed agreement for a deal that never closed than to take money for an
+ * account with no agreement.
  */
 
-const TOTAL_STEPS = 5;
+const TOTAL_STEPS = 6;
 
 type State = {
   specialty: string;
@@ -44,7 +56,8 @@ type State = {
   contactName: string;
   contactEmail: string;
   contactTitle: string;
-  baaAccepted: boolean;
+  /** Discovery question B. Decides whether their number can be text-enabled. */
+  phoneSystemType: "landline" | "voip" | "unknown";
 };
 
 const INITIAL: State = {
@@ -56,7 +69,9 @@ const INITIAL: State = {
   contactName: "",
   contactEmail: "",
   contactTitle: "",
-  baaAccepted: false,
+  // Not a guess. An assumed "landline" fails during setup, in front of the
+  // customer; "unknown" routes it to a check instead.
+  phoneSystemType: "unknown",
 };
 
 export function CheckoutFlow({ initialPlan }: { initialPlan: string }) {
@@ -67,6 +82,8 @@ export function CheckoutFlow({ initialPlan }: { initialPlan: string }) {
   const [error, setError] = useState<string | null>(null);
   const [errorField, setErrorField] = useState<string | null>(null);
   const [done, setDone] = useState<{ clinicSlug: string } | null>(null);
+  /** Set at step 5. Step 6 cannot submit without it. */
+  const [agreement, setAgreement] = useState<AgreementResult | null>(null);
 
   const plan = getPlan(planId) ?? plans[0]!;
   const platform = useMemo(
@@ -102,8 +119,9 @@ export function CheckoutFlow({ initialPlan }: { initialPlan: string }) {
           contactName: state.contactName.trim(),
           contactEmail: state.contactEmail.trim(),
           contactTitle: state.contactTitle.trim() || undefined,
-          baaVersion: CURRENT_BAA_VERSION,
-          baaAccepted: state.baaAccepted,
+          phoneSystemType: state.phoneSystemType,
+          // The signature itself, not a claim about it. See AgreementStep.
+          agreementId: agreement?.agreementId,
         }),
       });
 
@@ -333,6 +351,75 @@ export function CheckoutFlow({ initialPlan }: { initialPlan: string }) {
           />
         </div>
 
+        {/* ---------------- Phone system ----------------
+            Asked here rather than discovered during onboarding because it
+            decides something we cannot work around later: a carrier will
+            text-enable a landline or toll-free number, but not a VoIP one — and
+            plenty of clinics publish RingCentral, Nextiva or Dialpad.
+
+            Call forwarding works either way, so this never blocks the sale and
+            is never a disqualifier. What it changes is whether the text-back
+            and reminder-fallback messages can come from the clinic's own
+            published number. "Not sure" is the honest default and by far the
+            most common answer — an assumed "landline" just fails weeks later,
+            during setup, in front of the customer. */}
+        <fieldset className="border-line mt-6 rounded-2xl border bg-white p-5">
+          <legend className="text-[13px] font-bold tracking-[0.04em] uppercase">
+            Your main phone line
+          </legend>
+          <p className="text-muted mt-1.5 text-sm">
+            Is the number on your website a traditional landline or toll-free
+            line, or a cloud phone system like RingCentral, Nextiva or Dialpad?
+            It only affects text messaging — call forwarding works either way.
+          </p>
+
+          <div className="mt-4 grid gap-2">
+            {(
+              [
+                {
+                  id: "landline",
+                  label: "Landline or toll-free",
+                  hint: "A traditional line from a phone company.",
+                },
+                {
+                  id: "voip",
+                  label: "Cloud phone system (VoIP)",
+                  hint: "RingCentral, Nextiva, Dialpad, Grasshopper, or similar.",
+                },
+                {
+                  id: "unknown",
+                  label: "I'm not sure",
+                  hint: "Completely fine — we'll check it during setup.",
+                },
+              ] as const
+            ).map((option) => (
+              <label
+                key={option.id}
+                className={[
+                  "flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 transition-colors",
+                  state.phoneSystemType === option.id
+                    ? "border-red bg-red/[0.04]"
+                    : "border-line hover:border-line-strong",
+                ].join(" ")}
+              >
+                <input
+                  type="radio"
+                  name="phoneSystemType"
+                  checked={state.phoneSystemType === option.id}
+                  onChange={() => set("phoneSystemType", option.id)}
+                  className="accent-red mt-1 size-4 shrink-0"
+                />
+                <span>
+                  <span className="block text-sm font-semibold">
+                    {option.label}
+                  </span>
+                  <span className="text-muted block text-xs">{option.hint}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
         <div className="mt-8">
           <PrimaryButton onClick={next} disabled={!ready}>
             Continue
@@ -343,52 +430,75 @@ export function CheckoutFlow({ initialPlan }: { initialPlan: string }) {
     );
   }
 
-  // --- Step 5: agreement + confirm ------------------------------------------
-  const document = currentBaaDocument();
+  // --- Step 5: sign the agreement -------------------------------------------
+  // Before payment, deliberately. Its own component because it is the only step
+  // that writes to the database, and the only one with legal consequences.
+  if (step === 5) {
+    return (
+      <AgreementStep
+        step={5}
+        totalSteps={TOTAL_STEPS}
+        clinicName={state.clinicName.trim()}
+        specialty={
+          specialties.find((s) => s.id === state.specialty)?.name ??
+          state.specialty
+        }
+        contactName={state.contactName.trim()}
+        contactEmail={state.contactEmail.trim()}
+        contactTitle={state.contactTitle.trim() || undefined}
+        onBack={back}
+        onSigned={(result) => {
+          setAgreement(result);
+          next();
+        }}
+      />
+    );
+  }
 
+  // --- Step 6: plan and payment ---------------------------------------------
   return (
     <StepShell
-      step={5}
+      step={6}
       totalSteps={TOTAL_STEPS}
       eyebrow="Get started"
-      title="One agreement, then you're set."
-      subtitle="Because we handle patient information on your behalf, we need a business associate agreement in place."
+      title="Choose your plan."
+      subtitle="Your agreement is signed and on file. Nothing has been charged yet."
       onBack={back}
     >
-      <div className="border-line rounded-2xl border bg-white">
-        <div className="border-line flex items-center justify-between border-b px-5 py-3">
-          <span className="text-sm font-bold">Business Associate Agreement</span>
+      {/* A receipt for what already happened, not another chance to agree.
+          The document itself is not repeated — they have just read it, and a
+          second copy beside a price invites the reading that paying is what
+          concludes it. It doesn't; signing did. */}
+      <div className="border-line rounded-2xl border bg-white px-5 py-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span aria-hidden className="text-red font-bold">✓</span>
+          <span className="text-sm font-bold">
+            Business Associate Agreement signed
+          </span>
           <span className="text-muted text-xs font-semibold">
-            Version {document.version}
+            v{agreement?.version} · {signedOn(agreement?.acceptedAt)}
           </span>
         </div>
-        <div className="scroll-subtle max-h-64 overflow-y-auto px-5 py-4">
-          <pre className="text-muted font-sans text-[13px] leading-relaxed whitespace-pre-wrap">
-            {document.text}
-          </pre>
-        </div>
+        <p className="text-muted mt-2 text-xs break-all">
+          Reference {agreement?.agreementId} · SHA-256{" "}
+          {agreement?.hash.slice(0, 16)}…
+        </p>
+        <a
+          href={`data:text/plain;charset=utf-8,${encodeURIComponent(agreement?.text ?? "")}`}
+          download={`healdesk-baa-${agreement?.version ?? "agreement"}.txt`}
+          className="text-red mt-3 inline-block text-xs font-bold underline underline-offset-4"
+        >
+          Download the copy you signed
+        </a>
       </div>
 
-      {!document.approvedByCounsel ? (
+      {agreement && !agreement.approvedByCounsel ? (
         <p className="border-red/30 bg-red/[0.06] mt-4 rounded-xl border px-4 py-3 text-[13px] font-semibold">
           This agreement is a draft pending legal review. Until it is finalised,
           accounts are created for synthetic data only and cannot receive real
           patient information.
         </p>
       ) : null}
-
-      <label className="mt-6 flex cursor-pointer items-start gap-3">
-        <input
-          type="checkbox"
-          checked={state.baaAccepted}
-          onChange={(e) => set("baaAccepted", e.target.checked)}
-          className="accent-red mt-1 size-4 shrink-0"
-        />
-        <span className="text-sm font-medium">
-          I have authority to enter into this agreement for{" "}
-          <strong>{state.clinicName || "my clinic"}</strong>, and I accept it.
-        </span>
-      </label>
 
       <div className="border-line mt-8 rounded-2xl border bg-white p-5">
         <div className="flex items-baseline justify-between gap-4">
@@ -431,7 +541,7 @@ export function CheckoutFlow({ initialPlan }: { initialPlan: string }) {
       <div className="mt-8">
         <PrimaryButton
           onClick={() => void submit()}
-          disabled={!state.baaAccepted || submitting}
+          disabled={!agreement || submitting}
         >
           {submitting ? "Setting up…" : `Start ${TRIAL_DAYS}-day trial`}
         </PrimaryButton>
@@ -439,6 +549,18 @@ export function CheckoutFlow({ initialPlan }: { initialPlan: string }) {
       <Reassurance />
     </StepShell>
   );
+}
+
+/** "18 August 2026", from the server's timestamp rather than the browser's. */
+function signedOn(iso: string | undefined): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(date);
 }
 
 function Field({

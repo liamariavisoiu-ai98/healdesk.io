@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:db": "TEST_APP_URL=postgres://healdesk_app:devapp@localhost:55432/healdesk_dev TEST_MIGRATOR_URL=postgres://healdesk_migrator:devmigrator@localhost:55432/healdesk_dev vitest run",
     "db:generate": "drizzle-kit generate",
     "db:generate:custom": "drizzle-kit generate --custom",
     "db:migrate": "drizzle-kit migrate",

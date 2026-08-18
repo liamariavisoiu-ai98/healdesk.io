@@ -1,4 +1,14 @@
-import { and, eq, gte, inArray, isNull, lt, notInArray, sql } from "drizzle-orm";
+import {
+  and,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  notInArray,
+  sql,
+} from "drizzle-orm";
 
 import type { Transaction } from "@/db";
 import {
@@ -71,7 +81,11 @@ export async function reconcilePeriod(
       checkedInAt: appointments.checkedInAt,
       status: appointments.status,
       conversationId: appointments.conversationId,
-      recovered: conversations.isRecoveredMissedCall,
+      // Any recovery reason counts, not just the callback case. Must stay in
+      // step with RECOVERED in lib/attribution/report.ts — if these two ever
+      // disagree, the reconciled revenue stops matching the recovered-booking
+      // count it is reported beside.
+      recovered: isNotNull(conversations.recoveryReason),
     })
     .from(appointments)
     .leftJoin(conversations, eq(appointments.conversationId, conversations.id))

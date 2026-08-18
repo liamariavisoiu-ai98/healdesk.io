@@ -134,6 +134,87 @@ validated before anyone owns a media pipeline. Component choices are stable eith
 
 Keep the orchestration layer behind an interface so the swap is contained.
 
+### The voice agent is PHI-light by design
+
+Locked. The agent **collects only** four things: name, callback number, requested
+service, preferred time. That is the irreducible minimum to place a booking.
+
+Everything clinical is **pushed off the phone** to a secure link or a clinician
+callback: medical history, intake, consent, date of birth, insurance details,
+photos. Contraindication screening is explicitly out of v1 voice scope. The agent
+**actively deflects** rather than merely declining to ask — "I'll text you a
+secure link" — because a caller who volunteers their history mid-sentence is the
+normal case, not the edge case.
+
+Recording and transcript retention are **off** on the call legs. That is what
+makes Twilio a conduit rather than a business associate for voice, and it is why
+no Twilio BAA is required on the voice path in v1.
+
+Two consequences worth stating, because both have been drifted back into before:
+
+- **The demo must match the product.** Marketing scripts and the chat demo may
+  not show the agent taking a member ID or a date of birth, or answering a
+  clinical question. If the demo triages and the shipped agent deflects, the
+  first onboarding call is a complaint about a downgrade — and an agent that
+  gives clinical guidance sits in the bodily-injury exclusion that both the tech
+  E&O and cyber policies carry with no endorsement available to fix it.
+- **Do not rely on vendor PII redaction** to achieve any of this. Redaction
+  breaks intake (a redacted name cannot be extracted) and is a mitigation, not a
+  design. Keep clinical off the call in the first place.
+
+### Recovery is a reason, and after-hours needs opening hours
+
+`conversations.recovery_reason` records WHY a contact would have been lost —
+`after_hours`, `line_busy`, `rang_unanswered`, `missed_call_callback` — and the
+monthly report counts anything non-null. Null means the clinic would have
+handled it anyway and we claim nothing.
+
+**When building voice ingestion, set this at the moment the call arrives.** It
+cannot be reconstructed afterwards, and the report has no way to infer it.
+
+`after_hours` depends on `clinics.opening_hours`, collected in the console at
+`/c/[slug]/hours` and evaluated by `lib/clinic/opening-hours.ts`. Call
+`isAfterHours(hours, at, clinic.timezone)` and record the reason only when it
+returns `true` — it returns **null** when hours were never collected, and that
+null must not be coerced. A clinic wrongly assumed to shut at 5 would have its
+6pm calls claimed as recovered while its own staff answered them, which
+overstates the one number a clinic checks us on. Understating is survivable;
+overstating is not.
+
+### No conversion attribution to ad platforms
+
+Removed entirely — not deferred, not a paid add-on. `ad_interactions` and
+`conversations.ad_interaction_id` were dropped in `drizzle/0017`.
+
+What survives is **revenue reporting**, which is a different thing wearing a
+confusingly similar name: `src/lib/attribution` reconciles the money event read
+from the clinic's own POS against recovered calls, and reports it back to the
+clinic. Nothing leaves for a third party, and nothing may.
+
+The distinction is load-bearing. Linking a patient conversation to a Meta or
+Google click id is person-level health data — the GoodRx and BetterHelp fact
+pattern, neither of which involved a breach — and the 2024 HBNR amendment makes
+the disclosure itself reportable. Hashing does not help: a hashed email is one of
+HIPAA's 18 identifiers, hashed so it can be matched. Separately, Meta's Business
+Tools Terms §1.h bans health data outright, so a lawful transmission could still
+break the clinic's own Meta contract.
+
+### Embedded scheduler for no-system clinics — still open
+
+The one genuinely unmade decision. Cal.com and PracticeQ (IntakeQ) both clear the
+three axes (offers a BAA, agent can write bookings, exposes show/collect data).
+
+Current recommendation is **PracticeQ**, because the PHI-light design above needs
+a destination for the intake it pushes off the phone, and PracticeQ is both the
+scheduler and that destination — collapsing two BAA'd vendors into one. Its BAA
+is also self-serve on every plan, where Cal.com's is enterprise-or-add-on, which
+is the same sales-led friction that makes Twilio Security Edition expensive.
+
+**Contingent on one check:** whether PracticeQ's API supports programmatic
+booking *creation*, not just reads. If it does not, Cal.com is the fallback — its
+booking-write and `BOOKING_PAID` webhook are confirmed today. Settle that before
+building the provisioned-booking path.
+
 ---
 
 ## packages/connectors — the anti-corruption layer

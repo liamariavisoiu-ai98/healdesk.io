@@ -1,10 +1,7 @@
-import {
-  CURRENT_BAA_VERSION,
-  currentBaaDocument,
-  hashBaaText,
-} from "@healdesk/catalog";
+import { CURRENT_BAA_VERSION, hashBaaText } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
+import { signAgreement } from "@/lib/agreements";
 import {
   ProvisioningError,
   provisionClinic,
@@ -40,10 +37,34 @@ function validRequest(overrides: Partial<ProvisionRequest> = {}): ProvisionReque
     plan: "core",
     contactName: "Alex Chen",
     contactEmail: "alex@radiance.test",
-    baaVersion: CURRENT_BAA_VERSION,
-    baaAccepted: true,
+    // A real uuid: validation only checks the shape, and the database check
+    // that it exists and is unbound is what the integration tests exercise.
+    agreementId: "11111111-1111-4111-8111-111111111111",
     ...overrides,
   };
+}
+
+/**
+ * Sign an agreement the way the purchase flow does — before provisioning.
+ *
+ * Every provisioning test goes through this, which is the point: there is no
+ * longer a way to create an account without a signature that already exists.
+ */
+async function signFor(
+  clinicName: string,
+  email: string,
+): Promise<string> {
+  const signed = await signAgreement({
+    clinicLegalName: clinicName,
+    specialty: "med-spa",
+    signatoryName: "Alex Chen",
+    signatoryTitle: "Owner",
+    signatoryEmail: email,
+    isCoveredEntity: false,
+    assentLabel: "I agree to the Business Associate Agreement",
+    templateVersion: CURRENT_BAA_VERSION,
+  });
+  return signed.agreementId;
 }
 
 describe("provision request validation", () => {
@@ -81,17 +102,17 @@ describe("provision request validation", () => {
     ).not.toThrow();
   });
 
-  test("refuses an unaccepted agreement", () => {
+  test("refuses provisioning with no signed agreement", () => {
+    // Not a boolean any more. A caller can claim `accepted: true`; it cannot
+    // conjure a signature row that already exists.
     expect(() =>
-      validateProvisionRequest(validRequest({ baaAccepted: false })),
+      validateProvisionRequest(validRequest({ agreementId: undefined as never })),
     ).toThrow(/business associate agreement/i);
   });
 
-  test("refuses a stale agreement version", () => {
-    // Someone left a tab open across a revision — make them read it again
-    // rather than record acceptance of a document they never saw.
+  test("refuses an agreement reference that isn't one", () => {
     expect(() =>
-      validateProvisionRequest(validRequest({ baaVersion: "0.0.0-ancient" })),
+      validateProvisionRequest(validRequest({ agreementId: "yes-i-agreed" })),
     ).toThrow(ProvisioningError);
   });
 
@@ -119,7 +140,8 @@ describeDb("provisioning", () => {
   });
 
   test("the default path completes with zero integration steps", async () => {
-    const result = await provisionClinic(validRequest());
+    const agreementId = await signFor("Radiance Med Spa", "alex@radiance.test");
+    const result = await provisionClinic(validRequest({ agreementId }));
 
     expect(result.clinicSlug).toBe("radiance-med-spa");
     expect(result.clinicId).toBeTruthy();
@@ -148,35 +170,64 @@ describeDb("provisioning", () => {
     expect(clinic.data_classification).toBe("synthetic");
   });
 
-  test("records the agreement with its version and a hash of the exact text", async () => {
+  test("binds the agreement signed before payment, rather than recording a new one", async () => {
+    const email = "owner@hashcheck.test";
+    const agreementId = await signFor("Hash Check Clinic", email);
+
     const result = await provisionClinic(
-      validRequest({ contactEmail: "owner@hashcheck.test" }),
+      validRequest({ contactEmail: email, agreementId }),
     );
 
     const { rows } = await getMigratorPool().query<{
+      id: string;
       document_version: string;
       document_hash: string;
+      rendered_text: string;
       accepted_by_email: string;
-      accepted_by_name: string;
       user_id: string | null;
+      bound_at: Date | null;
     }>(
-      `select document_version, document_hash, accepted_by_email,
-              accepted_by_name, user_id
+      `select id, document_version, document_hash, rendered_text,
+              accepted_by_email, user_id, bound_at
          from baa_acceptances where organization_id = $1`,
       [result.organizationId],
     );
 
+    // Exactly one. Provisioning must not add a second acceptance alongside the
+    // one they actually signed.
+    expect(rows).toHaveLength(1);
+
     const acceptance = rows[0]!;
+    expect(acceptance.id).toBe(agreementId);
     expect(acceptance.document_version).toBe(CURRENT_BAA_VERSION);
-    // The hash is what makes "what did they actually agree to" survive a later
-    // revision of the document.
-    expect(acceptance.document_hash).toBe(
-      hashBaaText(currentBaaDocument().text),
-    );
-    expect(acceptance.accepted_by_email).toBe("owner@hashcheck.test");
-    expect(acceptance.accepted_by_name).toBe("Alex Chen");
+    // The hash covers the RENDERED text — the per-clinic document, not the
+    // template — which is what makes "what did they actually agree to"
+    // answerable after the template changes.
+    expect(acceptance.document_hash).toBe(hashBaaText(acceptance.rendered_text));
+    expect(acceptance.rendered_text).toContain("Hash Check Clinic");
+    expect(acceptance.accepted_by_email).toBe(email);
+    expect(acceptance.bound_at).not.toBeNull();
     // The user does not exist yet — the frozen columns carry the record.
     expect(acceptance.user_id).toBeNull();
+  });
+
+  test("refuses to reuse an agreement that already belongs to an account", async () => {
+    const agreementId = await signFor("Reuse Clinic", "reuse@example.test");
+    await provisionClinic(
+      validRequest({ contactEmail: "reuse@example.test", agreementId }),
+    );
+
+    // One signature, one account. Otherwise a captured agreement id becomes a
+    // free account, and two clinics share one contract.
+    await expect(
+      provisionClinic(
+        validRequest({
+          clinicName: "Second Clinic",
+          contactEmail: "second@example.test",
+          agreementId,
+        }),
+      ),
+    ).rejects.toThrow(/could not be attached/i);
   });
 
   test("the acceptance record cannot be altered by the runtime role", async () => {
@@ -196,8 +247,9 @@ describeDb("provisioning", () => {
   });
 
   test("invites the buyer rather than creating an account for them", async () => {
+    const agreementId = await signFor("Invite Clinic", "invitee@example.test");
     const result = await provisionClinic(
-      validRequest({ contactEmail: "invitee@example.test" }),
+      validRequest({ contactEmail: "invitee@example.test", agreementId }),
     );
 
     const { rows: invites } = await getMigratorPool().query<{
@@ -224,10 +276,18 @@ describeDb("provisioning", () => {
 
   test("gives colliding clinic names distinct slugs", async () => {
     const first = await provisionClinic(
-      validRequest({ clinicName: "Glow Clinic", contactEmail: "a@glow.test" }),
+      validRequest({
+        clinicName: "Glow Clinic",
+        contactEmail: "a@glow.test",
+        agreementId: await signFor("Glow Clinic", "a@glow.test"),
+      }),
     );
     const second = await provisionClinic(
-      validRequest({ clinicName: "Glow Clinic", contactEmail: "b@glow.test" }),
+      validRequest({
+        clinicName: "Glow Clinic",
+        contactEmail: "b@glow.test",
+        agreementId: await signFor("Glow Clinic", "b@glow.test"),
+      }),
     );
 
     expect(first.clinicSlug).toBe("glow-clinic");
@@ -237,7 +297,10 @@ describeDb("provisioning", () => {
 
   test("a provisioned clinic accepts synthetic data immediately", async () => {
     const result = await provisionClinic(
-      validRequest({ contactEmail: "phi@example.test" }),
+      validRequest({
+        contactEmail: "phi@example.test",
+        agreementId: await signFor("PHI Clinic", "phi@example.test"),
+      }),
     );
 
     // The BAA gate allows writes to a 'synthetic' clinic, so the product is

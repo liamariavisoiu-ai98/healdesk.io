@@ -25,6 +25,8 @@ export const site = {
     { label: "Specialties", href: "#specialties" },
     { label: "Live demo", href: "#demo" },
     { label: "What it costs you", href: "#leak" },
-    { label: "Attribution", href: "#attribution" },
+    // "Attribution" reads as ad attribution, which is the one thing this
+    // section is not. The anchor stays #attribution so existing links survive.
+    { label: "Revenue reporting", href: "#attribution" },
   ],
 } as const;

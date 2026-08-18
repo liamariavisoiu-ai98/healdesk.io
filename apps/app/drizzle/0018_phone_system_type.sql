@@ -1,0 +1,2 @@
+CREATE TYPE "public"."phone_system_type" AS ENUM('landline', 'voip', 'unknown');--> statement-breakpoint
+ALTER TABLE "clinics" ADD COLUMN "phone_system_type" "phone_system_type" DEFAULT 'unknown' NOT NULL;

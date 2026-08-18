@@ -76,30 +76,45 @@ export async function seedContact(
   });
 }
 
+/** The ways a contact can be one the clinic would otherwise have lost. */
+export type RecoveryReason =
+  | "after_hours"
+  | "line_busy"
+  | "rang_unanswered"
+  | "missed_call_callback";
+
 /**
  * A conversation the agent handled, optionally one it recovered.
  *
- * `recovered` maps to isRecoveredMissedCall, which is what the attribution
- * engine counts — an automatic callback of a number that rang out.
+ * `recovered: true` is shorthand for a missed-call callback, which keeps the
+ * existing call sites readable. Pass `recoveryReason` instead to seed one of
+ * the other three — the report counts all of them, so a test that only ever
+ * seeds callbacks cannot tell whether the broader definition actually works.
  */
 export async function seedConversation(
   clinicId: string,
   options: {
     startedAt: Date;
     recovered?: boolean;
+    recoveryReason?: RecoveryReason;
     booked?: boolean;
     contactId?: string;
   },
 ): Promise<{ conversationId: string; appointmentId: string | null }> {
+  const recoveryReason =
+    options.recoveryReason ??
+    (options.recovered ? "missed_call_callback" : null);
+
   return inTenant(clinicId, async (client) => {
     const { rows: convo } = await client.query<{ id: string }>(
       `insert into conversations
-         (clinic_id, channel, is_recovered_missed_call, outcome, started_at)
-       values ($1, 'voice', $2, $3, $4)
+         (clinic_id, channel, recovery_reason, outcome, started_at)
+       values ($1, $2, $3, $4, $5)
        returning id`,
       [
         clinicId,
-        options.recovered ?? false,
+        "voice",
+        recoveryReason,
         options.booked ? "booked" : "qualified_no_booking",
         options.startedAt,
       ],

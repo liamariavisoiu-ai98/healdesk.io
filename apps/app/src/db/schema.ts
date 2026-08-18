@@ -14,6 +14,8 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+import type { OpeningHours } from "../lib/clinic/opening-hours";
+
 import { organization, user } from "./auth-schema";
 
 /**
@@ -50,6 +52,31 @@ export const channelEnum = pgEnum("channel", [
   "instagram_dm",
   "whatsapp",
   "web_form",
+]);
+
+/**
+ * The ways a contact reaches us that the clinic would otherwise have lost.
+ *
+ * This replaced a single `is_recovered_missed_call` boolean, which counted only
+ * the last of these and therefore UNDERSTATED the product: a call at 9pm that
+ * the agent answered live was, by that definition, not recovered — even though
+ * nobody at the clinic was ever going to pick it up.
+ *
+ * Each value is a distinct, observable fact at the moment the call arrives, so
+ * none of them requires a judgement call later:
+ *
+ *   after_hours          — outside the clinic's own opening hours.
+ *   line_busy            — their line was already engaged; a simultaneous call.
+ *   rang_unanswered      — rang at the clinic, nobody picked up, we took it live.
+ *   missed_call_callback — it rang out, and we called the number back.
+ *
+ * Null means none of these applied. See conversations.recoveryReason.
+ */
+export const recoveryReasonEnum = pgEnum("recovery_reason", [
+  "after_hours",
+  "line_busy",
+  "rang_unanswered",
+  "missed_call_callback",
 ]);
 
 export const conversationOutcomeEnum = pgEnum("conversation_outcome", [
@@ -121,6 +148,25 @@ export const attributionModeEnum = pgEnum("attribution_mode", [
   "verified",
 ]);
 
+/**
+ * What kind of phone line the clinic publishes.
+ *
+ * Asked at onboarding because it decides whether the clinic's own number can be
+ * text-enabled: a carrier will text-enable a landline or toll-free number, but
+ * NOT a VoIP number — and a large share of clinics publish RingCentral, Nextiva
+ * or Dialpad. Call forwarding works either way, so voice is unaffected; it is
+ * the SMS reminder fallback that silently has nowhere to go.
+ *
+ * "unknown" is the honest default and a common real answer. Most owners do not
+ * know what their phone system is, and guessing produces a confident wrong
+ * value that surfaces as a failed provisioning weeks later.
+ */
+export const phoneSystemTypeEnum = pgEnum("phone_system_type", [
+  "landline",
+  "voip",
+  "unknown",
+]);
+
 // -----------------------------------------------------------------------------
 // Tenancy
 // -----------------------------------------------------------------------------
@@ -161,6 +207,34 @@ export const clinics = pgTable(
     /** From the purchase-flow picker. "none" is a first-class answer, not a gap. */
     bookingProvider: text("booking_provider"),
     posProvider: text("pos_provider"),
+
+    /**
+     * Landline/toll-free vs VoIP. Gates whether the text-back number can be
+     * provisioned against the clinic's own published line. See the enum.
+     */
+    phoneSystemType: phoneSystemTypeEnum("phone_system_type")
+      .notNull()
+      .default("unknown"),
+
+    /**
+     * When the clinic's own front desk is open, in `timezone` above.
+     *
+     * The input to `recovery_reason = 'after_hours'`. Ingestion cannot decide
+     * that a 9pm call would have been missed without knowing the clinic shuts
+     * at 5 — and that is the single largest category of genuinely recovered
+     * contacts, so leaving it uncollected quietly understates every report.
+     *
+     * NULL means not yet collected, and it is not the same as "closed". Nothing
+     * may infer hours from a default: a clinic wrongly assumed to close at 5
+     * would have its 6pm calls claimed as recovered when its own staff answered
+     * them, which overstates in the one number a clinic checks us on. Where
+     * this is null, ingestion records no after-hours reason at all.
+     *
+     * Shape is validated by parseOpeningHours() in lib/clinic/opening-hours.ts
+     * rather than by the column, because a check constraint over JSON is hard
+     * to read and harder to change. See that file for the format.
+     */
+    openingHours: jsonb("opening_hours").$type<OpeningHours>(),
 
     attributionMode: attributionModeEnum("attribution_mode")
       .notNull()
@@ -327,36 +401,32 @@ export const providerConnections = pgTable(
 );
 
 // -----------------------------------------------------------------------------
-// Stage 1 — the click (ad platform)
+// REMOVED — the ad-click stage (`ad_interactions`), dropped in 0017
 // -----------------------------------------------------------------------------
-
-export const adInteractions = pgTable(
-  "ad_interactions",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    clinicId: uuid("clinic_id")
-      .notNull()
-      .references(() => clinics.id, { onDelete: "cascade" }),
-
-    platform: text("platform").notNull(),
-    /** Platform's own click id — gclid, fbclid. */
-    externalClickId: text("external_click_id"),
-    campaignId: text("campaign_id"),
-    adsetId: text("adset_id"),
-
-    costUsd: numeric("cost_usd", { precision: 12, scale: 2 }),
-
-    landingPage: text("landing_page"),
-    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
-  },
-  (t) => [
-    index("ad_interactions_clinic_idx").on(t.clinicId, t.occurredAt),
-    index("ad_interactions_click_idx").on(t.clinicId, t.externalClickId),
-  ],
-);
+//
+// There used to be an `ad_interactions` table here holding gclid/fbclid click
+// ids, joined to `conversations.ad_interaction_id`, so a booking could be traced
+// back to the ad that produced it and pushed to Meta or Google.
+//
+// That capability is out of scope entirely — not deferred, not a paid add-on.
+// The join was the problem, not the table: a row linking a patient's phone call
+// to a Meta click id is person-level health data by the FTC's reading, and it is
+// the exact fact pattern behind GoodRx ($1.5M) and BetterHelp ($7.8M). The 2024
+// HBNR amendment makes the unauthorised *disclosure itself* the reportable
+// breach, so the exposure needed no hack to trigger — and Meta's Business Tools
+// Terms §1.h bans health data outright, meaning a lawful transmission could
+// still have broken the clinic's own Meta contract.
+//
+// What replaces it is narrower and keeps the data inside the clinic: revenue is
+// reconciled from the POS money event and reported back to the clinic itself.
+// See src/lib/attribution — despite the name, nothing there leaves for an ad
+// network, and it must stay that way.
+//
+// Do not reintroduce a click-id column without counsel. See
+// docs/research-conclusions.md Part 3.
 
 // -----------------------------------------------------------------------------
-// Stage 2 — the conversation  ⚠️ PHI
+// Stage 1 — the conversation  ⚠️ PHI
 // -----------------------------------------------------------------------------
 
 export const contacts = pgTable(
@@ -405,15 +475,28 @@ export const conversations = pgTable(
       .references(() => clinics.id, { onDelete: "cascade" }),
     contactId: uuid("contact_id").references(() => contacts.id),
 
-    adInteractionId: uuid("ad_interaction_id").references(
-      () => adInteractions.id,
-    ),
-
     channel: channelEnum("channel").notNull(),
-    /** True when this is the automatic callback of a number that rang out. */
-    isRecoveredMissedCall: boolean("is_recovered_missed_call")
-      .notNull()
-      .default(false),
+
+    /**
+     * Why this contact would have been lost without us — or null if it wouldn't.
+     *
+     * Null is the honest default and means "the clinic would have handled this
+     * anyway": a call during opening hours, to a free line, that their own front
+     * desk would have picked up. We answered it, but we cannot claim to have
+     * recovered it.
+     *
+     * Anything non-null is counted as recovered by the monthly report, and each
+     * value is a fact recorded at ingestion rather than inferred afterwards.
+     * That ordering matters — `after_hours` in particular depends on the
+     * clinic's own opening hours, which the ingesting layer knows and the report
+     * does not.
+     *
+     * ⚠️ The rule for adding a value here: only if the clinic genuinely would
+     * NOT have handled the contact. A call that was answered and simply didn't
+     * book is not recovery, it is a call that didn't convert — counting it would
+     * inflate the one number a clinic judges us on.
+     */
+    recoveryReason: recoveryReasonEnum("recovery_reason"),
 
     outcome: conversationOutcomeEnum("outcome"),
     treatmentInterest: text("treatment_interest"),
@@ -445,7 +528,6 @@ export const conversations = pgTable(
     // Clinic-first: under RLS every query carries clinic_id, so a lookup by FK
     // alone would index-scan then re-filter. That's the common path, not the rare one.
     index("conversations_contact_idx").on(t.clinicId, t.contactId),
-    index("conversations_ad_idx").on(t.clinicId, t.adInteractionId),
   ],
 );
 
@@ -645,16 +727,47 @@ export const baaAcceptances = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
 
-    organizationId: text("organization_id")
-      .notNull()
-      .references(() => organization.id, { onDelete: "restrict" }),
+    /**
+     * Null until payment succeeds and the organization exists.
+     *
+     * The agreement is signed BEFORE payment — that is the whole point, since a
+     * business associate may not receive patient data without one, and we would
+     * rather hold a signed agreement for a deal that never closed than take
+     * money for an account that has no agreement behind it. So the row is
+     * written at signature and bound to an organization afterwards.
+     */
+    organizationId: text("organization_id").references(() => organization.id, {
+      onDelete: "restrict",
+    }),
     /** Nullable: the accepting user may be created in the same transaction. */
     userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
 
-    /** e.g. "2026-08-01". Matches a document in packages/legal. */
+    /** Template version, e.g. "0.0.0-draft". Matches BAA_TEMPLATES in @healdesk/catalog. */
     documentVersion: text("document_version").notNull(),
-    /** SHA-256 of the exact text shown, so a later edit can't be mistaken for what was signed. */
+    /** SHA-256 of renderedText. The link between the record and the document. */
     documentHash: text("document_hash").notNull(),
+
+    /**
+     * The exact document this person was shown, rendered.
+     *
+     * Stored in full rather than reconstructed on demand. Re-rendering from the
+     * template and variables would be smaller, but it silently changes the
+     * answer if the template is ever edited in place — and "we can regenerate
+     * something similar" is not what a court asks for. This column is the
+     * evidence; documentHash proves it hasn't been touched.
+     */
+    renderedText: text("rendered_text").notNull(),
+    /** The substitution values, so the render can be independently reproduced. */
+    variables: jsonb("variables").$type<Record<string, unknown>>().notNull(),
+
+    /**
+     * The label on the button they clicked.
+     *
+     * Frozen because enforceability turns on what the assent action said, and
+     * marketing copy changes. "I agree to the Business Associate Agreement" and
+     * "Continue" are very different facts about the same click.
+     */
+    assentLabel: text("assent_label").notNull(),
 
     /** Frozen at acceptance — the FK above may go null. */
     acceptedByName: text("accepted_by_name").notNull(),
@@ -667,10 +780,18 @@ export const baaAcceptances = pgTable(
     acceptedAt: timestamp("accepted_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /** When the acceptance was attached to a paid organization. */
+    boundAt: timestamp("bound_at", { withTimezone: true }),
   },
   (t) => [
     index("baa_acceptances_org_idx").on(t.organizationId, t.acceptedAt),
     index("baa_acceptances_version_idx").on(t.documentVersion),
+    // Signed but never paid for. Read by ops to follow up, and by the retention
+    // sweep — an unbound acceptance is a live legal record, not junk, but it
+    // should not accumulate for ever either.
+    index("baa_acceptances_unbound_idx")
+      .on(t.acceptedAt)
+      .where(sql`${t.organizationId} is null`),
   ],
 );
 
@@ -1086,7 +1207,6 @@ export const scheduledJobs = pgTable("scheduled_jobs", {
 export const TENANT_SCOPED_TABLES = [
   "clinic_memberships",
   "provider_connections",
-  "ad_interactions",
   "contacts",
   "conversations",
   "appointments",

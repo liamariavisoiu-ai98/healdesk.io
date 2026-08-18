@@ -9,19 +9,19 @@ const CAPABILITIES = [
   },
   {
     title: "Writes real bookings",
-    body: "Into the calendar or EMR you already run — Mindbody, Vagaro, Boulevard, Zenoti, GHL — with deposits collected at the point of booking to cut no-shows.",
+    body: "Into the booking system you already run — Mindbody, Vagaro, Boulevard, Zenoti, GHL — or your plain calendar, with a secure deposit link sent after the call to cut no-shows.",
   },
   {
-    title: "Runs intake and consent",
-    body: "Medical-grade intake, signed consent artifacts, and contraindication screening captured before the visit, documented for audit.",
+    title: "Keeps clinical off the phone",
+    body: "Intake, medical history and consent go to a secure link or your clinician — never collected on the call. Less of your patients' medical detail in fewer places, by design.",
   },
   {
     title: "Reactivates the dormant list",
-    body: "The lever nobody pulls: the patients who got filler eight months ago and never rebooked. Sequenced, contraindication-aware, membership-aware.",
+    body: "The lever nobody pulls: the patients who got filler eight months ago and never rebooked. Sequenced, membership-aware, and every message carries STOP.",
   },
   {
     title: "Closes the revenue loop",
-    body: "Reconciles clicks to booked to showed to spent in one view, then feeds it back to your ad platforms. No enterprise contract required.",
+    body: "Reconciles recovered calls to booked to showed to collected, read back from your own point-of-sale. Your numbers, reported to you. No enterprise contract required.",
   },
 ] as const;
 

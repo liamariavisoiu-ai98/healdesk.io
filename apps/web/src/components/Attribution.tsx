@@ -4,10 +4,10 @@ import { motion, useReducedMotion } from "motion/react";
 
 const STAGES = [
   {
-    id: "click",
-    label: "Ad click",
-    detail: "Meta / Google",
-    value: "$42 spend",
+    id: "rang",
+    label: "The phone rang",
+    detail: "After hours, or while you were with a patient",
+    value: "Missed",
     covered: true,
   },
   {
@@ -34,7 +34,7 @@ const STAGES = [
   {
     id: "spent",
     label: "Money collected",
-    detail: "Read back from the POS",
+    detail: "Read back from your POS",
     value: "$1,400",
     covered: false,
   },
@@ -46,6 +46,23 @@ const STAGES = [
  * Incumbents write *into* the booking system and stop. The last two stages —
  * showed and spent — require reading back *out* of check-in and the POS, which
  * is the whole argument for the product. See docs/prd.md.
+ *
+ * ## The chain starts at the ring, not at an ad click
+ *
+ * An earlier version opened with "Ad click · Meta / Google · $42 spend" and
+ * closed by promising the clinic could push the result back to the ad
+ * platforms. Both are gone, and neither should come back.
+ *
+ * Conversion attribution to an ad network is out of scope for the product, so
+ * the copy was selling something we will not ship. It also pointed at the one
+ * surface that carries real regulatory risk: sending person-level health data
+ * to an ad platform is the GoodRx and BetterHelp fact pattern, Meta's Business
+ * Tools Terms ban health data outright, and a clinic's counsel reading a claim
+ * that implies that transfer is a lost deal at best.
+ *
+ * What is left is stronger anyway, because every stage of it happens inside the
+ * clinic's own systems and can be shown to them: their phone, their calendar,
+ * their check-in, their point of sale. Nothing leaves for a third party.
  */
 export function Attribution() {
   const reduceMotion = useReducedMotion();
@@ -127,10 +144,16 @@ export function Attribution() {
       </ol>
 
       <p className="text-muted mt-8 max-w-[62ch] text-[15px] font-medium">
-        Closing that loop means a clinic can finally answer the only question that
-        matters — <span className="text-ink font-semibold">what did the front desk
-        earn me?</span> — and push it back to the ad platforms. It&apos;s the
-        capability enterprise suites charge enterprise prices for.
+        Closing that loop means you can finally answer the only question that
+        matters — <span className="text-ink font-semibold">what did the front
+        desk earn me?</span> — from calls that would have gone to voicemail and
+        lapsed patients who booked again. It&apos;s the capability enterprise
+        suites charge enterprise prices for.
+      </p>
+      <p className="text-muted mt-4 max-w-[62ch] text-[14px]">
+        All of it stays inside your own systems: your phone, your calendar, your
+        point of sale, and a report back to you. We never send patient
+        information to an advertising platform, in any form.
       </p>
     </section>
   );

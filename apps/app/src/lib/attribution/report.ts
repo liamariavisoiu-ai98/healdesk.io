@@ -57,15 +57,25 @@ export type MonthlyReport = {
 /**
  * What counts as "recovered".
  *
- * v1 counts only conversations flagged as an automatic callback of a number
- * that rang out. After-hours calls arguably qualify too — nobody was going to
- * answer at 9pm — but that needs per-clinic business hours we don't collect
- * yet, and inventing them would inflate the number.
+ * Any conversation carrying a recovery reason: after hours, the line already
+ * busy, rang unanswered and taken live, or called back after ringing out. All
+ * four are contacts the clinic would not otherwise have handled, so all four
+ * are ours to claim.
  *
- * This deliberately UNDERSTATES. If we're going to be wrong about the figure a
- * clinic judges us on, wrong-low is the survivable direction.
+ * This used to count ONLY the callback case, because that was the single
+ * boolean the schema carried. That understated the product materially — a 9pm
+ * call the agent answered live scored zero, despite being the clearest example
+ * of the thing customers buy this for. The fix is in the schema rather than
+ * here: `recovery_reason` records WHY a contact would have been lost, at the
+ * moment it arrives, and this predicate simply counts anything so marked.
+ *
+ * Understating is still the safer direction to be wrong in, and the guard
+ * against overstating now sits at ingestion, where it belongs: a reason is
+ * recorded only when the clinic genuinely would not have handled the contact.
+ * A call that was answered and merely didn't book is not recovery, and null is
+ * the default precisely so that silence never reads as a claim.
  */
-const RECOVERED = eq(conversations.isRecoveredMissedCall, true);
+const RECOVERED = isNotNull(conversations.recoveryReason);
 
 export async function buildMonthlyReport(
   clinicId: string,

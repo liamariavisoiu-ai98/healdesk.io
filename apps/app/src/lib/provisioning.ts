@@ -1,11 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  CURRENT_BAA_VERSION,
-  getBaaDocument,
   getPlan,
   getPlatform,
-  hashBaaText,
   isSpecialtyId,
   NO_PLATFORM_ID,
   supportsVerifiedAttribution,
@@ -14,8 +11,9 @@ import { eq, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import { invitation, organization, user } from "@/db/auth-schema";
-import { baaAcceptances, clinicMemberships, clinics } from "@/db/schema";
+import { clinicMemberships, clinics } from "@/db/schema";
 
+import { bindAgreement } from "./agreements";
 import { recordSecurityEvent } from "./audit";
 import type { RequestContext } from "./audit";
 
@@ -35,9 +33,17 @@ import type { RequestContext } from "./audit";
  * clinic, then invites the buyer. They set a password from the invite link, and
  * Better Auth's create hook finds the pending invitation and allows the account.
  *
- * A consequence worth noting: the BAA is accepted during checkout, before the
- * user record exists. That is why baa_acceptances.userId is nullable and the
- * accepting person's name and email are frozen into their own columns.
+ * ## Why provisioning does not record the BAA
+ *
+ * It already happened. The agreement is signed BEFORE payment, on its own
+ * endpoint, because a business associate may not receive patient data without a
+ * written contract — so it cannot be a side effect of a payment webhook that
+ * may or may not arrive. By the time we reach here the signature exists; this
+ * only binds it to the organization that payment just created.
+ *
+ * That is also why baa_acceptances.userId is nullable: the buyer signed before
+ * any user record existed, and their name and email are frozen into their own
+ * columns on the acceptance row.
  */
 
 /** Well-known inviter for self-serve signups, where no human is inviting. */
@@ -70,8 +76,24 @@ export type ProvisionRequest = {
   contactEmail: string;
   contactTitle?: string;
 
-  baaVersion: string;
-  baaAccepted: boolean;
+  /**
+   * Landline/toll-free vs VoIP, from discovery question B.
+   *
+   * Optional, and defaults to "unknown" rather than to a guess: it decides
+   * whether the clinic's published number can be text-enabled at all, and an
+   * assumed "landline" would surface as a failed provisioning weeks later.
+   */
+  phoneSystemType?: "landline" | "voip" | "unknown";
+
+  /**
+   * The agreement signed BEFORE payment, from POST /api/agreements.
+   *
+   * Provisioning no longer records the acceptance itself — by the time we get
+   * here the buyer has already signed, and re-recording it would produce a
+   * second row with a later timestamp and a different rendered document. This
+   * id binds the existing signature to the organization payment just created.
+   */
+  agreementId: string;
 };
 
 export type ProvisionResult = {
@@ -151,20 +173,23 @@ export function validateProvisionRequest(
     throw new ProvisioningError("A valid email is required.", "contactEmail");
   }
 
-  if (body.baaAccepted !== true) {
+  if (
+    body.phoneSystemType !== undefined &&
+    !["landline", "voip", "unknown"].includes(body.phoneSystemType)
+  ) {
     throw new ProvisioningError(
-      "The business associate agreement must be accepted.",
-      "baaAccepted",
+      "Invalid phone system type.",
+      "phoneSystemType",
     );
   }
-  if (!getBaaDocument(body.baaVersion ?? "")) {
-    throw new ProvisioningError("Unknown agreement version.", "baaVersion");
-  }
-  if (body.baaVersion !== CURRENT_BAA_VERSION) {
-    // Someone left a tab open across a revision. Make them re-read it.
+
+  // No `baaAccepted: true` flag any more, deliberately. A boolean sent by the
+  // caller is a claim; an agreement id is a row that already exists, signed,
+  // with its own text and hash. The second is checkable and the first is not.
+  if (!isUuid(body.agreementId ?? "")) {
     throw new ProvisioningError(
-      "The agreement has been updated. Please review it again.",
-      "baaVersion",
+      "A signed business associate agreement is required before an account can be created.",
+      "agreementId",
     );
   }
 }
@@ -174,7 +199,6 @@ export async function provisionClinic(
   context: RequestContext = {},
 ): Promise<ProvisionResult> {
   const email = request.contactEmail.trim().toLowerCase();
-  const document = getBaaDocument(request.baaVersion)!;
   const platform = getPlatform(request.platform)!;
 
   await ensureSystemUser();
@@ -190,14 +214,7 @@ export async function provisionClinic(
     const slug =
       attempt === 0 ? baseSlug : `${baseSlug}-${randomUUID().slice(0, 6)}`;
     try {
-      return await provisionOnce({
-        request,
-        context,
-        email,
-        document,
-        platform,
-        slug,
-      });
+      return await provisionOnce({ request, context, email, platform, slug });
     } catch (error) {
       if (attempt < 4 && isUniqueViolation(error)) continue;
       throw error;
@@ -209,14 +226,12 @@ async function provisionOnce({
   request,
   context,
   email,
-  document,
   platform,
   slug,
 }: {
   request: ProvisionRequest;
   context: RequestContext;
   email: string;
-  document: { version: string; text: string };
   platform: { id: string };
   slug: string;
 }): Promise<ProvisionResult> {
@@ -246,6 +261,22 @@ async function provisionOnce({
       createdAt: new Date(),
     });
 
+    // Bind the agreement they already signed, rather than recording a new one —
+    // and do it BEFORE the clinic row, because the clinic needs the
+    // covered-entity determination out of the signed document.
+    //
+    // If this fails the whole provision fails, and that is the correct
+    // behaviour: an account whose agreement could not be attached is an account
+    // we cannot lawfully send patient data to. Better to fail the webhook and
+    // let Stripe retry than to create a clinic with a dangling contract.
+    const signed = await bindAgreement(tx, request.agreementId, organizationId);
+    if (!signed) {
+      throw new ProvisioningError(
+        "That agreement could not be attached — it may already belong to another account.",
+        "agreementId",
+      );
+    }
+
     await tx.insert(clinics).values({
       id: clinicId,
       organizationId,
@@ -254,28 +285,21 @@ async function provisionOnce({
       specialty: request.specialty,
       timezone: request.timezone ?? "America/New_York",
       bookingProvider: request.platform === NO_PLATFORM_ID ? null : platform.id,
+      phoneSystemType: request.phoneSystemType ?? "unknown",
       attributionMode: request.attributionMode,
       averageTreatmentValueUsd:
         request.averageTreatmentValueUsd?.toFixed(2) ?? null,
       plan: request.plan,
+      // Taken from the signed agreement, never re-asked. This one determination
+      // decides the contract, the consent standard, the state-law exposure and
+      // the TCPA defence, so it must be the answer that is actually in the
+      // document — `null` where the buyer said they did not know.
+      isCoveredEntity: signed.isCoveredEntity ?? null,
       // Always synthetic at creation, whatever the buyer selected. Moving a
       // clinic to 'production' requires a signed BAA and is a deliberate,
       // separate act — until then the database refuses PHI writes entirely
       // (drizzle/0004_baa_gate.sql).
       dataClassification: "synthetic",
-    });
-
-    await tx.insert(baaAcceptances).values({
-      organizationId,
-      // The user does not exist yet; the frozen columns below carry the record.
-      userId: null,
-      documentVersion: document.version,
-      documentHash: hashBaaText(document.text),
-      acceptedByName: request.contactName.trim(),
-      acceptedByEmail: email,
-      acceptedByTitle: request.contactTitle?.trim() || null,
-      ipAddress: context.ipAddress ?? null,
-      userAgent: context.userAgent ?? null,
     });
 
     const invitationId = randomUUID();
@@ -306,7 +330,7 @@ async function provisionOnce({
         platform: request.platform,
         plan: request.plan,
         attributionMode: request.attributionMode,
-        baaVersion: document.version,
+        agreementId: request.agreementId,
       },
     });
 
@@ -400,5 +424,12 @@ function isEmail(value: unknown): value is string {
     typeof value === "string" &&
     value.length <= 254 &&
     /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value)
+  );
+}
+
+function isUuid(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
   );
 }

@@ -53,7 +53,12 @@ export const specialties: readonly Specialty[] = [
     chips: [
       "How much is Botox?",
       "Do you offer memberships?",
-      "Is healdesk HIPAA compliant?",
+      // Deliberately "how do you handle patient data", not "are you HIPAA
+      // compliant". No body certifies HIPAA compliance, so the second question
+      // invites an answer that asserts a verification nobody performed — the
+      // theory the FTC charged as a standalone deception count in SkyMed.
+      // This phrasing gets the same reassurance from things we can evidence.
+      "How do you handle patient data?",
     ],
     context:
       "Example US pricing: Botox $12-16/unit ($350-550 per treatment), lip and dermal filler $650-900/syringe, monthly memberships common ($99-199/mo). Consults are often free; deposits are used to cut no-shows.",
@@ -185,12 +190,16 @@ export const specialties: readonly Specialty[] = [
       { agent: false, text: "Do you treat acne, and do you take my insurance?" },
       {
         agent: true,
-        text: "We treat acne. I can verify your plan if you read me the member ID, or you can bring the card to your visit. Want me to book you this week?",
+        // Deliberately does NOT take the member ID over the phone. Insurance
+        // details, like date of birth and medical history, go to a secure link
+        // — the agent collects only what it needs to place a booking. The demo
+        // has to show the product we actually ship.
+        text: "We treat acne, and we do take most plans. I'll text you a secure link to add your insurance details so the front desk can check it before you come in. Want me to book you this week?",
       },
       { agent: false, text: "Sure." },
       {
         agent: true,
-        text: "Friday at 2:00 with the PA. Can I get your name and date of birth?",
+        text: "Friday at 2:00 with the PA. Can I get your name and the best number to reach you?",
       },
     ],
     economics: {

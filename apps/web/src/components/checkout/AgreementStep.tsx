@@ -57,6 +57,10 @@ export function AgreementStep({
   totalSteps,
   clinicName,
   specialty,
+  specialtyId,
+  attributionMode,
+  platformId,
+  platformName,
   contactName,
   contactEmail,
   contactTitle,
@@ -66,7 +70,19 @@ export function AgreementStep({
   step: number;
   totalSteps: number;
   clinicName: string;
+  /** Display name, for the document. */
   specialty: string;
+  /** Catalog id, for the API. */
+  specialtyId: string;
+  /**
+   * The two funnel choices that change the AGREEMENT rather than the product.
+   * See packages/catalog/src/baa.ts — verified means we hold credentials to
+   * their booking system, estimated means we hold none, and the permitted-uses
+   * clause differs accordingly.
+   */
+  attributionMode: "estimated" | "verified";
+  platformId: string;
+  platformName: string | null;
   contactName: string;
   contactEmail: string;
   contactTitle?: string;
@@ -108,8 +124,20 @@ export function AgreementStep({
       effectiveDate: new Date().toISOString().slice(0, 10),
       specialty: specialty || "healthcare",
       isCoveredEntity: coveredEntity,
+      attributionMode,
+      connectedPlatform: platformName,
+      outboundMessaging: true,
     });
-  }, [clinicName, signature, title, contactEmail, specialty, coveredEntity]);
+  }, [
+    clinicName,
+    signature,
+    title,
+    contactEmail,
+    specialty,
+    coveredEntity,
+    attributionMode,
+    platformName,
+  ]);
 
   // The signature must match the name they gave us. Not a legal requirement —
   // an evidentiary one: a mismatch is the first thing anyone disputing this
@@ -146,7 +174,9 @@ export function AgreementStep({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           clinicLegalName: clinicName.trim(),
-          specialty,
+          specialty: specialtyId,
+          attributionMode,
+          platform: platformId,
           signatoryName: signature.trim(),
           signatoryTitle: title.trim() || undefined,
           signatoryEmail: contactEmail.trim(),

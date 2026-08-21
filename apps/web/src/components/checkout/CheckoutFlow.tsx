@@ -443,6 +443,15 @@ export function CheckoutFlow({ initialPlan }: { initialPlan: string }) {
           specialties.find((s) => s.id === state.specialty)?.name ??
           state.specialty
         }
+        specialtyId={state.specialty}
+        // What they chose at steps 2 and 3 changes the agreement, not just the
+        // product. A clinic on estimated reporting gave us no credentials, and
+        // their contract must not describe a connection they declined.
+        attributionMode={state.attributionMode}
+        platformId={state.platform}
+        platformName={
+          state.platform === NO_PLATFORM_ID ? null : (platform?.name ?? null)
+        }
         contactName={state.contactName.trim()}
         contactEmail={state.contactEmail.trim()}
         contactTitle={state.contactTitle.trim() || undefined}

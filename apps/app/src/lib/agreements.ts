@@ -2,9 +2,12 @@ import {
   BaaRenderError,
   currentBaaTemplate,
   getBaaTemplate,
+  getPlatform,
   isSpecialtyId,
+  NO_PLATFORM_ID,
   prepareBaa,
   specialties,
+  supportsVerifiedAttribution,
   type BaaVariables,
 } from "@healdesk/catalog";
 import { and, eq, isNull, sql } from "drizzle-orm";
@@ -61,6 +64,17 @@ export type SignAgreementRequest = {
   signatoryEmail: string;
   /** true | false | null — "I don't know" is a real and common answer. */
   isCoveredEntity: boolean | null;
+  /**
+   * The funnel choices that change the AGREEMENT, not just the product.
+   *
+   * Verified attribution means we hold read-only credentials to their booking
+   * system; estimated means we hold none. The permitted-uses clause differs,
+   * so the selection has to travel with the signature rather than being read
+   * later off the clinic row — which does not exist yet at signing time.
+   */
+  attributionMode: "estimated" | "verified";
+  /** Platform id from the catalog, or "none". */
+  platform: string;
   /** The exact label of the button the signer clicked. */
   assentLabel: string;
   /** Template version the browser rendered. Must be the current one. */
@@ -82,6 +96,8 @@ export type SignedAgreement = {
   agreementId: string;
   version: string;
   hash: string;
+  /** Which clauses this clinic's agreement contains. */
+  clauseIds: string[];
   /** The rendered document, returned so the buyer can be shown/emailed a copy. */
   text: string;
   acceptedAt: Date;
@@ -134,6 +150,31 @@ export function validateSignRequest(
     );
   }
 
+  if (
+    body.attributionMode !== "estimated" &&
+    body.attributionMode !== "verified"
+  ) {
+    throw new AgreementError("Invalid attribution mode.", "attributionMode");
+  }
+
+  const platform = getPlatform(body.platform ?? "");
+  if (!platform) {
+    throw new AgreementError("Unknown platform.", "platform");
+  }
+
+  // Verified attribution needs something to read from. Signing an agreement
+  // that describes a connection to nothing would be describing a data flow
+  // that cannot exist.
+  if (
+    body.attributionMode === "verified" &&
+    !supportsVerifiedAttribution(platform)
+  ) {
+    throw new AgreementError(
+      `Verified reporting needs a system to read from; ${platform.name} has none.`,
+      "attributionMode",
+    );
+  }
+
   if (!body.assentLabel?.trim() || body.assentLabel.length > MAX_ASSENT_LABEL) {
     throw new AgreementError("Missing assent label.", "assentLabel");
   }
@@ -176,7 +217,33 @@ export async function signAgreement(
       specialties.find((s) => s.id === request.specialty)?.name ??
       request.specialty,
     isCoveredEntity: request.isCoveredEntity,
+    attributionMode: request.attributionMode,
+    connectedPlatform:
+      request.platform === NO_PLATFORM_ID
+        ? null
+        : (getPlatform(request.platform)?.name ?? null),
+    // Always on today: reminders and missed-call follow-ups are the product.
+    // Modelled as a selection anyway so that a clinic which later declines
+    // outbound messaging gets an agreement without the consent warranty,
+    // rather than one that warrants something they never agreed to do.
+    outboundMessaging: true,
   };
+
+  /**
+   * Re-check the one combination that cannot describe a real data flow.
+   *
+   * validateSignRequest already rejects it on the API path, but signAgreement
+   * is exported and callable, and renderBaa's own refusal surfaces as the
+   * generic "we couldn't prepare your agreement" — correct for a template bug,
+   * useless for a caller error. Checking here means both entry points give the
+   * same precise answer.
+   */
+  if (variables.attributionMode === "verified" && !variables.connectedPlatform) {
+    throw new AgreementError(
+      "Verified reporting needs a system to read from; nothing is connected.",
+      "attributionMode",
+    );
+  }
 
   let prepared: ReturnType<typeof prepareBaa>;
   try {
@@ -221,6 +288,9 @@ export async function signAgreement(
       renderedText: prepared.text,
       variables: {
         ...variables,
+        // The variant, recorded. Reproducing the document years from now must
+        // not depend on the clause predicates still evaluating the same way.
+        appliedClauses: prepared.clauseIds,
         // Recorded because its ABSENCE is itself a fact about the signature:
         // this one could not be checked against what the browser displayed.
         displayedHashVerified: Boolean(request.displayedHash),
@@ -256,6 +326,7 @@ export async function signAgreement(
     agreementId: acceptance.id,
     version: prepared.version,
     hash: prepared.hash,
+    clauseIds: prepared.clauseIds,
     text: prepared.text,
     acceptedAt: acceptance.acceptedAt,
     approvedByCounsel: template.approvedByCounsel,

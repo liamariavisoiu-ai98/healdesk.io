@@ -1,4 +1,5 @@
 import {
+  applicableClauses,
   BaaRenderError,
   BAA_EXPLAINER,
   currentBaaTemplate,
@@ -6,6 +7,7 @@ import {
   hashBaaText,
   prepareBaa,
   renderBaa,
+  type BaaVariables,
 } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
@@ -15,6 +17,7 @@ import {
   signAgreement,
   unboundAgreements,
   validateSignRequest,
+  type SignAgreementRequest,
 } from "@/lib/agreements";
 
 import {
@@ -36,7 +39,7 @@ import {
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 
-const VARS = {
+const VARS: BaaVariables = {
   clinicLegalName: "Radiance Med Spa",
   signatoryName: "Alex Chen",
   signatoryTitle: "Owner",
@@ -44,19 +47,25 @@ const VARS = {
   effectiveDate: "2026-08-18",
   specialty: "Med spa",
   isCoveredEntity: false,
-} as const;
+  attributionMode: "estimated",
+  connectedPlatform: null,
+  outboundMessaging: true,
+};
 
-const validSignRequest = (over: Record<string, unknown> = {}) => ({
+const validSignRequest = (over: Record<string, unknown> = {}) =>
+  ({
   clinicLegalName: "Radiance Med Spa",
   specialty: "med-spa",
   signatoryName: "Alex Chen",
   signatoryTitle: "Owner",
   signatoryEmail: "alex@radiance.test",
   isCoveredEntity: false,
+  attributionMode: "estimated",
+  platform: "none",
   assentLabel: "I agree to the Business Associate Agreement",
-  templateVersion: CURRENT_BAA_VERSION,
-  ...over,
-});
+    templateVersion: CURRENT_BAA_VERSION,
+    ...over,
+  }) as SignAgreementRequest;
 
 describe("rendering", () => {
   test("names the practice and the signer in the document itself", () => {
@@ -80,12 +89,41 @@ describe("rendering", () => {
     ).toThrow(BaaRenderError);
   });
 
-  test("an unknown placeholder throws instead of rendering literally", () => {
+  test("a placeholder that survives assembly throws instead of shipping", () => {
+    // Clause bodies are functions now, so the old {{name}} substitution can no
+    // longer leak. This guards the remaining route: someone writes a clause
+    // with template syntax the assembler no longer honours, and it renders
+    // literally into a contract.
     const broken = {
       ...currentBaaTemplate(),
-      body: "Between {{clinicLegalName}} and {{whoeverThisIs}}.",
+      clauses: [
+        {
+          id: "leaky",
+          heading: "Leaky",
+          appliesWhen: () => true,
+          body: () => "Between {{clinicLegalName}} and whoever.",
+        },
+      ],
     };
-    expect(() => renderBaa(broken, VARS)).toThrow(/whoeverThisIs/);
+    expect(() => renderBaa(broken, VARS)).toThrow(/placeholder/i);
+  });
+
+  test("a clause that renders empty throws rather than leaving a numbered blank", () => {
+    const broken = {
+      ...currentBaaTemplate(),
+      clauses: [
+        { id: "hollow", heading: "Hollow", appliesWhen: () => true, body: () => "   " },
+      ],
+    };
+    expect(() => renderBaa(broken, VARS)).toThrow(/hollow/i);
+  });
+
+  test("an agreement with no applicable clauses is refused", () => {
+    // Not a hypothetical: a future predicate written with the wrong comparison
+    // could exclude everything, and an empty contract that still hashes and
+    // stores is the worst possible outcome — it looks like evidence.
+    const empty = { ...currentBaaTemplate(), clauses: [] };
+    expect(() => renderBaa(empty, VARS)).toThrow(/cannot be an agreement/i);
   });
 
   test("the title is optional and leaves no dangling comma", () => {
@@ -139,6 +177,161 @@ describe("rendering", () => {
     }
   });
 });
+
+/**
+ * Every reachable agreement, enumerated.
+ *
+ * This is the test that makes "the contract adapts to what they bought" and
+ * "a lawyer has approved the contract" compatible claims. The clause
+ * predicates are pure, so the variant set is finite and can be walked — and
+ * counsel reviews that matrix once instead of an unbounded set of documents.
+ *
+ * If a future clause makes the set combinatorially large, that is the signal
+ * that it has stopped being reviewable, and this test failing to enumerate is
+ * the right way to find out.
+ */
+describe("every variant the funnel can produce", () => {
+  const AXES = {
+    isCoveredEntity: [true, false, null] as const,
+    attributionMode: ["estimated", "verified"] as const,
+    connectedPlatform: [null, "Boulevard"] as const,
+    outboundMessaging: [true, false] as const,
+  };
+
+  const variants: BaaVariables[] = [];
+  for (const isCoveredEntity of AXES.isCoveredEntity) {
+    for (const attributionMode of AXES.attributionMode) {
+      for (const connectedPlatform of AXES.connectedPlatform) {
+        for (const outboundMessaging of AXES.outboundMessaging) {
+          // Verified with no platform is unreachable — the funnel only offers
+          // verified once a connectable platform is chosen, and signAgreement
+          // rejects the combination. Skip rather than assert on a document
+          // that can never be signed.
+          if (attributionMode === "verified" && connectedPlatform === null) {
+            continue;
+          }
+          variants.push({
+            ...VARS,
+            isCoveredEntity,
+            attributionMode,
+            connectedPlatform,
+            outboundMessaging,
+          });
+        }
+      }
+    }
+  }
+
+  test("there are exactly as many as the axes predict", () => {
+    // 3 × ((1 estimated × 2 platforms) + (1 verified × 1 platform)) × 2 = 18
+    expect(variants).toHaveLength(18);
+  });
+
+  test.each(variants.map((v) => [describeVariant(v), v] as const))(
+    "%s renders a complete agreement",
+    (_label, variables) => {
+      const text = renderBaa(currentBaaTemplate(), variables);
+
+      // Names both parties, and no placeholder survives.
+      expect(text).toContain(variables.clinicLegalName);
+      expect(text).toContain("healdesk");
+      expect(text).not.toMatch(/\{\{/);
+      expect(text).not.toMatch(/undefined|\[object/);
+
+      // The obligations that must be in EVERY agreement, whatever they bought.
+      for (const required of [
+        "covered-entity-status",
+        "permitted-uses",
+        "safeguards",
+        "reporting",
+        "subcontractors",
+        "prohibited",
+        "return-or-destroy",
+        "records-to-hhs",
+      ]) {
+        expect(
+          applicableClauses(currentBaaTemplate(), variables).map((c) => c.id),
+        ).toContain(required);
+      }
+    },
+  );
+
+  test("every variant is a distinct document with a distinct hash", () => {
+    // If two variants hash the same, one of the axes is not actually changing
+    // the agreement — which means we are asking a question that has no
+    // contractual consequence, and should stop asking it.
+    const hashes = variants.map((v) => hashBaaText(renderBaa(currentBaaTemplate(), v)));
+    expect(new Set(hashes).size).toBe(variants.length);
+  });
+
+  test("exactly one data-source clause applies, always", () => {
+    // These two are mutually exclusive and jointly exhaustive. A clinic whose
+    // contract describes both a connection and no connection, or neither, is
+    // the failure this asserts against.
+    for (const variables of variants) {
+      const ids = applicableClauses(currentBaaTemplate(), variables).map(
+        (c) => c.id,
+      );
+      const sources = ids.filter((id) => id.startsWith("data-sources-"));
+      expect(sources).toHaveLength(1);
+    }
+  });
+
+  test("only a verified clinic's agreement describes reading their systems", () => {
+    for (const variables of variants) {
+      const text = renderBaa(currentBaaTemplate(), variables);
+      if (variables.attributionMode === "verified") {
+        expect(text).toMatch(/READ-ONLY access/);
+        expect(text).toContain(variables.connectedPlatform!);
+      } else {
+        // The important half: a clinic that connected nothing must not be
+        // handed a contract describing credentials we do not hold.
+        expect(text).toMatch(/holds no\s+credentials/);
+        expect(text).not.toMatch(/READ-ONLY access/);
+      }
+    }
+  });
+
+  test("the consent warranty appears only where outbound messaging is on", () => {
+    for (const variables of variants) {
+      const ids = applicableClauses(currentBaaTemplate(), variables).map((c) => c.id);
+      expect(ids.includes("outbound-consent")).toBe(variables.outboundMessaging);
+    }
+  });
+
+  test("reactivation is gated whenever covered-entity status is unresolved", () => {
+    // The healthcare exemption is available only to a covered entity or its
+    // business associate, so an unresolved determination has to switch the
+    // feature off — and say so in the document rather than in a support thread.
+    for (const variables of variants) {
+      const ids = applicableClauses(currentBaaTemplate(), variables).map((c) => c.id);
+      const expected =
+        variables.outboundMessaging && variables.isCoveredEntity !== true;
+      expect(ids.includes("reactivation-gate")).toBe(expected);
+    }
+  });
+
+  test("clause numbering is contiguous and starts at 1", () => {
+    for (const variables of variants) {
+      const text = renderBaa(currentBaaTemplate(), variables);
+      const numbers = [...text.matchAll(/^(\d+)\. [A-Z]/gm)].map((m) =>
+        Number(m[1]),
+      );
+      expect(numbers).toEqual(
+        Array.from({ length: numbers.length }, (_, i) => i + 1),
+      );
+    }
+  });
+});
+
+function describeVariant(v: BaaVariables): string {
+  return [
+    `ce=${String(v.isCoveredEntity)}`,
+    v.attributionMode,
+    v.connectedPlatform ?? "no-platform",
+    v.outboundMessaging ? "outbound" : "inbound-only",
+  ].join("/");
+}
 
 describe("the explainer shown before payment", () => {
   test("pin-cites every claim it makes to its own subparagraph", () => {
@@ -338,6 +531,51 @@ describeDb("signing", () => {
     } finally {
       await app.end();
     }
+  });
+
+  test("the stored document reflects what they bought, and records the variant", async () => {
+    // The end-to-end version of the variant tests: a verified clinic and an
+    // estimated one sign genuinely different contracts through the real API
+    // path, and each row carries the clause list that produced it.
+    const verified = await signAgreement(
+      validSignRequest({
+        clinicLegalName: "Verified Clinic",
+        signatoryEmail: "v@example.test",
+        attributionMode: "verified",
+        platform: "boulevard",
+      }),
+    );
+    const estimated = await signAgreement(
+      validSignRequest({
+        clinicLegalName: "Estimated Clinic",
+        signatoryEmail: "e@example.test",
+      }),
+    );
+
+    expect(verified.text).toMatch(/READ-ONLY access/);
+    expect(verified.text).toContain("Boulevard");
+    expect(estimated.text).not.toMatch(/READ-ONLY access/);
+    expect(verified.hash).not.toBe(estimated.hash);
+
+    expect(verified.clauseIds).toContain("data-sources-verified");
+    expect(estimated.clauseIds).toContain("data-sources-none");
+
+    const { rows } = await getMigratorPool().query<{
+      variables: { appliedClauses?: string[]; attributionMode?: string };
+    }>(`select variables from baa_acceptances where id = $1`, [
+      verified.agreementId,
+    ]);
+    expect(rows[0]!.variables.appliedClauses).toContain("data-sources-verified");
+    expect(rows[0]!.variables.attributionMode).toBe("verified");
+  });
+
+  test("refuses verified reporting for a platform with nothing to read", async () => {
+    // Otherwise the contract would describe a data flow that cannot exist.
+    await expect(
+      signAgreement(
+        validSignRequest({ attributionMode: "verified", platform: "none" }),
+      ),
+    ).rejects.toThrow(/nothing is connected|has none|nothing to read/i);
   });
 
   test("agreements signed but never paid for are surfaced, not lost", async () => {

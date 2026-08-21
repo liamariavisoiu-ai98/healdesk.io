@@ -61,6 +61,8 @@ async function signFor(
     signatoryTitle: "Owner",
     signatoryEmail: email,
     isCoveredEntity: false,
+    attributionMode: "estimated",
+    platform: "none",
     assentLabel: "I agree to the Business Associate Agreement",
     templateVersion: CURRENT_BAA_VERSION,
   });

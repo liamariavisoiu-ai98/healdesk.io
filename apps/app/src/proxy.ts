@@ -35,6 +35,7 @@ const PUBLIC_PATHS = ["/sign-in", "/accept-invite"];
  */
 const SELF_AUTHENTICATING_PATHS = [
   "/api/auth",
+  "/api/agreements",
   "/api/provision",
   "/api/webhooks",
 ];

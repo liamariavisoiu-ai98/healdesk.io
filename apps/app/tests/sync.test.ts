@@ -36,8 +36,21 @@ import { inTenant, seedClinic, type SeededClinic } from "./setup/factories";
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const actor = { type: "service" as const, serviceName: "test" };
 
-/** Fixture data spans the 30 days before "now", so report on this month. */
-const NOW = new Date();
+/**
+ * Pinned, not `new Date()`.
+ *
+ * The sync window and the reporting month are both derived from this instant,
+ * and the fixture spreads its data across that window. With a live clock the
+ * suite asserted that fixture rows land inside the CURRENT calendar month —
+ * which is nearly empty on the 1st and thinly populated for the first week, so
+ * these tests failed on early-month days and passed the rest of the time. A
+ * test that depends on the date you run it is not a test.
+ *
+ * The 20th is chosen so the reporting month is well populated in every
+ * timezone, and the sync lookback still reaches back into the prior month,
+ * which is what exercises the deposit-before-appointment path.
+ */
+const NOW = new Date("2026-05-20T12:00:00Z");
 
 async function connectFixture(clinicId: string): Promise<string> {
   const connectionId = await withTenant({ clinicId, actor }, (tx) =>

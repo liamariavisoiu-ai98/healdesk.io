@@ -1,9 +1,11 @@
 import {
+  getPlan,
   SIGNATURE_HEADER,
   TIMESTAMP_HEADER,
   sign,
 } from "@healdesk/catalog";
 
+import { createCheckout, isBillingConfigured } from "@/lib/billing";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 
 /**
@@ -51,6 +53,60 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const raw = await request.text();
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return Response.json({ error: "Invalid request body." }, { status: 400 });
+  }
+
+  /**
+   * Whatever the browser sent for `idempotencyKey`, drop it.
+   *
+   * The HMAC below authenticates apps/web, not the buyer — so a key chosen by
+   * the client would be signed and trusted, and apps/app answers a known key by
+   * replaying the stored organizationId, clinicId and invitationId. That turns
+   * a dedupe key into an object-reference oracle. It is set server-side, here
+   * or in the Stripe webhook, and nowhere else.
+   */
+  delete payload.idempotencyKey;
+
+  // Paid path: hand off to Stripe and let the webhook provision after payment.
+  if (isBillingConfigured()) {
+    const plan = getPlan(String(payload.plan ?? ""));
+    if (!plan) {
+      return Response.json({ error: "Unknown plan." }, { status: 422 });
+    }
+    try {
+      const checkout = await createCheckout({
+        plan,
+        clinicName: String(payload.clinicName ?? ""),
+        contactEmail: String(payload.contactEmail ?? ""),
+        provisionPayload: payload,
+      });
+      if (checkout.kind === "redirect") {
+        return Response.json({ checkoutUrl: checkout.url }, { status: 200 });
+      }
+    } catch (error) {
+      console.error("[healdesk] could not start checkout", error);
+      return Response.json(
+        { error: "We couldn't start checkout. Please try again." },
+        { status: 502 },
+      );
+    }
+  }
+
+  // Unpaid development path. createCheckout() throws in production when Stripe
+  // is unconfigured, so reaching here means we are deliberately provisioning
+  // without payment — key it on the agreement, which is already unique per
+  // signature. Note the colon: an underscore would survive the audit log's
+  // uuid stripper and trip its PHI assertion on some ids and not others.
+  const body = JSON.stringify({
+    ...payload,
+    idempotencyKey: `agr:${String(payload.agreementId ?? "")}`,
+  });
+
   const timestamp = Math.floor(Date.now() / 1000).toString();
 
   let response: Response;
@@ -60,9 +116,9 @@ export async function POST(request: Request): Promise<Response> {
       headers: {
         "Content-Type": "application/json",
         [TIMESTAMP_HEADER]: timestamp,
-        [SIGNATURE_HEADER]: sign(raw, timestamp, secret),
+        [SIGNATURE_HEADER]: sign(body, timestamp, secret),
       },
-      body: raw,
+      body,
     });
   } catch (error) {
     console.error("[healdesk] provisioning unreachable", error);
@@ -74,8 +130,8 @@ export async function POST(request: Request): Promise<Response> {
 
   // Pass the product's own validation messages through — they name the field
   // that was wrong, which is what the form needs to highlight it.
-  const payload = await response.text();
-  return new Response(payload, {
+  const answer = await response.text();
+  return new Response(answer, {
     status: response.status,
     headers: { "Content-Type": "application/json" },
   });

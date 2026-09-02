@@ -129,6 +129,7 @@ export function CheckoutFlow({ initialPlan }: { initialPlan: string }) {
         error?: string;
         field?: string;
         clinicSlug?: string;
+        checkoutUrl?: string;
       } | null;
 
       if (!response.ok) {
@@ -137,6 +138,16 @@ export function CheckoutFlow({ initialPlan }: { initialPlan: string }) {
         return;
       }
 
+      // Stripe is configured: pay first, and the webhook provisions afterwards.
+      // Deliberately not `setSubmitting(false)` before leaving — the button
+      // stays disabled through the redirect so a double-click cannot open two
+      // checkout sessions.
+      if (data?.checkoutUrl) {
+        window.location.assign(data.checkoutUrl);
+        return;
+      }
+
+      // No Stripe configured (development): the account already exists.
       setDone({ clinicSlug: data?.clinicSlug ?? "" });
     } catch {
       setError("Network error. Please try again.");

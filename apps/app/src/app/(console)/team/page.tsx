@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 
 import { unsafeDb } from "@/db";
 import { invitation, member, user } from "@/db/auth-schema";
-import { requireSession } from "@/lib/session";
+import { requireInternalStaff } from "@/lib/session";
 import { TenantAccessError } from "@/lib/tenant";
 
 import { INTERNAL_ORG_ID } from "@/lib/ops/internal-org";
@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
 
 export default async function TeamPage() {
   try {
-    await requireSession();
+    await requireInternalStaff();
   } catch (error) {
     if (error instanceof TenantAccessError) redirect("/sign-in");
     throw error;

@@ -1,0 +1,2 @@
+ALTER TABLE "conversations" ADD COLUMN "external_call_id" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "conversations_external_call_idx" ON "conversations" USING btree ("clinic_id","external_call_id") WHERE "conversations"."external_call_id" is not null;

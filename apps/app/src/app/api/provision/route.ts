@@ -4,6 +4,7 @@ import {
   verify,
 } from "@healdesk/catalog";
 
+import { sendInvite } from "@/lib/email/invite";
 import { env } from "@/lib/env";
 import {
   ProvisioningError,
@@ -81,14 +82,48 @@ export async function POST(request: Request): Promise<Response> {
       userAgent: request.headers.get("user-agent") ?? undefined,
     });
 
+    // 200 on a replay, 201 on a genuine creation.
+    //
+    // Both are 2xx on purpose: the caller is a Stripe webhook relay, and Stripe
+    // retries any non-2xx for three days. A duplicate delivery is a SUCCESS —
+    // the account exists and nothing further is owed — so answering 409 or 422
+    // would turn correct idempotent behaviour into a three-day retry storm and
+    // an eventually-disabled endpoint.
+    //
+    // `replayed` is what tells the caller not to re-send the invite email.
+    // Send the invitation the checkout screen already told them about.
+    //
+    // Only on a fresh provision: Stripe retries for up to three days, and a
+    // replayed webhook must not mail the same owner another copy of a link
+    // that is still valid.
+    if (!result.replayed) {
+      const invite = await sendInvite({
+        to: result.invitedEmail,
+        clinicName: body.clinicName.trim(),
+        invitationId: result.invitationId,
+        consoleUrl: env.betterAuthUrl(),
+      });
+
+      if (invite.status !== "sent") {
+        // Never fail the request for this. The account exists; failing here
+        // would have Stripe retry and provision a duplicate.
+        console.error(
+          "[healdesk] invite email not delivered:",
+          invite.status,
+          invite.reason,
+        );
+      }
+    }
+
     return Response.json(
       {
         organizationId: result.organizationId,
         clinicId: result.clinicId,
         clinicSlug: result.clinicSlug,
         invitationId: result.invitationId,
+        replayed: result.replayed,
       },
-      { status: 201 },
+      { status: result.replayed ? 200 : 201 },
     );
   } catch (error) {
     if (error instanceof ProvisioningError) {

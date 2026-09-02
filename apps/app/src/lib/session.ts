@@ -5,10 +5,12 @@ import { headers } from "next/headers";
 import { cache } from "react";
 
 import { unsafeDb } from "@/db";
+import { member } from "@/db/auth-schema";
 import { clinicMemberships, clinics } from "@/db/schema";
 
 import type { ActorContext, RequestContext } from "./audit";
 import { auth } from "./auth";
+import { INTERNAL_ORG_ID } from "./ops/internal-org";
 import { TenantAccessError, type TenantContext } from "./tenant";
 
 /**
@@ -40,6 +42,59 @@ export const requireSession = cache(async (): Promise<AuthenticatedSession> => {
     name: result.user.name ?? result.user.email,
   };
 });
+
+/**
+ * Whether this account is healdesk staff.
+ *
+ * The ops console — the clinic list, the job kill-switches, the invitation
+ * machinery — was gated on `requireSession()` alone, which means every CLINIC
+ * customer was also an operator. A med spa owner who signed up could enumerate
+ * every other clinic on the platform through the SECURITY DEFINER overview
+ * function, switch off the monthly report job for everyone, and mint an
+ * invitation into the internal org, which is the only credential signup
+ * requires. That is a full privilege escalation from an ordinary customer
+ * account, reachable in three clicks.
+ *
+ * Staff are members of the internal organization and nothing else is. That
+ * organization deliberately owns no clinics, so this grants no tenant access by
+ * itself — it is only the answer to "may you see the operator surface".
+ *
+ * Read against Better Auth's `member` table rather than a role column on the
+ * user, so revoking staff access is the same operation as revoking any other
+ * membership and shows up in the same place.
+ */
+export async function isInternalStaff(userId: string): Promise<boolean> {
+  const [row] = await unsafeDb
+    .select({ id: member.id })
+    .from(member)
+    .where(
+      and(
+        eq(member.userId, userId),
+        eq(member.organizationId, INTERNAL_ORG_ID),
+      ),
+    )
+    .limit(1);
+
+  return Boolean(row);
+}
+
+/**
+ * Require an operator, not merely a signed-in human.
+ *
+ * Throws the same TenantAccessError a missing session throws, so callers that
+ * already redirect on it need no new branch — and so the failure is
+ * indistinguishable from "not signed in" to the caller, which is what you want
+ * for a surface whose existence is not a secret but whose contents are.
+ */
+export async function requireInternalStaff(): Promise<AuthenticatedSession> {
+  const session = await requireSession();
+
+  if (!(await isInternalStaff(session.userId))) {
+    throw new TenantAccessError("Not an operator.");
+  }
+
+  return session;
+}
 
 export type AccessibleClinic = {
   id: string;

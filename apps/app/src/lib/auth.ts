@@ -8,6 +8,7 @@ import * as authSchema from "@/db/auth-schema";
 import { unsafeDb } from "@/db";
 import { invitation } from "@/db/auth-schema";
 
+import { acceptInvitationFor } from "./access";
 import { env } from "./env";
 
 /**
@@ -40,7 +41,25 @@ export const auth = betterAuth({
 
   emailAndPassword: {
     enabled: true,
-    requireEmailVerification: true,
+    /**
+     * FALSE, and that is not a relaxation.
+     *
+     * Better Auth's email verification blocks sign-in until the address is
+     * confirmed. With no `sendVerificationEmail` configured it blocked EVERY
+     * sign-in, permanently — the account was created, the password was set, and
+     * the user was then told their email was unverified with no way to verify it.
+     *
+     * More importantly it was redundant here. Accounts cannot be created except
+     * by following an invitation link sent to a specific address, and the create
+     * hook below refuses any sign-up without a matching pending invitation. So
+     * receiving that link already proves control of the address — which is the
+     * only thing verification establishes. Requiring a second proof of the same
+     * fact bought nothing and broke the product.
+     *
+     * If open sign-up is ever enabled, this must go back to true AND a verifier
+     * must be configured in the same change.
+     */
+    requireEmailVerification: false,
     minPasswordLength: 12,
   },
 
@@ -91,6 +110,35 @@ export const auth = betterAuth({
           }
 
           return { data: user };
+        },
+
+        /**
+         * Turn the accepted invitation into actual access.
+         *
+         * Without this the account existed and could sign in, and then had
+         * membership of nothing — `resolveTenantContext` joins through
+         * `clinic_memberships`, so every clinic page returned "no access" and
+         * the console was empty. The user had completed signup successfully and
+         * arrived at a product that behaved as though they had not.
+         *
+         * Runs after the user row exists, because the membership references it.
+         * Failures here are logged rather than thrown: the account is already
+         * created by this point, and throwing would leave a signed-up user with
+         * no account and no way to retry the invitation, which is worse than a
+         * missing membership an operator can re-grant.
+         */
+        async after(user) {
+          const email = user.email?.toLowerCase();
+          if (!email) return;
+
+          try {
+            await acceptInvitationFor(email, user.id);
+          } catch (error) {
+            console.error(
+              "[healdesk] failed to grant access after signup",
+              error instanceof Error ? error.message : error,
+            );
+          }
         },
       },
     },

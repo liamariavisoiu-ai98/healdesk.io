@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 
 import { blockersFor, listClinics } from "@/lib/ops/clinics";
 import { listJobs } from "@/lib/scheduler/jobs";
-import { requireSession } from "@/lib/session";
+import { requireInternalStaff } from "@/lib/session";
 import { TenantAccessError } from "@/lib/tenant";
 
 import { toggleJob } from "./actions";
@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
 
 export default async function ConsolePage() {
   try {
-    await requireSession();
+    await requireInternalStaff();
   } catch (error) {
     if (error instanceof TenantAccessError) redirect("/sign-in");
     throw error;

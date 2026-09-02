@@ -1,4 +1,5 @@
 # State of play — 2 September 2026
+*(updated the same day: the fixes below have landed — see "What changed" at the end)*
 
 Where healdesk actually stands, what the BAA review found, and what to do next in
 what order.
@@ -442,3 +443,80 @@ counsel with the BAA work.
 - SOC 2. $20–45K against a $2,988–9,588 ACV, and small clinics do not ask.
 - More connector adapters. Boulevard is Enterprise-tier-gated and will not sign a
   BAA with you; the catalog still sells it as "One click".
+
+
+---
+
+## What changed after this review
+
+Everything in this section was fixed in the follow-up commit. The findings above
+are left as written, because a review that quietly edits itself once the bugs are
+gone is not a record of anything.
+
+### The BAA
+
+| Was | Now |
+|---|---|
+| `patient-rights` predicated on `isCoveredEntity !== false` | **`ALWAYS`**, and split into (E) access, (F) amendment, (G) accounting as separate lettered obligations with a ten-business-day window |
+| (H) absent | New `acting-in-your-place` clause — where healdesk carries out an obligation the Privacy Rule places on the clinic, it meets the *covered entity's* standard |
+| "The executed agreement will state the timeline" | **Real numbers**: 5 business days for an impermissible use, 5 calendar days for a breach, plus a carve-out for routine unsuccessful incidents so the clause does not generate noise nobody reads |
+| "encrypted in transit" (flatly, and false) | Narrowed to what we control, plus an explicit promise **not to transmit over a channel that cannot negotiate encryption** — and `SesTransport` now reads back the configuration set and **refuses to send unless `TlsPolicy=REQUIRE`** |
+| Subcontractors "**are** bound" (a statement of fact, and untrue) | A **covenant**: before healdesk sends any patient information to a subcontractor, it will have obtained that subcontractor's written agreement. Plus a subprocessor list and notice before adding one |
+| No liability cap at all | New `liability` clause: 12× monthly fee, **carved out for wilful misconduct, gross negligence and breach-notification costs** — and it says out loud that upstream vendors cap far lower and we are not passing that through |
+| "United States infrastructure" unsupportable | ✅ **Now true** — Synthflow ships a US single-region cluster. Stays true only while every subprocessor is pinned to a US region, which is a standing commitment, not a one-off |
+
+Two clause notes worth keeping in mind. The liability number is a **placeholder** and
+is the single most likely thing counsel changes — what is load-bearing is the
+carve-out and the disclosure, not the multiplier. And the subcontractor clause still
+cannot discharge §164.504(e)(5): that governs the healdesk-to-vendor paper, and only
+actually holding those BAAs satisfies it.
+
+### The code
+
+| Fixed | What it was |
+|---|---|
+| `/api/agreements` in the proxy bypass | The BAA could never have been signed in a deployed environment |
+| `requireEmailVerification: false` | With no verifier configured it blocked **every** sign-in permanently. Redundant anyway — the invitation link already proves control of the address |
+| New `lib/access.ts`, called from the Better Auth `after` hook | Accepting an invitation now marks it accepted, creates the org `member` row, and grants `clinic_memberships` for every location. Previously a user signed up successfully and landed on a console with no clinics |
+| `grantOwnerMembership()` deleted | Superseded, and it had zero callers |
+| `requireInternalStaff()` on every ops surface | The console was gated on "has a session", so **every clinic customer was also an operator** — able to enumerate every clinic, toggle platform-wide jobs, and mint invitations into the internal org |
+| New `lib/voice/ingest.ts` + migration 0022 | **Something finally writes a `conversations` row.** Idempotent on the platform's call id, with `classifyRecovery()` deciding recovery at ingestion from observable facts |
+| `lib/email/invite.ts`, wired into provisioning | The invitation email the checkout screen has always claimed to send. Only on a fresh provision, never on a Stripe replay |
+| PHI guard now scans the HTML body | It watched the part recipients never read and ignored the part they do |
+| Coverage caveat is long-form, not ISO | `2026-07-15` matched the guard's date-of-birth pattern, so the guard refused to send the very report the caveat belonged on |
+| `sync.test.ts` clock pinned | It asserted on fixture data landing in the *current* calendar month — failing on early-month days and passing the rest of the time |
+| `.github/workflows/ci.yml` | Provisions the two-role Postgres, migrates, runs everything, and **fails the build if fewer than 200 tests pass** — so the security suite can never silently skip to green again |
+
+**242 tests passing, all of them actually running.**
+
+### The recovery classification is the piece to scrutinise
+
+`classifyRecovery()` is the one judgement in the ingestion path, and it decides the
+number a clinic judges us on. The rule it enforces: a value goes in **only** if the
+clinic genuinely would not have handled the contact.
+
+- A call answered during opening hours on a free line is **not** recovered — even if
+  it booked. Counting it would inflate the exact figure we ask to be trusted on.
+- No opening hours on file returns **null, not `after_hours`** — otherwise missing
+  configuration manufactures revenue.
+- A malformed schedule is a config bug, not evidence of recovery.
+- A callback outranks after-hours, because "we rang them back" is the stronger claim.
+- The **clinic's** timezone decides, so a west-coast practice is not billed recovery
+  for calls its own front desk was sitting there to answer.
+
+### Still open
+
+- **The clause text is still not counsel-approved.** `approvedByCounsel` remains
+  `false` and every document still says DRAFT in its body. What changed is that
+  counsel's job is now much smaller and much better specified.
+- **`approvedByCounsel` still gates nothing in code** — the production gate keys on
+  `baa_signed_at`, which a signature on the draft satisfies. Either wire it or
+  correct the docstring; do not leave a claimed safeguard that is not there.
+- **The assent label is still client-supplied** and never compared to
+  `BAA_ASSENT_LABEL`.
+- **No voice vendor is connected to the new ingest path.** The module and its
+  classification are done and tested; the webhook that calls it with real Synthflow
+  payloads is not written, because it needs the vendor's payload shape.
+- **The database-layer findings** — 0019's silent zero-row backfill, the BAA gate
+  sitting on state the gated role can write, `baa_acceptances` having no RLS — are
+  untouched.

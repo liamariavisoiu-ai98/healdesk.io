@@ -11,6 +11,7 @@ import {
   periodDays,
   previousMonth,
 } from "@/lib/attribution/period";
+import { assertNoPhiInReport } from "@/lib/reporting/deliver";
 
 const activity = (over: Partial<ActivityCounts> = {}): ActivityCounts => ({
   conversationsHandled: 120,
@@ -211,7 +212,21 @@ describe("verified attribution", () => {
       coverageStartedAt: new Date("2026-07-15T00:00:00Z"),
     });
 
-    expect(result.caveats.join(" ")).toContain("2026-07-15");
+    const caveats = result.caveats.join(" ");
+    expect(caveats).toContain("15 July 2026");
+
+    // NOT ISO, and that is the point. `2026-07-15` matches the date pattern the
+    // email PHI guard treats as a possible date of birth, so an ISO date here
+    // made the guard refuse to send the very report this caveat belongs on.
+    // The caveat is honest and the guard is right; the format was the bug.
+    expect(caveats).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    expect(() =>
+      assertNoPhiInReport({
+        subject: "Your month",
+        text: caveats,
+        html: `<p>${caveats}</p>`,
+      } as never),
+    ).not.toThrow();
   });
 });
 

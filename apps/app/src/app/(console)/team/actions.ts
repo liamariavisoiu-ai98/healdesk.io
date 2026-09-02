@@ -9,7 +9,7 @@ import { unsafeDb } from "@/db";
 import { invitation } from "@/db/auth-schema";
 import { recordSecurityEvent } from "@/lib/audit";
 import { INTERNAL_ORG_ID } from "@/lib/ops/internal-org";
-import { requestMeta, requireSession } from "@/lib/session";
+import { requestMeta, requireInternalStaff } from "@/lib/session";
 
 const INVITATION_TTL_DAYS = 7;
 
@@ -34,7 +34,7 @@ export async function inviteTeammate(
   _previous: InviteState,
   formData: FormData,
 ): Promise<InviteState> {
-  const session = await requireSession();
+  const session = await requireInternalStaff();
   const email = String(formData.get("email") ?? "")
     .trim()
     .toLowerCase();
@@ -94,7 +94,7 @@ export async function inviteTeammate(
 }
 
 export async function revokeInvitation(formData: FormData): Promise<void> {
-  const session = await requireSession();
+  const session = await requireInternalStaff();
   const id = String(formData.get("id") ?? "");
 
   await unsafeDb

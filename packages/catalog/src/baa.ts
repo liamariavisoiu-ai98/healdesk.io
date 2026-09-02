@@ -264,55 +264,234 @@ const CLAUSES: readonly BaaClause[] = [
       ),
   },
 
+  /**
+   * Every sentence here has to be true on the day it is signed.
+   *
+   * The previous version warranted "encrypted in transit" flatly. That was
+   * false: Amazon SES defaults to OPPORTUNISTIC TLS, which silently delivers in
+   * cleartext when the receiving mail server will not negotiate. The fix is in
+   * two halves and both are needed — the wording below is narrowed to what we
+   * actually control, and lib/reporting/deliver.ts now refuses to send unless
+   * the SES configuration set enforces TlsPolicy=REQUIRE. A contract sentence
+   * and a runtime check, because either alone rots.
+   *
+   * "United States infrastructure" is now true and stays true only while every
+   * subprocessor is pinned to a US region. That is a standing operational
+   * commitment, not a one-off configuration.
+   */
   {
     id: "safeguards",
     heading: "Safeguards",
     appliesWhen: ALWAYS,
-    body: () =>
+    body: (v) =>
       wrap(
         `healdesk will use appropriate administrative, physical and technical ` +
-          `safeguards, and will comply with the HIPAA Security Rule with respect to ` +
-          `electronic protected health information. Patient information is stored in ` +
-          `United States infrastructure, encrypted in transit and at rest.`,
+          `safeguards to prevent any use or disclosure of protected health information ` +
+          `this agreement does not permit, and will comply with Subpart C of 45 CFR ` +
+          `Part 164 — the HIPAA Security Rule — in respect of electronic protected ` +
+          `health information.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Patient information is held on United States infrastructure and encrypted at ` +
+          `rest. In transit it is encrypted wherever healdesk controls both ends, and ` +
+          `healdesk will not transmit protected health information over a channel that ` +
+          `cannot negotiate encryption — email included. Where a message cannot be ` +
+          `delivered securely healdesk will fail the delivery and tell ` +
+          `${v.clinicLegalName}, rather than send it in the clear.`,
       ),
   },
 
+  /**
+   * Real numbers, not a promise of a future number.
+   *
+   * This clause used to end "The executed agreement will state the timeline" —
+   * but in a click-through funnel THIS IS the executed agreement, so it pointed
+   * at a document that would never exist. That is worse than silence: silence
+   * would default to the sixty days 45 CFR 164.410(b) allows, whereas deferring
+   * invites the argument that the click-through was never the whole agreement,
+   * which undercuts the entire evidentiary design.
+   *
+   * Five days is a commercial choice, not a legal minimum. It is deliberate:
+   * the clinic's own sixty-day clock under 164.404 may start on the day WE
+   * discovered the breach, so anything close to sixty consumes the time they
+   * need to notify their own patients.
+   *
+   * The unsuccessful-incident carve-out matters as much as the deadline. Without
+   * it, "any security incident of which it becomes aware" obliges us to report
+   * every blocked sign-in and port scan, which generates noise nobody reads and
+   * buries the one report that matters.
+   */
   {
     id: "reporting",
     heading: "Reporting breaches and security incidents",
     appliesWhen: ALWAYS,
     body: (v) =>
+      wrap(`healdesk will tell ${v.clinicLegalName}:`) +
+      "\n\n" +
       wrap(
-        `healdesk will report to ${v.clinicLegalName} any use or disclosure of ` +
-          `protected health information not permitted by this agreement, including ` +
-          `breaches of unsecured protected health information, and any security ` +
-          `incident of which it becomes aware. The executed agreement will state the ` +
-          `timeline for doing so.`,
+        `a. within five business days of becoming aware of it, about any use or ` +
+          `disclosure of protected health information this agreement does not permit;`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `b. without unreasonable delay and no later than five calendar days after ` +
+          `discovering it, about any breach of unsecured protected health information. ` +
+          `That is well inside the sixty days 45 CFR 164.410 allows, and deliberately ` +
+          `so — ${v.clinicLegalName}'s own sixty-day deadline to notify its patients ` +
+          `may start on the day healdesk discovered the breach, not the day healdesk ` +
+          `reported it;`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `c. within five business days, about any security incident healdesk becomes ` +
+          `aware of — except routine unsuccessful attempts that compromised nothing, ` +
+          `such as blocked sign-ins, port scans and filtered traffic, which healdesk ` +
+          `will summarise on request rather than report one by one.`,
+        "    ",
+        "       ",
+      ) +
+      "\n\n" +
+      wrap(
+        `Each report will say what happened, which patients are affected so far as ` +
+          `healdesk knows, and what healdesk has done about it.`,
       ),
   },
 
+  /**
+   * A covenant, not a statement of fact.
+   *
+   * The previous wording — "Each subcontractor ... IS bound by the same
+   * restrictions" — asserted a present fact. Two problems with that. It creates
+   * no forward obligation covering a subcontractor added next year, and if it is
+   * not true on the day of signature it is a MISREPRESENTATION rather than a
+   * breach of covenant, which is a materially worse thing to have said.
+   *
+   * It was also not true. Twilio will not sign below Security Edition, Boulevard
+   * will not sign with an integrator at all, and the voice vendor's own six
+   * subprocessors have no evidenced BAAs. The honest form is a promise about
+   * what we will do BEFORE sending anyone's data, which is enforceable and which
+   * we can actually keep — the gate moves into the code, not just the contract.
+   *
+   * Note this clause cannot discharge 45 CFR 164.504(e)(5). That provision
+   * governs the healdesk-to-subcontractor paper, and nothing written HERE
+   * satisfies it — only actually holding those downstream BAAs does.
+   */
   {
     id: "subcontractors",
     heading: "Subcontractors",
     appliesWhen: ALWAYS,
-    body: () =>
+    body: (v) =>
       wrap(
         `healdesk uses subcontractors to deliver the service — telephony, speech ` +
-          `recognition, and language models among them. Each subcontractor that ` +
-          `handles protected health information is bound by the same restrictions and ` +
-          `conditions that apply to healdesk under this agreement.`,
+          `recognition and language models among them. Before healdesk sends any ` +
+          `patient information to a subcontractor, healdesk will have obtained that ` +
+          `subcontractor's written agreement binding it to the same restrictions and ` +
+          `conditions this agreement places on healdesk, and requiring it to comply ` +
+          `with the HIPAA Security Rule under a contract meeting 45 CFR 164.314(a). ` +
+          `healdesk remains answerable to ${v.clinicLegalName} for what its ` +
+          `subcontractors do with that information.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Language models are used to understand a patient and answer them during the ` +
+          `conversation. They are not permitted to retain patient information after it ` +
+          `ends, and they are not permitted to train on it.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `healdesk keeps a current list of these subcontractors at ` +
+          `healdesk.io/subprocessors and will give ${v.clinicLegalName} notice before ` +
+          `adding one that will handle patient information.`,
       ),
   },
 
+  /**
+   * Unconditional, deliberately.
+   *
+   * This clause used to be predicated on `isCoveredEntity !== false`, which made
+   * three MANDATORY subparagraphs — (E) access, (F) amendment, (G) accounting —
+   * disappear from the agreement whenever a clinic owner ticked "cash-pay only".
+   * That put the document's compliance in the hands of a legal self-diagnosis by
+   * a buyer, and cash-pay practices that submit one electronic claim a year are
+   * exactly the population most likely to get it wrong.
+   *
+   * There was never an upside: if the practice genuinely is not a covered
+   * entity, the obligation is simply never triggered, at zero cost to us.
+   */
   {
     id: "patient-rights",
     heading: "Patient access, amendment and accounting",
-    appliesWhen: (v) => v.isCoveredEntity !== false,
+    appliesWhen: ALWAYS,
     body: (v) =>
       wrap(
-        `healdesk will help ${v.clinicLegalName} respond when a patient asks to see ` +
-          `their information, asks to correct it, or asks for an accounting of who it ` +
-          `was disclosed to.`,
+        `When a patient asks to see their information, to have it corrected, or to be ` +
+          `told who it was disclosed to, ${v.clinicLegalName} answers them — and ` +
+          `healdesk gives ${v.clinicLegalName} what it needs to answer, within ten ` +
+          `business days of being asked:`,
+      ) +
+      "\n\n" +
+      wrap(
+        `a. Access. healdesk will make available the protected health information it ` +
+          `holds about that patient in a designated record set, so ${v.clinicLegalName} ` +
+          `can meet its obligations under 45 CFR 164.524.`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `b. Amendment. healdesk will make that information available for amendment and ` +
+          `will incorporate any amendment ${v.clinicLegalName} directs, under 45 CFR ` +
+          `164.526. Incorporating it means healdesk's own copy is corrected, not merely ` +
+          `annotated.`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `c. Accounting. healdesk will maintain and make available the information ` +
+          `${v.clinicLegalName} needs to give a patient an accounting of disclosures ` +
+          `under 45 CFR 164.528.`,
+        "    ",
+        "       ",
+      ) +
+      "\n\n" +
+      wrap(
+        `If a patient makes one of these requests to healdesk directly, healdesk will ` +
+          `not answer it. It will pass the request to ${v.clinicLegalName} within five ` +
+          `business days and tell the patient it has done so.`,
+      ),
+  },
+
+  /**
+   * 45 CFR 164.504(e)(2)(ii)(H) — the classic omission, and live for this
+   * product rather than theoretical.
+   *
+   * The outbound clause has healdesk sending messages "on the clinic's behalf
+   * and in its name". That is the clinic discharging its own Privacy Rule
+   * functions through us, and where we do that the standard that applies is the
+   * COVERED ENTITY's, not the lighter business-associate one.
+   *
+   * Costs nothing when it does not apply — the obligation is self-limiting.
+   */
+  {
+    id: "acting-in-your-place",
+    heading: "Where healdesk acts in your place",
+    appliesWhen: ALWAYS,
+    body: (v) =>
+      wrap(
+        `Some of what healdesk does is ${v.clinicLegalName} carrying out its own duties ` +
+          `through healdesk, rather than healdesk doing something of its own — ` +
+          `answering a patient who calls, and sending messages in ` +
+          `${v.clinicLegalName}'s name, are both of those. Where healdesk carries out ` +
+          `an obligation the HIPAA Privacy Rule places on ${v.clinicLegalName}, ` +
+          `healdesk will meet the requirements that Rule places on ` +
+          `${v.clinicLegalName} in performing it, and not only the lighter ones it ` +
+          `places on a business associate. 45 CFR 164.504(e)(2)(ii)(H).`,
       ),
   },
 
@@ -428,6 +607,56 @@ const CLAUSES: readonly BaaClause[] = [
           `use of it to whatever makes return or destruction infeasible. ` +
           `${v.clinicLegalName} may terminate this agreement if healdesk materially ` +
           `breaches it.`,
+      ),
+  },
+
+  /**
+   * The liability allocation, and the one clause a founder is most tempted to
+   * leave out.
+   *
+   * There was no cap at all, which sounds generous and is actually the worst
+   * position available: uncapped downstream exposure sitting on top of upstream
+   * vendors who cap at roughly $150 and $100. Every dollar of the gap lands on
+   * healdesk personally.
+   *
+   * ⚖️ THE NUMBER IS A PLACEHOLDER AND IS THE SINGLE MOST LIKELY THING COUNSEL
+   * WILL CHANGE. Two things are load-bearing regardless of what they set it to:
+   *
+   *   1. The carve-out. A cap that also limits liability for healdesk's own
+   *      wilful misconduct or gross negligence is the kind a court declines to
+   *      enforce, and a clinic's lawyer strikes on sight. Carving those out is
+   *      what makes the rest of it credible.
+   *   2. Naming the upstream mismatch out loud. It is unusual to write this into
+   *      a customer contract, and it is the honest thing to do: the clinic is
+   *      entitled to know that the money behind our promises is our own, not our
+   *      vendors'. It is also the sentence that will start the conversation
+   *      about raising Synthflow's six-month cap, which is the real fix.
+   */
+  {
+    id: "liability",
+    heading: "What healdesk is answerable for",
+    appliesWhen: ALWAYS,
+    body: (v) =>
+      wrap(
+        `healdesk is answerable to ${v.clinicLegalName} for its own failures under this ` +
+          `agreement and for those of its subcontractors. Except for the two things ` +
+          `below, healdesk's total liability under this agreement is limited to twelve ` +
+          `times the monthly subscription fee ${v.clinicLegalName} was paying when the ` +
+          `event giving rise to it occurred.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `That limit does NOT apply to healdesk's wilful misconduct or gross ` +
+          `negligence, and it does NOT apply to healdesk's obligation to bear the cost ` +
+          `of notifying patients and regulators about a breach that healdesk caused.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `${v.clinicLegalName} should know that healdesk's own suppliers cap their ` +
+          `liability to healdesk at figures far below this one. healdesk is not passing ` +
+          `those caps through — the commitment above is healdesk's own, backed by ` +
+          `healdesk. It is stated plainly because a clinic is entitled to know where ` +
+          `the money behind a promise comes from.`,
       ),
   },
 

@@ -11,7 +11,7 @@ import { eq, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import { invitation, organization, user } from "@/db/auth-schema";
-import { clinicMemberships, clinics } from "@/db/schema";
+import { clinics, provisioningAttempts } from "@/db/schema";
 
 import { bindAgreement } from "./agreements";
 import { recordSecurityEvent } from "./audit";
@@ -94,6 +94,18 @@ export type ProvisionRequest = {
    * id binds the existing signature to the organization payment just created.
    */
   agreementId: string;
+
+  /**
+   * What makes a repeated delivery a no-op. See drizzle/0021.
+   *
+   * ⚠️ Stamped SERVER-SIDE by apps/web from the verified Stripe event — never
+   * taken from a browser. The HMAC on this request authenticates apps/web, not
+   * the buyer, so a key chosen by the client would let anyone who guessed one
+   * receive another clinic's organizationId, clinicId and invitationId in the
+   * replay response. A dedupe key that echoes prior results is an object
+   * reference oracle if it is attacker-controlled.
+   */
+  idempotencyKey: string;
 };
 
 export type ProvisionResult = {
@@ -103,6 +115,15 @@ export type ProvisionResult = {
   invitationId: string;
   /** Present so the caller can send the invite email; never logged. */
   invitedEmail: string;
+  /**
+   * True when this key had already been provisioned and nothing was written.
+   *
+   * The caller MUST NOT re-send the invite email on a replay. Stripe retries
+   * for up to three days, so a flapping webhook would otherwise mail the same
+   * clinic owner an invitation every few hours — all pointing at the same
+   * still-valid link.
+   */
+  replayed: boolean;
 };
 
 export function validateProvisionRequest(
@@ -183,6 +204,19 @@ export function validateProvisionRequest(
     );
   }
 
+  // Required, and never defaulted to a fresh uuid. A generated fallback would
+  // make every delivery unique and silently restore the duplicate-account bug
+  // this field exists to remove — with no error anywhere to notice it by.
+  if (!body.idempotencyKey?.trim()) {
+    throw new ProvisioningError(
+      "An idempotency key is required.",
+      "idempotencyKey",
+    );
+  }
+  if (body.idempotencyKey.length > 255) {
+    throw new ProvisioningError("Idempotency key is too long.", "idempotencyKey");
+  }
+
   // No `baaAccepted: true` flag any more, deliberately. A boolean sent by the
   // caller is a claim; an agreement id is a row that already exists, signed,
   // with its own text and hash. The second is checkable and the first is not.
@@ -201,6 +235,25 @@ export async function provisionClinic(
   const email = request.contactEmail.trim().toLowerCase();
   const platform = getPlatform(request.platform)!;
 
+  // Fast path: a delivery we have already fully provisioned. Cheap, and it
+  // keeps the common retry off the slug loop entirely. It is NOT the safety
+  // property — the unique index inside the transaction is, because two
+  // concurrent deliveries can both miss this read.
+  const seen = await unsafeDb
+    .select({
+      organizationId: provisioningAttempts.organizationId,
+      clinicId: provisioningAttempts.clinicId,
+      clinicSlug: provisioningAttempts.clinicSlug,
+      invitationId: provisioningAttempts.invitationId,
+    })
+    .from(provisioningAttempts)
+    .where(eq(provisioningAttempts.idempotencyKey, request.idempotencyKey))
+    .limit(1);
+
+  if (seen[0]) {
+    return { ...seen[0], invitedEmail: email, replayed: true };
+  }
+
   await ensureSystemUser();
 
   const baseSlug = slugify(request.clinicName);
@@ -216,7 +269,7 @@ export async function provisionClinic(
     try {
       return await provisionOnce({ request, context, email, platform, slug });
     } catch (error) {
-      if (attempt < 4 && isUniqueViolation(error)) continue;
+      if (attempt < 4 && isSlugCollision(error)) continue;
       throw error;
     }
   }
@@ -251,7 +304,27 @@ async function provisionOnce({
    */
   const clinicId = randomUUID();
 
+  const invitationId = randomUUID();
+
   const result = await unsafeDb.transaction(async (tx) => {
+    // The claim goes FIRST, inside this transaction, with every id it will
+    // report already decided above.
+    //
+    // Inside, because that is what makes it safe: Postgres's unique index gives
+    // mutual exclusion between concurrent deliveries for free, and a provision
+    // that fails halfway rolls the claim back with everything else. A claim in
+    // its own transaction — or a status/lease column — would leave a committed
+    // claim behind a failed provision, and then every retry would see the key
+    // taken, report success, and the customer who paid could never be given an
+    // account. Silently, which is the worst part.
+    await tx.insert(provisioningAttempts).values({
+      idempotencyKey: request.idempotencyKey,
+      organizationId,
+      clinicId,
+      clinicSlug: slug,
+      invitationId,
+    });
+
     await tx.execute(sql`select set_config('app.clinic_id', ${clinicId}, true)`);
 
     await tx.insert(organization).values({
@@ -302,7 +375,6 @@ async function provisionOnce({
       dataClassification: "synthetic",
     });
 
-    const invitationId = randomUUID();
     const expiresAt = new Date(
       Date.now() + INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000,
     );
@@ -343,6 +415,7 @@ async function provisionOnce({
     clinicSlug: slug,
     invitationId: result.invitationId,
     invitedEmail: email,
+    replayed: false,
   };
 }
 
@@ -373,24 +446,6 @@ async function ensureSystemUser(): Promise<void> {
     .onConflictDoNothing();
 }
 
-/**
- * Grant the first membership once the invited owner accepts.
- *
- * Separate from provisioning because it happens later, after the user record
- * exists. clinic_memberships IS forced, so this declares the tenant first.
- */
-export async function grantOwnerMembership(
-  clinicId: string,
-  userId: string,
-): Promise<void> {
-  await unsafeDb.transaction(async (tx) => {
-    await tx.execute(sql`select set_config('app.clinic_id', ${clinicId}, true)`);
-    await tx
-      .insert(clinicMemberships)
-      .values({ clinicId, userId, role: "owner" })
-      .onConflictDoNothing();
-  });
-}
 
 function slugify(name: string): string {
   return (
@@ -403,17 +458,40 @@ function slugify(name: string): string {
 }
 
 /**
- * 23505 — the unique index arbitrating a slug or org-slug collision.
+ * The slug indexes, and ONLY the slug indexes.
  *
- * Walks the cause chain: Drizzle wraps driver errors in its own, so the
- * Postgres code sits on `error.cause` rather than the error itself. Checking
- * only the top level silently disables the retry, which is exactly the bug this
- * comment exists to stop someone reintroducing.
+ * This used to match any 23505, which was fine while a slug collision was the
+ * only unique constraint provisioning could hit. It stopped being fine the
+ * moment `provisioning_attempts` gained one: a duplicate Stripe delivery raises
+ * 23505 on the idempotency key, a bare code check reads that as a slug
+ * collision, and the loop below retries five times with fresh random slugs —
+ * every one of them colliding on the same key — before throwing. The mechanism
+ * added to PREVENT duplicate provisioning would have become a five-deep retry
+ * storm ending in a 500 that Stripe then retries for three days.
+ *
+ * So the allowlist is the safety property, not a tidy-up. Note `organization`
+ * carries BOTH a table constraint and a unique index on slug (0000_init.sql:207
+ * and :300) and either may be the one Postgres reports.
+ *
+ * Still walks the cause chain: Drizzle wraps driver errors in its own, so the
+ * code and constraint sit on `error.cause` rather than the error itself.
  */
-function isUniqueViolation(error: unknown): boolean {
+const SLUG_CONSTRAINTS: ReadonlySet<string> = new Set([
+  "clinics_slug_idx",
+  "organization_slug_unique",
+  "organization_slug_uidx",
+]);
+
+function isSlugCollision(error: unknown): boolean {
   let current: unknown = error;
   for (let depth = 0; current && depth < 5; depth += 1) {
-    if ((current as { code?: string }).code === "23505") return true;
+    const e = current as { code?: string; constraint?: string };
+    if (e.code === "23505") {
+      // An unnamed 23505 is deliberately NOT retried. Retrying an unknown
+      // unique violation by changing the slug cannot fix it, and the previous
+      // behaviour of trying anyway is what this allowlist exists to stop.
+      return e.constraint !== undefined && SLUG_CONSTRAINTS.has(e.constraint);
+    }
     current = (current as { cause?: unknown }).cause;
   }
   return false;

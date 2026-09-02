@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { unsafeDb } from "@/db";
 import { recordSecurityEvent } from "@/lib/audit";
 import { setJobEnabled } from "@/lib/scheduler/jobs";
-import { requestMeta, requireSession } from "@/lib/session";
+import { requestMeta, requireInternalStaff } from "@/lib/session";
 
 /**
  * Ops actions.
@@ -16,7 +16,7 @@ import { requestMeta, requireSession } from "@/lib/session";
  */
 
 export async function toggleJob(formData: FormData): Promise<void> {
-  const session = await requireSession();
+  const session = await requireInternalStaff();
 
   const name = String(formData.get("name") ?? "");
   const enabled = String(formData.get("enabled") ?? "") === "true";

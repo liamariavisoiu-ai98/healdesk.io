@@ -180,8 +180,14 @@ function verified(input: VerifiedInput): AttributionResult {
   }
 
   if (input.coverageStartedAt) {
+    // Long-form, not ISO — deliberately.
+    //
+    // `2026-01-15` matches the date pattern the email PHI guard treats as a
+    // possible date of birth, so an ISO date here made the guard refuse to send
+    // the very report this caveat belongs on. The caveat is honest and the
+    // guard is right; the format was the bug.
     caveats.push(
-      `Revenue is available from ${input.coverageStartedAt.toISOString().slice(0, 10)} onward; this source cannot provide earlier history.`,
+      `Revenue is available from ${longDate(input.coverageStartedAt)} onward; this source cannot provide earlier history.`,
     );
   }
 
@@ -214,6 +220,16 @@ export function trend(
     previous > 0 ? Math.round(((current - previous) / previous) * 100) : null;
 
   return { deltaUsd, percent };
+}
+
+/** "15 January 2026". Never ISO — see the note in verified(). */
+function longDate(date: Date): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
 }
 
 function round2(value: number): number {

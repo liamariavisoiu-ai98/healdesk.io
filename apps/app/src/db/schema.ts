@@ -522,9 +522,22 @@ export const conversations = pgTable(
 
     startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
     endedAt: timestamp("ended_at", { withTimezone: true }),
+
+    /**
+     * The voice platform's own call id.
+     *
+     * Idempotency for ingestion. Voice vendors retry webhooks, and a call
+     * counted twice inflates the one figure the clinic judges us on — twice.
+     */
+    externalCallId: text("external_call_id"),
   },
   (t) => [
     index("conversations_clinic_idx").on(t.clinicId, t.startedAt),
+    // Partial: NULLs are distinct in Postgres, so an unqualified unique index
+    // would neither prevent duplicates nor support ON CONFLICT.
+    uniqueIndex("conversations_external_call_idx")
+      .on(t.clinicId, t.externalCallId)
+      .where(sql`${t.externalCallId} is not null`),
     // Clinic-first: under RLS every query carries clinic_id, so a lookup by FK
     // alone would index-scan then re-filter. That's the common path, not the rare one.
     index("conversations_contact_idx").on(t.clinicId, t.contactId),
@@ -1199,6 +1212,37 @@ export const scheduledJobs = pgTable("scheduled_jobs", {
     onDelete: "set null",
   }),
   updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+/**
+ * Idempotency ledger for provisioning. See drizzle/0021.
+ *
+ * Keyed on the Stripe Checkout Session id, because that is what stays stable
+ * across a webhook retry — the event id changes per delivery, so it would
+ * dedupe deliveries while still letting one purchase provision twice.
+ *
+ * Identity-plane: no clinic_id, no RLS, and no foreign keys. The claim row is
+ * written before the organization it names exists, so an FK would fire on every
+ * first-time provision.
+ */
+export const provisioningAttempts = pgTable("provisioning_attempts", {
+  /** Never accepted from a browser — see the column comment in 0021. */
+  idempotencyKey: text("idempotency_key").primaryKey(),
+
+  /** The result, stored so a replay answers without re-reading RLS-hidden rows. */
+  organizationId: text("organization_id").notNull(),
+  /**
+   * Deliberately not called `clinic_id`: it is a stored result, not a tenant
+   * key, and the RLS drift test requires a policy on every table that has a
+   * column by that name. See drizzle/0021.
+   */
+  clinicId: uuid("provisioned_clinic_id").notNull(),
+  clinicSlug: text("clinic_slug").notNull(),
+  invitationId: uuid("invitation_id").notNull(),
+
+  createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
 });

@@ -148,6 +148,20 @@
       "when": 1787140837535,
       "tag": "0020_opening_hours",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1787140838535,
+      "tag": "0021_provisioning_idempotency",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1788338566694,
+      "tag": "0022_voice_ingest",
+      "breakpoints": true
     }
   ]
 }

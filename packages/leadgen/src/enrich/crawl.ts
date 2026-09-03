@@ -17,12 +17,24 @@ import { ApifyClient } from "apify-client";
  * than obvious failures. That is the worst possible error here: it looks like
  * data.
  *
- * ## Why these page limits
+ * ## Homepage only, and why — this was a bug once
  *
- * The homepage plus a couple of service pages is enough to name the primary
- * offering, and going deeper multiplies cost across 4,500 domains for very
- * little extra signal. `maxCrawlDepth: 1` and `maxCrawlPages: 4` keeps the run
- * to roughly one page-load per clinic plus a shallow menu crawl.
+ * `maxCrawlPages` is a budget for the WHOLE run, not per start URL. The first
+ * version paired it with `maxCrawlDepth: 1` and set it to 4, expecting "four
+ * pages per clinic". What actually happened: the first site enqueued 140
+ * links, the crawler spent the entire budget on it, and stopped — 4 pages
+ * fetched across 200 clinics, with 196 reported unreadable. The run exited 0.
+ *
+ * So depth is 0 and the budget is one page per clinic. That is fair by
+ * construction: no site can consume another's share, and the cost is exactly
+ * one page-load each rather than something that depends on how many links the
+ * unluckiest site happens to have.
+ *
+ * Little is lost. The homepage carries the nav — which is where the booking
+ * link lives — and the hero copy, which is what the classifier's tie-break rule
+ * already asks about ("what does the homepage lead with"). The four sites that
+ * survived the broken run returned 16 to 43 links and 2,000 to 6,000 characters
+ * from the homepage alone, which is both jobs covered.
  */
 
 export type CrawlTarget = {
@@ -66,7 +78,6 @@ export type CrawlOptions = {
   token: string;
   /** Apify runs are billed by compute; batch so a failure loses one batch. */
   batchSize?: number;
-  maxPagesPerSite?: number;
   onProgress?: (done: number, total: number) => void;
 };
 
@@ -86,8 +97,11 @@ export async function crawlSites(
     const run = await client.actor("apify/website-content-crawler").call({
       startUrls: batch.map((t) => ({ url: `https://${t.domain}` })),
       crawlerType: "playwright:adaptive",
-      maxCrawlDepth: 1,
-      maxCrawlPages: options.maxPagesPerSite ?? 4,
+      // Start URLs only. See the note above — depth 1 lets one site eat the
+      // whole run's page budget.
+      maxCrawlDepth: 0,
+      // Global, so it must scale with the batch: one page per clinic.
+      maxCrawlPages: batch.length,
       // Service menus are the signal; policy pages are noise that crowds out
       // the useful text inside the character budget.
       excludeUrlGlobs: [
@@ -153,8 +167,35 @@ export async function crawlSites(
     options.onProgress?.(Math.min(i + batchSize, usable.length), usable.length);
   }
 
+  // A few dead domains in a list this age is normal. Most of them failing is
+  // not a fact about the internet, it is a fact about this configuration —
+  // and the first version of this file proved it by fetching 4 pages across
+  // 200 clinics and exiting 0. Nothing downstream can tell the difference
+  // between a site that would not load and one that was never attempted, so
+  // the check belongs here, where the distinction still exists.
+  const failed = results.filter((r) => r.error).length;
+  if (results.length >= 20 && failed / results.length > 0.5) {
+    throw new Error(
+      `${failed} of ${results.length} sites returned nothing. That is a crawler ` +
+        `configuration problem, not ${failed} broken websites — check ` +
+        `maxCrawlPages (it is a budget for the whole run, not per site) and the ` +
+        `Apify run log. Refusing to write a crawl this empty, because every ` +
+        `stage after it would treat the gap as data.`,
+    );
+  }
+
   return results;
 }
+
+/**
+ * Asset URLs, which are never booking links.
+ *
+ * A WordPress homepage yields dozens of /wp-content/ image URLs. They cannot
+ * identify a booking platform and they crowd genuine links out of the per-site
+ * cap, so a clinic whose booking button sits below a photo gallery could
+ * otherwise lose it to the truncation.
+ */
+const ASSET = /\.(webp|png|jpe?g|gif|svg|ico|css|js|woff2?|ttf|eot|mp4|webm|pdf)(\?|$)/i;
 
 /**
  * Pull hrefs out of markdown.
@@ -174,7 +215,7 @@ function linksIn(markdown: string): string[] {
     found.push(match[1]!);
   }
 
-  return found;
+  return found.filter((url) => !ASSET.test(url));
 }
 
 function hostOf(url: string): string {

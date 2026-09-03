@@ -5,31 +5,20 @@ Where the build stands, what is blocked, and what to do next.
 Everything that could be built without an external account or a lawyer has
 been. What remains is genuinely waiting on something.
 
-> **Two documents now cover everything in sections 1 and 2**, researched and adversarially
-> fact-checked on 17 Aug 2026:
->
-> - **[research-conclusions.md](./research-conclusions.md)** — plain English, end to end.
->   What the rules actually are, why they exist, which vendors trip over them, and what it
->   means commercially. Read this first.
-> - **[blockers-runbook.md](./blockers-runbook.md)** — the same findings as click-by-click
->   instructions, with the verbatim text to send each vendor. Use this to do the work.
->
-> This file stays as the index.
+## Which document, when
 
-> **Follow this file, not `state-of-play.md`.**
->
-> [state-of-play.md](./state-of-play.md) is a dated **audit** (2 Sep 2026): the BAA
-> reviewed clause by clause against 45 CFR 164.504(e)(2)(ii), a codebase pass, and
-> the niche argument. Read it when you want to know *why* something is on the list
-> below, or before touching the BAA or the recovery classification — the reasoning
-> there is better than any summary of it.
->
-> But it is a snapshot, and parts of its "what to do, in order" have since been
-> done (database-backed CI, the recovery classification, the BAA promise fixes).
-> Don't work from its task list. Its open findings have been folded into section 3
-> here, each marked with whether it was re-verified.
->
-> One list, and it is this one.
+**Follow this one.** It is the only list that is kept current. Everything else is
+reference you open when this file sends you to it.
+
+| Document | What it is | When you open it |
+|---|---|---|
+| **handover.md** (this file) | The live list: what's blocked, what's left, what's deliberately undone | **Always start here.** If it isn't in this file, it isn't on the list |
+| [blockers-runbook.md](./blockers-runbook.md) | Click-by-click instructions and the verbatim text to send each vendor | When this file says "ask X" or "set up Y" and you're about to do it |
+| [research-conclusions.md](./research-conclusions.md) | Plain-English: what the rules are, why, and what they cost commercially | When you want to understand or challenge *why* something is on the list |
+| [state-of-play.md](./state-of-play.md) | A dated audit (2 Sep 2026) — BAA against 45 CFR 164.504(e)(2)(ii), codebase pass, niche argument | Before touching the BAA or the recovery classification. **Not a task list** — its Part 5 is partly done, and its open findings are in § 3 below |
+
+Rule of thumb: **one list, four references.** If you find yourself tracking two
+lists, one of them is stale — fold it in here and delete it.
 
 ---
 
@@ -70,6 +59,12 @@ While you're on the call, get these in writing too:
   hosted in the EU"*, contradicting the US-cluster docs. Which?
 - Can we disable transcript **storage** and still receive structured post-call
   data by webhook? If yes, materially better CIPA posture.
+- **Does the post-call webhook carry the carrier disposition from *before* the
+  call reached them** — clinic line rang out, or was engaged? This one gates a
+  shipped feature rather than a cost: `lib/voice/ingest.ts` needs it to classify
+  a call as recovered, and if Synthflow can't supply it the fallback is a second
+  integration against Twilio's call-status webhook. Full wording and the reason
+  are question 7 in the runbook. Ask before anyone writes the ingest route.
 
 **Then, before creating anything:** the workspace region choice is **permanent**
 and defaults to **EU**. Create a **US** workspace or you rebuild.

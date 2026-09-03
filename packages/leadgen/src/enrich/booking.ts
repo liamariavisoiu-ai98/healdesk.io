@@ -40,6 +40,16 @@ export type BookingPlatform = {
   name: string;
   /** Lowercased substrings that identify a booking URL for this platform. */
   signatures: readonly string[];
+  /**
+   * Anchored patterns, for the cases a substring cannot express.
+   *
+   * Mostly negative lookaheads that exclude a vendor's own marketing
+   * subdomains while still matching every tenant. Zenoti is the clearest
+   * example: tenant booking lives at `<tenant>.zenoti.com/webstore`, but
+   * `www.`, `help.`, `support.`, `resources.` and `blog.` are the vendor's own
+   * and must not match. No substring separates those two sets.
+   */
+  patterns?: readonly RegExp[];
 };
 
 /**
@@ -57,36 +67,170 @@ export type BookingPlatform = {
  * because a clinic linking to a vendor's blog is not a clinic using the vendor.
  */
 export const BOOKING_PLATFORMS: readonly BookingPlatform[] = [
-  // --- Platforms healdesk can connect to (ids match the catalog) -----------
-  { id: "boulevard", name: "Boulevard", signatures: ["blvd.app", "joinblvd.com", "getboulevard.com", "blvd.co/"] },
-  { id: "gohighlevel", name: "GoHighLevel", signatures: ["msgsndr.com", "leadconnectorhq.com", "gohighlevel.com/widget"] },
-  { id: "zenoti", name: "Zenoti", signatures: ["zenoti.com", "webstore.zenoti.com"] },
-  { id: "patientnow", name: "PatientNow", signatures: ["patientnow.com/book", "portal.patientnow.com"] },
-  { id: "acuity", name: "Acuity Scheduling", signatures: ["acuityscheduling.com", "squarespacescheduling.com", "squarespace-scheduling.com"] },
-  { id: "vagaro", name: "Vagaro", signatures: ["vagaro.com"] },
-  { id: "mindbody", name: "Mindbody", signatures: ["mindbodyonline.com", "book.mindbody.io", "mindbody.io/book"] },
-
-  // --- Everything else: real signal, no integration path ------------------
-  { id: "booker", name: "Booker (Mindbody)", signatures: ["booker.com", "secure.booker.com"] },
-  { id: "booksy", name: "Booksy", signatures: ["booksy.com"] },
-  { id: "fresha", name: "Fresha", signatures: ["fresha.com"] },
-  { id: "square", name: "Square Appointments", signatures: ["squareup.com/appointments", "book.squareup.com", "square.site/book"] },
-  { id: "calendly", name: "Calendly", signatures: ["calendly.com"] },
-  { id: "schedulicity", name: "Schedulicity", signatures: ["schedulicity.com"] },
-  { id: "setmore", name: "Setmore", signatures: ["setmore.com"] },
-  { id: "jane", name: "Jane App", signatures: ["jane.app", "janeapp.com"] },
-  { id: "mangomint", name: "Mangomint", signatures: ["mangomint.com/book", "book.mangomint.com"] },
-  { id: "aesthetic-record", name: "Aesthetic Record", signatures: ["aestheticrecord.com", "book.aestheticrecord.com"] },
-  { id: "aestheticspro", name: "AestheticsPro", signatures: ["aestheticspro.com"] },
-  { id: "pabau", name: "Pabau", signatures: ["pabau.com", "connect.pabau.com"] },
-  { id: "phorest", name: "Phorest", signatures: ["phorest.com/book", "bookings.phorest.com"] },
-  { id: "symplast", name: "Symplast", signatures: ["symplast.com", "symplastpatient.com"] },
-  { id: "nextech", name: "Nextech", signatures: ["nextech.com/book", "nexhealth.com"] },
-  { id: "tebra", name: "Tebra (PatientPop)", signatures: ["patientpop.com", "tebra.com/book"] },
-  { id: "podium", name: "Podium", signatures: ["podium.com/scheduling"] },
-  { id: "weave", name: "Weave", signatures: ["getweave.com/schedule"] },
-  { id: "simplybook", name: "SimplyBook.me", signatures: ["simplybook.me", "simplybook.it"] },
-  { id: "janeapp-ca", name: "Jane (CA)", signatures: [".ca.janeapp.com"] },
+  {
+    id: "boulevard",
+    name: "Boulevard",
+    signatures: ["//blvd.app/", "//dashboard.boulevard.io/booking"],
+  },
+  {
+    id: "gohighlevel",
+    name: "GoHighLevel",
+    signatures: ["leadconnectorhq.com/widget/booking/", "leadconnectorhq.com/widget/group/", "msgsndr.com/widget/booking/", "msgsndr.com/widget/group/"],
+  },
+  {
+    id: "zenoti",
+    name: "Zenoti",
+    signatures: ["//book.zenoti.com", "//booking.zenoti.com", "//webstore.zenoti.com"],
+    patterns: [new RegExp("https?://(?!www\\.|help\\.|support\\.|resources\\.|blog\\.|go\\.|info\\.)[a-z0-9][a-z0-9-]*\\.zenoti\\.com/webstore", "i")],
+  },
+  {
+    id: "patientnow",
+    name: "PatientNow",
+    signatures: ["//book.mypatientnow.com", "//scheduler.app.rxphoto.com", "book.mypatientnow.com/practice/", "mypatientnow.com/?pid=", "portal.mypatientnow.com", "schedulingapp.mypatientnow.com"],
+  },
+  {
+    id: "acuity",
+    name: "Acuity / Squarespace Scheduling",
+    signatures: [".as.me/", "acuityscheduling.com/schedule.php", "acuityscheduling.com/schedule/", "embed.acuityscheduling.com/js/embed.js", "embed.squarespacescheduling.com/js/embed.js", "squarespacescheduling.com/schedule.php", "squarespacescheduling.com/schedule/"],
+  },
+  {
+    id: "vagaro",
+    name: "Vagaro",
+    signatures: ["resources/widgetembeddedloader/", "vagaro.com/us01/", "vagaro.com/us02/", "vagaro.com/us03/", "vagaro.com/us04/", "vagaro.com/us05/"],
+  },
+  {
+    id: "mindbody",
+    name: "Mindbody",
+    signatures: [".healcode.com/", "brandedweb-assets.mindbodyonline.com", "brandedweb.mindbodyonline.com", "cart.mindbodyonline.com", "clients.mindbodyonline.com", "javascripts/healcode.js", "widgets.mindbodyonline.com"],
+  },
+  {
+    id: "aesthetic-record",
+    name: "Aesthetic Record",
+    signatures: [".myaestheticrecord.com/online-booking"],
+  },
+  {
+    id: "aestheticspro",
+    name: "AestheticsPro",
+    signatures: ["myaestheticspro.com/bn/", "myaestheticspro.com/clientportal/"],
+  },
+  {
+    id: "appointy",
+    name: "Appointy",
+    signatures: ["//booking.appointy.com/"],
+  },
+  {
+    id: "birdeye",
+    name: "Birdeye",
+    signatures: ["//widget-v7-cdn.birdeye.com/", "//widgets-v7.birdeye.com/api/widgets"],
+  },
+  {
+    id: "booker",
+    name: "Booker (Mindbody)",
+    signatures: [".secure-booker.com/", "//api.booker.com/", "//ccwidget.secure-booker.com", "//go.booker.com/"],
+  },
+  {
+    id: "booksy",
+    name: "Booksy",
+    signatures: ["booksy.com/dl/show-business/", "booksy.com/en-us/dl/show-business/", "booksy.com/widget-2021/", "booksy.com/widget/code.js"],
+  },
+  {
+    id: "calendly",
+    name: "Calendly",
+    signatures: ["assets.calendly.com/assets/external/", "calendly-inline-widget", "calendly.com/d/"],
+  },
+  {
+    id: "cerbo",
+    name: "Cerbo",
+    signatures: ["md-hq.com/embedded/schedule", "md-hq.com/schedule_visit"],
+  },
+  {
+    id: "fresha",
+    name: "Fresha",
+    signatures: ["fresha.com/a/"],
+  },
+  {
+    id: "jane",
+    name: "Jane App",
+    signatures: [".janeapp.com/#/", ".janeapp.com/embed/book_online", "janeapp.com/locations/"],
+    patterns: [new RegExp("\\.janeapp\\.(?:com|co\\.uk)/(?:locations/|#/)", "i"), new RegExp("https?://(?!www\\.|accounts\\.)[a-z0-9][a-z0-9-]*\\.janeapp\\.co\\.uk(?=[/\"'?#]|$)", "i"), new RegExp("https?://(?!www\\.|accounts\\.)[a-z0-9][a-z0-9-]*\\.janeapp\\.com(?=[/\"'?#]|$)", "i")],
+  },
+  {
+    id: "mangomint",
+    name: "Mangomint",
+    signatures: ["//booking.mangomint.com/", "//clients.mangomint.com/"],
+  },
+  {
+    id: "meevo",
+    name: "Meevo",
+    signatures: [".meevo.com/customerportal", ".meevo.com/onlinebooking"],
+  },
+  {
+    id: "modmed",
+    name: "ModMed EMA",
+    signatures: [".ema.md/", ".modmedapp.com"],
+  },
+  {
+    id: "nextech",
+    name: "Nextech (myPatientVisit)",
+    signatures: ["//mypatientvisit.com", "//www.mypatientvisit.com", "mypatientvisit.com/#/login?practiceid="],
+    patterns: [new RegExp("://([a-z0-9-]+\\.)*mypatientvisit\\.com([/:?#]|$)", "i")],
+  },
+  {
+    id: "patientfusion",
+    name: "Patient Fusion (Veradigm)",
+    signatures: ["//my.patientfusion.com"],
+  },
+  {
+    id: "phorest",
+    name: "Phorest",
+    signatures: [],
+    patterns: [new RegExp("//booking-widget\\.phorestcdn\\.com/", "i"), new RegExp("https?://(www\\.)?phorest\\.com/book/[A-Za-z0-9]", "i"), new RegExp("https?://(www\\.)?phorest\\.com/salon/[A-Za-z0-9][A-Za-z0-9_-]*", "i")],
+  },
+  {
+    id: "podium",
+    name: "Podium",
+    signatures: ["//booking.podium.com/"],
+  },
+  {
+    id: "schedulicity",
+    name: "Schedulicity",
+    signatures: ["schedulicity.com/api/public/widget/", "schedulicity.com/scheduling/"],
+  },
+  {
+    id: "setmore",
+    name: "Setmore",
+    signatures: ["booking.setmore.com/", "booking.setmore.com/scheduleappointment", "my.setmore.com/webapp/js/src/others/setmore_iframe.js"],
+  },
+  {
+    id: "simplybook",
+    name: "SimplyBook.me",
+    signatures: [".simplybook.asia/v2", ".simplybook.it/v2", ".simplybook.me/v2", "simplybook.it/v2/widget/widget.js", "simplybook.me/v2/widget/widget.js"],
+  },
+  {
+    id: "solutionreach",
+    name: "Solutionreach",
+    signatures: ["limelight.solutionreach.com/scheduling/", "patron.solutionreach.com/uipatron/schedule", "schedule.solutionreach.com", "smilereminder.com/sr/appt_schedule"],
+  },
+  {
+    id: "square",
+    name: "Square Appointments",
+    signatures: ["book.squareup.com/appointments/", "squareup.com/appointments/book/", "squareup.com/appointments/buyer/widget/"],
+  },
+  {
+    id: "symplast",
+    name: "Symplast",
+    signatures: ["//appointmentrequestsapp.symplast.com", "//scheduling.symplast.com", "appointmentrequestsapp.symplast.com"],
+  },
+  {
+    id: "tebra",
+    name: "Tebra (PatientPop)",
+    signatures: ["app.kareo.com/patient-engagement-ui", "cdn-prd.patientpop.com/scheduling-booking-ui", "cdn-prd.patientpop.com/widget/popup/", "legacy.patientpop.com/widgets/bookonline", "legacy.patientpop.com/widgets/calendars", "scheduling.api.patientpop.com", "websites-widget-manager.api.patientpop.com"],
+  },
+  {
+    id: "weave",
+    name: "Weave",
+    signatures: ["//book.getweave.com/", "//book2.getweave.com/"],
+  },
 ];
 
 /**
@@ -147,9 +291,10 @@ export function detectBooking(links: readonly string[]): BookingDetection {
 
     for (const platform of BOOKING_PLATFORMS) {
       if (seen.has(platform.id)) continue;
-      if (platform.signatures.some((sig) => url.includes(sig))) {
-        seen.set(platform.id, raw);
-      }
+      const hit =
+        platform.signatures.some((sig) => url.includes(sig)) ||
+        platform.patterns?.some((re) => re.test(url));
+      if (hit) seen.set(platform.id, raw);
     }
   }
 

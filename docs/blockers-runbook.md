@@ -91,6 +91,28 @@ Via https://synthflow.ai/talk-to-sales or contact@synthflow.ai:
 >    Bubble.io? Please send copies or attestations.
 > 6. Who is your telephony subprocessor for numbers purchased through Synthflow, and does
 >    the BAA cover the PSTN leg on those numbers?
+> 7. Please send the full schema of the post-call webhook. Specifically: does it report
+>    the **carrier disposition before the call reached you** — whether the clinic's own
+>    number rang and went unanswered, or was engaged — on a conditionally forwarded
+>    line? If that is not in the payload, can it be passed through from the inbound SIP
+>    headers or the forwarding diversion header?
+
+**Why 7 matters more than it looks.** It is the only one of the seven that decides whether
+a *shipped feature works*, rather than what it costs or who is liable.
+
+`apps/app/src/lib/voice/ingest.ts` classifies every call as recovered or not, and that
+classification is the number a clinic judges us on. On a conditionally forwarded line the
+rule is "every call we answered is one their receptionist did not" — but that is only
+defensible if we can show the call reached us *because* the clinic's line rang out or was
+busy. Those are carrier facts, not Synthflow facts: `VoiceCallEvent.rangAtClinicFirst` and
+`clinicLineBusy` are exactly this, and the module deliberately refuses to take the vendor's
+own "missed call" flag instead, because platforms report disposition and we need the
+counterfactual.
+
+If Synthflow cannot supply it, the fallback is reading it from the **Twilio** call-status
+webhook on the landing number and joining on the call id — a second integration, and worth
+knowing before an engineer starts rather than after. Ask this before writing the ingest
+route; the mapping is small once the shape is known and has to be rewritten if it is guessed.
 
 Also request the Trust Vault documents at https://security.synthflow.ai/ (SOC 2 Type II
 report, ISO 27001 certificate, subprocessor list) and the DPA from privacy@synthflow.ai —
@@ -103,6 +125,12 @@ Turn **off** Save Recordings and Save Transcripts, keep an Information Extractor
 configured, place a test call, inspect the post-call webhook. Confirm `executed_actions`
 still arrives with extracted values while `call.transcript` is empty. The docs don't state
 this — test it.
+
+**Same call, second thing to check:** place the test call through a conditionally
+forwarded number rather than dialling the Synthflow number directly, and look for any
+field carrying the pre-forward disposition (SIP `Diversion` / `History-Info`, a `reason`
+of `no-answer` or `busy`, or similar). That answers question 7 empirically, and a captured
+sample payload is what the ingest route gets written against.
 
 **Do not enable PII Redaction on an intake agent.** Their docs: *"Information extractors
 cannot extract redacted PII"* — redacting names breaks patient-name capture.

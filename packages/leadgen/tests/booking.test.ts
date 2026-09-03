@@ -31,16 +31,23 @@ describe("platform detection", () => {
   test("reports whether healdesk can actually connect to it", () => {
     // This is the field that changes the pitch: a supported platform can be
     // offered verified attribution, everything else gets estimates.
-    expect(detectBooking(["https://booking.vagaro.com/x"]).supported).toBe(true);
-    expect(detectBooking(["https://booksy.com/en-us/x"]).supported).toBe(false);
+    // Real tenant booking URLs. Note what these are NOT: bare `vagaro.com` and
+    // `booksy.com/en-us/` both match the vendors' own marketing sites, so
+    // neither is evidence that the linking clinic books there. Adversarial
+    // verification refuted both, and these fixtures use what replaced them.
+    expect(
+      detectBooking(["https://www.vagaro.com/us04/radiancemedspa"]).supported,
+    ).toBe(true);
+    expect(
+      detectBooking(["https://booksy.com/en-us/dl/show-business/12345"]).supported,
+    ).toBe(false);
   });
 
   test("prefers the supported platform when a clinic matches two", () => {
     // Mid-migration clinics genuinely run both. The supported one is the more
     // useful answer because it is the one that changes what we can sell.
     const result = detectBooking([
-      "https://booksy.com/en-us/12345",
-      "https://boulevard.io/x",
+      "https://booksy.com/dl/show-business/12345",
       "https://blvd.app/book/radiance",
     ]);
 
@@ -78,6 +85,38 @@ describe("what must NOT count as online booking", () => {
 
     expect(result.platform).toBeNull();
     expect(result.hasOnlineBooking).toBe(false);
+  });
+
+  test("a vendor's own marketing URL is not evidence the clinic uses it", () => {
+    // Every one of these matched the hand-written table before adversarial
+    // verification tightened it. Each is a clinic linking to a vendor's
+    // marketing, directory or trial page — a comparison article, a footer
+    // credit, an affiliate link — while booking somewhere else entirely.
+    for (const marketing of [
+      "https://www.vagaro.com/pricing",
+      "https://booksy.com/en-us/",
+      "https://www.mindbodyonline.com/explore/",
+      "https://secure.acuityscheduling.com/signup.php",
+      "https://www.zenoti.com/platform/online-booking",
+      "https://joinblvd.com/pricing",
+    ]) {
+      expect(detectBooking([marketing]).platform, marketing).toBeNull();
+    }
+  });
+
+  test("a GoHighLevel contact form is not a booking widget", () => {
+    // The sharpest false positive of the lot. form_embed.js loads for
+    // lead-capture forms exactly as it does for calendars, and GoHighLevel is
+    // the dominant white-label CRM for med spa marketing agencies — so this
+    // would mark a phone-booking clinic running a "Request Info" form as
+    // already-bookable, dropping the exact prospect the campaign wants.
+    expect(
+      detectBooking(["https://link.msgsndr.com/js/form_embed.js"]).hasOnlineBooking,
+    ).toBe(false);
+    expect(
+      detectBooking(["https://api.leadconnectorhq.com/widget/booking/abc123"])
+        .platform,
+    ).toBe("gohighlevel");
   });
 
   test("an empty crawl reports nothing rather than guessing", () => {

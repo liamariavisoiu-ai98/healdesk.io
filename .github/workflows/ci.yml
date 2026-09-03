@@ -77,24 +77,35 @@ jobs:
       - run: npx tsc --noEmit -p packages/catalog
       - run: npx tsc --noEmit -p packages/connectors
 
+      # One run, machine-readable. The previous version ran the suite twice —
+      # once for humans, once to grep the count out of coloured terminal output,
+      # which failed because the ANSI escapes sit between "Tests" and the number.
+      # Parsing a reporter's prose was the mistake; vitest emits JSON.
       - name: Test — apps/app
-        run: npm test -w @healdesk/app -- --reporter=verbose
+        run: npm test -w @healdesk/app -- --reporter=json --outputFile=../../test-results.json
+
+      # The point of the whole job. The step above fails on any failing test;
+      # this one fails when the database-backed suites SKIPPED — which is the
+      # silent case, because a suite that skips reports green.
+      - name: Assert the security tests actually ran
+        run: |
+          node -e '
+            const r = require("./test-results.json");
+            const passed = r.numPassedTests ?? 0;
+            const skipped = (r.testResults ?? []).filter(f => f.status === "pending").length;
+            console.log(`passed: ${passed}, skipped files: ${skipped}`);
+            if (passed < 200) {
+              console.log("::error::Only " + passed + " tests ran. The database-backed suites skipped —");
+              console.log("::error::tenant isolation, RLS drift and BAA immutability did not execute.");
+              process.exit(1);
+            }
+          '
 
       - name: Test — packages/connectors
         run: npm test -w @healdesk/connectors
 
-      # The point of the whole job. If the database-backed suites skipped, the
-      # count collapses and the security tests did not run — which must fail the
-      # build rather than report green.
-      - name: Assert the security tests actually ran
-        run: |
-          COUNT=$(npm test -w @healdesk/app 2>&1 | grep -oE 'Tests +[0-9]+ passed' | grep -oE '[0-9]+' | head -1)
-          echo "passed: $COUNT"
-          if [ "${COUNT:-0}" -lt 200 ]; then
-            echo "::error::Only $COUNT tests ran. The database-backed suites skipped —"
-            echo "::error::tenant isolation, RLS drift and BAA immutability did not execute."
-            exit 1
-          fi
+      - name: Test — apps/web
+        run: npm test -w @healdesk/web
 
       - run: npm run build
         env:

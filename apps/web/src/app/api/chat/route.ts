@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { GATE_COOKIE, verifyGateToken } from "@/lib/gate";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
-import { composeKnowledge, isNiche } from "@/lib/knowledge";
+import { composeKnowledge, isNiche, isPractice } from "@/lib/knowledge";
 import { getSpecialty } from "@/lib/specialties";
 
 /**
@@ -131,8 +131,9 @@ export async function POST(request: Request): Promise<Response> {
     return badRequest("Invalid request body.");
   }
 
-  const { specialtyId, niche, messages } = (body ?? {}) as {
+  const { specialtyId, practice, niche, messages } = (body ?? {}) as {
     specialtyId?: unknown;
+    practice?: unknown;
     niche?: unknown;
     messages?: unknown;
   };
@@ -151,6 +152,7 @@ export async function POST(request: Request): Promise<Response> {
   // the visitor's conversation is worth more than strictness about a hint, and
   // a generalist answer is always safe where a wrong-niche answer is not.
   const branch = isNiche(niche) ? niche : undefined;
+  const practiceType = isPractice(practice) ? practice : undefined;
 
   if (!Array.isArray(messages) || messages.length === 0) {
     return badRequest("Missing messages.");
@@ -194,7 +196,11 @@ export async function POST(request: Request): Promise<Response> {
               type: "text",
               text: buildSystemPrompt(
                 specialty.name,
-                composeKnowledge(specialty.context, branch),
+                composeKnowledge({
+                  specialtyContext: specialty.context,
+                  practice: practiceType ?? specialtyId,
+                  niche: branch,
+                }),
               ),
               // Stable per (specialty, niche) pair, so it still caches across
               // visitors — the tree deepens the prompt without making it unique.

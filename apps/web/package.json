@@ -9,7 +9,8 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf .next .turbo node_modules",
-    "stripe:setup": "tsx --env-file-if-exists=.env.local scripts/stripe-setup.ts"
+    "stripe:setup": "tsx --env-file-if-exists=.env.local scripts/stripe-setup.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
@@ -27,6 +28,7 @@
     "@types/react-dom": "^19.2.0",
     "postcss": "^8.5.1",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.10"
   }
 }

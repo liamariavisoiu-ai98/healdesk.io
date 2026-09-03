@@ -16,6 +16,21 @@ been. What remains is genuinely waiting on something.
 >
 > This file stays as the index.
 
+> **Follow this file, not `state-of-play.md`.**
+>
+> [state-of-play.md](./state-of-play.md) is a dated **audit** (2 Sep 2026): the BAA
+> reviewed clause by clause against 45 CFR 164.504(e)(2)(ii), a codebase pass, and
+> the niche argument. Read it when you want to know *why* something is on the list
+> below, or before touching the BAA or the recovery classification — the reasoning
+> there is better than any summary of it.
+>
+> But it is a snapshot, and parts of its "what to do, in order" have since been
+> done (database-backed CI, the recovery classification, the BAA promise fixes).
+> Don't work from its task list. Its open findings have been folded into section 3
+> here, each marked with whether it was re-verified.
+>
+> One list, and it is this one.
+
 ---
 
 ## 1. Blocked on you — accounts and decisions
@@ -81,20 +96,59 @@ Own the numbers here rather than in Synthflow: it makes switching voice vendors
 a config change instead of a port, and Synthflow's own docs frame their numbers
 as *"for quick testing"* with no toll-free and undocumented porting.
 
-### Anthropic BAA + zero data retention
+### Anthropic BAA — and keep it off the marketing org
 
-Via Sales. Ask for both. Note web search is excluded from BAA coverage — it must
-be disabled on any endpoint touching patient data.
+Via Sales. Note web search is excluded from BAA coverage — it must be disabled on
+any endpoint touching patient data. Don't chase zero data retention alongside the
+BAA: HIPAA-ready API access is designed as an *alternative* to ZDR, and asking
+for both adds negotiation and costs features.
 
-### Stripe account
+**The HIPAA setting is organization-wide, and enabling it is a one-way door.**
+So patient traffic needs its **own Anthropic organization** — not just its own
+key. A service account or an unlinked key inside the same org changes who owns
+the key, not which compliance regime applies to it; enable HIPAA readiness there
+and it applies to the marketing demo's key too, permanently, hard-blocking
+features that demo may want.
 
-For billing. `apps/web/src/lib/billing.ts` is stubbed and **refuses to provision
-in production** without keys rather than handing out free accounts.
+`ANTHROPIC_API_KEY` in `apps/web/.env.local` is the **marketing** key and belongs
+to the non-PHI org. Prefer a **service account** for it — a user-linked key dies
+when that user is deactivated, where a service account survives personnel
+changes, gets its own line in usage logs, and is revocable on its own.
 
-When you wire it: provisioning must fire on `checkout.session.completed`, **not**
-on the browser reaching the success URL. A customer who closes the tab after
-paying still gets their account; someone who hand-crafts a success URL gets
-nothing.
+### Stripe account — built, three steps from working
+
+Checkout, the webhook, and idempotent provisioning are implemented. A test-mode
+secret key and a local webhook signing secret are already in
+`apps/web/.env.local`. What is left:
+
+1. **Create the products and prices.** `npm run stripe:setup -w @healdesk/web`.
+   The account currently has **zero** prices, so `createCheckout` throws a
+   "run the setup script" error on the first attempt. Re-run it per environment
+   (test, then live) — it is idempotent and reports drift between Stripe and
+   `packages/catalog/src/plans.ts`.
+2. **Refresh the CLI credential.** `stripe login` mints a key that expires after
+   90 days and ours lapsed in July, so `stripe listen` fails with
+   `api_key_expired`. Either run `stripe login` again, or prefix commands with
+   `STRIPE_API_KEY="$STRIPE_SECRET_KEY"` — the app key is valid and works.
+3. **Production webhook endpoint.** Dashboard → Developers → Webhooks, pointing
+   at `/api/webhooks/stripe`, subscribed to `checkout.session.completed` and
+   `checkout.session.async_payment_succeeded`. Its signing secret is a
+   **different value** from the local one — per-endpoint, not per-account.
+
+Two things about that flow worth not rediscovering:
+
+**Provisioning fires on `checkout.session.completed`, never on the success URL.**
+A customer who closes the tab after paying still gets their account; someone who
+hand-crafts a success URL gets nothing. `/get-started/done` reads nothing and
+verifies nothing on purpose.
+
+**Stripe retries every non-2xx for up to three days.** There is no "4xx stops
+retries" rule for webhooks — that rule belongs to custom actions, a different
+product surface. So a missing signing secret returns **500** deliberately: the
+events queue up and replay once it is set. A *wrong* secret is worse than a
+missing one, because it passes the config gate and lands on the 400
+"invalid signature" path meant for forgeries, silently failing every real sale.
+Never put a placeholder in `STRIPE_WEBHOOK_SECRET`.
 
 ### Boulevard + GoHighLevel developer accounts
 
@@ -115,7 +169,7 @@ exclude exactly these, which is the point. Earlier than feels necessary.
 
 | Item | Why it matters |
 |---|---|
-| **Ad-platform attribution** | Sending person-level conversion data to Meta/Google is the GoodRx fact pattern — $1.5M there, $7.8M at BetterHelp. Currently aggregate-only and deferred. Needs a field-by-field sign-off before it is ever built |
+| **Ad-platform attribution — removed, keep it that way** | Sending person-level conversion data to Meta/Google is the GoodRx fact pattern — $1.5M there, $7.8M at BetterHelp. `ad_interactions` and the `conversations` join to it were **dropped in `drizzle/0017`**; this is no longer deferred, it is out of scope. Reintroducing a click-id column needs counsel first. Note `src/lib/attribution/` is a different thing wearing a confusing name: it reconciles the clinic's own POS money event and reports it back to them, and nothing leaves for a third party |
 | **Covered-entity determination** | Cash-pay med spas often aren't covered entities, which removes five defences at once including Washington MHMDA's — and that has a private right of action. Needs a method and a different posture for non-covered clinics |
 | **CIPA positioning** | Party-extension or independent third party? Contracts, architecture and marketing copy must all say the same thing |
 | **Click-through BAA** | The mechanism is production-ready — versioned, hashed, append-only acceptance. The text in `packages/catalog/src/baa.ts` is a placeholder marked `approvedByCounsel: false` and must be replaced |
@@ -178,6 +232,57 @@ Ordered by what unblocks the most.
   GoodHighLevel and Boulevard are the best targets, PatientNow needs
   `customeruserdefined` not `customernote` because it's a real EMR, and Vagaro
   has no write-back path at all.
+- **Ingestion must set `recovery_reason`, and `after_hours` needs the hours.**
+  The column and the report read it, but nothing writes it — voice ingestion
+  isn't built. Set it at the moment the call arrives; it cannot be reconstructed
+  afterwards. For `after_hours`, call
+  `isAfterHours(hours, at, clinic.timezone)` from `lib/clinic/opening-hours.ts`
+  and record the reason **only when it returns `true`**. It returns `null` when
+  the clinic's hours were never collected, and that null must not be coerced —
+  a clinic wrongly assumed to shut at 5 would have its 6pm calls claimed as
+  recovered while its own staff answered them. Hours are collected at
+  `/c/[slug]/hours`; while they are empty the report understates, on purpose.
+- **The embedded scheduler for no-system clinics is still unchosen.** Cal.com
+  and PracticeQ both clear the three axes (offers a BAA, agent can write
+  bookings, exposes show/collect). Current recommendation is **PracticeQ**,
+  because the PHI-light voice agent needs somewhere to push intake and PracticeQ
+  is both the scheduler and that destination — one BAA'd vendor instead of two —
+  and its BAA is self-serve on every plan. **Contingent on one check:** whether
+  its API creates bookings programmatically, not just reads. If it doesn't,
+  Cal.com is the fallback; its booking-write and `BOOKING_PAID` webhook are
+  confirmed today. Settle that before building the provisioned-booking path.
+- **`stripe:setup` has never been run against a live-mode key.** Only test mode
+  is exercised. The script is idempotent and prints drift, but the live run is
+  still a first run.
+- **The assent label is client-supplied and never checked.** `validateSignRequest`
+  (`apps/app/src/lib/agreements.ts:178`) only tests that it is non-empty and under
+  200 chars, then freezes whatever arrived into the acceptance row as "what the
+  button said". The whole reason that column exists is that enforceability turns
+  on the wording of the assent action — so the one field that must not be
+  caller-controlled currently is. Compare it to `BAA_ASSENT_LABEL` and reject a
+  mismatch. **Verified still true, 3 Sep.**
+- **`approvedByCounsel` gates nothing.** It is read in three places and every one
+  of them only *reports* it (`agreements.ts:319,332`, `api/agreements/route.ts:88`).
+  The real production gate is `drizzle/0004_baa_gate.sql`, which keys on
+  `data_classification` + `baa_signed_at` — and a signature on the draft satisfies
+  that. Comments in `packages/catalog/src/baa.ts` claim provisioning refuses to
+  classify a clinic as production while it is false; nothing does. Either wire it
+  or fix the comment, but do not leave a claimed safeguard that isn't there.
+  **Verified still true, 3 Sep.**
+- **Database-layer findings from the 2 Sep audit, untouched.** `0019`'s backfill
+  silently affects zero rows; the BAA gate sits on state the gated role can write;
+  `baa_acceptances` has no RLS. See `docs/state-of-play.md` → Database-layer
+  findings for the reasoning. *Not re-verified since 2 Sep.*
+- **Two `sync.test.ts` tests fail in the first days of a month.** Not a code
+  bug — a fixture one. The generator spreads walk-in sales *evenly* across the
+  90-day sync window (`packages/connectors/src/fixture/generator.ts`), and the
+  tests then reconcile "this month". On the 2nd of a month that sub-window holds
+  no walk-in, so `unmatchedUsd` is 0 and the orphan-sale assertions fail. The
+  comment there claims even spacing "makes the property hold for any sub-window";
+  that is true only for sub-windows wider than the gap between walk-ins. Fix by
+  anchoring the fixture to the period under test rather than to `new Date()`, or
+  by emitting at least one walk-in per calendar month in the span. It goes green
+  on its own mid-month, which is what makes it worth fixing rather than watching.
 
 ---
 
@@ -185,9 +290,14 @@ Ordered by what unblocks the most.
 
 Things left undone on purpose, so nobody "fixes" them by accident.
 
-- **"Recovered" counts only automatic callbacks.** After-hours calls arguably
-  qualify, but that needs per-clinic business hours we don't collect, and
-  inventing them would inflate the number a clinic judges us on. It understates.
+- **"Recovered" is a reason, and `null` means we claim nothing.**
+  `conversations.recovery_reason` records *why* a contact would have been lost —
+  `after_hours`, `line_busy`, `rang_unanswered`, `missed_call_callback` — and the
+  report counts anything non-null. This replaced a single
+  `is_recovered_missed_call` boolean that counted only the last of the four, so a
+  9pm call the agent answered live scored zero. Null still means the clinic would
+  have handled it anyway, and stays the default: the guard against overstating
+  now sits at ingestion, where the facts are.
 - **Revenue is `null`, never `0`, when unknown.** `$0 recovered` reads as "we
   earned you nothing" — a different and false claim from "we can't work it out".
 - **The monthly email is aggregate-only, permanently.** A test enforces it. Per
@@ -285,6 +395,10 @@ clinic-owner invitations 14.
 | `apps/app/src/lib/compliance/` | Consent, suppression, disclosure |
 | `apps/app/src/lib/sync/reconcile.ts` | The money rules, pure and testable. Read this one before disputing a figure |
 | `apps/app/src/lib/sync/run.ts` | One sync run: cursors, paging, per-page transactions |
+| `apps/web/src/lib/billing.ts` | Checkout session creation; why the payload rides in metadata per-field |
+| `apps/web/src/app/api/webhooks/stripe/route.ts` | Where accounts are actually created. Read the status-code reasoning before changing one |
+| `apps/app/drizzle/0021_provisioning_idempotency.sql` | Why a Stripe retry can't create a second account |
+| `apps/app/src/lib/clinic/opening-hours.ts` | After-hours recovery. Returns `null` for "not collected" — never coerce it |
 | `apps/app/src/lib/queue/boss.ts` | Queue names, payload allowlist, why the queue can't self-migrate |
 | `apps/app/src/workers/index.ts` | The background worker entry point |
 | `apps/app/drizzle/` | Migrations. Order is load-bearing: roles → tables → functions → policies → grants |

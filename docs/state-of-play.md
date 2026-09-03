@@ -1,4 +1,11 @@
 # State of play — 2 September 2026
+
+> **This is a dated audit, not the task list.** Written 2 Sep 2026. Parts of Part 5
+> have since been done, and the open findings below now live in
+> [handover.md](./handover.md) § 3, which is the list to work from. Keep this for
+> the reasoning — the CFR coverage matrix, the defect analysis, and the niche
+> argument are not summarised anywhere else.
+
 *(updated the same day: the fixes below have landed — see "What changed" at the end)*
 
 Where healdesk actually stands, what the BAA review found, and what to do next in

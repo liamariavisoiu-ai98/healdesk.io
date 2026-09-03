@@ -1,4 +1,9 @@
-import { createDecipheriv, createCipheriv, randomBytes } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+} from "node:crypto";
 
 import { env } from "@/lib/env";
 
@@ -47,7 +52,22 @@ const DEK_BYTES = 32;
 // -----------------------------------------------------------------------------
 
 export class LocalKeyWrapper implements KeyWrapper {
-  readonly keyVersion = "local-v1";
+  /**
+   * Derived from the key material, not a constant.
+   *
+   * It used to be the literal string "local-v1" for every instance, which made
+   * key rotation a silent no-op: `rewrap()` returns early when
+   * `sealed.keyVersion === wrapper.keyVersion`, so rotating the KEK produced two
+   * wrappers that reported the SAME version and every re-wrap was skipped. The
+   * ciphertext stayed on the old key while the system reported it rotated —
+   * which is the worst kind of security bug, because the dashboard says done.
+   *
+   * A short hash of the key identifies WHICH key without revealing it. Eight
+   * hex characters is ample: this only ever distinguishes a handful of keys, and
+   * a collision would cause a failed rotation rather than a wrong decrypt,
+   * because unwrapping still authenticates.
+   */
+  readonly keyVersion: string;
   readonly #kek: Buffer;
 
   constructor(kekBase64: string) {
@@ -58,6 +78,7 @@ export class LocalKeyWrapper implements KeyWrapper {
       );
     }
     this.#kek = kek;
+    this.keyVersion = `local-${createHash("sha256").update(kek).digest("hex").slice(0, 8)}`;
   }
 
   async generateDek(): Promise<{ dek: Buffer; wrapped: WrappedKey }> {

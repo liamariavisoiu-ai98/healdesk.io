@@ -3,7 +3,12 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "vitest";
 
 import { open, rewrap, seal } from "@/lib/crypto/envelope";
-import { LocalKeyWrapper, __setKeyWrapperForTests } from "@/lib/crypto/kms";
+import {
+  LocalKeyWrapper,
+  getKeyWrapper,
+  __setKeyWrapperForTests,
+  type KeyWrapper,
+} from "@/lib/crypto/kms";
 
 const clinicA = randomUUID();
 const clinicB = randomUUID();
@@ -77,32 +82,73 @@ describe("envelope encryption", () => {
     expect(one.wrappedDek).not.toBe(two.wrappedDek);
   });
 
-  test("rewrap changes the key version but preserves the plaintext", async () => {
+  test("rewrap moves a payload to the new key and preserves the plaintext", async () => {
     const identity = { clinicId: clinicA, credentialId: credential };
     const sealed = await seal("sk_live_secret", identity);
 
-    // Swap in a wrapper with a different KEK, as a rotation would.
-    const rotated = new LocalKeyWrapper(Buffer.alloc(32, 7).toString("base64"));
-    const original = new LocalKeyWrapper(Buffer.alloc(32).toString("base64"));
+    /**
+     * A wrapper that unwraps under the OLD key and wraps under the new one.
+     *
+     * This models what AWS KMS actually does — a ciphertext blob names the key
+     * that produced it, so KMS decrypts across versions while always encrypting
+     * with the current one. LocalKeyWrapper cannot: it holds exactly one KEK, so
+     * it is structurally incapable of driving a rotation. A test built on two of
+     * them was exercising hand-rolled steps rather than rewrap() itself.
+     */
+    class RotatingWrapper implements KeyWrapper {
+      readonly keyVersion = "test-rotated";
 
-    // Unwrap under the old key, re-wrap under the new one.
-    const dek = await original.unwrapDek({
-      wrapped: sealed.wrappedDek,
-      keyVersion: sealed.keyVersion,
-    });
-    const rewrapped = await rotated.wrapExisting(dek);
+      constructor(
+        private readonly next: LocalKeyWrapper,
+        private readonly previous: KeyWrapper,
+      ) {}
 
-    __setKeyWrapperForTests(rotated);
+      generateDek() {
+        return this.next.generateDek();
+      }
+
+      async wrapExisting(dek: Buffer) {
+        const wrapped = await this.next.wrapExisting(dek);
+        return { ...wrapped, keyVersion: this.keyVersion };
+      }
+
+      async unwrapDek(wrapped: { wrapped: string; keyVersion: string }) {
+        // New key first, then the old one — the order a partially migrated
+        // estate needs, where both generations exist at once.
+        try {
+          return await this.next.unwrapDek(wrapped);
+        } catch {
+          return this.previous.unwrapDek(wrapped);
+        }
+      }
+    }
+
+    const rotating = new RotatingWrapper(
+      new LocalKeyWrapper(Buffer.alloc(32, 7).toString("base64")),
+      getKeyWrapper(),
+    );
+
+    __setKeyWrapperForTests(rotating);
     try {
-      const opened = await open(
-        { ...sealed, wrappedDek: rewrapped.wrapped, keyVersion: rewrapped.keyVersion },
-        identity,
-      );
-      expect(opened).toBe("sk_live_secret");
+      // Sanity: the versions genuinely differ, or the rotation below is a no-op
+      // that proves nothing. This is exactly what broke when LocalKeyWrapper
+      // reported a constant "local-v1" for every key — rewrap() returned early
+      // and the ciphertext stayed on the old key while reporting success.
+      expect(rotating.keyVersion).not.toBe(sealed.keyVersion);
 
-      // And rewrap() is a no-op once already on the current key.
-      const current = { ...sealed, wrappedDek: rewrapped.wrapped, keyVersion: rewrapped.keyVersion };
-      expect(await rewrap(current)).toBe(current);
+      const migrated = await rewrap(sealed);
+
+      expect(migrated.keyVersion).toBe(rotating.keyVersion);
+      expect(migrated.wrappedDek).not.toBe(sealed.wrappedDek);
+      // Only the wrapped DEK changes. Re-encrypting the payload would be the
+      // expensive, risky way to rotate, and avoiding it is why envelope
+      // encryption exists at all.
+      expect(migrated.ciphertext).toBe(sealed.ciphertext);
+
+      expect(await open(migrated, identity)).toBe("sk_live_secret");
+
+      // And it is a no-op once already on the current key.
+      expect(await rewrap(migrated)).toBe(migrated);
     } finally {
       __setKeyWrapperForTests(undefined);
     }

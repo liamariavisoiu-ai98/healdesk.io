@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "discover": "tsx src/cli.ts",
+    "discover": "tsx --env-file-if-exists=.env src/cli.ts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf .turbo node_modules data",
     "test": "vitest run",
-    "enrich": "tsx src/enrich/cli.ts"
+    "enrich": "tsx --env-file-if-exists=.env src/enrich/cli.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

@@ -127,9 +127,16 @@ spread — and the tool warns when:
 
 ## Running it
 
+Credentials come from `packages/leadgen/.env`, which is gitignored and loaded
+natively by Node — copy `.env.example` and fill in the Apify token.
+
+For Anthropic, prefer `ant auth login` over a key: it stores a short-lived OAuth
+profile the SDK resolves on its own, so there is no long-lived secret to keep
+anywhere. The pipeline accepts either.
+
 ```bash
-export APIFY_TOKEN=...
-export ANTHROPIC_API_KEY=...
+cp packages/leadgen/.env.example packages/leadgen/.env   # then add APIFY_TOKEN
+ant auth login --no-browser                              # or set ANTHROPIC_API_KEY
 
 npm run enrich -w @healdesk/leadgen -- --input ~/Downloads/healdesk_leads.csv
 ```

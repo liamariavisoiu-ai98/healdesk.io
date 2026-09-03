@@ -144,6 +144,19 @@ export async function crawlSites(
       // dropped. It never reaches the model and never reaches disk.
       saveMarkdown: true,
       saveHtml: true,
+      // The setting that actually mattered, found by measuring rather than
+      // reasoning: the default transformer extracts readable content and
+      // saveHtml then saves ITS OUTPUT, not the page. So the links were being
+      // discarded before saveHtml ever ran, and switching saveHtml on changed
+      // nothing at all.
+      //
+      // Measured on one clinic homepage, hrefs and srcs recovered:
+      //   htmlTransformer: "readableText" (default)  →  44
+      //   htmlTransformer: "none"                    →  93
+      //
+      // An earlier attempt to fix this by overriding removeElementsCssSelector
+      // made it worse — 2 links — so it is deliberately left at the default.
+      htmlTransformer: "none",
       proxyConfiguration: { useApifyProxy: true },
     });
 

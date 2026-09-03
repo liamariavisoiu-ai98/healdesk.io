@@ -20,6 +20,12 @@ reference you open when this file sends you to it.
 Rule of thumb: **one list, four references.** If you find yourself tracking two
 lists, one of them is stale — fold it in here and delete it.
 
+> **A browsable version of all of this:** `npm run docs` serves every document at
+> <http://localhost:4321> with a landing page of 102 tasks — grouped into the seven
+> phases that get you from here to a running business, each with a plain-English
+> explanation and steps. It is generated from these files and fails to build if it
+> drifts from them, so it stays a view rather than becoming a list of its own.
+
 ---
 
 ## 1. Blocked on you — accounts and decisions

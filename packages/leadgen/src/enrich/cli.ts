@@ -200,11 +200,15 @@ async function main(): Promise<void> {
 
   // ---- 3. Label ------------------------------------------------------------
   console.log("\n[3/4] label");
+  // No key check here, on purpose.
+  //
+  // An earlier version refused to start unless ANTHROPIC_API_KEY was set, which
+  // rejected the credential most people actually have: the OAuth profile written
+  // by `ant auth login`, which the SDK finds on its own. Pre-flighting a check
+  // the SDK already does, using a narrower rule than the SDK uses, only ever
+  // produces false rejections — so let the SDK resolve, and explain properly if
+  // nothing resolves.
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  if (!anthropicKey && !existsSync(join(DATA, "03-labels.json"))) {
-    console.error("  ANTHROPIC_API_KEY is not set, and there are no cached labels.");
-    process.exit(1);
-  }
 
   // Batch is half price and this job has no latency requirement — but batches
   // can take up to 24h, so the sample run wants the streaming path for fast
@@ -216,7 +220,7 @@ async function main(): Promise<void> {
 
   const labels = await checkpoint<Label[]>("03-labels", flag("force-label"), () =>
     label(crawls, {
-      apiKey: anthropicKey!,
+      apiKey: anthropicKey,
       maxCalls: Number(arg("max-llm") ?? crawls.length),
       onProgress: (done, total) =>
         process.stdout.write(`\r  labelled ${done}/${total}`),
@@ -290,6 +294,22 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
+  const message = error instanceof Error ? error.message : String(error);
+
+  // The one failure worth explaining rather than dumping. Everything else is
+  // better served by the raw error.
+  if (/api[_ -]?key|authentication|401|credential/i.test(message)) {
+    console.error(
+      "\nNo Anthropic credentials found.\n\n" +
+        "  Either log in once — no key to store:\n" +
+        "    ant auth login --no-browser\n\n" +
+        "  Or export a key from console.anthropic.com:\n" +
+        "    export ANTHROPIC_API_KEY=sk-ant-...\n\n" +
+        `  (underlying error: ${message})`,
+    );
+    process.exit(1);
+  }
+
   console.error("\nenrichment failed:", error);
   process.exit(1);
 });

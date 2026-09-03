@@ -198,7 +198,7 @@ export async function labelClinicsBatched(
   crawls: CrawlResult[],
   options: LabelOptions & { pollSeconds?: number },
 ): Promise<Label[]> {
-  const client = new Anthropic({ apiKey: options.apiKey });
+  const client = new Anthropic(options.apiKey ? { apiKey: options.apiKey } : {});
 
   const { labelled, toCall } = partition(crawls);
   const budgeted = toCall.slice(0, options.maxCalls ?? toCall.length);
@@ -261,7 +261,16 @@ export async function labelClinicsBatched(
 }
 
 export type LabelOptions = {
-  apiKey: string;
+  /**
+   * Optional, and deliberately so.
+   *
+   * The SDK resolves credentials in its own order — ANTHROPIC_API_KEY, then
+   * ANTHROPIC_AUTH_TOKEN, then the OAuth profile written by `ant auth login`.
+   * Passing `apiKey: undefined` lets that resolution happen; demanding an
+   * explicit key here would reject a perfectly good logged-in profile and force
+   * everyone to mint and store a long-lived secret they do not need.
+   */
+  apiKey?: string;
   /** Hard cap on spend. Beyond it, remaining clinics are left unlabelled. */
   maxCalls?: number;
   concurrency?: number;
@@ -272,7 +281,7 @@ export async function labelClinics(
   crawls: CrawlResult[],
   options: LabelOptions,
 ): Promise<Label[]> {
-  const client = new Anthropic({ apiKey: options.apiKey });
+  const client = new Anthropic(options.apiKey ? { apiKey: options.apiKey } : {});
   const concurrency = options.concurrency ?? 8;
 
   const { labelled, toCall } = partition(crawls);

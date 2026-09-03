@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { crawlSites, type CrawlResult } from "./crawl.ts";
 import { dedupe, type LeadRow } from "./dedupe.ts";
-import { labelClinics, type Label } from "./label.ts";
+import { labelClinics, labelClinicsBatched, type Label } from "./label.ts";
 import { buildReport, formatReport } from "./report.ts";
 import { SEGMENT_LABELS, type Segment } from "./segments.ts";
 
@@ -141,7 +141,9 @@ async function main(): Promise<void> {
         "  npm run enrich -w @healdesk/leadgen -- --input ~/Downloads/healdesk_leads.csv\n\n" +
         "Stages: dedupe → crawl → label → report. Each checkpoints to\n" +
         "packages/leadgen/data/. Re-running is free; --force-crawl or\n" +
-        "--force-label redoes one stage without redoing the earlier ones.",
+        "--force-label redoes one stage without redoing the earlier ones.\n\n" +
+        "Add --batch on the full run: half the token price, since a job you\n" +
+        "read tomorrow morning has no reason to pay for low latency.",
     );
     process.exit(1);
   }
@@ -204,8 +206,16 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // Batch is half price and this job has no latency requirement — but batches
+  // can take up to 24h, so the sample run wants the streaming path for fast
+  // feedback and the full run wants the discount.
+  const label = flag("batch") ? labelClinicsBatched : labelClinics;
+  if (flag("batch")) {
+    console.log("  using the Batch API — half price, may take up to 24h");
+  }
+
   const labels = await checkpoint<Label[]>("03-labels", flag("force-label"), () =>
-    labelClinics(crawls, {
+    label(crawls, {
       apiKey: anthropicKey!,
       maxCalls: Number(arg("max-llm") ?? crawls.length),
       onProgress: (done, total) =>

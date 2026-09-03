@@ -139,12 +139,61 @@ npm run enrich -w @healdesk/leadgen -- --input ~/Downloads/healdesk_leads.csv
 | `--limit 200` | Crawl a sample first. **Do this before the full run.** |
 | `--max-llm 500` | Hard cap on classification spend |
 | `--force-crawl` | Redo the crawl, keep the dedupe |
-| `--force-label` | Reclassify from the cached crawl — free, no Apify spend |
+| `--force-label` | Reclassify from the cached crawl — no Apify spend |
+| `--batch` | Half the token price via the Batch API. Use on the full run. |
 
 **Every stage checkpoints.** Crawling 4,500 domains costs real money and time; a
 pipeline that loses that because stage three threw is one nobody runs twice.
 Re-running is free, and `--force-label` lets you iterate on the classification
 prompt without re-crawling.
+
+### What it costs
+
+Classification runs on **Haiku 4.5** ($1/$5 per million tokens), because this is
+a closed-enum label against text already in front of the model — the hard part is
+the crawl, not the judgement.
+
+| | 4,512 clinics |
+|---|---|
+| Haiku 4.5, streaming | **~$14** |
+| Haiku 4.5, `--batch` | **~$7** |
+| *(Sonnet 5, for comparison)* | *~$43* |
+
+Plus the Apify crawl, which is the larger and less predictable line — budget on
+their current compute-unit rate for ~4,500 rendered page loads at depth 1.
+
+`--batch` is half price because batches are not latency-guaranteed: most finish
+within an hour, the ceiling is 24. For a job you read the next morning, paying
+double for speed is a straight waste. Use the streaming path for the `--limit`
+sample, where you want the evidence column in front of you immediately.
+
+Prompt caching does **not** help here and is deliberately not used: the system
+prompt is ~700 tokens and Haiku 4.5's minimum cacheable prefix is 4,096, so a
+`cache_control` marker would silently never fire.
+
+### What it costs
+
+Classification runs on **Haiku 4.5** ($1/$5 per million tokens), because this is
+a closed-enum label against text already in front of the model — the hard part is
+the crawl, not the judgement.
+
+| | 4,512 clinics |
+|---|---|
+| Haiku 4.5, streaming | **~$14** |
+| Haiku 4.5, `--batch` | **~$7** |
+| *(Sonnet 5, for comparison)* | *~$43* |
+
+Plus the Apify crawl, which is the larger and less predictable line — budget on
+their current compute-unit rate for ~4,500 rendered page loads at depth 1.
+
+`--batch` is half price because batches are not latency-guaranteed: most finish
+within an hour, the ceiling is 24. For a job you read the next morning, paying
+double for speed is a straight waste. Use the streaming path for the `--limit`
+sample, where you want the evidence column in front of you immediately.
+
+Prompt caching does **not** help here and is deliberately not used: the system
+prompt is ~700 tokens and Haiku 4.5's minimum cacheable prefix is 4,096, so a
+`cache_control` marker would silently never fire.
 
 ### Output
 

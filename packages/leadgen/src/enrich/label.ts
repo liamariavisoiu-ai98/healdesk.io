@@ -37,7 +37,20 @@ export type Label = {
   isChainOrFranchise: boolean;
 };
 
-const MODEL = "claude-sonnet-5";
+/**
+ * Haiku, not Sonnet.
+ *
+ * This is a closed-enum classification against text that is already in front of
+ * the model — the hard part is the crawl, not the judgement. Haiku 4.5 is built
+ * for exactly this shape, and at $1/$5 per million tokens against Sonnet 5's
+ * $3/$15 it is a third of the price for the same tally. Over 4,512 clinics that
+ * is the difference between roughly $43 and roughly $14.
+ *
+ * If a hand-check of the evidence column shows Haiku genuinely mislabelling a
+ * segment, raise it — but check first. Paying 3× on the assumption that a
+ * bigger model must be better is how a one-off script quietly costs $40.
+ */
+const MODEL = "claude-haiku-4-5";
 
 const SYSTEM = `You classify US aesthetic and medical clinics into exactly one primary segment, from their own website text.
 
@@ -65,25 +78,81 @@ Also report, from the same text:
 
 Return JSON only.`;
 
-export type LabelOptions = {
-  apiKey: string;
-  /** Hard cap on spend. Beyond it, remaining clinics are left unlabelled. */
-  maxCalls?: number;
-  concurrency?: number;
-  onProgress?: (done: number, total: number) => void;
+/**
+ * The same classification through the Batch API, at half the token price.
+ *
+ * Worth its own code path because the trade it asks for costs nothing here.
+ * Batches are not latency-guaranteed — most finish inside an hour, the ceiling
+ * is 24 — and this is a job that runs once, overnight, against a list that took
+ * weeks to assemble. Paying double for a result you will read tomorrow morning
+ * is a straight waste.
+ *
+ * It also removes the concurrency and rate-limit handling entirely: submit,
+ * poll, read. Nothing to tune, nothing to back off.
+ *
+ * Results come back in arbitrary order, so they are keyed by `custom_id` — the
+ * clinic id. Reading them positionally would silently attach every label to the
+ * wrong clinic, which is the kind of bug that produces a plausible tally and no
+ * error.
+ */
+/**
+ * One schema, shared by the streaming and batch paths.
+ *
+ * Two copies would drift, and a drifted enum is the worst kind: the batch run
+ * accepts a label the streaming run rejects, and the two produce different
+ * tallies from the same crawl.
+ */
+const CLASSIFY_TOOL = {
+  name: "classify",
+  description: "Record the clinic's primary segment.",
+  input_schema: {
+    type: "object" as const,
+    required: [
+      "segment",
+      "confidence",
+      "evidence",
+      "offersOnlineBooking",
+      "mentionsWeightLoss",
+      "isChainOrFranchise",
+    ],
+    properties: {
+      segment: { type: "string", enum: [...SEGMENTS] },
+      confidence: { type: "string", enum: ["high", "medium", "low"] },
+      evidence: {
+        type: "string",
+        description: "One line quoting or naming what decided it.",
+      },
+      offersOnlineBooking: { type: "boolean" },
+      mentionsWeightLoss: { type: "boolean" },
+      isChainOrFranchise: { type: "boolean" },
+    },
+  },
 };
 
-export async function labelClinics(
-  crawls: CrawlResult[],
-  options: LabelOptions,
-): Promise<Label[]> {
-  const client = new Anthropic({ apiKey: options.apiKey });
-  const concurrency = options.concurrency ?? 8;
-  const max = options.maxCalls ?? crawls.length;
+/** A clinic we could not classify. Kept, never dropped — see crawlSites(). */
+function unclassified(clinicId: string, why: string): Label {
+  return {
+    clinicId,
+    segment: "not-a-target",
+    confidence: "low",
+    evidence: `classification failed: ${why}`,
+    offersOnlineBooking: false,
+    mentionsWeightLoss: false,
+    isChainOrFranchise: false,
+  };
+}
 
-  // A site that returned nothing gets labelled without an API call. Sending an
-  // empty page to a model produces a confident guess from a business name,
-  // which is precisely the inference this whole pipeline exists to replace.
+/**
+ * Split off the clinics that need no API call at all.
+ *
+ * A site that returned almost nothing gets labelled without spending a token.
+ * Sending an empty page to a model produces a confident guess from the business
+ * name, which is precisely the inference this pipeline exists to replace.
+ */
+function partition(crawls: CrawlResult[]): {
+  labelled: Label[];
+  toCall: CrawlResult[];
+} {
   const labelled: Label[] = [];
   const toCall: CrawlResult[] = [];
 
@@ -103,7 +172,111 @@ export async function labelClinics(
     }
   }
 
-  const budgeted = toCall.slice(0, max);
+  return { labelled, toCall };
+}
+
+/** Validate rather than trust — a label outside the enum splits a bucket. */
+function readClassification(
+  clinicId: string,
+  content: readonly { type: string }[],
+): Label {
+  const block = content.find(
+    (c): c is { type: "tool_use"; input: unknown } => c.type === "tool_use",
+  );
+  if (!block) throw new Error("no classification returned");
+
+  const input = block.input as Omit<Label, "clinicId">;
+
+  if (!SEGMENTS.includes(input.segment)) {
+    throw new Error(`unknown segment: ${String(input.segment)}`);
+  }
+
+  return { clinicId, ...input };
+}
+
+export async function labelClinicsBatched(
+  crawls: CrawlResult[],
+  options: LabelOptions & { pollSeconds?: number },
+): Promise<Label[]> {
+  const client = new Anthropic({ apiKey: options.apiKey });
+
+  const { labelled, toCall } = partition(crawls);
+  const budgeted = toCall.slice(0, options.maxCalls ?? toCall.length);
+  if (!budgeted.length) return labelled;
+
+  const batch = await client.messages.batches.create({
+    requests: budgeted.map((crawl) => ({
+      custom_id: crawl.clinicId,
+      params: {
+        model: MODEL,
+        max_tokens: 400,
+        system: SYSTEM,
+        messages: [
+          { role: "user" as const, content: `Website: ${crawl.domain}\n\n${crawl.text}` },
+        ],
+        tools: [CLASSIFY_TOOL],
+        tool_choice: { type: "tool" as const, name: "classify" },
+      },
+    })),
+  });
+
+  const pollMs = (options.pollSeconds ?? 30) * 1000;
+  for (;;) {
+    const status = await client.messages.batches.retrieve(batch.id);
+    if (status.processing_status === "ended") break;
+    options.onProgress?.(
+      status.request_counts.succeeded + status.request_counts.errored,
+      budgeted.length,
+    );
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+
+  const byId = new Map(budgeted.map((c) => [c.clinicId, c]));
+
+  for await (const entry of await client.messages.batches.results(batch.id)) {
+    const crawl = byId.get(entry.custom_id);
+    if (!crawl) continue;
+
+    if (entry.result.type !== "succeeded") {
+      // An errored or expired row is a clinic we could not classify, and it is
+      // kept as such. Dropping it would shrink the denominator and flatter
+      // every remaining segment's share.
+      labelled.push(unclassified(crawl.clinicId, `batch ${entry.result.type}`));
+      continue;
+    }
+
+    try {
+      labelled.push(readClassification(crawl.clinicId, entry.result.message.content));
+    } catch (error) {
+      labelled.push(
+        unclassified(
+          crawl.clinicId,
+          error instanceof Error ? error.message.slice(0, 120) : "unknown",
+        ),
+      );
+    }
+  }
+
+  return labelled;
+}
+
+export type LabelOptions = {
+  apiKey: string;
+  /** Hard cap on spend. Beyond it, remaining clinics are left unlabelled. */
+  maxCalls?: number;
+  concurrency?: number;
+  onProgress?: (done: number, total: number) => void;
+};
+
+export async function labelClinics(
+  crawls: CrawlResult[],
+  options: LabelOptions,
+): Promise<Label[]> {
+  const client = new Anthropic({ apiKey: options.apiKey });
+  const concurrency = options.concurrency ?? 8;
+
+  const { labelled, toCall } = partition(crawls);
+  const budgeted = toCall.slice(0, options.maxCalls ?? toCall.length);
   let done = 0;
 
   for (let i = 0; i < budgeted.length; i += concurrency) {
@@ -117,17 +290,10 @@ export async function labelClinics(
           // One failure must not lose the batch. An unlabelled clinic is
           // recoverable on a re-run; a crashed pipeline over 4,500 domains is
           // an afternoon.
-          return {
-            clinicId: crawl.clinicId,
-            segment: "not-a-target" as Segment,
-            confidence: "low" as const,
-            evidence: `classification failed: ${
-              error instanceof Error ? error.message.slice(0, 120) : "unknown"
-            }`,
-            offersOnlineBooking: false,
-            mentionsWeightLoss: false,
-            isChainOrFranchise: false,
-          };
+          return unclassified(
+            crawl.clinicId,
+            error instanceof Error ? error.message.slice(0, 120) : "unknown",
+          );
         }
       }),
     );
@@ -149,54 +315,11 @@ async function labelOne(
     max_tokens: 400,
     system: SYSTEM,
     messages: [
-      {
-        role: "user",
-        content: `Website: ${crawl.domain}\n\n${crawl.text}`,
-      },
+      { role: "user", content: `Website: ${crawl.domain}\n\n${crawl.text}` },
     ],
-    tools: [
-      {
-        name: "classify",
-        description: "Record the clinic's primary segment.",
-        input_schema: {
-          type: "object",
-          required: [
-            "segment",
-            "confidence",
-            "evidence",
-            "offersOnlineBooking",
-            "mentionsWeightLoss",
-            "isChainOrFranchise",
-          ],
-          properties: {
-            segment: { type: "string", enum: [...SEGMENTS] },
-            confidence: { type: "string", enum: ["high", "medium", "low"] },
-            evidence: {
-              type: "string",
-              description: "One line quoting or naming what decided it.",
-            },
-            offersOnlineBooking: { type: "boolean" },
-            mentionsWeightLoss: { type: "boolean" },
-            isChainOrFranchise: { type: "boolean" },
-          },
-        },
-      },
-    ],
+    tools: [CLASSIFY_TOOL],
     tool_choice: { type: "tool", name: "classify" },
   });
 
-  const block = response.content.find((c) => c.type === "tool_use");
-  if (!block || block.type !== "tool_use") {
-    throw new Error("no classification returned");
-  }
-
-  const input = block.input as Omit<Label, "clinicId">;
-
-  // Validate rather than trust. A label outside the enum would create a segment
-  // that exists only in this run and quietly splits a bucket.
-  if (!SEGMENTS.includes(input.segment)) {
-    throw new Error(`unknown segment: ${String(input.segment)}`);
-  }
-
-  return { clinicId: crawl.clinicId, ...input };
+  return readClassification(crawl.clinicId, response.content);
 }

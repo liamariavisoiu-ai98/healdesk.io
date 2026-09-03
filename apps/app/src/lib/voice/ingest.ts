@@ -99,38 +99,112 @@ type RecoveryReason =
 /**
  * Decide whether this contact was genuinely recovered.
  *
- * Ordered most-specific first, because more than one can be true: a callback
- * placed at 9pm is both a callback and after hours, and "we called them back"
- * is the stronger and more defensible claim of the two.
+ * ## The rule
  *
- * Returns null — meaning "not recovered" — whenever none of the four facts
- * hold. Null is the honest default, and the majority answer for a clinic whose
- * front desk is working.
+ * On a conditionally forwarded line — the normal setup, and the one the product
+ * is sold on — the clinic's own number rings at the clinic first and only
+ * reaches us when nobody picks up or the line is engaged. So **every call we
+ * answer is one their receptionist did not**, at two in the afternoon exactly
+ * as much as at nine at night. All of them are recovered, and this function
+ * records WHICH of those things happened rather than whether anything did.
+ *
+ * That is a change from an earlier version, which treated an in-hours call to a
+ * free line as "the clinic would have handled this anyway" and returned null.
+ * Under conditional forwarding that case cannot occur: if the clinic had
+ * handled it, the call would never have reached us.
+ *
+ * ## The one case that is not recovery
+ *
+ * A clinic can also point its number straight at us, with no ring at the
+ * practice first — a solo operator with no front desk, typically. Then the AI
+ * is not answering *instead of* anybody, and counting a routine midday call as
+ * recovered would inflate the headline figure to the point of meaninglessness.
+ * For those clinics only calls nobody there could have taken — outside opening
+ * hours — or callbacks we placed ourselves are recovery.
+ *
+ * Which of the two applies is a property of the clinic's phone configuration,
+ * not of the call, which is why it is read from the clinic row.
  */
 export function classifyRecovery(
   event: VoiceCallEvent,
-  openingHours: unknown,
-  timezone: string,
+  clinic: {
+    callRouting: "conditional" | "always";
+    openingHours: unknown;
+    timezone: string;
+  },
 ): RecoveryReason | null {
+  // Ordered most-specific first, because several can be true at once: a
+  // callback placed at 9pm is both a callback and after hours, and "we rang
+  // them back" is the stronger and more defensible claim.
   if (event.isCallback) return "missed_call_callback";
   if (event.clinicLineBusy) return "line_busy";
-  if (event.rangAtClinicFirst) return "rang_unanswered";
 
-  // Last, and only if the clinic told us when it is open. An unset schedule
-  // means we cannot know, and guessing "closed" would manufacture recovery out
-  // of missing configuration — which is the exact failure this ordering exists
-  // to prevent.
-  if (openingHours) {
-    try {
-      const hours = parseOpeningHours(openingHours);
-      if (isAfterHours(hours, event.startedAt, timezone)) return "after_hours";
-    } catch {
-      // A malformed schedule is a configuration bug, not evidence of recovery.
-      return null;
-    }
+  const outsideHours = isOutsideOpeningHours(event, clinic);
+
+  if (clinic.callRouting === "always") {
+    // We are the primary answerer. Only calls nobody at the clinic could have
+    // taken count — and if we do not know their hours, we cannot claim that.
+    return outsideHours ? "after_hours" : null;
   }
 
-  return null;
+  // Conditional forwarding: the call rang at the clinic and came to us unanswered.
+  // After-hours is the more informative reason where we can establish it, and
+  // rang_unanswered is the literal truth in every other case.
+  if (outsideHours) return "after_hours";
+  return "rang_unanswered";
+}
+
+/**
+ * Whether the call arrived outside the clinic's own opening hours.
+ *
+ * Returns false — not "unknown" — when no schedule is on file. That is the
+ * conservative direction in both routing modes: on a conditional line it
+ * downgrades the reason from `after_hours` to `rang_unanswered` while still
+ * counting the recovery, and on an always-forwarded line it declines to count
+ * the recovery at all rather than manufacturing one out of missing setup.
+ */
+function isOutsideOpeningHours(
+  event: VoiceCallEvent,
+  clinic: { openingHours: unknown; timezone: string },
+): boolean {
+  if (!clinic.openingHours) return false;
+
+  try {
+    const hours = parseOpeningHours(clinic.openingHours);
+    // isAfterHours returns null for "cannot tell" — an unparseable timezone, or
+    // a schedule with nothing for that day. Treated as false for the same
+    // reason as a missing schedule: not knowing is not evidence.
+    return isAfterHours(hours, event.startedAt, clinic.timezone) === true;
+  } catch {
+    // A malformed schedule is a configuration bug, not evidence about the call.
+    return false;
+  }
+}
+
+/**
+ * Did this recovered call actually produce a booking?
+ *
+ * Deliberately a separate question from recovery, and separately named, because
+ * conflating them gets both numbers wrong at once: it understates how many
+ * calls the agent caught, and overstates how well it closes them.
+ *
+ * The monthly report needs all three figures and they are strictly nested —
+ * calls answered ⊇ calls recovered ⊇ recovered bookings — so a reader can see
+ * the funnel rather than one number with no denominator.
+ *
+ * Note it takes the recovery reason rather than recomputing it. A booking on a
+ * call we did NOT recover is a real and unremarkable thing (an always-forwarded
+ * clinic booking a midday appointment), and it must not be counted here — that
+ * is business the clinic would have had anyway.
+ */
+export function classifyBooking(
+  event: VoiceCallEvent,
+  recoveryReason: RecoveryReason | null,
+): { recovered: boolean; booked: boolean; recoveredBooking: boolean } {
+  const recovered = recoveryReason !== null;
+  const booked = event.outcome === "booked";
+
+  return { recovered, booked, recoveredBooking: recovered && booked };
 }
 
 /**
@@ -152,6 +226,7 @@ export async function ingestCall(
       .select({
         timezone: clinics.timezone,
         openingHours: clinics.openingHours,
+        callRouting: clinics.callRouting,
       })
       .from(clinics)
       .where(eq(clinics.id, event.clinicId))
@@ -159,11 +234,11 @@ export async function ingestCall(
 
     if (!clinic) throw new VoiceIngestError("Unknown clinic.");
 
-    const recoveryReason = classifyRecovery(
-      event,
-      clinic.openingHours,
-      clinic.timezone,
-    );
+    const recoveryReason = classifyRecovery(event, {
+      callRouting: clinic.callRouting,
+      openingHours: clinic.openingHours,
+      timezone: clinic.timezone,
+    });
 
     const contactId = event.callerPhone
       ? await upsertCaller(tx.db, event)
@@ -222,9 +297,11 @@ export async function ingestCall(
       resourceId: row.id,
       metadata: {
         channel: "voice",
-        // The classification, recorded — so a disputed monthly figure can be
+        // Both classifications, recorded — so a disputed monthly figure can be
         // traced to the moment the decision was made and the facts behind it.
         recoveryReason: recoveryReason ?? "none",
+        ...classifyBooking(event, recoveryReason),
+        callRouting: clinic.callRouting,
         disclosurePlayed: Boolean(event.disclosurePlayedAt),
       },
     });

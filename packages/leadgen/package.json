@@ -4,14 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "discover": "node --experimental-strip-types src/cli.ts",
+    "discover": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf .turbo node_modules data",
-    "test": "vitest run"
+    "test": "vitest run",
+    "enrich": "tsx src/enrich/cli.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
-    "apify-client": "^2.11.1"
+    "apify-client": "^2.11.1",
+    "tsx": "^4.23.12",
+    "@healdesk/catalog": "*"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

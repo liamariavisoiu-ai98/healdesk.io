@@ -18,4 +18,5 @@ export * from "./connection-steps";
 export * from "./plans";
 export * from "./platforms";
 export * from "./request-signing";
+export * from "./segments";
 export * from "./specialties";

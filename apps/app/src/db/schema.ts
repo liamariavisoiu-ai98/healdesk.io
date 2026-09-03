@@ -72,6 +72,32 @@ export const channelEnum = pgEnum("channel", [
  *
  * Null means none of these applied. See conversations.recoveryReason.
  */
+/**
+ * How the clinic's calls reach us — and therefore what "recovered" means.
+ *
+ * This is the fact the whole recovered-revenue figure rests on, and it is a
+ * property of the clinic's phone configuration, not of any single call.
+ *
+ *   conditional — their published number rings at the clinic FIRST and forwards
+ *                 to us on no-answer or busy. Every call we answer is therefore
+ *                 one their receptionist did not, whatever time of day it is.
+ *                 This is the normal setup and the one the product is sold on.
+ *
+ *   always      — we are the primary answerer; calls come straight to us. The
+ *                 AI is not taking the call "instead of" anyone, so answering it
+ *                 during staffed hours is the service working, not revenue
+ *                 recovered. Only calls nobody at the clinic could have taken —
+ *                 outside opening hours — or callbacks we placed ourselves count.
+ *
+ * Getting this wrong in the "always" direction would count every single call as
+ * recovered, which would inflate the one number a clinic judges us on to the
+ * point of meaninglessness.
+ */
+export const callRoutingEnum = pgEnum("call_routing", [
+  "conditional",
+  "always",
+]);
+
 export const recoveryReasonEnum = pgEnum("recovery_reason", [
   "after_hours",
   "line_busy",
@@ -215,6 +241,16 @@ export const clinics = pgTable(
     phoneSystemType: phoneSystemTypeEnum("phone_system_type")
       .notNull()
       .default("unknown"),
+
+    /**
+     * Whether their line rings at the clinic before it reaches us.
+     *
+     * Decides what counts as recovered — see the enum. Defaults to
+     * "conditional" because that is what the onboarding wizard configures and
+     * what the product is sold on, and because the alternative default would
+     * silently mark a clinic's entire call volume as recovered.
+     */
+    callRouting: callRoutingEnum("call_routing").notNull().default("conditional"),
 
     /**
      * When the clinic's own front desk is open, in `timezone` above.
@@ -480,21 +516,24 @@ export const conversations = pgTable(
     /**
      * Why this contact would have been lost without us — or null if it wouldn't.
      *
-     * Null is the honest default and means "the clinic would have handled this
-     * anyway": a call during opening hours, to a free line, that their own front
-     * desk would have picked up. We answered it, but we cannot claim to have
-     * recovered it.
+     * On a CONDITIONALLY forwarded line — the normal setup — every call we
+     * answer is one the clinic's own receptionist let ring out or was too busy
+     * to take. So every one of them is recovered, and this column records which
+     * of those things happened rather than whether it happened at all.
      *
-     * Anything non-null is counted as recovered by the monthly report, and each
-     * value is a fact recorded at ingestion rather than inferred afterwards.
-     * That ordering matters — `after_hours` in particular depends on the
-     * clinic's own opening hours, which the ingesting layer knows and the report
-     * does not.
+     * Null therefore means one specific thing: the clinic routes ALL calls to us
+     * (clinics.callRouting = 'always'), and this one arrived during staffed
+     * hours. Nobody was passed over, so nothing was recovered — the service
+     * simply worked.
      *
-     * ⚠️ The rule for adding a value here: only if the clinic genuinely would
-     * NOT have handled the contact. A call that was answered and simply didn't
-     * book is not recovery, it is a call that didn't convert — counting it would
-     * inflate the one number a clinic judges us on.
+     * Each value is a fact recorded at ingestion, never inferred afterwards.
+     * That ordering matters: `after_hours` depends on the clinic's own opening
+     * hours, which the ingesting layer knows and the monthly report does not.
+     *
+     * ⚠️ A call that was answered and simply didn't book is still recovered.
+     * Whether it CONVERTED is a separate question — see classifyBooking() in
+     * lib/voice/ingest.ts. Conflating the two would understate the agent's
+     * reach and overstate its close rate at the same time.
      */
     recoveryReason: recoveryReasonEnum("recovery_reason"),
 

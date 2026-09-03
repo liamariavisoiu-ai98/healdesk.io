@@ -169,3 +169,26 @@ describe("the signature table itself", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 });
+
+describe("regressions the pre-spend audit caught", () => {
+  test("every widget-script signature survives the crawler's asset filter", () => {
+    // Seven verified signatures point at .js widget loaders. The asset filter,
+    // written to drop photo galleries, was deleting exactly those — so the
+    // signatures could never fire and a whole class of detection was lost
+    // silently. This asserts the two stay compatible.
+    const ASSET = /\.(webp|png|jpe?g|gif|svg|ico|css|woff2?|ttf|eot|mp4|webm|pdf)(\?|$)/i;
+    const SCRIPT = /\.js(\?|$)/i;
+    const BOOKING_SCRIPT =
+      /(mangomint|acuityscheduling|squarespacescheduling|booksy|healcode|simplybook|setmore|leadconnectorhq|msgsndr|birdeye|patientpop)/i;
+    const keepable = (u: string) =>
+      !ASSET.test(u) && (!SCRIPT.test(u) || BOOKING_SCRIPT.test(u));
+
+    for (const platform of BOOKING_PLATFORMS) {
+      for (const sig of platform.signatures) {
+        if (!sig.endsWith(".js")) continue;
+        const url = `https://${sig.replace(/^\/+/, "")}`;
+        expect(keepable(url), `${platform.id}: ${sig} is filtered out`).toBe(true);
+      }
+    }
+  });
+});

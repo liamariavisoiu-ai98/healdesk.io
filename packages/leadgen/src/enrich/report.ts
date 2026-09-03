@@ -65,8 +65,17 @@ export function buildReport(
   crawls: CrawlResult[] = [],
 ): EnrichmentReport {
   const byId = new Map(clinics.map((c) => [c.id, c]));
+  // Keyed only on crawls that actually produced links.
+  //
+  // A crawl returning zero links is an absence of evidence, and detectBooking
+  // faithfully reports hasOnlineBooking:false for it — which downstream then
+  // read as "this clinic has no online booking". That is the strongest claim in
+  // the dataset being derived from a failed fetch. Excluding them lets the
+  // model's own guess serve as the fallback it was always described as.
   const booking = new Map(
-    crawls.map((c) => [c.clinicId, detectBooking(c.links ?? [])]),
+    crawls
+      .filter((c) => (c.links?.length ?? 0) > 0)
+      .map((c) => [c.clinicId, detectBooking(c.links!)]),
   );
   const bySegment = new Map<Segment, Label[]>();
 
@@ -117,7 +126,10 @@ export function buildReport(
     .sort((a, b) => b.clinics - a.clinics);
 
   const targetable = segments.filter(
-    (s) => s.segment !== "not-a-target" && s.segment !== "other-medical",
+    (s) =>
+      s.segment !== "not-a-target" &&
+      s.segment !== "other-medical" &&
+      s.segment !== "unknown",
   );
 
   const highConfidenceOrder = [...targetable]
@@ -125,6 +137,17 @@ export function buildReport(
     .map((s) => s.segment);
 
   const warnings: string[] = [];
+
+  // Unreadable sites are recoverable work, not a conclusion. Saying so keeps
+  // them from being quietly written off as rejected prospects.
+  const unknown = segments.find((s) => s.segment === "unknown");
+  if (unknown && unknown.clinics > 0) {
+    warnings.push(
+      `${unknown.clinics} clinics could not be read at all — that is "we do not ` +
+        `know", not "not a target". Re-crawl them before treating the segment ` +
+        `shares as complete; a timeout says nothing about the business.`,
+    );
+  }
 
   // The check that matters most: does the ranking survive its own evidence?
   const naiveOrder = targetable.map((s) => s.segment);

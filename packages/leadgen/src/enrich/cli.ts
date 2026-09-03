@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -39,6 +39,28 @@ const DATA = resolve(HERE, "../../data");
 function arg(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
   return index === -1 ? undefined : process.argv[index + 1];
+}
+
+/**
+ * A numeric flag, or a usage error — never a silent fallback.
+ *
+ * `Number("2OO")` is NaN, and `Number.isFinite(NaN)` is false, so a typo in
+ * `--limit` used to mean "no limit at all". Someone asking for a 200-domain
+ * sample would have crawled all 4,512. A flag that cannot be parsed is a
+ * mistake, and the only safe response to it is to stop.
+ */
+function numericArg(name: string): number | undefined {
+  const raw = arg(name);
+  if (raw === undefined) return undefined;
+
+  if (!/^\d+$/.test(raw)) {
+    console.error(
+      `--${name} must be a whole number, got "${raw}". Refusing to guess: the ` +
+        `wrong guess here spends money.`,
+    );
+    process.exit(1);
+  }
+  return Number(raw);
 }
 
 function flag(name: string): boolean {
@@ -176,25 +198,71 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const limit = Number(arg("limit") ?? Number.POSITIVE_INFINITY);
+  const limit = numericArg("limit") ?? Number.POSITIVE_INFINITY;
+  const crawlPath = join(DATA, "02-crawl.json");
+
+  // Incremental, not all-or-nothing.
+  //
+  // Whatever has already been crawled is kept and only the remainder is
+  // fetched, so growing a 200-domain sample into the full 4,512 costs the
+  // 4,312 difference rather than starting again. The same mechanism makes the
+  // long run resumable: interrupt it at any point and the next invocation
+  // continues from where it stopped.
+  const already: CrawlResult[] =
+    !flag("force-crawl") && existsSync(crawlPath)
+      ? (JSON.parse(await readFile(crawlPath, "utf8")) as CrawlResult[])
+      : [];
+
+  // A site that failed is worth one more attempt — timeouts are frequently
+  // transient, and the first sample lost two obvious clinics that way. A site
+  // that returned real content is never re-fetched; it is already paid for.
+  const done = new Set(already.filter((c) => !c.error).map((c) => c.clinicId));
+  const retrying = already.length - done.size;
+
   const targets = clinics
     .filter((c) => c.domain)
     .slice(0, Number.isFinite(limit) ? limit : undefined)
+    .filter((c) => !done.has(c.id))
     .map((c) => ({ clinicId: c.id, domain: c.domain }));
 
-  const crawls = await checkpoint<CrawlResult[]>(
-    "02-crawl",
-    flag("force-crawl"),
-    () =>
-      crawlSites(targets, {
-        token: apifyToken!,
-        onProgress: (done, total) =>
-          process.stdout.write(`\r  crawled ${done}/${total}`),
-      }).then((r) => {
-        process.stdout.write("\n");
-        return r;
-      }),
-  );
+  if (already.length) {
+    console.log(
+      `  ${done.size} already crawled, ${retrying} being retried, ` +
+        `${targets.length} new`,
+    );
+  }
+
+  let crawls: CrawlResult[];
+  if (targets.length === 0) {
+    console.log("  nothing left to crawl");
+    crawls = already;
+  } else {
+    if (!apifyToken) {
+      console.error("  APIFY_TOKEN is not set and there is more to crawl.");
+      process.exit(1);
+    }
+
+    const keep = already.filter((c) => done.has(c.clinicId));
+    const write = async (partial: CrawlResult[]) => {
+      await mkdir(DATA, { recursive: true });
+      await writeFile(
+        crawlPath,
+        JSON.stringify([...keep, ...partial], null, 2),
+      );
+    };
+
+    const fresh = await crawlSites(targets, {
+      token: apifyToken,
+      onProgress: (n, total) => process.stdout.write(`\r  crawled ${n}/${total}`),
+      // Persisted per batch, so an interruption costs one batch rather than
+      // everything fetched so far.
+      onBatch: write,
+    });
+    process.stdout.write("\n");
+
+    await write(fresh);
+    crawls = [...keep, ...fresh];
+  }
 
   const crawlFailed = crawls.filter((c) => c.error).length;
   console.log(`  ${crawls.length - crawlFailed} readable, ${crawlFailed} not`);
@@ -211,26 +279,65 @@ async function main(): Promise<void> {
   // nothing resolves.
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
 
-  // Batch is half price and this job has no latency requirement — but batches
-  // can take up to 24h, so the sample run wants the streaming path for fast
-  // feedback and the full run wants the discount.
-  const label = flag("batch") ? labelClinicsBatched : labelClinics;
-  if (flag("batch")) {
-    console.log("  using the Batch API — half price, may take up to 24h");
-  }
+  // Incremental for the same reason the crawl is, and this one is sharper: the
+  // checkpoint used to return the cached file whole. Crawling 4,512 clinics
+  // after a 200-clinic sample would have handed back the 200 stale labels and
+  // never classified the other 4,312 — with no error, and a report whose
+  // segment shares described the sample while claiming to describe the list.
+  const labelPath = join(DATA, "03-labels.json");
+  const batchIdPath = join(DATA, "03-batch-id.txt");
 
-  const labels = await checkpoint<Label[]>("03-labels", flag("force-label"), () =>
-    label(crawls, {
-      apiKey: anthropicKey,
-      maxCalls: Number(arg("max-llm") ?? crawls.length),
-      batchIdFile: join(DATA, "03-batch-id.txt"),
-      onProgress: (done, total) =>
-        process.stdout.write(`\r  labelled ${done}/${total}`),
-    }).then((r) => {
-      process.stdout.write("\n");
-      return r;
-    }),
+  // --force-label means re-classify. Leaving the batch id in place made it
+  // resume the previous batch and return exactly the labels the flag was asked
+  // to discard — the flag silently doing the opposite of its name.
+  if (flag("force-label") && existsSync(batchIdPath)) {
+    rmSync(batchIdPath);
+    console.log("  --force-label: discarded the resumable batch id");
+  }
+  const priorLabels: Label[] =
+    !flag("force-label") && existsSync(labelPath)
+      ? (JSON.parse(await readFile(labelPath, "utf8")) as Label[])
+      : [];
+
+  // Anything previously unreadable is re-labelled, since the crawl above may
+  // have just succeeded where it failed before.
+  const settled = new Map(
+    priorLabels.filter((l) => l.segment !== "unknown").map((l) => [l.clinicId, l]),
   );
+  const needLabel = crawls.filter((c) => !settled.has(c.clinicId));
+
+  console.log(
+    `  ${settled.size} already labelled, ${needLabel.length} to classify`,
+  );
+
+  let labels: Label[];
+  if (needLabel.length === 0) {
+    labels = [...settled.values()];
+  } else {
+    // Batch is half price and this job has no latency requirement — but a
+    // batch can take up to 24h, so the sample run wants the streaming path for
+    // immediate feedback and the full run wants the discount.
+    const label = flag("batch") ? labelClinicsBatched : labelClinics;
+    if (flag("batch")) {
+      console.log("  using the Batch API — half price, may take up to 24h");
+    }
+
+    const fresh = await label(needLabel, {
+      apiKey: anthropicKey,
+      maxCalls: numericArg("max-llm") ?? needLabel.length,
+      batchIdFile: batchIdPath,
+      onProgress: (n, total) => process.stdout.write(`\r  labelled ${n}/${total}`),
+    });
+    process.stdout.write("\n");
+
+    labels = [...settled.values(), ...fresh];
+    await mkdir(DATA, { recursive: true });
+    await writeFile(labelPath, JSON.stringify(labels, null, 2));
+
+    // Only now is the batch genuinely safe to forget. Deleting the id before
+    // this write meant a crash in between lost a paid-for batch entirely.
+    if (existsSync(batchIdPath)) rmSync(batchIdPath);
+  }
 
   // ---- 4. Report and export ------------------------------------------------
   console.log("\n[4/4] report\n");
@@ -250,8 +357,17 @@ async function main(): Promise<void> {
   const byId = new Map(clinics.map((c) => [c.id, c]));
   // Deterministic, free, and computed from the cached crawl — so re-running the
   // report after tuning a signature costs nothing and needs no re-crawl.
+  // Keyed only on crawls that actually produced links.
+  //
+  // A crawl returning zero links is an absence of evidence, and detectBooking
+  // faithfully reports hasOnlineBooking:false for it — which downstream then
+  // read as "this clinic has no online booking". That is the strongest claim in
+  // the dataset being derived from a failed fetch. Excluding them lets the
+  // model's own guess serve as the fallback it was always described as.
   const booking = new Map(
-    crawls.map((c) => [c.clinicId, detectBooking(c.links ?? [])]),
+    crawls
+      .filter((c) => (c.links?.length ?? 0) > 0)
+      .map((c) => [c.clinicId, detectBooking(c.links!)]),
   );
   const bySegment = new Map<Segment, Record<string, string>[]>();
 
@@ -324,8 +440,15 @@ main().catch((error) => {
   // The one failure worth explaining rather than dumping. Everything else is
   // better served by the raw error.
   if (/api[_ -]?key|authentication|401|credential/i.test(message)) {
+    // Say whether there is paid-for work waiting, because the fix is the same
+    // either way but the stakes are not.
+    const pending = existsSync(join(DATA, "03-batch-id.txt"))
+      ? "\n  A submitted batch is waiting — re-running collects it rather than\n" +
+        "  resubmitting, so nothing already paid for is lost.\n"
+      : "";
+
     console.error(
-      "\nNo Anthropic credentials found.\n\n" +
+      "\nAnthropic credentials failed.\n" + pending + "\n" +
         "  Either log in once — no key to store:\n" +
         "    ant auth login --no-browser\n\n" +
         "  Or export a key from console.anthropic.com:\n" +

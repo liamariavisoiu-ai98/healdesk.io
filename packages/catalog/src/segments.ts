@@ -36,6 +36,7 @@ export const SEGMENTS = [
   "dental",
   "other-medical",
   "not-a-target",
+  "unknown",
 ] as const;
 
 export type Segment = (typeof SEGMENTS)[number];
@@ -52,6 +53,7 @@ export const SEGMENT_LABELS: Record<Segment, string> = {
   dental: "Dental and orthodontics",
   "other-medical": "Other medical practice",
   "not-a-target": "Not a target",
+  unknown: "Could not read the site",
 };
 
 /**

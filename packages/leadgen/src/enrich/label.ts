@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 import Anthropic from "@anthropic-ai/sdk";
 
@@ -135,7 +135,7 @@ const CLASSIFY_TOOL = {
 function unclassified(clinicId: string, why: string): Label {
   return {
     clinicId,
-    segment: "not-a-target",
+    segment: "unknown",
     confidence: "low",
     evidence: `classification failed: ${why}`,
     offersOnlineBooking: false,
@@ -150,6 +150,17 @@ function unclassified(clinicId: string, why: string): Label {
  * A site that returned almost nothing gets labelled without spending a token.
  * Sending an empty page to a model produces a confident guess from the business
  * name, which is precisely the inference this pipeline exists to replace.
+ *
+ * These are labelled `unknown`, NOT `not-a-target`, and the distinction is
+ * worth more than it looks. `not-a-target` is a finding — this is a device
+ * manufacturer, an agency, a training academy. `unknown` is an admission that
+ * the crawl failed. Conflating them discards live prospects as if they had been
+ * examined and rejected: the first sample buried crawfordplasticsurgery.com and
+ * centerforadvanceddentistry.com in the reject pile, both obviously real
+ * practices, purely because their sites timed out.
+ *
+ * Same rule as the rest of the pipeline — when we cannot measure something, say
+ * so rather than emitting a number that reads like a conclusion.
  */
 function partition(crawls: CrawlResult[]): {
   labelled: Label[];
@@ -162,7 +173,7 @@ function partition(crawls: CrawlResult[]): {
     if (crawl.text.length < 200) {
       labelled.push({
         clinicId: crawl.clinicId,
-        segment: "not-a-target",
+        segment: "unknown",
         confidence: "low",
         evidence: crawl.error ?? "page had too little text to classify",
         offersOnlineBooking: false,
@@ -229,6 +240,11 @@ export async function labelClinicsBatched(
 
   if (existing) console.log(`  resuming batch ${existing} — not resubmitting`);
 
+  // A batch id on disk says nothing about WHICH clinics it covers. Resuming a
+  // 200-clinic batch for a 4,512-clinic request set returned 200 labels and
+  // reported success, so the remaining 4,312 vanished with no error anywhere.
+  // The ids that come back are checked against the ids asked for, below.
+
   const batch = existing
     ? await client.messages.batches.retrieve(existing)
     : await client.messages.batches.create({
@@ -256,8 +272,44 @@ export async function labelClinicsBatched(
   }
 
   const pollMs = (options.pollSeconds ?? 30) * 1000;
+
+  /**
+   * Rebuild the client on an auth failure, rather than dying.
+   *
+   * An OAuth access token lives about eight hours; a batch may run for
+   * twenty-four. The client caches its credential at construction, so a long
+   * batch outlives the token it was created with — and the failure lands in the
+   * middle of the poll loop, holding a submitted, already-billed batch.
+   *
+   * Reconstructing re-reads the credential from disk, which picks up a token
+   * the CLI has since refreshed. If the profile itself has expired, the retry
+   * fails the same way and the error surfaces with the batch id intact, so the
+   * work is still recoverable by re-running after `ant auth login`.
+   */
+  let poller = client;
+  let authRetries = 0;
+
   for (;;) {
-    const status = await client.messages.batches.retrieve(batch.id);
+    let status;
+    try {
+      status = await poller.messages.batches.retrieve(batch.id);
+      authRetries = 0;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const isAuth = /401|authentication|unauthorized|expired|credential/i.test(message);
+
+      if (!isAuth || authRetries >= 3) throw error;
+
+      authRetries += 1;
+      console.log(
+        `\n  credentials expired mid-batch — reloading (attempt ${authRetries}/3). ` +
+          `The batch is safe; its id is on disk.`,
+      );
+      poller = new Anthropic(options.apiKey ? { apiKey: options.apiKey } : {});
+      await new Promise((resolve) => setTimeout(resolve, pollMs));
+      continue;
+    }
+
     if (status.processing_status === "ended") break;
     options.onProgress?.(
       status.request_counts.succeeded + status.request_counts.errored,
@@ -292,11 +344,27 @@ export async function labelClinicsBatched(
     }
   }
 
-  // Cleared only once every result has been read. Removing it earlier would
-  // discard the recovery handle while it is still the thing keeping an
-  // already-paid-for batch reachable.
-  if (options.batchIdFile && existsSync(options.batchIdFile)) {
-    rmSync(options.batchIdFile);
+  // Deliberately NOT cleared here.
+  //
+  // Reading the results and persisting them are two steps, and a crash between
+  // them used to lose the batch: the id was gone, so the next run resubmitted
+  // and paid for all 4,500 classifications a second time. The caller deletes
+  // the id after it has written the labels to disk, which is the only moment
+  // the work is genuinely safe.
+  const returned = new Set(labelled.map((l) => l.clinicId));
+  const missing = budgeted.filter((c) => !returned.has(c.clinicId));
+
+  if (missing.length) {
+    // Whatever the resumed batch did not cover is classified now, in the same
+    // invocation. Silently returning a short list is the one outcome that must
+    // not happen: it looks exactly like a complete run.
+    console.log(
+      `\n  resumed batch covered ${returned.size} of ${budgeted.length} — ` +
+        `classifying the remaining ${missing.length} directly`,
+    );
+    labelled.push(
+      ...(await labelClinics(missing, { ...options, maxCalls: missing.length })),
+    );
   }
 
   return labelled;

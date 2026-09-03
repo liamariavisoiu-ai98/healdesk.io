@@ -76,6 +76,24 @@ const MAX_LINKS = 400;
 
 export type CrawlOptions = {
   token: string;
+  /**
+   * How many of these targets have never been attempted.
+   *
+   * The mass-failure guard below is only meaningful over first attempts. On a
+   * retry run the target set is, by construction, the domains that already
+   * failed — so a high failure rate there is the expected outcome, not evidence
+   * of misconfiguration.
+   */
+  firstAttempts?: number;
+  /**
+   * Called after every batch, with everything crawled so far.
+   *
+   * The crawl used to write one file at the very end, which is survivable over
+   * 200 domains and reckless over 4,500: an interruption at domain 4,000 threw
+   * away every page already paid for. Persisting per batch turns the crawl into
+   * something that resumes rather than restarts.
+   */
+  onBatch?: (results: CrawlResult[]) => Promise<void> | void;
   /** Apify runs are billed by compute; batch so a failure loses one batch. */
   batchSize?: number;
   onProgress?: (done: number, total: number) => void;
@@ -111,15 +129,21 @@ export async function crawlSites(
         "**/careers*",
         "**/*.pdf",
       ],
-      // Markdown, not plain text, and not HTML.
+      // Both, because the two jobs want different views of the same page.
       //
-      // Plain text discards every href, which is where the booking platform
-      // actually lives. Full HTML carries them but costs an order of magnitude
-      // more storage and transfer across 4,500 sites, most of it framework
-      // noise. Markdown keeps links as `[text](url)` — the anchor text and the
-      // destination, which is exactly the pair needed and nothing else.
+      // Markdown goes through the default readable-content transformer, which
+      // strips nav, header and footer. That is right for CLASSIFICATION — the
+      // model should read the clinic's copy, not its menu.
+      //
+      // It is exactly wrong for BOOKING DETECTION: the "Book Now" button lives
+      // in the nav, so the transformer discards the single most valuable link
+      // on the page. A sample run proved it — 63 of 192 sites returned zero
+      // links, one of them alongside 5,634 characters of text.
+      //
+      // So the HTML is fetched too and used only to harvest hrefs, then
+      // dropped. It never reaches the model and never reaches disk.
       saveMarkdown: true,
-      saveHtml: false,
+      saveHtml: true,
       proxyConfiguration: { useApifyProxy: true },
     });
 
@@ -133,13 +157,17 @@ export async function crawlSites(
       url?: string;
       text?: string;
       markdown?: string;
+      html?: string;
     }[]) {
       if (!item.url) continue;
       const host = hostOf(item.url);
       const bucket = byDomain.get(host) ?? { text: [], links: new Set<string>() };
 
       if (item.text) bucket.text.push(item.text);
+      // Markdown first (clean, in-content links), then the raw HTML, which is
+      // the only place the nav survives.
       for (const link of linksIn(item.markdown ?? "")) bucket.links.add(link);
+      for (const link of hrefsIn(item.html ?? "", item.url)) bucket.links.add(link);
 
       byDomain.set(host, bucket);
     }
@@ -165,23 +193,34 @@ export async function crawlSites(
     }
 
     options.onProgress?.(Math.min(i + batchSize, usable.length), usable.length);
-  }
+    await options.onBatch?.(results);
 
-  // A few dead domains in a list this age is normal. Most of them failing is
-  // not a fact about the internet, it is a fact about this configuration —
-  // and the first version of this file proved it by fetching 4 pages across
-  // 200 clinics and exiting 0. Nothing downstream can tell the difference
-  // between a site that would not load and one that was never attempted, so
-  // the check belongs here, where the distinction still exists.
-  const failed = results.filter((r) => r.error).length;
-  if (results.length >= 20 && failed / results.length > 0.5) {
-    throw new Error(
-      `${failed} of ${results.length} sites returned nothing. That is a crawler ` +
-        `configuration problem, not ${failed} broken websites — check ` +
-        `maxCrawlPages (it is a budget for the whole run, not per site) and the ` +
-        `Apify run log. Refusing to write a crawl this empty, because every ` +
-        `stage after it would treat the gap as data.`,
-    );
+    // Checked after the first batch, not at the end.
+    //
+    // A few dead domains in a list this age is normal; most of a batch failing
+    // is a fact about this configuration rather than about the internet — the
+    // first version of this file proved it by fetching 4 pages across 200
+    // clinics and exiting 0.
+    //
+    // Two things this deliberately does NOT do. It does not run on a retry
+    // batch, because a set selected for having already failed is expected to
+    // fail again, and guarding on that made every re-run after a full crawl
+    // throw — turning a safety check into a hard block with no escape but
+    // paying to crawl all 4,512 domains again. And it no longer waits for the
+    // whole run, so a misconfiguration costs one batch of Apify compute rather
+    // than every batch.
+    const isFirstBatch = i === 0;
+    const isRetrySet = (options.firstAttempts ?? usable.length) === 0;
+    const failed = results.filter((r) => r.error).length;
+
+    if (isFirstBatch && !isRetrySet && results.length >= 20 && failed / results.length > 0.5) {
+      throw new Error(
+        `${failed} of the first ${results.length} sites returned nothing. That is ` +
+          `a crawler configuration problem, not ${failed} broken websites — ` +
+          `check the Apify run log before spending on the rest. Stopping after ` +
+          `one batch, because every stage after this would treat the gap as data.`,
+      );
+    }
   }
 
   return results;
@@ -195,7 +234,20 @@ export async function crawlSites(
  * cap, so a clinic whose booking button sits below a photo gallery could
  * otherwise lose it to the truncation.
  */
-const ASSET = /\.(webp|png|jpe?g|gif|svg|ico|css|js|woff2?|ttf|eot|mp4|webm|pdf)(\?|$)/i;
+const ASSET = /\.(webp|png|jpe?g|gif|svg|ico|css|woff2?|ttf|eot|mp4|webm|pdf)(\?|$)/i;
+
+/**
+ * Scripts are dropped too — except the ones that ARE the evidence.
+ *
+ * Seven verified signatures point at widget loaders: booking.mangomint.com's
+ * app.js, embed.acuityscheduling.com/js/embed.js, booksy's widget/code.js,
+ * healcode.js, simplybook's widget.js. Filtering every .js URL as an asset
+ * deleted exactly those, so the signatures could never fire — a whole class of
+ * detections lost to a filter written for photo galleries.
+ */
+const SCRIPT = /\.js(\?|$)/i;
+const BOOKING_SCRIPT =
+  /(mangomint|acuityscheduling|squarespacescheduling|booksy|healcode|simplybook|setmore|leadconnectorhq|msgsndr|birdeye|patientpop)/i;
 
 /**
  * Pull hrefs out of markdown.
@@ -215,7 +267,44 @@ function linksIn(markdown: string): string[] {
     found.push(match[1]!);
   }
 
-  return found.filter((url) => !ASSET.test(url));
+  return found.filter(keepable);
+}
+
+/**
+ * Every href in the raw HTML, resolved to absolute.
+ *
+ * Relative hrefs matter more than they look: a clinic running a self-hosted
+ * booking page links to `/book-now`, and without the page URL to resolve
+ * against, that is indistinguishable from any other path fragment.
+ */
+function hrefsIn(html: string, pageUrl?: string): string[] {
+  const found: string[] = [];
+
+  // src as well as href: a booking widget arrives as <script src=...>, and
+  // matching only href misses every embed-based platform.
+  for (const match of html.matchAll(/(?:href|src)\s*=\s*["']([^"']+)["']/gi)) {
+    const href = match[1]!.trim();
+    if (!href || href.startsWith("#")) continue;
+
+    if (/^https?:\/\//i.test(href)) {
+      found.push(href);
+    } else if (pageUrl && !/^[a-z]+:/i.test(href)) {
+      try {
+        found.push(new URL(href, pageUrl).toString());
+      } catch {
+        // A malformed href is the page's problem, not ours.
+      }
+    }
+  }
+
+  return found.filter(keepable);
+}
+
+/** Assets out, booking-widget scripts in. */
+function keepable(url: string): boolean {
+  if (ASSET.test(url)) return false;
+  if (SCRIPT.test(url)) return BOOKING_SCRIPT.test(url);
+  return true;
 }
 
 function hostOf(url: string): string {

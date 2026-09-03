@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { detectBooking } from "./booking.ts";
 import { crawlSites, type CrawlResult } from "./crawl.ts";
 import { dedupe, type LeadRow } from "./dedupe.ts";
 import { labelClinics, labelClinicsBatched, type Label } from "./label.ts";
@@ -222,6 +223,7 @@ async function main(): Promise<void> {
     label(crawls, {
       apiKey: anthropicKey,
       maxCalls: Number(arg("max-llm") ?? crawls.length),
+      batchIdFile: join(DATA, "03-batch-id.txt"),
       onProgress: (done, total) =>
         process.stdout.write(`\r  labelled ${done}/${total}`),
     }).then((r) => {
@@ -232,7 +234,13 @@ async function main(): Promise<void> {
 
   // ---- 4. Report and export ------------------------------------------------
   console.log("\n[4/4] report\n");
-  const report = buildReport(clinics, labels, dedupeReport.inputRows, crawlFailed);
+  const report = buildReport(
+    clinics,
+    labels,
+    dedupeReport.inputRows,
+    crawlFailed,
+    crawls,
+  );
   console.log(formatReport(report));
 
   await writeFile(join(DATA, "report.json"), JSON.stringify(report, null, 2));
@@ -240,6 +248,11 @@ async function main(): Promise<void> {
   // One CSV per segment, contact-ready. The whole point of the exercise is that
   // the campaign can be pointed at one of these files without further work.
   const byId = new Map(clinics.map((c) => [c.id, c]));
+  // Deterministic, free, and computed from the cached crawl — so re-running the
+  // report after tuning a signature costs nothing and needs no re-crawl.
+  const booking = new Map(
+    crawls.map((c) => [c.clinicId, detectBooking(c.links ?? [])]),
+  );
   const bySegment = new Map<Segment, Record<string, string>[]>();
 
   for (const label of labels) {
@@ -251,6 +264,7 @@ async function main(): Promise<void> {
     const contact = clinic.contacts[0];
     if (!contact?.email) continue;
 
+    const book = booking.get(label.clinicId);
     const bucket = bySegment.get(label.segment) ?? [];
     bucket.push({
       clinic_id: clinic.id,
@@ -267,7 +281,18 @@ async function main(): Promise<void> {
       segment: label.segment,
       confidence: label.confidence,
       evidence: label.evidence,
-      phone_dependent: label.offersOnlineBooking ? "no" : "yes",
+      // From the clinic's own links where we have them; the model's guess only
+      // where the crawl came back with none.
+      phone_dependent: (book ? !book.hasOnlineBooking : !label.offersOnlineBooking)
+        ? "yes"
+        : "no",
+      booking_platform: book?.platform ?? "",
+      booking_platform_name: book?.platformName ?? "",
+      booking_url: book?.bookingUrl ?? "",
+      // "yes" means we can connect read-only and sell verified attribution
+      // instead of estimates — a different and better conversation.
+      healdesk_connects: book?.supported ? "yes" : "no",
+      booking_confidence: book?.confidence ?? "none",
       weight_loss: label.mentionsWeightLoss ? "yes" : "no",
       chain: label.isChainOrFranchise ? "yes" : "no",
       contacts_at_clinic: String(clinic.contacts.length),

@@ -1,3 +1,5 @@
+import { detectBooking } from "./booking.ts";
+import type { CrawlResult } from "./crawl.ts";
 import type { Clinic } from "./dedupe.ts";
 import type { Label } from "./label.ts";
 import {
@@ -23,8 +25,17 @@ export type SegmentStats = {
   /** Clinics with at least one contact we could actually email. */
   contactable: number;
   highConfidence: number;
-  /** Share with no self-serve online booking — the phone-dependence proxy. */
+  /**
+   * Clinics with no self-serve online booking.
+   *
+   * No longer a proxy — read from the clinic's own links. This is the closest
+   * thing in the data to a direct measure of the product's value, because a
+   * clinic whose patients cannot book online has no route to an appointment
+   * except the phone.
+   */
   phoneDependent: number;
+  /** On a platform healdesk connects to — can be offered verified attribution. */
+  onSupportedPlatform: number;
   chains: number;
   mentionsWeightLoss: number;
   /** Distinct states, as a spread check — a segment in one metro is an artefact. */
@@ -51,8 +62,12 @@ export function buildReport(
   labels: Label[],
   inputRows: number,
   crawlFailed: number,
+  crawls: CrawlResult[] = [],
 ): EnrichmentReport {
   const byId = new Map(clinics.map((c) => [c.id, c]));
+  const booking = new Map(
+    crawls.map((c) => [c.clinicId, detectBooking(c.links ?? [])]),
+  );
   const bySegment = new Map<Segment, Label[]>();
 
   for (const label of labels) {
@@ -65,11 +80,26 @@ export function buildReport(
     .map(([segment, group]) => {
       const states = new Set<string>();
       let contactable = 0;
+      let phoneDependent = 0;
+      let onSupportedPlatform = 0;
+
       for (const label of group) {
         const clinic = byId.get(label.clinicId);
-        if (!clinic) continue;
-        if (clinic.state) states.add(clinic.state.toLowerCase());
-        if (clinic.contacts.some((c) => c.email)) contactable += 1;
+        if (clinic) {
+          if (clinic.state) states.add(clinic.state.toLowerCase());
+          if (clinic.contacts.some((c) => c.email)) contactable += 1;
+        }
+
+        // A detected link beats the model's guess every time: one is evidence
+        // from the clinic's own site, the other is inference from page copy.
+        // The guess is consulted only where the crawl found no links at all.
+        const detected = booking.get(label.clinicId);
+        if (detected) {
+          if (!detected.hasOnlineBooking) phoneDependent += 1;
+          if (detected.supported) onSupportedPlatform += 1;
+        } else if (!label.offersOnlineBooking) {
+          phoneDependent += 1;
+        }
       }
 
       return {
@@ -77,7 +107,8 @@ export function buildReport(
         clinics: group.length,
         contactable,
         highConfidence: group.filter((l) => l.confidence === "high").length,
-        phoneDependent: group.filter((l) => !l.offersOnlineBooking).length,
+        phoneDependent,
+        onSupportedPlatform,
         chains: group.filter((l) => l.isChainOrFranchise).length,
         mentionsWeightLoss: group.filter((l) => l.mentionsWeightLoss).length,
         states: states.size,
@@ -170,9 +201,10 @@ export function formatReport(report: EnrichmentReport): string {
       "high-conf".padStart(11) +
       "phone-dep".padStart(11) +
       "chains".padStart(8) +
+      "connect".padStart(9) +
       "states".padStart(8),
   );
-  lines.push("  " + "-".repeat(76));
+  lines.push("  " + "-".repeat(85));
 
   for (const s of report.segments) {
     lines.push(
@@ -183,6 +215,7 @@ export function formatReport(report: EnrichmentReport): string {
         String(s.highConfidence).padStart(11) +
         String(s.phoneDependent).padStart(11) +
         String(s.chains).padStart(8) +
+        String(s.onSupportedPlatform).padStart(9) +
         String(s.states).padStart(8),
     );
   }

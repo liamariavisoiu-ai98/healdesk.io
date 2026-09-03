@@ -35,6 +35,16 @@ export type CrawlResult = {
   domain: string;
   /** Concatenated text of the pages fetched, trimmed. Empty when nothing loaded. */
   text: string;
+  /**
+   * Every outbound link found, deduplicated.
+   *
+   * This is what identifies the booking system, and it has to come from the
+   * crawl because it cannot be recovered afterwards. A clinic's booking
+   * platform is almost never named in the page text — it is the href behind a
+   * button that says "Book Now". So the text says "Book Now" and the URL says
+   * `clients.mindbodyonline.com`, and only one of those is evidence.
+   */
+  links: string[];
   pagesFetched: number;
   /** Set when the site could not be read at all. Kept, not discarded. */
   error?: string;
@@ -42,6 +52,15 @@ export type CrawlResult = {
 
 /** Roughly a page and a half of text — enough to classify, cheap to send. */
 const MAX_TEXT_CHARS = 6_000;
+
+/**
+ * Links kept per clinic.
+ *
+ * Generous, because the booking link is often buried behind a nav menu rather
+ * than on the homepage hero, and because these are matched by a local regex
+ * rather than sent to a model — they cost storage, not tokens.
+ */
+const MAX_LINKS = 400;
 
 export type CrawlOptions = {
   token: string;
@@ -78,7 +97,14 @@ export async function crawlSites(
         "**/careers*",
         "**/*.pdf",
       ],
-      saveMarkdown: false,
+      // Markdown, not plain text, and not HTML.
+      //
+      // Plain text discards every href, which is where the booking platform
+      // actually lives. Full HTML carries them but costs an order of magnitude
+      // more storage and transfer across 4,500 sites, most of it framework
+      // noise. Markdown keeps links as `[text](url)` — the anchor text and the
+      // destination, which is exactly the pair needed and nothing else.
+      saveMarkdown: true,
       saveHtml: false,
       proxyConfiguration: { useApifyProxy: true },
     });
@@ -88,25 +114,39 @@ export async function crawlSites(
       .listItems({ clean: true });
 
     // Group the pages back onto the clinic that owns the domain.
-    const byDomain = new Map<string, string[]>();
-    for (const item of items as { url?: string; text?: string }[]) {
-      if (!item.url || !item.text) continue;
+    const byDomain = new Map<string, { text: string[]; links: Set<string> }>();
+    for (const item of items as {
+      url?: string;
+      text?: string;
+      markdown?: string;
+    }[]) {
+      if (!item.url) continue;
       const host = hostOf(item.url);
-      const bucket = byDomain.get(host) ?? [];
-      bucket.push(item.text);
+      const bucket = byDomain.get(host) ?? { text: [], links: new Set<string>() };
+
+      if (item.text) bucket.text.push(item.text);
+      for (const link of linksIn(item.markdown ?? "")) bucket.links.add(link);
+
       byDomain.set(host, bucket);
     }
 
     for (const target of batch) {
-      const pages = byDomain.get(target.domain) ?? [];
+      const page = byDomain.get(target.domain);
+      const pageCount = page?.text.length ?? 0;
+
       results.push({
         clinicId: target.clinicId,
         domain: target.domain,
-        text: pages.join("\n\n").replace(/\s+/g, " ").trim().slice(0, MAX_TEXT_CHARS),
-        pagesFetched: pages.length,
+        text: (page?.text ?? [])
+          .join("\n\n")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, MAX_TEXT_CHARS),
+        links: [...(page?.links ?? [])].slice(0, MAX_LINKS),
+        pagesFetched: pageCount,
         // A site that did not load is a fact worth keeping. Dropping it would
         // silently shrink the denominator and flatter every segment share.
-        error: pages.length === 0 ? "no pages fetched" : undefined,
+        error: pageCount === 0 ? "no pages fetched" : undefined,
       });
     }
 
@@ -114,6 +154,27 @@ export async function crawlSites(
   }
 
   return results;
+}
+
+/**
+ * Pull hrefs out of markdown.
+ *
+ * Covers both shapes the crawler emits: inline `[text](url)` and bare
+ * autolinks. Anchor text is deliberately discarded — "Book Now" is the same
+ * three words on a Mindbody widget and a mailto, so the destination is the only
+ * part that carries information.
+ */
+function linksIn(markdown: string): string[] {
+  const found: string[] = [];
+
+  for (const match of markdown.matchAll(/\]\(\s*(https?:\/\/[^\s)]+)/gi)) {
+    found.push(match[1]!);
+  }
+  for (const match of markdown.matchAll(/<(https?:\/\/[^\s>]+)>/gi)) {
+    found.push(match[1]!);
+  }
+
+  return found;
 }
 
 function hostOf(url: string): string {

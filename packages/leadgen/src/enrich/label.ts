@@ -1,3 +1,5 @@
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+
 import Anthropic from "@anthropic-ai/sdk";
 
 import type { CrawlResult } from "./crawl.ts";
@@ -196,7 +198,23 @@ function readClassification(
 
 export async function labelClinicsBatched(
   crawls: CrawlResult[],
-  options: LabelOptions & { pollSeconds?: number },
+  options: LabelOptions & {
+    pollSeconds?: number;
+    /**
+     * Where to record the batch id, the moment it exists.
+     *
+     * Load-bearing, not a convenience. An OAuth access token lives about eight
+     * hours and a batch may take up to twenty-four, so a long run can outlive
+     * its own credentials — and without this, that failure loses a submitted,
+     * already-billed batch, with no way forward but paying for all 4,500
+     * requests again. With it, a re-run picks the batch back up and collects
+     * results that were already paid for.
+     *
+     * The same recovery covers every other reason a poll loop dies: a closed
+     * laptop, a dropped connection, Ctrl-C.
+     */
+    batchIdFile?: string;
+  },
 ): Promise<Label[]> {
   const client = new Anthropic(options.apiKey ? { apiKey: options.apiKey } : {});
 
@@ -204,7 +222,16 @@ export async function labelClinicsBatched(
   const budgeted = toCall.slice(0, options.maxCalls ?? toCall.length);
   if (!budgeted.length) return labelled;
 
-  const batch = await client.messages.batches.create({
+  const existing =
+    options.batchIdFile && existsSync(options.batchIdFile)
+      ? readFileSync(options.batchIdFile, "utf8").trim()
+      : null;
+
+  if (existing) console.log(`  resuming batch ${existing} — not resubmitting`);
+
+  const batch = existing
+    ? await client.messages.batches.retrieve(existing)
+    : await client.messages.batches.create({
     requests: budgeted.map((crawl) => ({
       custom_id: crawl.clinicId,
       params: {
@@ -219,6 +246,14 @@ export async function labelClinicsBatched(
       },
     })),
   });
+
+  // Recorded before the first poll, so a crash between submit and completion is
+  // always recoverable. Writing it afterwards would leave exactly the gap this
+  // exists to close.
+  if (options.batchIdFile && !existing) {
+    writeFileSync(options.batchIdFile, batch.id);
+    console.log(`  batch ${batch.id} submitted — id saved, safe to interrupt`);
+  }
 
   const pollMs = (options.pollSeconds ?? 30) * 1000;
   for (;;) {
@@ -255,6 +290,13 @@ export async function labelClinicsBatched(
         ),
       );
     }
+  }
+
+  // Cleared only once every result has been read. Removing it earlier would
+  // discard the recovery handle while it is still the thing keeping an
+  // already-paid-for batch reachable.
+  if (options.batchIdFile && existsSync(options.batchIdFile)) {
+    rmSync(options.batchIdFile);
   }
 
   return labelled;

@@ -1,0 +1,101 @@
+name: CI
+
+# The 71 tests that decide whether this product may hold patient data — tenant
+# isolation, RLS drift, BAA immutability, provisioning, sync — silently
+# describe.skip when TEST_APP_URL is unset. Locally that is a convenience. With
+# no CI it meant they had effectively never run in a clean environment, and a
+# suite that skips the security tests while reporting green is worse than no
+# suite: it is a suite that lies.
+#
+# This job exists to make that impossible. It provisions the two-role Postgres
+# the security model depends on, runs the migrations, and fails if the
+# database-backed tests do not actually execute.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: healdesk_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # sslmode=disable is correct here and nowhere else: the database is a
+      # service container on the same host, and src/db/index.ts warns loudly if
+      # this is ever set in production.
+      MIGRATION_DATABASE_URL: postgres://healdesk_migrator:ci@localhost:5432/healdesk_test?sslmode=disable
+      TEST_MIGRATOR_URL: postgres://healdesk_migrator:ci@localhost:5432/healdesk_test?sslmode=disable
+      TEST_APP_URL: postgres://healdesk_app:ci@localhost:5432/healdesk_test?sslmode=disable
+      DATABASE_URL: postgres://healdesk_app:ci@localhost:5432/healdesk_test?sslmode=disable
+      BETTER_AUTH_SECRET: ci-only-not-a-real-secret
+      HEALDESK_PROVISION_SECRET: ci-only-not-a-real-secret
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # The two roles are the security model. Running the tests as one
+      # superuser would make every isolation assertion pass for the wrong
+      # reason — the runtime role must be provably NOBYPASSRLS.
+      - name: Provision database roles
+        env:
+          PGPASSWORD: postgres
+          MIGRATOR_PASSWORD: ci
+          APP_PASSWORD: ci
+        run: |
+          psql -h localhost -U postgres -d healdesk_test \
+            -v migrator_password=ci -v app_password=ci \
+            -f apps/app/scripts/provision-roles.sql
+
+      - name: Generate a KEK for the test suite
+        run: echo "HEALDESK_LOCAL_KEK=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+
+      - run: npm run db:migrate -w @healdesk/app
+
+      - run: npx tsc --noEmit -p apps/app
+      - run: npx tsc --noEmit -p apps/web
+      - run: npx tsc --noEmit -p packages/catalog
+      - run: npx tsc --noEmit -p packages/connectors
+
+      - name: Test — apps/app
+        run: npm test -w @healdesk/app -- --reporter=verbose
+
+      - name: Test — packages/connectors
+        run: npm test -w @healdesk/connectors
+
+      # The point of the whole job. If the database-backed suites skipped, the
+      # count collapses and the security tests did not run — which must fail the
+      # build rather than report green.
+      - name: Assert the security tests actually ran
+        run: |
+          COUNT=$(npm test -w @healdesk/app 2>&1 | grep -oE 'Tests +[0-9]+ passed' | grep -oE '[0-9]+' | head -1)
+          echo "passed: $COUNT"
+          if [ "${COUNT:-0}" -lt 200 ]; then
+            echo "::error::Only $COUNT tests ran. The database-backed suites skipped —"
+            echo "::error::tenant isolation, RLS drift and BAA immutability did not execute."
+            exit 1
+          fi
+
+      - run: npm run build
+        env:
+          HEALDESK_LOCAL_KEK: ${{ env.HEALDESK_LOCAL_KEK }}

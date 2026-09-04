@@ -44,3 +44,4 @@ test-results.json
 
 # Generated local working-docs page (npm run docs)
 .docs-site/
+.docs-comments.json

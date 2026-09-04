@@ -84,7 +84,7 @@ If the answer points to the warmup pool, proceed. If it points to authentication
 
 Goal: 10 domains registered and owned in your Cloudflare account, DNS managed by Cloudflare, with an API token InboxKit can use.
 
-1. Domain list is finalized. These 10, all brand-variant lookalikes of healdesk.ai, which is the standard cold-domain pattern (replies still read as legitimate). Do not use healdesk.ai itself for cold sending.
+1. Domain list is finalized. These 10, all brand-variant lookalikes of healdesk.io, which is the standard cold-domain pattern (replies still read as legitimate). Do not use healdesk.io itself for cold sending (the brand domain's reputation is what the product runs on; burning it on cold outreach is irreversible).
 
    Google group (GWS): gethealdesk.com, tryhealdesk.com, usehealdesk.com, healdeskapp.com, joinhealdesk.com
    Microsoft group (M365): healdeskpro.com, healdeskusa.com, healdeskteam.com, healdeskco.com, healdeskhub.com
@@ -184,7 +184,7 @@ Goal: ramp to target volume without burning the domains.
 
 ## 9. Guardrails (do not violate)
 
-- Never send cold from healdesk.ai. Cold domains are disposable variants only.
+- Never send cold from healdesk.io (the brand domain's reputation is what the product runs on). Cold domains are disposable variants only.
 - Never turn InboxKit warmup off once outreach starts.
 - Never turn Instantly warmup on.
 - Never start live cold before the 85% seed-placement gate passes.

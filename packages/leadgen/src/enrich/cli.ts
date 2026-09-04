@@ -166,7 +166,10 @@ async function main(): Promise<void> {
         "packages/leadgen/data/. Re-running is free; --force-crawl or\n" +
         "--force-label redoes one stage without redoing the earlier ones.\n\n" +
         "Add --batch on the full run: half the token price, since a job you\n" +
-        "read tomorrow morning has no reason to pay for low latency.",
+        "read tomorrow morning has no reason to pay for low latency.\n\n" +
+        "--concurrency N runs N Apify batches at once. Default 1. Set it to the\n" +
+        "plan's concurrent-run cap (free 5, Starter 32) — above that Apify\n" +
+        "queues the excess rather than running it.",
     );
     process.exit(1);
   }
@@ -253,6 +256,13 @@ async function main(): Promise<void> {
 
     const fresh = await crawlSites(targets, {
       token: apifyToken,
+      // Sequential by default. --concurrency raises it to match the Apify plan:
+      // free allows 5 concurrent actor runs, Starter 32. Setting it above the
+      // plan's cap gets the excess queued or rejected, not run.
+      concurrency: numericArg("concurrency") ?? 1,
+      // Lets the crawler tell a first attempt from a retry — the mass-failure
+      // guard is meaningless over a set already selected for having failed.
+      firstAttempts: targets.length - retrying,
       onProgress: (n, total) => process.stdout.write(`\r  crawled ${n}/${total}`),
       // Persisted per batch, so an interruption costs one batch rather than
       // everything fetched so far.

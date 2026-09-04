@@ -96,6 +96,28 @@ export type CrawlOptions = {
   onBatch?: (results: CrawlResult[]) => Promise<void> | void;
   /** Apify runs are billed by compute; batch so a failure loses one batch. */
   batchSize?: number;
+  /**
+   * How many Apify runs may be in flight at once.
+   *
+   * Defaults to 1 — sequential — because that is correct on the free plan,
+   * which caps concurrent actor runs at 5 and where a runaway parallel crawl
+   * would exhaust a $5 monthly budget before anyone could stop it. Raise it to
+   * match the plan: Starter allows 32, and 21 batches at concurrency 8 is
+   * roughly 25 minutes rather than 3 hours.
+   *
+   * Never set this above the plan's concurrent-run cap; Apify queues or rejects
+   * the excess rather than running it.
+   */
+  concurrency?: number;
+  /**
+   * Overrides the Apify call, for tests.
+   *
+   * The orchestration around it — probe-before-fan-out, slot ordering,
+   * serialised writes, one failing batch not taking the others down — is the
+   * part most likely to be subtly wrong and the part that cannot be exercised
+   * without either a paid API call or a seam. This is the seam.
+   */
+  runBatch?: (batch: CrawlTarget[]) => Promise<CrawlResult[]>;
   onProgress?: (done: number, total: number) => void;
 };
 
@@ -105,138 +127,232 @@ export async function crawlSites(
 ): Promise<CrawlResult[]> {
   const client = new ApifyClient({ token: options.token });
   const batchSize = options.batchSize ?? 200;
-  const results: CrawlResult[] = [];
+  const concurrency = Math.max(1, options.concurrency ?? 1);
 
   const usable = targets.filter((t) => t.domain);
-
+  const batches: CrawlTarget[][] = [];
   for (let i = 0; i < usable.length; i += batchSize) {
-    const batch = usable.slice(i, i + batchSize);
+    batches.push(usable.slice(i, i + batchSize));
+  }
+  if (batches.length === 0) return [];
 
-    const run = await client.actor("apify/website-content-crawler").call({
-      startUrls: batch.map((t) => ({ url: `https://${t.domain}` })),
-      crawlerType: "playwright:adaptive",
-      // Start URLs only. See the note above — depth 1 lets one site eat the
-      // whole run's page budget.
-      maxCrawlDepth: 0,
-      // Global, so it must scale with the batch: one page per clinic.
-      maxCrawlPages: batch.length,
-      // Service menus are the signal; policy pages are noise that crowds out
-      // the useful text inside the character budget.
-      excludeUrlGlobs: [
-        "**/privacy*",
-        "**/terms*",
-        "**/blog/**",
-        "**/careers*",
-        "**/*.pdf",
-      ],
-      // Both, because the two jobs want different views of the same page.
-      //
-      // Markdown goes through the default readable-content transformer, which
-      // strips nav, header and footer. That is right for CLASSIFICATION — the
-      // model should read the clinic's copy, not its menu.
-      //
-      // It is exactly wrong for BOOKING DETECTION: the "Book Now" button lives
-      // in the nav, so the transformer discards the single most valuable link
-      // on the page. A sample run proved it — 63 of 192 sites returned zero
-      // links, one of them alongside 5,634 characters of text.
-      //
-      // So the HTML is fetched too and used only to harvest hrefs, then
-      // dropped. It never reaches the model and never reaches disk.
-      saveMarkdown: true,
-      saveHtml: true,
-      // The setting that actually mattered, found by measuring rather than
-      // reasoning: the default transformer extracts readable content and
-      // saveHtml then saves ITS OUTPUT, not the page. So the links were being
-      // discarded before saveHtml ever ran, and switching saveHtml on changed
-      // nothing at all.
-      //
-      // Measured on one clinic homepage, hrefs and srcs recovered:
-      //   htmlTransformer: "readableText" (default)  →  44
-      //   htmlTransformer: "none"                    →  93
-      //
-      // An earlier attempt to fix this by overriding removeElementsCssSelector
-      // made it worse — 2 links — so it is deliberately left at the default.
-      htmlTransformer: "none",
-      proxyConfiguration: { useApifyProxy: true },
-    });
+  /**
+   * Results indexed by batch, never appended in completion order.
+   *
+   * Concurrent batches finish out of order, so pushing as they land would make
+   * the output depend on network timing — two identical runs producing
+   * differently ordered files, and any diff between them unreadable. Slotting
+   * each batch into its own index keeps the result deterministic regardless of
+   * who wins the race.
+   */
+  const slots: CrawlResult[][] = batches.map(() => []);
+  const flatten = (): CrawlResult[] => slots.flat();
 
-    const { items } = await client
-      .dataset(run.defaultDatasetId)
-      .listItems({ clean: true });
+  let completed = 0;
 
-    // Group the pages back onto the clinic that owns the domain.
-    const byDomain = new Map<string, { text: string[]; links: Set<string> }>();
-    for (const item of items as {
-      url?: string;
-      text?: string;
-      markdown?: string;
-      html?: string;
-    }[]) {
-      if (!item.url) continue;
-      const host = hostOf(item.url);
-      const bucket = byDomain.get(host) ?? { text: [], links: new Set<string>() };
-
-      if (item.text) bucket.text.push(item.text);
-      // Markdown first (clean, in-content links), then the raw HTML, which is
-      // the only place the nav survives.
-      for (const link of linksIn(item.markdown ?? "")) bucket.links.add(link);
-      for (const link of hrefsIn(item.html ?? "", item.url)) bucket.links.add(link);
-
-      byDomain.set(host, bucket);
-    }
-
-    for (const target of batch) {
-      const page = byDomain.get(target.domain);
-      const pageCount = page?.text.length ?? 0;
-
-      results.push({
-        clinicId: target.clinicId,
-        domain: target.domain,
-        text: (page?.text ?? [])
-          .join("\n\n")
-          .replace(/\s+/g, " ")
-          .trim()
-          .slice(0, MAX_TEXT_CHARS),
-        links: [...(page?.links ?? [])].slice(0, MAX_LINKS),
-        pagesFetched: pageCount,
-        // A site that did not load is a fact worth keeping. Dropping it would
-        // silently shrink the denominator and flatter every segment share.
-        error: pageCount === 0 ? "no pages fetched" : undefined,
+  /**
+   * Persistence is serialised even though the crawls are not.
+   *
+   * onBatch writes the whole accumulated array to one file. Two writers
+   * entering that at once interleave their writes and leave a truncated or
+   * doubled JSON document — and the failure is silent until the next run tries
+   * to parse it, by which point the crawl has been paid for. So writes are
+   * chained: the crawling parallelises, the writing does not.
+   *
+   * Each write also snapshots the CURRENT state rather than a captured one, so
+   * a queued write never persists a stale view.
+   */
+  let writeChain: Promise<void> = Promise.resolve();
+  const persist = (): Promise<void> => {
+    writeChain = writeChain
+      .then(() => options.onBatch?.(flatten()))
+      .then(() => undefined)
+      // A failed checkpoint must not abort the crawl — the pages are already
+      // paid for, and losing them to a transient disk error would be the
+      // expensive outcome. It is reported and the run continues.
+      .catch((error) => {
+        console.error(`\n  checkpoint write failed: ${String(error)}`);
       });
-    }
+    return writeChain;
+  };
 
-    options.onProgress?.(Math.min(i + batchSize, usable.length), usable.length);
-    await options.onBatch?.(results);
+  const runBatch = async (index: number): Promise<void> => {
+    const run = options.runBatch ?? ((b: CrawlTarget[]) => crawlOneBatch(client, b));
+    slots[index] = await run(batches[index]!);
+    completed += 1;
+    options.onProgress?.(
+      Math.min(completed * batchSize, usable.length),
+      usable.length,
+    );
+    await persist();
+  };
 
-    // Checked after the first batch, not at the end.
-    //
-    // A few dead domains in a list this age is normal; most of a batch failing
-    // is a fact about this configuration rather than about the internet — the
-    // first version of this file proved it by fetching 4 pages across 200
-    // clinics and exiting 0.
-    //
-    // Two things this deliberately does NOT do. It does not run on a retry
-    // batch, because a set selected for having already failed is expected to
-    // fail again, and guarding on that made every re-run after a full crawl
-    // throw — turning a safety check into a hard block with no escape but
-    // paying to crawl all 4,512 domains again. And it no longer waits for the
-    // whole run, so a misconfiguration costs one batch of Apify compute rather
-    // than every batch.
-    const isFirstBatch = i === 0;
-    const isRetrySet = (options.firstAttempts ?? usable.length) === 0;
-    const failed = results.filter((r) => r.error).length;
+  // ---- The probe batch --------------------------------------------------
+  //
+  // Deliberately run alone, before any fan-out.
+  //
+  // The mass-failure guard exists so a misconfiguration costs one batch rather
+  // than the whole run — and that property is destroyed by concurrency, because
+  // eight batches launched together are all billed before the first result can
+  // be inspected. Serialising exactly one batch buys the check back. It costs
+  // one batch of latency on a run of twenty-one, and it is the difference
+  // between a $1 mistake and a $24 one.
+  await runBatch(0);
 
-    if (isFirstBatch && !isRetrySet && results.length >= 20 && failed / results.length > 0.5) {
-      throw new Error(
-        `${failed} of the first ${results.length} sites returned nothing. That is ` +
-          `a crawler configuration problem, not ${failed} broken websites — ` +
-          `check the Apify run log before spending on the rest. Stopping after ` +
-          `one batch, because every stage after this would treat the gap as data.`,
-      );
-    }
+  const firstAttempts = options.firstAttempts ?? usable.length;
+  const probe = slots[0]!;
+  const failed = probe.filter((r) => r.error).length;
+
+  if (firstAttempts > 0 && probe.length >= 20 && failed / probe.length > 0.5) {
+    throw new Error(
+      `${failed} of the first ${probe.length} sites returned nothing. That is a ` +
+        `crawler configuration problem, not ${failed} broken websites — check ` +
+        `the Apify run log before spending on the rest. Stopping after one ` +
+        `batch, because every stage after this would treat the gap as data.`,
+    );
   }
 
-  return results;
+  // ---- Everything else, concurrently -------------------------------------
+  //
+  // A worker pool rather than Promise.all over every batch: Apify enforces a
+  // per-plan cap on concurrent actor runs (5 on free, 32 on Starter), and
+  // launching twenty-one at once gets them queued or rejected rather than run.
+  // Workers pull from a shared cursor, so a slow batch never blocks a free
+  // worker from starting the next one.
+  let cursor = 1;
+  const failures: unknown[] = [];
+
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const index = cursor++;
+      if (index >= batches.length) return;
+
+      try {
+        await runBatch(index);
+      } catch (error) {
+        // One batch failing must not abandon the others — each is a separate
+        // Apify run and the rest are already paid for or in flight. The
+        // failures are collected and reported once, after the pool drains.
+        failures.push(error);
+        slots[index] = batches[index]!.map((t) => ({
+          clinicId: t.clinicId,
+          domain: t.domain,
+          text: "",
+          links: [],
+          pagesFetched: 0,
+          error: `batch failed: ${
+            error instanceof Error ? error.message.slice(0, 120) : "unknown"
+          }`,
+        }));
+      }
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, batches.length - 1) }, worker),
+  );
+
+  // Drain the write chain before returning, or the caller can observe a
+  // complete in-memory result while the file on disk is still one batch behind.
+  await writeChain;
+
+  if (failures.length) {
+    console.error(
+      `\n  ${failures.length} of ${batches.length} batches failed; their clinics ` +
+        `are recorded with an error and will be retried on the next run.`,
+    );
+  }
+
+  return flatten();
+}
+
+/**
+ * One Apify run over one batch of domains.
+ *
+ * Split out of crawlSites so the orchestration above reads as orchestration.
+ * It is pure with respect to the caller — no shared state, no writes — which is
+ * what makes it safe to run several at once.
+ */
+async function crawlOneBatch(
+  client: ApifyClient,
+  batch: CrawlTarget[],
+): Promise<CrawlResult[]> {
+  const run = await client.actor("apify/website-content-crawler").call({
+    startUrls: batch.map((t) => ({ url: `https://${t.domain}` })),
+    crawlerType: "playwright:adaptive",
+    // Start URLs only. Depth 1 lets one site eat the whole run's page budget.
+    maxCrawlDepth: 0,
+    // Global, so it must scale with the batch: one page per clinic.
+    maxCrawlPages: batch.length,
+    // Service menus are the signal; policy pages are noise that crowds out the
+    // useful text inside the character budget.
+    excludeUrlGlobs: [
+      "**/privacy*",
+      "**/terms*",
+      "**/blog/**",
+      "**/careers*",
+      "**/*.pdf",
+    ],
+    // Both, because the two jobs want different views of the same page.
+    // Markdown is the readable content, which is right for classification.
+    // HTML is only used to harvest hrefs, then dropped.
+    saveMarkdown: true,
+    saveHtml: true,
+    // The setting that actually mattered, found by measuring rather than
+    // reasoning: the default transformer extracts readable content and saveHtml
+    // then saves ITS OUTPUT, not the page — so links were discarded before
+    // saveHtml ever ran. Measured on one clinic homepage, hrefs recovered:
+    // "readableText" (default) 44, "none" 93. An attempt to fix this by
+    // overriding removeElementsCssSelector made it worse (2), so that stays at
+    // its default.
+    htmlTransformer: "none",
+    proxyConfiguration: { useApifyProxy: true },
+  });
+
+  const { items } = await client
+    .dataset(run.defaultDatasetId)
+    .listItems({ clean: true });
+
+  // Group the pages back onto the clinic that owns the domain.
+  const byDomain = new Map<string, { text: string[]; links: Set<string> }>();
+  for (const item of items as {
+    url?: string;
+    text?: string;
+    markdown?: string;
+    html?: string;
+  }[]) {
+    if (!item.url) continue;
+    const host = hostOf(item.url);
+    const bucket = byDomain.get(host) ?? { text: [], links: new Set<string>() };
+
+    if (item.text) bucket.text.push(item.text);
+    // Markdown first (clean, in-content links), then the raw HTML, which is the
+    // only place the nav survives.
+    for (const link of linksIn(item.markdown ?? "")) bucket.links.add(link);
+    for (const link of hrefsIn(item.html ?? "", item.url)) bucket.links.add(link);
+
+    byDomain.set(host, bucket);
+  }
+
+  return batch.map((target) => {
+    const page = byDomain.get(target.domain);
+    const pageCount = page?.text.length ?? 0;
+
+    return {
+      clinicId: target.clinicId,
+      domain: target.domain,
+      text: (page?.text ?? [])
+        .join("\n\n")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, MAX_TEXT_CHARS),
+      links: [...(page?.links ?? [])].slice(0, MAX_LINKS),
+      pagesFetched: pageCount,
+      // A site that did not load is a fact worth keeping. Dropping it would
+      // silently shrink the denominator and flatter every segment share.
+      error: pageCount === 0 ? "no pages fetched" : undefined,
+    };
+  });
 }
 
 /**
@@ -247,7 +363,8 @@ export async function crawlSites(
  * cap, so a clinic whose booking button sits below a photo gallery could
  * otherwise lose it to the truncation.
  */
-const ASSET = /\.(webp|png|jpe?g|gif|svg|ico|css|woff2?|ttf|eot|mp4|webm|pdf)(\?|$)/i;
+const ASSET =
+  /\.(webp|png|jpe?g|gif|svg|ico|css|woff2?|ttf|eot|mp4|webm|pdf)(\?|$)/i;
 
 /**
  * Scripts are dropped too — except the ones that ARE the evidence.
@@ -261,6 +378,13 @@ const ASSET = /\.(webp|png|jpe?g|gif|svg|ico|css|woff2?|ttf|eot|mp4|webm|pdf)(\?
 const SCRIPT = /\.js(\?|$)/i;
 const BOOKING_SCRIPT =
   /(mangomint|acuityscheduling|squarespacescheduling|booksy|healcode|simplybook|setmore|leadconnectorhq|msgsndr|birdeye|patientpop)/i;
+
+/** Assets out, booking-widget scripts in. */
+function keepable(url: string): boolean {
+  if (ASSET.test(url)) return false;
+  if (SCRIPT.test(url)) return BOOKING_SCRIPT.test(url);
+  return true;
+}
 
 /**
  * Pull hrefs out of markdown.
@@ -284,17 +408,18 @@ function linksIn(markdown: string): string[] {
 }
 
 /**
- * Every href in the raw HTML, resolved to absolute.
+ * Every href and src in the raw HTML, resolved to absolute.
  *
- * Relative hrefs matter more than they look: a clinic running a self-hosted
+ * src as well as href: a booking widget arrives as <script src=...>, and
+ * matching only href misses every embed-based platform.
+ *
+ * Relative URLs matter more than they look — a clinic running a self-hosted
  * booking page links to `/book-now`, and without the page URL to resolve
  * against, that is indistinguishable from any other path fragment.
  */
 function hrefsIn(html: string, pageUrl?: string): string[] {
   const found: string[] = [];
 
-  // src as well as href: a booking widget arrives as <script src=...>, and
-  // matching only href misses every embed-based platform.
   for (const match of html.matchAll(/(?:href|src)\s*=\s*["']([^"']+)["']/gi)) {
     const href = match[1]!.trim();
     if (!href || href.startsWith("#")) continue;
@@ -311,13 +436,6 @@ function hrefsIn(html: string, pageUrl?: string): string[] {
   }
 
   return found.filter(keepable);
-}
-
-/** Assets out, booking-widget scripts in. */
-function keepable(url: string): boolean {
-  if (ASSET.test(url)) return false;
-  if (SCRIPT.test(url)) return BOOKING_SCRIPT.test(url);
-  return true;
 }
 
 function hostOf(url: string): string {

@@ -4,6 +4,8 @@ import { gzipSync } from "node:zlib";
 
 import { ApifyClient } from "apify-client";
 
+import { BOOKING_PLATFORMS } from "./booking.ts";
+
 /**
  * Fetching what each clinic says about itself.
  *
@@ -44,6 +46,18 @@ import { ApifyClient } from "apify-client";
 export type CrawlTarget = {
   clinicId: string;
   domain: string;
+  /**
+   * True when this domain has already been attempted and failed.
+   *
+   * Membership, not a count — which is the whole point. The guard previously
+   * took a NUMBER of first attempts and used it as an on/off switch, never
+   * knowing which rows in the probe were which. Since the caller builds targets
+   * in clinic order, previously-failed domains sort to the front, so the probe
+   * filled with known-dead sites while the count stayed high enough to keep the
+   * guard armed — and a perfectly healthy run aborted claiming a configuration
+   * problem.
+   */
+  isRetry?: boolean;
 };
 
 export type CrawlResult = {
@@ -109,15 +123,6 @@ const MAX_LINKS = 400;
 export type CrawlOptions = {
   token: string;
   /**
-   * How many of these targets have never been attempted.
-   *
-   * The mass-failure guard below is only meaningful over first attempts. On a
-   * retry run the target set is, by construction, the domains that already
-   * failed — so a high failure rate there is the expected outcome, not evidence
-   * of misconfiguration.
-   */
-  firstAttempts?: number;
-  /**
    * Called after every batch, with everything crawled so far.
    *
    * The crawl used to write one file at the very end, which is survivable over
@@ -181,7 +186,14 @@ export async function crawlSites(
   const batchSize = options.batchSize ?? 200;
   const concurrency = Math.max(1, options.concurrency ?? 1);
 
-  const usable = targets.filter((t) => t.domain);
+  // First attempts crawled first, retries after.
+  //
+  // Crawl order is otherwise arbitrary — results are sorted by clinic before
+  // they are written — so ordering it this way costs nothing and makes the
+  // probe batch representative by construction rather than by luck.
+  const usable = targets
+    .filter((t) => t.domain)
+    .sort((a, b) => Number(a.isRetry ?? false) - Number(b.isRetry ?? false));
   const batches: CrawlTarget[][] = [];
   for (let i = 0; i < usable.length; i += batchSize) {
     batches.push(usable.slice(i, i + batchSize));
@@ -233,11 +245,10 @@ export async function crawlSites(
       options.runBatch ??
       ((b: CrawlTarget[]) => crawlOneBatch(client, b, options.htmlDir));
     slots[index] = await run(batches[index]!);
-    completed += 1;
-    options.onProgress?.(
-      Math.min(completed * batchSize, usable.length),
-      usable.length,
-    );
+    // Sites, not batches. Counting batches and multiplying credited a short
+    // final batch as a full one, so progress overshot and the clamp hid it.
+    completed += batches[index]!.length;
+    options.onProgress?.(completed, usable.length);
     await persist();
   };
 
@@ -253,11 +264,19 @@ export async function crawlSites(
   // between a $1 mistake and a $24 one.
   await runBatch(0);
 
-  const firstAttempts = options.firstAttempts ?? usable.length;
-  const probe = slots[0]!;
+  // Evaluated over the probe's FIRST ATTEMPTS only.
+  //
+  // A retried domain failing again is the expected outcome, not evidence of
+  // anything — it is why the previous count-based version aborted healthy runs.
+  // If the probe holds too few first attempts to say anything, the guard stays
+  // silent rather than guessing.
+  const retryIds = new Set(
+    batches[0]!.filter((t) => t.isRetry).map((t) => t.clinicId),
+  );
+  const probe = slots[0]!.filter((r) => !retryIds.has(r.clinicId));
   const failed = probe.filter((r) => r.error).length;
 
-  if (firstAttempts > 0 && probe.length >= 20 && failed / probe.length > 0.5) {
+  if (probe.length >= 20 && failed / probe.length > 0.5) {
     throw new Error(
       `${failed} of the first ${probe.length} sites returned nothing. That is a ` +
         `crawler configuration problem, not ${failed} broken websites — check ` +
@@ -298,6 +317,12 @@ export async function crawlSites(
             error instanceof Error ? error.message.slice(0, 120) : "unknown"
           }`,
         }));
+        // Persisted like any other batch. Without this the error rows existed
+        // only in memory, so an interrupt after a batch failure lost the record
+        // that those clinics had been attempted at all — and the next run paid
+        // to attempt them again.
+        completed += 1;
+        await persist();
       }
     }
   };
@@ -420,7 +445,12 @@ async function crawlOneBatch(
   }
 
   return batch.map((target) => {
-    const page = byDomain.get(target.domain);
+    // hostOf() strips a leading www, so a site that redirects apex -> www still
+    // keys on the bare domain. This lookup is written to survive either shape
+    // rather than assuming the redirect resolved the way we expect.
+    const page =
+      byDomain.get(target.domain) ??
+      byDomain.get(target.domain.replace(/^www\./, ""));
     const pageCount = page?.text.length ?? 0;
 
     return {
@@ -472,14 +502,25 @@ const ASSET =
  * detections lost to a filter written for photo galleries.
  */
 const SCRIPT = /\.js(\?|$)/i;
-const BOOKING_SCRIPT =
-  /(mangomint|acuityscheduling|squarespacescheduling|booksy|healcode|simplybook|setmore|leadconnectorhq|msgsndr|birdeye|patientpop)/i;
+
+/**
+ * Every substring the detector matches on, flattened.
+ *
+ * Not hosts — substrings. Deriving an allowlist of HOSTS looked right and
+ * dropped `javascripts/healcode.js`, which is path-anchored and has no host at
+ * all: Mindbody's widget loader would have been filtered out before detection
+ * ever saw it. The honest rule is the tautology — if a signature would match
+ * this URL, the URL is evidence, so keep it.
+ */
+const BOOKING_SUBSTRINGS = BOOKING_PLATFORMS.flatMap((p) => p.signatures);
 
 /** Assets out, booking-widget scripts in. */
 function keepable(url: string): boolean {
   if (ASSET.test(url)) return false;
-  if (SCRIPT.test(url)) return BOOKING_SCRIPT.test(url);
-  return true;
+  if (!SCRIPT.test(url)) return true;
+
+  const lower = url.toLowerCase();
+  return BOOKING_SUBSTRINGS.some((sig) => lower.includes(sig));
 }
 
 /**
@@ -619,3 +660,6 @@ function hostOf(url: string): string {
     return "";
   }
 }
+
+/** Exposed so the filter/signature compatibility test uses the real filter. */
+export const __keepableForTests = keepable;

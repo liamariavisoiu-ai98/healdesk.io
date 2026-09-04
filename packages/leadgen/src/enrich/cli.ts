@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { existsSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,7 +38,19 @@ const DATA = resolve(HERE, "../../data");
 
 function arg(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
-  return index === -1 ? undefined : process.argv[index + 1];
+  if (index === -1) return undefined;
+
+  const value = process.argv[index + 1];
+  // `--limit` with nothing after it, or followed by another flag, used to read
+  // as "no limit given" — reinstating the exact failure numericArg exists to
+  // prevent, one level lower down. A flag that was typed but has no value is a
+  // mistake, and the only safe response to a mistake that spends money is to
+  // stop.
+  if (value === undefined || value.startsWith("--")) {
+    console.error(`--${name} was given without a value.`);
+    process.exit(1);
+  }
+  return value;
 }
 
 /**
@@ -220,13 +232,22 @@ async function main(): Promise<void> {
   // transient, and the first sample lost two obvious clinics that way. A site
   // that returned real content is never re-fetched; it is already paid for.
   const done = new Set(already.filter((c) => !c.error).map((c) => c.clinicId));
+  // Everything ever attempted, successful or not — the retry marker below
+  // needs "have we tried this before", not "did it work".
+  const attempted = new Set(already.map((c) => c.clinicId));
   const retrying = already.length - done.size;
 
   const targets = clinics
     .filter((c) => c.domain)
     .slice(0, Number.isFinite(limit) ? limit : undefined)
     .filter((c) => !done.has(c.id))
-    .map((c) => ({ clinicId: c.id, domain: c.domain }));
+    // Marked per target rather than counted, so the crawler can tell which
+    // probe rows are first attempts and which are known-bad retries.
+    .map((c) => ({
+      clinicId: c.id,
+      domain: c.domain,
+      isRetry: attempted.has(c.id),
+    }));
 
   if (already.length) {
     console.log(
@@ -245,13 +266,23 @@ async function main(): Promise<void> {
       process.exit(1);
     }
 
-    const keep = already.filter((c) => done.has(c.clinicId));
+    // Everything not being re-attempted survives, whatever the current --limit.
+    //
+    // Keying on `done` dropped every previously-FAILED row that fell outside
+    // the limit: they were neither kept nor re-crawled, so a narrow run
+    // silently deleted them from the only record of what had been attempted —
+    // and the next full run paid to crawl them again.
+    const attempting = new Set(targets.map((t) => t.clinicId));
+    const keep = already.filter((c) => !attempting.has(c.clinicId));
     const write = async (partial: CrawlResult[]) => {
       await mkdir(DATA, { recursive: true });
-      await writeFile(
-        crawlPath,
-        JSON.stringify([...keep, ...partial], null, 2),
-      );
+      // Written to a temp file and renamed, because rename is atomic on one
+      // filesystem. Writing in place means an interrupt mid-write leaves a
+      // truncated JSON document — and this file is the only record of pages
+      // that have already been paid for.
+      const tmp = `${crawlPath}.tmp`;
+      await writeFile(tmp, JSON.stringify([...keep, ...partial], null, 2));
+      await rename(tmp, crawlPath);
     };
 
     const fresh = await crawlSites(targets, {
@@ -264,9 +295,7 @@ async function main(): Promise<void> {
       // re-crawl it — so any fingerprint found later is a free local re-scan
       // rather than a second paid crawl.
       htmlDir: join(DATA, "html"),
-      // Lets the crawler tell a first attempt from a retry — the mass-failure
-      // guard is meaningless over a set already selected for having failed.
-      firstAttempts: targets.length - retrying,
+
       onProgress: (n, total) => process.stdout.write(`\r  crawled ${n}/${total}`),
       // Persisted per batch, so an interruption costs one batch rather than
       // everything fetched so far.

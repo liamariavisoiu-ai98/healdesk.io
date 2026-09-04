@@ -107,17 +107,71 @@ describe("the cheap-failure guard", () => {
     expect(called, "batches billed before the guard fired").toBe(1);
   });
 
+  test("a MIXED batch is judged on its first attempts, not its retries", async () => {
+    // The case the previous version got wrong, and the case neither existing
+    // test covered. Targets are built in clinic order, so previously-failed
+    // domains sort to the front and fill the probe — while the count of first
+    // attempts elsewhere in the run kept the guard armed. A healthy run then
+    // aborted claiming a configuration problem, every time, with no way past it
+    // but paying to re-crawl everything.
+    const mixed: CrawlTarget[] = [
+      ...Array.from({ length: 180 }, (_, i) => ({
+        clinicId: `retry${i}`,
+        domain: `dead${i}.com`,
+        isRetry: true,
+      })),
+      ...Array.from({ length: 220 }, (_, i) => ({
+        clinicId: `new${i}`,
+        domain: `live${i}.com`,
+      })),
+    ];
+
+    const out = await crawlSites(mixed, {
+      token: "x",
+      batchSize: 200,
+      concurrency: 2,
+      // Retries fail again, first attempts succeed — a completely healthy run.
+      runBatch: async (b) => [
+        ...dead(b.filter((t) => t.isRetry)),
+        ...ok(b.filter((t) => !t.isRetry)),
+      ],
+    });
+
+    expect(out).toHaveLength(400);
+    expect(out.filter((r) => !r.error)).toHaveLength(220);
+  });
+
+  test("stays silent when the probe holds too few first attempts to judge", async () => {
+    // Better to say nothing than to guess from a handful of rows.
+    const targetsMixed: CrawlTarget[] = [
+      ...Array.from({ length: 195 }, (_, i) => ({
+        clinicId: `r${i}`,
+        domain: `dead${i}.com`,
+        isRetry: true,
+      })),
+      ...Array.from({ length: 5 }, (_, i) => ({
+        clinicId: `n${i}`,
+        domain: `new${i}.com`,
+      })),
+    ];
+
+    const out = await crawlSites(targetsMixed, {
+      token: "x",
+      batchSize: 200,
+      concurrency: 1,
+      runBatch: async (b) => dead(b),
+    });
+    expect(out).toHaveLength(200);
+  });
+
   test("does not fire on a retry set, which is selected for having failed", async () => {
     // The bug this replaced: guarding on a retry-only set made every re-run
     // after a full crawl throw, with no escape but paying to re-crawl
     // everything.
-    const out = await crawlSites(targets(100), {
-      token: "x",
-      batchSize: 50,
-      concurrency: 4,
-      firstAttempts: 0,
-      runBatch: async (b) => dead(b),
-    });
+    const out = await crawlSites(
+      targets(100).map((t) => ({ ...t, isRetry: true })),
+      { token: "x", batchSize: 50, concurrency: 4, runBatch: async (b) => dead(b) },
+    );
 
     expect(out).toHaveLength(100);
     expect(out.every((r) => r.error)).toBe(true);

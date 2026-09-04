@@ -171,23 +171,19 @@ describe("the signature table itself", () => {
 });
 
 describe("regressions the pre-spend audit caught", () => {
-  test("every widget-script signature survives the crawler's asset filter", () => {
-    // Seven verified signatures point at .js widget loaders. The asset filter,
-    // written to drop photo galleries, was deleting exactly those — so the
-    // signatures could never fire and a whole class of detection was lost
-    // silently. This asserts the two stay compatible.
-    const ASSET = /\.(webp|png|jpe?g|gif|svg|ico|css|woff2?|ttf|eot|mp4|webm|pdf)(\?|$)/i;
-    const SCRIPT = /\.js(\?|$)/i;
-    const BOOKING_SCRIPT =
-      /(mangomint|acuityscheduling|squarespacescheduling|booksy|healcode|simplybook|setmore|leadconnectorhq|msgsndr|birdeye|patientpop)/i;
-    const keepable = (u: string) =>
-      !ASSET.test(u) && (!SCRIPT.test(u) || BOOKING_SCRIPT.test(u));
+  test("every widget-script signature survives the crawler's asset filter", async () => {
+    // Uses the crawler's REAL filter, not a copy of it. An earlier version of
+    // this test reimplemented the regexes, which meant it could pass while the
+    // shipped filter deleted the very URLs these signatures match.
+    const { __keepableForTests } = await import("../src/enrich/crawl.ts");
 
     for (const platform of BOOKING_PLATFORMS) {
       for (const sig of platform.signatures) {
         if (!sig.endsWith(".js")) continue;
         const url = `https://${sig.replace(/^\/+/, "")}`;
-        expect(keepable(url), `${platform.id}: ${sig} is filtered out`).toBe(true);
+        expect(__keepableForTests(url), `${platform.id}: ${sig} filtered out`).toBe(
+          true,
+        );
       }
     }
   });

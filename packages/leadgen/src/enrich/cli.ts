@@ -260,6 +260,10 @@ async function main(): Promise<void> {
       // free allows 5 concurrent actor runs, Starter 32. Setting it above the
       // plan's cap gets the excess queued or rejected, not run.
       concurrency: numericArg("concurrency") ?? 1,
+      // Archive every page. ~54 MB gzipped for the full list, against ~$24 to
+      // re-crawl it — so any fingerprint found later is a free local re-scan
+      // rather than a second paid crawl.
+      htmlDir: join(DATA, "html"),
       // Lets the crawler tell a first attempt from a retry — the mass-failure
       // guard is meaningless over a set already selected for having failed.
       firstAttempts: targets.length - retrying,

@@ -1,3 +1,7 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { gzipSync } from "node:zlib";
+
 import { ApifyClient } from "apify-client";
 
 /**
@@ -58,8 +62,36 @@ export type CrawlResult = {
    */
   links: string[];
   pagesFetched: number;
+  /**
+   * Fingerprints beyond hrefs — see extractFingerprints().
+   *
+   * Cheap to compute, tiny to store, and they catch what URL matching cannot:
+   * a white-labelled platform serving from the clinic's own domain has no
+   * vendor hostname to match, but still leaves a meta generator tag, a form
+   * action, an iframe source, or a distinctive path shape.
+   */
+  fingerprints?: Fingerprints;
   /** Set when the site could not be read at all. Kept, not discarded. */
   error?: string;
+};
+
+/**
+ * The non-href evidence a page carries about what software runs it.
+ *
+ * Every field here exists because a URL signature could not have found it.
+ */
+export type Fingerprints = {
+  /** <meta name="generator"> — names Wix, Squarespace, WordPress outright. */
+  generator: string | null;
+  /** Distinct URL path shapes, digits and ids masked. Zenoti's /webstoreNew
+   *  survived white-labelling as a PATH when its hostname did not. */
+  pathShapes: string[];
+  /** Where forms post to. A booking form posts to the booking vendor. */
+  formActions: string[];
+  /** iframe sources — the classic way a widget is embedded. */
+  iframes: string[];
+  /** Vendor-ish tokens seen in class names and ids, e.g. "wix-bookings". */
+  classHints: string[];
 };
 
 /** Roughly a page and a half of text — enough to classify, cheap to send. */
@@ -109,6 +141,26 @@ export type CrawlOptions = {
    * the excess rather than running it.
    */
   concurrency?: number;
+  /**
+   * Where to archive the raw HTML, one gzipped file per clinic.
+   *
+   * The case for keeping it is not storage convenience, it is the cost of NOT
+   * having it. Every fingerprint discovered later — and they will be, this
+   * pipeline has found several by hand already — can only be applied to pages
+   * still on disk. Without an archive, each new discovery means re-crawling
+   * 4,512 domains at roughly $24 a time; with one, it is a local re-scan that
+   * costs nothing and takes seconds.
+   *
+   * Measured at ~74 KB of HTML per clinic, gzip takes that to roughly 12 KB,
+   * so the whole list is about 54 MB. That is a rounding error against a single
+   * re-crawl, and it is the difference between "we can test that idea" and "we
+   * would have to pay to find out".
+   *
+   * Fingerprints are extracted anyway, because they are countable across the
+   * whole list in a way raw HTML is not. The archive answers questions nobody
+   * has thought of yet; the fingerprints answer the ones we have.
+   */
+  htmlDir?: string;
   /**
    * Overrides the Apify call, for tests.
    *
@@ -177,7 +229,9 @@ export async function crawlSites(
   };
 
   const runBatch = async (index: number): Promise<void> => {
-    const run = options.runBatch ?? ((b: CrawlTarget[]) => crawlOneBatch(client, b));
+    const run =
+      options.runBatch ??
+      ((b: CrawlTarget[]) => crawlOneBatch(client, b, options.htmlDir));
     slots[index] = await run(batches[index]!);
     completed += 1;
     options.onProgress?.(
@@ -276,6 +330,7 @@ export async function crawlSites(
 async function crawlOneBatch(
   client: ApifyClient,
   batch: CrawlTarget[],
+  htmlDir?: string,
 ): Promise<CrawlResult[]> {
   const run = await client.actor("apify/website-content-crawler").call({
     startUrls: batch.map((t) => ({ url: `https://${t.domain}` })),
@@ -314,7 +369,10 @@ async function crawlOneBatch(
     .listItems({ clean: true });
 
   // Group the pages back onto the clinic that owns the domain.
-  const byDomain = new Map<string, { text: string[]; links: Set<string> }>();
+  const byDomain = new Map<
+    string,
+    { text: string[]; links: Set<string>; html: string }
+  >();
   for (const item of items as {
     url?: string;
     text?: string;
@@ -323,15 +381,42 @@ async function crawlOneBatch(
   }[]) {
     if (!item.url) continue;
     const host = hostOf(item.url);
-    const bucket = byDomain.get(host) ?? { text: [], links: new Set<string>() };
+    const bucket = byDomain.get(host) ?? {
+      text: [],
+      links: new Set<string>(),
+      html: "",
+    };
 
     if (item.text) bucket.text.push(item.text);
     // Markdown first (clean, in-content links), then the raw HTML, which is the
     // only place the nav survives.
     for (const link of linksIn(item.markdown ?? "")) bucket.links.add(link);
     for (const link of hrefsIn(item.html ?? "", item.url)) bucket.links.add(link);
+    // Kept only long enough to fingerprint, then dropped — see below.
+    if (item.html) bucket.html += item.html;
 
     byDomain.set(host, bucket);
+  }
+
+  // Archived before the HTML goes out of scope. Failures here are logged and
+  // ignored: a missing archive costs a future re-crawl, while throwing would
+  // cost the pages just paid for.
+  if (htmlDir) {
+    await mkdir(htmlDir, { recursive: true }).catch(() => {});
+    await Promise.all(
+      batch.map(async (target) => {
+        const html = byDomain.get(target.domain)?.html;
+        if (!html) return;
+        try {
+          await writeFile(
+            join(htmlDir, `${target.clinicId}.html.gz`),
+            gzipSync(html),
+          );
+        } catch (error) {
+          console.error(`\n  html archive failed for ${target.domain}: ${String(error)}`);
+        }
+      }),
+    );
   }
 
   return batch.map((target) => {
@@ -347,6 +432,17 @@ async function crawlOneBatch(
         .trim()
         .slice(0, MAX_TEXT_CHARS),
       links: [...(page?.links ?? [])].slice(0, MAX_LINKS),
+      // Extracted here and the HTML discarded immediately after.
+      //
+      // Storing the raw HTML would be ~54 MB gzipped across 4,512 clinics,
+      // which is affordable — but it is also 74 KB of framework noise per
+      // clinic to hold the handful of fields that actually identify software.
+      // These fingerprints are a few hundred bytes and answer the same
+      // question, and unlike the HTML they can be diffed and counted across
+      // the whole list to find patterns nobody has thought to look for yet.
+      fingerprints: page
+        ? extractFingerprints(page.html, [...page.links])
+        : undefined,
       pagesFetched: pageCount,
       // A site that did not load is a fact worth keeping. Dropping it would
       // silently shrink the denominator and flatter every segment share.
@@ -436,6 +532,83 @@ function hrefsIn(html: string, pageUrl?: string): string[] {
   }
 
   return found.filter(keepable);
+}
+
+/**
+ * Everything about a page that identifies its software, other than hrefs.
+ *
+ * This exists because of one clinic. book.vivecenter.com/webstoreNew/services
+ * is a Zenoti tenant on the clinic's own domain: no vendor hostname anywhere,
+ * so every hostname-anchored signature missed it. What gave it away was the
+ * PATH — /webstoreNew is Zenoti's own shape and it travels onto white-labelled
+ * domains because the vendor's application, not the customer, defines it.
+ *
+ * That is the general lesson, and this generalises it. A vendor controls its
+ * own routes, its own form endpoints, its own iframe hosts, its own generated
+ * class names, and its own generator tag. A customer controls only the domain.
+ * So when the domain stops being evidence, everything else still is.
+ */
+function extractFingerprints(html: string, links: string[]): Fingerprints {
+  const generator =
+    html.match(
+      /<meta[^>]+name=["']generator["'][^>]+content=["']([^"']+)["']/i,
+    )?.[1] ??
+    html.match(
+      /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']generator["']/i,
+    )?.[1] ??
+    null;
+
+  // Path shapes with ids masked, so /webstore/12345/services and
+  // /webstore/98765/services collapse to one comparable shape. Without the
+  // masking every tenant looks unique and nothing can be counted.
+  const pathShapes = [
+    ...new Set(
+      links
+        .map((u) => {
+          try {
+            return new URL(u).pathname
+              .toLowerCase()
+              .replace(/\/[0-9a-f]{8,}/g, "/:id")
+              .replace(/\/\d+/g, "/:n")
+              .slice(0, 80);
+          } catch {
+            return "";
+          }
+        })
+        .filter((p) => p.length > 1),
+    ),
+  ].slice(0, 60);
+
+  const formActions = [
+    ...new Set(
+      [...html.matchAll(/<form[^>]+action=["']([^"']+)["']/gi)]
+        .map((m) => m[1]!.trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, 20);
+
+  const iframes = [
+    ...new Set(
+      [...html.matchAll(/<iframe[^>]+src=["']([^"']+)["']/gi)]
+        .map((m) => m[1]!.trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, 20);
+
+  // Class and id tokens that name a vendor. Builders generate these and they
+  // survive any amount of custom domain configuration — a Wix Bookings widget
+  // is still called a Wix Bookings widget in the markup.
+  const VENDORISH =
+    /\b((?:wix|squarespace|shopify|hubspot|mindbody|healcode|vagaro|zenoti|boulevard|blvd|mangomint|acuity|calendly|booksy|fresha|janeapp|setmore|simplybook|amelia|bookly|ssa|phorest|meevo|nextech|modmed|symplast|aesthetic)[a-z0-9_-]*)/gi;
+  const classHints = [
+    ...new Set(
+      [...html.matchAll(/(?:class|id)=["']([^"']+)["']/gi)]
+        .flatMap((m) => [...m[1]!.matchAll(VENDORISH)].map((v) => v[1]!.toLowerCase()))
+        .filter(Boolean),
+    ),
+  ].slice(0, 30);
+
+  return { generator, pathShapes, formActions, iframes, classHints };
 }
 
 function hostOf(url: string): string {

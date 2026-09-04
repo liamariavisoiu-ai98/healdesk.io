@@ -275,7 +275,19 @@ async function main(): Promise<void> {
     process.stdout.write("\n");
 
     await write(fresh);
-    crawls = [...keep, ...fresh];
+
+    // Sorted back into clinic order before it is used.
+    //
+    // Each half is internally ordered, but the file is [previously kept] then
+    // [newly crawled], so a clinic's position depends on which run first
+    // succeeded for it. Everything downstream keys by clinicId so nothing is
+    // wrong — but two runs of the same list produce differently ordered files,
+    // which makes diffing them to see what actually changed far harder than it
+    // needs to be.
+    const order = new Map(clinics.map((c, i) => [c.id, i]));
+    crawls = [...keep, ...fresh].sort(
+      (a, b) => (order.get(a.clinicId) ?? 0) - (order.get(b.clinicId) ?? 0),
+    );
   }
 
   const crawlFailed = crawls.filter((c) => c.error).length;

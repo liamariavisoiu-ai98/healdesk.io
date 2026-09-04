@@ -80,7 +80,17 @@ export const BOOKING_PLATFORMS: readonly BookingPlatform[] = [
   {
     id: "zenoti",
     name: "Zenoti",
-    signatures: ["//book.zenoti.com", "//booking.zenoti.com", "//webstore.zenoti.com"],
+    // /webstore and /webstoreNew are Zenoti's own path shape, and they travel
+    // onto customer domains when the booking page is white-labelled — the live
+    // crawl turned up book.vivecenter.com/webstoreNew/services, which a
+    // .zenoti.com-anchored pattern can never match.
+    signatures: [
+      "//book.zenoti.com",
+      "//booking.zenoti.com",
+      "//webstore.zenoti.com",
+      "/webstorenew/",
+      "/webstore/services",
+    ],
     patterns: [new RegExp("https?://(?!www\\.|help\\.|support\\.|resources\\.|blog\\.|go\\.|info\\.)[a-z0-9][a-z0-9-]*\\.zenoti\\.com/webstore", "i")],
   },
   {
@@ -117,6 +127,34 @@ export const BOOKING_PLATFORMS: readonly BookingPlatform[] = [
     id: "appointy",
     name: "Appointy",
     signatures: ["//booking.appointy.com/"],
+  },
+  // Found by auditing the live crawl rather than by research: each turned up
+  // among clinics reported as having no booking at all. Path-anchored on the
+  // same rule as the rest — a vendor's marketing domain must not match.
+  {
+    id: "klara",
+    name: "Klara",
+    signatures: ["patient.klara.com/#/widget"],
+  },
+  {
+    id: "drchrono",
+    name: "DrChrono",
+    signatures: [".drchrono.com/welcome/", ".drchrono.com/o/"],
+  },
+  {
+    id: "phreesia",
+    name: "Phreesia",
+    signatures: ["phreesia.me/", "phreesia.com/appointment"],
+  },
+  {
+    id: "vsappointments",
+    name: "VS Appointments",
+    signatures: [".vsappointments.com/"],
+  },
+  {
+    id: "prospyr",
+    name: "Prospyr",
+    signatures: ["book.prospyrmed.com/"],
   },
   {
     id: "birdeye",
@@ -320,7 +358,20 @@ export function detectBooking(links: readonly string[]): BookingDetection {
   const selfHosted = links.find((raw) => {
     const url = raw.toLowerCase();
     if (NOT_BOOKING.some((bad) => url.includes(bad))) return false;
-    return SELF_HOSTED_BOOKING.some((path) => url.includes(path));
+    if (SELF_HOSTED_BOOKING.some((path) => url.includes(path))) return true;
+
+    // A booking SUBDOMAIN on the clinic's own domain — book.clinic.com,
+    // appointment.clinic.com, portal.clinic.com. This is the ordinary shape of
+    // a white-labelled widget, and checking only paths reported nine clinics in
+    // a 402-site sample as having no online booking at all when they plainly
+    // did.
+    try {
+      return /^(book|booking|schedule|scheduling|appointments?|portal)\./i.test(
+        new URL(raw).hostname,
+      );
+    } catch {
+      return false;
+    }
   });
 
   if (selfHosted) {

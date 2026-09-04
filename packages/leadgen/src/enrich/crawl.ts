@@ -81,8 +81,8 @@ export type CrawlResult = {
    *
    * Cheap to compute, tiny to store, and they catch what URL matching cannot:
    * a white-labelled platform serving from the clinic's own domain has no
-   * vendor hostname to match, but still leaves a meta generator tag, a form
-   * action, an iframe source, or a distinctive path shape.
+   * vendor hostname to match, but still leaves a form action, an iframe source,
+   * a generated class name, or a distinctive path shape.
    */
   fingerprints?: Fingerprints;
   /** Set when the site could not be read at all. Kept, not discarded. */
@@ -95,8 +95,6 @@ export type CrawlResult = {
  * Every field here exists because a URL signature could not have found it.
  */
 export type Fingerprints = {
-  /** <meta name="generator"> — names Wix, Squarespace, WordPress outright. */
-  generator: string | null;
   /** Distinct URL path shapes, digits and ids masked. Zenoti's /webstoreNew
    *  survived white-labelling as a PATH when its hostname did not. */
   pathShapes: string[];
@@ -156,10 +154,16 @@ export type CrawlOptions = {
    * 4,512 domains at roughly $24 a time; with one, it is a local re-scan that
    * costs nothing and takes seconds.
    *
-   * Measured at ~74 KB of HTML per clinic, gzip takes that to roughly 12 KB,
-   * so the whole list is about 54 MB. That is a rounding error against a single
-   * re-crawl, and it is the difference between "we can test that idea" and "we
-   * would have to pay to find out".
+   * Measured at ~74 KB per clinic, gzip takes that to roughly 12 KB, so the
+   * whole list is about 54 MB. That is a rounding error against a single
+   * re-crawl, and the difference between "we can test that idea" and "we would
+   * have to pay to find out".
+   *
+   * Know its limit before relying on it: this is what the ACTOR returns, which
+   * is body content with the <head> stripped — not page source. Measured across
+   * 421 archived pages, 0% carry a doctype and 11% any meta tag. Anything
+   * head-based, including several published vendor fingerprints, is simply not
+   * in here and no re-scan will find it.
    *
    * Fingerprints are extracted anyway, because they are countable across the
    * whole list in a way raw HTML is not. The archive answers questions nobody
@@ -586,19 +590,22 @@ function hrefsIn(html: string, pageUrl?: string): string[] {
  *
  * That is the general lesson, and this generalises it. A vendor controls its
  * own routes, its own form endpoints, its own iframe hosts, its own generated
- * class names, and its own generator tag. A customer controls only the domain.
+ * class names. A customer controls only the domain.
+ *
+ * ## What is deliberately NOT here
+ *
+ * Meta tags — generator, og:title, author — would be excellent signals and
+ * several vendors emit them, but the crawler cannot see them. Measured across
+ * 421 archived pages: 11% contain any <meta> at all, 1% a generator tag, 0% a
+ * doctype. The actor returns body content with the <head> already stripped and
+ * no setting recovers it, so an extractor for them returned null on 99% of
+ * pages and has been removed rather than left looking useful.
+ *
+ * Reachable on the same 421: class and id attributes 100%, form actions 42%,
+ * iframes 15%, inline scripts 7%.
  * So when the domain stops being evidence, everything else still is.
  */
 function extractFingerprints(html: string, links: string[]): Fingerprints {
-  const generator =
-    html.match(
-      /<meta[^>]+name=["']generator["'][^>]+content=["']([^"']+)["']/i,
-    )?.[1] ??
-    html.match(
-      /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']generator["']/i,
-    )?.[1] ??
-    null;
-
   // Path shapes with ids masked, so /webstore/12345/services and
   // /webstore/98765/services collapse to one comparable shape. Without the
   // masking every tenant looks unique and nothing can be counted.
@@ -649,7 +656,7 @@ function extractFingerprints(html: string, links: string[]): Fingerprints {
     ),
   ].slice(0, 30);
 
-  return { generator, pathShapes, formActions, iframes, classHints };
+  return { pathShapes, formActions, iframes, classHints };
 }
 
 function hostOf(url: string): string {

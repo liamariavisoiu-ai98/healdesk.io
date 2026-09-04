@@ -5,10 +5,12 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { detectBooking } from "./booking.ts";
+import { probeDomains, type DnsFinding } from "./dns-probe.ts";
 import { crawlSites, type CrawlResult } from "./crawl.ts";
 import { dedupe, type LeadRow } from "./dedupe.ts";
 import { labelClinics, labelClinicsBatched, type Label } from "./label.ts";
 import { buildReport, formatReport } from "./report.ts";
+import { isPlatformId } from "@healdesk/catalog";
 import { SEGMENT_LABELS, type Segment } from "./segments.ts";
 
 /**
@@ -394,6 +396,40 @@ async function main(): Promise<void> {
     if (existsSync(batchIdPath)) rmSync(batchIdPath);
   }
 
+  // ---- 3b. DNS sweep ------------------------------------------------------
+  //
+  // Only over the clinics still reported as having no booking, because that is
+  // the only population where it can add anything — and it keeps the query
+  // count to the blind spot rather than the whole list.
+  //
+  // Free and cooperation-free: public DNS, no request to the clinic's servers,
+  // nothing to breach. Measured yield is modest — 14 of 311 on the sample, and
+  // an adversarial review put the genuinely-new-and-in-segment share nearer
+  // 1.5% — so it supplements the signature table rather than replacing it.
+  let dnsFindings: DnsFinding[] = [];
+  if (!flag("no-dns")) {
+    const undetected = crawls
+      .filter((c) => !c.error && !detectBooking(c.links ?? []).hasOnlineBooking)
+      .map((c) => c.domain);
+
+    if (undetected.length) {
+      console.log(`\n[3b/4] dns sweep over ${undetected.length} undetected clinics`);
+      dnsFindings = await checkpoint<DnsFinding[]>(
+        "03b-dns",
+        flag("force-dns"),
+        () =>
+          probeDomains(undetected, {
+            concurrency: numericArg("dns-concurrency") ?? 12,
+            onProgress: (n, t) => process.stdout.write(`\r  probed ${n}/${t}`),
+          }).then((f) => {
+            process.stdout.write("\n");
+            return f;
+          }),
+      );
+      console.log(`  ${dnsFindings.length} platforms found in DNS`);
+    }
+  }
+
   // ---- 4. Report and export ------------------------------------------------
   console.log("\n[4/4] report\n");
   const report = buildReport(
@@ -424,6 +460,29 @@ async function main(): Promise<void> {
       .filter((c) => (c.links?.length ?? 0) > 0)
       .map((c) => [c.clinicId, detectBooking(c.links!)]),
   );
+
+  // DNS findings override "no booking found", never a page-level detection.
+  // A link on the page is stronger evidence than a DNS record: the record
+  // proves the vendor terminates that hostname, the link proves the clinic
+  // actually sends patients there.
+  const dnsByDomain = new Map(dnsFindings.map((f) => [f.domain, f]));
+  for (const c of crawls) {
+    const found = dnsByDomain.get(c.domain.replace(/^www\./, ""));
+    if (!found) continue;
+    const existing = booking.get(c.clinicId);
+    if (existing?.hasOnlineBooking) continue;
+
+    booking.set(c.clinicId, {
+      hasOnlineBooking: true,
+      platform: found.platform,
+      platformName: found.platform,
+      supported: isPlatformId(found.platform),
+      bookingUrl: null,
+      confidence: "medium",
+      allPlatforms: [found.platform],
+    });
+  }
+
   const bySegment = new Map<Segment, Record<string, string>[]>();
 
   for (const label of labels) {

@@ -196,21 +196,22 @@ function buildHook(
   if (window && window.hours >= 24) {
     return (
       `nobody can reach you between ${window.startsDay} ${window.startsAt} and ` +
-      `${window.endsDay} ${window.endsAt} — ${window.hours} straight hours, ` +
-      `which is exactly when someone decides they want ${phrase}`
+      `${window.endsDay} ${window.endsAt} — ${window.hours} straight hours, and ` +
+      `that is exactly when someone decides they want ${phrase} and starts ` +
+      `ringing round`
     );
   }
 
   if (weekendClosed.length === 2) {
     return gap
-      ? `you're closed weekends, so there are about ${gap} hours a week when someone who calls you gets a machine`
-      : `you're closed weekends, which is when most people finally get round to booking`;
+      ? `you're closed weekends, so there are about ${gap} hours a week when a new patient calling you gets a machine and calls someone else`
+      : `you're closed weekends, which is when people finally get round to booking — and they book with whoever answers`;
   }
   if (weekendClosed.length === 1) {
-    return `you're closed ${weekendClosed[0]}s — that's the day people have time to ring round`;
+    return `you're closed ${weekendClosed[0]}s, which is the day people have time to ring round and book on the spot`;
   }
   if (close && Number(close.slice(0, 2)) <= 17) {
-    return `you close at ${close}, so anyone who calls after work reaches voicemail`;
+    return `you close at ${close}, so anyone ringing after work gets voicemail — and most of them ring the next clinic rather than wait`;
   }
   if (gap && gap > 100) {
     return `you're open about ${168 - gap} hours a week, which leaves ${gap} when a new patient calling you gets a machine`;
@@ -219,7 +220,7 @@ function buildHook(
     // The weakest hook, and deliberately the last resort: it is true of the
     // clinic but says nothing only they would recognise. The service name is
     // what stops it reading as a form letter.
-    return `there's no way to book ${phrase} with you online, so every one starts with a phone call`;
+    return `there's no way to book ${phrase} with you online, so every one starts with a phone call — and every unanswered call is somebody booking elsewhere`;
   }
   return "";
 }
@@ -240,23 +241,49 @@ function buildOffer(
   phrase: string,
   window: BookingGap | undefined,
 ): string {
+  // Two things every version below has to carry.
+  //
+  // IMMEDIACY: "books" is a state the caller reaches eventually; "books on the
+  // spot" is the thing being sold. The whole product is that the gap between
+  // wanting an appointment and having one collapses to the length of a phone
+  // call, and a verb without a timeframe gives that away for free.
+  //
+  // THE COMPETITOR: "leaves a message" understates the loss to the point of
+  // being reassuring — a message implies the patient is still yours and you
+  // ring them back tomorrow. They are not. Someone who cannot reach you calls
+  // the next clinic on the list, and by the time you return the call they have
+  // an appointment. That is the actual cost, and naming it is what makes the
+  // 64 hours frightening rather than merely true.
   if (window && window.hours >= 24) {
     return (
       `cover the ${window.hours} hours from ${window.startsDay} ${window.startsAt} ` +
       `to ${window.endsDay} ${window.endsAt}, so someone who wants ${phrase} ` +
-      `books instead of leaving a message`
+      `books on the spot instead of leaving a message and ringing the next ` +
+      `clinic while they wait for you to call back`
     );
   }
 
   switch (angle) {
     case "phone-only":
-      return `take the calls your front desk cannot, and book ${phrase} straight into your calendar`;
+      return (
+        `take the calls your front desk cannot and book ${phrase} into your ` +
+        `calendar there and then, before they try somebody else`
+      );
     case "closes-early":
-      return `answer the after-work calls, so ${phrase} gets booked instead of going to voicemail`;
+      return (
+        `answer the after-work calls and book them on the spot, so ${phrase} ` +
+        `does not become a voicemail they never wait for`
+      );
     case "closed-weekends":
-      return `answer at weekends, when people actually have time to ring round`;
+      return (
+        `answer at weekends and book while they are still on the phone — that ` +
+        `is when people ring round, and they book with whoever picks up`
+      );
     case "has-booking":
-      return `catch the callers your booking page does not — the ones who ring instead of clicking`;
+      return (
+        `catch the callers your booking page does not: the ones who ring ` +
+        `instead of clicking, and hang up rather than leave a message`
+      );
     default:
       return "";
   }

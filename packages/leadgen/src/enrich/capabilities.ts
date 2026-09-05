@@ -37,46 +37,85 @@ export type CapabilityPitch = {
  * what stops the offer reading as generic. A clinic owner knows their GLP-1
  * patients evaporate at month three; being told so is being understood.
  */
+/**
+ * Chosen on how each segment's PATIENTS behave, not on what the clinic sells.
+ *
+ * The distinction decides the offer. Two clinics can both take appointments by
+ * phone and need opposite things, because in one the caller is loyal and in the
+ * other they are shopping.
+ *
+ * Injectables is the case that proves it, and the case I originally got wrong.
+ * A returning Botox patient is not shopping: she has an injector she trusts and
+ * will happily ring back tomorrow. Offering to chase lapsed patients there is
+ * offering to solve a problem the clinic does not have, and it reads as not
+ * understanding the business. The money is entirely in the first-time caller,
+ * who is ringing three med spas in one sitting and books with whoever answers.
+ * So injectables gets capture, not win-backs.
+ *
+ * Win-backs are right where the RELATIONSHIP is weak and the lapse is silent:
+ * a GLP-1 patient on a monthly programme, a body-contouring package half
+ * finished, a dental recall. Nobody is loyal to a CoolSculpting applicator.
+ */
 const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
+  injectables: {
+    // First-timers price-shop three clinics in a sitting; regulars are loyal.
+    capability: "around-the-clock",
+    because:
+      "because first-timers are ringing two or three places in one go and book with whoever picks up, while your regulars would have waited for you anyway",
+  },
   "weight-loss-glp1": {
+    // Almost all new to the practice, comparing on price and start date, and
+    // the programme dies at the first titration plateau.
     capability: "win-backs",
-    because: "Most drop off around month three and nobody has time to chase them.",
+    because:
+      "the ones who quietly drop off around month three, before your team has a chance to chase them",
   },
   "body-contouring": {
+    // Free consult, four-figure package, and the consult no-show is the leak.
     capability: "deposits",
-    because: "Free consults plus four-figure packages is how a diary fills with no-shows.",
+    because:
+      "because a free consult against a four-figure package is exactly how a diary fills with people who never turn up",
   },
   "plastic-surgery": {
+    // The call is an interview and the coordinator is in consults all day.
     capability: "lead-qualification",
-    because: "Your best calls land while the surgeon is operating.",
-  },
-  injectables: {
-    capability: "win-backs",
-    because: "People are due back every few months and nobody notices when they stop.",
+    because:
+      "because they are interviewing you, and the ones worth most tend to ring while your surgeon is operating",
   },
   "laser-skin": {
-    capability: "aftercare-reviews",
-    because: "Packages get paid up front, then half of them never finish.",
+    // Money collected up front, sessions not booked, course abandoned midway.
+    capability: "win-backs",
+    because:
+      "the ones who paid up front and then stopped coming, which nobody has time to ring round and rebook",
   },
   "wellness-iv": {
+    // Same-day intent. They are asking about the next two hours.
     capability: "around-the-clock",
-    because: "They want a slot today. If they get the machine they ring someone else.",
+    because:
+      "because they are asking about this afternoon, and if they get the machine they just ring the next place",
   },
   "hair-restoration": {
+    // Months of working up to the call, and they will not leave a message.
     capability: "lead-qualification",
-    because: "These callers take months to work up to ringing. They don't leave messages.",
+    because:
+      "because they have thought about it for months before ringing, and they will not leave a message if nobody answers",
   },
   dental: {
+    // Pain overrides loyalty entirely, and recall is where the money leaks.
     capability: "around-the-clock",
-    because: "Someone in pain rings the next practice within a minute.",
+    because:
+      "because somebody with a broken tooth rings the next practice within the minute and does not come back",
   },
   dermatology: {
+    // Two different callers on one line, and the cosmetic one leaves quietly.
     capability: "lead-qualification",
-    because: "Medical and cosmetic callers need different conversations on the same line.",
+    because:
+      "because your medical and cosmetic callers need completely different conversations and all arrive on the same line",
   },
   "other-medical": {
     capability: "lead-qualification",
-    because: "When the desk is on a long call, the next person gets voicemail.",
+    because:
+      "because when your desk is on a long call the next person gets voicemail, and they are usually the one ready to book",
   },
 };
 
@@ -134,12 +173,23 @@ export function selectCapability(pain: PainInput): CapabilityPitch {
 }
 
 /** What each capability is called in an email. Plain, not product-marketing. */
+/**
+ * The opening clause of the offer, which the reason then continues.
+ *
+ * Written to run ON into `because` as one sentence rather than sitting beside
+ * it as two. Two short sentences read as bullet points with the bullets taken
+ * off, and that is the shape people have learned to skim past. One sentence
+ * that keeps going is how a person writes to another person.
+ *
+ * {assistant} is filled with "smart" or "virtual" depending on who is reading —
+ * see assistantTerm().
+ */
 export const CAPABILITY_LABEL: Record<Capability, string> = {
-  "around-the-clock": "We answer the calls you cannot",
-  "calendar-booking": "We answer and book them straight in",
-  deposits: "We take the deposit on the call",
-  "lead-qualification": "We screen every caller first",
-  "win-backs": "We ring the ones who have gone quiet",
-  "aftercare-reviews": "We follow up after treatment",
-  upselling: "We offer the add-on while they are on the phone",
+  "around-the-clock": "Our {assistant} assistant answers the calls your team cannot",
+  "calendar-booking": "Our {assistant} assistant picks up and books them straight into your calendar",
+  deposits: "Our {assistant} assistant takes the deposit while they are still on the call",
+  "lead-qualification": "Our {assistant} assistant screens every caller before they reach your desk",
+  "win-backs": "Our {assistant} assistant rings your lapsed patients",
+  "aftercare-reviews": "Our {assistant} assistant follows up after treatment",
+  upselling: "Our {assistant} assistant offers the add-on while they are still on the phone",
 };

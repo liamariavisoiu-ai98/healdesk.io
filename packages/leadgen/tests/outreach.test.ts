@@ -89,15 +89,19 @@ describe("the outreach row", () => {
     expect(row.hook).toContain("shut at weekends");
   });
 
-  test("the hook is blank rather than invented when nothing is known", () => {
-    // An empty variable is recoverable in a template. A fabricated one is a lie
-    // in an email to a business that can check it.
+  test("the weakest hook is still true of every clinic", () => {
+    // This assertion used to demand a BLANK hook when nothing specific was
+    // known, on the reasoning that an empty variable beats an invented one.
+    // That is still right about invention and wrong about blanks: an empty hook
+    // either leaves a hole in the email or drops the personalisation that
+    // justified sending it. The fallback claims nothing specific and is true of
+    // every clinic — somebody always rings instead of clicking.
     const row = buildOutreachRow(
       label({ offersOnlineBooking: true }),
       { hasOnlineBooking: true } as never,
       undefined,
     );
-    expect(row.hook).toBe("");
+    expect(row.hook).toContain("always ring rather than use the booking page");
   });
 
   test("GoHighLevel clinics are excluded, not celebrated", () => {
@@ -269,9 +273,12 @@ describe("the offer", () => {
     expect(row.hook).not.toMatch(/[—;]/);
     expect(row.topOffer).not.toMatch(/[—;]/);
 
-    // Three seconds is about twenty-five words.
-    expect(row.hook.split(/\s+/).length).toBeLessThan(20);
-    expect(row.topOffer.split(/\s+/).length).toBeLessThan(26);
+    // A ceiling, not a target. Full sentences run longer than fragments and
+    // that is the trade being made deliberately — but past about thirty words
+    // it stops being a sentence someone reads in three seconds and starts
+    // being a paragraph they skip.
+    expect(row.hook.split(/\s+/).length).toBeLessThan(30);
+    expect(row.topOffer.split(/\s+/).length).toBeLessThan(32);
   });
 
   test("falls back to something true when no hours are known", async () => {
@@ -295,5 +302,96 @@ describe("the offer", () => {
     );
     expect(row.gapHours).toBe("");
     expect(row.topOffer).toContain("a lip filler appointment");
+  });
+});
+
+describe("who is reading", () => {
+  test("owners get 'smart', desks and role addresses get 'virtual'", async () => {
+    const { assistantTerm } = await import("../src/enrich/outreach.ts");
+
+    expect(assistantTerm("Owner", "jane@clinic.com")).toBe("smart");
+    expect(assistantTerm("Founder & CEO", "j@clinic.com")).toBe("smart");
+    expect(assistantTerm("Receptionist", "sam@clinic.com")).toBe("virtual");
+
+    // A role address goes to whoever staffs the desk. An owner reading a
+    // virtual-assistant email loses nothing; a receptionist reading a
+    // replace-your-front-desk email forwards it to nobody.
+    expect(assistantTerm("Owner", "info@clinic.com")).toBe("virtual");
+    expect(assistantTerm("", "frontdesk@clinic.com")).toBe("virtual");
+  });
+});
+
+describe("segment psychology", () => {
+  test("injectables gets capture, never win-backs", async () => {
+    const { selectCapability } = await import("../src/enrich/capabilities.ts");
+
+    // The correction that matters. A returning Botox patient is loyal to her
+    // injector and would have rung back tomorrow anyway, so offering to chase
+    // lapsed patients solves a problem the clinic does not have — and reads as
+    // not understanding the business. The money is in the first-time caller.
+    expect(
+      selectCapability({
+        segment: "injectables",
+        gapHours: null,
+        hasOnlineBooking: true,
+        closesEarly: false,
+      }).capability,
+    ).toBe("around-the-clock");
+
+    // Win-backs belong where the relationship is weak and the lapse is silent.
+    // Nobody is loyal to a CoolSculpting applicator or a monthly GLP-1 script.
+    expect(
+      selectCapability({
+        segment: "weight-loss-glp1",
+        gapHours: null,
+        hasOnlineBooking: true,
+        closesEarly: false,
+      }).capability,
+    ).toBe("win-backs");
+  });
+});
+
+describe("copy that must never break", () => {
+  test("no row is left without a hook", async () => {
+    const { buildOutreachRow } = await import("../src/enrich/outreach.ts");
+    // A clinic that books online, whose hours we could not read, used to fall
+    // through every branch — leaving a hole in the email, or silently dropping
+    // the personalisation that justified sending it.
+    const row = buildOutreachRow(
+      {
+        clinicId: "c",
+        segment: "dermatology",
+        confidence: "high",
+        evidence: "",
+        opensAt: null,
+        closesAt: null,
+        hoursByDay: null,
+        topService: null,
+        offersOnlineBooking: true,
+        mentionsWeightLoss: false,
+        isChainOrFranchise: false,
+      } as never,
+      { hasOnlineBooking: true } as never,
+      undefined,
+      { jobTitle: "Owner", email: "j@c.com" },
+    );
+    expect(row.hook.length).toBeGreaterThan(20);
+    expect(row.topOffer).toContain("smart assistant");
+  });
+
+  test("the social offer is blank when they run no social", async () => {
+    const { buildOutreachRow } = await import("../src/enrich/outreach.ts");
+    const row = buildOutreachRow(
+      {
+        clinicId: "c", segment: "injectables", confidence: "high", evidence: "",
+        opensAt: null, closesAt: null, hoursByDay: null, topService: "Botox",
+        offersOnlineBooking: false, mentionsWeightLoss: false, isChainOrFranchise: false,
+      } as never,
+      undefined,
+      undefined,
+      { jobTitle: "Owner", email: "j@c.com", social: [] },
+    );
+    // A clinic with no Instagram does not want to hear about Instagram.
+    expect(row.socialOffer).toBe("");
   });
 });

@@ -48,6 +48,32 @@ export function clockTime(hhmm: string): string {
   return m === "00" ? `${hour}${suffix}` : `${hour}.${m}${suffix}`;
 }
 
+/**
+ * What to call the product to THIS reader.
+ *
+ * An owner is being sold a business decision, so "smart assistant" is the right
+ * register: it implies judgement and revenue. A receptionist is being told
+ * something will help with their actual day, and "smart" reads as a threat to
+ * someone whose job is answering phones. "Virtual assistant" is the familiar,
+ * unthreatening word for help.
+ *
+ * A role address (info@, frontdesk@) gets the receptionist framing too. Nobody
+ * knows who opens it, and the safe assumption is whoever staffs the desk — an
+ * owner reading a virtual-assistant email loses nothing, while a receptionist
+ * reading a replace-your-front-desk email forwards it to nobody.
+ */
+export function assistantTerm(jobTitle: string, email: string): "smart" | "virtual" {
+  const local = (email.split("@")[0] ?? "").toLowerCase();
+  const ROLE = /^(info|contact|hello|hi|admin|office|frontdesk|front\.desk|reception|bookings?|appointments?|team|enquiries|inquiries|support|mail|clinic|spa)$/;
+  if (ROLE.test(local)) return "virtual";
+
+  const t = jobTitle.toLowerCase();
+  if (/\b(owner|founder|co-founder|ceo|president|principal|partner|director|proprietor)\b/.test(t)) {
+    return "smart";
+  }
+  return "virtual";
+}
+
 export function servicePhrase(topService: string | null): string {
   const s = (topService ?? "").trim();
   if (!s) return "an appointment";
@@ -100,6 +126,20 @@ export type OutreachRow = {
   gapWindow: string;
   /** Which of the seven capabilities this clinic is being sold. */
   capability: Capability;
+  /** "smart" for an owner, "virtual" for a receptionist or role address. */
+  assistantTerm: "smart" | "virtual";
+  /** instagram, facebook, tiktok, whatsapp — whichever they actually run. */
+  socialChannels: string;
+  /**
+   * A second, separate offer for their social channels, or blank.
+   *
+   * Deliberately its own line rather than folded into the main offer. Meta
+   * channels are a different product with a hard boundary — Meta states in its
+   * own Cloud API terms that it is not a business associate, so nothing
+   * clinical can travel there — and merging the two would blur a limit that has
+   * to stay sharp. It also gives a follow-up email something new to say.
+   */
+  socialOffer: string;
   /** "a Botox appointment", ready to drop into a sentence. */
   servicePhrase: string;
   /** The bare service, for subject lines where the article is wrong. */
@@ -139,7 +179,13 @@ export function buildOutreachRow(
   label: Label,
   booking: BookingDetection | undefined,
   hours: PlaceHours | undefined,
+  contact: { jobTitle: string; email: string; social?: readonly string[] } = {
+    jobTitle: "",
+    email: "",
+  },
 ): OutreachRow {
+  const assistant = assistantTerm(contact.jobTitle, contact.email);
+  const social = contact.social ?? [];
   const phrase = servicePhrase(label.topService);
   const exclude = excludeReason(label, booking);
   if (exclude) {
@@ -150,6 +196,9 @@ export function buildOutreachRow(
       gapHours: "",
       gapWindow: "",
       capability: "around-the-clock",
+      assistantTerm: assistant,
+      socialChannels: social.join(", "),
+      socialOffer: "",
       angle: "exclude",
       hook: "",
       closedHoursPerWeek: "",
@@ -171,13 +220,16 @@ export function buildOutreachRow(
   else if (!noBooking && closesEarly(hours)) angle = "closes-early";
 
   const window = hours?.gap ?? undefined;
-  const offer = buildOffer(label, phrase, window, !noBooking, closesEarly(hours));
+  const offer = buildOffer(label, phrase, window, !noBooking, closesEarly(hours), assistant);
 
   return {
     servicePhrase: phrase,
     topService: label.topService ?? "",
     topOffer: offer.offer,
     capability: offer.capability,
+    assistantTerm: assistant,
+    socialChannels: social.join(", "),
+    socialOffer: buildSocialOffer(social, assistant),
     gapHours: window ? String(window.hours) : "",
     gapWindow: window
       ? `${window.startsDay} ${window.startsAt} to ${window.endsDay} ${window.endsAt}`
@@ -211,41 +263,49 @@ function buildHook(
   phrase: string,
   window: BookingGap | undefined,
 ): string {
-  // One sentence. It has to land in about three seconds, because that is how
-  // long a clinic owner gives an unknown sender before the thumb moves.
+  // One sentence that runs, and it has to land in about three seconds because
+  // that is how long an unknown sender gets before the thumb moves.
   //
   // Written to be recognised rather than argued with. A receptionist reading
-  // "Fri 5pm to Mon 9am nobody is there" thinks yes, obviously, that is my job
-  // and I am not there at the weekend. That is the reaction worth having: not
-  // guilt, just recognition. Everything explaining WHY it matters was cut,
-  // because the reader already knows why and telling them is what makes an
-  // email sound like a pitch.
+  // this thinks yes, obviously, I am not there at the weekend — which is the
+  // reaction worth having. Not guilt, just recognition. Anything explaining WHY
+  // it matters is cut, because they already know and being told is what makes
+  // an email sound like a pitch.
   if (window && window.hours >= 24) {
     return (
-      `${window.startsDay.slice(0, 3)} ${clockTime(window.startsAt)} to ` +
-      `${window.endsDay.slice(0, 3)} ${clockTime(window.endsAt)} nobody is ` +
-      `picking up. That is ${window.hours} hours.`
+      `For ${window.hours} hours between ${window.startsDay.slice(0, 3)} ` +
+      `${clockTime(window.startsAt)} and ${window.endsDay.slice(0, 3)} ` +
+      `${clockTime(window.endsAt)}, nobody is there to pick up the phone when ` +
+      `somebody rings about ${phrase}.`
     );
   }
 
   if (weekendClosed.length === 2) {
-    return `You are shut at weekends, which is when most people get round to ringing.`;
+    return `You are shut at weekends, which is when most people finally get round to ringing about ${phrase}.`;
   }
   if (weekendClosed.length === 1) {
-    return `You are shut ${weekendClosed[0]}s. That is the day people ring round.`;
+    return `You are shut ${weekendClosed[0]}s, which tends to be the day people ring round about ${phrase}.`;
   }
 
   const close = hours?.closesAt;
   if (close && Number(close.slice(0, 2)) <= 17) {
-    return `You close at ${clockTime(close)}, so the after-work calls go to voicemail.`;
+    return `You close at ${clockTime(close)}, so anyone ringing about ${phrase} after work gets the voicemail.`;
   }
   if (gap && gap > 100) {
-    return `There are about ${gap} hours a week when nobody can reach you.`;
+    return `There are around ${gap} hours a week when nobody is there to answer the phone.`;
   }
   if (noBooking) {
-    return `There is no way to book ${phrase} with you online, so it all comes through the phone.`;
+    return `There is no way to book ${phrase} with you online, so all of it has to come through the phone.`;
   }
-  return "";
+
+  // Never blank.
+  //
+  // A clinic that books online and whose hours we could not read used to fall
+  // through every branch and get an empty hook, which either leaves a hole in
+  // the email or silently drops the personalisation that justifies sending it
+  // at all. This is the weakest line here and it is still true of every clinic:
+  // somebody always rings instead of clicking.
+  return `Some of your patients will always ring rather than use the booking page, usually the ones ready to book ${phrase} today.`;
 }
 
 /**
@@ -265,6 +325,7 @@ function buildOffer(
   window: BookingGap | undefined,
   hasBooking: boolean,
   closesEarly: boolean,
+  assistant: "smart" | "virtual",
 ): { offer: string; capability: Capability } {
   const pitch = selectCapability({
     segment: label.segment,
@@ -273,24 +334,54 @@ function buildOffer(
     closesEarly,
   });
 
-  // Short, and in the register a receptionist would use.
+  const opening = CAPABILITY_LABEL[pitch.capability].replace("{assistant}", assistant);
+
+  // One sentence that keeps going, not two that stop.
   //
-  // The person reading this is not lazy, they are busy — they already know they
-  // cannot answer everything, and being told they "miss calls" reads as an
-  // accusation from someone who has never worked a front desk. So the offer
-  // says what happens instead, in one sentence, and stops.
-  //
-  // No em dashes and no semicolons: they are the punctuation of generated text
-  // and a reader clocks them before they clock the argument.
+  // Two short sentences read as bullet points with the bullets removed, which
+  // is the shape people have learned to skim. A clause that runs on is how a
+  // person writes to another person, and it also lets the consequence arrive
+  // inside the same breath as the offer rather than as a separate claim.
   const tail =
     pitch.capability === "around-the-clock" || pitch.capability === "calendar-booking"
-      ? `They book ${phrase} on the spot instead of trying the next clinic.`
+      ? `so they book ${phrase} with you on the spot rather than trying whoever picks up next`
       : pitch.because;
 
-  return {
-    offer: `${CAPABILITY_LABEL[pitch.capability]}. ${tail}`,
-    capability: pitch.capability,
-  };
+  return { offer: `${opening}, ${tail}.`, capability: pitch.capability };
+}
+
+/**
+ * The social channel offer, when they actually run one.
+ *
+ * Named for what it does rather than for the platform, because "we can put a
+ * bot on your Instagram" invites the reply that they already have one. The
+ * thing they recognise is the DM at nine at night that nobody answered until
+ * the morning.
+ *
+ * Blank when no channel was found. A clinic with no Instagram does not want to
+ * hear about Instagram.
+ */
+function buildSocialOffer(
+  channels: readonly string[],
+  assistant: "smart" | "virtual",
+): string {
+  if (channels.length === 0) return "";
+
+  const named =
+    channels.includes("instagram") && channels.includes("facebook")
+      ? "Instagram and Facebook"
+      : channels.includes("instagram")
+        ? "Instagram"
+        : channels.includes("facebook")
+          ? "Facebook"
+          : channels.includes("whatsapp")
+            ? "WhatsApp"
+            : "TikTok";
+
+  return (
+    `The same ${assistant} assistant answers your ${named} messages, so the ` +
+    `ones that come in overnight are handled before somebody gives up waiting.`
+  );
 }
 
 /**

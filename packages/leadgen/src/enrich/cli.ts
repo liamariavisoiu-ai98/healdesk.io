@@ -4,7 +4,7 @@ import { existsSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { detectBooking } from "./booking.ts";
+import { detectBooking, detectSocial } from "./booking.ts";
 import { buildOutreachRow } from "./outreach.ts";
 import { fetchPlaceHours, type PlaceHours } from "./places.ts";
 import { probeDomains, type DnsFinding } from "./dns-probe.ts";
@@ -549,7 +549,11 @@ async function main(): Promise<void> {
 
     const book = booking.get(label.clinicId);
     const bucket = bySegment.get(label.segment) ?? [];
-    const out = buildOutreachRow(label, book, placeById.get(clinic.id));
+    const out = buildOutreachRow(label, book, placeById.get(clinic.id), {
+      jobTitle: contact.jobTitle,
+      email: contact.email,
+      social: detectSocial(crawlById.get(clinic.id)?.links ?? []),
+    });
 
     bucket.push({
       // --- what a sending tool merges -------------------------------------
@@ -580,6 +584,11 @@ async function main(): Promise<void> {
       // Which of the seven capabilities this clinic is being pitched. Exported
       // so a sequence can branch on it and so the split is measurable.
       capability: out.capability,
+      // Which word the copy uses for the product. Owners get "smart", desks and
+      // role addresses get "virtual".
+      assistant_term: out.assistantTerm,
+      social_channels: out.socialChannels,
+      social_offer: out.socialOffer,
       gap_hours: out.gapHours,
       gap_window: out.gapWindow,
       closed_days: out.closedDays,

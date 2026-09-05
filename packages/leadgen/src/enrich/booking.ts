@@ -320,6 +320,34 @@ export type BookingDetection = {
   allPlatforms: string[];
 };
 
+/**
+ * Which social channels the clinic actually runs.
+ *
+ * Presence is the whole signal. A clinic that links Instagram from its homepage
+ * is a clinic where somebody is posting, which means somebody is also answering
+ * the DMs — usually the same person who is meant to be answering the phone, and
+ * usually at nine in the evening.
+ *
+ * That is worth knowing because Meta channels are a different product
+ * conversation with a hard boundary: WhatsApp, Instagram and Messenger cannot
+ * carry PHI, since Meta states in its own Cloud API terms that it is not a
+ * business associate. So the offer there is intent capture and handoff, never
+ * anything clinical, and the enrichment only records that the channel exists.
+ */
+export function detectSocial(links: readonly string[]): string[] {
+  const found = new Set<string>();
+  for (const raw of links) {
+    const url = raw.toLowerCase();
+    if (/(?:^|\/\/|\.)instagram\.com\//.test(url)) found.add("instagram");
+    if (/(?:^|\/\/|\.)facebook\.com\//.test(url)) found.add("facebook");
+    if (/(?:^|\/\/|\.)tiktok\.com\//.test(url)) found.add("tiktok");
+    if (/wa\.me\/|api\.whatsapp\.com\/|web\.whatsapp\.com\//.test(url)) {
+      found.add("whatsapp");
+    }
+  }
+  return [...found];
+}
+
 export function detectBooking(links: readonly string[]): BookingDetection {
   const seen = new Map<string, string>();
 

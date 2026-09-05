@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  currentBaaTemplate,
   getPlan,
   getPlatform,
   isSpecialtyId,
@@ -234,6 +235,26 @@ export async function provisionClinic(
 ): Promise<ProvisionResult> {
   const email = request.contactEmail.trim().toLowerCase();
   const platform = getPlatform(request.platform)!;
+
+  // The counsel gate, which until now was only ever a claim.
+  //
+  // baa.ts has always documented that "provisioning refuses" an unapproved
+  // template, and nothing enforced it — the flag reached the checkout UI as a
+  // banner and stopped there. A safeguard that exists only in a docstring is
+  // worse than none, because it gets relied on.
+  //
+  // It is a no-op today: the current template is approved. It exists for the
+  // next draft, so a revision in progress cannot be signed into a live account
+  // by anyone who forgets what the flag was for.
+  const template = currentBaaTemplate();
+  if (!template.approvedByCounsel) {
+    throw new Error(
+      `BAA template ${template.version} is not counsel-approved. Refusing to ` +
+        `provision a clinic against it: the signature would not create a ` +
+        `business associate relationship, and the account would be handling ` +
+        `PHI without one.`,
+    );
+  }
 
   // Fast path: a delivery we have already fully provisioned. Cheap, and it
   // keeps the common retry off the slug loop entirely. It is NOT the safety

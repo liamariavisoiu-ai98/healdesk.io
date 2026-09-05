@@ -18,7 +18,54 @@ import type { Label } from "./label.ts";
  * difference between a mail merge and a piece of research.
  */
 
+/**
+ * "a Botox appointment" — article included, so nothing downstream has to guess.
+ *
+ * Article agreement is exactly the kind of detail that betrays a mail merge:
+ * "a injectables appointment" or "an Botox appointment" tells the reader
+ * instantly that nobody wrote this. Composing the whole phrase here means the
+ * template holds one variable and cannot get it wrong.
+ *
+ * Falls back to "an appointment", which is true of every clinic and reads
+ * perfectly well — a generic sentence beats a broken one.
+ */
+export function servicePhrase(topService: string | null): string {
+  const s = (topService ?? "").trim();
+  if (!s) return "an appointment";
+
+  // Vowel SOUND, not vowel letter — and the two diverge in both directions.
+  //
+  // An initialism read letter by letter takes its article from the first
+  // letter's name: IPL is "eye-pee-ell", so "an IPL". But an acronym read as a
+  // word takes it from the word: LASIK is "lay-sik", so "a LASIK" — even though
+  // L on its own is "ell".
+  //
+  // Nothing in the spelling distinguishes the two, so a general rule cannot
+  // exist. This is a small closed domain, so the word-acronyms are simply
+  // listed. Anything not listed falls back to the letter-name rule, which is
+  // right for the initialisms that dominate here.
+  const WORD_ACRONYMS = new Set(["lasik", "smile", "hifu", "bbl", "prk"]);
+
+  const spelledVowel = /^[aeiou]/i.test(s);
+  const initialism = /^[A-Z]{2,}$/.test(s.split(/\s/)[0] ?? "");
+  const letterNameIsVowel = /^[AEFHILMNORSX]/.test(s);
+
+  const vowelSound = WORD_ACRONYMS.has(s.toLowerCase().split(/\s/)[0] ?? "")
+    ? /^[aeiou]/i.test(s)
+    : initialism
+      ? letterNameIsVowel
+      : spelledVowel;
+
+  const article = vowelSound ? "an" : "a";
+
+  return `${article} ${s} appointment`;
+}
+
 export type OutreachRow = {
+  /** "a Botox appointment", ready to drop into a sentence. */
+  servicePhrase: string;
+  /** The bare service, for subject lines where the article is wrong. */
+  topService: string;
   /** Which angle this clinic gets. Drives template selection. */
   angle: Angle;
   /**
@@ -55,9 +102,12 @@ export function buildOutreachRow(
   booking: BookingDetection | undefined,
   hours: PlaceHours | undefined,
 ): OutreachRow {
+  const phrase = servicePhrase(label.topService);
   const exclude = excludeReason(label, booking);
   if (exclude) {
     return {
+      servicePhrase: phrase,
+      topService: label.topService ?? "",
       angle: "exclude",
       hook: "",
       closedHoursPerWeek: "",
@@ -79,8 +129,10 @@ export function buildOutreachRow(
   else if (!noBooking && closesEarly(hours)) angle = "closes-early";
 
   return {
+    servicePhrase: phrase,
+    topService: label.topService ?? "",
     angle,
-    hook: buildHook(noBooking, weekendClosed, hours, gap),
+    hook: buildHook(noBooking, weekendClosed, hours, gap, phrase),
     closedHoursPerWeek: gap === null ? "" : String(gap),
     closedDays: closed.join(", "),
     excludeReason: "",
@@ -105,6 +157,7 @@ function buildHook(
   weekendClosed: string[],
   hours: PlaceHours | undefined,
   gap: number | null,
+  phrase: string,
 ): string {
   const close = hours?.closesAt;
 
@@ -124,8 +177,9 @@ function buildHook(
   }
   if (noBooking) {
     // The weakest hook, and deliberately the last resort: it is true of the
-    // clinic but says nothing only they would recognise.
-    return `there's no way to book with you online, so every appointment starts with a phone call`;
+    // clinic but says nothing only they would recognise. The service name is
+    // what stops it reading as a form letter.
+    return `there's no way to book ${phrase} with you online, so every one starts with a phone call`;
   }
   return "";
 }

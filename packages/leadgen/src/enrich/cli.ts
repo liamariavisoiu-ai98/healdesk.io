@@ -568,6 +568,11 @@ async function main(): Promise<void> {
       // --- what the email says ---------------------------------------------
       angle: out.angle,
       hook: out.hook,
+      // Both forms. service_phrase carries its own article so a template cannot
+      // produce "a injectables appointment"; top_service is the bare noun for
+      // subject lines, where an article reads wrong.
+      service_phrase: out.servicePhrase,
+      top_service: out.topService,
       closed_days: out.closedDays,
       closed_hours_per_week: out.closedHoursPerWeek,
       opens_at: placeById.get(clinic.id)?.opensAt ?? label.opensAt ?? "",

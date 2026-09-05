@@ -48,11 +48,16 @@ import { createHash } from "node:crypto";
  * server-side, and the client sends back a hash of what it displayed so a
  * mismatch is refused rather than recorded.
  *
- * ⚖️ THE CLAUSE TEXT BELOW IS A PLACEHOLDER AND MUST BE REPLACED BY COUNSEL
- * BEFORE ANY REAL CLINIC SEES IT. `approvedByCounsel` is false, the assembled
- * document says DRAFT in its own body, and provisioning refuses to move a
- * clinic to production classification while that is true. What is
- * production-ready is the machinery around it.
+ * ⚖️ Version 1.0.0 is counsel-approved and is what clinics now sign. The
+ * 0.1.0-draft entry is retained below it, never offered: accounts created
+ * before approval signed that exact text, and their stored hash has to keep
+ * reproducing from it. That reproducibility is the whole reason the ASSEMBLED
+ * document is hashed rather than the template.
+ *
+ * `approvedByCounsel` is now enforced rather than merely asserted —
+ * provisionClinic() refuses to create a clinic against an unapproved template.
+ * It is a no-op while 1.0.0 is current, and exists so the next revision in
+ * progress cannot be signed into a live account by accident.
  *
  * To publish a revision: add a new template version, never edit an existing
  * one. Someone has signed the old one.
@@ -678,6 +683,39 @@ const CLAUSES: readonly BaaClause[] = [
 // Templates
 // -----------------------------------------------------------------------------
 
+/**
+ * The executed preamble, for the counsel-approved version.
+ *
+ * Kept beside the draft one rather than replacing it, because the draft is
+ * still the exact text some accounts signed and their stored hash has to keep
+ * reproducing. A signed agreement is a record of what a specific person saw on
+ * a specific day; editing it in place would quietly invalidate every signature
+ * taken against it.
+ */
+function approvedPreamble(v: BaaVariables): string {
+  const title = v.signatoryTitle?.trim() ? `, ${v.signatoryTitle.trim()}` : "";
+
+  return [
+    `HEALDESK BUSINESS ASSOCIATE AGREEMENT`,
+    `Version ${"1.0.0"} — executed electronically`,
+    ``,
+    `This Agreement is entered into under 45 CFR 164.502(e) and 164.504(e) and`,
+    `takes effect on the date below. It governs Protected Health Information`,
+    `disclosed by the Covered Entity to healdesk in the course of the Services.`,
+    ``,
+    `BETWEEN`,
+    `  ${v.clinicLegalName} ("Covered Entity"), a ${v.specialty.toLowerCase()} practice`,
+    `  healdesk ("Business Associate")`,
+    ``,
+    `SIGNED BY`,
+    `  ${v.signatoryName}${title}`,
+    `  ${v.signatoryEmail}`,
+    ``,
+    `EFFECTIVE ${formatDate(v.effectiveDate)}`,
+  ].join("\n");
+}
+
+/** The pre-approval preamble. Retained so 0.1.0-draft still renders as signed. */
 function preamble(v: BaaVariables): string {
   const title = v.signatoryTitle?.trim() ? `, ${v.signatoryTitle.trim()}` : "";
 
@@ -703,6 +741,17 @@ function preamble(v: BaaVariables): string {
 
 export const BAA_TEMPLATES: readonly BaaTemplate[] = [
   // Newest first — CURRENT_BAA_VERSION and currentBaaTemplate() both read [0].
+  {
+    version: "1.0.0",
+    publishedOn: "2026-09-05",
+    approvedByCounsel: true,
+    preamble: approvedPreamble,
+    clauses: CLAUSES,
+  },
+  // Retained, not deleted. Accounts that signed this signed THIS text, and
+  // their stored hash must keep reproducing from it — that reproducibility is
+  // the entire point of hashing the assembled document rather than the
+  // template. It is never offered again: currentBaaTemplate() reads [0].
   {
     version: "0.1.0-draft",
     publishedOn: "2026-08-21",

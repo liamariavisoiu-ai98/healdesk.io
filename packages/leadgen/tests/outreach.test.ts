@@ -118,3 +118,44 @@ describe("the outreach row", () => {
     expect(row.excludeReason).toMatch(/retry/);
   });
 });
+
+describe("service phrasing", () => {
+  test("gets the article right, including acronyms", async () => {
+    const { servicePhrase } = await import("../src/enrich/outreach.ts");
+
+    expect(servicePhrase("Botox")).toBe("a Botox appointment");
+    expect(servicePhrase("Invisalign")).toBe("an Invisalign appointment");
+    // Vowel SOUND, not vowel letter — "IPL" is read "eye-pee-ell".
+    expect(servicePhrase("IPL")).toBe("an IPL appointment");
+    expect(servicePhrase("LASIK")).toBe("a LASIK appointment");
+    expect(servicePhrase("CoolSculpting")).toBe("a CoolSculpting appointment");
+
+    // A generic sentence beats a broken one: this is what every clinic gets
+    // when the page names no single lead service.
+    expect(servicePhrase(null)).toBe("an appointment");
+    expect(servicePhrase("  ")).toBe("an appointment");
+  });
+
+  test("the phrase reaches the hook, so no row says just 'an appointment'", async () => {
+    const { buildOutreachRow } = await import("../src/enrich/outreach.ts");
+    const row = buildOutreachRow(
+      {
+        clinicId: "c",
+        segment: "injectables",
+        confidence: "high",
+        evidence: "",
+        opensAt: null,
+        closesAt: null,
+        hoursByDay: null,
+        topService: "lip filler",
+        offersOnlineBooking: false,
+        mentionsWeightLoss: false,
+        isChainOrFranchise: false,
+      } as never,
+      undefined,
+      undefined,
+    );
+    expect(row.servicePhrase).toBe("a lip filler appointment");
+    expect(row.hook).toContain("a lip filler appointment");
+  });
+});

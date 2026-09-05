@@ -50,6 +50,20 @@ export type Label = {
   opensAt: string | null;
   closesAt: string | null;
   hoursByDay: string | null;
+  /**
+   * The one service this clinic leads with, in its own words.
+   *
+   * Not the segment. `injectables` is a category this pipeline invented for
+   * counting, and it reads like a category in a sentence — "an injectables
+   * appointment" is not something a patient would ever say. The clinic's own
+   * word is "Botox", "lip filler", "CoolSculpting", "semaglutide", and using it
+   * is the difference between a mail merge and someone who looked at the site.
+   *
+   * Null when the page does not make one service clearly primary, because a
+   * guess here is visible: naming a treatment a clinic does not offer is worse
+   * than naming none.
+   */
+  topService: string | null;
   /** Signals that feed the ranking, read off the same page for free. */
   offersOnlineBooking: boolean;
   mentionsWeightLoss: boolean;
@@ -86,6 +100,24 @@ CONFIDENCE:
   high    — an explicit service menu makes the primary offering unambiguous
   medium  — the offering is clear but inferred from hero copy or partial text
   low     — thin, generic, or the page barely loaded
+
+TOP SERVICE — the single treatment this clinic leads with, written the way a
+patient would ask for it: "Botox", "lip filler", "CoolSculpting", "semaglutide",
+"Invisalign", "LASIK". Take it from the hero copy and the first service block,
+which is the clinic's own statement of what it sells.
+
+Never a category. "injectables" and "medical aesthetics" are shelf labels this
+pipeline uses for counting; nobody rings up to book an injectables appointment.
+Null if no single service is clearly primary — naming a treatment the clinic
+does not offer is worse than naming none, because they will notice.
+
+OPENING HOURS — report them ONLY if the page states them. opensAt and closesAt
+are the typical WEEKDAY pair in 24-hour HH:MM; put weekends and any closed days
+in hoursByDay.
+
+Null for all three if the page does not say. Do not infer them from what a
+clinic of this type usually does: these figures decide whether a real phone call
+is later counted as after-hours, so an invented one is worse than an absent one.
 
 Also report, from the same text:
   offersOnlineBooking  — a real self-serve booking widget or "Book online" flow.
@@ -136,8 +168,14 @@ const CLASSIFY_TOOL = {
       "opensAt",
       "closesAt",
       "hoursByDay",
+      "topService",
     ],
     properties: {
+      topService: {
+        type: ["string", "null"],
+        description:
+          'The single service the clinic leads with, in ITS OWN words and as a patient would say it — "Botox", "lip filler", "CoolSculpting", "semaglutide", "Invisalign", "LASIK". Two or three words at most, lowercase unless it is a brand name. NOT a category like "injectables" or "aesthetics". Null if no one service is clearly primary.',
+      },
       segment: { type: "string", enum: [...SEGMENTS] },
       opensAt: {
         type: ["string", "null"],
@@ -176,6 +214,7 @@ function unclassified(clinicId: string, why: string): Label {
     opensAt: null,
     closesAt: null,
     hoursByDay: null,
+    topService: null,
     offersOnlineBooking: false,
     mentionsWeightLoss: false,
     isChainOrFranchise: false,
@@ -217,6 +256,7 @@ function partition(crawls: CrawlResult[]): {
         opensAt: null,
         closesAt: null,
         hoursByDay: null,
+        topService: null,
         offersOnlineBooking: false,
         mentionsWeightLoss: false,
         isChainOrFranchise: false,

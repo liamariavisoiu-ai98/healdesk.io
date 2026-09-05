@@ -145,7 +145,8 @@ returns a number.
 
 ### Accounts confirmed to exist
 
-Cloudflare / InboxKit / Instantly / GlockApps-or-MailReach: _pending human confirmation_
+Cloudflare / InboxKit / Instantly: **confirmed by the founder, 5 Sep 2026.**
+GlockApps-or-MailReach: still unconfirmed — see the open item below.
 
 ---
 
@@ -155,5 +156,21 @@ Paid actions require an explicit, dated human go-ahead recorded here before exec
 
 | Date | Action | Est. cost | Authorized by | Notes |
 |---|---|---|---|---|
-| — | Register 10 domains at Cloudflare Registrar | ~$104/yr | _pending_ | Phase 2 step 2 |
-| — | InboxKit Agency plan + warmup | ~$189/mo | _pending_ | Phase 3 step 1 |
+| 2026-09-05 | Register 10 domains at Cloudflare Registrar | ~$104/yr | Founder | **Done.** All 10 registered. |
+| 2026-09-05 | InboxKit Agency plan + warmup | ~$189/mo | Founder | **Done.** Mailboxes provisioned and warmed. |
+
+Both entries were recorded retrospectively on 5 Sep 2026, after the founder
+confirmed the work was already complete. Noting that rather than back-dating an
+authorization that was never written at the time — the value of this table is
+that it reflects what actually happened, and a tidied one would not.
+
+### The HOLD above is now spent, not lifted
+
+The decision recorded earlier was to hold until a seed placement test returned a
+number. Domains and mailboxes were bought before that test ran, so the gate it
+described no longer has anything to gate — the money is committed either way.
+
+What it protected is still worth having, and now applies one step later: run the
+independent placement test (Phase 5 in the runbook) BEFORE the first cold send,
+not before the purchase. A warmed mailbox that lands in spam is a mailbox that
+burns its domain on the first campaign, and 21 days of warmup with it.

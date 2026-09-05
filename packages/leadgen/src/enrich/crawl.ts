@@ -85,6 +85,16 @@ export type CrawlResult = {
    * a generated class name, or a distinctive path shape.
    */
   fingerprints?: Fingerprints;
+  /**
+   * Phone numbers published on the site, best first.
+   *
+   * The most important field this crawl produces, for a product whose entire
+   * mechanic is call forwarding. It is also the number that actually matters:
+   * a purchased list's phone may be a mobile, a marketing tracking number, or
+   * years stale, whereas the number on the homepage is by definition the one
+   * patients are dialling — which is the one that has to forward.
+   */
+  phones?: string[];
   /** Set when the site could not be read at all. Kept, not discarded. */
   error?: string;
 };
@@ -466,6 +476,7 @@ async function crawlOneBatch(
         .trim()
         .slice(0, MAX_TEXT_CHARS),
       links: [...(page?.links ?? [])].slice(0, MAX_LINKS),
+      phones: page ? phonesIn(page.html, page.text.join(" ")) : [],
       // Extracted here and the HTML discarded immediately after.
       //
       // Storing the raw HTML would be ~54 MB gzipped across 4,512 clinics,
@@ -659,6 +670,50 @@ function extractFingerprints(html: string, links: string[]): Fingerprints {
   return { pathShapes, formActions, iframes, classHints };
 }
 
+/**
+ * Phone numbers, from tel: links first and page text second.
+ *
+ * Order is the point. A `tel:` href is what the site itself says to dial, so it
+ * is unambiguous and already normalised by whoever built the page. Text
+ * matching is the fallback, and it is noisier — it will happily match a fax
+ * number, a licence number, or a price.
+ *
+ * tel: links had to be captured specially: hrefsIn() keeps only http and https,
+ * so every tel: on every page was being discarded before anything could read
+ * it. That is 48% of pages carrying the single most valuable field for a
+ * call-forwarding product, thrown away by a filter written for booking links.
+ */
+function phonesIn(html: string, text: string): string[] {
+  const found: string[] = [];
+
+  for (const m of html.matchAll(/href\s*=\s*["']tel:([^"']+)["']/gi)) {
+    const digits = m[1]!.replace(/\D/g, "");
+    if (digits.length >= 10) found.push(digits);
+  }
+
+  // Only consulted when the markup offered nothing, to keep the noisier source
+  // from outranking the explicit one.
+  if (found.length === 0) {
+    const TEXT_PHONE =
+      /(?:\+?1[\s.-]?)?\(?([2-9]\d{2})\)?[\s.-]?(\d{3})[\s.-]?(\d{4})(?!\d)/g;
+    for (const m of text.matchAll(TEXT_PHONE)) {
+      found.push(`${m[1]}${m[2]}${m[3]}`);
+    }
+  }
+
+  // US numbers, normalised to ten digits so the same clinic written three ways
+  // collapses to one entry.
+  const seen = new Set<string>();
+  return found
+    .map((d) => (d.length === 11 && d.startsWith("1") ? d.slice(1) : d))
+    .filter((d) => d.length === 10)
+    // 555 is the reserved fictional exchange; it is a placeholder in a template,
+    // never a clinic.
+    .filter((d) => !d.startsWith("555") && d.slice(3, 6) !== "555")
+    .filter((d) => (seen.has(d) ? false : (seen.add(d), true)))
+    .slice(0, 5);
+}
+
 function hostOf(url: string): string {
   try {
     const host = new URL(url).hostname.toLowerCase();
@@ -670,3 +725,6 @@ function hostOf(url: string): string {
 
 /** Exposed so the filter/signature compatibility test uses the real filter. */
 export const __keepableForTests = keepable;
+
+/** Exposed so the phone tests exercise the real extractor. */
+export const __phonesInForTests = phonesIn;

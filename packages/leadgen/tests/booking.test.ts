@@ -188,3 +188,40 @@ describe("regressions the pre-spend audit caught", () => {
     }
   });
 });
+
+describe("phone extraction", () => {
+  test("prefers tel: links, falls back to text, and drops 555 placeholders", async () => {
+    const { __phonesInForTests } = await import("../src/enrich/crawl.ts");
+
+    // A tel: link is what the site says to dial — unambiguous, already
+    // normalised by whoever built the page.
+    expect(
+      __phonesInForTests('<a href="tel:+1 (512) 555-0100">call</a>', ""),
+    ).toEqual([]);
+    expect(__phonesInForTests('<a href="tel:5124430199">x</a>', "")).toEqual([
+      "5124430199",
+    ]);
+
+    // Text is the fallback, consulted only when the markup offered nothing, so
+    // the noisier source never outranks the explicit one.
+    expect(__phonesInForTests("", "Call us at (512) 443-0199 today")).toEqual([
+      "5124430199",
+    ]);
+    expect(
+      __phonesInForTests('<a href="tel:5124430199">x</a>', "or (737) 222-3344"),
+    ).toEqual(["5124430199"]);
+
+    // 555 is the reserved fictional exchange — a template placeholder, never a
+    // clinic, and shipping one into a call-forwarding product would be worse
+    // than shipping none.
+    expect(__phonesInForTests("", "(555) 123-4567")).toEqual([]);
+
+    // The same number written three ways is one clinic.
+    expect(
+      __phonesInForTests(
+        '<a href="tel:+15124430199">a</a><a href="tel:512.443.0199">b</a>',
+        "",
+      ),
+    ).toEqual(["5124430199"]);
+  });
+});

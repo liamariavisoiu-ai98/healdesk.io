@@ -446,6 +446,7 @@ async function main(): Promise<void> {
   // One CSV per segment, contact-ready. The whole point of the exercise is that
   // the campaign can be pointed at one of these files without further work.
   const byId = new Map(clinics.map((c) => [c.id, c]));
+  const crawlById = new Map(crawls.map((c) => [c.clinicId, c]));
   // Deterministic, free, and computed from the cached crawl — so re-running the
   // report after tuning a signature costs nothing and needs no re-crawl.
   // Keyed only on crawls that actually produced links.
@@ -503,7 +504,12 @@ async function main(): Promise<void> {
       domain: clinic.domain,
       city: clinic.city,
       state: clinic.state,
+      // The list's phone, then the site's. Both, because they disagree often
+      // enough to matter and the site's is the number patients actually dial —
+      // which is the one that has to be forwarded.
       phone: clinic.phone,
+      phone_from_site: (crawlById.get(clinic.id)?.phones ?? [])[0] ?? "",
+      phone_all_from_site: (crawlById.get(clinic.id)?.phones ?? []).join(" | "),
       email: contact.email,
       first_name: contact.firstName,
       last_name: contact.lastName,

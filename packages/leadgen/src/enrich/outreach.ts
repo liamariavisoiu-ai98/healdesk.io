@@ -131,6 +131,16 @@ export type OutreachRow = {
   /** instagram, facebook, tiktok, whatsapp — whichever they actually run. */
   socialChannels: string;
   /**
+   * Which of the three surfaces to offer: phone, meta, website.
+   *
+   * The product runs on all three, but pitching all three to everyone turns a
+   * specific email into a capability list. A clinic with no Instagram does not
+   * want to hear about Instagram.
+   */
+  channels: string;
+  /** The mix as a sentence, for a closing line or a P.S. */
+  channelsLine: string;
+  /**
    * A second, separate offer for their social channels, or blank.
    *
    * Deliberately its own line rather than folded into the main offer. Meta
@@ -198,6 +208,8 @@ export function buildOutreachRow(
       capability: "around-the-clock",
       assistantTerm: assistant,
       socialChannels: social.join(", "),
+      channels: "",
+      channelsLine: "",
       socialOffer: "",
       angle: "exclude",
       hook: "",
@@ -220,7 +232,8 @@ export function buildOutreachRow(
   else if (!noBooking && closesEarly(hours)) angle = "closes-early";
 
   const window = hours?.gap ?? undefined;
-  const offer = buildOffer(label, phrase, window, !noBooking, closesEarly(hours), assistant);
+  const offer = buildOffer(label, window, !noBooking, closesEarly(hours), assistant);
+  const channels = selectChannels(social, !noBooking);
 
   return {
     servicePhrase: phrase,
@@ -229,6 +242,8 @@ export function buildOutreachRow(
     capability: offer.capability,
     assistantTerm: assistant,
     socialChannels: social.join(", "),
+    channels: channels.join(", "),
+    channelsLine: buildChannelsLine(channels),
     socialOffer: buildSocialOffer(social, assistant),
     gapHours: window ? String(window.hours) : "",
     gapWindow: window
@@ -263,49 +278,50 @@ function buildHook(
   phrase: string,
   window: BookingGap | undefined,
 ): string {
-  // One sentence that runs, and it has to land in about three seconds because
-  // that is how long an unknown sender gets before the thumb moves.
+  // Framed as what is available, not what is going wrong.
   //
-  // Written to be recognised rather than argued with. A receptionist reading
-  // this thinks yes, obviously, I am not there at the weekend — which is the
-  // reaction worth having. Not guilt, just recognition. Anything explaining WHY
-  // it matters is cut, because they already know and being told is what makes
-  // an email sound like a pitch.
+  // The earlier version opened with "nobody is there to pick up", which is true
+  // and is also a stranger telling a clinic it is failing. Loss framing earns
+  // attention when it comes from someone you trust; from an unknown sender it
+  // reads as criticism and gets deleted. The same 64 hours described as time
+  // the phone could be booking is the identical fact with the accusation taken
+  // out, and it leaves the reader with something to want rather than something
+  // to defend.
+  //
+  // The service is named HERE and nowhere else. Repeating it in the offer was
+  // the loudest tell that a template wrote this.
   if (window && window.hours >= 24) {
     return (
-      `For ${window.hours} hours between ${window.startsDay.slice(0, 3)} ` +
+      `There are ${window.hours} hours between ${window.startsDay.slice(0, 3)} ` +
       `${clockTime(window.startsAt)} and ${window.endsDay.slice(0, 3)} ` +
-      `${clockTime(window.endsAt)}, nobody is there to pick up the phone when ` +
-      `somebody rings about ${phrase}.`
+      `${clockTime(window.endsAt)} when your phone could still be booking ` +
+      `${phrase.replace(/^an? /, "")}s for you.`
     );
   }
 
   if (weekendClosed.length === 2) {
-    return `You are shut at weekends, which is when most people finally get round to ringing about ${phrase}.`;
+    return `Weekends are when most people finally get round to ringing, and that is a whole market sitting outside your opening hours.`;
   }
   if (weekendClosed.length === 1) {
-    return `You are shut ${weekendClosed[0]}s, which tends to be the day people ring round about ${phrase}.`;
+    return `${weekendClosed[0]}s tend to be the day people ring round, which is a free run at anyone shopping that day.`;
   }
 
   const close = hours?.closesAt;
   if (close && Number(close.slice(0, 2)) <= 17) {
-    return `You close at ${clockTime(close)}, so anyone ringing about ${phrase} after work gets the voicemail.`;
+    return `The hours after ${clockTime(close)} are when people finish work and start ringing, and they are yours for the taking.`;
   }
   if (gap && gap > 100) {
-    return `There are around ${gap} hours a week when nobody is there to answer the phone.`;
+    return `There are around ${gap} hours a week your phone could be earning while the practice is shut.`;
   }
   if (noBooking) {
-    return `There is no way to book ${phrase} with you online, so all of it has to come through the phone.`;
+    return `Every ${phrase.replace(/^an? /, "")} you take starts with a phone call, so each one answered is a patient booked.`;
   }
 
-  // Never blank.
-  //
-  // A clinic that books online and whose hours we could not read used to fall
-  // through every branch and get an empty hook, which either leaves a hole in
-  // the email or silently drops the personalisation that justifies sending it
-  // at all. This is the weakest line here and it is still true of every clinic:
-  // somebody always rings instead of clicking.
-  return `Some of your patients will always ring rather than use the booking page, usually the ones ready to book ${phrase} today.`;
+  // Never blank. A clinic that books online and whose hours we could not read
+  // used to fall through every branch, leaving a hole in the email or silently
+  // dropping the personalisation that justified sending it. This claims nothing
+  // specific and is true of everyone.
+  return `Some patients will always ring rather than click, and they are usually the ones ready to book today.`;
 }
 
 /**
@@ -321,7 +337,6 @@ function buildHook(
  */
 function buildOffer(
   label: Label,
-  phrase: string,
   window: BookingGap | undefined,
   hasBooking: boolean,
   closesEarly: boolean,
@@ -342,12 +357,60 @@ function buildOffer(
   // is the shape people have learned to skim. A clause that runs on is how a
   // person writes to another person, and it also lets the consequence arrive
   // inside the same breath as the offer rather than as a separate claim.
+  // The service is NOT repeated here. It is named once, in the hook, and saying
+  // it again in the very next sentence is the loudest tell that a template
+  // wrote both.
   const tail =
     pitch.capability === "around-the-clock" || pitch.capability === "calendar-booking"
-      ? `so they book ${phrase} with you on the spot rather than trying whoever picks up next`
+      ? `while the impulse is still there, which is usually the difference between an enquiry and a patient`
       : pitch.because;
 
   return { offer: `${opening}, ${tail}.`, capability: pitch.capability };
+}
+
+/**
+ * Which surfaces to put in front of this clinic.
+ *
+ * Phone is always there: it is the core of the product and every clinic has
+ * one. The other two are conditional, because offering a surface a clinic does
+ * not use is the fastest way to sound like a form.
+ *
+ * Meta only where they actually run a social channel. Website where patients
+ * cannot already book online, since a site with no booking path is one where
+ * every visitor with a question has nowhere to put it, which is exactly what a
+ * web assistant fixes. Where booking already exists that case is weaker and the
+ * phone argument is stronger, so it is left out rather than padded in.
+ */
+function selectChannels(
+  social: readonly string[],
+  hasOnlineBooking: boolean,
+): string[] {
+  const out = ["phone"];
+  if (social.length > 0) out.push("meta");
+  if (!hasOnlineBooking) out.push("website");
+  return out;
+}
+
+/**
+ * The mix as one sentence, written to close an email without repeating it.
+ *
+ * "Or whichever of the three you want to start with" is doing real work: the
+ * product is three things and a clinic hearing all three at once assumes a
+ * project. Saying they can take one makes it a small decision.
+ */
+function buildChannelsLine(channels: readonly string[]): string {
+  const has = (c: string) => channels.includes(c);
+
+  if (has("meta") && has("website")) {
+    return `It can run on your phone line, your website and your social messages, or whichever of the three you want to start with.`;
+  }
+  if (has("meta")) {
+    return `It can run on your phone line and your social messages, or either on its own.`;
+  }
+  if (has("website")) {
+    return `It can run on your phone line and your website chat, or either on its own.`;
+  }
+  return `It runs on your phone line, and can take your website chat as well if that helps.`;
 }
 
 /**
@@ -378,10 +441,11 @@ function buildSocialOffer(
             ? "WhatsApp"
             : "TikTok";
 
-  return (
-    `The same ${assistant} assistant answers your ${named} messages, so the ` +
-    `ones that come in overnight are handled before somebody gives up waiting.`
-  );
+  // Neither "assistant" nor the service name again. Three sentences that each
+  // repeat the same two nouns is what makes generated copy sound generated,
+  // and this is the third of them.
+  void assistant;
+  return `It does the same for your ${named} messages, including the ones that arrive overnight.`;
 }
 
 /**

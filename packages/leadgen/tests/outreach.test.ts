@@ -86,7 +86,7 @@ describe("the outreach row", () => {
       hours({ closedDays: ["Saturday", "Sunday"] }),
     );
     expect(row.angle).toBe("closed-weekends");
-    expect(row.hook).toContain("shut at weekends");
+    expect(row.hook).toContain("Weekends are when most people");
   });
 
   test("the weakest hook is still true of every clinic", () => {
@@ -101,7 +101,7 @@ describe("the outreach row", () => {
       { hasOnlineBooking: true } as never,
       undefined,
     );
-    expect(row.hook).toContain("always ring rather than use the booking page");
+    expect(row.hook).toContain("always ring rather than click");
   });
 
   test("GoHighLevel clinics are excluded, not celebrated", () => {
@@ -159,7 +159,7 @@ describe("service phrasing", () => {
       undefined,
     );
     expect(row.servicePhrase).toBe("a lip filler appointment");
-    expect(row.hook).toContain("a lip filler appointment");
+    expect(row.hook).toContain("lip filler");
   });
 });
 
@@ -266,7 +266,10 @@ describe("the offer", () => {
     expect(row.hook).toContain("64 hours");
     expect(row.hook).toContain("5pm");
     expect(row.hook).toContain("9am");
-    expect(row.topOffer).toContain("a Botox appointment");
+    // Named in the hook only. Repeating it in the offer was the loudest tell
+    // that a template wrote both halves.
+    expect(row.hook).toContain("Botox");
+    expect(row.topOffer).not.toContain("Botox");
 
     // Neither half may use an em dash or a semicolon. They are the punctuation
     // of generated text and a reader clocks them before the argument.
@@ -301,7 +304,8 @@ describe("the offer", () => {
       undefined,
     );
     expect(row.gapHours).toBe("");
-    expect(row.topOffer).toContain("a lip filler appointment");
+    // The service is named in the hook, once, and not repeated in the offer.
+    expect(row.hook).toContain("lip filler");
   });
 });
 
@@ -393,5 +397,102 @@ describe("copy that must never break", () => {
     );
     // A clinic with no Instagram does not want to hear about Instagram.
     expect(row.socialOffer).toBe("");
+  });
+});
+
+describe("tone and repetition", () => {
+  const rows = () => import("../src/enrich/outreach.ts").then(async (m) => {
+    const { selectCapability } = await import("../src/enrich/capabilities.ts");
+    void selectCapability;
+    const segments = [
+      "injectables", "weight-loss-glp1", "body-contouring", "plastic-surgery",
+      "laser-skin", "wellness-iv", "hair-restoration", "dental", "dermatology",
+    ] as const;
+    return segments.flatMap((segment) =>
+      [true, false].map((online) =>
+        m.buildOutreachRow(
+          {
+            clinicId: "c", segment, confidence: "high", evidence: "",
+            opensAt: null, closesAt: null, hoursByDay: null, topService: "Botox",
+            offersOnlineBooking: online, mentionsWeightLoss: false,
+            isChainOrFranchise: false,
+          } as never,
+          { hasOnlineBooking: online } as never,
+          {
+            closedDays: [], closedHoursPerWeek: 128, closesAt: "17:00",
+            gap: { hours: 64, startsDay: "Friday", startsAt: "17:00", endsDay: "Monday", endsAt: "09:00" },
+            match: "strong",
+          } as never,
+          { jobTitle: "Owner", email: "j@c.com", social: ["instagram"] },
+        ),
+      ),
+    );
+  });
+
+  test("no line accuses the clinic of failing", async () => {
+    // Loss framing earns attention from someone you trust. From an unknown
+    // sender it reads as criticism, and the reader defends rather than wants.
+    const ACCUSING = /\b(nobody|no one|fail|failing|missing out|losing|you don't|you can't|cannot)\b/i;
+    for (const r of await rows()) {
+      expect(ACCUSING.test(r.hook), `hook: ${r.hook}`).toBe(false);
+      expect(ACCUSING.test(r.topOffer), `offer: ${r.topOffer}`).toBe(false);
+    }
+  });
+
+  test("the service is named once across the whole message", async () => {
+    // Saying it again in the next sentence is the loudest tell that a template
+    // wrote both halves.
+    for (const r of await rows()) {
+      const all = `${r.hook} ${r.topOffer} ${r.socialOffer}`;
+      const hits = all.match(/botox/gi)?.length ?? 0;
+      expect(hits, all).toBeLessThan(2);
+    }
+  });
+
+  test("'assistant' appears once, not in every line", async () => {
+    for (const r of await rows()) {
+      const all = `${r.hook} ${r.topOffer} ${r.socialOffer}`;
+      expect((all.match(/assistant/gi) ?? []).length, all).toBe(1);
+    }
+  });
+
+  test("no em dashes or semicolons anywhere", async () => {
+    for (const r of await rows()) {
+      expect(`${r.hook}${r.topOffer}${r.socialOffer}`).not.toMatch(/[—;]/);
+    }
+  });
+});
+
+describe("which surfaces to offer", () => {
+  const row = async (social: string[], online: boolean) => {
+    const { buildOutreachRow } = await import("../src/enrich/outreach.ts");
+    return buildOutreachRow(
+      {
+        clinicId: "c", segment: "injectables", confidence: "high", evidence: "",
+        opensAt: null, closesAt: null, hoursByDay: null, topService: "Botox",
+        offersOnlineBooking: online, mentionsWeightLoss: false, isChainOrFranchise: false,
+      } as never,
+      { hasOnlineBooking: online } as never,
+      undefined,
+      { jobTitle: "Owner", email: "j@c.com", social },
+    );
+  };
+
+  test("phone is always offered, the other two are earned", async () => {
+    // Offering a surface a clinic does not use is the fastest way to sound like
+    // a form.
+    expect((await row([], true)).channels).toBe("phone");
+    expect((await row(["instagram"], true)).channels).toBe("phone, meta");
+    expect((await row([], false)).channels).toBe("phone, website");
+    expect((await row(["instagram"], false)).channels).toBe("phone, meta, website");
+  });
+
+  test("the closing line offers a smaller first step", async () => {
+    // Three things at once sounds like a project. Saying they can take one
+    // makes it a small decision.
+    const all = await row(["instagram"], false);
+    expect(all.channelsLine).toContain("whichever of the three");
+    const phoneOnly = await row([], true);
+    expect(phoneOnly.channelsLine).toContain("phone line");
   });
 });

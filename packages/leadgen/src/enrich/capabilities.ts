@@ -61,61 +61,61 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // First-timers price-shop three clinics in a sitting; regulars are loyal.
     capability: "around-the-clock",
     because:
-      "because first-timers are ringing two or three places in one go and book with whoever picks up, while your regulars would have waited for you anyway",
+      "since first-timers ring two or three places in one go and book with whoever answers, while your regulars would have waited for you anyway",
   },
   "weight-loss-glp1": {
     // Almost all new to the practice, comparing on price and start date, and
     // the programme dies at the first titration plateau.
     capability: "win-backs",
     because:
-      "the ones who quietly drop off around month three, before your team has a chance to chase them",
+      "the ones who quietly stop around month three and are usually glad to hear from you",
   },
   "body-contouring": {
     // Free consult, four-figure package, and the consult no-show is the leak.
     capability: "deposits",
     because:
-      "because a free consult against a four-figure package is exactly how a diary fills with people who never turn up",
+      "which is what turns a free consult on a four-figure package into a booking somebody actually keeps",
   },
   "plastic-surgery": {
     // The call is an interview and the coordinator is in consults all day.
     capability: "lead-qualification",
     because:
-      "because they are interviewing you, and the ones worth most tend to ring while your surgeon is operating",
+      "so the ones ready for a surgical consult reach you even while your surgeon is operating",
   },
   "laser-skin": {
     // Money collected up front, sessions not booked, course abandoned midway.
     capability: "win-backs",
     because:
-      "the ones who paid up front and then stopped coming, which nobody has time to ring round and rebook",
+      "the ones who paid up front and drifted, which is revenue already banked and waiting to be finished",
   },
   "wellness-iv": {
     // Same-day intent. They are asking about the next two hours.
     capability: "around-the-clock",
     because:
-      "because they are asking about this afternoon, and if they get the machine they just ring the next place",
+      "since they are asking about this afternoon and will book with whoever can take them",
   },
   "hair-restoration": {
     // Months of working up to the call, and they will not leave a message.
     capability: "lead-qualification",
     because:
-      "because they have thought about it for months before ringing, and they will not leave a message if nobody answers",
+      "since they have thought about it for months before ringing, and a live answer is what turns that into a consult",
   },
   dental: {
     // Pain overrides loyalty entirely, and recall is where the money leaks.
     capability: "around-the-clock",
     because:
-      "because somebody with a broken tooth rings the next practice within the minute and does not come back",
+      "so somebody in real pain gets a time from you rather than from the next practice they try",
   },
   dermatology: {
     // Two different callers on one line, and the cosmetic one leaves quietly.
     capability: "lead-qualification",
     because:
-      "because your medical and cosmetic callers need completely different conversations and all arrive on the same line",
+      "so your medical and cosmetic callers each get the right conversation off the same line",
   },
   "other-medical": {
     capability: "lead-qualification",
     because:
-      "because when your desk is on a long call the next person gets voicemail, and they are usually the one ready to book",
+      "so the person ringing while your desk is on a long call still gets booked in",
   },
 };
 
@@ -184,12 +184,23 @@ export function selectCapability(pain: PainInput): CapabilityPitch {
  * {assistant} is filled with "smart" or "virtual" depending on who is reading —
  * see assistantTerm().
  */
+/**
+ * The opening clause of the offer, continued by the reason.
+ *
+ * Phrased as what the clinic gets, not what it is currently failing at. "Answers
+ * the calls your team cannot" is accurate and is still a stranger pointing at a
+ * shortcoming; "picks those up and books them in" is the same capability
+ * described by its result.
+ *
+ * {assistant} becomes "smart" or "virtual" depending on who is reading — see
+ * assistantTerm().
+ */
 export const CAPABILITY_LABEL: Record<Capability, string> = {
-  "around-the-clock": "Our {assistant} assistant answers the calls your team cannot",
-  "calendar-booking": "Our {assistant} assistant picks up and books them straight into your calendar",
-  deposits: "Our {assistant} assistant takes the deposit while they are still on the call",
-  "lead-qualification": "Our {assistant} assistant screens every caller before they reach your desk",
-  "win-backs": "Our {assistant} assistant rings your lapsed patients",
-  "aftercare-reviews": "Our {assistant} assistant follows up after treatment",
+  "around-the-clock": "Our {assistant} assistant picks those up and books them in",
+  "calendar-booking": "Our {assistant} assistant answers and puts them straight in your calendar",
+  deposits: "Our {assistant} assistant secures the deposit while they are still on the call",
+  "lead-qualification": "Our {assistant} assistant sorts the callers before they reach your desk",
+  "win-backs": "Our {assistant} assistant brings your lapsed patients back",
+  "aftercare-reviews": "Our {assistant} assistant checks in after treatment and asks for the review",
   upselling: "Our {assistant} assistant offers the add-on while they are still on the phone",
 };

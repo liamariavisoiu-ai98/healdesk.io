@@ -588,6 +588,9 @@ async function main(): Promise<void> {
       // role addresses get "virtual".
       assistant_term: out.assistantTerm,
       social_channels: out.socialChannels,
+      // Which surfaces to offer, and the closing line that names them.
+      channels: out.channels,
+      channels_line: out.channelsLine,
       social_offer: out.socialOffer,
       gap_hours: out.gapHours,
       gap_window: out.gapWindow,

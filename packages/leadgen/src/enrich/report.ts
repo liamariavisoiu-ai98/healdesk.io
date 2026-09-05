@@ -38,6 +38,8 @@ export type SegmentStats = {
   onSupportedPlatform: number;
   chains: number;
   mentionsWeightLoss: number;
+  /** Clinics whose page stated opening hours at all. */
+  withHours: number;
   /** Distinct states, as a spread check — a segment in one metro is an artefact. */
   states: number;
 };
@@ -91,6 +93,7 @@ export function buildReport(
       let contactable = 0;
       let phoneDependent = 0;
       let onSupportedPlatform = 0;
+      let withHours = 0;
 
       for (const label of group) {
         const clinic = byId.get(label.clinicId);
@@ -102,6 +105,8 @@ export function buildReport(
         // A detected link beats the model's guess every time: one is evidence
         // from the clinic's own site, the other is inference from page copy.
         // The guess is consulted only where the crawl found no links at all.
+        if (label.opensAt && label.closesAt) withHours += 1;
+
         const detected = booking.get(label.clinicId);
         if (detected) {
           if (!detected.hasOnlineBooking) phoneDependent += 1;
@@ -118,6 +123,7 @@ export function buildReport(
         highConfidence: group.filter((l) => l.confidence === "high").length,
         phoneDependent,
         onSupportedPlatform,
+        withHours,
         chains: group.filter((l) => l.isChainOrFranchise).length,
         mentionsWeightLoss: group.filter((l) => l.mentionsWeightLoss).length,
         states: states.size,
@@ -157,6 +163,21 @@ export function buildReport(
         `low-confidence labels are dropped (${highConfidenceOrder[0]}). The raw ` +
         `count is being carried by clinics we could barely read — rank on the ` +
         `high-confidence column, not the total.`,
+    );
+  }
+
+  // Hours coverage, stated up front rather than left to be discovered when the
+  // column turns out to be mostly blank.
+  const hoursKnown = segments.reduce((a, s) => a + s.withHours, 0);
+  const labelled = segments.reduce((a, s) => a + s.clinics, 0);
+  if (labelled > 0 && hoursKnown / labelled < 0.5) {
+    warnings.push(
+      `Opening hours were stated on only ${hoursKnown} of ${labelled} clinic ` +
+        `homepages (${Math.round((100 * hoursKnown) / labelled)}%). Most clinics ` +
+        `publish hours on a /contact page or only on their Google listing, ` +
+        `neither of which this crawl reads. Treat the opens_at/closes_at ` +
+        `columns as partial, and source the rest from Google Places before ` +
+        `anything depends on them.`,
     );
   }
 

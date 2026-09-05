@@ -33,6 +33,23 @@ export type Label = {
   confidence: "high" | "medium" | "low";
   /** One line, for spot-checking a sample by eye. */
   evidence: string;
+  /**
+   * Opening hours, when the page states them.
+   *
+   * Two shapes on purpose. `opensAt`/`closesAt` are the single weekday pair —
+   * what a spreadsheet column can hold, and what was asked for. `hoursByDay`
+   * keeps the detail that pair throws away, because for an after-hours product
+   * the discarded part is the valuable part: a med spa's Saturday is when its
+   * missed calls are worth most, and "Mon-Fri 9-5" collapses Saturday and
+   * "closed Sunday" into the same blank.
+   *
+   * Null when the page does not say. Guessing plausible clinic hours would be
+   * indistinguishable from reading them, and this feeds clinics.openingHours,
+   * which decides whether a real call is billed as recovered.
+   */
+  opensAt: string | null;
+  closesAt: string | null;
+  hoursByDay: string | null;
   /** Signals that feed the ranking, read off the same page for free. */
   offersOnlineBooking: boolean;
   mentionsWeightLoss: boolean;
@@ -116,9 +133,27 @@ const CLASSIFY_TOOL = {
       "offersOnlineBooking",
       "mentionsWeightLoss",
       "isChainOrFranchise",
+      "opensAt",
+      "closesAt",
+      "hoursByDay",
     ],
     properties: {
       segment: { type: "string", enum: [...SEGMENTS] },
+      opensAt: {
+        type: ["string", "null"],
+        description:
+          'Typical weekday opening time, 24h HH:MM (e.g. "09:00"). Null if the page does not state hours. Never guess.',
+      },
+      closesAt: {
+        type: ["string", "null"],
+        description:
+          'Typical weekday closing time, 24h HH:MM (e.g. "17:00"). Null if the page does not state hours. Never guess.',
+      },
+      hoursByDay: {
+        type: ["string", "null"],
+        description:
+          'All stated hours on one line, e.g. "Mon-Thu 09:00-19:00; Fri 09:00-17:00; Sat 10:00-14:00; Sun closed". Null if not stated.',
+      },
       confidence: { type: "string", enum: ["high", "medium", "low"] },
       evidence: {
         type: "string",
@@ -138,6 +173,9 @@ function unclassified(clinicId: string, why: string): Label {
     segment: "unknown",
     confidence: "low",
     evidence: `classification failed: ${why}`,
+    opensAt: null,
+    closesAt: null,
+    hoursByDay: null,
     offersOnlineBooking: false,
     mentionsWeightLoss: false,
     isChainOrFranchise: false,
@@ -176,6 +214,9 @@ function partition(crawls: CrawlResult[]): {
         segment: "unknown",
         confidence: "low",
         evidence: crawl.error ?? "page had too little text to classify",
+        opensAt: null,
+        closesAt: null,
+        hoursByDay: null,
         offersOnlineBooking: false,
         mentionsWeightLoss: false,
         isChainOrFranchise: false,

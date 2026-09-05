@@ -523,6 +523,15 @@ async function main(): Promise<void> {
       // instead of estimates — a different and better conversation.
       healdesk_connects: book?.supported ? "yes" : "no",
       booking_confidence: book?.confidence ?? "none",
+      // The two columns as asked. Blank where the page did not state hours —
+      // never a plausible-looking default, because this feeds
+      // clinics.openingHours and decides whether a real call counts as
+      // after-hours.
+      opens_at: label.opensAt ?? "",
+      closes_at: label.closesAt ?? "",
+      // Kept alongside, because the pair above discards exactly the part that
+      // matters most for an after-hours product: Saturday.
+      hours_all_days: label.hoursByDay ?? "",
       weight_loss: label.mentionsWeightLoss ? "yes" : "no",
       chain: label.isChainOrFranchise ? "yes" : "no",
       contacts_at_clinic: String(clinic.contacts.length),

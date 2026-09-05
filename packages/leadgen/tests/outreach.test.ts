@@ -159,3 +159,130 @@ describe("service phrasing", () => {
     expect(row.hook).toContain("a lip filler appointment");
   });
 });
+
+describe("the booking gap", () => {
+  test("measures the longest stretch, not the average", async () => {
+    const { longestGap } = await import("../src/enrich/places.ts");
+    const mf = Object.fromEntries(
+      ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"].map((d) => [
+        d,
+        ["09:00", "17:00"] as [string, string],
+      ]),
+    );
+
+    // 64 unbroken hours, and where they fall is the point: Friday evening
+    // through Monday morning is exactly when elective aesthetics is decided.
+    expect(longestGap({ ...mf, Saturday: null, Sunday: null })).toEqual({
+      hours: 64,
+      startsDay: "Friday",
+      startsAt: "17:00",
+      endsDay: "Monday",
+      endsAt: "09:00",
+    });
+  });
+
+  test("opening Saturday cuts the gap by a third", async () => {
+    const { longestGap } = await import("../src/enrich/places.ts");
+    const mf = Object.fromEntries(
+      ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"].map((d) => [
+        d,
+        ["09:00", "17:00"] as [string, string],
+      ]),
+    );
+    const g = longestGap({
+      ...mf,
+      Saturday: ["10:00", "14:00"] as [string, string],
+      Sunday: null,
+    });
+    // 64 -> 43. Worth knowing: it is also the strongest argument for the
+    // product to a clinic that already opens Saturday.
+    expect(g?.hours).toBe(43);
+    expect(g?.startsDay).toBe("Saturday");
+  });
+
+  test("a gap running through Sunday into Monday is one stretch, not two", async () => {
+    const { longestGap } = await import("../src/enrich/places.ts");
+    // The week is laid out twice for exactly this: a single-week loop would cut
+    // the most important gap in half at the Sunday/Monday boundary.
+    const g = longestGap({
+      Monday: ["09:00", "17:00"] as [string, string],
+      Tuesday: null,
+      Wednesday: null,
+      Thursday: null,
+      Friday: null,
+      Saturday: null,
+      Sunday: null,
+    });
+    expect(g?.hours).toBe(160);
+  });
+
+  test("no hours means no gap, never a guessed one", async () => {
+    const { longestGap } = await import("../src/enrich/places.ts");
+    expect(longestGap({})).toBeNull();
+  });
+});
+
+describe("the offer", () => {
+  test("names the clinic's own window rather than the product category", async () => {
+    const { buildOutreachRow } = await import("../src/enrich/outreach.ts");
+    const row = buildOutreachRow(
+      {
+        clinicId: "c",
+        segment: "injectables",
+        confidence: "high",
+        evidence: "",
+        opensAt: "09:00",
+        closesAt: "17:00",
+        hoursByDay: null,
+        topService: "Botox",
+        offersOnlineBooking: false,
+        mentionsWeightLoss: false,
+        isChainOrFranchise: false,
+      } as never,
+      undefined,
+      {
+        closedDays: ["Saturday", "Sunday"],
+        closedHoursPerWeek: 128,
+        closesAt: "17:00",
+        gap: {
+          hours: 64,
+          startsDay: "Friday",
+          startsAt: "17:00",
+          endsDay: "Monday",
+          endsAt: "09:00",
+        },
+        match: "strong",
+      } as never,
+    );
+
+    expect(row.gapHours).toBe("64");
+    expect(row.gapWindow).toBe("Friday 17:00 to Monday 09:00");
+    expect(row.topOffer).toContain("64 hours");
+    expect(row.topOffer).toContain("a Botox appointment");
+    // The gap outranks "you're closed weekends", which invites "so is everyone".
+    expect(row.hook).toContain("64 straight hours");
+  });
+
+  test("falls back to something true when no hours are known", async () => {
+    const { buildOutreachRow } = await import("../src/enrich/outreach.ts");
+    const row = buildOutreachRow(
+      {
+        clinicId: "c",
+        segment: "injectables",
+        confidence: "high",
+        evidence: "",
+        opensAt: null,
+        closesAt: null,
+        hoursByDay: null,
+        topService: "lip filler",
+        offersOnlineBooking: false,
+        mentionsWeightLoss: false,
+        isChainOrFranchise: false,
+      } as never,
+      undefined,
+      undefined,
+    );
+    expect(row.gapHours).toBe("");
+    expect(row.topOffer).toContain("a lip filler appointment");
+  });
+});

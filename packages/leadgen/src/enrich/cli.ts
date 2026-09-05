@@ -573,6 +573,12 @@ async function main(): Promise<void> {
       // subject lines, where an article reads wrong.
       service_phrase: out.servicePhrase,
       top_service: out.topService,
+      // The offer named around this clinic's own gap, and the two numbers it is
+      // built from — exported separately so a subject line can use the figure
+      // without the whole sentence.
+      top_offer: out.topOffer,
+      gap_hours: out.gapHours,
+      gap_window: out.gapWindow,
       closed_days: out.closedDays,
       closed_hours_per_week: out.closedHoursPerWeek,
       opens_at: placeById.get(clinic.id)?.opensAt ?? label.opensAt ?? "",

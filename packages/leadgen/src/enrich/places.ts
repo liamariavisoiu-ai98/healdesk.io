@@ -35,6 +35,8 @@ export type PlaceHours = {
   closedDays: string[];
   /** Hours per week the phone is not answered by a person. */
   closedHoursPerWeek: number | null;
+  /** The single longest unanswered stretch, and when it falls. */
+  gap: BookingGap | null;
   /** Google's own booking link, when the clinic has one wired up. */
   reserveUrl: string | null;
   phone: string | null;
@@ -106,6 +108,86 @@ export function parseRange(hours: string): [string, string] | null {
   return [to24(m[1]!, m[2], m[3]), close];
 }
 
+export type BookingGap = {
+  /** Hours in the longest continuous stretch with nobody answering. */
+  hours: number;
+  /** When that stretch begins, e.g. "Friday 17:00". */
+  startsDay: string;
+  startsAt: string;
+  /** When it ends — the first moment a human could pick up. */
+  endsDay: string;
+  endsAt: string;
+};
+
+/**
+ * The longest stretch when nobody answers, and when it starts.
+ *
+ * The average is the wrong statistic here and it undersells the problem badly.
+ * A clinic open 9-5 Monday to Friday is unreachable for 128 hours a week, but
+ * quoting that invites "well, they're closed at night, so is everyone". The
+ * number that lands is the single longest gap and where it falls: for that same
+ * clinic it is Friday 17:00 to Monday 09:00 — sixty-four unbroken hours.
+ *
+ * And it falls in the worst possible place. Elective aesthetics is decided in
+ * the evening and at weekends, when someone finally has time to think about it
+ * and ring round. The clinic is shut for precisely the window in which its
+ * next patient makes up their mind, which is a far more specific claim than
+ * "you miss calls".
+ *
+ * Computed rather than asserted, per clinic, from their own published hours.
+ */
+export function longestGap(
+  byDay: Record<string, [string, string] | null>,
+): BookingGap | null {
+  const known = DAYS.filter((d) => d in byDay);
+  if (known.length === 0) return null;
+
+  const mins = (hhmm: string) =>
+    Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3));
+
+  // Two weeks laid end to end, so a gap running through Sunday into Monday is
+  // measured as one stretch instead of two — which is exactly the gap that
+  // matters and the one a single-week loop would cut in half.
+  const opens: { start: number; end: number }[] = [];
+  for (let week = 0; week < 2; week += 1) {
+    DAYS.forEach((day, i) => {
+      const range = byDay[day];
+      if (!range) return;
+      const base = (week * 7 + i) * 1440;
+      opens.push({ start: base + mins(range[0]), end: base + mins(range[1]) });
+    });
+  }
+  if (opens.length === 0) return null;
+
+  let best: BookingGap | null = null;
+  for (let i = 0; i < opens.length - 1; i += 1) {
+    const gapMins = opens[i + 1]!.start - opens[i]!.end;
+    if (gapMins <= 0) continue;
+    if (best && gapMins / 60 <= best.hours) continue;
+
+    const at = (abs: number) => {
+      const day = DAYS[Math.floor(abs / 1440) % 7]!;
+      const m = abs % 1440;
+      return [
+        day,
+        `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`,
+      ] as const;
+    };
+    const [sd, sa] = at(opens[i]!.end);
+    const [ed, ea] = at(opens[i + 1]!.start);
+
+    best = {
+      hours: Math.round(gapMins / 60),
+      startsDay: sd,
+      startsAt: sa,
+      endsDay: ed,
+      endsAt: ea,
+    };
+  }
+
+  return best;
+}
+
 /**
  * Hours a week nobody answers the phone.
  *
@@ -171,6 +253,7 @@ export function toPlaceHours(
     hoursByDay: null,
     closedDays: [],
     closedHoursPerWeek: null,
+    gap: null,
     reserveUrl: null,
     phone: null,
     match: "none",
@@ -211,6 +294,7 @@ export function toPlaceHours(
       : null,
     closedDays,
     closedHoursPerWeek: known.length ? closedHoursPerWeek(byDay) : null,
+    gap: known.length ? longestGap(byDay) : null,
     reserveUrl: item.bookingLinks?.[0]?.url ?? item.reserveTableUrl ?? null,
     phone: item.phone ?? null,
     match,

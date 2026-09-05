@@ -1,4 +1,4 @@
-import type { PlaceHours } from "./places.ts";
+import type { BookingGap, PlaceHours } from "./places.ts";
 import type { BookingDetection } from "./booking.ts";
 import type { Label } from "./label.ts";
 
@@ -62,6 +62,23 @@ export function servicePhrase(topService: string | null): string {
 }
 
 export type OutreachRow = {
+  /**
+   * What healdesk is offering THIS clinic, named around their own gap.
+   *
+   * Not a product description. Every clinic gets the same product; what differs
+   * is which of its properties matters to them, and saying the right one is the
+   * difference between "we do AI reception" and "we answer the calls you get
+   * between Friday evening and Monday morning".
+   *
+   * Built from the same three facts the hook uses — the gap, the service, and
+   * whether they can be booked online — so the offer and the observation cannot
+   * contradict each other in the same email.
+   */
+  topOffer: string;
+  /** Hours in the longest stretch nobody answers. The number the email turns on. */
+  gapHours: string;
+  /** "Friday 17:00 to Monday 09:00" — where the gap falls. */
+  gapWindow: string;
   /** "a Botox appointment", ready to drop into a sentence. */
   servicePhrase: string;
   /** The bare service, for subject lines where the article is wrong. */
@@ -108,6 +125,9 @@ export function buildOutreachRow(
     return {
       servicePhrase: phrase,
       topService: label.topService ?? "",
+      topOffer: "",
+      gapHours: "",
+      gapWindow: "",
       angle: "exclude",
       hook: "",
       closedHoursPerWeek: "",
@@ -128,11 +148,18 @@ export function buildOutreachRow(
   if (!noBooking && weekendClosed.length) angle = "closed-weekends";
   else if (!noBooking && closesEarly(hours)) angle = "closes-early";
 
+  const window = hours?.gap ?? undefined;
+
   return {
     servicePhrase: phrase,
     topService: label.topService ?? "",
+    topOffer: buildOffer(angle, phrase, window),
+    gapHours: window ? String(window.hours) : "",
+    gapWindow: window
+      ? `${window.startsDay} ${window.startsAt} to ${window.endsDay} ${window.endsAt}`
+      : "",
     angle,
-    hook: buildHook(noBooking, weekendClosed, hours, gap, phrase),
+    hook: buildHook(noBooking, weekendClosed, hours, gap, phrase, window),
     closedHoursPerWeek: gap === null ? "" : String(gap),
     closedDays: closed.join(", "),
     excludeReason: "",
@@ -158,8 +185,21 @@ function buildHook(
   hours: PlaceHours | undefined,
   gap: number | null,
   phrase: string,
+  window: BookingGap | undefined,
 ): string {
   const close = hours?.closesAt;
+
+  // The gap outranks everything else, because it is the only fact here the
+  // clinic has not already got a ready answer for. "You're closed weekends"
+  // invites "so is every clinic"; "there are 64 unbroken hours from Friday
+  // evening to Monday morning when nobody can reach you" does not.
+  if (window && window.hours >= 24) {
+    return (
+      `nobody can reach you between ${window.startsDay} ${window.startsAt} and ` +
+      `${window.endsDay} ${window.endsAt} — ${window.hours} straight hours, ` +
+      `which is exactly when someone decides they want ${phrase}`
+    );
+  }
 
   if (weekendClosed.length === 2) {
     return gap
@@ -182,6 +222,44 @@ function buildHook(
     return `there's no way to book ${phrase} with you online, so every one starts with a phone call`;
   }
   return "";
+}
+
+/**
+ * The offer, named around this clinic's own gap.
+ *
+ * Deliberately concrete and small. "AI receptionist" is a category; "answers
+ * the calls that come in between Friday evening and Monday morning" is a job
+ * they can picture being done, and it is the same job in every case — only the
+ * window changes.
+ *
+ * Ordered so the most specific available framing wins, and falls back to
+ * something true and plain rather than to something vague and grand.
+ */
+function buildOffer(
+  angle: Angle,
+  phrase: string,
+  window: BookingGap | undefined,
+): string {
+  if (window && window.hours >= 24) {
+    return (
+      `cover the ${window.hours} hours from ${window.startsDay} ${window.startsAt} ` +
+      `to ${window.endsDay} ${window.endsAt}, so someone who wants ${phrase} ` +
+      `books instead of leaving a message`
+    );
+  }
+
+  switch (angle) {
+    case "phone-only":
+      return `take the calls your front desk cannot, and book ${phrase} straight into your calendar`;
+    case "closes-early":
+      return `answer the after-work calls, so ${phrase} gets booked instead of going to voicemail`;
+    case "closed-weekends":
+      return `answer at weekends, when people actually have time to ring round`;
+    case "has-booking":
+      return `catch the callers your booking page does not — the ones who ring instead of clicking`;
+    default:
+      return "";
+  }
 }
 
 /**

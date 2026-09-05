@@ -1,3 +1,8 @@
+import {
+  CAPABILITY_LABEL,
+  selectCapability,
+  type Capability,
+} from "./capabilities.ts";
 import type { BookingGap, PlaceHours } from "./places.ts";
 import type { BookingDetection } from "./booking.ts";
 import type { Label } from "./label.ts";
@@ -29,6 +34,20 @@ import type { Label } from "./label.ts";
  * Falls back to "an appointment", which is true of every clinic and reads
  * perfectly well — a generic sentence beats a broken one.
  */
+/**
+ * "17:00" -> "5pm". Nobody writes 24-hour time to a clinic.
+ *
+ * Small, and it is exactly the sort of thing that gives a generated email away:
+ * a receptionist reads "17:00" and knows a machine wrote it.
+ */
+export function clockTime(hhmm: string): string {
+  const h = Number(hhmm.slice(0, 2));
+  const m = hhmm.slice(3);
+  const suffix = h < 12 ? "am" : "pm";
+  const hour = h % 12 === 0 ? 12 : h % 12;
+  return m === "00" ? `${hour}${suffix}` : `${hour}.${m}${suffix}`;
+}
+
 export function servicePhrase(topService: string | null): string {
   const s = (topService ?? "").trim();
   if (!s) return "an appointment";
@@ -79,6 +98,8 @@ export type OutreachRow = {
   gapHours: string;
   /** "Friday 17:00 to Monday 09:00" — where the gap falls. */
   gapWindow: string;
+  /** Which of the seven capabilities this clinic is being sold. */
+  capability: Capability;
   /** "a Botox appointment", ready to drop into a sentence. */
   servicePhrase: string;
   /** The bare service, for subject lines where the article is wrong. */
@@ -128,6 +149,7 @@ export function buildOutreachRow(
       topOffer: "",
       gapHours: "",
       gapWindow: "",
+      capability: "around-the-clock",
       angle: "exclude",
       hook: "",
       closedHoursPerWeek: "",
@@ -149,11 +171,13 @@ export function buildOutreachRow(
   else if (!noBooking && closesEarly(hours)) angle = "closes-early";
 
   const window = hours?.gap ?? undefined;
+  const offer = buildOffer(label, phrase, window, !noBooking, closesEarly(hours));
 
   return {
     servicePhrase: phrase,
     topService: label.topService ?? "",
-    topOffer: buildOffer(angle, phrase, window),
+    topOffer: offer.offer,
+    capability: offer.capability,
     gapHours: window ? String(window.hours) : "",
     gapWindow: window
       ? `${window.startsDay} ${window.startsAt} to ${window.endsDay} ${window.endsAt}`
@@ -187,40 +211,39 @@ function buildHook(
   phrase: string,
   window: BookingGap | undefined,
 ): string {
-  const close = hours?.closesAt;
-
-  // The gap outranks everything else, because it is the only fact here the
-  // clinic has not already got a ready answer for. "You're closed weekends"
-  // invites "so is every clinic"; "there are 64 unbroken hours from Friday
-  // evening to Monday morning when nobody can reach you" does not.
+  // One sentence. It has to land in about three seconds, because that is how
+  // long a clinic owner gives an unknown sender before the thumb moves.
+  //
+  // Written to be recognised rather than argued with. A receptionist reading
+  // "Fri 5pm to Mon 9am nobody is there" thinks yes, obviously, that is my job
+  // and I am not there at the weekend. That is the reaction worth having: not
+  // guilt, just recognition. Everything explaining WHY it matters was cut,
+  // because the reader already knows why and telling them is what makes an
+  // email sound like a pitch.
   if (window && window.hours >= 24) {
     return (
-      `nobody can reach you between ${window.startsDay} ${window.startsAt} and ` +
-      `${window.endsDay} ${window.endsAt} — ${window.hours} straight hours, and ` +
-      `that is exactly when someone decides they want ${phrase} and starts ` +
-      `ringing round`
+      `${window.startsDay.slice(0, 3)} ${clockTime(window.startsAt)} to ` +
+      `${window.endsDay.slice(0, 3)} ${clockTime(window.endsAt)} nobody is ` +
+      `picking up. That is ${window.hours} hours.`
     );
   }
 
   if (weekendClosed.length === 2) {
-    return gap
-      ? `you're closed weekends, so there are about ${gap} hours a week when a new patient calling you gets a machine and calls someone else`
-      : `you're closed weekends, which is when people finally get round to booking — and they book with whoever answers`;
+    return `You are shut at weekends, which is when most people get round to ringing.`;
   }
   if (weekendClosed.length === 1) {
-    return `you're closed ${weekendClosed[0]}s, which is the day people have time to ring round and book on the spot`;
+    return `You are shut ${weekendClosed[0]}s. That is the day people ring round.`;
   }
+
+  const close = hours?.closesAt;
   if (close && Number(close.slice(0, 2)) <= 17) {
-    return `you close at ${close}, so anyone ringing after work gets voicemail — and most of them ring the next clinic rather than wait`;
+    return `You close at ${clockTime(close)}, so the after-work calls go to voicemail.`;
   }
   if (gap && gap > 100) {
-    return `you're open about ${168 - gap} hours a week, which leaves ${gap} when a new patient calling you gets a machine`;
+    return `There are about ${gap} hours a week when nobody can reach you.`;
   }
   if (noBooking) {
-    // The weakest hook, and deliberately the last resort: it is true of the
-    // clinic but says nothing only they would recognise. The service name is
-    // what stops it reading as a form letter.
-    return `there's no way to book ${phrase} with you online, so every one starts with a phone call — and every unanswered call is somebody booking elsewhere`;
+    return `There is no way to book ${phrase} with you online, so it all comes through the phone.`;
   }
   return "";
 }
@@ -237,56 +260,37 @@ function buildHook(
  * something true and plain rather than to something vague and grand.
  */
 function buildOffer(
-  angle: Angle,
+  label: Label,
   phrase: string,
   window: BookingGap | undefined,
-): string {
-  // Two things every version below has to carry.
-  //
-  // IMMEDIACY: "books" is a state the caller reaches eventually; "books on the
-  // spot" is the thing being sold. The whole product is that the gap between
-  // wanting an appointment and having one collapses to the length of a phone
-  // call, and a verb without a timeframe gives that away for free.
-  //
-  // THE COMPETITOR: "leaves a message" understates the loss to the point of
-  // being reassuring — a message implies the patient is still yours and you
-  // ring them back tomorrow. They are not. Someone who cannot reach you calls
-  // the next clinic on the list, and by the time you return the call they have
-  // an appointment. That is the actual cost, and naming it is what makes the
-  // 64 hours frightening rather than merely true.
-  if (window && window.hours >= 24) {
-    return (
-      `cover the ${window.hours} hours from ${window.startsDay} ${window.startsAt} ` +
-      `to ${window.endsDay} ${window.endsAt}, so someone who wants ${phrase} ` +
-      `books on the spot instead of leaving a message and ringing the next ` +
-      `clinic while they wait for you to call back`
-    );
-  }
+  hasBooking: boolean,
+  closesEarly: boolean,
+): { offer: string; capability: Capability } {
+  const pitch = selectCapability({
+    segment: label.segment,
+    gapHours: window?.hours ?? null,
+    hasOnlineBooking: hasBooking,
+    closesEarly,
+  });
 
-  switch (angle) {
-    case "phone-only":
-      return (
-        `take the calls your front desk cannot and book ${phrase} into your ` +
-        `calendar there and then, before they try somebody else`
-      );
-    case "closes-early":
-      return (
-        `answer the after-work calls and book them on the spot, so ${phrase} ` +
-        `does not become a voicemail they never wait for`
-      );
-    case "closed-weekends":
-      return (
-        `answer at weekends and book while they are still on the phone — that ` +
-        `is when people ring round, and they book with whoever picks up`
-      );
-    case "has-booking":
-      return (
-        `catch the callers your booking page does not: the ones who ring ` +
-        `instead of clicking, and hang up rather than leave a message`
-      );
-    default:
-      return "";
-  }
+  // Short, and in the register a receptionist would use.
+  //
+  // The person reading this is not lazy, they are busy — they already know they
+  // cannot answer everything, and being told they "miss calls" reads as an
+  // accusation from someone who has never worked a front desk. So the offer
+  // says what happens instead, in one sentence, and stops.
+  //
+  // No em dashes and no semicolons: they are the punctuation of generated text
+  // and a reader clocks them before they clock the argument.
+  const tail =
+    pitch.capability === "around-the-clock" || pitch.capability === "calendar-booking"
+      ? `They book ${phrase} on the spot instead of trying the next clinic.`
+      : pitch.because;
+
+  return {
+    offer: `${CAPABILITY_LABEL[pitch.capability]}. ${tail}`,
+    capability: pitch.capability,
+  };
 }
 
 /**

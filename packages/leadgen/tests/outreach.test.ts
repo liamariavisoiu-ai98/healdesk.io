@@ -86,8 +86,7 @@ describe("the outreach row", () => {
       hours({ closedDays: ["Saturday", "Sunday"] }),
     );
     expect(row.angle).toBe("closed-weekends");
-    expect(row.hook).toContain("closed weekends");
-    expect(row.hook).toContain("128 hours");
+    expect(row.hook).toContain("shut at weekends");
   });
 
   test("the hook is blank rather than invented when nothing is known", () => {
@@ -257,10 +256,22 @@ describe("the offer", () => {
 
     expect(row.gapHours).toBe("64");
     expect(row.gapWindow).toBe("Friday 17:00 to Monday 09:00");
-    expect(row.topOffer).toContain("64 hours");
+    // The number belongs in the hook, which states the problem. The offer says
+    // what we do and stops — repeating the figure in both halves is how an
+    // email starts sounding like a template.
+    expect(row.hook).toContain("64 hours");
+    expect(row.hook).toContain("5pm");
+    expect(row.hook).toContain("9am");
     expect(row.topOffer).toContain("a Botox appointment");
-    // The gap outranks "you're closed weekends", which invites "so is everyone".
-    expect(row.hook).toContain("64 straight hours");
+
+    // Neither half may use an em dash or a semicolon. They are the punctuation
+    // of generated text and a reader clocks them before the argument.
+    expect(row.hook).not.toMatch(/[—;]/);
+    expect(row.topOffer).not.toMatch(/[—;]/);
+
+    // Three seconds is about twenty-five words.
+    expect(row.hook.split(/\s+/).length).toBeLessThan(20);
+    expect(row.topOffer.split(/\s+/).length).toBeLessThan(26);
   });
 
   test("falls back to something true when no hours are known", async () => {

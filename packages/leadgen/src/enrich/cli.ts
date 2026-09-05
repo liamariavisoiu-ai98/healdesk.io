@@ -577,6 +577,9 @@ async function main(): Promise<void> {
       // built from — exported separately so a subject line can use the figure
       // without the whole sentence.
       top_offer: out.topOffer,
+      // Which of the seven capabilities this clinic is being pitched. Exported
+      // so a sequence can branch on it and so the split is measurable.
+      capability: out.capability,
       gap_hours: out.gapHours,
       gap_window: out.gapWindow,
       closed_days: out.closedDays,

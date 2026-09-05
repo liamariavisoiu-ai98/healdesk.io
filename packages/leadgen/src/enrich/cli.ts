@@ -5,6 +5,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { detectBooking } from "./booking.ts";
+import { buildOutreachRow } from "./outreach.ts";
+import { fetchPlaceHours, type PlaceHours } from "./places.ts";
 import { probeDomains, type DnsFinding } from "./dns-probe.ts";
 import { crawlSites, type CrawlResult } from "./crawl.ts";
 import { dedupe, type LeadRow } from "./dedupe.ts";
@@ -430,6 +432,51 @@ async function main(): Promise<void> {
     }
   }
 
+  // ---- 3c. Google hours ---------------------------------------------------
+  //
+  // The website is a dead end for hours — 12% of homepages state any, 0% carry
+  // schema.org openingHours, because the structured form lives in the <head>
+  // the crawler strips. Google is where clinics actually publish them, and
+  // publishes them per-day including the explicit closed days the outreach
+  // turns on.
+  //
+  // Scoped to clinics that will actually be emailed, so nothing is spent
+  // looking up hours for a device manufacturer.
+  let places: PlaceHours[] = [];
+  if (flag("hours")) {
+    const wanted = clinics.filter((c) => {
+      const l = labels.find((x) => x.clinicId === c.id);
+      return l && l.segment !== "not-a-target" && l.segment !== "unknown";
+    });
+
+    console.log(`\n[3c/4] google hours for ${wanted.length} clinics`);
+    places = await checkpoint<PlaceHours[]>("03c-hours", flag("force-hours"), () =>
+      fetchPlaceHours(
+        wanted.map((c) => ({
+          clinicId: c.id,
+          company: c.companyName,
+          city: c.city,
+          state: c.state,
+          domain: c.domain,
+        })),
+        {
+          token: apifyToken!,
+          onProgress: (n, t) => process.stdout.write(`\r  looked up ${n}/${t}`),
+        },
+      ).then((r) => {
+        process.stdout.write("\n");
+        return r;
+      }),
+    );
+
+    const strong = places.filter((p) => p.match === "strong").length;
+    const withHours = places.filter((p) => p.hoursByDay).length;
+    console.log(
+      `  ${strong} matched on website, ${withHours} have hours ` +
+        `(${Math.round((100 * withHours) / Math.max(places.length, 1))}%)`,
+    );
+  }
+
   // ---- 4. Report and export ------------------------------------------------
   console.log("\n[4/4] report\n");
   const report = buildReport(
@@ -447,6 +494,11 @@ async function main(): Promise<void> {
   // the campaign can be pointed at one of these files without further work.
   const byId = new Map(clinics.map((c) => [c.id, c]));
   const crawlById = new Map(crawls.map((c) => [c.clinicId, c]));
+  // Only strong matches carry hours into an email. A weak name match is another
+  // business's opening times addressed to this one.
+  const placeById = new Map(
+    places.filter((p) => p.match === "strong").map((p) => [p.clinicId, p]),
+  );
   // Deterministic, free, and computed from the cached crawl — so re-running the
   // report after tuning a signature costs nothing and needs no re-crawl.
   // Keyed only on crawls that actually produced links.
@@ -497,51 +549,40 @@ async function main(): Promise<void> {
 
     const book = booking.get(label.clinicId);
     const bucket = bySegment.get(label.segment) ?? [];
+    const out = buildOutreachRow(label, book, placeById.get(clinic.id));
+
     bucket.push({
-      clinic_id: clinic.id,
-      company: clinic.companyName,
-      website: clinic.website,
-      domain: clinic.domain,
-      city: clinic.city,
-      state: clinic.state,
-      // The list's phone, then the site's. Both, because they disagree often
-      // enough to matter and the site's is the number patients actually dial —
-      // which is the one that has to be forwarded.
-      phone: clinic.phone,
-      phone_from_site: (crawlById.get(clinic.id)?.phones ?? [])[0] ?? "",
-      phone_all_from_site: (crawlById.get(clinic.id)?.phones ?? []).join(" | "),
+      // --- what a sending tool merges -------------------------------------
       email: contact.email,
       first_name: contact.firstName,
       last_name: contact.lastName,
-      job_title: contact.jobTitle,
+      company: clinic.companyName,
+      city: clinic.city,
+      state: clinic.state,
+      // Site first: it is the number patients actually dial, and therefore the
+      // one that has to forward. The list's number is kept beside it because
+      // the two disagree often enough that picking silently would hide it.
+      phone: (crawlById.get(clinic.id)?.phones ?? [])[0] ?? clinic.phone,
+      phone_from_list: clinic.phone,
+
+      // --- what the email says ---------------------------------------------
+      angle: out.angle,
+      hook: out.hook,
+      closed_days: out.closedDays,
+      closed_hours_per_week: out.closedHoursPerWeek,
+      opens_at: placeById.get(clinic.id)?.opensAt ?? label.opensAt ?? "",
+      closes_at: placeById.get(clinic.id)?.closesAt ?? label.closesAt ?? "",
+
+      // --- whether to send at all ------------------------------------------
+      exclude_reason: out.excludeReason,
       segment: label.segment,
-      confidence: label.confidence,
-      evidence: label.evidence,
-      // From the clinic's own links where we have them; the model's guess only
-      // where the crawl came back with none.
-      phone_dependent: (book ? !book.hasOnlineBooking : !label.offersOnlineBooking)
-        ? "yes"
-        : "no",
-      booking_platform: book?.platform ?? "",
-      booking_platform_name: book?.platformName ?? "",
-      booking_url: book?.bookingUrl ?? "",
-      // "yes" means we can connect read-only and sell verified attribution
-      // instead of estimates — a different and better conversation.
-      healdesk_connects: book?.supported ? "yes" : "no",
-      booking_confidence: book?.confidence ?? "none",
-      // The two columns as asked. Blank where the page did not state hours —
-      // never a plausible-looking default, because this feeds
-      // clinics.openingHours and decides whether a real call counts as
-      // after-hours.
-      opens_at: label.opensAt ?? "",
-      closes_at: label.closesAt ?? "",
-      // Kept alongside, because the pair above discards exactly the part that
-      // matters most for an after-hours product: Saturday.
-      hours_all_days: label.hoursByDay ?? "",
-      weight_loss: label.mentionsWeightLoss ? "yes" : "no",
-      chain: label.isChainOrFranchise ? "yes" : "no",
-      contacts_at_clinic: String(clinic.contacts.length),
+
+      // --- traceable back to evidence, one column not five ------------------
+      website: clinic.website,
+      booking_platform: book?.platformName ?? "",
+      clinic_id: clinic.id,
     });
+
     bySegment.set(label.segment, bucket);
   }
 

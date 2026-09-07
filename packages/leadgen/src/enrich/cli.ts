@@ -5,6 +5,11 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { detectBooking, detectSocial } from "./booking.ts";
+import {
+  fetchBookingPages,
+  selectBookingPage,
+  type BookingPageFinding,
+} from "./booking-page.ts";
 import { buildOutreachRow } from "./outreach.ts";
 import { fetchPlaceHours, type PlaceHours } from "./places.ts";
 import { probeDomains, type DnsFinding } from "./dns-probe.ts";
@@ -432,6 +437,38 @@ async function main(): Promise<void> {
     }
   }
 
+  // ---- 3b2. Booking pages -------------------------------------------------
+  //
+  // One page per clinic, only where the homepage named it and only where no
+  // platform was found already. Runs through the same actor and proxy as the
+  // main crawl rather than a bare fetch, so the requests are indistinguishable
+  // from it and no block can land on a residential IP.
+  //
+  // Patient portals, login pages and competitor endpoints are excluded before
+  // anything is requested. See booking-page.ts for why each of those is a rule
+  // rather than a preference.
+  let pageFindings: BookingPageFinding[] = [];
+  if (!flag("no-booking-pages")) {
+    const pages = crawls.map(selectBookingPage).filter((t) => t !== null);
+
+    if (pages.length && apifyToken) {
+      console.log(`\n[3b2/4] fetching ${pages.length} booking pages`);
+      pageFindings = await checkpoint<BookingPageFinding[]>(
+        "03b2-pages",
+        flag("force-pages"),
+        () =>
+          fetchBookingPages(pages, {
+            token: apifyToken,
+            onProgress: (n, t) => process.stdout.write(`\r  fetched ${n}/${t}`),
+          }).then((r) => {
+            process.stdout.write("\n");
+            return r;
+          }),
+      );
+      console.log(`  ${pageFindings.length} platforms found behind a booking link`);
+    }
+  }
+
   // ---- 3c. Google hours ---------------------------------------------------
   //
   // The website is a dead end for hours — 12% of homepages state any, 0% carry
@@ -513,6 +550,13 @@ async function main(): Promise<void> {
       .filter((c) => (c.links?.length ?? 0) > 0)
       .map((c) => [c.clinicId, detectBooking(c.links!)]),
   );
+
+  // A platform found behind the clinic's own booking link is the strongest
+  // evidence available: the clinic published that path, we followed it, and the
+  // vendor was there. It outranks both the homepage scan and DNS.
+  for (const f of pageFindings) {
+    booking.set(f.clinicId, f.detection);
+  }
 
   // DNS findings override "no booking found", never a page-level detection.
   // A link on the page is stronger evidence than a DNS record: the record

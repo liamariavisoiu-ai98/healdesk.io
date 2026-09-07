@@ -557,3 +557,40 @@ describe("hook diversity", () => {
     expect(hookDiversity([]).warning).toBeNull();
   });
 });
+
+describe("phone-only is a claim, so it needs both sources to be silent", () => {
+  const label = (over: Record<string, unknown> = {}) => ({
+    clinicId: "c", segment: "injectables", confidence: "high", evidence: "",
+    opensAt: null, closesAt: null, hoursByDay: null, topService: "Botox",
+    offersOnlineBooking: true, mentionsWeightLoss: false, isChainOrFranchise: false,
+    ...over,
+  }) as never;
+
+  const row = async (l: unknown, booking: unknown) => {
+    const { buildOutreachRow } = await import("../src/enrich/outreach.ts");
+    return buildOutreachRow(l as never, booking as never, undefined, {
+      jobTitle: "Owner", email: "j@c.com", social: [],
+    });
+  };
+
+  test("a signature-table miss does not become a claim about the clinic", async () => {
+    // 17 clinics whose homepage linked straight to Zocdoc or Vagaro were being
+    // told "every appointment you take starts with a phone call". The link pass
+    // finding nothing means the table has no entry, not that the clinic has no
+    // booking.
+    const r = await row(label({ offersOnlineBooking: true }), { hasOnlineBooking: false });
+    expect(r.angle).toBe("has-booking");
+    expect(r.hook).not.toContain("starts with a phone call");
+  });
+
+  test("a detected platform wins even when the model missed it", async () => {
+    const r = await row(label({ offersOnlineBooking: false }), { hasOnlineBooking: true });
+    expect(r.angle).toBe("has-booking");
+  });
+
+  test("both silent is the only way to claim phone-only", async () => {
+    const r = await row(label({ offersOnlineBooking: false }), { hasOnlineBooking: false });
+    expect(r.angle).toBe("phone-only");
+    expect(r.hook).toContain("starts with a phone call");
+  });
+});

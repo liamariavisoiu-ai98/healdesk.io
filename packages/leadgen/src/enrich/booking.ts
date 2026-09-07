@@ -31,8 +31,12 @@ import { isPlatformId } from "@healdesk/catalog";
  * "Book Now" and the href says `clients.mindbodyonline.com` — the text carries
  * no information and the URL carries all of it. Asking a model to infer the
  * platform from page copy invites a confident guess; matching a URL is
- * evidence. So detection is deterministic, and the model's own
- * `offersOnlineBooking` guess is only consulted when no link matched.
+ * evidence. So detection is deterministic.
+ *
+ * The model's own `offersOnlineBooking` read is not discarded, though. The two
+ * are unioned downstream: a signature table can only ever be a list of vendors
+ * somebody thought to add, so its silence is an absence of evidence and not
+ * evidence of absence. See the noBooking comment in outreach.ts.
  */
 
 export type BookingPlatform = {
@@ -70,7 +74,7 @@ export const BOOKING_PLATFORMS: readonly BookingPlatform[] = [
   {
     id: "boulevard",
     name: "Boulevard",
-    signatures: ["//blvd.app/", "//dashboard.boulevard.io/booking"],
+    signatures: ["//blvd.app/", "//dashboard.boulevard.io/booking", "joinblvd.com/b/"],
   },
   {
     id: "gohighlevel",
@@ -114,7 +118,11 @@ export const BOOKING_PLATFORMS: readonly BookingPlatform[] = [
   {
     id: "vagaro",
     name: "Vagaro",
-    signatures: ["resources/widgetembeddedloader/", "vagaro.com/us01/", "vagaro.com/us02/", "vagaro.com/us03/", "vagaro.com/us04/", "vagaro.com/us05/"],
+    signatures: ["resources/widgetembeddedloader/", "vagaro.com/us01/", "vagaro.com/us02/", "vagaro.com/us03/", "vagaro.com/us04/", "vagaro.com/us05/", "vagaro.com/users/businesswidget"],
+    // vagaro.com/<slug> with no shard and no known marketing path. Written as a
+    // pattern rather than a substring because "vagaro.com/" alone matches their
+    // homepage, their pricing page and every blog post a clinic ever linked.
+    patterns: [new RegExp("(?:^|//)(?:www\\.)?vagaro\\.com/(?!us0|resources|pro|home|pricing|blog|support|about|features|login|signup|freetrial)[a-z0-9][a-z0-9_-]{2,}", "i")],
   },
   {
     id: "mindbody",
@@ -183,6 +191,25 @@ export const BOOKING_PLATFORMS: readonly BookingPlatform[] = [
     id: "calendly",
     name: "Calendly",
     signatures: ["assets.calendly.com/assets/external/", "calendly-inline-widget", "calendly.com/d/"],
+    patterns: [new RegExp("(?:^|//)(?:www\\.)?calendly\\.com/(?!d/|pricing|blog|features|login|signup|about)[a-z0-9][a-z0-9_-]{2,}", "i")],
+  },
+  {
+    id: "zocdoc",
+    name: "Zocdoc",
+    signatures: ["zocdoc.com/practice/", "zocdoc.com/doctor/", "zocdoc.com/wl/"],
+  },
+  {
+    id: "glossgenius",
+    name: "GlossGenius",
+    // Every account is <slug>.glossgenius.com, so the subdomain IS the booking
+    // page. Their marketing site is glossgenius.com with no subdomain.
+    patterns: [new RegExp("//[a-z0-9][a-z0-9-]*\\.glossgenius\\.com/", "i")],
+    signatures: [],
+  },
+  {
+    id: "flexbook",
+    name: "Flexbook",
+    signatures: ["flexbook.me/"],
   },
   {
     id: "cerbo",
@@ -230,7 +257,7 @@ export const BOOKING_PLATFORMS: readonly BookingPlatform[] = [
     id: "phorest",
     name: "Phorest",
     signatures: [],
-    patterns: [new RegExp("//booking-widget\\.phorestcdn\\.com/", "i"), new RegExp("https?://(www\\.)?phorest\\.com/book/[A-Za-z0-9]", "i"), new RegExp("https?://(www\\.)?phorest\\.com/salon/[A-Za-z0-9][A-Za-z0-9_-]*", "i")],
+    patterns: [new RegExp("//booking-widget\\.phorestcdn\\.com/", "i"), new RegExp("https?://(www\\.)?phorest\\.com/book/[A-Za-z0-9]", "i"), new RegExp("https?://(www\\.)?phorest\\.com/salon/[A-Za-z0-9][A-Za-z0-9_-]*", "i"), new RegExp("//[a-z0-9][a-z0-9-]*\\.phorest\\.me/", "i")],
   },
   {
     id: "podium",
@@ -294,6 +321,10 @@ const SELF_HOSTED_BOOKING = [
   "/book-appointment",
   "/request-appointment",
   "/appointments",
+  "/book/",
+  "/booknow",
+  "/schedule-online",
+  "/scheduling",
 ];
 
 /**

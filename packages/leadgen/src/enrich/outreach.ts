@@ -222,7 +222,21 @@ export function buildOutreachRow(
   const closed = hours?.closedDays ?? [];
   const gap = hours?.closedHoursPerWeek ?? null;
   const weekendClosed = closed.filter((d) => d === "Saturday" || d === "Sunday");
-  const noBooking = booking ? !booking.hasOnlineBooking : !label.offersOnlineBooking;
+  // Either source saying "they book online" is enough; only both staying silent
+  // makes it phone-only.
+  //
+  // This used to give the link pass absolute precedence, which meant a gap in
+  // the signature table was promoted to a claim about the clinic. Measured: 17
+  // clinics whose own homepage linked straight to Zocdoc, Vagaro, Boulevard or
+  // Calendly were being told "every appointment you take starts with a phone
+  // call". That sentence is the opening line of the email and it is disprovable
+  // in one click by the person reading it.
+  //
+  // The asymmetry decides the direction. A wrong has-booking costs a weaker
+  // email. A wrong phone-only costs the whole email, and the sender with it.
+  const noBooking = booking?.hasOnlineBooking
+    ? false
+    : !label.offersOnlineBooking;
 
   // Strongest first. A clinic with no online booking at all takes every
   // appointment by phone, so every unanswered call is a lost booking — that

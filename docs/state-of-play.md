@@ -119,6 +119,9 @@ of signature** today.
 - **"DRAFT — NOT FOR EXECUTION" plus a collected signature plus a UI banner reading
   "Business Associate Agreement signed"** is the worst of the three available
   configurations. It almost certainly forms no contract, and it presents as executed.
+  **Resolved 2026-09-05.** Template 1.0.0 is counsel-approved and renders
+  `approvedPreamble()`; the 0.1.0 draft is retained only so old hashes still
+  reproduce, and `currentBaaTemplate()` never returns it.
 
 ### Two things I claimed in comments that are not true of the code
 
@@ -384,9 +387,13 @@ is actually blocking — domains, list verification, counsel-approved BAA, vendo
 ### The real risk is not a cold lead
 
 It is that **checkout is live enough to take money for a service the database refuses
-to let a clinic use**, under a BAA whose own preamble reads *"DRAFT — NOT FOR
-EXECUTION… does not create a business associate relationship"*, while `provisioning.ts`
-pins every new clinic to `synthetic` regardless of what the buyer chose.
+to let a clinic use**: `provisioning.ts` pins every new clinic to `synthetic`
+regardless of what the buyer chose.
+
+The BAA half of this is fixed. It read *"DRAFT — NOT FOR EXECUTION… does not create
+a business associate relationship"* until 2026-09-05; template 1.0.0 is now
+counsel-approved and provisioning refuses to run against an unapproved one. The
+delivery half is not fixed, and it is the half that takes the money.
 
 Burning a lead costs one row in 4,900. Selling an undeliverable service under a
 self-disclaiming contract is an FTC Section 5 fact pattern and is not recoverable by

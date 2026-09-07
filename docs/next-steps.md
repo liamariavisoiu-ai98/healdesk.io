@@ -211,6 +211,9 @@ Untouched, and none of them block launch:
   not ask. The trigger is buyer type — a PE-backed group — not revenue.
 - **More connector adapters.** Boulevard is Enterprise-tier-gated, will not sign
   a BAA with an integrator, and three of its clauses bar the core mechanic.
-- **Selling a subscription.** The BAA says DRAFT in its own body. Discovery
-  calls, design-partner slots and demos are honest today; a $249/month
-  subscription is not.
+- **Selling a subscription.** No longer blocked on the BAA. Template 1.0.0
+  ships `approvedByCounsel: true` (published 2026-09-05) and renders
+  `approvedPreamble()`, which carries no draft warning, and `provisioning.ts`
+  throws if an unapproved template is ever current. What still gates a $249/month
+  subscription is delivery, not paper: `provisioning.ts` pins every new clinic to
+  `synthetic`, so there is nothing to sell yet.

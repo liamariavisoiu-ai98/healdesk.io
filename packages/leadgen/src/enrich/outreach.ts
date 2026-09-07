@@ -75,8 +75,20 @@ export function assistantTerm(jobTitle: string, email: string): "smart" | "virtu
 }
 
 export function servicePhrase(topService: string | null): string {
-  const s = (topService ?? "").trim();
+  let s = (topService ?? "").trim();
   if (!s) return "an appointment";
+
+  // The service is used attributively — "a {service} appointment" — so it has
+  // to be singular. The label step returns whatever the site calls it, and 12%
+  // of the time that is a plural: "Every laser facials appointment you take"
+  // was going out in 8 of 177 rows. One ungrammatical word is enough to tell
+  // the reader a template wrote the sentence.
+  //
+  // A coordinated pair cannot be fixed by trimming a letter — "botox and
+  // fillers" stays wrong either way — so those fall back to the generic
+  // opening rather than being mangled into grammatical nonsense.
+  if (/\s(?:and|&|\+)\s/i.test(s)) return "an appointment";
+  if (/[a-z]s$/.test(s) && !/(?:ss|us|is)$/i.test(s)) s = s.slice(0, -1);
 
   // Vowel SOUND, not vowel letter — and the two diverge in both directions.
   //
@@ -138,18 +150,8 @@ export type OutreachRow = {
    * want to hear about Instagram.
    */
   channels: string;
-  /** The mix as a sentence, for a closing line or a P.S. */
-  channelsLine: string;
-  /**
-   * A second, separate offer for their social channels, or blank.
-   *
-   * Deliberately its own line rather than folded into the main offer. Meta
-   * channels are a different product with a hard boundary — Meta states in its
-   * own Cloud API terms that it is not a business associate, so nothing
-   * clinical can travel there — and merging the two would blur a limit that has
-   * to stay sharp. It also gives a follow-up email something new to say.
-   */
-  socialOffer: string;
+
+
   /** "a Botox appointment", ready to drop into a sentence. */
   servicePhrase: string;
   /** The bare service, for subject lines where the article is wrong. */
@@ -209,8 +211,6 @@ export function buildOutreachRow(
       assistantTerm: assistant,
       socialChannels: social.join(", "),
       channels: "",
-      channelsLine: "",
-      socialOffer: "",
       angle: "exclude",
       hook: "",
       closedHoursPerWeek: "",
@@ -232,8 +232,15 @@ export function buildOutreachRow(
   else if (!noBooking && closesEarly(hours)) angle = "closes-early";
 
   const window = hours?.gap ?? undefined;
-  const offer = buildOffer(label, window, !noBooking, closesEarly(hours), assistant);
   const channels = selectChannels(social, !noBooking);
+  const offer = buildOffer(
+    label,
+    window,
+    !noBooking,
+    closesEarly(hours),
+    assistant,
+    channelPhrase(channels, social),
+  );
 
   return {
     servicePhrase: phrase,
@@ -243,8 +250,6 @@ export function buildOutreachRow(
     assistantTerm: assistant,
     socialChannels: social.join(", "),
     channels: channels.join(", "),
-    channelsLine: buildChannelsLine(channels),
-    socialOffer: buildSocialOffer(social, assistant),
     gapHours: window ? String(window.hours) : "",
     gapWindow: window
       ? `${window.startsDay} ${window.startsAt} to ${window.endsDay} ${window.endsAt}`
@@ -341,6 +346,7 @@ function buildOffer(
   hasBooking: boolean,
   closesEarly: boolean,
   assistant: "smart" | "virtual",
+  surfaces: string,
 ): { offer: string; capability: Capability } {
   const pitch = selectCapability({
     segment: label.segment,
@@ -349,7 +355,16 @@ function buildOffer(
     closesEarly,
   });
 
-  const opening = CAPABILITY_LABEL[pitch.capability].replace("{assistant}", assistant);
+  // The surfaces are named INSIDE the offer, not after it.
+  //
+  // The previous version emitted three lines about channels: one offer for the
+  // phone, a second for social, a third listing the mix. Three sentences saying
+  // versions of the same thing is a capability list that has been broken up,
+  // and a reader clocks it instantly. One sentence that happens to name two or
+  // three surfaces reads like somebody describing what they built.
+  const opening = CAPABILITY_LABEL[pitch.capability]
+    .replace("{assistant}", assistant)
+    .replace("{surfaces}", surfaces);
 
   // One sentence that keeps going, not two that stop.
   //
@@ -375,11 +390,11 @@ function buildOffer(
  * one. The other two are conditional, because offering a surface a clinic does
  * not use is the fastest way to sound like a form.
  *
- * Meta only where they actually run a social channel. Website where patients
+ * Meta only where they actually run a social account. Website where patients
  * cannot already book online, since a site with no booking path is one where
- * every visitor with a question has nowhere to put it, which is exactly what a
- * web assistant fixes. Where booking already exists that case is weaker and the
- * phone argument is stronger, so it is left out rather than padded in.
+ * every visitor with a question has nowhere to put it. Where booking exists
+ * that case is weaker and the phone argument is stronger, so it is left out
+ * rather than padded in.
  */
 function selectChannels(
   social: readonly string[],
@@ -392,60 +407,34 @@ function selectChannels(
 }
 
 /**
- * The mix as one sentence, written to close an email without repeating it.
+ * The surfaces as one noun phrase, to sit inside the offer sentence.
  *
- * "Or whichever of the three you want to start with" is doing real work: the
- * product is three things and a clinic hearing all three at once assumes a
- * project. Saying they can take one makes it a small decision.
+ * This exists because the previous version produced THREE separate lines about
+ * channels: an offer for the phone, another for social, and a third listing the
+ * mix. Three sentences saying versions of the same thing is what a capability
+ * list looks like after it has been broken up, and a reader recognises it
+ * instantly. One sentence naming the surfaces reads like a person describing
+ * their product.
  */
-function buildChannelsLine(channels: readonly string[]): string {
-  const has = (c: string) => channels.includes(c);
-
-  if (has("meta") && has("website")) {
-    return `It can run on your phone line, your website and your social messages, or whichever of the three you want to start with.`;
-  }
-  if (has("meta")) {
-    return `It can run on your phone line and your social messages, or either on its own.`;
-  }
-  if (has("website")) {
-    return `It can run on your phone line and your website chat, or either on its own.`;
-  }
-  return `It runs on your phone line, and can take your website chat as well if that helps.`;
-}
-
-/**
- * The social channel offer, when they actually run one.
- *
- * Named for what it does rather than for the platform, because "we can put a
- * bot on your Instagram" invites the reply that they already have one. The
- * thing they recognise is the DM at nine at night that nobody answered until
- * the morning.
- *
- * Blank when no channel was found. A clinic with no Instagram does not want to
- * hear about Instagram.
- */
-function buildSocialOffer(
-  channels: readonly string[],
-  assistant: "smart" | "virtual",
-): string {
-  if (channels.length === 0) return "";
-
+function channelPhrase(channels: readonly string[], social: readonly string[]): string {
   const named =
-    channels.includes("instagram") && channels.includes("facebook")
-      ? "Instagram and Facebook"
-      : channels.includes("instagram")
-        ? "Instagram"
-        : channels.includes("facebook")
-          ? "Facebook"
-          : channels.includes("whatsapp")
-            ? "WhatsApp"
-            : "TikTok";
+    social.includes("instagram") && social.includes("facebook")
+      ? "Instagram messages"
+      : social.includes("instagram")
+        ? "Instagram messages"
+        : social.includes("facebook")
+          ? "Facebook messages"
+          : social.includes("whatsapp")
+            ? "WhatsApp messages"
+            : "social messages";
 
-  // Neither "assistant" nor the service name again. Three sentences that each
-  // repeat the same two nouns is what makes generated copy sound generated,
-  // and this is the third of them.
-  void assistant;
-  return `It does the same for your ${named} messages, including the ones that arrive overnight.`;
+  const parts = ["your calls"];
+  if (channels.includes("website")) parts.push("website chat");
+  if (channels.includes("meta")) parts.push(named);
+
+  if (parts.length === 1) return parts[0]!;
+  if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+  return `${parts[0]}, ${parts[1]} and ${parts[2]}`;
 }
 
 /**
@@ -455,7 +444,7 @@ function buildSocialOffer(
  * countable. Silently dropping rows makes a list look cleaner than it is and
  * hides the day the rule is wrong.
  */
-function excludeReason(
+export function excludeReason(
   label: Label,
   booking: BookingDetection | undefined,
 ): string {

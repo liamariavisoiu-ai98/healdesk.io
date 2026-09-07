@@ -305,6 +305,15 @@ export type PlacesOptions = {
   token: string;
   batchSize?: number;
   onProgress?: (done: number, total: number) => void;
+  /**
+   * Called with everything fetched so far, after each paid batch lands.
+   *
+   * Stage 3c is ~28 sequential billed runs over about an hour. Without this the
+   * whole hour is held in memory and returned only at the end, so one 5xx at
+   * run 27 throws away 2,700 place scrapes Apify has already charged for. The
+   * crawl stage solved exactly this; this is the same fix.
+   */
+  onBatch?: (partial: PlaceHours[]) => Promise<void> | void;
 };
 
 export type PlacesTarget = {
@@ -343,7 +352,29 @@ export async function fetchPlaceHours(
       // is a fact about the list, and dropping it silently shrinks the
       // denominator.
       skipClosedPlaces: false,
+    }, {
+      // This actor is PAY_PER_EVENT. Without a ceiling the per-run spend is
+      // whatever Apify's default happens to be, which is not a number we chose.
+      // Ten times the expected batch cost: high enough that a normal run never
+      // trips it, low enough that a runaway stops at one batch.
+      maxTotalChargeUsd: Math.max(1, batch.length * 0.004 * 10),
+      // A run that hangs would otherwise hang the whole pipeline, since the
+      // client waits indefinitely by default.
+      timeout: 1800,
+      waitSecs: 1800,
     });
+
+    // .call() is start() + waitForFinish(): it resolves for FAILED, ABORTED and
+    // TIMED-OUT exactly as it does for SUCCEEDED. Reading the dataset without
+    // checking would turn a broken run into 100 clinics recorded as "Google has
+    // no listing" — indistinguishable from the real thing, and then frozen by
+    // the checkpoint.
+    if (run.status !== "SUCCEEDED") {
+      throw new Error(
+        `google places batch ${i / batchSize + 1} ended ${run.status} ` +
+          `(run ${run.id}). Re-run to resume; batches already saved are kept.`,
+      );
+    }
 
     const { items } = await client
       .dataset(run.defaultDatasetId)
@@ -362,6 +393,7 @@ export async function fetchPlaceHours(
       out.push(toPlaceHours(target.clinicId, found, target.domain, target.company));
     }
 
+    await options.onBatch?.(out);
     options.onProgress?.(Math.min(i + batchSize, targets.length), targets.length);
   }
 

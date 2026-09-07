@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,7 +10,7 @@ import {
   selectBookingPage,
   type BookingPageFinding,
 } from "./booking-page.ts";
-import { buildOutreachRow } from "./outreach.ts";
+import { buildOutreachRow, excludeReason } from "./outreach.ts";
 import { fetchPlaceHours, type PlaceHours } from "./places.ts";
 import { probeDomains, type DnsFinding } from "./dns-probe.ts";
 import { crawlSites, type CrawlResult } from "./crawl.ts";
@@ -469,73 +469,6 @@ async function main(): Promise<void> {
     }
   }
 
-  // ---- 3c. Google hours ---------------------------------------------------
-  //
-  // The website is a dead end for hours — 12% of homepages state any, 0% carry
-  // schema.org openingHours, because the structured form lives in the <head>
-  // the crawler strips. Google is where clinics actually publish them, and
-  // publishes them per-day including the explicit closed days the outreach
-  // turns on.
-  //
-  // Scoped to clinics that will actually be emailed, so nothing is spent
-  // looking up hours for a device manufacturer.
-  let places: PlaceHours[] = [];
-  if (flag("hours")) {
-    const wanted = clinics.filter((c) => {
-      const l = labels.find((x) => x.clinicId === c.id);
-      return l && l.segment !== "not-a-target" && l.segment !== "unknown";
-    });
-
-    console.log(`\n[3c/4] google hours for ${wanted.length} clinics`);
-    places = await checkpoint<PlaceHours[]>("03c-hours", flag("force-hours"), () =>
-      fetchPlaceHours(
-        wanted.map((c) => ({
-          clinicId: c.id,
-          company: c.companyName,
-          city: c.city,
-          state: c.state,
-          domain: c.domain,
-        })),
-        {
-          token: apifyToken!,
-          onProgress: (n, t) => process.stdout.write(`\r  looked up ${n}/${t}`),
-        },
-      ).then((r) => {
-        process.stdout.write("\n");
-        return r;
-      }),
-    );
-
-    const strong = places.filter((p) => p.match === "strong").length;
-    const withHours = places.filter((p) => p.hoursByDay).length;
-    console.log(
-      `  ${strong} matched on website, ${withHours} have hours ` +
-        `(${Math.round((100 * withHours) / Math.max(places.length, 1))}%)`,
-    );
-  }
-
-  // ---- 4. Report and export ------------------------------------------------
-  console.log("\n[4/4] report\n");
-  const report = buildReport(
-    clinics,
-    labels,
-    dedupeReport.inputRows,
-    crawlFailed,
-    crawls,
-  );
-  console.log(formatReport(report));
-
-  await writeFile(join(DATA, "report.json"), JSON.stringify(report, null, 2));
-
-  // One CSV per segment, contact-ready. The whole point of the exercise is that
-  // the campaign can be pointed at one of these files without further work.
-  const byId = new Map(clinics.map((c) => [c.id, c]));
-  const crawlById = new Map(crawls.map((c) => [c.clinicId, c]));
-  // Only strong matches carry hours into an email. A weak name match is another
-  // business's opening times addressed to this one.
-  const placeById = new Map(
-    places.filter((p) => p.match === "strong").map((p) => [p.clinicId, p]),
-  );
   // Deterministic, free, and computed from the cached crawl — so re-running the
   // report after tuning a signature costs nothing and needs no re-crawl.
   // Keyed only on crawls that actually produced links.
@@ -580,7 +513,119 @@ async function main(): Promise<void> {
     });
   }
 
-  const bySegment = new Map<Segment, Record<string, string>[]>();
+  // ---- 3c. Google hours ---------------------------------------------------
+  //
+  // The website is a dead end for hours — 12% of homepages state any, 0% carry
+  // schema.org openingHours, because the structured form lives in the <head>
+  // the crawler strips. Google is where clinics actually publish them, and
+  // publishes them per-day including the explicit closed days the outreach
+  // turns on.
+  //
+  // Scoped to clinics that will actually be emailed, so nothing is spent
+  // looking up hours for a device manufacturer.
+  let places: PlaceHours[] = [];
+  if (flag("hours")) {
+    // Excluded clinics are filtered out here, not just at render time. On the
+    // 440, 95 of 273 in-segment clinics are chains or already run a competitor's
+    // AI, so scoping only on segment paid to look up hours for 35% of the list
+    // that buildOutreachRow then discards unread.
+    const wanted = clinics.filter((c) => {
+      const l = labels.find((x) => x.clinicId === c.id);
+      if (!l || l.segment === "not-a-target" || l.segment === "unknown") return false;
+      return !excludeReason(l, booking.get(c.id));
+    });
+
+    // Resume rather than restart. Stage 3c is ~28 sequential billed runs over
+    // about an hour; checkpoint() wrote nothing until all of them finished, so
+    // any failure discarded every place scrape already paid for. Same
+    // keep-and-diff the crawl stage uses.
+    const hoursPath = join(DATA, "03c-hours.json");
+    const alreadyHours: PlaceHours[] =
+      !flag("force-hours") && existsSync(hoursPath)
+        ? (JSON.parse(await readFile(hoursPath, "utf8")) as PlaceHours[])
+        : [];
+    const haveHours = new Set(alreadyHours.map((h) => h.clinicId));
+    const toFetch = wanted.filter((c) => !haveHours.has(c.id));
+
+    console.log(
+      `\n[3c/4] google hours for ${wanted.length} clinics` +
+        (alreadyHours.length ? ` (${haveHours.size} already fetched)` : ""),
+    );
+
+    if (toFetch.length === 0) {
+      console.log("  nothing left to look up");
+      places = alreadyHours;
+    } else if (!apifyToken) {
+      console.error("  APIFY_TOKEN is not set and hours are still missing.");
+      process.exit(1);
+    } else {
+      const writeHours = async (partial: PlaceHours[]) => {
+        await mkdir(DATA, { recursive: true });
+        const tmp = `${hoursPath}.tmp`;
+        await writeFile(tmp, JSON.stringify([...alreadyHours, ...partial], null, 2));
+        await rename(tmp, hoursPath);
+      };
+
+      const fresh = await fetchPlaceHours(
+        toFetch.map((c) => ({
+          clinicId: c.id,
+          company: c.companyName,
+          city: c.city,
+          state: c.state,
+          domain: c.domain,
+        })),
+        {
+          token: apifyToken,
+          onBatch: writeHours,
+          onProgress: (n, t) => process.stdout.write(`\r  looked up ${n}/${t}`),
+        },
+      );
+      process.stdout.write("\n");
+      places = [...alreadyHours, ...fresh];
+      await writeHours(fresh);
+    }
+
+    const strong = places.filter((p) => p.match === "strong").length;
+    const withHours = places.filter((p) => p.hoursByDay).length;
+    console.log(
+      `  ${strong} matched on website, ${withHours} have hours ` +
+        `(${Math.round((100 * withHours) / Math.max(places.length, 1))}%)`,
+    );
+  }
+  // ---- 4. Report and export ------------------------------------------------
+  console.log("\n[4/4] report\n");
+  const report = buildReport(
+    clinics,
+    labels,
+    dedupeReport.inputRows,
+    crawlFailed,
+    crawls,
+  );
+  console.log(formatReport(report));
+
+  await writeFile(join(DATA, "report.json"), JSON.stringify(report, null, 2));
+
+  // One CSV per segment, contact-ready. The whole point of the exercise is that
+  // the campaign can be pointed at one of these files without further work.
+  const byId = new Map(clinics.map((c) => [c.id, c]));
+  const crawlById = new Map(crawls.map((c) => [c.clinicId, c]));
+  // Only strong matches carry hours into an email. A weak name match is another
+  // business's opening times addressed to this one.
+  const placeById = new Map(
+    places.filter((p) => p.match === "strong").map((p) => [p.clinicId, p]),
+  );
+  // Deterministic, free, and computed from the cached crawl — so re-running the
+  // report after tuning a signature costs nothing and needs no re-crawl.
+  // Keyed only on crawls that actually produced links.
+  //
+  // A crawl returning zero links is an absence of evidence, and detectBooking
+  // Keyed by segment, plus one bucket for the excluded. Measured on the 440,
+  // 95 of 273 in-segment rows (35%) are exclusions — a chain, or a clinic
+  // already running GoHighLevel's own AI — and buildOutreachRow returns them
+  // with an empty hook, offer and channels. Bucketing them by segment put a
+  // third of every "campaign-ready" file one paste away from being sent as a
+  // blank email.
+  const bySegment = new Map<Segment | "excluded", Record<string, string>[]>();
 
   for (const label of labels) {
     const clinic = byId.get(label.clinicId);
@@ -592,12 +637,14 @@ async function main(): Promise<void> {
     if (!contact?.email) continue;
 
     const book = booking.get(label.clinicId);
-    const bucket = bySegment.get(label.segment) ?? [];
     const out = buildOutreachRow(label, book, placeById.get(clinic.id), {
       jobTitle: contact.jobTitle,
       email: contact.email,
       social: detectSocial(crawlById.get(clinic.id)?.links ?? []),
     });
+
+    const key = out.excludeReason ? "excluded" : label.segment;
+    const bucket = bySegment.get(key) ?? [];
 
     bucket.push({
       // --- what a sending tool merges -------------------------------------
@@ -634,8 +681,6 @@ async function main(): Promise<void> {
       social_channels: out.socialChannels,
       // Which surfaces to offer, and the closing line that names them.
       channels: out.channels,
-      channels_line: out.channelsLine,
-      social_offer: out.socialOffer,
       gap_hours: out.gapHours,
       gap_window: out.gapWindow,
       closed_days: out.closedDays,
@@ -653,18 +698,30 @@ async function main(): Promise<void> {
       clinic_id: clinic.id,
     });
 
-    bySegment.set(label.segment, bucket);
+    bySegment.set(key, bucket);
   }
 
   const outDir = join(DATA, "segments");
   await mkdir(outDir, { recursive: true });
 
+  // Clear the directory first. A segment that empties out — or moves wholesale
+  // into excluded.csv, as not-a-target and unknown just did — otherwise leaves
+  // last run's file sitting there looking current. That file is a list of email
+  // addresses with no copy in it, which is the one artefact in here that must
+  // never be one paste away from a sending tool.
+  for (const stale of await readdir(outDir)) {
+    if (stale.endsWith(".csv")) await rm(join(outDir, stale));
+  }
+
   console.log("\n  segment files:");
   for (const [segment, rows] of bySegment) {
     const path = join(outDir, `${segment}.csv`);
     await writeFile(path, toCsv(rows));
+    const name = segment === "excluded"
+      ? "Excluded (not for sending)"
+      : SEGMENT_LABELS[segment];
     console.log(
-      `    ${SEGMENT_LABELS[segment].padEnd(38)} ${String(rows.length).padStart(5)}  ${path}`,
+      `    ${name.padEnd(38)} ${String(rows.length).padStart(5)}  ${path}`,
     );
   }
 

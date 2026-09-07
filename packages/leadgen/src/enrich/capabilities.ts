@@ -195,12 +195,22 @@ export function selectCapability(pain: PainInput): CapabilityPitch {
  * {assistant} becomes "smart" or "virtual" depending on who is reading — see
  * assistantTerm().
  */
+/**
+ * The opening clause of the offer, continued by the reason.
+ *
+ * {surfaces} is where the channels land — "your calls", or "your calls and your
+ * Instagram messages", or all three. Naming them inside this sentence is what
+ * replaced three separate lines about channels, which read as a capability list
+ * with the bullets taken off.
+ *
+ * {assistant} becomes "smart" or "virtual" depending on who is reading.
+ */
 export const CAPABILITY_LABEL: Record<Capability, string> = {
-  "around-the-clock": "Our {assistant} assistant picks those up and books them in",
-  "calendar-booking": "Our {assistant} assistant answers and puts them straight in your calendar",
-  deposits: "Our {assistant} assistant secures the deposit while they are still on the call",
-  "lead-qualification": "Our {assistant} assistant sorts the callers before they reach your desk",
-  "win-backs": "Our {assistant} assistant brings your lapsed patients back",
-  "aftercare-reviews": "Our {assistant} assistant checks in after treatment and asks for the review",
-  upselling: "Our {assistant} assistant offers the add-on while they are still on the phone",
+  "around-the-clock": "Our {assistant} assistant picks up {surfaces}, then books them in",
+  "calendar-booking": "Our {assistant} assistant answers {surfaces}, then puts them straight in your calendar",
+  deposits: "Our {assistant} assistant handles {surfaces}, then secures the deposit before they ring off",
+  "lead-qualification": "Our {assistant} assistant sorts {surfaces} before they reach your desk",
+  "win-backs": "Our {assistant} assistant covers {surfaces}, and brings your lapsed patients back",
+  "aftercare-reviews": "Our {assistant} assistant covers {surfaces}, and checks in after treatment",
+  upselling: "Our {assistant} assistant covers {surfaces}, and offers the add-on while they are on the phone",
 };

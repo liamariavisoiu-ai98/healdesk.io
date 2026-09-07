@@ -75,7 +75,15 @@ export const BOOKING_PLATFORMS: readonly BookingPlatform[] = [
   {
     id: "gohighlevel",
     name: "GoHighLevel",
-    signatures: ["leadconnectorhq.com/widget/booking/", "leadconnectorhq.com/widget/group/", "msgsndr.com/widget/booking/", "msgsndr.com/widget/group/"],
+    signatures: [
+      "leadconnectorhq.com/widget/bookings/",
+      "leadconnectorhq.com/widget/booking/",
+      "leadconnectorhq.com/widget/group/",
+      "msgsndr.com/widget/bookings/",
+      "msgsndr.com/widget/booking/",
+      "msgsndr.com/widget/group/",
+      "ludicrous.cloud/widget/bookings/",
+    ],
   },
   {
     id: "zenoti",

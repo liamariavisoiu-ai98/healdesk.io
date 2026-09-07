@@ -396,7 +396,7 @@ describe("copy that must never break", () => {
       { jobTitle: "Owner", email: "j@c.com", social: [] },
     );
     // A clinic with no Instagram does not want to hear about Instagram.
-    expect(row.socialOffer).toBe("");
+    expect(row.topOffer).not.toContain("Instagram");
   });
 });
 
@@ -443,7 +443,7 @@ describe("tone and repetition", () => {
     // Saying it again in the next sentence is the loudest tell that a template
     // wrote both halves.
     for (const r of await rows()) {
-      const all = `${r.hook} ${r.topOffer} ${r.socialOffer}`;
+      const all = `${r.hook} ${r.topOffer}`;
       const hits = all.match(/botox/gi)?.length ?? 0;
       expect(hits, all).toBeLessThan(2);
     }
@@ -451,14 +451,14 @@ describe("tone and repetition", () => {
 
   test("'assistant' appears once, not in every line", async () => {
     for (const r of await rows()) {
-      const all = `${r.hook} ${r.topOffer} ${r.socialOffer}`;
+      const all = `${r.hook} ${r.topOffer}`;
       expect((all.match(/assistant/gi) ?? []).length, all).toBe(1);
     }
   });
 
   test("no em dashes or semicolons anywhere", async () => {
     for (const r of await rows()) {
-      expect(`${r.hook}${r.topOffer}${r.socialOffer}`).not.toMatch(/[—;]/);
+      expect(`${r.hook}${r.topOffer}`).not.toMatch(/[—;]/);
     }
   });
 });
@@ -487,12 +487,42 @@ describe("which surfaces to offer", () => {
     expect((await row(["instagram"], false)).channels).toBe("phone, meta, website");
   });
 
-  test("the closing line offers a smaller first step", async () => {
-    // Three things at once sounds like a project. Saying they can take one
-    // makes it a small decision.
+  test("the offer names the surfaces inside its own sentence", async () => {
+    // These used to be three outputs: the offer, a line about social, and a
+    // line about channels. Three sentences describing one product read as a
+    // capability list with the bullets taken off, so the channels moved inside
+    // the offer and the other two lines went away.
     const all = await row(["instagram"], false);
-    expect(all.channelsLine).toContain("whichever of the three");
+    expect(all.topOffer).toContain("your calls, website chat and Instagram messages");
     const phoneOnly = await row([], true);
-    expect(phoneOnly.channelsLine).toContain("phone line");
+    expect(phoneOnly.topOffer).toContain("your calls");
+    expect(phoneOnly.topOffer).not.toContain("website chat");
+  });
+});
+
+describe("the service is used attributively, so it has to be singular", () => {
+  test("a plural service is singularised", async () => {
+    const { servicePhrase } = await import("../src/enrich/outreach.ts");
+    // "Every laser facials appointment you take" was going out in 8 of 177
+    // rows. One ungrammatical word tells the reader a template wrote it.
+    expect(servicePhrase("laser facials")).toBe("a laser facial appointment");
+    expect(servicePhrase("dental implants")).toBe("a dental implant appointment");
+    expect(servicePhrase("hearing tests")).toBe("a hearing test appointment");
+  });
+
+  test("a coordinated pair falls back rather than being mangled", async () => {
+    const { servicePhrase } = await import("../src/enrich/outreach.ts");
+    // Trimming a letter off "botox and fillers" leaves it just as wrong.
+    expect(servicePhrase("botox and fillers")).toBe("an appointment");
+    expect(servicePhrase("IV therapy and stem cell injections")).toBe("an appointment");
+  });
+
+  test("singulars and acronyms are left alone", async () => {
+    const { servicePhrase } = await import("../src/enrich/outreach.ts");
+    expect(servicePhrase("Botox")).toBe("a Botox appointment");
+    expect(servicePhrase("IPL")).toBe("an IPL appointment");
+    expect(servicePhrase("LASIK")).toBe("a LASIK appointment");
+    // Not a plural: the trailing s is part of the word.
+    expect(servicePhrase("IV therapy")).toBe("an IV therapy appointment");
   });
 });

@@ -10,7 +10,7 @@ import {
   selectBookingPage,
   type BookingPageFinding,
 } from "./booking-page.ts";
-import { buildOutreachRow, excludeReason } from "./outreach.ts";
+import { buildOutreachRow, excludeReason, hookDiversity } from "./outreach.ts";
 import { fetchPlaceHours, type PlaceHours } from "./places.ts";
 import { probeDomains, type DnsFinding } from "./dns-probe.ts";
 import { crawlSites, type CrawlResult } from "./crawl.ts";
@@ -724,6 +724,15 @@ async function main(): Promise<void> {
       `    ${name.padEnd(38)} ${String(rows.length).padStart(5)}  ${path}`,
     );
   }
+
+  const diversity = hookDiversity(
+    [...bySegment].filter(([k]) => k !== "excluded").flatMap(([, r]) => r.map((x) => x.hook!)),
+  );
+  console.log(
+    `\n  ${diversity.distinct} distinct opening sentences across ${diversity.rows} ` +
+      `sendable clinics, top one on ${Math.round(100 * diversity.topShare)}%.`,
+  );
+  if (diversity.warning) console.log(`  ⚠ ${diversity.warning}`);
 
   console.log(
     "\n  Rank on the high-confidence column, not the total — and read the\n" +

@@ -295,28 +295,36 @@ function buildHook(
   //
   // The service is named HERE and nowhere else. Repeating it in the offer was
   // the loudest tell that a template wrote this.
+  //
+  // It is named in EVERY branch, which it was not before. Four of these six
+  // returned a sentence with nothing clinic-specific in it, so a third of the
+  // list received an opening line that was true of every clinic in the country.
+  // The branch decides which fact about the clinic is worth opening on; the
+  // service is what makes it that clinic's sentence rather than a category's.
+  const svc = `${phrase.replace(/^an? /, "")}s`;
+
   if (window && window.hours >= 24) {
     return (
       `There are ${window.hours} hours between ${window.startsDay.slice(0, 3)} ` +
       `${clockTime(window.startsAt)} and ${window.endsDay.slice(0, 3)} ` +
       `${clockTime(window.endsAt)} when your phone could still be booking ` +
-      `${phrase.replace(/^an? /, "")}s for you.`
+      `${svc} for you.`
     );
   }
 
   if (weekendClosed.length === 2) {
-    return `Weekends are when most people finally get round to ringing, and that is a whole market sitting outside your opening hours.`;
+    return `Weekends are when people finally get round to ringing about ${svc}, and that is a whole market sitting outside your opening hours.`;
   }
   if (weekendClosed.length === 1) {
-    return `${weekendClosed[0]}s tend to be the day people ring round, which is a free run at anyone shopping that day.`;
+    return `${weekendClosed[0]}s are when people ring round about ${svc}, so that is a free run at anyone shopping that day.`;
   }
 
   const close = hours?.closesAt;
   if (close && Number(close.slice(0, 2)) <= 17) {
-    return `The hours after ${clockTime(close)} are when people finish work and start ringing, and they are yours for the taking.`;
+    return `The hours after ${clockTime(close)} are when people finish work and start ringing about ${svc}, and they are yours for the taking.`;
   }
   if (gap && gap > 100) {
-    return `There are around ${gap} hours a week your phone could be earning while the practice is shut.`;
+    return `There are around ${gap} hours a week your phone could be booking ${svc} while the practice is shut.`;
   }
   if (noBooking) {
     return `Every ${phrase.replace(/^an? /, "")} you take starts with a phone call, so each one answered is a patient booked.`;
@@ -326,7 +334,7 @@ function buildHook(
   // used to fall through every branch, leaving a hole in the email or silently
   // dropping the personalisation that justified sending it. This claims nothing
   // specific and is true of everyone.
-  return `Some patients will always ring rather than click, and they are usually the ones ready to book today.`;
+  return `Some patients will always ring about ${svc} rather than book online, and they are usually the ones ready today.`;
 }
 
 /**
@@ -465,4 +473,54 @@ export function excludeReason(
     return "chain or franchise — decision sits with a central buyer";
   }
   return "";
+}
+
+export type HookDiversity = {
+  /** Sendable rows measured. Excluded rows have no hook and are not counted. */
+  rows: number;
+  distinct: number;
+  /** Share of rows getting the single most common hook, 0 to 1. */
+  topShare: number;
+  topHook: string;
+  warning: string | null;
+};
+
+/**
+ * How many different opening sentences the list would actually receive.
+ *
+ * The count of hook BRANCHES is not the number worth watching, because three of
+ * them return a fixed string with nothing clinic-specific in it. What decides
+ * whether a campaign reads as researched is how many distinct sentences leave
+ * the building, and that is dominated by whether topService resolved.
+ *
+ * Measured before the Google hours run: 177 sendable rows, 49 distinct hooks,
+ * and the top one on 34.5% of them. So one in three clinics got a sentence that
+ * is true of every clinic in the country. Spam filters cluster on repeated
+ * bodies, and a recipient who forwards it to the practice next door finds the
+ * same email.
+ *
+ * A quarter is the line because below it no single sentence dominates the send,
+ * and above it the campaign has a template the recipient can feel.
+ */
+export function hookDiversity(hooks: string[]): HookDiversity {
+  const used = hooks.filter((h) => h.trim());
+  if (used.length === 0) {
+    return { rows: 0, distinct: 0, topShare: 0, topHook: "", warning: null };
+  }
+
+  const counts = new Map<string, number>();
+  for (const h of used) counts.set(h, (counts.get(h) ?? 0) + 1);
+
+  const [topHook, topCount] = [...counts].sort((a, b) => b[1] - a[1])[0]!;
+  const topShare = topCount / used.length;
+
+  const warning =
+    topShare > 0.25
+      ? `${Math.round(100 * topShare)}% of ${used.length} sendable clinics get the ` +
+        `same opening sentence ("${topHook.slice(0, 48)}..."). That is one ` +
+        `sentence carrying a third of the campaign, and it says nothing about ` +
+        `the clinic reading it.`
+      : null;
+
+  return { rows: used.length, distinct: counts.size, topShare, topHook, warning };
 }

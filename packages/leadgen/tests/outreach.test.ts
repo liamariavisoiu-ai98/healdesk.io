@@ -526,3 +526,34 @@ describe("the service is used attributively, so it has to be singular", () => {
     expect(servicePhrase("IV therapy")).toBe("an IV therapy appointment");
   });
 });
+
+describe("hook diversity", () => {
+  test("every branch names the service, so no branch is a constant", async () => {
+    const { hookDiversity } = await import("../src/enrich/outreach.ts");
+    // Four of the six hook branches used to return a sentence with nothing
+    // clinic-specific in it. Two clinics differing only by service must now get
+    // different sentences, whichever branch they land in.
+    const d = hookDiversity([
+      "Some patients will always ring about Botox appointments rather than book online, and they are usually the ones ready today.",
+      "Some patients will always ring about IV therapy appointments rather than book online, and they are usually the ones ready today.",
+    ]);
+    expect(d.distinct).toBe(2);
+    expect(d.topShare).toBe(0.5);
+  });
+
+  test("a sentence carrying more than a quarter of the send is flagged", async () => {
+    const { hookDiversity } = await import("../src/enrich/outreach.ts");
+    // Spam filters cluster on repeated bodies, and a recipient who forwards it
+    // to the practice next door finds the same email.
+    const same = Array.from({ length: 30 }, () => "One sentence for everyone.");
+    expect(hookDiversity([...same, "A different one."]).warning).toMatch(/same opening sentence/);
+    const spread = Array.from({ length: 30 }, (_, i) => `Sentence ${i}.`);
+    expect(hookDiversity(spread).warning).toBeNull();
+  });
+
+  test("excluded rows have no hook and are not counted", async () => {
+    const { hookDiversity } = await import("../src/enrich/outreach.ts");
+    expect(hookDiversity(["", "  ", "A real hook."]).rows).toBe(1);
+    expect(hookDiversity([]).warning).toBeNull();
+  });
+});

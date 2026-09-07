@@ -33,11 +33,14 @@
  * so: there is no prescribed label. What it cannot be is hidden, ambiguous, or
  * so soft that a reader would not understand the message is a solicitation.
  *
- * So this says "a cold sales note" in plain text at normal size. That is an
+ * So this says "a sales note" in plain text at normal size. That is an
  * unambiguous identification a human actually reads, and it is not a banner.
- * Softening it further — "just reaching out", "a quick note" — would drop below
- * clear and conspicuous, and at that point the footer stops doing the one job
- * it exists for.
+ *
+ * "Cold" was in an earlier draft and came out: it describes how the address was
+ * obtained, not what the message is, so it was doing no statutory work and only
+ * made the line longer. Softening past "sales" is a different matter. "Just
+ * reaching out" or "a quick note" would drop below clear and conspicuous, and at
+ * that point the footer stops doing the one job it exists for.
  */
 
 /**
@@ -54,10 +57,13 @@ export type FooterInput = {
   /** "Sarah Whitfield" — from docs/outreach/sender-identities.csv. */
   senderName: string;
   /**
-   * Which email in the sequence this is. Touch 1 can say "a cold sales note";
-   * by touch 3 "cold" is no longer true and the line reads as a script that
-   * forgot the earlier ones. The identification has to appear on every message,
-   * so it changes wording rather than disappearing.
+   * Which email in the sequence this is.
+   *
+   * The identification is required on every commercial message, so it cannot
+   * drop off after the first. But repeating "A sales note" verbatim on the
+   * fourth email reads as a script that has forgotten it wrote the first three.
+   * "Still a sales note" acknowledges the sequence the recipient can already
+   * see, which is the only honest thing to do at that point.
    */
   touch: number;
 };
@@ -65,7 +71,7 @@ export type FooterInput = {
 export function buildFooter({ senderName, touch }: FooterInput): string {
   const identification =
     touch <= 1
-      ? "A cold sales note"
+      ? "A sales note"
       : "Still a sales note";
 
   return [

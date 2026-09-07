@@ -44,7 +44,7 @@ Use these if the variable does not resolve. Touch 1 shown; for later touches swa
 Sarah Whitfield, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### daniel.reyes@gethealdesk.com  (Google)
@@ -53,7 +53,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Daniel Reyes, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### megan@gethealdesk.com  (Google)
@@ -62,7 +62,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Megan Callahan, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### peter@tryhealdesk.com  (Google)
@@ -71,7 +71,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Peter Lindqvist, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### alyssa.moreau@tryhealdesk.com  (Google)
@@ -80,7 +80,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Alyssa Moreau, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### jordan@tryhealdesk.com  (Google)
@@ -89,7 +89,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Jordan Ashby, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### nicole@usehealdesk.com  (Google)
@@ -98,7 +98,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Nicole Vandermeer, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### marcus.delaney@usehealdesk.com  (Google)
@@ -107,7 +107,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Marcus Delaney, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### rachel@usehealdesk.com  (Google)
@@ -116,7 +116,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Rachel Okonkwo, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### trevor@healdeskapp.com  (Google)
@@ -125,7 +125,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Trevor Blackwood, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### priya.raghavan@healdeskapp.com  (Google)
@@ -134,7 +134,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Priya Raghavan, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### colin@healdeskapp.com  (Google)
@@ -143,7 +143,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Colin Mercer, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### danielle@joinhealdesk.com  (Google)
@@ -152,7 +152,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Danielle Fontaine, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### andre.kowalski@joinhealdesk.com  (Google)
@@ -161,7 +161,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Andre Kowalski, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### bethany@joinhealdesk.com  (Google)
@@ -170,7 +170,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Bethany Sinclair, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### ethan@healdeskpro.com  (Microsoft)
@@ -179,7 +179,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Ethan Bergstrom, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### camille.duarte@healdeskpro.com  (Microsoft)
@@ -188,7 +188,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Camille Duarte, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### nathan@healdeskpro.com  (Microsoft)
@@ -197,7 +197,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Nathan Holloway, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### simone@healdeskusa.com  (Microsoft)
@@ -206,7 +206,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Simone Achterberg, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### gregory.tanaka@healdeskusa.com  (Microsoft)
@@ -215,7 +215,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Gregory Tanaka, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### vanessa@healdeskusa.com  (Microsoft)
@@ -224,7 +224,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Vanessa Kirkland, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### julian@healdeskteam.com  (Microsoft)
@@ -233,7 +233,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Julian Abernathy, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### kendra.solberg@healdeskteam.com  (Microsoft)
@@ -242,7 +242,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Kendra Solberg, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### miles@healdeskteam.com  (Microsoft)
@@ -251,7 +251,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Miles Pettigrew, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### laura@healdeskco.com  (Microsoft)
@@ -260,7 +260,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Laura Castellano, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### dominic.fairbanks@healdeskco.com  (Microsoft)
@@ -269,7 +269,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Dominic Fairbanks, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### anika@healdeskco.com  (Microsoft)
@@ -278,7 +278,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Anika Bhattacharya, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### russell@healdeskhub.com  (Microsoft)
@@ -287,7 +287,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Russell Thornbury, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### elena.vasquez@healdeskhub.com  (Microsoft)
@@ -296,7 +296,7 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Elena Vasquez, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```
 
 ### grant@healdeskhub.com  (Microsoft)
@@ -305,5 +305,5 @@ A cold sales note, so reply "no thanks" if you would rather not get another.
 Grant Ellsworth, healdesk
 800 N King St, Suite 304-1426, Wilmington, DE 19801
 
-A cold sales note, so reply "no thanks" if you would rather not get another.
+A sales note, so reply "no thanks" if you would rather not get another.
 ```

@@ -326,9 +326,24 @@ export async function labelClinicsBatched(
   // reported success, so the remaining 4,312 vanished with no error anywhere.
   // The ids that come back are checked against the ids asked for, below.
 
+  // Submitted through a client that does NOT retry.
+  //
+  // The default is maxRetries: 2, and the create POST carries every clinic's
+  // page text — roughly 33 MB for a full run. If that upload drops after the
+  // server has accepted it but before the response comes back, a retry creates
+  // a SECOND batch. Both are billed, only one id reaches disk, and the orphan
+  // finishes and charges with nothing reading its results.
+  //
+  // A retry cannot be made safe here because the API has no idempotency key on
+  // this endpoint, so the only correct behaviour is to fail once and loudly and
+  // let the operator look before resubmitting.
+  const submitter = new Anthropic(
+    options.apiKey ? { apiKey: options.apiKey, maxRetries: 0 } : { maxRetries: 0 },
+  );
+
   const batch = existing
     ? await client.messages.batches.retrieve(existing)
-    : await client.messages.batches.create({
+    : await submitter.messages.batches.create({
     requests: budgeted.map((crawl) => ({
       custom_id: crawl.clinicId,
       params: {

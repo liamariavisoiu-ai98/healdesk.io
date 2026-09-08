@@ -86,7 +86,7 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // Money collected up front, sessions not booked, course abandoned midway.
     capability: "win-backs",
     because:
-      "the ones who paid up front and drifted, which is revenue already banked",
+      "the ones who paid up front and drifted, which is revenue you have already banked",
   },
   "wellness-iv": {
     // Same-day intent. They are asking about the next two hours.

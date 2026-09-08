@@ -233,7 +233,7 @@ function buildQuestion(
   if (angle === "phone-only") {
     return "Who takes those calls when you're with a patient?";
   }
-  return "Do the ones who ring instead still get through?";
+  return "Is your clinic picking up those inquiries right now?";
 }
 
 export type Angle =
@@ -439,7 +439,7 @@ function buildHook(
   // used to fall through every branch, leaving a hole in the email or silently
   // dropping the personalisation that justified sending it. This claims nothing
   // specific and is true of everyone.
-  return `Your booking page already catches the ones who have decided on ${svc}. The ones with a question first are the ones still ringing.`;
+  return `Your booking page already catches the ones who have decided on ${svc}. Anyone still weighing it up rings to ask first, and that call decides where they book.`;
 }
 
 /**

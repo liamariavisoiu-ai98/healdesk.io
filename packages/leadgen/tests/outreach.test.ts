@@ -102,6 +102,10 @@ describe("the outreach row", () => {
       undefined,
     );
     expect(row.hook).toContain("Your booking page already catches");
+    // The second sentence has to name who, what they do, and why it matters.
+    // "The ones with a question first are the ones still ringing" named none of
+    // the three and only parsed if you still had the first sentence in mind.
+    expect(row.hook).toContain("that call decides where they book");
   });
 
   test("GoHighLevel clinics are excluded, not celebrated", () => {

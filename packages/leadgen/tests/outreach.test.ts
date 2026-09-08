@@ -662,3 +662,41 @@ describe("every message ends on a question", () => {
     expect((all.match(/assistant/gi) ?? []).length, all).toBe(1);
   });
 });
+
+describe("the call budget defers, it does not delete", () => {
+  const crawl = (id: string) => ({
+    clinicId: id, domain: `${id}.com`,
+    // Over the 200-char floor, so partition sends it to toCall rather than
+    // auto-labelling it unknown.
+    text: "x".repeat(400), links: [], pagesFetched: 1,
+  });
+
+  test("clinics past maxCalls come back as unknown, not missing", async () => {
+    const { labelClinics } = await import("../src/enrich/label.ts");
+    // The caller writes [...settled, ...fresh] over the labels file and settled
+    // excludes unknown, so a clinic in neither list is silently deleted.
+    const out = await labelClinics([crawl("a"), crawl("b"), crawl("c")], {
+      maxCalls: 0,
+    });
+    expect(out).toHaveLength(3);
+    expect(out.every((l) => l.segment === "unknown")).toBe(true);
+    expect(out[0]!.evidence).toMatch(/not classified/);
+  });
+
+  test("every input clinic appears in the output exactly once", async () => {
+    const { labelClinics } = await import("../src/enrich/label.ts");
+    const ids = ["a", "b", "c", "d"];
+    const out = await labelClinics(ids.map(crawl), { maxCalls: 0 });
+    expect(out.map((l) => l.clinicId).sort()).toEqual(ids);
+  });
+
+  test("a short-text clinic is still auto-labelled, budget or not", async () => {
+    const { labelClinics } = await import("../src/enrich/label.ts");
+    const out = await labelClinics(
+      [{ clinicId: "s", domain: "s.com", text: "tiny", links: [], pagesFetched: 1 }],
+      { maxCalls: 0 },
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]!.evidence).toMatch(/too little text/);
+  });
+});

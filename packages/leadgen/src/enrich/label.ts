@@ -239,6 +239,24 @@ function unclassified(clinicId: string, why: string): Label {
  * Same rule as the rest of the pipeline — when we cannot measure something, say
  * so rather than emitting a number that reads like a conclusion.
  */
+/**
+ * Clinics the budget did not reach, returned rather than dropped.
+ *
+ * The caller writes `[...settled, ...fresh]` over the labels file, and `settled`
+ * deliberately excludes "unknown" so a retried crawl gets reclassified. So a
+ * clinic that partition() sent to toCall but maxCalls cut off appeared in
+ * NEITHER list, and the write silently deleted it: `--max-llm 5` on a fresh run
+ * would have left a labels file holding five rows and lost the rest.
+ *
+ * Returned as unknown, which is also what makes them retry on the next run.
+ */
+function deferred(crawls: CrawlResult[], why: string): Label[] {
+  return crawls.map((c) => ({
+    ...unclassified(c.clinicId, why),
+    evidence: `not classified: ${why}`,
+  }));
+}
+
 function partition(crawls: CrawlResult[]): {
   labelled: Label[];
   toCall: CrawlResult[];
@@ -312,7 +330,8 @@ export async function labelClinicsBatched(
 
   const { labelled, toCall } = partition(crawls);
   const budgeted = toCall.slice(0, options.maxCalls ?? toCall.length);
-  if (!budgeted.length) return labelled;
+  const skipped = deferred(toCall.slice(budgeted.length), "call budget reached");
+  if (!budgeted.length) return [...labelled, ...skipped];
 
   const existing =
     options.batchIdFile && existsSync(options.batchIdFile)
@@ -463,7 +482,7 @@ export async function labelClinicsBatched(
     );
   }
 
-  return labelled;
+  return [...labelled, ...skipped];
 }
 
 export type LabelOptions = {
@@ -492,6 +511,7 @@ export async function labelClinics(
 
   const { labelled, toCall } = partition(crawls);
   const budgeted = toCall.slice(0, options.maxCalls ?? toCall.length);
+  const skipped = deferred(toCall.slice(budgeted.length), "call budget reached");
   let done = 0;
 
   for (let i = 0; i < budgeted.length; i += concurrency) {
@@ -518,7 +538,7 @@ export async function labelClinics(
     options.onProgress?.(done, budgeted.length);
   }
 
-  return labelled;
+  return [...labelled, ...skipped];
 }
 
 async function labelOne(

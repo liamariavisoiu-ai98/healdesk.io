@@ -112,6 +112,54 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     because:
       "so your medical and cosmetic callers each get the right conversation off the same line",
   },
+  chiropractic: {
+    // Acute pain is the opposite of loyal. Someone whose back went this
+    // morning is ringing down a list and stops at the first clinic that says
+    // "come in at two". Plan adherence is the other half of the business, but
+    // it is the acute call that is won or lost on pickup.
+    capability: "around-the-clock",
+    because:
+      "since someone whose back went this morning rings down the list and stops at whoever can see them today",
+  },
+  "physical-therapy": {
+    // The leak is between the referral and the first appointment. The patient
+    // already has a script; they just never got round to ringing back, or rang
+    // once and got the machine.
+    capability: "calendar-booking",
+    because:
+      "since most of the loss here is a referral that never turns into a first appointment",
+  },
+  acupuncture: {
+    // First visit is high-consideration and question-heavy — does it hurt, how
+    // many sessions, is it covered. Regulars book without thinking.
+    capability: "lead-qualification",
+    because:
+      "since a first-timer rings with questions before they will commit, and that call is the whole conversion",
+  },
+  vision: {
+    // Two businesses under one roof. Routine exams are habit; LASIK is a
+    // four-figure decision that is shopped hard and gated behind a consult, so
+    // the consult booking is the event worth protecting.
+    capability: "calendar-booking",
+    because:
+      "since a LASIK enquiry is a four-figure decision that starts with one consult booking, and routine exams fill the rest of the diary",
+  },
+  hearing: {
+    // The most phone-dependent population in the whole list. Older patients
+    // and the adult children ringing on their behalf do not fill in web forms,
+    // so an unanswered call is not deferred, it is lost.
+    capability: "around-the-clock",
+    because:
+      "since this is the one group that will not fill in a form instead, so a missed call is a lost patient rather than a delayed one",
+  },
+  "mental-health": {
+    // Somebody ringing about psychiatry or ketamine has usually spent a while
+    // working up to it. They will not leave a voicemail and they will not ring
+    // twice.
+    capability: "around-the-clock",
+    because:
+      "since someone who has worked up to making this call will not leave a voicemail and will not ring twice",
+  },
   "other-medical": {
     capability: "lead-qualification",
     because:
@@ -138,11 +186,28 @@ export type PainInput = {
  * since it rests on the classifier rather than on an observation.
  */
 export function selectCapability(pain: PainInput): CapabilityPitch {
+  /**
+   * The gap picks the capability. The segment picks the reason.
+   *
+   * These used to be one decision, and the ordering meant 87% of clinics
+   * short-circuited before their segment was ever consulted: a measured gap
+   * outranks everything, which is right for the hook, and it was also
+   * discarding what we know about who rings a chiropractor versus who rings an
+   * audiologist. One function was deciding both halves of the sentence.
+   *
+   * Splitting them keeps the priority intact — the capability still comes from
+   * the strongest measured fact — while letting the clause that follows say
+   * something true about this segment's patients. It took the offer from 51
+   * distinct sentences across 1,903 clinics to a few hundred.
+   */
+  const reason = BY_SEGMENT[pain.segment]?.because;
+
   if (pain.gapHours !== null && pain.gapHours >= 24) {
     return {
       capability: "around-the-clock",
       because:
-        "We pick up.",
+        reason ??
+        "while the impulse is still there, which is usually the difference between an enquiry and a patient",
     };
   }
 
@@ -150,15 +215,15 @@ export function selectCapability(pain: PainInput): CapabilityPitch {
     return {
       capability: "calendar-booking",
       because:
-        "Every booking you take starts with a phone call.",
+        reason ??
+        "since every booking you take starts with a phone call, so each one answered is a patient booked",
     };
   }
 
   if (pain.closesEarly) {
     return {
       capability: "around-the-clock",
-      because:
-        "Most people ring after work, once they have finished.",
+      because: reason ?? "since most people ring after work, once they have finished",
     };
   }
 
@@ -166,11 +231,11 @@ export function selectCapability(pain: PainInput): CapabilityPitch {
     BY_SEGMENT[pain.segment] ?? {
       capability: "lead-qualification",
       // The honest fallback: true of any clinic, claims nothing specific.
-      because:
-        "The calls you cannot get to are usually the ones ready to book.",
+      because: "since the calls you cannot get to are usually the ones ready to book",
     }
   );
 }
+
 
 /** What each capability is called in an email. Plain, not product-marketing. */
 /**

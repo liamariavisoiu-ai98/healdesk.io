@@ -490,10 +490,7 @@ function buildOffer(
   // The service is NOT repeated here. It is named once, in the hook, and saying
   // it again in the very next sentence is the loudest tell that a template
   // wrote both.
-  const tail =
-    pitch.capability === "around-the-clock" || pitch.capability === "calendar-booking"
-      ? `while the impulse is still there, which is usually the difference between an enquiry and a patient`
-      : pitch.because;
+  const tail = pitch.because;
 
   return { offer: `${opening}, ${tail}.`, capability: pitch.capability };
 }

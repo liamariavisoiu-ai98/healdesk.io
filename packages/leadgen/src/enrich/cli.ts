@@ -237,6 +237,11 @@ async function main(): Promise<void> {
   // 4,312 difference rather than starting again. The same mechanism makes the
   // long run resumable: interrupt it at any point and the next invocation
   // continues from where it stopped.
+  // Read early, because --render selects crawl targets from them.
+  const labelsOnDisk: Label[] = existsSync(join(DATA, "03-labels.json"))
+    ? (JSON.parse(await readFile(join(DATA, "03-labels.json"), "utf8")) as Label[])
+    : [];
+
   const already: CrawlResult[] =
     !flag("force-crawl") && existsSync(crawlPath)
       ? (JSON.parse(await readFile(crawlPath, "utf8")) as CrawlResult[])
@@ -252,8 +257,20 @@ async function main(): Promise<void> {
   // hard blocks) rather than transient. Every subsequent run would otherwise
   // re-attempt the same shrinking set of known-bad domains and block the
   // stages behind it for 45 minutes to recover a handful.
+  // --render re-crawls what could not be READ, which is a different set from
+  // what errored: 224 returned nothing and set an error, 83 returned a page too
+  // thin to classify and set none. Keying on the label rather than the error is
+  // what reaches both.
+  const toRender = new Set(
+    flag("render")
+      ? labelsOnDisk
+          .filter((l) => l.segment === "unknown")
+          .map((l) => l.clinicId)
+      : [],
+  );
   const done = new Set(
     already
+      .filter((c) => !toRender.has(c.clinicId))
       .filter((c) => flag("no-retry") || !c.error)
       .map((c) => c.clinicId),
   );
@@ -312,6 +329,8 @@ async function main(): Promise<void> {
 
     const fresh = await crawlSites(targets, {
       token: apifyToken,
+      // A real browser for every page, not adaptive's HTTP-first guess.
+      crawlerType: flag("render") ? "playwright:firefox" : undefined,
       // Sequential by default. --concurrency raises it to match the Apify plan:
       // free allows 5 concurrent actor runs, Starter 32. Setting it above the
       // plan's cap gets the excess queued or rejected, not run.

@@ -131,6 +131,21 @@ const MAX_LINKS = 400;
 export type CrawlOptions = {
   token: string;
   /**
+   * Which crawler the actor uses. Default "playwright:adaptive".
+   *
+   * Adaptive starts each page with plain HTTP and escalates to a browser only
+   * when it judges the page needs one. That is the right default and it is
+   * cheap, but it means a site that fails outright never gets the browser: 224
+   * of 4,512 returned nothing at all, and 38 of the 77 clinics recovered by
+   * other means were ophthalmology practices, whose sites are heavily
+   * JS-driven.
+   *
+   * "playwright:firefox" renders every page in a real browser. Slower and
+   * dearer per site, so it is worth pointing at the failures rather than at
+   * the whole list.
+   */
+  crawlerType?: "playwright:adaptive" | "playwright:firefox" | "playwright:chrome" | "cheerio";
+  /**
    * Called after every batch, with everything crawled so far.
    *
    * The crawl used to write one file at the very end, which is survivable over
@@ -257,7 +272,8 @@ export async function crawlSites(
   const runBatch = async (index: number): Promise<void> => {
     const run =
       options.runBatch ??
-      ((b: CrawlTarget[]) => crawlOneBatch(client, b, options.htmlDir));
+      ((b: CrawlTarget[]) =>
+        crawlOneBatch(client, b, options.htmlDir, options.crawlerType));
     slots[index] = await run(batches[index]!);
     // Sites, not batches. Counting batches and multiplying credited a short
     // final batch as a full one, so progress overshot and the clamp hid it.
@@ -370,10 +386,11 @@ async function crawlOneBatch(
   client: ApifyClient,
   batch: CrawlTarget[],
   htmlDir?: string,
+  crawlerType?: CrawlOptions["crawlerType"],
 ): Promise<CrawlResult[]> {
   const run = await client.actor("apify/website-content-crawler").call({
     startUrls: batch.map((t) => ({ url: `https://${t.domain}` })),
-    crawlerType: "playwright:adaptive",
+    crawlerType: crawlerType ?? "playwright:adaptive",
     // Start URLs only. Depth 1 lets one site eat the whole run's page budget.
     maxCrawlDepth: 0,
     // Global, so it must scale with the batch: one page per clinic.

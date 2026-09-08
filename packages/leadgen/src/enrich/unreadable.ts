@@ -68,7 +68,7 @@ export function buildUnreadableRow(
     `${assistant} assistant answers it and books them in, day and night, ` +
     `after hours and during weekends.`;
 
-  const closingQuestion = "Is that reaching you at the moment?";
+  const closingQuestion = "Is anyone catching those calls right now?";
 
   return { hook, offer, closingQuestion, assistantTerm: assistant, reason };
 }

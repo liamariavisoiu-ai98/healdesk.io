@@ -11,6 +11,7 @@ import {
   type BookingPageFinding,
 } from "./booking-page.ts";
 import { buildOutreachRow, excludeReason, hookDiversity } from "./outreach.ts";
+import { buildUnreadableRow } from "./unreadable.ts";
 import { fetchPlaceHours, type PlaceHours } from "./places.ts";
 import { probeDomains, type DnsFinding } from "./dns-probe.ts";
 import { crawlSites, type CrawlResult } from "./crawl.ts";
@@ -865,6 +866,48 @@ async function main(): Promise<void> {
         (a.segment ?? "").localeCompare(b.segment ?? "") ||
         (a.company ?? "").localeCompare(b.company ?? ""),
     );
+
+  // ---- The clinics whose site could not be read --------------------------
+  //
+  // Their own file, because they cannot carry the normal copy: every hook in
+  // buildHook asserts something observed, and for these we observed nothing.
+  // See unreadable.ts. One touch, not four.
+  const unreadable: Record<string, string>[] = [];
+  for (const label of labels) {
+    if (label.segment !== "unknown") continue;
+    const clinic = byId.get(label.clinicId);
+    const contact = clinic?.contacts[0];
+    if (!clinic || !contact?.email) continue;
+
+    const crawl = crawlById.get(clinic.id);
+    const reason = crawl?.error ? "no pages fetched" : "too little text";
+    const row = buildUnreadableRow(clinic, contact, reason as never);
+
+    unreadable.push({
+      email: contact.email,
+      first_name: contact.firstName,
+      last_name: contact.lastName,
+      company: clinic.companyName,
+      city: clinic.city,
+      state: clinic.state,
+      phone: clinic.phone ?? "",
+      hook: row.hook,
+      top_offer: row.offer,
+      closing_question: row.closingQuestion,
+      assistant_term: row.assistantTerm,
+      why_unreadable: row.reason,
+      website: clinic.website,
+      clinic_id: clinic.id,
+    });
+  }
+
+  if (unreadable.length) {
+    const p = join(DATA, "unreadable-leads.csv");
+    await writeFile(p, toCsv(unreadable));
+    console.log(
+      `\n  unreadable site (one touch)     ${String(unreadable.length).padStart(5)}  ${p}`,
+    );
+  }
 
   if (secondContacts.length) {
     const secondPath = join(DATA, "second-contacts.csv");

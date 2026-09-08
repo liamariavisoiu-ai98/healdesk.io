@@ -34,6 +34,19 @@ export type Label = {
   /** One line, for spot-checking a sample by eye. */
   evidence: string;
   /**
+   * How many sites, and whose decision it is. Set by the chain triage, absent
+   * on a clinic that was never flagged.
+   *
+   * The classifier's isChainOrFranchise fires on the word "locations", which
+   * catches a two-site independent exactly as hard as a 400-site franchise.
+   * 438 of the 835 it flagged turned out to be a group of two to ten sites
+   * under one owner, which is a better prospect than a single site rather than
+   * a worse one.
+   */
+  chainTier?: "national-chain" | "multi-site-group" | "single-site" | "unclear";
+  /** Locations countable on the page. Null where the page does not say. */
+  siteCount?: number | null;
+  /**
    * Opening hours, when the page states them.
    *
    * Two shapes on purpose. `opensAt`/`closesAt` are the single weekday pair —

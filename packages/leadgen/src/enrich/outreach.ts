@@ -213,7 +213,14 @@ function buildQuestion(
   window: BookingGap | undefined,
   weekendClosed: string[],
   hours: PlaceHours | undefined,
+  sites: number | null,
 ): string {
+  if (sites) {
+    // A single-site owner can usually guess where their calls go. Across four
+    // offices nobody knows, and that is a question an owner actually wants the
+    // answer to rather than one they are being sold.
+    return "Which of your locations misses the most calls?";
+  }
   if (angle === "has-automation") {
     return "Is that the half you'd want covered?";
   }
@@ -242,6 +249,7 @@ export type Angle =
   | "closes-early"
   | "has-booking"
   | "has-automation"
+  | "multi-site"
   | "exclude";
 
 export function buildOutreachRow(
@@ -312,13 +320,38 @@ export function buildOutreachRow(
   // stack as though they have nothing is the one opening they cannot read past.
   const hasAutomation = booking?.platform === "gohighlevel";
 
+  /**
+   * A group of two to ten sites under one owner.
+   *
+   * These were all excluded as "chain or franchise". 438 of the 835 flagged
+   * turned out to be this: a dermatology practice with four offices in one
+   * metro, physician owned, where the owner both decides and answers. That is a
+   * BETTER prospect than a single site, not a worse one, because the same
+   * decision covers several unanswered phones.
+   *
+   * Capped at ten. Above that the owner stops being the person who notices a
+   * missed call, which is the whole premise of the pitch.
+   */
+  const sites =
+    label.chainTier === "multi-site-group" &&
+    typeof label.siteCount === "number" &&
+    label.siteCount >= 2 &&
+    label.siteCount <= 10
+      ? label.siteCount
+      : null;
+
   let angle: Angle = hasAutomation
     ? "has-automation"
-    : noBooking
+    : sites
+      ? "multi-site"
+      : noBooking
       ? "phone-only"
       : "has-booking";
-  if (!hasAutomation && !noBooking && weekendClosed.length) angle = "closed-weekends";
-  else if (!hasAutomation && !noBooking && closesEarly(hours)) angle = "closes-early";
+  if (!hasAutomation && !sites && !noBooking && weekendClosed.length) {
+    angle = "closed-weekends";
+  } else if (!hasAutomation && !sites && !noBooking && closesEarly(hours)) {
+    angle = "closes-early";
+  }
 
   const window = hours?.gap ?? undefined;
   const channels = selectChannels(social);
@@ -336,7 +369,7 @@ export function buildOutreachRow(
     servicePhrase: phrase,
     topService: label.topService ?? "",
     topOffer: offer.offer,
-    closingQuestion: buildQuestion(angle, window, weekendClosed, hours),
+    closingQuestion: buildQuestion(angle, window, weekendClosed, hours, sites),
     capability: offer.capability,
     assistantTerm: assistant,
     socialChannels: social.join(", "),
@@ -346,7 +379,7 @@ export function buildOutreachRow(
       ? `${window.startsDay} ${window.startsAt} to ${window.endsDay} ${window.endsAt}`
       : "",
     angle,
-    hook: buildHook(noBooking, weekendClosed, hours, gap, phrase, window, hasAutomation, assistant),
+    hook: buildHook(noBooking, weekendClosed, hours, gap, phrase, window, hasAutomation, assistant, sites),
     closedHoursPerWeek: gap === null ? "" : String(gap),
     closedDays: closed.join(", "),
     excludeReason: "",
@@ -366,6 +399,15 @@ function closesEarly(hours: PlaceHours | undefined): boolean {
  * wins — a named closed day beats a generic hours gap, because "you're shut
  * Saturdays" reads as research and "you're closed sometimes" reads as spam.
  */
+/**
+ * Small numbers read as words in a sentence. "3 locations" looks like a
+ * spreadsheet; "three locations" looks like someone wrote it.
+ */
+const NUMBER_WORDS: Record<number, string> = {
+  2: "two", 3: "three", 4: "four", 5: "five",
+  6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten",
+};
+
 function buildHook(
   noBooking: boolean,
   weekendClosed: string[],
@@ -375,6 +417,7 @@ function buildHook(
   window: BookingGap | undefined,
   hasAutomation: boolean,
   assistant: "smart" | "virtual",
+  sites: number | null,
 ): string {
   // Framed as what is available, not what is going wrong.
   //
@@ -405,6 +448,23 @@ function buildHook(
       `As far as our research goes, you've already solved the harder half of ` +
       `this with your current automation setup. What's left is a ${assistant} ` +
       `assistant that answers when you can't.`
+    );
+  }
+
+  if (sites) {
+    // The site count is the fact they own and we noticed. Framed as capacity
+    // rather than failure: several phones that could be booking, not several
+    // phones going unanswered.
+    const n = NUMBER_WORDS[sites] ?? String(sites);
+    if (window && window.hours >= 24) {
+      return (
+        `Across your ${n} locations that is ${window.hours} hours when ${n} ` +
+        `phones could still be booking ${svc} for you.`
+      );
+    }
+    return (
+      `With ${n} locations you have ${n} phones that could each be booking ` +
+      `${svc}, not just the busiest one.`
     );
   }
 

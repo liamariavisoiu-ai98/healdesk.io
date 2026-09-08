@@ -772,6 +772,8 @@ async function main(): Promise<void> {
       booking_supported: book?.supported ? "yes" : "",
       reserve_url: placeById.get(clinic.id)?.reserveUrl ?? "",
       is_chain: label.isChainOrFranchise ? "yes" : "",
+      chain_tier: label.chainTier ?? "",
+      site_count: label.siteCount != null ? String(label.siteCount) : "",
       mentions_weight_loss: label.mentionsWeightLoss ? "yes" : "",
 
       // --- traceable back to evidence, one column not five ------------------

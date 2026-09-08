@@ -538,7 +538,22 @@ async function main(): Promise<void> {
   //
   // Scoped to clinics that will actually be emailed, so nothing is spent
   // looking up hours for a device manufacturer.
-  let places: PlaceHours[] = [];
+  // Loading is unconditional; only FETCHING is behind --hours.
+  //
+  // Both used to sit behind the flag, so regenerating the report without it
+  // silently produced worse copy: no PlaceHours means no gap, no closed days
+  // and no closing time, which takes four of the six hook branches out and
+  // collapses hook diversity from 1,168 distinct sentences to 461. Nothing
+  // warned, because from the code's point of view nothing had failed.
+  const hoursPath = join(DATA, "03c-hours.json");
+  let places: PlaceHours[] =
+    !flag("force-hours") && existsSync(hoursPath)
+      ? (JSON.parse(await readFile(hoursPath, "utf8")) as PlaceHours[])
+      : [];
+  if (places.length && !flag("hours")) {
+    console.log(`\n[3c/4] reusing ${places.length} cached hours (--hours to fetch more)`);
+  }
+
   if (flag("hours")) {
     // Excluded clinics are filtered out here, not just at render time. On the
     // 440, 95 of 273 in-segment clinics are chains or already run a competitor's
@@ -554,11 +569,7 @@ async function main(): Promise<void> {
     // about an hour; checkpoint() wrote nothing until all of them finished, so
     // any failure discarded every place scrape already paid for. Same
     // keep-and-diff the crawl stage uses.
-    const hoursPath = join(DATA, "03c-hours.json");
-    const alreadyHours: PlaceHours[] =
-      !flag("force-hours") && existsSync(hoursPath)
-        ? (JSON.parse(await readFile(hoursPath, "utf8")) as PlaceHours[])
-        : [];
+    const alreadyHours = places;
     // Only clinics we actually got an answer for. A row carrying an error is a
     // batch that failed, not a clinic Google has never heard of, and treating
     // the two the same would checkpoint a transient failure as fact.

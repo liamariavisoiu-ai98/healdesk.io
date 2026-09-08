@@ -52,15 +52,21 @@ export function buildUnreadableRow(
   // different fact from a site that loaded and said almost nothing.
   const hook =
     reason === "no pages fetched"
-      ? `I went to look at ${clinic.domain} before writing and it would not load for me, which is worth knowing either way.`
-      : `I had a look at ${clinic.domain} before writing and could not find much on it, which is worth knowing either way.`;
+      ? `I went to look at ${clinic.domain} but couldn't get it to load properly.`
+      : `I went to look at ${clinic.domain} but couldn't find much on it.`;
 
-  // No capability claim, because we have no idea which one fits. What is true
-  // of every clinic is that the phone is the fallback when the site is not
-  // doing the work.
+  // No clinic-specific capability claim, because we have no idea which one
+  // fits. Round-the-clock cover is the one thing true of the product for
+  // everybody, so it is the only thing asserted.
+  //
+  // "might end up" rather than "end up": we do not know that their phone goes
+  // unanswered, and these are the recipients least willing to be told
+  // something about themselves that we cannot have observed.
   const offer =
-    `If patients are hitting the same thing, the phone is where they end up, ` +
-    `and our ${assistant} assistant answers it and books them in.`;
+    `If patients are hitting the same thing, they might end up calling ` +
+    `directly without someone to pick up the phone on your end. Our ` +
+    `${assistant} assistant answers it and books them in, day and night, ` +
+    `after hours and during weekends.`;
 
   const closingQuestion = "Is that reaching you at the moment?";
 

@@ -26,6 +26,13 @@ export type PlaceHours = {
   clinicId: string;
   /** Google's own name for the business, useful for confirming a match. */
   matchedName: string | null;
+  /**
+   * Set when the lookup itself failed, as opposed to Google having no listing.
+   *
+   * Without this the two are the same row — match "none", hours null — so a
+   * transient Apify failure would be checkpointed as fact and never retried.
+   */
+  error?: string;
   /** Weekday opening, 24h HH:MM. Null when Google has no hours either. */
   opensAt: string | null;
   closesAt: string | null;
@@ -314,6 +321,21 @@ export type PlacesOptions = {
    * crawl stage solved exactly this; this is the same fix.
    */
   onBatch?: (partial: PlaceHours[]) => Promise<void> | void;
+  /**
+   * How many Apify runs to have in flight at once. Default 1.
+   *
+   * This stage was strictly sequential: ~12 minutes per 100-clinic batch, so
+   * 1,886 clinics took about three hours on a plan allowing 32 concurrent runs.
+   * Set it to the plan's cap, not above — Apify queues the excess rather than
+   * running it, which looks like concurrency and is not.
+   */
+  concurrency?: number;
+  /**
+   * Test seam. Replaces the Apify call for one batch, the way crawl.ts does,
+   * so the pool's ordering, write-serialisation and failure isolation can be
+   * exercised without spending money or reaching the network.
+   */
+  runBatch?: (batch: PlacesTarget[]) => Promise<PlaceHours[]>;
 };
 
 export type PlacesTarget = {
@@ -330,10 +352,57 @@ export async function fetchPlaceHours(
 ): Promise<PlaceHours[]> {
   const client = new ApifyClient({ token: options.token });
   const batchSize = options.batchSize ?? 100;
-  const out: PlaceHours[] = [];
+  const concurrency = Math.max(1, options.concurrency ?? 1);
 
+  const batches: PlacesTarget[][] = [];
   for (let i = 0; i < targets.length; i += batchSize) {
-    const batch = targets.slice(i, i + batchSize);
+    batches.push(targets.slice(i, i + batchSize));
+  }
+  if (batches.length === 0) return [];
+
+  /**
+   * Results indexed by batch, never appended in completion order.
+   *
+   * Concurrent batches finish out of order, so pushing as they land would make
+   * the file depend on network timing: two identical runs producing differently
+   * ordered output, and any diff between them unreadable.
+   */
+  const slots: PlaceHours[][] = batches.map(() => []);
+  const flatten = (): PlaceHours[] => slots.flat();
+
+  let completed = 0;
+
+  /**
+   * Persistence is serialised even though the lookups are not.
+   *
+   * onBatch writes the whole accumulated array to one file. Two writers
+   * entering that at once interleave and leave a truncated JSON document, and
+   * the failure is silent until the next run fails to parse it — by which point
+   * the places have been paid for. So the fetching parallelises and the writing
+   * does not, and each write snapshots current state rather than a captured
+   * view so a queued write never persists a stale one.
+   */
+  let writeChain: Promise<void> = Promise.resolve();
+  const persist = (): Promise<void> => {
+    writeChain = writeChain
+      .then(() => options.onBatch?.(flatten()))
+      .then(() => undefined)
+      .catch((error) => {
+        console.error(`\n  checkpoint write failed: ${String(error)}`);
+      });
+    return writeChain;
+  };
+
+  const runBatch = async (index: number): Promise<void> => {
+    const batch = batches[index]!;
+
+    if (options.runBatch) {
+      slots[index] = await options.runBatch(batch);
+      completed += batch.length;
+      options.onProgress?.(completed, targets.length);
+      await persist();
+      return;
+    }
 
     const run = await client.actor("compass/crawler-google-places").call({
       // Name plus city and state, because a clinic name alone collides across
@@ -371,8 +440,7 @@ export async function fetchPlaceHours(
     // the checkpoint.
     if (run.status !== "SUCCEEDED") {
       throw new Error(
-        `google places batch ${i / batchSize + 1} ended ${run.status} ` +
-          `(run ${run.id}). Re-run to resume; batches already saved are kept.`,
+        `batch ${index + 1} ended ${run.status} (run ${run.id})`,
       );
     }
 
@@ -383,19 +451,90 @@ export async function fetchPlaceHours(
     // Results come back in search order, but relying on that would silently
     // attach one clinic's hours to another. Matched on website, then name.
     const pool = items as PlaceItem[];
-    for (const target of batch) {
+    slots[index] = batch.map((target) => {
       const bare = target.domain.replace(/^www\./, "").toLowerCase();
       const found =
         pool.find((p) => (p.website ?? "").toLowerCase().includes(bare)) ??
         pool.find(
           (p) => matchQuality(p, target.domain, target.company) === "weak",
         );
-      out.push(toPlaceHours(target.clinicId, found, target.domain, target.company));
-    }
+      return toPlaceHours(target.clinicId, found, target.domain, target.company);
+    });
 
-    await options.onBatch?.(out);
-    options.onProgress?.(Math.min(i + batchSize, targets.length), targets.length);
+    completed += batch.length;
+    options.onProgress?.(completed, targets.length);
+    await persist();
+  };
+
+  // ---- The probe batch ----------------------------------------------------
+  //
+  // Run alone before any fan-out, for the same reason the crawl does it: eight
+  // batches launched together are all billed before the first result can be
+  // inspected, so a bad search-string change costs eight batches instead of
+  // one. Here it is close to free — 17 batches at concurrency 8 is three waves
+  // either way — so the check costs nothing and buys the same protection.
+  await runBatch(0);
+
+  const matched = slots[0]!.filter((h) => h.match !== "none").length;
+  if (slots[0]!.length >= 20 && matched === 0) {
+    throw new Error(
+      `none of the first ${slots[0]!.length} clinics matched a Google listing. ` +
+        `That is a search-string or actor-input problem, not ${slots[0]!.length} ` +
+        `clinics missing from Google — check the Apify run before spending on ` +
+        `the rest. Stopping after one batch.`,
+    );
   }
 
-  return out;
+  // ---- Everything else, concurrently --------------------------------------
+  //
+  // A worker pool rather than Promise.all over every batch: Apify caps
+  // concurrent actor runs per plan (5 free, 32 Starter), and launching all of
+  // them at once gets them queued rather than run. Workers pull from a shared
+  // cursor so a slow batch never blocks a free worker.
+  let cursor = 1;
+  const failures: unknown[] = [];
+
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const index = cursor++;
+      if (index >= batches.length) return;
+
+      try {
+        await runBatch(index);
+      } catch (error) {
+        // One batch failing must not abandon the others: each is a separate
+        // Apify run and the rest are already paid for or in flight.
+        failures.push(error);
+        // Recorded WITH an error rather than as "no Google listing", which is
+        // what a bare toPlaceHours(undefined) would produce and would be
+        // indistinguishable from the real thing. The marker is what lets the
+        // next run tell "we asked and Google had nothing" from "we never got
+        // an answer", and retry only the second.
+        slots[index] = batches[index]!.map((t) => ({
+          ...toPlaceHours(t.clinicId, undefined, t.domain, t.company),
+          error: `batch failed: ${
+            error instanceof Error ? error.message.slice(0, 120) : "unknown"
+          }`,
+        }));
+        completed += batches[index]!.length;
+        options.onProgress?.(completed, targets.length);
+        await persist();
+      }
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, batches.length - 1) }, worker),
+  );
+
+  await writeChain;
+
+  if (failures.length) {
+    console.error(
+      `\n  ${failures.length} of ${batches.length} hour batches failed. Those ` +
+        `clinics are marked and will be retried on the next run.`,
+    );
+  }
+
+  return flatten();
 }

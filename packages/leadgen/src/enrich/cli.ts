@@ -544,7 +544,12 @@ async function main(): Promise<void> {
       !flag("force-hours") && existsSync(hoursPath)
         ? (JSON.parse(await readFile(hoursPath, "utf8")) as PlaceHours[])
         : [];
-    const haveHours = new Set(alreadyHours.map((h) => h.clinicId));
+    // Only clinics we actually got an answer for. A row carrying an error is a
+    // batch that failed, not a clinic Google has never heard of, and treating
+    // the two the same would checkpoint a transient failure as fact.
+    const haveHours = new Set(
+      alreadyHours.filter((h) => !h.error).map((h) => h.clinicId),
+    );
     const toFetch = wanted.filter((c) => !haveHours.has(c.id));
 
     console.log(
@@ -559,10 +564,13 @@ async function main(): Promise<void> {
       console.error("  APIFY_TOKEN is not set and hours are still missing.");
       process.exit(1);
     } else {
+      const retrying = new Set(toFetch.map((c) => c.id));
+      const keepHours = alreadyHours.filter((h) => !retrying.has(h.clinicId));
+
       const writeHours = async (partial: PlaceHours[]) => {
         await mkdir(DATA, { recursive: true });
         const tmp = `${hoursPath}.tmp`;
-        await writeFile(tmp, JSON.stringify([...alreadyHours, ...partial], null, 2));
+        await writeFile(tmp, JSON.stringify([...keepHours, ...partial], null, 2));
         await rename(tmp, hoursPath);
       };
 
@@ -576,12 +584,15 @@ async function main(): Promise<void> {
         })),
         {
           token: apifyToken,
+          // Same flag as the crawl. This stage was sequential at ~12 min per
+          // 100-clinic batch, which is three hours on a plan allowing 32.
+          concurrency: numericArg("concurrency") ?? 1,
           onBatch: writeHours,
           onProgress: (n, t) => process.stdout.write(`\r  looked up ${n}/${t}`),
         },
       );
       process.stdout.write("\n");
-      places = [...alreadyHours, ...fresh];
+      places = [...keepHours, ...fresh];
       await writeHours(fresh);
     }
 

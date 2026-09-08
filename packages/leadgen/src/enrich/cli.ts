@@ -664,12 +664,24 @@ async function main(): Promise<void> {
   // blank email.
   const bySegment = new Map<Segment | "excluded", Record<string, string>[]>();
 
+  /**
+   * Contacts beyond the first, for a LATER wave.
+   *
+   * 347 clinics carry more than one named contact — 4,919 contacts across 4,512
+   * clinics — and only the most senior was ever used. The other 407 are real
+   * people at real clinics, but they are a follow-up, not extra volume: two
+   * emails into one practice on the same day is the blast that burns a domain,
+   * which is why they get their own file rather than more rows in this one.
+   *
+   * The copy is rebuilt per contact rather than copied, so a practice manager
+   * gets "virtual assistant" where the owner got "smart".
+   */
+  const secondContacts: Record<string, string>[] = [];
+
   for (const label of labels) {
     const clinic = byId.get(label.clinicId);
     if (!clinic) continue;
 
-    // Best contact only. A second email to the same clinic within a cold
-    // sequence reads as a blast and burns the domain, not just the lead.
     const contact = clinic.contacts[0];
     if (!contact?.email) continue;
 
@@ -769,6 +781,33 @@ async function main(): Promise<void> {
     });
 
     bySegment.set(key, bucket);
+
+    // Same clinic, same copy inputs, a different person. Excluded clinics are
+    // skipped here too: a row with no hook is no more sendable to the second
+    // contact than to the first.
+    if (!out.excludeReason) {
+      for (const [i, extra] of clinic.contacts.slice(1).entries()) {
+        if (!extra?.email) continue;
+        const alt = buildOutreachRow(label, book, placeById.get(clinic.id), {
+          jobTitle: extra.jobTitle,
+          email: extra.email,
+          social: detectSocial(crawlById.get(clinic.id)?.links ?? []),
+        });
+        secondContacts.push({
+          ...bucket[bucket.length - 1]!,
+          email: extra.email,
+          first_name: extra.firstName,
+          last_name: extra.lastName,
+          angle: alt.angle,
+          hook: alt.hook,
+          top_offer: alt.topOffer,
+          closing_question: alt.closingQuestion,
+          assistant_term: alt.assistantTerm,
+          contact_rank: String(i + 2),
+          contact_title: extra.jobTitle ?? "",
+        });
+      }
+    }
   }
 
   const outDir = join(DATA, "segments");
@@ -824,6 +863,14 @@ async function main(): Promise<void> {
         (a.segment ?? "").localeCompare(b.segment ?? "") ||
         (a.company ?? "").localeCompare(b.company ?? ""),
     );
+
+  if (secondContacts.length) {
+    const secondPath = join(DATA, "second-contacts.csv");
+    await writeFile(secondPath, toCsv(secondContacts));
+    console.log(
+      `\n  second contacts (later wave)    ${String(secondContacts.length).padStart(5)}  ${secondPath}`,
+    );
+  }
 
   const allPath = join(DATA, "all-leads.csv");
   await writeFile(allPath, toCsv(sendable));

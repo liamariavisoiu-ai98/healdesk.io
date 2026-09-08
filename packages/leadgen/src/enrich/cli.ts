@@ -190,7 +190,11 @@ async function main(): Promise<void> {
         "read tomorrow morning has no reason to pay for low latency.\n\n" +
         "--concurrency N runs N Apify batches at once. Default 1. Set it to the\n" +
         "plan's concurrent-run cap (free 5, Starter 32) — above that Apify\n" +
-        "queues the excess rather than running it.",
+        "queues the excess rather than running it.\n\n" +
+        "--no-retry skips sites that failed before. One retry is worth it;\n" +
+        "measured here the second pass recovered 13.5% at 8x the normal\n" +
+        "per-site cost, so after that the failures are permanent and the\n" +
+        "attempt just blocks the stages behind it.",
     );
     process.exit(1);
   }
@@ -240,7 +244,18 @@ async function main(): Promise<void> {
   // A site that failed is worth one more attempt — timeouts are frequently
   // transient, and the first sample lost two obvious clinics that way. A site
   // that returned real content is never re-fetched; it is already paid for.
-  const done = new Set(already.filter((c) => !c.error).map((c) => c.clinicId));
+  //
+  // --no-retry stops there. Measured on this list: the first retry pass
+  // recovered 30 of 254 failures, 13.5%, at $0.044 per recovered site against
+  // a normal $0.0058 — so the failures are mostly permanent (dead domains,
+  // hard blocks) rather than transient. Every subsequent run would otherwise
+  // re-attempt the same shrinking set of known-bad domains and block the
+  // stages behind it for 45 minutes to recover a handful.
+  const done = new Set(
+    already
+      .filter((c) => flag("no-retry") || !c.error)
+      .map((c) => c.clinicId),
+  );
   // Everything ever attempted, successful or not — the retry marker below
   // needs "have we tried this before", not "did it work".
   const attempted = new Set(already.map((c) => c.clinicId));

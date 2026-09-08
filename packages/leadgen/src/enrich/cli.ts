@@ -732,6 +732,36 @@ async function main(): Promise<void> {
       exclude_reason: out.excludeReason,
       segment: label.segment,
 
+      // --- how much to trust each of the above -------------------------------
+      //
+      // Every column above is a claim. These say how it was arrived at, so a row
+      // that reads oddly can be checked in one click rather than argued about.
+      // The raw material they summarise (page text, every href, fingerprints)
+      // stays in data/*.json: it is megabytes, and a CSV is not where you read it.
+      classifier_confidence: label.confidence,
+      classifier_evidence: label.evidence,
+      // opens_at/closes_at silently stitch two sources — Google where the match
+      // was strong, the clinic's own page otherwise. Which one it was decides
+      // whether the number in the email is worth quoting.
+      hours_source: placeById.get(clinic.id)
+        ? "google"
+        : label.opensAt
+          ? "website"
+          : "",
+      google_name: placeById.get(clinic.id)?.matchedName ?? "",
+      hours_by_day: JSON.stringify(
+        placeById.get(clinic.id)?.hoursByDay ?? label.hoursByDay ?? null,
+      ),
+      // A link on the page is stronger evidence than a DNS record: the record
+      // proves the vendor terminates that hostname, the link proves the clinic
+      // actually sends patients there.
+      booking_confidence: book?.confidence ?? "",
+      booking_url: book?.bookingUrl ?? "",
+      booking_supported: book?.supported ? "yes" : "",
+      reserve_url: placeById.get(clinic.id)?.reserveUrl ?? "",
+      is_chain: label.isChainOrFranchise ? "yes" : "",
+      mentions_weight_loss: label.mentionsWeightLoss ? "yes" : "",
+
       // --- traceable back to evidence, one column not five ------------------
       website: clinic.website,
       booking_platform: book?.platformName ?? "",

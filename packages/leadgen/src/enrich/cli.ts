@@ -532,7 +532,7 @@ async function main(): Promise<void> {
     const wanted = clinics.filter((c) => {
       const l = labels.find((x) => x.clinicId === c.id);
       if (!l || l.segment === "not-a-target" || l.segment === "unknown") return false;
-      return !excludeReason(l, booking.get(c.id));
+      return !excludeReason(l);
     });
 
     // Resume rather than restart. Stage 3c is ~28 sequential billed runs over
@@ -672,6 +672,9 @@ async function main(): Promise<void> {
       // built from — exported separately so a subject line can use the figure
       // without the whole sentence.
       top_offer: out.topOffer,
+      // Every message ends on a question. A close that states rather than asks
+      // gives the reader nothing to do, and the reply is the point of sending.
+      closing_question: out.closingQuestion,
       // Which of the seven capabilities this clinic is being pitched. Exported
       // so a sequence can branch on it and so the split is measurable.
       capability: out.capability,

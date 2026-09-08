@@ -86,7 +86,7 @@ describe("the outreach row", () => {
       hours({ closedDays: ["Saturday", "Sunday"] }),
     );
     expect(row.angle).toBe("closed-weekends");
-    expect(row.hook).toContain("Weekends are when most people");
+    expect(row.hook).toContain("Weekends are when people finally get round to ringing");
   });
 
   test("the weakest hook is still true of every clinic", () => {
@@ -101,19 +101,28 @@ describe("the outreach row", () => {
       { hasOnlineBooking: true } as never,
       undefined,
     );
-    expect(row.hook).toContain("always ring rather than click");
+    expect(row.hook).toContain("will always ring about");
   });
 
   test("GoHighLevel clinics are excluded, not celebrated", () => {
-    // GHL bundles Conversation AI. Reading this as a detection is how you pitch
-    // an AI receptionist to someone who already bought a competitor's.
+    // GHL bundles Conversation AI, so these clinics have already bought the
+    // idea and only have to be persuaded about the execution. That is a warmer
+    // start than a clinic which has never considered it, so it changes the
+    // approach rather than the eligibility.
     const row = buildOutreachRow(
       label(),
       { platform: "gohighlevel", hasOnlineBooking: true } as never,
       undefined,
     );
-    expect(row.angle).toBe("exclude");
-    expect(row.excludeReason).toMatch(/already has bundled AI/);
+    expect(row.angle).toBe("has-automation");
+    expect(row.excludeReason).toBe("");
+    // Not "yours is bad" — they chose it, so attacking it attacks them. Scope
+    // is the distinction that is both true and flattering.
+    // The hook credits the build rather than asserting an AI we never detected:
+    // GoHighLevel is a CRM whose Conversation AI is an add-on most never enable.
+    expect(row.hook).toContain("already solved the harder half");
+    expect(row.hook).not.toMatch(/\bAI\b/);
+    expect(row.hook).not.toMatch(/replace|switch|ditch|better than/i);
   });
 
   test("unknown clinics are held for retry, not written off", () => {
@@ -592,5 +601,64 @@ describe("phone-only is a claim, so it needs both sources to be silent", () => {
     const r = await row(label({ offersOnlineBooking: false }), { hasOnlineBooking: false });
     expect(r.angle).toBe("phone-only");
     expect(r.hook).toContain("starts with a phone call");
+  });
+});
+
+describe("every message ends on a question", () => {
+  const row = async (label: unknown, booking: unknown, hours: unknown) => {
+    const { buildOutreachRow } = await import("../src/enrich/outreach.ts");
+    return buildOutreachRow(label as never, booking as never, hours as never, {
+      jobTitle: "Owner", email: "j@c.com", social: [],
+    });
+  };
+  const L = (o: Record<string, unknown> = {}) => ({
+    clinicId: "c", segment: "injectables", confidence: "high", evidence: "",
+    opensAt: null, closesAt: null, hoursByDay: null, topService: "Botox",
+    offersOnlineBooking: false, mentionsWeightLoss: false, isChainOrFranchise: false, ...o,
+  });
+  const H = (o: Record<string, unknown>) => ({
+    clinicId: "c", matchedName: "X", match: "strong", opensAt: "09:00", closesAt: "17:00",
+    hoursByDay: {}, closedDays: [], closedHoursPerWeek: 126, gap: null, phone: null,
+    reserveUrl: null, ...o,
+  });
+
+  test("a sendable row always has one", async () => {
+    for (const [b, h] of [
+      [undefined, undefined],
+      [{ platform: "gohighlevel", hasOnlineBooking: true }, undefined],
+      [undefined, H({ closedDays: ["Sunday"] })],
+      [undefined, H({ gap: { hours: 90, startsDay: "Friday", startsAt: "15:00", endsDay: "Tuesday", endsAt: "09:00" } })],
+    ] as const) {
+      const r = await row(L(), b, h);
+      expect(r.closingQuestion, `${r.angle}`).toMatch(/\?$/);
+      // One line. A question that needs re-reading is a form, not a question.
+      expect(r.closingQuestion.length, r.closingQuestion).toBeLessThan(60);
+    }
+  });
+
+  test("the question is derived, not a stock line", async () => {
+    // A question every recipient gets is a question none of them answers.
+    const seen = new Set<string>();
+    for (const [b, h] of [
+      [undefined, undefined],
+      [{ platform: "gohighlevel", hasOnlineBooking: true }, undefined],
+      [undefined, H({ closedDays: ["Sunday"] })],
+      [undefined, H({ gap: { hours: 90, startsDay: "Friday", startsAt: "15:00", endsDay: "Tuesday", endsAt: "09:00" } })],
+    ] as const) {
+      seen.add((await row(L(), b, h)).closingQuestion);
+    }
+    expect(seen.size).toBe(4);
+  });
+
+  test("an excluded row has none, because it is not being sent", async () => {
+    expect((await row(L({ segment: "not-a-target" }), undefined, undefined)).closingQuestion).toBe("");
+  });
+
+  test("the assistant is named once across the whole message", async () => {
+    // The has-automation hook introduces it, so the offer continues with "It"
+    // rather than saying "Our smart assistant" a second time.
+    const r = await row(L(), { platform: "gohighlevel", hasOnlineBooking: true }, undefined);
+    const all = `${r.hook} ${r.topOffer} ${r.closingQuestion}`;
+    expect((all.match(/assistant/gi) ?? []).length, all).toBe(1);
   });
 });

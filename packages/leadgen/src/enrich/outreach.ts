@@ -132,6 +132,13 @@ export type OutreachRow = {
    * contradict each other in the same email.
    */
   topOffer: string;
+  /**
+   * The one-line question the email ends on, derived from this clinic's facts.
+   *
+   * A message that ends on a statement gives the reader nothing to do, and the
+   * reply is the point of the send.
+   */
+  closingQuestion: string;
   /** Hours in the longest stretch nobody answers. The number the email turns on. */
   gapHours: string;
   /** "Friday 17:00 to Monday 09:00" — where the gap falls. */
@@ -180,11 +187,54 @@ export type OutreachRow = {
  * Ordered by how much the recovered-call story is worth to them, which is not
  * the same as how easy they are to classify.
  */
+/**
+ * The question the email ends on.
+ *
+ * Every message closes with one, because a message that closes with a statement
+ * gives the reader nothing to do and the reply is the entire point of the send.
+ *
+ * It is derived from the same facts as the hook rather than being one stock
+ * line, for the same reason the hooks are: a question every recipient gets is a
+ * question none of them answers. Each one asks about a thing this clinic
+ * specifically does, so answering it takes less effort than ignoring it.
+ *
+ * Kept to one short line. A question that needs re-reading is not a question,
+ * it is a form.
+ */
+function buildQuestion(
+  angle: Angle,
+  window: BookingGap | undefined,
+  weekendClosed: string[],
+  hours: PlaceHours | undefined,
+): string {
+  if (angle === "has-automation") {
+    return "Is that the half you'd want covered?";
+  }
+  if (window && window.hours >= 24) {
+    return `Where do those ${window.hours} hours of calls go at the moment?`;
+  }
+  if (weekendClosed.length === 2) {
+    return "What happens to the weekend callers right now?";
+  }
+  if (weekendClosed.length === 1) {
+    return `Who picks up on a ${weekendClosed[0]}?`;
+  }
+  const close = hours?.closesAt;
+  if (close && Number(close.slice(0, 2)) <= 17) {
+    return `Where do the calls after ${clockTime(close)} go now?`;
+  }
+  if (angle === "phone-only") {
+    return "Who takes those calls when you're with a patient?";
+  }
+  return "Do the ones who ring instead still get through?";
+}
+
 export type Angle =
   | "phone-only"
   | "closed-weekends"
   | "closes-early"
   | "has-booking"
+  | "has-automation"
   | "exclude";
 
 export function buildOutreachRow(
@@ -199,12 +249,13 @@ export function buildOutreachRow(
   const assistant = assistantTerm(contact.jobTitle, contact.email);
   const social = contact.social ?? [];
   const phrase = servicePhrase(label.topService);
-  const exclude = excludeReason(label, booking);
+  const exclude = excludeReason(label);
   if (exclude) {
     return {
       servicePhrase: phrase,
       topService: label.topService ?? "",
       topOffer: "",
+      closingQuestion: "",
       gapHours: "",
       gapWindow: "",
       capability: "around-the-clock",
@@ -241,9 +292,26 @@ export function buildOutreachRow(
   // Strongest first. A clinic with no online booking at all takes every
   // appointment by phone, so every unanswered call is a lost booking — that
   // beats any hours-based angle even when the hours are known.
-  let angle: Angle = noBooking ? "phone-only" : "has-booking";
-  if (!noBooking && weekendClosed.length) angle = "closed-weekends";
-  else if (!noBooking && closesEarly(hours)) angle = "closes-early";
+  // What we detected is an automation PLATFORM, not an AI.
+  //
+  // GoHighLevel is a CRM and marketing-automation product; its Conversation AI
+  // and Voice AI are paid add-ons most accounts never switch on. So a detected
+  // GHL widget proves somebody set this clinic up with real lead-capture
+  // tooling, and proves nothing at all about whether anything answers the
+  // phone. The earlier version asserted "you already run an AI layer", which
+  // was an unverified claim in the first sentence of a cold email.
+  //
+  // It outranks the other angles because writing to a clinic with a built-out
+  // stack as though they have nothing is the one opening they cannot read past.
+  const hasAutomation = booking?.platform === "gohighlevel";
+
+  let angle: Angle = hasAutomation
+    ? "has-automation"
+    : noBooking
+      ? "phone-only"
+      : "has-booking";
+  if (!hasAutomation && !noBooking && weekendClosed.length) angle = "closed-weekends";
+  else if (!hasAutomation && !noBooking && closesEarly(hours)) angle = "closes-early";
 
   const window = hours?.gap ?? undefined;
   const channels = selectChannels(social, !noBooking);
@@ -254,12 +322,14 @@ export function buildOutreachRow(
     closesEarly(hours),
     assistant,
     channelPhrase(channels, social),
+    hasAutomation,
   );
 
   return {
     servicePhrase: phrase,
     topService: label.topService ?? "",
     topOffer: offer.offer,
+    closingQuestion: buildQuestion(angle, window, weekendClosed, hours),
     capability: offer.capability,
     assistantTerm: assistant,
     socialChannels: social.join(", "),
@@ -269,7 +339,7 @@ export function buildOutreachRow(
       ? `${window.startsDay} ${window.startsAt} to ${window.endsDay} ${window.endsAt}`
       : "",
     angle,
-    hook: buildHook(noBooking, weekendClosed, hours, gap, phrase, window),
+    hook: buildHook(noBooking, weekendClosed, hours, gap, phrase, window, hasAutomation, assistant),
     closedHoursPerWeek: gap === null ? "" : String(gap),
     closedDays: closed.join(", "),
     excludeReason: "",
@@ -296,6 +366,8 @@ function buildHook(
   gap: number | null,
   phrase: string,
   window: BookingGap | undefined,
+  hasAutomation: boolean,
+  assistant: "smart" | "virtual",
 ): string {
   // Framed as what is available, not what is going wrong.
   //
@@ -316,6 +388,18 @@ function buildHook(
   // The branch decides which fact about the clinic is worth opening on; the
   // service is what makes it that clinic's sentence rather than a category's.
   const svc = `${phrase.replace(/^an? /, "")}s`;
+
+  if (hasAutomation) {
+    // Credits the work rather than questioning the judgement. The clinic chose
+    // that stack, so anything implying the choice was naive is an insult in the
+    // opening line. "The harder half" says their build was the difficult part,
+    // which is both flattering and true.
+    return (
+      `As far as our research goes, you've already solved the harder half of ` +
+      `this with your current automation setup. What's left is a ${assistant} ` +
+      `assistant that answers when you can't.`
+    );
+  }
 
   if (window && window.hours >= 24) {
     return (
@@ -369,6 +453,7 @@ function buildOffer(
   closesEarly: boolean,
   assistant: "smart" | "virtual",
   surfaces: string,
+  introduced: boolean,
 ): { offer: string; capability: Capability } {
   const pitch = selectCapability({
     segment: label.segment,
@@ -384,7 +469,15 @@ function buildOffer(
   // versions of the same thing is a capability list that has been broken up,
   // and a reader clocks it instantly. One sentence that happens to name two or
   // three surfaces reads like somebody describing what they built.
-  const opening = CAPABILITY_LABEL[pitch.capability]
+  // "Our smart assistant ..." twice in two sentences reads as a template that
+  // forgot it had already spoken. The has-automation hook names the assistant
+  // itself, so here the offer refers back to it instead of re-introducing it,
+  // which is also just how a person continues a sentence they already started.
+  const opening = (
+    introduced
+      ? CAPABILITY_LABEL[pitch.capability].replace(/^Our \{assistant\} assistant/, "It")
+      : CAPABILITY_LABEL[pitch.capability]
+  )
     .replace("{assistant}", assistant)
     .replace("{surfaces}", surfaces);
 
@@ -466,23 +559,20 @@ function channelPhrase(channels: readonly string[], social: readonly string[]): 
  * countable. Silently dropping rows makes a list look cleaner than it is and
  * hides the day the rule is wrong.
  */
-export function excludeReason(
-  label: Label,
-  booking: BookingDetection | undefined,
-): string {
+export function excludeReason(label: Label): string {
   if (label.segment === "not-a-target") {
     return "not a clinic";
   }
   if (label.segment === "unknown") {
     return "site could not be read — retry before writing off";
   }
-  // GoHighLevel bundles Conversation AI and Voice AI, so these clinics already
-  // run an AI booking layer. They are a disqualification dressed as a
-  // detection, and reading them as a win is how you email your own product back
-  // to someone who already bought a competitor's.
-  if (booking?.platform === "gohighlevel") {
-    return "on GoHighLevel — already has bundled AI receptionist";
-  }
+  // GoHighLevel is deliberately NOT an exclusion.
+  //
+  // It bundles Conversation AI and Voice AI, so these clinics have already
+  // bought the idea and only have to be persuaded about the execution. That is
+  // a warmer starting position than a clinic which has never considered it, not
+  // a colder one. What it changes is the approach, not the eligibility, so it
+  // sets the "has-ai" angle below rather than removing the row.
   if (label.isChainOrFranchise) {
     return "chain or franchise — decision sits with a central buyer";
   }

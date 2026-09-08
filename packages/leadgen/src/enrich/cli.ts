@@ -774,6 +774,33 @@ async function main(): Promise<void> {
   );
   if (diversity.warning) console.log(`  ⚠ ${diversity.warning}`);
 
+  // ---- One file with every sendable lead --------------------------------
+  //
+  // The segment files exist for choosing which market to work. This exists for
+  // loading a list, and sixteen files is sixteen chances to import fifteen.
+  //
+  // Excluded rows are NOT folded in, deliberately. They have an empty hook,
+  // offer and question, and the whole reason they were split out is that a
+  // blank-copy row sitting next to a sendable one is one paste away from being
+  // sent as an empty email. They keep their own file, with their reason.
+  //
+  // Sorted by segment then company so it is browsable, rather than by whatever
+  // order the labels happened to be in.
+  const sendable = [...bySegment]
+    .filter(([key]) => key !== "excluded")
+    .flatMap(([, r]) => r)
+    .sort(
+      (a, b) =>
+        (a.segment ?? "").localeCompare(b.segment ?? "") ||
+        (a.company ?? "").localeCompare(b.company ?? ""),
+    );
+
+  const allPath = join(DATA, "all-leads.csv");
+  await writeFile(allPath, toCsv(sendable));
+  console.log(
+    `\n  all sendable leads              ${String(sendable.length).padStart(5)}  ${allPath}`,
+  );
+
   console.log(
     "\n  Rank on the high-confidence column, not the total — and read the\n" +
       "  warnings above before choosing. See docs/leadgen-enrichment.md.\n",

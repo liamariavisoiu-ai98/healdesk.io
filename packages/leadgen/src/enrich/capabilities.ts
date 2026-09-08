@@ -61,7 +61,7 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // First-timers price-shop three clinics in a sitting; regulars are loyal.
     capability: "around-the-clock",
     because:
-      "since first-timers ring two or three places in one go and book with whoever answers, while your regulars would have waited for you anyway",
+      "since first-timers ring three places in one go and book with whoever answers",
   },
   "weight-loss-glp1": {
     // Almost all new to the practice, comparing on price and start date, and
@@ -86,7 +86,7 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // Money collected up front, sessions not booked, course abandoned midway.
     capability: "win-backs",
     because:
-      "the ones who paid up front and drifted, which is revenue already banked and waiting to be finished",
+      "the ones who paid up front and drifted, which is revenue already banked",
   },
   "wellness-iv": {
     // Same-day intent. They are asking about the next two hours.
@@ -98,13 +98,13 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // Months of working up to the call, and they will not leave a message.
     capability: "lead-qualification",
     because:
-      "since they have thought about it for months before ringing, and a live answer is what turns that into a consult",
+      "since they have thought about it for months, and a live answer is what books the consult",
   },
   dental: {
     // Pain overrides loyalty entirely, and recall is where the money leaks.
     capability: "around-the-clock",
     because:
-      "so somebody in real pain gets a time from you rather than from the next practice they try",
+      "so somebody in real pain gets a time from you, not from the next practice they try",
   },
   dermatology: {
     // Two different callers on one line, and the cosmetic one leaves quietly.
@@ -119,7 +119,7 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // it is the acute call that is won or lost on pickup.
     capability: "around-the-clock",
     because:
-      "since someone whose back went this morning rings down the list and stops at whoever can see them today",
+      "since someone whose back went this morning stops at whoever can see them today",
   },
   "physical-therapy": {
     // The leak is between the referral and the first appointment. The patient
@@ -142,7 +142,7 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // the consult booking is the event worth protecting.
     capability: "calendar-booking",
     because:
-      "since a LASIK enquiry is a four-figure decision that starts with one consult booking, and routine exams fill the rest of the diary",
+      "since a LASIK enquiry is a four-figure decision that starts with one consult booking",
   },
   hearing: {
     // The most phone-dependent population in the whole list. Older patients
@@ -150,7 +150,7 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // so an unanswered call is not deferred, it is lost.
     capability: "around-the-clock",
     because:
-      "since this is the one group that will not fill in a form instead, so a missed call is a lost patient rather than a delayed one",
+      "since this is the one group that will not fill in a form instead",
   },
   "mental-health": {
     // Somebody ringing about psychiatry or ketamine has usually spent a while
@@ -158,7 +158,7 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // twice.
     capability: "around-the-clock",
     because:
-      "since someone who has worked up to making this call will not leave a voicemail and will not ring twice",
+      "since someone who has worked up to this call will not leave a voicemail",
   },
   "other-medical": {
     capability: "lead-qualification",
@@ -272,7 +272,7 @@ export function selectCapability(pain: PainInput): CapabilityPitch {
  */
 export const CAPABILITY_LABEL: Record<Capability, string> = {
   "around-the-clock": "Our {assistant} assistant picks up {surfaces}, then books them in",
-  "calendar-booking": "Our {assistant} assistant answers {surfaces}, then puts them straight in your calendar",
+  "calendar-booking": "Our {assistant} assistant answers {surfaces}, then books straight into your calendar",
   deposits: "Our {assistant} assistant handles {surfaces}, then secures the deposit before they ring off",
   "lead-qualification": "Our {assistant} assistant sorts {surfaces} before they reach your desk",
   "win-backs": "Our {assistant} assistant covers {surfaces}, and brings your lapsed patients back",

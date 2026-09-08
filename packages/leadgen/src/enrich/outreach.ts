@@ -90,32 +90,39 @@ export function servicePhrase(topService: string | null): string {
   if (/\s(?:and|&|\+)\s/i.test(s)) return "an appointment";
   if (/[a-z]s$/.test(s) && !/(?:ss|us|is)$/i.test(s)) s = s.slice(0, -1);
 
-  // Vowel SOUND, not vowel letter — and the two diverge in both directions.
+  // Some services ARE the appointment. The classifier returns "OB-GYN
+  // appointment", "urgent care visit", "acne treatment" — the clinic's own
+  // words — and appending another booking noun produced "an OB-GYN appointment
+  // appointment" in six rows and "a primary care visit appointment" in more.
   //
-  // An initialism read letter by letter takes its article from the first
-  // letter's name: IPL is "eye-pee-ell", so "an IPL". But an acronym read as a
-  // word takes it from the word: LASIK is "lay-sik", so "a LASIK" — even though
-  // L on its own is "ell".
-  //
-  // Nothing in the spelling distinguishes the two, so a general rule cannot
-  // exist. This is a small closed domain, so the word-acronyms are simply
-  // listed. Anything not listed falls back to the letter-name rule, which is
-  // right for the initialisms that dominate here.
+  // Where the service already names the encounter, it is the noun and nothing
+  // is added to it.
+  const ENCOUNTER = /\b(appointment|visit|consult|consultation|session|treatment|exam|scan|screening)$/i;
+  if (ENCOUNTER.test(s)) return `${article(s)} ${s}`;
+
+
+  return `${article(s)} ${s} appointment`;
+}
+
+/**
+ * "a" or "an", by the SOUND of what follows, not the letter.
+ *
+ * An initialism read letter by letter takes its article from the first letter's
+ * name: IPL is "eye-pee-ell", so "an IPL". An acronym read as a word takes it
+ * from the word: LASIK is "lay-sik", so "a LASIK", even though L on its own is
+ * "ell". Nothing in the spelling distinguishes the two, so the word-acronyms
+ * are listed.
+ */
+function article(s: string): string {
   const WORD_ACRONYMS = new Set(["lasik", "smile", "hifu", "bbl", "prk"]);
-
-  const spelledVowel = /^[aeiou]/i.test(s);
-  const initialism = /^[A-Z]{2,}$/.test(s.split(/\s/)[0] ?? "");
-  const letterNameIsVowel = /^[AEFHILMNORSX]/.test(s);
-
-  const vowelSound = WORD_ACRONYMS.has(s.toLowerCase().split(/\s/)[0] ?? "")
+  const first = s.split(/\s/)[0] ?? "";
+  const initialism = /^[A-Z]{2,}$/.test(first);
+  const vowelSound = WORD_ACRONYMS.has(first.toLowerCase())
     ? /^[aeiou]/i.test(s)
     : initialism
-      ? letterNameIsVowel
-      : spelledVowel;
-
-  const article = vowelSound ? "an" : "a";
-
-  return `${article} ${s} appointment`;
+      ? /^[AEFHILMNORSX]/.test(s)
+      : /^[aeiou]/i.test(s);
+  return vowelSound ? "an" : "a";
 }
 
 export type OutreachRow = {
@@ -314,7 +321,7 @@ export function buildOutreachRow(
   else if (!hasAutomation && !noBooking && closesEarly(hours)) angle = "closes-early";
 
   const window = hours?.gap ?? undefined;
-  const channels = selectChannels(social, !noBooking);
+  const channels = selectChannels(social);
   const offer = buildOffer(
     label,
     window,
@@ -432,7 +439,7 @@ function buildHook(
   // used to fall through every branch, leaving a hole in the email or silently
   // dropping the personalisation that justified sending it. This claims nothing
   // specific and is true of everyone.
-  return `Some patients will always ring about ${svc} rather than book online, and they are usually the ones ready today.`;
+  return `Your booking page already catches the ones who have decided on ${svc}. The ones with a question first are the ones still ringing.`;
 }
 
 /**
@@ -498,23 +505,29 @@ function buildOffer(
 /**
  * Which surfaces to put in front of this clinic.
  *
- * Phone is always there: it is the core of the product and every clinic has
- * one. The other two are conditional, because offering a surface a clinic does
- * not use is the fastest way to sound like a form.
+ * Phone and website are always there. Every clinic has both, and both are half
+ * the product.
  *
- * Meta only where they actually run a social account. Website where patients
- * cannot already book online, since a site with no booking path is one where
- * every visitor with a question has nowhere to put it. Where booking exists
- * that case is weaker and the phone argument is stronger, so it is left out
- * rather than padded in.
+ * Website used to be conditional on the clinic having NO online booking, on the
+ * reasoning that a booking widget already catches the visitor. It does not. A
+ * widget is a form: it takes a slot from somebody who has already decided, and
+ * it has no answer for the visitor who wants to know whether they are a
+ * candidate, whether their insurance is taken, what it costs, or whether they
+ * can have it while pregnant. That person does not fill in a booking form. They
+ * leave. So the rule excluded the chatbot from 1,225 of 1,753 clinics — 70% —
+ * and the ones it excluded were the ones sophisticated enough to have bought
+ * booking software.
+ *
+ * What differs by case is the REASON, not whether to offer it. See
+ * websiteReason() below.
+ *
+ * Meta stays conditional: offering Instagram to a clinic with no Instagram is
+ * the fastest way to sound like a form, and unlike a website it is genuinely
+ * absent for more than half the list.
  */
-function selectChannels(
-  social: readonly string[],
-  hasOnlineBooking: boolean,
-): string[] {
-  const out = ["phone"];
+function selectChannels(social: readonly string[]): string[] {
+  const out = ["phone", "website"];
   if (social.length > 0) out.push("meta");
-  if (!hasOnlineBooking) out.push("website");
   return out;
 }
 
@@ -529,16 +542,13 @@ function selectChannels(
  * their product.
  */
 function channelPhrase(channels: readonly string[], social: readonly string[]): string {
-  const named =
-    social.includes("instagram") && social.includes("facebook")
-      ? "Instagram messages"
-      : social.includes("instagram")
-        ? "Instagram messages"
-        : social.includes("facebook")
-          ? "Facebook messages"
-          : social.includes("whatsapp")
-            ? "WhatsApp messages"
-            : "social messages";
+  const named = social.includes("instagram")
+    ? "Instagram"
+    : social.includes("facebook")
+      ? "Facebook"
+      : social.includes("whatsapp")
+        ? "WhatsApp"
+        : "social messages";
 
   const parts = ["your calls"];
   if (channels.includes("website")) parts.push("website chat");

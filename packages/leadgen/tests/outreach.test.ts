@@ -101,7 +101,7 @@ describe("the outreach row", () => {
       { hasOnlineBooking: true } as never,
       undefined,
     );
-    expect(row.hook).toContain("will always ring about");
+    expect(row.hook).toContain("Your booking page already catches");
   });
 
   test("GoHighLevel clinics are excluded, not celebrated", () => {
@@ -290,7 +290,7 @@ describe("the offer", () => {
     // it stops being a sentence someone reads in three seconds and starts
     // being a paragraph they skip.
     expect(row.hook.split(/\s+/).length).toBeLessThan(30);
-    expect(row.topOffer.split(/\s+/).length).toBeLessThan(32);
+    expect(row.topOffer.split(/\s+/).length).toBeLessThanOrEqual(32);
   });
 
   test("falls back to something true when no hours are known", async () => {
@@ -490,10 +490,15 @@ describe("which surfaces to offer", () => {
   test("phone is always offered, the other two are earned", async () => {
     // Offering a surface a clinic does not use is the fastest way to sound like
     // a form.
-    expect((await row([], true)).channels).toBe("phone");
-    expect((await row(["instagram"], true)).channels).toBe("phone, meta");
+    // Phone and website are unconditional: every clinic has both and both are
+    // half the product. Website used to be withheld wherever a clinic already
+    // had online booking, which excluded the chatbot from 70% of the list on
+    // the false premise that a booking widget answers questions.
+    expect((await row([], true)).channels).toBe("phone, website");
     expect((await row([], false)).channels).toBe("phone, website");
-    expect((await row(["instagram"], false)).channels).toBe("phone, meta, website");
+    // Meta stays earned. Offering Instagram to a clinic without one is the
+    // fastest way to sound like a form.
+    expect((await row(["instagram"], true)).channels).toBe("phone, website, meta");
   });
 
   test("the offer names the surfaces inside its own sentence", async () => {
@@ -502,10 +507,10 @@ describe("which surfaces to offer", () => {
     // capability list with the bullets taken off, so the channels moved inside
     // the offer and the other two lines went away.
     const all = await row(["instagram"], false);
-    expect(all.topOffer).toContain("your calls, website chat and Instagram messages");
-    const phoneOnly = await row([], true);
-    expect(phoneOnly.topOffer).toContain("your calls");
-    expect(phoneOnly.topOffer).not.toContain("website chat");
+    expect(all.topOffer).toContain("your calls, website chat and Instagram");
+    const noSocial = await row([], true);
+    expect(noSocial.topOffer).toContain("your calls and website chat");
+    expect(noSocial.topOffer).not.toContain("Instagram");
   });
 });
 

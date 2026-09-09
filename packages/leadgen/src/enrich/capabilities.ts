@@ -58,10 +58,17 @@ export type CapabilityPitch = {
  */
 const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
   injectables: {
-    // First-timers price-shop three clinics in a sitting; regulars are loyal.
+    // NOT the price-shopping claim. docs/marketing-voice-demo-context.md:203
+    // and synthflow-voice-agent-context.md:74 both assert first-timers "ring
+    // three med spas in one sitting and book whoever picks up"; the founder says
+    // that is not true of this market, and they know it and I do not.
+    //
+    // This rests on who is in the room instead, which is structural: in a med
+    // spa the person who would answer is usually the person treating, unlike a
+    // dental practice with a dedicated front desk.
     capability: "around-the-clock",
     because:
-      "since first-timers ring three places and book with whoever picks up, you or someone else",
+      "since the desk is empty while you are in a room",
   },
   "weight-loss-glp1": {
     // Almost all new to the practice, comparing on price and start date, and

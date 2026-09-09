@@ -716,6 +716,12 @@ async function main(): Promise<void> {
     const bucket = bySegment.get(key) ?? [];
 
     bucket.push({
+      // Which list this row belongs to, and therefore how it may be sent.
+      // Every row carries it, because a merged file where the distinction is
+      // implicit is a file where the distinction gets lost.
+      list: "primary",
+      touches: "4",
+
       // --- what a sending tool merges -------------------------------------
       email: contact.email,
       first_name: contact.firstName,
@@ -817,6 +823,8 @@ async function main(): Promise<void> {
         });
         secondContacts.push({
           ...bucket[bucket.length - 1]!,
+          list: "second-contact",
+          touches: "2",
           email: extra.email,
           first_name: extra.firstName,
           last_name: extra.lastName,
@@ -903,6 +911,8 @@ async function main(): Promise<void> {
     const row = buildUnreadableRow(clinic, contact, reason as never);
 
     unreadable.push({
+      list: "unreadable",
+      touches: "1",
       email: contact.email,
       first_name: contact.firstName,
       last_name: contact.lastName,
@@ -936,10 +946,32 @@ async function main(): Promise<void> {
     );
   }
 
+  // Everything contactable in one file, with the distinction kept as a column.
+  //
+  // The three lists cannot be sent the same way. A second contact shares a
+  // clinic with a primary row, so sending both on day one puts two emails into
+  // one practice, which reads as a blast and burns the sending domain rather
+  // than just the lead. An unreadable row has no personalisation to sustain
+  // four touches. Filter on `list` before loading a campaign.
+  const merged = [
+    ...sendable,
+    ...unreadable,
+    ...secondContacts,
+  ];
+
   const allPath = join(DATA, "all-leads.csv");
-  await writeFile(allPath, toCsv(sendable));
+  await writeFile(allPath, toCsv(merged));
+  const counts = merged.reduce<Record<string, number>>((acc, r) => {
+    acc[r.list ?? "?"] = (acc[r.list ?? "?"] ?? 0) + 1;
+    return acc;
+  }, {});
+  console.log(`\n  all contactable leads           ${String(merged.length).padStart(5)}  ${allPath}`);
+  for (const [name, n] of Object.entries(counts)) {
+    console.log(`    list=${name.padEnd(16)} ${String(n).padStart(5)}`);
+  }
   console.log(
-    `\n  all sendable leads              ${String(sendable.length).padStart(5)}  ${allPath}`,
+    "    Filter on `list` before sending. second-contact rows share a clinic\n" +
+      "    with a primary row and must go out in a later wave, not beside it.",
   );
 
   console.log(

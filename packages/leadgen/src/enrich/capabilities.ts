@@ -61,20 +61,20 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // First-timers price-shop three clinics in a sitting; regulars are loyal.
     capability: "around-the-clock",
     because:
-      "since first-timers ring three places in one go and book with whoever answers",
+      "since first-timers ring three places and book with whoever picks up, you or someone else",
   },
   "weight-loss-glp1": {
     // Almost all new to the practice, comparing on price and start date, and
     // the programme dies at the first titration plateau.
     capability: "win-backs",
     because:
-      "the ones who quietly stop around month three and are usually glad to hear from you",
+      "the ones who quietly stop around month three and are glad it was you who called",
   },
   "body-contouring": {
     // Free consult, four-figure package, and the consult no-show is the leak.
     capability: "deposits",
     because:
-      "which is what turns a free consult on a four-figure package into a booking somebody actually keeps",
+      "which turns a four-figure enquiry into your booking rather than someone else's",
   },
   "plastic-surgery": {
     // The call is an interview and the coordinator is in consults all day.
@@ -92,13 +92,13 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // Same-day intent. They are asking about the next two hours.
     capability: "around-the-clock",
     because:
-      "since they are asking about this afternoon and will book with whoever can take them",
+      "since they want this afternoon and book with you or the next place that answers",
   },
   "hair-restoration": {
     // Months of working up to the call, and they will not leave a message.
     capability: "lead-qualification",
     because:
-      "since they have thought about it for months, and a live answer is what books the consult",
+      "since they have thought about it for months, and a live answer makes it your consult",
   },
   dental: {
     // Pain overrides loyalty entirely, and recall is where the money leaks.
@@ -119,7 +119,7 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // it is the acute call that is won or lost on pickup.
     capability: "around-the-clock",
     because:
-      "since someone whose back went this morning stops at whoever can see them today",
+      "since a back that went this morning books with you only if someone answers",
   },
   "physical-therapy": {
     // The leak is between the referral and the first appointment. The patient
@@ -127,14 +127,14 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // once and got the machine.
     capability: "calendar-booking",
     because:
-      "since most of the loss here is a referral that never turns into a first appointment",
+      "since a referral that never books is a patient sent to you who never arrived",
   },
   acupuncture: {
     // First visit is high-consideration and question-heavy — does it hurt, how
     // many sessions, is it covered. Regulars book without thinking.
     capability: "lead-qualification",
     because:
-      "since a first-timer rings with questions before they will commit, and that call is the whole conversion",
+      "since a first-timer rings with questions, and that call decides whether they commit to you",
   },
   vision: {
     // Two businesses under one roof. Routine exams are habit; LASIK is a
@@ -142,7 +142,7 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // the consult booking is the event worth protecting.
     capability: "calendar-booking",
     because:
-      "since a LASIK enquiry is a four-figure decision that starts with one consult booking",
+      "since a four-figure LASIK decision usually goes to whichever clinic answered first",
   },
   hearing: {
     // The most phone-dependent population in the whole list. Older patients
@@ -150,7 +150,7 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // so an unanswered call is not deferred, it is lost.
     capability: "around-the-clock",
     because:
-      "since this is the one group that will not fill in a form instead",
+      "since they will not use a form instead, so a call you miss is a patient lost",
   },
   "mental-health": {
     // Somebody ringing about psychiatry or ketamine has usually spent a while
@@ -158,7 +158,7 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
     // twice.
     capability: "around-the-clock",
     because:
-      "since someone who has worked up to this call will not leave a voicemail",
+      "since someone who worked up to this call will not leave you a voicemail",
   },
   "other-medical": {
     capability: "lead-qualification",
@@ -207,7 +207,7 @@ export function selectCapability(pain: PainInput): CapabilityPitch {
       capability: "around-the-clock",
       because:
         reason ??
-        "while the impulse is still there, which is usually the difference between an enquiry and a patient",
+        "while the impulse is there, which makes them your patient rather than someone else's",
     };
   }
 
@@ -216,14 +216,14 @@ export function selectCapability(pain: PainInput): CapabilityPitch {
       capability: "calendar-booking",
       because:
         reason ??
-        "since every booking you take starts with a phone call, so each one answered is a patient booked",
+        "since every booking starts with a phone call, so each one answered is your patient",
     };
   }
 
   if (pain.closesEarly) {
     return {
       capability: "around-the-clock",
-      because: reason ?? "since most people ring after work, once they have finished",
+      because: reason ?? "since most people ring after work, and book with whoever is still answering",
     };
   }
 

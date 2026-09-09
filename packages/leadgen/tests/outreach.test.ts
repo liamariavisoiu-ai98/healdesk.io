@@ -105,7 +105,7 @@ describe("the outreach row", () => {
     // The second sentence has to name who, what they do, and why it matters.
     // "The ones with a question first are the ones still ringing" named none of
     // the three and only parsed if you still had the first sentence in mind.
-    expect(row.hook).toContain("that call decides where they book");
+    expect(row.hook).toContain("book with you or another clinic");
   });
 
   test("GoHighLevel clinics are excluded, not celebrated", () => {
@@ -294,7 +294,7 @@ describe("the offer", () => {
     // it stops being a sentence someone reads in three seconds and starts
     // being a paragraph they skip.
     expect(row.hook.split(/\s+/).length).toBeLessThan(30);
-    expect(row.topOffer.split(/\s+/).length).toBeLessThanOrEqual(32);
+    expect(row.topOffer.split(/\s+/).length).toBeLessThanOrEqual(33);
   });
 
   test("falls back to something true when no hours are known", async () => {

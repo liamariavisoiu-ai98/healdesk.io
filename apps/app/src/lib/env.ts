@@ -73,6 +73,33 @@ export const env = {
   /** Base64, 32 bytes. Development only. */
   localKek: () => optional("HEALDESK_LOCAL_KEK"),
 
+  /**
+   * The one administrator, as healdesk.io/admin knows them.
+   *
+   * Deliberately NOT read through `required()`, and this is the one accessor in
+   * the file that must not be. `required()` warns and returns "" outside
+   * production, which is right for a secret whose absence breaks one feature
+   * and wrong for the value that names the actor in an audit trail: every row
+   * `lib/ops/api.ts` writes carries this address as its ONLY statement of who
+   * acted, so an empty string would fill the audit log with rows that look
+   * attributed and are not. That is worse than an ops API which refuses to
+   * answer until it is configured, which is what `null` here produces.
+   *
+   * Trimmed and lowercased so it compares equal to the same address typed into
+   * apps/web's sign-in form on a phone keyboard. Shape is checked by the caller,
+   * which is also where the 503 is decided.
+   *
+   * apps/web reads its own copy of this variable; the two must match, and
+   * nothing verifies that they do. They are separate deployments with separate
+   * environments, so the only alternative would be shipping the address across
+   * the signed boundary — which is exactly what must not happen, or a caller
+   * could choose whose name goes in the audit row.
+   */
+  adminEmail: (): string | null => {
+    const value = process.env.HEALDESK_ADMIN_EMAIL?.trim().toLowerCase();
+    return value ? value : null;
+  },
+
   isProduction: () => process.env.NODE_ENV === "production",
   isTest: () => process.env.NODE_ENV === "test",
 } as const;

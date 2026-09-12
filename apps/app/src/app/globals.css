@@ -12,6 +12,10 @@
   --color-paper: #fbf4ea;
   --color-paper-2: #f5e8d6;
   --color-muted: #8b7a6c;
+  /* Success. 5.85:1 on --color-paper, so it carries body text, not just a
+     large heading. Deliberately a warm forest green rather than a clinical
+     mint: it has to sit beside the red/orange gradient without fighting it. */
+  --color-green: #2d6a4f;
   --color-line: rgb(36 22 15 / 0.12);
 }
 

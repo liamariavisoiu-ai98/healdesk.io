@@ -4,7 +4,6 @@ import {
   verify,
 } from "@healdesk/catalog";
 
-import { sendInvite } from "@/lib/email/invite";
 import { env } from "@/lib/env";
 import {
   ProvisioningError,
@@ -19,9 +18,11 @@ import {
  * host. Signed with a shared secret over the body and a timestamp, so the
  * payload can't be altered and a captured request can't be replayed.
  *
- * Creates an organization, a clinic, a recorded BAA acceptance, and an
- * invitation for the buyer. It does NOT create a user — sign-up is closed, and
- * the buyer sets their password from the invite link.
+ * Creates an organization and a clinic, and binds the agreement the buyer
+ * signed before paying. It creates no user, no invitation and no credential of
+ * any kind, and it sends no mail: a clinic never signs in to healdesk, so there
+ * is no login to invite anyone into. See lib/provisioning.ts for why, and
+ * lib/email/connect-link.ts for the single-use link that replaced the account.
  *
  * Note the ordering: the signature is verified before the body is parsed as
  * JSON, so an unauthenticated caller can't make us do work.
@@ -86,41 +87,21 @@ export async function POST(request: Request): Promise<Response> {
     //
     // Both are 2xx on purpose: the caller is a Stripe webhook relay, and Stripe
     // retries any non-2xx for three days. A duplicate delivery is a SUCCESS —
-    // the account exists and nothing further is owed — so answering 409 or 422
+    // the clinic exists and nothing further is owed — so answering 409 or 422
     // would turn correct idempotent behaviour into a three-day retry storm and
     // an eventually-disabled endpoint.
     //
-    // `replayed` is what tells the caller not to re-send the invite email.
-    // Send the invitation the checkout screen already told them about.
-    //
-    // Only on a fresh provision: Stripe retries for up to three days, and a
-    // replayed webhook must not mail the same owner another copy of a link
-    // that is still valid.
-    if (!result.replayed) {
-      const invite = await sendInvite({
-        to: result.invitedEmail,
-        clinicName: body.clinicName.trim(),
-        invitationId: result.invitationId,
-        consoleUrl: env.betterAuthUrl(),
-      });
-
-      if (invite.status !== "sent") {
-        // Never fail the request for this. The account exists; failing here
-        // would have Stripe retry and provision a duplicate.
-        console.error(
-          "[healdesk] invite email not delivered:",
-          invite.status,
-          invite.reason,
-        );
-      }
-    }
-
+    // `replayed` is reported rather than swallowed because it is the only thing
+    // standing between a three-day retry schedule and a customer-visible side
+    // effect happening once per redelivery. There is nothing to guard right now
+    // — the invite email that used to be sent here went with the invitation —
+    // but anything added below that a customer can perceive belongs inside a
+    // `!result.replayed` check.
     return Response.json(
       {
         organizationId: result.organizationId,
         clinicId: result.clinicId,
         clinicSlug: result.clinicSlug,
-        invitationId: result.invitationId,
         replayed: result.replayed,
       },
       { status: result.replayed ? 200 : 201 },

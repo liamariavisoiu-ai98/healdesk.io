@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  type BillingInterval,
   currentBaaTemplate,
   getPlan,
   getPlatform,
+  isBillingInterval,
   isSpecialtyId,
   NO_PLATFORM_ID,
   supportsVerifiedAttribution,
@@ -12,11 +14,17 @@ import { eq, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import { organization } from "@/db/auth-schema";
-import { clinics, provisioningAttempts } from "@/db/schema";
+import {
+  clinics,
+  provisioningAttempts,
+  type ChatChannelChoice,
+} from "@/db/schema";
 
 import { bindAgreement } from "./agreements";
 import { recordSecurityEvent } from "./audit";
 import type { RequestContext } from "./audit";
+import { isChatChannelChoice, seedEntitlements } from "./billing/entitlements";
+import { replayParkedBillingEvents } from "./billing/events";
 
 /**
  * Turning a completed checkout into a clinic.
@@ -117,7 +125,30 @@ export type ProvisionRequest = {
   /** Required when attributionMode is "estimated" — it is the whole input. */
   averageTreatmentValueUsd?: number;
   plan: string;
+  /**
+   * Monthly or annual. Defaults to "month" when absent, which is what every
+   * caller that predates annual pricing sends.
+   */
+  billingInterval?: BillingInterval;
+  /**
+   * For a "Web OR Meta" package, which chat channel the buyer picked. Ignored
+   * for packages that do not offer the choice; defaulted to web when the
+   * package does and nothing was sent (see lib/billing/entitlements.ts).
+   */
+  chatChannelChoice?: ChatChannelChoice;
   timezone?: string;
+
+  /**
+   * The Stripe ids from the completed Session, stamped by apps/web from the
+   * verified event like `idempotencyKey`. They are how every later lifecycle
+   * event — renewal, failed card, cancellation — finds this clinic again, and
+   * their presence is what decides the initial billing status: with a
+   * subscription to wait on the clinic starts `provisioning` and the first
+   * `invoice.paid` activates it; without one (the no-Stripe dev path) nothing
+   * will ever arrive to do that, so it starts `active`.
+   */
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
 
   contactName: string;
   contactEmail: string;
@@ -195,6 +226,30 @@ export function validateProvisionRequest(
   }
   if (!getPlan(body.plan ?? "")) {
     throw new ProvisioningError("Unknown plan.", "plan");
+  }
+  if (
+    body.billingInterval !== undefined &&
+    !isBillingInterval(body.billingInterval)
+  ) {
+    throw new ProvisioningError("Invalid billing interval.", "billingInterval");
+  }
+  if (
+    body.chatChannelChoice !== undefined &&
+    !isChatChannelChoice(body.chatChannelChoice)
+  ) {
+    throw new ProvisioningError("Invalid chat channel choice.", "chatChannelChoice");
+  }
+  // Shape only. Whether they name a real customer is Stripe's business; the
+  // partial unique indexes on entitlements refuse a second clinic on the same
+  // subscription, which is the property that matters.
+  for (const field of ["stripeCustomerId", "stripeSubscriptionId"] as const) {
+    const value = body[field];
+    if (value !== undefined && (typeof value !== "string" || !value.trim())) {
+      throw new ProvisioningError(`Invalid ${field}.`, field);
+    }
+    if (typeof value === "string" && value.length > 255) {
+      throw new ProvisioningError(`${field} is too long.`, field);
+    }
   }
 
   if (body.attributionMode !== "estimated" && body.attributionMode !== "verified") {
@@ -435,6 +490,19 @@ async function provisionOnce({
       dataClassification: "synthetic",
     });
 
+    // What the clinic may use, in the same transaction as the clinic itself:
+    // a clinic with no entitlements row is one the agent cannot answer for
+    // and the webhook cannot find, so the two must not be able to exist apart.
+    // Allowances and channels are copied from the catalog HERE, at the moment
+    // of sale, for the reasons in lib/billing/entitlements.ts.
+    const billingStatus = await seedEntitlements(tx, clinicId, {
+      plan: getPlan(request.plan)!,
+      interval: request.billingInterval ?? "month",
+      chatChannelChoice: request.chatChannelChoice,
+      stripeCustomerId: request.stripeCustomerId,
+      stripeSubscriptionId: request.stripeSubscriptionId,
+    });
+
     await recordSecurityEvent(tx, {
       event: "clinic_provisioned",
       actorLabel: email,
@@ -446,11 +514,24 @@ async function provisionOnce({
         specialty: request.specialty,
         platform: request.platform,
         plan: request.plan,
+        billingInterval: request.billingInterval ?? "month",
+        billingStatus,
         attributionMode: request.attributionMode,
         agreementId: request.agreementId,
       },
     });
 
+  });
+
+  // The first invoice may have beaten this provisioning to the webhook —
+  // Stripe does not order deliveries — and dead-lettered while no clinic
+  // matched its ids. Now one does. Replayed AFTER the transaction above has
+  // committed, because the replay opens its own tenant transaction and must
+  // be able to see the row; and never thrown from, because the clinic exists
+  // and a replay that fails again is back on the queue with its error.
+  await replayParkedBillingEvents({
+    customerId: request.stripeCustomerId,
+    subscriptionId: request.stripeSubscriptionId,
   });
 
   // Every id was decided before the transaction opened, so there is nothing to

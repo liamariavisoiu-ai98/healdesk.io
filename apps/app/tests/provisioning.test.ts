@@ -36,7 +36,7 @@ function validRequest(overrides: Partial<ProvisionRequest> = {}): ProvisionReque
     platform: "none",
     attributionMode: "estimated",
     averageTreatmentValueUsd: 550,
-    plan: "core",
+    plan: "chat-voice",
     contactName: "Alex Chen",
     contactEmail: "alex@radiance.test",
     // A real uuid: validation only checks the shape, and the database check
@@ -137,6 +137,28 @@ describe("provision request validation", () => {
     expect(() =>
       validateProvisionRequest(validRequest({ specialty: "radiology" })),
     ).toThrow(/specialty/i);
+  });
+
+  test("rejects a billing interval or chat choice the catalog does not sell", () => {
+    expect(() =>
+      validateProvisionRequest(
+        validRequest({ billingInterval: "week" as never }),
+      ),
+    ).toThrow(/billing interval/i);
+    expect(() =>
+      validateProvisionRequest(
+        validRequest({ chatChannelChoice: "sms" as never }),
+      ),
+    ).toThrow(/chat channel/i);
+    expect(() =>
+      validateProvisionRequest(validRequest({ stripeSubscriptionId: "" })),
+    ).toThrow(/stripeSubscriptionId/);
+    // Both optional: every caller that predates them still validates.
+    expect(() =>
+      validateProvisionRequest(
+        validRequest({ billingInterval: "year", chatChannelChoice: "meta" }),
+      ),
+    ).not.toThrow();
   });
 });
 
@@ -272,7 +294,7 @@ describeDb("provisioning", () => {
     expect(clinic.attribution_mode).toBe("estimated");
     expect(clinic.booking_provider).toBeNull();
     expect(clinic.average_treatment_value_usd).toBe("550.00");
-    expect(clinic.plan).toBe("core");
+    expect(clinic.plan).toBe("chat-voice");
 
     // Always synthetic at creation, whatever the buyer ticked. Moving to
     // production requires a signed BAA and is a separate, deliberate act.
@@ -454,4 +476,107 @@ describeDb("provisioning", () => {
       client.release();
     }
   });
+
+  /**
+   * The entitlements row is written in the same transaction as the clinic,
+   * with allowances copied from the catalog at the moment of sale. Two
+   * different packages, so a test that only ever checks one cannot pass on a
+   * row seeded with constants.
+   */
+  test("seeds entitlements for the package sold, waiting on Stripe when there is a subscription", async () => {
+    const result = await provisionClinic(
+      validRequest({
+        clinicName: "Entitled Clinic",
+        contactEmail: "ent@example.test",
+        agreementId: await signFor("Entitled Clinic", "ent@example.test"),
+        plan: "chat-voice",
+        billingInterval: "year",
+        chatChannelChoice: "meta",
+        stripeCustomerId: "cus_provisioned",
+        stripeSubscriptionId: "sub_provisioned",
+      }),
+    );
+
+    const row = await readEntitlements(result.clinicId);
+    // A subscription to wait on: the first invoice.paid activates it.
+    expect(row.status).toBe("provisioning");
+    expect(row.plan_code).toBe("chat-voice");
+    expect(row.billing_interval).toBe("year");
+    expect(row.stripe_customer_id).toBe("cus_provisioned");
+    expect(row.stripe_subscription_id).toBe("sub_provisioned");
+    expect(row.included_voice_minutes).toBe(1_000);
+    expect(row.included_chat_conversations).toBe(1_500);
+    // "Web OR Meta + Voice", and the buyer chose Meta.
+    expect(row.chat_channel_choice).toBe("meta");
+    expect(row.channels_enabled).toEqual({ web: false, meta: true, voice: true });
+    // Nothing paid yet; the first invoice sets this.
+    expect(row.setup_fee_paid_usd).toBe("0.00");
+  });
+
+  test("the no-Stripe path starts active, with the package's own allowances", async () => {
+    const result = await provisionClinic(
+      validRequest({
+        clinicName: "Dev Path Clinic",
+        contactEmail: "dev@example.test",
+        agreementId: await signFor("Dev Path Clinic", "dev@example.test"),
+        plan: "chat-single",
+      }),
+    );
+
+    const row = await readEntitlements(result.clinicId);
+    // Nothing will ever arrive to activate it, so it starts there.
+    expect(row.status).toBe("active");
+    expect(row.plan_code).toBe("chat-single");
+    expect(row.billing_interval).toBe("month");
+    expect(row.stripe_customer_id).toBeNull();
+    expect(row.stripe_subscription_id).toBeNull();
+    expect(row.included_voice_minutes).toBe(0);
+    expect(row.included_chat_conversations).toBe(1_500);
+    // A choice package with no choice sent defaults to web.
+    expect(row.chat_channel_choice).toBe("web");
+    expect(row.channels_enabled).toEqual({ web: true, meta: false, voice: false });
+  });
+
+  test("two clinics cannot be provisioned onto one Stripe subscription", async () => {
+    await expect(
+      provisionClinic(
+        validRequest({
+          clinicName: "Second On Same Sub",
+          contactEmail: "dup@example.test",
+          agreementId: await signFor("Second On Same Sub", "dup@example.test"),
+          stripeCustomerId: "cus_other",
+          stripeSubscriptionId: "sub_provisioned",
+        }),
+      ),
+    ).rejects.toMatchObject({ cause: { code: "23505" } });
+  });
 });
+
+/** entitlements is FORCEd, so even the migrator reads it inside a tenant. */
+async function readEntitlements(clinicId: string): Promise<{
+  status: string;
+  plan_code: string;
+  billing_interval: string;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  included_voice_minutes: number;
+  included_chat_conversations: number;
+  chat_channel_choice: string | null;
+  channels_enabled: { web: boolean; meta: boolean; voice: boolean };
+  setup_fee_paid_usd: string;
+}> {
+  const client = await getMigratorPool().connect();
+  try {
+    await client.query("begin");
+    await client.query(`select set_config('app.clinic_id', $1, true)`, [clinicId]);
+    const { rows } = await client.query(
+      `select * from entitlements where clinic_id = $1`,
+      [clinicId],
+    );
+    await client.query("rollback");
+    expect(rows).toHaveLength(1);
+    return rows[0];
+  } finally {
+    client.release();
+  }
+}

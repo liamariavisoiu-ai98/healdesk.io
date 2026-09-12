@@ -18,6 +18,8 @@ import { scheduledJobs } from "@/db/schema";
  */
 
 export const JOB_MONTHLY_REPORT = "monthly-report";
+/** See billing-sweep.ts. Seeded by drizzle/0030, switched off. */
+export const JOB_BILLING_SWEEP = "billing-sweep";
 
 /** How long before a `runningSince` lock is assumed to be a crashed run. */
 const STALE_LOCK_MS = 60 * 60 * 1000;

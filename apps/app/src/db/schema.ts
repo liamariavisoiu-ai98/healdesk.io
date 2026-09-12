@@ -18,6 +18,8 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+import type { BillingInterval, Channel } from "@healdesk/catalog";
+
 import type { OpeningHours } from "../lib/clinic/opening-hours";
 import type { SealedPayload } from "../lib/crypto/envelope";
 
@@ -294,7 +296,12 @@ export const clinics = pgTable(
       scale: 2,
     }),
 
-    /** Billing plan slug: "core" | "growth" | "multi". */
+    /**
+     * Package id from @healdesk/catalog, as sold. Kept for the overview and the
+     * report; the row that actually decides what the clinic may use is
+     * `entitlements.planCode`, which moves with plan changes from Stripe while
+     * this records what was bought at checkout.
+     */
     plan: text("plan"),
 
     /**
@@ -1570,6 +1577,276 @@ export const adminTotp = pgTable(
   (t) => [check("admin_totp_is_a_singleton", sql`${t.id} = 1`)],
 );
 
+// -----------------------------------------------------------------------------
+// Billing
+// -----------------------------------------------------------------------------
+
+/**
+ * Where a clinic is in its paid life. See lib/billing/state-machine.ts for the
+ * edges; only that module writes this column.
+ *
+ *   demo          a sales demo, never charged; the one state with no Stripe ids
+ *   provisioning  checkout completed, first invoice not yet paid
+ *   active        paid up
+ *   past_due      a renewal failed; inside the grace window
+ *   suspended     grace ran out, or a chargeback landed; service withheld
+ *   paused        Stripe paused collection at the clinic's request
+ *   canceling     cancel_at_period_end set; serving out the paid period
+ *   canceled      the subscription ended
+ *   purged        data destroyed after the retention period; terminal
+ */
+export const billingStatusEnum = pgEnum("billing_status", [
+  "demo",
+  "provisioning",
+  "active",
+  "past_due",
+  "suspended",
+  "paused",
+  "canceling",
+  "canceled",
+  "purged",
+]);
+
+export type BillingStatus = (typeof billingStatusEnum.enumValues)[number];
+
+/** Which channels the agent may answer on. Keys match the catalog's `Channel`. */
+export type ChannelsEnabled = Record<Channel, boolean>;
+
+export type ChatChannelChoice = "web" | "meta";
+
+/** Who asked for a status change. Support acts through the ops console. */
+export type BillingActor = "system" | "client" | "support";
+
+/**
+ * What one clinic is entitled to right now, and how far into it they are.
+ *
+ * One row per clinic, keyed on the clinic rather than on a Stripe id, because
+ * a clinic can exist without Stripe (the no-Stripe dev path, a demo) but a
+ * subscription cannot exist without a clinic. The Stripe ids are how a webhook
+ * finds its way back here — see `app_clinic_for_stripe()` in drizzle/0028 —
+ * and each is unique where present so two clinics can never claim one
+ * subscription.
+ *
+ * `includedVoiceMinutes` and `includedChatConversations` are copied from the
+ * catalog at seed time and again on every plan change rather than read from
+ * the catalog at query time: the catalog describes what is SOLD today, this
+ * row describes what THIS clinic was sold, and a price-book edit must not
+ * silently change an existing customer's allowance mid-period.
+ *
+ * `usedVoiceMinutes` is numeric because the vendor bills in fractional
+ * minutes; `usedChatConversations` is a count. Both reset to zero when a
+ * renewal invoice is paid (lib/billing/entitlements.ts → resetUsage), so the
+ * allowance lines up with what was invoiced — and, for an annual clinic only,
+ * once a month inside the invoiced year (→ rollAllowancePeriod, driven by the
+ * billing sweep job), because the allowance is sold per month and Stripe
+ * sends no monthly invoice to reset it on. `currentPeriodStart`/`End` is that
+ * window, not necessarily the invoiced period.
+ *
+ * Tenant plane: it has a clinic_id and is RLS'd like every other. DELETE is
+ * withheld from the runtime role — a clinic's billing history ends in
+ * `purged`, not in a missing row.
+ */
+export const entitlements = pgTable(
+  "entitlements",
+  {
+    clinicId: uuid("clinic_id")
+      .primaryKey()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+
+    stripeCustomerId: text("stripe_customer_id"),
+    stripeSubscriptionId: text("stripe_subscription_id"),
+
+    /** Package id from @healdesk/catalog. */
+    planCode: text("plan_code").notNull(),
+    billingInterval: text("billing_interval").$type<BillingInterval>().notNull(),
+    status: billingStatusEnum("status").notNull().default("provisioning"),
+
+    currentPeriodStart: timestamp("current_period_start", { withTimezone: true }),
+    currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+    /** Set when a payment fails; service continues until it passes. */
+    graceEndsAt: timestamp("grace_ends_at", { withTimezone: true }),
+
+    channelsEnabled: jsonb("channels_enabled")
+      .$type<ChannelsEnabled>()
+      .notNull()
+      .default({ web: false, meta: false, voice: false }),
+    /** Only set for a "Web OR Meta" package; which one the buyer picked. */
+    chatChannelChoice: text("chat_channel_choice").$type<ChatChannelChoice>(),
+
+    includedVoiceMinutes: integer("included_voice_minutes").notNull().default(0),
+    includedChatConversations: integer("included_chat_conversations")
+      .notNull()
+      .default(0),
+    usedVoiceMinutes: numeric("used_voice_minutes", { precision: 12, scale: 2 })
+      .notNull()
+      .default("0"),
+    usedChatConversations: integer("used_chat_conversations")
+      .notNull()
+      .default(0),
+
+    /**
+     * `allow` meters overage to Stripe; `hard_cap` stops answering at the
+     * allowance. Allow by default: a clinic whose agent goes silent on the
+     * 1,501st conversation has a worse month than one with an overage line.
+     */
+    overageMode: text("overage_mode")
+      .$type<"allow" | "hard_cap">()
+      .notNull()
+      .default("allow"),
+
+    /** When the forwarded-to Synthflow number may be released after a cancel. */
+    numberReleaseAt: timestamp("number_release_at", { withTimezone: true }),
+
+    /**
+     * What has actually been paid towards setup, from the first invoice. The
+     * input to `setupFeeDeltaUsd` on an upgrade; a clinic that paid $497 owes
+     * $500 more for a $997 package, not $997.
+     */
+    setupFeePaidUsd: numeric("setup_fee_paid_usd", { precision: 12, scale: 2 })
+      .notNull()
+      .default("0"),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("entitlements_stripe_customer_idx")
+      .on(t.stripeCustomerId)
+      .where(sql`${t.stripeCustomerId} is not null`),
+    uniqueIndex("entitlements_stripe_subscription_idx")
+      .on(t.stripeSubscriptionId)
+      .where(sql`${t.stripeSubscriptionId} is not null`),
+    check(
+      "entitlements_interval_check",
+      sql`${t.billingInterval} in ('month', 'year')`,
+    ),
+    check(
+      "entitlements_chat_choice_check",
+      sql`${t.chatChannelChoice} is null or ${t.chatChannelChoice} in ('web', 'meta')`,
+    ),
+    check(
+      "entitlements_overage_mode_check",
+      sql`${t.overageMode} in ('allow', 'hard_cap')`,
+    ),
+  ],
+);
+
+export type Entitlements = typeof entitlements.$inferSelect;
+export type NewEntitlements = typeof entitlements.$inferInsert;
+
+/**
+ * Every billing status change, append-only.
+ *
+ * `entitlements.status` says where a clinic is; this says how it got there and
+ * who moved it. Support asking "why is this clinic suspended" gets a row with a
+ * reason and the Stripe event that caused it, not a guess from the current
+ * state. Append-only by grant (drizzle/0028), like audit_log: a history the
+ * application can rewrite is not a history.
+ *
+ * `fromStatus` is null exactly once per clinic — the seed row written at
+ * provisioning, when there was no prior state.
+ */
+export const billingTransitions = pgTable(
+  "billing_transitions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+
+    fromStatus: billingStatusEnum("from_status"),
+    toStatus: billingStatusEnum("to_status").notNull(),
+
+    actor: text("actor").$type<BillingActor>().notNull(),
+    /** Short, machine-readable: "invoice.paid", "dispute", "authentication_required". */
+    reason: text("reason").notNull(),
+    /** The Stripe event that caused this, when one did. */
+    stripeEventId: text("stripe_event_id"),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("billing_transitions_clinic_idx").on(t.clinicId, t.createdAt),
+    check(
+      "billing_transitions_actor_check",
+      sql`${t.actor} in ('system', 'client', 'support')`,
+    ),
+  ],
+);
+
+export type BillingTransition = typeof billingTransitions.$inferSelect;
+
+export type BillingEventOutcome =
+  | "processed"
+  | "ignored"
+  | "failed"
+  | "dead_letter";
+
+/**
+ * Every Stripe event delivered to us, keyed on Stripe's event id.
+ *
+ * Two jobs in one table. It is the DEDUPE LEDGER: Stripe delivers at least
+ * once, the primary key makes the second delivery a no-op, and the stored
+ * outcome is what a replay answers with. And it is the DEAD-LETTER QUEUE: an
+ * event that fails `MAX_FAILURES` times is parked here with its error and its
+ * full payload, acknowledged to Stripe so the endpoint stays enabled, and
+ * waits for a person. See lib/billing/events.ts.
+ *
+ * Identity-plane, like provisioning_attempts: the row is written BEFORE the
+ * clinic is known, because resolving the clinic is one of the steps that can
+ * fail and the failure has to be recorded somewhere. So there is no RLS, and
+ * the resolved clinic is deliberately not called `clinic_id` — the drift test
+ * demands a policy on every column by that name, and a policy here would hide
+ * the very rows support needs to see. See the column comment in drizzle/0029.
+ *
+ * `payload` is the verified event as Stripe sent it. It carries the buyer's
+ * email and the clinic's name — business contact data, the same thing Stripe
+ * already holds — and never PHI: nothing patient-level is ever put in Stripe
+ * metadata (apps/web/src/lib/billing.ts).
+ */
+export const billingEvents = pgTable(
+  "billing_events",
+  {
+    stripeEventId: text("stripe_event_id").primaryKey(),
+    type: text("type").notNull(),
+
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+
+    /** A stored result, not a tenant key. See the table comment. */
+    resolvedClinicId: uuid("resolved_clinic_id"),
+
+    /** Null while in flight. A null that persists means the process died mid-event. */
+    outcome: text("outcome").$type<BillingEventOutcome>(),
+    /** How many attempts have thrown. At MAX_FAILURES the event is dead-lettered. */
+    failures: integer("failures").notNull().default(0),
+    /** The last error's name and message. Never the payload, never PHI. */
+    error: text("error"),
+
+    payload: jsonb("payload").notNull(),
+  },
+  (t) => [
+    check(
+      "billing_events_outcome_check",
+      sql`${t.outcome} is null or ${t.outcome} in ('processed', 'ignored', 'failed', 'dead_letter')`,
+    ),
+    // The dead-letter queue is a query, and this is the index it runs on.
+    index("billing_events_attention_idx")
+      .on(t.outcome, t.receivedAt)
+      .where(sql`${t.outcome} in ('failed', 'dead_letter')`),
+  ],
+);
+
+export type BillingEvent = typeof billingEvents.$inferSelect;
+
 /** Tables carrying a clinic_id, and therefore requiring RLS. Asserted by tests. */
 export const TENANT_SCOPED_TABLES = [
   "clinic_memberships",
@@ -1586,4 +1863,6 @@ export const TENANT_SCOPED_TABLES = [
   "webhook_events",
   "reconciliation_exceptions",
   "connection_links",
+  "entitlements",
+  "billing_transitions",
 ] as const;

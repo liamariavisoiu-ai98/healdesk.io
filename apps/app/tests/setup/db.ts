@@ -62,8 +62,12 @@ export async function runMigrations(): Promise<void> {
 export async function truncateAll(): Promise<void> {
   const pool = getMigratorPool();
 
+  // billing_events first and by name: it has no foreign keys, so nothing
+  // cascades into it, and a dedupe ledger left over from the previous run
+  // would make every replayed fixture event a silent no-op.
   await pool.query(`
     truncate table
+      billing_events, billing_transitions, entitlements,
       audit_log, security_events, reconciliation_exceptions,
       webhook_events, sync_runs, transactions, appointments,
       conversations, contacts, provider_connections,
@@ -74,7 +78,8 @@ export async function truncateAll(): Promise<void> {
 
   await pool.query(`
     insert into scheduled_jobs (name, cadence, enabled) values
-      ('monthly-report', 'Monthly, on the 1st, per clinic timezone', false)
+      ('monthly-report', 'Monthly, on the 1st, per clinic timezone', false),
+      ('billing-sweep', 'Hourly; suspends past-due clinics after grace, rolls annual allowances monthly', false)
     on conflict (name) do update set enabled = false, updated_by = null
   `);
 }

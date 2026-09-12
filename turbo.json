@@ -23,7 +23,42 @@
         "HEALDESK_PROVISION_SECRET",
         "STRIPE_SECRET_KEY",
         "STRIPE_WEBHOOK_SECRET",
-        "HEALDESK_EMAIL_TRANSPORT"
+        "HEALDESK_EMAIL_TRANSPORT",
+
+        // Everything below is read at RUNTIME only — no NEXT_PUBLIC_ prefix, so
+        // none of it is inlined into a bundle and none of it changes build
+        // output. They are declared anyway, for the reason above: turbo 2.x
+        // defaults to strict env mode, so an undeclared var is invisible to the
+        // task, and the first one that ever moves to build time would fail
+        // silently rather than loudly. The cost is that rotating one of these
+        // secrets invalidates the build cache, which is the safe direction to
+        // be wrong in.
+
+        // The admin console. All three are required together; with any one
+        // missing the area is shut in every environment.
+        "HEALDESK_ADMIN_EMAIL",
+        "HEALDESK_ADMIN_PASSWORD_HASH",
+        "HEALDESK_ADMIN_SECRET",
+
+        // The admin change feed. Without a token it falls back to reading the
+        // local checkout with git log, which a deployed instance does not have.
+        "GITHUB_TOKEN",
+        "HEALDESK_REPO",
+
+        // Mail. RESEND_API_KEY and HEALDESK_EMAIL_FROM are checked as one
+        // condition, so either missing takes out both the contact form and the
+        // leave-a-review form.
+        "RESEND_API_KEY",
+        "HEALDESK_EMAIL_FROM",
+        "HEALDESK_SES_CONFIGURATION_SET",
+        "AWS_REGION",
+
+        // The "have AVA call me" demo. The first two are required for a call to
+        // be placed at all; REGION defaults to "us" and FROM_NUMBER is optional.
+        "SYNTHFLOW_API_KEY",
+        "SYNTHFLOW_DEMO_AGENT_ID",
+        "SYNTHFLOW_REGION",
+        "SYNTHFLOW_FROM_NUMBER"
       ],
       "outputs": [".next/**", "!.next/cache/**", "dist/**"]
     },

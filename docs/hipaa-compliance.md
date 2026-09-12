@@ -25,6 +25,15 @@ and a real compliance review before onboarding a clinic with live patients.
 A **business** email from a clinic owner asking for a demo is not PHI. A **patient's**
 name attached to a treatment inquiry is. The line is the individual, not the industry.
 
+> **Where new code goes** — the placement table derived from this boundary lives in
+> the repo's root [`CLAUDE.md`](../CLAUDE.md) and is loaded into every agent session.
+> This document stays authoritative for *what PHI is*; that one is authoritative for
+> *which app a new surface belongs in*. Keep them consistent: if the definition here
+> changes, the table there changes with it.
+>
+> The shortest form of the rule: **`apps/web` has no database client, and must never
+> acquire one.** Verified 2026-09-12 — no Drizzle, no `pg`, no connection string.
+
 ### What counts as PHI here
 
 Any of the 18 HIPAA identifiers **combined with** health information. In this product,
@@ -60,8 +69,25 @@ uncovered hop breaks the chain.
 | Speech-to-text | Deepgram | Available |
 | LLM | Anthropic | Commercial terms — confirm before PHI |
 | Payments | Stripe | Available |
-| Auth | Clerk | Available on paid tiers |
-| Error tracking | Sentry | Available — **scrub PHI regardless** |
+| Transactional email | Resend | **Signs none** — see below |
+| Voice agent (demo) | Synthflow | Not signed; `apps/web` only, no PHI path |
+| Auth | ~~Clerk~~ | **Not used.** Auth is a scrypt hash + TOTP, no vendor |
+| Error tracking | ~~Sentry~~ | **Not used.** No error tracker is installed |
+
+The last two rows are kept struck through rather than deleted because a BAA
+table is a checklist of who is in the path, and "we evaluated this and did not
+adopt it" is worth recording once. Neither string appears anywhere in `apps/`,
+`packages/`, or any `package.json` in the repo.
+
+**Resend is the row that needs care.** It signs no BAA and has no equivalent of
+SES's TLS-REQUIRE, so there is no way to make a PHI-bearing message fail closed
+on it. `apps/app` therefore restricts it to messages declared `phiClass: "none"`
+and refuses anything else outright rather than downgrading; SES stays the only
+transport allowed to carry patient information. Note that `apps/web`'s contact
+and review forms post to Resend **directly**, outside that transport discipline
+— acceptable today because both carry business-contact content only, but the
+invariant "every message declares whether it may carry PHI" is currently
+enforced in `apps/app` alone.
 
 **Verify current terms directly with each vendor.** Plan requirements change, and this
 table will drift.

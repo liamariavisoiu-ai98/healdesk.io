@@ -9,8 +9,7 @@ Stack decisions, the repo layout, and why the deploy targets are split.
 **The marketing site and the product have different compliance boundaries, so they are
 different deploy targets from day one.**
 
-- `apps/web` touches **zero PHI**. Marketing copy, a chat demo about pricing, an email
-  capture. Deploy anywhere.
+- `apps/web` touches **zero PHI**. Deploy anywhere.
 - `apps/app` touches **intake, consent, and clinical notes**. Needs BAA-covered
   infrastructure end to end.
 
@@ -18,7 +17,26 @@ They share a repo (types, design tokens, docs stay in one place) and split at de
 Retrofitting this boundary later means untangling a database, an auth session, and a
 logging pipeline that all assumed one environment. Building it in now costs nothing.
 
-See [hipaa-compliance.md](./hipaa-compliance.md) for what "BAA-covered" requires.
+See [hipaa-compliance.md](./hipaa-compliance.md) for what "BAA-covered" requires, and
+the root [`CLAUDE.md`](../CLAUDE.md) for the table that decides which app a new
+surface belongs in.
+
+> **Updated 2026-09-12.** This section used to describe `apps/web` as "marketing copy,
+> a chat demo about pricing, an email capture", and `apps/app` as the home of a clinic
+> dashboard. Both are now wrong in ways worth naming, because the two-box picture they
+> paint is what a reader carries away:
+>
+> - `apps/web` now runs thirteen route handlers, the `/admin` **operator** console, a
+>   voice demo that dials a real phone, contact and review forms that send mail, and
+>   four HMAC-signed channels into the covered app. Its lead capture is not just an
+>   email: it takes a phone number, a name, free text and a photograph.
+> - `apps/app` has **no clinic-facing console at all** — it was deleted, along with
+>   sign-in, accept-invite and team invitations. Clinics never log in. Its only
+>   human-facing page is the single-use `/connect/[token]` credential handover;
+>   everything else is a self-authenticating API.
+>
+> The boundary itself was audited on the same date and holds: `apps/web` has no
+> database client, and nothing patient-shaped crosses `/api/ops`.
 
 ---
 

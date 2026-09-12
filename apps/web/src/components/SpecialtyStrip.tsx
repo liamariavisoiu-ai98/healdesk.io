@@ -66,7 +66,7 @@ export function SpecialtyStrip({
               ].join(" ")}
             />
 
-            {/* Collapsed state — vertical spine. Desktop only. */}
+            {/* Collapsed state, vertical spine. Desktop only. */}
             <span
               aria-hidden
               className={[
@@ -74,11 +74,11 @@ export function SpecialtyStrip({
                 isOpen ? "opacity-0" : "opacity-100",
               ].join(" ")}
             >
-              <span className="text-muted text-[13px] font-bold tracking-[0.05em]">
+              <span className="text-muted text-[15.6px] font-bold tracking-[0.05em]">
                 {String(index + 1).padStart(2, "0")}
               </span>
               <span
-                className="font-display text-ink text-[clamp(16px,1.6vw,20px)] font-medium whitespace-nowrap"
+                className="font-display text-ink text-[clamp(19.2px,1.92vw,24px)] font-medium whitespace-nowrap"
                 style={{ writingMode: "vertical-rl", rotate: "180deg" }}
               >
                 {specialty.name}
@@ -99,15 +99,15 @@ export function SpecialtyStrip({
             >
               <span
                 className={[
-                  "text-[13px] font-bold tracking-[0.05em]",
-                  isSelected ? "text-red" : "text-muted md:text-red",
+                  "text-[15.6px] font-bold tracking-[0.05em]",
+                  isSelected ? "text-red-deep" : "text-muted md:text-red-deep",
                 ].join(" ")}
               >
                 {String(index + 1).padStart(2, "0")}
               </span>
 
               <span className="md:self-start">
-                <span className="font-display block text-[19px] leading-[1.05] font-medium tracking-[-0.02em] md:text-[clamp(22px,2.4vw,30px)]">
+                <span className="font-display block text-[22.8px] leading-[1.05] font-medium tracking-[-0.02em] md:text-[clamp(26.4px,2.88vw,36px)]">
                   {specialty.name}
                 </span>
                 <span className="text-muted mt-3 hidden max-w-[22ch] text-sm font-medium md:block">
@@ -117,8 +117,8 @@ export function SpecialtyStrip({
 
               <span
                 className={[
-                  "hidden items-center gap-1.5 text-[13px] font-bold md:inline-flex",
-                  isSelected ? "text-red" : "text-ink",
+                  "hidden items-center gap-1.5 text-[15.6px] font-bold md:inline-flex",
+                  isSelected ? "text-red-deep" : "text-ink",
                 ].join(" ")}
               >
                 {isSelected ? "Showing below" : "See the demo"}

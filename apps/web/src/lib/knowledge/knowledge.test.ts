@@ -1,11 +1,12 @@
 import { describe, expect, test } from "vitest";
 
-import { composeKnowledge, NICHES, nichesFor, PRACTICES } from "./index";
+import { composeKnowledge, getPractice, isPractice, NICHES, nichesFor, PRACTICES } from "./index";
+import { specialties } from "@/lib/specialties";
 
 /**
  * The tree's structural invariants.
  *
- * Content quality cannot be unit-tested — that is what reading it is for. What
+ * Content quality cannot be unit-tested. That is what reading it is for. What
  * CAN be tested is the set of mistakes that would silently degrade the agent:
  * a practice pointing at a niche that does not exist, a layer failing to reach
  * the prompt, or the boundaries dropping out of the composition.
@@ -14,7 +15,7 @@ import { composeKnowledge, NICHES, nichesFor, PRACTICES } from "./index";
 describe("the tree is wired up", () => {
   test("every practice points only at niches that exist", () => {
     // A dangling id means the visitor is offered a branch that loads no
-    // knowledge — the bot silently answers as a generalist while the UI claims
+    // knowledge, the bot silently answers as a generalist while the UI claims
     // expertise.
     for (const practice of Object.values(PRACTICES)) {
       for (const niche of practice.niches) {
@@ -115,6 +116,27 @@ describe("the content holds its own rules", () => {
     // the clinic signs and whether the TCPA healthcare exemption is available.
     for (const practice of Object.values(PRACTICES)) {
       expect(practice.payerMix.length, practice.id).toBeGreaterThan(30);
+    }
+  });
+});
+
+/**
+ * Every specialty the site offers must resolve a practice layer.
+ *
+ * This is the regression guard for a silent failure: the site's `glp1` id did
+ * not match the tree's `weight-loss` key, so /api/chat passed an id that looked
+ * fine, `getPractice` returned undefined, and that specialty answered from the
+ * generic root with no error anywhere. A missing layer has no symptom you can
+ * see in a demo, only slightly worse answers, so it has to be a test.
+ */
+describe("site specialties reach the knowledge tree", () => {
+  test("resolves a practice layer for every one of them", () => {
+    for (const specialty of specialties) {
+      expect(
+        getPractice(specialty.id),
+        `no practice knowledge for site specialty "${specialty.id}"`,
+      ).toBeDefined();
+      expect(isPractice(specialty.id)).toBe(true);
     }
   });
 });

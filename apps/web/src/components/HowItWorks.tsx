@@ -1,7 +1,7 @@
 const CAPABILITIES = [
   {
     title: "Answers everything, everywhere",
-    body: "Voice, SMS, web chat, Instagram DM, and WhatsApp — 24/7. Missed numbers get called back automatically, so an unanswered phone stops being a lost patient.",
+    body: "Voice, SMS, web chat, Instagram DM, and WhatsApp, 24/7. Missed numbers get called back automatically, so an unanswered phone stops being a lost patient.",
   },
   {
     title: "Qualifies before it books",
@@ -9,11 +9,11 @@ const CAPABILITIES = [
   },
   {
     title: "Writes real bookings",
-    body: "Into the booking system you already run — Mindbody, Vagaro, Boulevard, Zenoti, GHL — or your plain calendar, with a secure deposit link sent after the call to cut no-shows.",
+    body: "Into the booking system you already run. Mindbody, Vagaro, Boulevard, Zenoti, GHL, or your plain calendar, with a secure deposit link sent after the call to cut no-shows.",
   },
   {
     title: "Keeps clinical off the phone",
-    body: "Intake, medical history and consent go to a secure link or your clinician — never collected on the call. Less of your patients' medical detail in fewer places, by design.",
+    body: "Intake, medical history and consent go to a secure link or your clinician, never collected on the call. Less of your patients' medical detail in fewer places, by design.",
   },
   {
     title: "Reactivates the dormant list",
@@ -32,7 +32,7 @@ export function HowItWorks() {
         <p className="text-muted text-xs font-bold tracking-[0.14em] uppercase">
           What it does
         </p>
-        <h2 className="font-display mt-3 text-[clamp(30px,4.4vw,52px)] leading-[1.04] font-medium tracking-[-0.026em]">
+        <h2 className="font-display mt-3 text-[clamp(36px,5.28vw,62.4px)] leading-[1.04] font-medium tracking-[-0.026em]">
           A front desk that never goes to voicemail.
         </h2>
       </div>
@@ -40,13 +40,13 @@ export function HowItWorks() {
       <div className="mt-12 grid gap-x-10 gap-y-9 sm:grid-cols-2 lg:grid-cols-3">
         {CAPABILITIES.map((capability, index) => (
           <div key={capability.title} className="border-line border-t pt-5">
-            <span className="text-red text-[13px] font-bold tracking-[0.05em]">
+            <span className="text-red-deep text-[15.6px] font-bold tracking-[0.05em]">
               {String(index + 1).padStart(2, "0")}
             </span>
-            <h3 className="font-display mt-2 text-[21px] leading-tight font-medium tracking-[-0.015em]">
+            <h3 className="font-display mt-2 text-[25.2px] leading-tight font-medium tracking-[-0.015em]">
               {capability.title}
             </h3>
-            <p className="text-muted mt-2.5 text-[15px] font-medium">
+            <p className="text-muted mt-2.5 text-[18px] font-medium">
               {capability.body}
             </p>
           </div>

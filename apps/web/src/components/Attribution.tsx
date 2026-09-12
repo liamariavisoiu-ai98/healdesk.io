@@ -43,8 +43,8 @@ const STAGES = [
 /**
  * The differentiator, made visual.
  *
- * Incumbents write *into* the booking system and stop. The last two stages —
- * showed and spent — require reading back *out* of check-in and the POS, which
+ * Incumbents write *into* the booking system and stop. The last two stages,
+ * showed and spent, require reading back *out* of check-in and the POS, which
  * is the whole argument for the product. See docs/prd.md.
  *
  * ## The chain starts at the ring, not at an ad click
@@ -73,13 +73,13 @@ export function Attribution() {
         <p className="text-muted text-xs font-bold tracking-[0.14em] uppercase">
           The part nobody else does
         </p>
-        <h2 className="font-display mt-3 text-[clamp(30px,4.4vw,52px)] leading-[1.04] font-medium tracking-[-0.026em]">
+        <h2 className="font-display mt-3 text-[clamp(36px,5.28vw,62.4px)] leading-[1.04] font-medium tracking-[-0.026em]">
           Every other AI receptionist stops at{" "}
           <span className="text-muted italic">&ldquo;booked&rdquo;</span>.
         </h2>
-        <p className="text-muted mt-4 text-[17px] font-medium">
+        <p className="text-muted mt-4 text-[20.4px] font-medium">
           They write into your calendar and never read the money back out of your
-          point-of-sale. So they can tell you a call was recovered — never that it
+          point-of-sale. So they can tell you a call was recovered, never that it
           became <span className="text-ink font-semibold">$1,400 collected</span>.
         </p>
       </div>
@@ -102,18 +102,18 @@ export function Attribution() {
             <div>
               <span
                 className={[
-                  "text-[11px] font-bold tracking-[0.1em] uppercase",
+                  "text-[13.2px] font-bold tracking-[0.1em] uppercase",
                   stage.covered ? "text-muted" : "text-white/70",
                 ].join(" ")}
               >
                 {String(index + 1).padStart(2, "0")}
               </span>
-              <p className="font-display mt-2 text-[19px] leading-tight font-medium">
+              <p className="font-display mt-2 text-[22.8px] leading-tight font-medium">
                 {stage.label}
               </p>
               <p
                 className={[
-                  "mt-1.5 text-[13px] font-medium",
+                  "mt-1.5 text-[15.6px] font-medium",
                   stage.covered ? "text-muted" : "text-white/80",
                 ].join(" ")}
               >
@@ -124,7 +124,7 @@ export function Attribution() {
             <div>
               <p
                 className={[
-                  "text-[15px] font-bold tabular-nums",
+                  "text-[18px] font-bold tabular-nums",
                   stage.covered ? "text-ink" : "text-white",
                 ].join(" ")}
               >
@@ -132,7 +132,7 @@ export function Attribution() {
               </p>
               <p
                 className={[
-                  "mt-2 text-[11px] font-bold tracking-[0.06em] uppercase",
+                  "mt-2 text-[13.2px] font-bold tracking-[0.06em] uppercase",
                   stage.covered ? "text-muted" : "text-white/85",
                 ].join(" ")}
               >
@@ -143,14 +143,14 @@ export function Attribution() {
         ))}
       </ol>
 
-      <p className="text-muted mt-8 max-w-[62ch] text-[15px] font-medium">
+      <p className="text-muted mt-8 max-w-[62ch] text-[18px] font-medium">
         Closing that loop means you can finally answer the only question that
-        matters — <span className="text-ink font-semibold">what did the front
-        desk earn me?</span> — from calls that would have gone to voicemail and
+        matters, <span className="text-ink font-semibold">what did the front
+        desk earn me?</span>, from calls that would have gone to voicemail and
         lapsed patients who booked again. It&apos;s the capability enterprise
         suites charge enterprise prices for.
       </p>
-      <p className="text-muted mt-4 max-w-[62ch] text-[14px]">
+      <p className="text-muted mt-4 max-w-[62ch] text-[16.8px]">
         All of it stays inside your own systems: your phone, your calendar, your
         point of sale, and a report back to you. We never send patient
         information to an advertising platform, in any form.

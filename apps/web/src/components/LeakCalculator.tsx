@@ -52,12 +52,12 @@ export function LeakCalculator() {
         <p className="text-muted text-xs font-bold tracking-[0.14em] uppercase">
           The leak
         </p>
-        <h2 className="font-display mt-3 text-[clamp(30px,4.4vw,52px)] leading-[1.04] font-medium tracking-[-0.026em]">
+        <h2 className="font-display mt-3 text-[clamp(36px,5.28vw,62.4px)] leading-[1.04] font-medium tracking-[-0.026em]">
           Every unanswered call is{" "}
           <span className="text-brand-gradient">someone else&apos;s patient</span>.
         </h2>
-        <p className="text-muted mt-4 text-[17px] font-medium">
-          Not a lost call — a lost case. Move the sliders to your numbers.
+        <p className="text-muted mt-4 text-[20.4px] font-medium">
+          Not a lost call, a lost case. Move the sliders to your numbers.
         </p>
       </div>
 
@@ -68,7 +68,7 @@ export function LeakCalculator() {
             <select
               value={specialtyId}
               onChange={(event) => setSpecialtyId(event.target.value)}
-              className="border-line focus:border-orange w-full rounded-xl border bg-white px-3.5 py-3 text-[15px] font-semibold outline-none transition-colors"
+              className="border-line focus:border-orange w-full rounded-xl border bg-white px-3.5 py-3 text-[18px] font-semibold outline-none transition-colors"
             >
               {specialties.map((option) => (
                 <option key={option.id} value={option.id}>
@@ -99,7 +99,7 @@ export function LeakCalculator() {
             hint="Industry surveys put medspa and dental miss rates in the 20-40% band once you count after-hours."
           />
 
-          <dl className="border-line text-muted space-y-1.5 border-t pt-5 text-[13px]">
+          <dl className="border-line text-muted space-y-1.5 border-t pt-5 text-[15.6px]">
             <div className="flex justify-between gap-4">
               <dt>Booking rate assumed</dt>
               <dd className="text-ink font-semibold">
@@ -127,7 +127,7 @@ export function LeakCalculator() {
             <p className="text-muted text-xs font-bold tracking-[0.14em] uppercase">
               Revenue at risk
             </p>
-            <p className="font-display text-brand-gradient mt-2 text-[clamp(40px,6vw,64px)] leading-none font-semibold tracking-[-0.03em] tabular-nums">
+            <p className="font-figure text-brand-gradient mt-2 text-[clamp(48px,7.2vw,76.8px)] leading-none font-semibold tracking-[-0.03em] tabular-nums">
               {currency.format(result.annualAtRisk)}
             </p>
             <p className="text-muted mt-2 text-sm font-semibold">
@@ -157,16 +157,16 @@ export function LeakCalculator() {
                 style={{ width: `${RECOVERY_RATE * 100}%` }}
               />
             </div>
-            <p className="mt-3 text-[15px] font-semibold">
+            <p className="mt-3 text-[18px] font-semibold">
               Recover ~{Math.round(RECOVERY_RATE * 100)}% of it and that&apos;s{" "}
-              <span className="text-red">
+              <span className="text-red-deep">
                 {currency.format(result.monthlyRecovered)}
               </span>{" "}
               a month back.
             </p>
             <p className="text-muted mt-2 text-xs">
               Estimates from industry ranges, not a quote. healdesk answers 24/7
-              and calls missed numbers back automatically — the closed-loop view
+              and calls missed numbers back automatically, the closed-loop view
               then tells you which recovered calls actually collected.
             </p>
           </div>
@@ -185,7 +185,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-[13px] font-bold tracking-[0.04em] uppercase">
+      <span className="mb-2 block text-[15.6px] font-bold tracking-[0.04em] uppercase">
         {label}
       </span>
       {children}
@@ -215,10 +215,10 @@ function Slider({
   return (
     <label className="block">
       <span className="mb-2 flex items-baseline justify-between gap-3">
-        <span className="text-[13px] font-bold tracking-[0.04em] uppercase">
+        <span className="text-[15.6px] font-bold tracking-[0.04em] uppercase">
           {label}
         </span>
-        <span className="font-display text-red text-xl font-semibold tabular-nums">
+        <span className="font-figure text-red-deep text-xl font-semibold tabular-nums">
           {display}
         </span>
       </span>
@@ -239,7 +239,7 @@ function Slider({
 function Stat({ value, label }: { value: string; label: string }) {
   return (
     <div className="border-line rounded-2xl border bg-white px-4 py-4">
-      <p className="font-display text-[26px] leading-none font-semibold tabular-nums">
+      <p className="font-figure text-[31.2px] leading-none font-semibold tabular-nums">
         {value}
       </p>
       <p className="text-muted mt-1.5 text-xs font-semibold">{label}</p>

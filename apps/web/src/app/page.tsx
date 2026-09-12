@@ -1,53 +1,73 @@
-import { Attribution } from "@/components/Attribution";
-import { CTA } from "@/components/CTA";
-import { Footer } from "@/components/Footer";
-import { HowItWorks } from "@/components/HowItWorks";
-import { LeakCalculator } from "@/components/LeakCalculator";
-import { Nav } from "@/components/Nav";
-import { SpecialtyExperience } from "@/components/SpecialtyExperience";
-import { site } from "@/lib/site";
+import { plans } from "@healdesk/catalog";
 
+import { BuyModalProvider } from "@/components/BuyModal";
+import { Footer } from "@/components/Footer";
+import { HeroMarkProvider } from "@/components/HeroMark";
+import { HeroStage } from "@/components/HeroStage";
+import { HomeExperience } from "@/components/HomeExperience";
+import { KnowMore } from "@/components/KnowMore";
+import { Nav } from "@/components/Nav";
+import { Reviews } from "@/components/Reviews";
+
+/**
+ * The homepage, and the whole site's argument.
+ *
+ * Six things in order: AVA's face, AVA working, the specialties we know, what
+ * that is worth, who already pays for it, and a way to ask. Pricing and contact
+ * are their own pages but are reachable only from the footer, so nothing
+ * competes with the demo for a visitor's first click.
+ *
+ * ⚠️ The reviews are placeholder content and must not ship as written. See the
+ * note at the top of src/lib/reviews.ts.
+ *
+ * ## Parked components
+ *
+ * `Attribution`, `HowItWorks`, `LeakCalculator` and `SpecialtyStrip` are still
+ * in src/components but are no longer rendered anywhere. They are kept on disk
+ * rather than deleted because this structure is a first pass, the
+ * booked → showed → collected chain in particular is the strongest thing the
+ * site has ever said, and it will likely come back somewhere. Delete them once
+ * that call is made; do not re-import them without deciding where they go.
+ *
+ * `CTA` is NOT parked: it closes /pricing. Keep this list accurate, an audit
+ * of the funnel read a stale version of it and concluded the checkout button
+ * existed nowhere, which sent it looking for a break that was not there.
+ */
 export default function HomePage() {
   return (
-    <>
-      <Nav />
+    /* Wraps everything, so "Get Started" opens the flow in place from the
+       navbar and from inside either demo panel. Deliberately outside
+       HeroMarkProvider rather than inside it: that one must not reach the
+       Footer, this one has no such constraint. */
+    <BuyModalProvider initialPlan={plans[0]!.id}>
+      {/* Wraps ONLY these two. The giant healdesk.io behind AVA and the navbar
+          logo are two halves of one hand-off and share a motion value; the
+          Footer imports the same Brand, so a provider that reached it would
+          fade the footer wordmark out along with the hero one. */}
+      <HeroMarkProvider>
+        <Nav />
 
-      <main id="top" className="mx-auto max-w-[1240px] px-5 sm:px-8 lg:px-14">
-        {/* Hero */}
-        <section className="pt-[clamp(40px,7vw,84px)] pb-[clamp(24px,3vw,40px)]">
-          <h1 className="font-display max-w-[16ch] text-[clamp(38px,6.4vw,82px)] leading-[1.0] font-medium tracking-[-0.028em]">
-            {site.tagline}
-          </h1>
-          <p className="text-muted mt-5 text-[clamp(15px,1.5vw,18px)] font-medium">
-            {site.subtitle}
-          </p>
-        </section>
+        {/* Full-bleed, and a sibling of <main> rather than a child: breaking
+            out of main would mean overflow-x on it, which silently turns it
+            into a scroll container and strands the sticky stage. */}
+        <HeroStage />
+      </HeroMarkProvider>
 
-        {/* Specialty strip + live chat and voice demos */}
-        <SpecialtyExperience />
+      <main className="mx-auto max-w-[1240px] px-5 sm:px-8 lg:px-14">
+        {/* Demos (#ava), the niche reel, and "Why go smart?", all driven by
+            one selected specialty, so they cannot disagree with each other. */}
+        <HomeExperience />
 
-        <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-          <a
-            href={site.cta.primary.href}
-            className="bg-brand-gradient shadow-brand hover:shadow-brand-lg inline-flex items-center gap-2 rounded-full px-8 py-4 text-base font-bold text-white transition-all duration-200 hover:-translate-y-0.5"
-          >
-            {site.cta.primary.label}
-          </a>
-          <a
-            href={site.cta.secondary.href}
-            className="border-line-strong text-ink hover:border-ink inline-flex items-center gap-2 rounded-full border-[1.5px] px-8 py-4 text-base font-bold transition-colors hover:bg-[color:var(--color-ink)]/[0.04]"
-          >
-            {site.cta.secondary.label}
-          </a>
-        </div>
+        {/* Social proof sits between the money question and the FAQ on
+            purpose. WhyGoSmart leaves a reader holding a number they worked out
+            themselves, which is the moment they start asking whether anyone
+            else believes it; the FAQ then answers whatever the reviews raised. */}
+        <Reviews />
 
-        <LeakCalculator />
-        <Attribution />
-        <HowItWorks />
-        <CTA />
+        <KnowMore />
       </main>
 
       <Footer />
-    </>
+    </BuyModalProvider>
   );
 }

@@ -1,0 +1,10 @@
+{
+  "_": "Binned by gaze from ElevenLabs_video_seedance-2-0_@Image1 Static _2026-09-08T17_05_15.mp4 \u2014 see docs/hero-frames.md",
+  "cols": 9,
+  "rows": 1,
+  "pattern": "f_{row}_{col}.webp",
+  "width": 900,
+  "height": 1600,
+  "blinks": 0,
+  "placeholder": false
+}

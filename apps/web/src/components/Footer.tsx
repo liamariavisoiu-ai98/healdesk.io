@@ -1,4 +1,4 @@
-import { Brand } from "@/components/Nav";
+import { WordmarkSlogan } from "@/components/Wordmark";
 import { site } from "@/lib/site";
 
 /**
@@ -9,12 +9,12 @@ import { site } from "@/lib/site";
  *
  * The first is that we have earned none of them, and a badge asserting a third
  * party reviewed us is the exact theory the FTC charged in *In re SkyMed
- * International* (2021) — a standalone deception count for displaying a "HIPAA
+ * International* (2021), a standalone deception count for displaying a "HIPAA
  * Compliance" seal, because it "signaled to consumers that a government agency
  * or other third party had reviewed Respondent's information practices" when
  * none had. There is no HIPAA certification: HHS says it "does not endorse or
  * otherwise recognize private organizations' 'certifications'". And the FTC
- * reaches B2B — Henry Schein paid $250,000 over claims made to dentists.
+ * reaches B2B. Henry Schein paid $250,000 over claims made to dentists.
  *
  * The second is that these read BETTER to a clinic than badges would. Every
  * line is a fact we can be asked to demonstrate, and the disclosure at the end
@@ -39,15 +39,22 @@ export function Footer() {
     <footer className="border-line border-t">
       <div className="mx-auto flex max-w-[1240px] flex-col gap-8 px-5 py-12 sm:px-8 md:flex-row md:items-start md:justify-between lg:px-14">
         <div className="max-w-[34ch]">
-          <Brand />
+          {/* The full lockup, strapline included, the only place on the site
+              it appears. The navbar carries the mark alone, because the
+              strapline is unreadable at navbar size. */}
+          <a href="/" aria-label={`${site.name} home`} className="inline-block">
+            <WordmarkSlogan />
+          </a>
           <p className="text-muted mt-3 text-sm font-medium">
-            An AI front desk for high-ticket elective clinics — and the only one
+            An AI front desk for high-ticket elective clinics, and the only one
             that tells you which recovered call actually collected.
           </p>
         </div>
 
+        {/* The only navigation on the site. The navbar carries one CTA and no
+            links, so this is where pricing and contact actually live. */}
         <nav className="flex flex-wrap gap-x-10 gap-y-3" aria-label="Footer">
-          {site.nav.map((item) => (
+          {site.footerLinks.map((item) => (
             <a
               key={item.href}
               href={item.href}
@@ -57,23 +64,23 @@ export function Footer() {
             </a>
           ))}
           <a
-            href="mailto:hello@healdesk.io"
+            href={`mailto:${site.email}`}
             className="text-muted hover:text-ink text-sm font-semibold transition-colors"
           >
-            Contact
+            {site.email}
           </a>
         </nav>
       </div>
 
       <div className="border-line mx-auto max-w-[1240px] border-t px-5 py-10 sm:px-8 lg:px-14">
-        <h2 className="text-[11px] font-bold tracking-[0.14em] uppercase">
+        <h2 className="text-[13.2px] font-bold tracking-[0.14em] uppercase">
           How we handle patient data
         </h2>
 
         <ul className="mt-5 grid gap-x-8 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
           {COMMITMENTS.map((commitment) => (
             <li key={commitment} className="flex gap-2.5 text-sm font-medium">
-              <span aria-hidden className="text-red mt-px shrink-0">
+              <span aria-hidden className="text-red-deep mt-px shrink-0">
                 ✓
               </span>
               <span>{commitment}</span>
@@ -86,7 +93,7 @@ export function Footer() {
         <p className="text-muted mt-6 max-w-[68ch] text-xs leading-relaxed">
           No third party has audited healdesk. These are our own commitments, and
           we will show you the architecture behind any of them. SOC&nbsp;2
-          Type&nbsp;II is on our roadmap — we&rsquo;ll publish the report date
+          Type&nbsp;II is on our roadmap. We&rsquo;ll publish the report date
           when we have one.
         </p>
       </div>

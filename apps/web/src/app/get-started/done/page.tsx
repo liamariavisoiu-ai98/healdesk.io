@@ -11,7 +11,7 @@ export const metadata: Metadata = {
  * Where Stripe returns the buyer after payment.
  *
  * Deliberately dumb: it reads nothing, verifies nothing, and provisions
- * nothing. Arriving here is not proof of payment — anyone can type this URL —
+ * nothing. Arriving here is not proof of payment, anyone can type this URL,
  * and the account is created by the `checkout.session.completed` webhook, which
  * fires whether or not the customer's browser ever comes back.
  *
@@ -31,16 +31,16 @@ export default function CheckoutDonePage() {
         <div className="bg-brand-gradient mx-auto grid size-14 place-items-center rounded-full text-2xl text-white">
           ✓
         </div>
-        <h1 className="font-display mt-6 text-[clamp(26px,3.6vw,38px)] leading-tight font-medium tracking-[-0.024em]">
+        <h1 className="font-display mt-6 text-[clamp(31.2px,4.32vw,45.6px)] leading-tight font-medium tracking-[-0.024em]">
           Payment received.
         </h1>
-        <p className="text-muted mt-4 text-[16px] font-medium">
+        <p className="text-muted mt-4 text-[19.2px] font-medium">
           We&apos;re setting up your account now. Check your inbox in the next
           couple of minutes for a link to choose a password and finish setup.
         </p>
         <p className="text-muted mt-6 text-sm">
           Your agreement is on file and your trial has started. Nothing else is
-          needed from you right now — if the email hasn&apos;t arrived in ten
+          needed from you right now, if the email hasn&apos;t arrived in ten
           minutes, reply to your receipt and we&apos;ll sort it out.
         </p>
       </main>

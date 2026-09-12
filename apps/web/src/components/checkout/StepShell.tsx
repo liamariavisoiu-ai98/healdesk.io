@@ -4,7 +4,7 @@
  * Shared chrome for every checkout step.
  *
  * One decision per screen, progress always visible, and a reassurance line that
- * never leaves — because the two things a clinic owner is actually weighing are
+ * never leaves, because the two things a clinic owner is actually weighing are
  * "how long will this take" and "what are you getting access to".
  */
 export function StepShell({
@@ -15,6 +15,7 @@ export function StepShell({
   subtitle,
   children,
   onBack,
+  onClose,
 }: {
   step: number;
   totalSteps: number;
@@ -23,6 +24,14 @@ export function StepShell({
   subtitle?: string;
   children: React.ReactNode;
   onBack?: () => void;
+  /**
+   * Present only when the flow is hosted in something dismissable.
+   *
+   * On its own page the site chrome supplies the way out. In a modal it does
+   * not, and Escape is deliberately blocked once an agreement has been signed,
+   * so without this the buyer can reach a screen with no exit at all.
+   */
+  onClose?: () => void;
 }) {
   return (
     <div className="mx-auto w-full max-w-[720px]">
@@ -42,6 +51,17 @@ export function StepShell({
           <span className="text-muted ml-auto text-xs font-bold tracking-[0.14em] uppercase">
             Step {step} of {totalSteps}
           </span>
+
+          {onClose ? (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="text-muted hover:text-ink -mr-1 grid size-7 shrink-0 place-items-center rounded-full text-lg leading-none transition-colors"
+            >
+              <span aria-hidden>&times;</span>
+            </button>
+          ) : null}
         </div>
 
         <div
@@ -62,11 +82,11 @@ export function StepShell({
       <p className="text-muted text-xs font-bold tracking-[0.14em] uppercase">
         {eyebrow}
       </p>
-      <h1 className="font-display mt-2 text-[clamp(26px,3.6vw,40px)] leading-[1.06] font-medium tracking-[-0.024em]">
+      <h1 className="font-display mt-2 text-[clamp(31.2px,4.32vw,48px)] leading-[1.06] font-medium tracking-[-0.024em]">
         {title}
       </h1>
       {subtitle ? (
-        <p className="text-muted mt-3 text-[16px] font-medium">{subtitle}</p>
+        <p className="text-muted mt-3 text-[19.2px] font-medium">{subtitle}</p>
       ) : null}
 
       <div className="mt-8">{children}</div>
@@ -146,11 +166,11 @@ export function ChoiceCard({
 
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-2">
-            <span className="font-display text-[19px] leading-tight font-medium">
+            <span className="font-display text-[22.8px] leading-tight font-medium">
               {title}
             </span>
             {badge ? (
-              <span className="bg-paper-2 text-muted rounded-full px-2.5 py-1 text-[11px] font-bold tracking-[0.06em] uppercase">
+              <span className="bg-paper-2 text-muted rounded-full px-2.5 py-1 text-[13.2px] font-bold tracking-[0.06em] uppercase">
                 {badge}
               </span>
             ) : null}

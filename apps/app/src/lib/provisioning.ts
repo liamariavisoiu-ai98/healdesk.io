@@ -11,7 +11,7 @@ import {
 import { eq, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
-import { invitation, organization, user } from "@/db/auth-schema";
+import { organization } from "@/db/auth-schema";
 import { clinics, provisioningAttempts } from "@/db/schema";
 
 import { bindAgreement } from "./agreements";
@@ -19,7 +19,7 @@ import { recordSecurityEvent } from "./audit";
 import type { RequestContext } from "./audit";
 
 /**
- * Turning a completed checkout into an account.
+ * Turning a completed checkout into a clinic.
  *
  * This is the one legitimate caller of `unsafeDb` besides Better Auth and
  * migrations: provisioning happens before a tenant exists, so there is no
@@ -27,12 +27,48 @@ import type { RequestContext } from "./audit";
  * insert the clinic first (that table is not FORCEd), then declare the tenant,
  * then write everything that is.
  *
- * ## Why this creates an invitation rather than a user
+ * ## Why nobody is invited to sign in
  *
- * Sign-up is closed (src/lib/auth.ts): an open registration form on a system
- * holding patient records is a defect. So checkout provisions the org and the
- * clinic, then invites the buyer. They set a password from the invite link, and
- * Better Auth's create hook finds the pending invitation and allows the account.
+ * A clinic never signs in, because there is nothing for a clinic to sign in to.
+ * The clinic-facing console was removed on 7 September, and the one thing we
+ * ever ask a clinic to do in a browser — hand over booking credentials — now
+ * happens through a single-use link that needs no account at all (see
+ * lib/email/connect-link.ts).
+ *
+ * So provisioning used to end by writing a Better Auth `invitation` row, which
+ * the provision route then mailed as "choose a password". That is an invitation
+ * into a product with nothing behind the login. The mild failure is a confused
+ * customer setting a credential they can never use; the real one is a live
+ * password on a system holding patient records, created for no purpose, never
+ * used, and therefore never noticed and never rotated. The fewest credentials
+ * that can exist is the security property here, so the invitation is not
+ * written and the account it would have created is never made.
+ *
+ * Gone with it is `ensureSystemUser()`, which existed for exactly one reason:
+ * Better Auth's invitation table requires an inviterId and a self-serve
+ * purchase has no human doing the inviting, so every provision upserted a
+ * `usr_system_healdesk` row to name as the inviter. No invitation, no inviter.
+ * Databases provisioned before this change still carry that row; nothing
+ * authenticates as it and nothing reads it, and clearing it out is a migration
+ * rather than a code path.
+ *
+ * The buyer still receives everything the purchase owes them, by email: their
+ * signed agreement as a PDF (sent by signAgreement, before payment, from
+ * lib/email/agreement-copy.ts) and — only when they have a booking system to
+ * connect — the single-use connect link.
+ *
+ * The alternative considered was keeping the invitation dormant "in case a
+ * console comes back". Rejected: a pending invitation is a live credential with
+ * a 14-day fuse and no product behind it, and it accrues one per sale. If a
+ * clinic-facing surface is ever built, issuing invitations at that point is a
+ * far smaller job than auditing the ones issued in the meantime.
+ *
+ * ## Why the organization row stays
+ *
+ * `clinics.organizationId` is NOT NULL and references `organization`, and an
+ * agreement binds to an organization id. It remains a data concept with nobody
+ * logging into it. Removing Better Auth's tables is a different and much larger
+ * change than declining to write one row.
  *
  * ## Why provisioning does not record the BAA
  *
@@ -42,15 +78,25 @@ import type { RequestContext } from "./audit";
  * may or may not arrive. By the time we reach here the signature exists; this
  * only binds it to the organization that payment just created.
  *
- * That is also why baa_acceptances.userId is nullable: the buyer signed before
- * any user record existed, and their name and email are frozen into their own
- * columns on the acceptance row.
+ * That is also why baa_acceptances.userId is nullable, and why it now stays
+ * null forever: the buyer signed before any user record existed, and since the
+ * invitation went away no user record is ever created. Their name and email are
+ * frozen into their own columns on the acceptance row, which is the whole
+ * reason that evidence survives having no account to hang off.
  */
 
-/** Well-known inviter for self-serve signups, where no human is inviting. */
-const SYSTEM_USER_ID = "usr_system_healdesk";
-const SYSTEM_USER_EMAIL = "system@healdesk.io";
-const INVITATION_TTL_DAYS = 14;
+/**
+ * What goes in `provisioning_attempts.invitation_id` now that no invitation is
+ * created. The column is NOT NULL (drizzle/0021) and dropping it is a migration
+ * this change does not own, so the ledger still needs a value.
+ *
+ * A constant nil uuid rather than a fresh `randomUUID()`: a random one is
+ * indistinguishable from a real invitation id, so anyone reading the ledger
+ * later would reasonably try to look it up and conclude the invitation had been
+ * deleted. All-zeroes cannot be mistaken for anything, and it makes the eventual
+ * `DROP COLUMN` obviously safe to write.
+ */
+const NO_INVITATION = "00000000-0000-0000-0000-000000000000";
 
 export class ProvisioningError extends Error {
   constructor(
@@ -102,9 +148,9 @@ export type ProvisionRequest = {
    * ⚠️ Stamped SERVER-SIDE by apps/web from the verified Stripe event — never
    * taken from a browser. The HMAC on this request authenticates apps/web, not
    * the buyer, so a key chosen by the client would let anyone who guessed one
-   * receive another clinic's organizationId, clinicId and invitationId in the
-   * replay response. A dedupe key that echoes prior results is an object
-   * reference oracle if it is attacker-controlled.
+   * receive another clinic's organizationId and clinicId in the replay
+   * response. A dedupe key that echoes prior results is an object reference
+   * oracle if it is attacker-controlled.
    */
   idempotencyKey: string;
 };
@@ -113,16 +159,14 @@ export type ProvisionResult = {
   organizationId: string;
   clinicId: string;
   clinicSlug: string;
-  invitationId: string;
-  /** Present so the caller can send the invite email; never logged. */
-  invitedEmail: string;
   /**
    * True when this key had already been provisioned and nothing was written.
    *
-   * The caller MUST NOT re-send the invite email on a replay. Stripe retries
-   * for up to three days, so a flapping webhook would otherwise mail the same
-   * clinic owner an invitation every few hours — all pointing at the same
-   * still-valid link.
+   * Still reported, and still load-bearing, even though provisioning no longer
+   * sends mail of its own: it is what lets the caller answer 200 rather than
+   * 201, and it is the flag anything added here later must consult before it
+   * does something a customer can perceive. Stripe redelivers for up to three
+   * days, so on this path "already done" happens routinely rather than rarely.
    */
   replayed: boolean;
 };
@@ -265,17 +309,14 @@ export async function provisionClinic(
       organizationId: provisioningAttempts.organizationId,
       clinicId: provisioningAttempts.clinicId,
       clinicSlug: provisioningAttempts.clinicSlug,
-      invitationId: provisioningAttempts.invitationId,
     })
     .from(provisioningAttempts)
     .where(eq(provisioningAttempts.idempotencyKey, request.idempotencyKey))
     .limit(1);
 
   if (seen[0]) {
-    return { ...seen[0], invitedEmail: email, replayed: true };
+    return { ...seen[0], replayed: true };
   }
-
-  await ensureSystemUser();
 
   const baseSlug = slugify(request.clinicName);
 
@@ -325,9 +366,7 @@ async function provisionOnce({
    */
   const clinicId = randomUUID();
 
-  const invitationId = randomUUID();
-
-  const result = await unsafeDb.transaction(async (tx) => {
+  await unsafeDb.transaction(async (tx) => {
     // The claim goes FIRST, inside this transaction, with every id it will
     // report already decided above.
     //
@@ -343,7 +382,7 @@ async function provisionOnce({
       organizationId,
       clinicId,
       clinicSlug: slug,
-      invitationId,
+      invitationId: NO_INVITATION,
     });
 
     await tx.execute(sql`select set_config('app.clinic_id', ${clinicId}, true)`);
@@ -396,21 +435,6 @@ async function provisionOnce({
       dataClassification: "synthetic",
     });
 
-    const expiresAt = new Date(
-      Date.now() + INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000,
-    );
-
-    await tx.insert(invitation).values({
-      id: invitationId,
-      organizationId,
-      email,
-      role: "owner",
-      status: "pending",
-      expiresAt,
-      inviterId: SYSTEM_USER_ID,
-      createdAt: new Date(),
-    });
-
     await recordSecurityEvent(tx, {
       event: "clinic_provisioned",
       actorLabel: email,
@@ -427,46 +451,18 @@ async function provisionOnce({
       },
     });
 
-    return { clinicId, invitationId };
   });
 
+  // Every id was decided before the transaction opened, so there is nothing to
+  // read back out of it — that is the same property the idempotency claim
+  // depends on (it is written first, naming ids that do not exist yet).
   return {
     organizationId,
-    clinicId: result.clinicId,
+    clinicId,
     clinicSlug: slug,
-    invitationId: result.invitationId,
-    invitedEmail: email,
     replayed: false,
   };
 }
-
-/**
- * Better Auth's invitation table requires an inviter, and a self-serve signup
- * has no human doing the inviting. A named system principal is more honest than
- * loosening the schema — the audit trail then says exactly who issued it.
- */
-async function ensureSystemUser(): Promise<void> {
-  const [existing] = await unsafeDb
-    .select({ id: user.id })
-    .from(user)
-    .where(eq(user.id, SYSTEM_USER_ID))
-    .limit(1);
-
-  if (existing) return;
-
-  await unsafeDb
-    .insert(user)
-    .values({
-      id: SYSTEM_USER_ID,
-      name: "healdesk (system)",
-      email: SYSTEM_USER_EMAIL,
-      emailVerified: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .onConflictDoNothing();
-}
-
 
 function slugify(name: string): string {
   return (

@@ -130,8 +130,12 @@ describe("provision request validation", () => {
     expect(() =>
       validateProvisionRequest(validRequest({ plan: "enterprise" })),
     ).toThrow(/plan/i);
+    // "radiology" rather than a plausible ICP: this fixture previously used
+    // "veterinary", which was later added as a real specialty and turned a
+    // rejection test into one that asserted nothing. Pick something the
+    // catalogue will never carry.
     expect(() =>
-      validateProvisionRequest(validRequest({ specialty: "veterinary" })),
+      validateProvisionRequest(validRequest({ specialty: "radiology" })),
     ).toThrow(/specialty/i);
   });
 });
@@ -152,8 +156,8 @@ describeDb("provisioning", () => {
    * Stripe re-delivers a webhook for up to three days on any non-2xx. Before
    * the idempotency ledger, the second delivery hit the clinic-slug unique
    * index, the retry loop generated `radiance-med-spa-a3f9c1`, and the clinic
-   * got a SECOND organization, clinic and invitation — with the buyer billed
-   * once. This test is the regression guard for that.
+   * got a SECOND organization and clinic — with the buyer billed once. This
+   * test is the regression guard for that.
    */
   test("a repeated delivery replays instead of creating a second account", async () => {
     const agreementId = await signFor("Repeat Clinic", "repeat@clinic.test");
@@ -183,13 +187,21 @@ describeDb("provisioning", () => {
     expect(second.organizationId).toBe(first.organizationId);
     expect(second.clinicId).toBe(first.clinicId);
     expect(second.clinicSlug).toBe(first.clinicSlug);
-    expect(second.invitationId).toBe(first.invitationId);
 
     const { rows } = await getMigratorPool().query<{ count: string }>(
       `select count(*)::text as count from clinics where name = $1`,
       ["Repeat Clinic"],
     );
     expect(rows[0]!.count).toBe("1");
+
+    // One organization too, not two. The clinic count alone would still pass if
+    // a replay somehow created an orphan org, and the org is what the agreement
+    // binds to.
+    const { rows: orgs } = await getMigratorPool().query<{ count: string }>(
+      `select count(*)::text as count from organization where name = $1`,
+      ["Repeat Clinic"],
+    );
+    expect(orgs[0]!.count).toBe("1");
   });
 
   /**
@@ -343,32 +355,54 @@ describeDb("provisioning", () => {
     }
   });
 
-  test("invites the buyer rather than creating an account for them", async () => {
+  /**
+   * The inverse of the test this replaces.
+   *
+   * That test asserted provisioning created a pending owner invitation. It was
+   * correct while a clinic console existed; it is now the exact defect. A
+   * clinic never signs in, so an invitation issued here is a live credential
+   * with a 14-day fuse and nothing behind it, accruing one per sale. Asserting
+   * the absence is worth more than deleting the test: this is the property that
+   * would silently come back if someone restored the insert.
+   */
+  test("creates no invitation and no login for the buyer", async () => {
     const agreementId = await signFor("Invite Clinic", "invitee@example.test");
     const result = await provisionClinic(
       validRequest({ contactEmail: "invitee@example.test", agreementId }),
     );
 
-    const { rows: invites } = await getMigratorPool().query<{
-      email: string;
-      status: string;
-      role: string;
-    }>(`select email, status, role from invitation where id = $1`, [
-      result.invitationId,
-    ]);
+    // Not "no invitation with this id" — no invitation for this organization at
+    // all, so the check cannot be satisfied by writing one under another id.
+    const { rows: invites } = await getMigratorPool().query(
+      `select id from invitation where organization_id = $1`,
+      [result.organizationId],
+    );
+    expect(invites).toHaveLength(0);
 
-    expect(invites[0]).toMatchObject({
-      email: "invitee@example.test",
-      status: "pending",
-      role: "owner",
-    });
-
-    // Sign-up is closed; no user exists until the invite is accepted.
+    // No user for the buyer, and none they could be invited to become.
     const { rows: users } = await getMigratorPool().query(
       `select id from "user" where email = $1`,
       ["invitee@example.test"],
     );
     expect(users).toHaveLength(0);
+
+    // And no standing system principal either. `usr_system_healdesk` existed
+    // only to satisfy the invitation's inviterId; a permanent user row that
+    // nothing ever authenticates as is one more principal to keep out of every
+    // membership query.
+    const { rows: system } = await getMigratorPool().query(
+      `select id from "user" where id = $1`,
+      ["usr_system_healdesk"],
+    );
+    expect(system).toHaveLength(0);
+
+    // The organization is still created and still carries the clinic: the FK on
+    // clinics.organization_id is NOT NULL, and dropping the invitation must not
+    // have taken the tenant row with it.
+    const { rows: clinic } = await getMigratorPool().query<{
+      organization_id: string;
+    }>(`select organization_id from clinics where id = $1`, [result.clinicId]);
+    expect(clinic[0]!.organization_id).toBe(result.organizationId);
   });
 
   test("gives colliding clinic names distinct slugs", async () => {

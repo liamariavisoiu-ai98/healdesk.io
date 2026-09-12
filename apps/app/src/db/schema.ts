@@ -1,13 +1,17 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   check,
+  customType,
   index,
+  inet,
   integer,
   jsonb,
   numeric,
   pgEnum,
   pgTable,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -15,6 +19,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 import type { OpeningHours } from "../lib/clinic/opening-hours";
+import type { SealedPayload } from "../lib/crypto/envelope";
 
 import { organization, user } from "./auth-schema";
 
@@ -617,6 +622,25 @@ export const appointments = pgTable(
      */
     checkedInAt: timestamp("checked_in_at", { withTimezone: true }),
 
+    /**
+     * Set ONLY when a sync reads this appointment back out of the clinic's own
+     * booking system. Never set by the agent.
+     *
+     * report.ts joins bookings to this table so that "a booking" means a real
+     * appointment row rather than an outcome label the agent set on its way out
+     * of the call. Once healdesk writes appointment rows itself — which it must,
+     * because for a clinic with no booking software nobody else will — that join
+     * stops proving anything, since we would be corroborating our own claim.
+     * This column is what restores the distinction.
+     *
+     * Null means one of two things, and the report should not conflate them:
+     * we booked it and no sync has seen it yet, or the clinic runs no booking
+     * software and none ever will.
+     */
+    externalConfirmedAt: timestamp("external_confirmed_at", {
+      withTimezone: true,
+    }),
+
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -626,6 +650,9 @@ export const appointments = pgTable(
   },
   (t) => [
     index("appointments_clinic_idx").on(t.clinicId, t.scheduledFor),
+    index("appointments_confirmed_idx")
+      .on(t.clinicId, t.externalConfirmedAt)
+      .where(sql`${t.externalConfirmedAt} is not null`),
     index("appointments_conversation_idx").on(t.clinicId, t.conversationId),
     uniqueIndex("appointments_external_idx")
       .on(t.clinicId, t.externalSource, t.externalAppointmentId)
@@ -834,6 +861,68 @@ export const baaAcceptances = pgTable(
       .defaultNow(),
     /** When the acceptance was attached to a paid organization. */
     boundAt: timestamp("bound_at", { withTimezone: true }),
+
+    /**
+     * When the agreement stopped being in effect. Null while it still is.
+     *
+     * This is the second half of the retention clock, and the half everyone
+     * forgets. 45 CFR 164.530(j)(2) requires six years "from the date of its
+     * creation or the date when it last was in effect, whichever is later" —
+     * for a BAA, "last in effect" is termination, so a clinic that stays three
+     * years owes nine years from signature. Retention computed from
+     * acceptedAt alone marks live contracts as expired.
+     *
+     * Write-once: see drizzle/0025. Clearing or backdating this column moves
+     * the retention clock, so no code path may.
+     */
+    terminatedAt: timestamp("terminated_at", { withTimezone: true }),
+
+    /**
+     * When the counterparty's own copy of the signed agreement was delivered.
+     *
+     * A HIPAA contract the other party cannot produce is a bad position to be
+     * in, so the delivery is a recorded fact rather than an assumption.
+     */
+    copySentAt: timestamp("copy_sent_at", { withTimezone: true }),
+    /**
+     * SHA-256 of the exact PDF that was sent — not of renderedText.
+     *
+     * The two should agree in content, but the thing the clinic holds is the
+     * PDF, and "what did they actually receive" is the question a dispute
+     * asks. Constrained to 64 lowercase hex, and null exactly when
+     * copySentAt is null: a date with no hash proves nothing and a hash with
+     * no date is unanchored.
+     */
+    copyDocumentSha256: text("copy_document_sha256"),
+
+    /**
+     * The six-year floor: greatest(acceptedAt, terminatedAt) + 6 years.
+     *
+     * GENERATED ALWAYS, computed by Postgres, because a retention date any
+     * code path can write is a retention date somebody can set to a convenient
+     * value. There is no INSERT and no UPDATE — from the app role, the
+     * migrator, psql or a future service — that can move it.
+     *
+     * ⚠️ It is a FLOOR, not a deletion schedule, and while terminatedAt is
+     * null it is a floor computed from creation alone: the real eligibility
+     * date of a live agreement is not yet knowable. Never render it raw — the
+     * admin console reads it through the retention state `searchAgreements`
+     * derives in lib/agreements/search.ts, which refuses to call a live
+     * agreement eligible for anything, and
+     * lib/agreements/retention.ts holds the same rule for a caller that wants
+     * it as a query. Nothing in this system auto-deletes a BAA.
+     */
+    retentionEligibleAt: timestamp("retention_eligible_at", {
+      withTimezone: true,
+    })
+      .notNull()
+      // Six years is added in UTC on purpose. `timestamptz + interval` is
+      // STABLE (it depends on the session TimeZone), and Postgres refuses a
+      // non-immutable generation expression outright — so the naive form does
+      // not merely drift, it will not create. See drizzle/0025.
+      .generatedAlwaysAs(
+        sql`(((greatest(accepted_at, coalesce(terminated_at, accepted_at)) at time zone 'UTC') + interval '6 years') at time zone 'UTC')`,
+      ),
   },
   (t) => [
     index("baa_acceptances_org_idx").on(t.organizationId, t.acceptedAt),
@@ -844,6 +933,24 @@ export const baaAcceptances = pgTable(
     index("baa_acceptances_unbound_idx")
       .on(t.acceptedAt)
       .where(sql`${t.organizationId} is null`),
+    // Only a terminated agreement can ever become eligible for review, so the
+    // index carries that rule rather than leaving it to whoever writes the
+    // next query.
+    index("baa_acceptances_retention_idx")
+      .on(t.retentionEligibleAt)
+      .where(sql`${t.terminatedAt} is not null`),
+    check(
+      "baa_acceptances_terminated_after_accepted",
+      sql`${t.terminatedAt} is null or ${t.terminatedAt} >= ${t.acceptedAt}`,
+    ),
+    check(
+      "baa_acceptances_copy_evidence_complete",
+      sql`(${t.copySentAt} is null) = (${t.copyDocumentSha256} is null)`,
+    ),
+    check(
+      "baa_acceptances_copy_hash_format",
+      sql`${t.copyDocumentSha256} is null or ${t.copyDocumentSha256} ~ '^[0-9a-f]{64}$'`,
+    ),
   ],
 );
 
@@ -1286,6 +1393,183 @@ export const provisioningAttempts = pgTable("provisioning_attempts", {
     .defaultNow(),
 });
 
+/**
+ * Postgres `bytea`, as a Buffer.
+ *
+ * drizzle-orm 0.45 has no first-class bytea column, and node-postgres already
+ * hands back a Buffer for one, so the mapping is the identity in both
+ * directions. Declared here rather than storing hex in a text column: a text
+ * column would accept a 43-character base64url token as readily as a digest,
+ * and connection_links is built on that distinction.
+ */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
+
+/**
+ * The one-time link a clinic uses to hand us booking credentials.
+ *
+ * There is no clinic-facing login anywhere in this product — healdesk is a
+ * service, not software a clinic operates (docs/launch-plan.md, "Login? None").
+ * So the entire grant happens through a link in an email: they click it, follow
+ * the wizard for their platform, paste one credential, and are done forever.
+ *
+ * Which makes a row here the whole authentication story for a route that writes
+ * a credential. Three properties carry it, and all three are enforced by
+ * drizzle/0024_connection_links.sql rather than by this file:
+ *
+ *   1. `tokenHash` is SHA-256 of what we mailed — never the token. A check
+ *      constraint pins it to 32 bytes, so the refactor that "simplifies" this
+ *      into storing the token fails the INSERT instead of quietly turning every
+ *      row into a working link.
+ *   2. `usedAt` is set exactly once, by a conditional UPDATE, and a trigger
+ *      refuses any later write to a consumed row. The app role has no DELETE.
+ *   3. RLS is ENABLED and FORCEd like every tenant table — which means the
+ *      anonymous holder cannot read their own link until the tenant has been
+ *      declared from the token's clinic. See lib/connections/links.ts.
+ *
+ * ⚠️ No PHI, ever. This surface renders a clinic name and a set of platform
+ * steps. Nothing patient-level reaches it, by construction: no column here can
+ * carry any.
+ */
+export const connectionLinks = pgTable(
+  "connection_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    /**
+     * No cascade, matching audit_log rather than the PHI tables. A record that
+     * a credential was granted must not be erasable by deleting the clinic it
+     * describes; Postgres refuses the clinic delete instead.
+     */
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id),
+
+    /** SHA-256(token). Selected only to match on; never returned to a caller. */
+    tokenHash: bytea("token_hash").notNull(),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /** See CONNECTION_LINK_TTL_DAYS in lib/connections/links.ts for the default. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+
+    /** NULL means unused. The single-use flag; see property 2 above. */
+    usedAt: timestamp("used_at", { withTimezone: true }),
+
+    /**
+     * The ops user who issued it, as an immutable snapshot rather than an FK —
+     * for the reason audit_log denormalises actorLabel: a record of who granted
+     * access is worthless the moment it can read "nobody".
+     */
+    issuedBy: text("issued_by"),
+
+    /**
+     * Where it was redeemed from. `inet`, so a malformed forwarded-for header
+     * would abort the transaction — links.ts validates before it ever gets
+     * here and stores NULL instead, because refusing a clinic's credential over
+     * a strange proxy header is the wrong trade.
+     */
+    consumedIp: inet("consumed_ip"),
+  },
+  (t) => [
+    uniqueIndex("connection_links_token_hash_idx").on(t.tokenHash),
+    index("connection_links_clinic_idx").on(t.clinicId, t.createdAt),
+  ],
+);
+
+/**
+ * The administrator's second factor. Exactly one row, forever.
+ *
+ * There is one administrator, identified by HEALDESK_ADMIN_EMAIL, and no user
+ * store behind them — no invitations, no team, no roles. So this table is not
+ * "TOTP secrets keyed by user"; it is the single secret belonging to the single
+ * operator, and the primary key is a constant with a CHECK pinning it to 1. A
+ * second row is not a state this design has an opinion about, so the database
+ * refuses to represent it rather than leaving two secrets for a later reader to
+ * choose between.
+ *
+ * Four properties, all enforced by drizzle/0026_admin_totp.sql rather than here:
+ *
+ *   1. **The secret is never stored in the clear.** `secretCiphertext` holds the
+ *      whole sealed envelope from lib/crypto/envelope.ts — AES-256-GCM under a
+ *      wrapped data key — and a CHECK constraint demands the object carry an
+ *      `authTag`, so the refactor that "simplifies" this into storing the base32
+ *      secret fails the INSERT instead of silently turning the table into a
+ *      list of working authenticators. Same reasoning as connection_links'
+ *      `octet_length(token_hash) = 32`.
+ *   2. **A used step stays used.** `lastUsedStep` only ever moves forward, by a
+ *      conditional UPDATE and by a trigger that refuses a smaller value. That is
+ *      what makes a code single-use: an intercepted six digits is worthless for
+ *      the remaining seconds of its own window.
+ *   3. **The application cannot disenrol.** No DELETE for the app role, and
+ *      column-scoped UPDATE covering only `lastUsedStep` and
+ *      `recoveryCodeHashes`. Nothing reachable from a request can replace the
+ *      secret or clear the enrolment; doing that deliberately takes the migrator
+ *      role and a human. An application that could re-enrol on demand is an
+ *      application whose second factor an attacker can simply re-point.
+ *   4. **Recovery codes are digests.** Never the codes. They are ours, 50 bits
+ *      of randomness each, so SHA-256 is the right primitive and not a password
+ *      hash — see lib/ops/admin-totp.ts for why that also buys single-use.
+ *
+ * ⚠️ No PHI, ever, and no clinic_id: this is identity plane, like
+ * security_events and provisioning_attempts, so there is no RLS and no tenant
+ * for one to scope by.
+ */
+export const adminTotp = pgTable(
+  "admin_totp",
+  {
+    /**
+     * Always 1. The CHECK in the migration is what makes that true; the default
+     * is what makes every writer here able to ignore it.
+     */
+    id: smallint("id").primaryKey().default(1),
+
+    /**
+     * The sealed secret, as the whole `SealedPayload` from envelope.ts.
+     *
+     * One jsonb column rather than the six that provider_connections spreads it
+     * across, and the difference is deliberate: those six exist so a rotation
+     * job can scan `key_version` across thousands of rows. There is one row
+     * here. What matters instead is that the parts cannot be written apart from
+     * one another — a half-updated envelope is an unopenable secret and a
+     * locked-out administrator — so they move as one value.
+     */
+    secretCiphertext: jsonb("secret_ciphertext").$type<SealedPayload>().notNull(),
+
+    enrolledAt: timestamp("enrolled_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+
+    /**
+     * The highest TOTP step already spent, as a number.
+     *
+     * `mode: "number"` rather than bigint-as-string because a step is
+     * `floor(unixSeconds / 30)` — about 5.8e7 today and 1.4e8 when the sun
+     * expands. It will not reach Number.MAX_SAFE_INTEGER, and a string here
+     * would make every comparison in admin-totp.ts a place to get a coercion
+     * wrong. bigint in Postgres anyway, because the column outlives the reason.
+     */
+    lastUsedStep: bigint("last_used_step", { mode: "number" })
+      .notNull()
+      .default(0),
+
+    /** SHA-256 hex of each unspent recovery code. Never the codes themselves. */
+    recoveryCodeHashes: text("recovery_code_hashes")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [check("admin_totp_is_a_singleton", sql`${t.id} = 1`)],
+);
+
 /** Tables carrying a clinic_id, and therefore requiring RLS. Asserted by tests. */
 export const TENANT_SCOPED_TABLES = [
   "clinic_memberships",
@@ -1301,4 +1585,5 @@ export const TENANT_SCOPED_TABLES = [
   "sync_runs",
   "webhook_events",
   "reconciliation_exceptions",
+  "connection_links",
 ] as const;

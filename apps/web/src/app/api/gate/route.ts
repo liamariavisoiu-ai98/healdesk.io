@@ -12,10 +12,10 @@ import { clientKey, rateLimit } from "@/lib/rate-limit";
 export const runtime = "nodejs";
 
 /**
- * POST /api/gate — unlock the chat demo with an email.
+ * POST /api/gate, unlock the chat demo with an email.
  *
  * Every unlock is a lead. Right now it only logs; wire this to your CRM
- * (or a Postgres table on the marketing side — note this is business contact
+ * (or a Postgres table on the marketing side, note this is business contact
  * data, not PHI, so it does not belong in the apps/app boundary).
  */
 export async function POST(request: Request): Promise<NextResponse> {
@@ -44,7 +44,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const normalized = email.trim().toLowerCase();
 
-  // TODO: persist to CRM. Keep it out of the PHI boundary — this is a clinic
+  // TODO: persist to CRM. Keep it out of the PHI boundary. This is a clinic
   // operator's business email, not patient data.
   console.info("[healdesk] demo unlocked", {
     email: normalized,

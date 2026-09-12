@@ -2,7 +2,7 @@
  * Fixed-window rate limiter.
  *
  * In-memory by default, which is correct for a single instance and *not*
- * correct across serverless instances — each cold start gets its own map, so
+ * correct across serverless instances, each cold start gets its own map, so
  * the effective limit is (limit × instances). That's acceptable for a demo
  * whose real ceiling is the email gate plus the per-request token cap, but if
  * the chat is ever ungated, move this to Upstash Redis (env vars are already
@@ -52,6 +52,26 @@ export function rateLimit(
   }
 
   return { ok: true, remaining: limit - existing.count, retryAfter };
+}
+
+/**
+ * Is this key already over its limit, WITHOUT spending from the budget?
+ *
+ * Exists for the callback endpoint's per-number budget, where the check and the
+ * charge have to happen at different moments. The number's allowance protects a
+ * stranger's phone from ringing repeatedly, so it should only be spent by a
+ * call that actually got placed, but it still has to be checked before we
+ * reach the provider, or a caller over their limit would be dialled anyway.
+ *
+ * Peek here, `rateLimit` on success. Two requests racing between the peek and
+ * the charge can both pass, which costs one extra call in the worst case; a
+ * lock would be the wrong trade for a fixed-window counter that is already
+ * per-instance (see the note at the top of this file).
+ */
+export function isOverLimit(key: string, limit: number): boolean {
+  const window = windows.get(key);
+  if (!window || window.resetAt <= Date.now()) return false;
+  return window.count >= limit;
 }
 
 /**

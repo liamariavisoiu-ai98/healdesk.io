@@ -8,7 +8,7 @@ import type Stripe from "stripe";
 import { APP_MARKER, isBillingConfigured, stripeClient } from "@/lib/billing";
 
 /**
- * POST /api/webhooks/stripe — turn a completed checkout into an account.
+ * POST /api/webhooks/stripe, turn a completed checkout into an account.
  *
  * This is the ONLY place provisioning is triggered from in the paid flow. Not
  * the success URL: a buyer who closes the tab after paying still gets their
@@ -18,7 +18,7 @@ import { APP_MARKER, isBillingConfigured, stripeClient } from "@/lib/billing";
  *
  * That single fact shapes every status code below, and it is the thing most
  * webhook handlers get wrong. There is no "4xx means don't retry" rule for
- * webhook deliveries — that rule exists, but for custom actions and remote
+ * webhook deliveries. That rule exists, but for custom actions and remote
  * functions, a different product surface. So a status code here is not a
  * retry-suppression mechanism; it is a choice between "try me again" and "stop,
  * this is handled".
@@ -32,13 +32,13 @@ import { APP_MARKER, isBillingConfigured, stripeClient } from "@/lib/billing";
  *
  * The Stripe secret lives here and the database lives there. This route
  * verifies the signature, then hands the payload to apps/app over the same
- * HMAC channel checkout uses — so exactly one service still holds a connection
+ * HMAC channel checkout uses, so exactly one service still holds a connection
  * to the database that will eventually contain PHI.
  */
 
 /**
  * Node is the default in this Next version and `edge` is deprecated, so this
- * export is redundant — kept for the same reason every other route here has it,
+ * export is redundant, kept for the same reason every other route here has it,
  * and because the dependency is hard rather than incidental: `constructEvent`
  * needs Node crypto, and @healdesk/catalog's request signing imports
  * `node:crypto` directly. Under an edge runtime Stripe falls back to a
@@ -53,7 +53,7 @@ const MAX_BODY_BYTES = 1_000_000;
 /**
  * Deliberately NOT rate limited.
  *
- * `clientKey` buckets by IP, and Stripe delivers from a small pool — so every
+ * `clientKey` buckets by IP, and Stripe delivers from a small pool, so every
  * delivery would share one bucket. Worse, the natural time to exceed a limit is
  * the retry burst after an apps/app outage, i.e. exactly when the events matter
  * most; 429s would then extend the outage into an escalating retry loop. The
@@ -68,7 +68,7 @@ export async function POST(request: Request): Promise<Response> {
   //
   // A missing or wrong STRIPE_WEBHOOK_SECRET makes every GENUINE event fail
   // verification. That is the single most likely fault at launch, and it is
-  // self-healing once the value is set — so it must return non-2xx and let
+  // self-healing once the value is set, so it must return non-2xx and let
   // Stripe re-deliver the backlog. Answering 400 here would acknowledge and
   // discard every real sale while the secret was wrong.
   if (!isBillingConfigured() || !webhookSecret || !appUrl || !provisionSecret) {
@@ -84,7 +84,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // The RAW body. Next's App Router never parses it for you and there is no
-  // bodyParser segment config to disable — but re-serialising it (JSON.parse
+  // bodyParser segment config to disable, but re-serialising it (JSON.parse
   // then stringify) changes bytes and the signature will not verify.
   const raw = await request.text();
   if (raw.length > MAX_BODY_BYTES) {
@@ -105,7 +105,7 @@ export async function POST(request: Request): Promise<Response> {
     );
   } catch (error) {
     // 400 here is a convention, not a retry-suppressor. Reached only when the
-    // secret IS configured, so the likely cause is a forged request — which
+    // secret IS configured, so the likely cause is a forged request, which
     // Stripe never sent and therefore never retries.
     console.warn("[healdesk] stripe signature rejected", error);
     return new Response("Invalid signature.", { status: 400 });
@@ -123,7 +123,7 @@ export async function POST(request: Request): Promise<Response> {
   // One Stripe account serves healdesk and scalabid, and the endpoint's
   // event-type filter does not separate them. Anything without our marker is
   // someone else's traffic: acknowledge so it never counts against this
-  // endpoint's failure rate, but say so — a healdesk sale arriving without
+  // endpoint's failure rate, but say so, a healdesk sale arriving without
   // metadata would be money taken with no account, and that must not be a
   // silent 200 the way the payment_status trap was.
   if (session.metadata?.app !== APP_MARKER) {
@@ -160,7 +160,7 @@ export async function POST(request: Request): Promise<Response> {
 
   const body = JSON.stringify({
     ...provisionRequestFromMetadata(session.metadata),
-    // Stamped here, from the verified event — never from the browser. Returning
+    // Stamped here, from the verified event, never from the browser. Returning
     // a prior result for a caller-chosen key would leak another clinic's ids.
     // The SESSION id, not the event id: every event about this purchase carries
     // the same `cs_…`, so this dedupes the purchase rather than the delivery.
@@ -214,12 +214,12 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // 400/422: deterministic, built from metadata we wrote ourselves, and so
-  // identical on all three days of retries. Acknowledge to save the endpoint —
+  // identical on all three days of retries. Acknowledge to save the endpoint,
   // but this is money taken with no account, so it must be the loudest line in
   // the file. Never echo apps/app's error body: the reader here is the Stripe
   // Dashboard event log.
   console.error(
-    "[healdesk] PROVISIONING REJECTED — paid customer has no account",
+    "[healdesk] PROVISIONING REJECTED, paid customer has no account",
     { event: event.id, session: session.id, status: response.status },
   );
   return Response.json({ received: true, provisioned: false });
@@ -230,8 +230,8 @@ export async function POST(request: Request): Promise<Response> {
  *
  * Metadata values are ALWAYS strings, and provisioning requires
  * `averageTreatmentValueUsd` to be a number. Spreading the metadata object
- * straight through therefore 422s every estimated-attribution signup — which is
- * the default and by far the most common path — so the coercion below is the
+ * straight through therefore 422s every estimated-attribution signup, which is
+ * the default and by far the most common path, so the coercion below is the
  * difference between this working and silently rejecting nearly every sale.
  */
 export function provisionRequestFromMetadata(

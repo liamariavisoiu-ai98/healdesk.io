@@ -3,7 +3,7 @@
  *
  * The visitor submits an email, we set a signed HTTP-only cookie, and /api/chat
  * refuses to run without a valid one. The signature is what makes this worth
- * anything — an unsigned "gated=true" cookie is a one-line bypass in devtools.
+ * anything, an unsigned "gated=true" cookie is a one-line bypass in devtools.
  *
  * This is lead capture and abuse control, not authentication. It stops casual
  * scraping and turns each demo into a lead. It is not a security boundary, and
@@ -22,7 +22,7 @@ function secret(): string {
   if (process.env.NODE_ENV === "production") {
     // Failing loudly beats silently signing every cookie with a known string.
     throw new Error(
-      "HEALDESK_GATE_SECRET is required in production — the demo gate cannot be signed without it.",
+      "HEALDESK_GATE_SECRET is required in production, the demo gate cannot be signed without it.",
     );
   }
   return "dev-only-insecure-secret";
@@ -32,7 +32,7 @@ function sign(payload: string): string {
   return createHmac("sha256", secret()).update(payload).digest("base64url");
 }
 
-/** Reasonable email shape check. Deliberately permissive — this is a gate, not a validator. */
+/** Reasonable email shape check. Deliberately permissive. This is a gate, not a validator. */
 export function isValidEmail(value: unknown): value is string {
   return (
     typeof value === "string" &&

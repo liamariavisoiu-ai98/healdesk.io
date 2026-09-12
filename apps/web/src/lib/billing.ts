@@ -5,7 +5,7 @@ import Stripe from "stripe";
  * Billing, behind an interface.
  *
  * A real implementation when `STRIPE_SECRET_KEY` is present, and one that skips
- * straight to provisioning when it isn't — so the purchase flow stays testable
+ * straight to provisioning when it isn't, so the purchase flow stays testable
  * end to end without Stripe keys, while production refuses to hand out free
  * accounts.
  *
@@ -19,7 +19,7 @@ import Stripe from "stripe";
  * `clinicName` at 120 and `contactEmail` at 254, both with room to spare, and
  * 12 keys against a limit of 50.
  *
- * It is business contact data — a clinic's name, its owner's work email — not
+ * It is business contact data, a clinic's name, its owner's work email, not
  * patient data, and Stripe already receives the email as the customer record.
  * Nothing patient-identifying may ever be added here.
  *
@@ -53,7 +53,7 @@ export function isBillingConfigured(): boolean {
  *
  * `new Stripe(undefined)` throws synchronously ("Neither apiKey nor
  * config.authenticator provided"). At module scope that throw happens at import
- * time, so every route in the module 500s before any of its own guards run —
+ * time, so every route in the module 500s before any of its own guards run,
  * including the webhook's, which needs to answer Stripe's endpoint test even
  * while the key is missing.
  */
@@ -73,7 +73,7 @@ function siteUrl(): string {
 /**
  * Flatten the provisioning payload into Stripe metadata.
  *
- * Every value becomes a string, because Stripe metadata has no other type —
+ * Every value becomes a string, because Stripe metadata has no other type,
  * which is exactly the trap on the way back: `averageTreatmentValueUsd` returns
  * as `"550"`, and provisioning requires a number. The reverse of this function
  * lives in the webhook and must coerce it.
@@ -142,7 +142,7 @@ export async function createCheckout(
      * This is the subscription-mode default, and it is also the deliberate
      * choice: at $249–799/mo sold to clinics, a card at signup is the norm and
      * a trial with no card converts far worse. It also decides what
-     * `payment_status` will be on the way back — with a card collected, Stripe
+     * `payment_status` will be on the way back, with a card collected, Stripe
      * processes a $0 trial invoice and reports `paid`. See the webhook for why
      * that field must still never be used as the gate.
      */
@@ -169,7 +169,7 @@ export async function createCheckout(
  * By `lookup_key`, not by a price id in an env var: an env var is a second
  * place for the price to live and a second place for it to be wrong, and the
  * failure mode is charging a customer the wrong amount. The key encodes the
- * amount, so a catalog price change cannot silently resolve to the old price —
+ * amount, so a catalog price change cannot silently resolve to the old price.
  * it fails loudly here until the setup script has been re-run.
  */
 async function priceIdForPlan(stripe: Stripe, plan: Plan): Promise<string> {

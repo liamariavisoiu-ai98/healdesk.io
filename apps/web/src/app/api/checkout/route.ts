@@ -9,17 +9,17 @@ import { createCheckout, isBillingConfigured } from "@/lib/billing";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 
 /**
- * POST /api/checkout — complete a purchase.
+ * POST /api/checkout, complete a purchase.
  *
  * The marketing site never talks to the product database. It signs the payload
  * and forwards it to apps/app, which owns every write. That keeps exactly one
  * service holding a connection to the database that will eventually contain
- * PHI, even though nothing in this payload is PHI — a clinic owner's name and
+ * PHI, even though nothing in this payload is PHI, a clinic owner's name and
  * work email are business contact data.
  *
  * Payment comes first in the real flow: this route is called by the Stripe
  * webhook / success handler, not directly by the browser form. Until Stripe
- * keys exist, `createCheckout` short-circuits and this is called inline —
+ * keys exist, `createCheckout` short-circuits and this is called inline,
  * see src/lib/billing.ts.
  */
 
@@ -64,7 +64,7 @@ export async function POST(request: Request): Promise<Response> {
   /**
    * Whatever the browser sent for `idempotencyKey`, drop it.
    *
-   * The HMAC below authenticates apps/web, not the buyer — so a key chosen by
+   * The HMAC below authenticates apps/web, not the buyer, so a key chosen by
    * the client would be signed and trusted, and apps/app answers a known key by
    * replaying the stored organizationId, clinicId and invitationId. That turns
    * a dedupe key into an object-reference oracle. It is set server-side, here
@@ -99,7 +99,7 @@ export async function POST(request: Request): Promise<Response> {
 
   // Unpaid development path. createCheckout() throws in production when Stripe
   // is unconfigured, so reaching here means we are deliberately provisioning
-  // without payment — key it on the agreement, which is already unique per
+  // without payment, key it on the agreement, which is already unique per
   // signature. Note the colon: an underscore would survive the audit log's
   // uuid stripper and trip its PHI assertion on some ids and not others.
   const body = JSON.stringify({
@@ -128,7 +128,7 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  // Pass the product's own validation messages through — they name the field
+  // Pass the product's own validation messages through. They name the field
   // that was wrong, which is what the form needs to highlight it.
   const answer = await response.text();
   return new Response(answer, {

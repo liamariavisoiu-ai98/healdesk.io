@@ -6,7 +6,7 @@ import { composeKnowledge, isNiche, isPractice } from "@/lib/knowledge";
 import { getSpecialty } from "@/lib/specialties";
 
 /**
- * POST /api/chat — the live demo's model call.
+ * POST /api/chat, the live demo's model call.
  *
  * This route exists because the prototype called api.anthropic.com directly
  * from browser JavaScript. A key shipped that way is public the moment the page
@@ -41,7 +41,7 @@ type ClientMessage = { role: "user" | "assistant"; content: string };
  * bot that fields a clinical question looks more impressive in the moment. That
  * is a trap here, for two reasons that both cost real money.
  *
- * First, prospects poke demos with patient-sounding questions — "can I get
+ * First, prospects poke demos with patient-sounding questions, "can I get
  * Botox while pregnant?" is the canonical one. An agent that answers is doing
  * exactly the advice-giving the shipped product is deliberately designed never
  * to do, and bodily-injury claims are excluded from the insurance on both the
@@ -54,33 +54,43 @@ type ClientMessage = { role: "user" | "assistant"; content: string };
  * onboarding call is a complaint about a downgrade.
  *
  * So the demo is scoped to scheduling logistics and deflection. Deflection is
- * not a limitation to hide — it IS the product, and demonstrating it well is
+ * not a limitation to hide. It IS the product, and demonstrating it well is
  * the most honest thing this page does.
  */
-function buildSystemPrompt(specialtyName: string, context: string): string {
+function buildSystemPrompt(specialtyName: string | null, context: string): string {
+  // With no specialty named the agent is at the root of the knowledge tree,
+  // which is where a real conversation starts, nobody rings a clinic having
+  // first told the phone what kind of clinic it is.
+  const scope = specialtyName
+    ? `You are configured for a ${specialtyName} clinic.`
+    : "You are NOT configured for one specialty. You cover all of them, med spas, dermatology and aesthetics, plastic and cosmetic surgery, fertility and IVF, dental and orthodontics, medical weight loss, hair restoration, veterinary practices and pet grooming, and massage and chiropractic. Work out which one you are talking about from what the visitor says, and do not ask them to pick from a list. If it is genuinely ambiguous, answer in a way that holds for any of them and let the specifics arrive on their own.";
+  const half = specialtyName ? `a ${specialtyName} call` : "the call";
+
   return [
-    `You are the front-desk assistant for healdesk (healdesk.io), embedded live on healdesk's marketing website as an interactive demo. You are configured for a ${specialtyName} clinic.`,
+    `You are the front-desk assistant for healdesk (healdesk.io), embedded live on healdesk's marketing website as an interactive demo. ${scope}`,
     "",
     "You have two jobs at once:",
-    `1) Demonstrate how healdesk handles the FRONT-DESK half of a ${specialtyName} call: what a treatment costs, how long it takes, what the clinic offers, availability, booking, rescheduling, cancellations, deposits, directions, parking and opening hours. Answer like a warm, sharp receptionist.`,
+    `1) Demonstrate how healdesk handles the FRONT-DESK half of ${half}: what a treatment costs, how long it takes, what the clinic offers, availability, booking, rescheduling, cancellations, deposits, directions, parking and opening hours. Answer like a warm, sharp receptionist.`,
     '2) You are also speaking with a clinic owner or operator evaluating healdesk. When they ask about the product, answer clearly and win them over, then point them to the "Make It Yours" button to get their own.',
     "",
     "About healdesk, for product questions:",
     "- It answers calls, SMS, web chat, Instagram DM, and WhatsApp 24/7, qualifies the caller, books directly into the clinic's calendar or booking system, and follows up on missed calls and lapsed patients.",
     "- It calls back missed numbers automatically, so an unanswered phone stops being a lost patient.",
     "- What actually sets it apart: it closes the loop on revenue. Other AI receptionists write a booking into the calendar and stop there. healdesk also reads the money event back out of the clinic's point-of-sale, so the clinic can see which recovered call became booked, showed up, and collected revenue. That reporting goes to the clinic and stays inside the clinic's own systems.",
-    "- It is deliberately built to keep medical detail OFF the phone, and hands clinical questions to the clinic's staff. That is a design decision, not a gap — describe it with confidence.",
-    "- HIPAA is handled with a signed BAA, encrypted US storage, and audit-ready consent records. Never claim healdesk is 'HIPAA certified' or that any third party has audited or verified it — no such certification exists, and claiming one is itself a violation. Say what we actually do instead.",
+    "- It is deliberately built to keep medical detail OFF the phone, and hands clinical questions to the clinic's staff. That is a design decision, not a gap, describe it with confidence.",
+    "- HIPAA is handled with a signed BAA, encrypted US storage, and audit-ready consent records. Never claim healdesk is 'HIPAA certified' or that any third party has audited or verified it, no such certification exists, and claiming one is itself a violation. Say what we actually do instead.",
     "- Never say or imply that healdesk sends any patient information to Meta, Google, or any advertising platform. It does not, and it is not a roadmap item.",
     "",
-    "Clinical boundaries — these are absolute, and they are the product working:",
+    "Clinical boundaries, these are absolute, and they are the product working:",
     "- Never diagnose, prescribe, set or adjust a treatment plan, or assess whether someone is a suitable candidate for a treatment.",
-    "- Never answer questions about safety, side effects, complications, recovery, aftercare, drug or supplement interactions, pregnancy or breastfeeding, or existing medical conditions — no matter how basic or how confidently you could. Route these to the clinic's clinical team.",
-    "- Do not ask for, invite, or repeat back medical history, medications, conditions, or anything about someone's body. If a caller volunteers it, do not restate it — acknowledge briefly and move to booking.",
-    "- The correct move for any clinical question is a warm deflection plus a next step: offer to book a consult, or to have a provider call them back. For example: \"That's one for our nurse rather than me — I can book you a consult so you can ask them directly. Would Tuesday work?\"",
+    "- Never answer questions about safety, side effects, complications, recovery, aftercare, drug or supplement interactions, pregnancy or breastfeeding, or existing medical conditions, no matter how basic or how confidently you could. Route these to the clinic's clinical team.",
+    "- Do not ask for, invite, or repeat back medical history, medications, conditions, or anything about someone's body. If a caller volunteers it, do not restate it, acknowledge briefly and move to booking.",
+    "- The correct move for any clinical question is a warm deflection plus a next step: offer to book a consult, or to have a provider call them back. For example: \"That's one for our nurse rather than me. I can book you a consult so you can ask them directly. Would Tuesday work?\"",
     "- Quote pricing as an approximate range and note the clinic confirms exact pricing at consult.",
     "",
-    `Domain context for this ${specialtyName} clinic:`,
+    specialtyName
+      ? `Domain context for this ${specialtyName} clinic:`
+      : "Domain context, across the specialties you cover:",
     context,
     "",
     "Style: two to four sentences, warm and direct, no bullet lists, no emoji, no markdown headers. Sound like a great receptionist, not a chatbot. Move toward a booked appointment when you're talking to a patient, and toward a demo when you're talking to an operator.",
@@ -98,7 +108,7 @@ export async function POST(request: Request): Promise<Response> {
     return badRequest("The demo is temporarily unavailable.", 503);
   }
 
-  // 1. Gate — every chat session is tied to a captured email.
+  // 1. Gate, every chat session is tied to a captured email.
   const cookie = request.headers
     .get("cookie")
     ?.split(";")
@@ -138,12 +148,15 @@ export async function POST(request: Request): Promise<Response> {
     messages?: unknown;
   };
 
-  if (typeof specialtyId !== "string") {
-    return badRequest("Missing specialty.");
+  // Optional. The homepage demo sends none, one agent, all specialties, but
+  // a caller that names one still gets the deeper branch.
+  if (specialtyId !== undefined && typeof specialtyId !== "string") {
+    return badRequest("Invalid specialty.");
   }
 
-  const specialty = getSpecialty(specialtyId);
-  if (!specialty) {
+  const specialty =
+    typeof specialtyId === "string" ? getSpecialty(specialtyId) : undefined;
+  if (typeof specialtyId === "string" && !specialty) {
     return badRequest("Unknown specialty.");
   }
 
@@ -195,15 +208,16 @@ export async function POST(request: Request): Promise<Response> {
             {
               type: "text",
               text: buildSystemPrompt(
-                specialty.name,
+                specialty?.name ?? null,
                 composeKnowledge({
-                  specialtyContext: specialty.context,
-                  practice: practiceType ?? specialtyId,
+                  specialtyContext: specialty?.context,
+                  practice: practiceType ?? specialty?.id,
                   niche: branch,
                 }),
               ),
-              // Stable per (specialty, niche) pair, so it still caches across
-              // visitors — the tree deepens the prompt without making it unique.
+              // Stable per (specialty, niche) pair, and the homepage demo now
+              // sends neither, so every visitor there shares ONE prompt and the
+              // cache hits far more often than it did behind the picker.
               cache_control: { type: "ephemeral" },
             },
           ],
@@ -222,7 +236,7 @@ export async function POST(request: Request): Promise<Response> {
         const final = await modelStream.finalMessage();
 
         // Safety classifiers can decline with HTTP 200 and an empty content
-        // array — check stop_reason before assuming there was an answer.
+        // array, check stop_reason before assuming there was an answer.
         if (final.stop_reason === "refusal") {
           send({
             type: "error",

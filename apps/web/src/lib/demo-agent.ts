@@ -1,7 +1,7 @@
 import { site } from "@/lib/site";
 
 /**
- * AVA as the demo meets her: one agent, no specialty picked in advance.
+ * AYA as the demo meets her: one agent, no specialty picked in advance.
  *
  * ## Why the picker went away
  *

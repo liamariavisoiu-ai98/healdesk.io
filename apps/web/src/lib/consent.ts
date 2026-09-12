@@ -1,5 +1,5 @@
 /**
- * The consent text for the "have AVA call me" request, and why it is a module.
+ * The consent text for the "have AYA call me" request, and why it is a module.
  *
  * ## Why this string is shared rather than typed into the component
  *

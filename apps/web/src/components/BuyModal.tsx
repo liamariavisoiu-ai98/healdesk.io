@@ -23,7 +23,7 @@ import { site } from "@/lib/site";
  * ## Why this exists
  *
  * The homepage's argument is the live demo, and until now it had no path to
- * checkout at all. AVA's own prompt told her to point at a button that only
+ * checkout at all. AYA's own prompt told her to point at a button that only
  * exists on /pricing. A prospect she had just convinced had to find the footer,
  * open another page, and start again. That is the widest leak in the funnel,
  * and it is a routing problem rather than a persuasion one.

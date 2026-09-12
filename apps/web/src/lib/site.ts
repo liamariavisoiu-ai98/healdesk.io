@@ -11,7 +11,7 @@
  * full of links is an invitation to leave before the demo has done its job.
  *
  * So the navbar holds a wordmark and two calls to action, in that order of
- * weight: "Get Started" opens the purchase flow, and "Interact with AVA" moves
+ * weight: "Get Started" opens the purchase flow, and "Interact with AYA" moves
  * the viewport to the demo. Nothing else.
  */
 
@@ -21,9 +21,9 @@ export const site = {
   url: process.env.NEXT_PUBLIC_SITE_URL ?? "https://healdesk.io",
 
   /** The agent's name. She is the face in the hero and the voice on the phone. */
-  agent: "AVA",
+  agent: "AYA",
 
-  tagline: "Meet AVA. She never misses a call.",
+  tagline: "Meet AYA. She never misses a call.",
   subtitle:
     "An AI front desk for eight specialties, answering, qualifying, booking and following up.",
 
@@ -32,7 +32,7 @@ export const site = {
     "then shows you which recovered call became collected revenue.",
 
   /** The anchor the secondary CTA scrolls to. Owned here so the two cannot drift. */
-  demoAnchor: "#ava",
+  demoAnchor: "#aya",
 
   cta: {
     /**
@@ -41,7 +41,7 @@ export const site = {
      * href, so the CTA is never dead.
      */
     primary: { label: "Get Started", href: "/get-started" },
-    secondary: { label: "Interact with AVA", href: "#ava" },
+    secondary: { label: "Interact with AYA", href: "#aya" },
   },
 
   /**

@@ -64,7 +64,7 @@ export default function ContactPage() {
             Tell us the specialty and where your phone drops, and we&apos;ll tell
             you what {site.agent} would have answered. If you&apos;d rather just
             hear her,{" "}
-            <a href="/#ava" className="text-red-deep underline underline-offset-2">
+            <a href="/#aya" className="text-red-deep underline underline-offset-2">
               have her call you
             </a>
             .

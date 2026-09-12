@@ -44,7 +44,7 @@ export function HomeExperience() {
 
   /** Reel click: go and talk to her. There is nothing to select any more. */
   const goToDemo = useCallback(() => {
-    const target = document.getElementById("ava");
+    const target = document.getElementById("aya");
     if (!target) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     target.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
@@ -53,7 +53,7 @@ export function HomeExperience() {
   return (
     <>
       {/* The navbar's secondary CTA points here. */}
-      <section id="ava" className="scroll-mt-24 pt-6">
+      <section id="aya" className="scroll-mt-24 pt-6">
         <div className="mx-0.5 mb-[18px] flex flex-wrap items-baseline gap-x-3.5 gap-y-2">
           <span className="text-muted text-xs font-bold tracking-[0.14em] uppercase">
             Talk to {site.agent}

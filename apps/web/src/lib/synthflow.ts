@@ -1,5 +1,5 @@
 /**
- * Synthflow outbound calling, for the "have AVA call me" button.
+ * Synthflow outbound calling, for the "have AYA call me" button.
  *
  * ## Why Synthflow and not the Vapi client this replaces
  *
@@ -27,7 +27,7 @@
  *
  *   - The agent is `model_id`, NOT `assistant_id` or `agent_id`.
  *   - `name` is the CALL RECIPIENT'S name, not the agent's. Passing the agent
- *     name here calls a stranger and greets them as AVA.
+ *     name here calls a stranger and greets them as AYA.
  *   - `custom_variables` is an ARRAY of {key, value} objects on this endpoint,
  *     not a flat map, even though Synthflow's own /variables page and its
  *     batch endpoint both show the flat map form. The array is what the

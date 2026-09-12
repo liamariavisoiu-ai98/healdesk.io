@@ -17,7 +17,7 @@ const currency = new Intl.NumberFormat("en-US", {
 });
 
 /**
- * "Why go smart?", the revenue question, asked the way AVA would ask it.
+ * "Why go smart?", the revenue question, asked the way AYA would ask it.
  *
  * ## The register, which is the whole point of the rewrite
  *
@@ -29,7 +29,7 @@ const currency = new Intl.NumberFormat("en-US", {
  * are bleeding money reads as a stranger scolding them about their own
  * business.
  *
- * So the same arithmetic, in a different voice. AVA asks the questions rather
+ * So the same arithmetic, in a different voice. AYA asks the questions rather
  * than a form demanding them; the answer is gain-framed (what stays in the
  * practice, not what escaped); the output is set editorially, one large
  * Fraunces figure and a soft ring, rather than as a finance readout.
@@ -162,7 +162,7 @@ export function WhyGoSmart({
               {currency.format(specialty.economics.valuePerBooking)}
             </Assumption>
             <Assumption label="Basis">{specialty.economics.basis}</Assumption>
-            <Assumption label="Recovered by AVA">
+            <Assumption label="Recovered by AYA">
               {Math.round(RECOVERY_RATE * 100)}%
             </Assumption>
           </dl>
@@ -184,7 +184,7 @@ export function WhyGoSmart({
             </p>
           </div>
 
-          {/* AVA's read of the numbers, in her own voice. */}
+          {/* AYA's read of the numbers, in her own voice. */}
           <p className="font-display mx-auto max-w-[34ch] text-[20.4px] leading-[1.45] font-medium tracking-[-0.01em] italic">
             &ldquo;About{" "}
             <span className="not-italic">
@@ -208,7 +208,7 @@ export function WhyGoSmart({
   );
 }
 
-/** One of AVA's questions, with whatever answers it. */
+/** One of AYA's questions, with whatever answers it. */
 function Ask({
   question,
   children,

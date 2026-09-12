@@ -20,7 +20,7 @@ import {
 import { WordmarkGlyphs } from "@/components/Wordmark";
 
 /**
- * The giant healdesk.io behind AVA, and its hand-off into the navbar logo.
+ * The giant healdesk.io behind AYA, and its hand-off into the navbar logo.
  *
  * ## Two marks, not one travelling mark
  *
@@ -55,7 +55,7 @@ import { WordmarkGlyphs } from "@/components/Wordmark";
  * safe state costs no special-casing, and a value initialised to 0 would give
  * every non-homepage route a navbar with no logo.
  *
- * It also settles what "no longer visible behind AVA" means in code. Waiting
+ * It also settles what "no longer visible behind AYA" means in code. Waiting
  * for real geometric occlusion is not implementable. It depends on the alpha
  * of a photographic cutout that parallaxes and breathes. Deriving the fade from
  * the mark's own SIZE gets what the brief actually wants: it is gone by the

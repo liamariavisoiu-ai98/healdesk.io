@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * POST /api/callback, "have AVA call me" on the voice demo.
+ * POST /api/callback, "have AYA call me" on the voice demo.
  *
  * ## This endpoint dials a phone. Treat it accordingly.
  *
@@ -192,7 +192,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   const result = await placeCall(config.config, {
     phone: parsed.e164,
     // The API requires a recipient name and it is spoken on the call, so an
-    // empty one would have AVA greeting a blank. "there" reads naturally.
+    // empty one would have AYA greeting a blank. "there" reads naturally.
     name: callerName ?? "there",
     email: gateEmail ?? undefined,
     variables: {

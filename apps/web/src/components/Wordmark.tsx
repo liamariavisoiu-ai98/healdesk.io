@@ -3,7 +3,7 @@
  *
  * ## One component, three placements
  *
- * The navbar logo and the giant mark behind AVA are two halves of one scroll
+ * The navbar logo and the giant mark behind AYA are two halves of one scroll
  * hand-off (see HeroMark.tsx), and that only works if the two are geometrically
  * congruent at the crossover frame. When both were CSS text this had to be
  * maintained by hand, same face, same size, same tracking, same em-relative

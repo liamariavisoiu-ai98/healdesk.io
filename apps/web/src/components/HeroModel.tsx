@@ -62,7 +62,7 @@ import { usePointerField, type TiltControl } from "@/lib/usePointerField";
 /** Where `public/hero-3d/ava.glb` came from, so the next person does not have
  *  to re-derive a pipeline from a 177MB file:
  *
- *    AVA.obj (800k verts / 1.6M tris, no mtllib)
+ *    AYA.obj (800k verts / 1.6M tris, no mtllib)
  *      + an MTL naming the 4K diffuse, and a `usemtl` before the first face
  *      -> obj2gltf                       66MB
  *      -> gltfpack -si 0.02 -cc          4.9MB, 364k tris

@@ -22,7 +22,7 @@ const LINE_DELAY_MS = 1_600;
  * The transcript is deliberately scripted, a live inbound demo would need the
  * visitor to dial a number, and that is a worse first impression than watching
  * a call go well. What IS live is the other direction: the visitor can hand
- * over their number and have AVA ring them, which is the only way to actually
+ * over their number and have AYA ring them, which is the only way to actually
  * hear the product.
  *
  * ## The consent gate is not a formality

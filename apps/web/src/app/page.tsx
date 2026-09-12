@@ -12,7 +12,7 @@ import { Reviews } from "@/components/Reviews";
 /**
  * The homepage, and the whole site's argument.
  *
- * Six things in order: AVA's face, AVA working, the specialties we know, what
+ * Six things in order: AYA's face, AYA working, the specialties we know, what
  * that is worth, who already pays for it, and a way to ask. Pricing and contact
  * are their own pages but are reachable only from the footer, so nothing
  * competes with the demo for a visitor's first click.
@@ -40,7 +40,7 @@ export default function HomePage() {
        HeroMarkProvider rather than inside it: that one must not reach the
        Footer, this one has no such constraint. */
     <BuyModalProvider initialPlan={plans[0]!.id}>
-      {/* Wraps ONLY these two. The giant healdesk.io behind AVA and the navbar
+      {/* Wraps ONLY these two. The giant healdesk.io behind AYA and the navbar
           logo are two halves of one hand-off and share a motion value; the
           Footer imports the same Brand, so a provider that reached it would
           fade the footer wordmark out along with the hero one. */}
@@ -54,7 +54,7 @@ export default function HomePage() {
       </HeroMarkProvider>
 
       <main className="mx-auto max-w-[1240px] px-5 sm:px-8 lg:px-14">
-        {/* Demos (#ava), the niche reel, and "Why go smart?", all driven by
+        {/* Demos (#aya), the niche reel, and "Why go smart?", all driven by
             one selected specialty, so they cannot disagree with each other. */}
         <HomeExperience />
 

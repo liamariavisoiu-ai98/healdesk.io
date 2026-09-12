@@ -17,7 +17,7 @@ import { site } from "@/lib/site";
  * The navbar logo, and the receiving half of the hero wordmark's hand-off.
  *
  * Inside HeroMarkProvider it starts invisible and scales up into place as the
- * giant mark behind AVA shrinks past it. Outside the provider (the footer,
+ * giant mark behind AYA shrinks past it. Outside the provider (the footer,
  * /pricing, /contact) `useHeroMark()` returns null, the fallback pins the
  * shared value at 1, and this renders exactly as it always did.
  *
@@ -64,7 +64,7 @@ export function Brand({ className = "" }: { className?: string }) {
  * There is still no link list, pricing and contact live in the footer. What
  * changed is that the navbar now carries the purchase flow as its PRIMARY
  * action, with the demo demoted to secondary. Until this existed the homepage
- * had no path to checkout at all: AVA's own prompt told her to point at a
+ * had no path to checkout at all: AYA's own prompt told her to point at a
  * "Make It Yours" button that only exists on /pricing, so a prospect she had
  * just convinced had to find the footer to buy.
  *
@@ -74,7 +74,7 @@ export function Brand({ className = "" }: { className?: string }) {
 export function Nav() {
   const pathname = usePathname();
   const onHome = pathname === "/";
-  // A bare "#ava" on /pricing scrolls to nothing, and a "/#ava" on the homepage
+  // A bare "#aya" on /pricing scrolls to nothing, and a "/#aya" on the homepage
   // makes Next run a route transition instead of letting CSS smooth-scroll do it.
   const demoHref = onHome ? site.cta.secondary.href : `/${site.cta.secondary.href}`;
 

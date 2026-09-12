@@ -4,7 +4,7 @@ import { existsSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { detectBooking, detectSocial } from "./booking.ts";
+import { detectBooking, detectSocial, platformNameFor } from "./booking.ts";
 import {
   fetchBookingPages,
   selectBookingPage,
@@ -540,7 +540,7 @@ async function main(): Promise<void> {
     booking.set(c.clinicId, {
       hasOnlineBooking: true,
       platform: found.platform,
-      platformName: found.platform,
+      platformName: platformNameFor(found.platform),
       supported: isPlatformId(found.platform),
       bookingUrl: null,
       confidence: "medium",

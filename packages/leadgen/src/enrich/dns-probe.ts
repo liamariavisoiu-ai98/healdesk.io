@@ -52,7 +52,7 @@ const BOOKING_SUBDOMAINS = [
  * vendor marketing. Matching is a suffix test on the resolved target, so
  * regional shards (`customhosts1amrs14.zenoti.com`) match their parent.
  */
-const CNAME_SIGNATURES: ReadonlyArray<readonly [string, readonly string[]]> = [
+export const CNAME_SIGNATURES: ReadonlyArray<readonly [string, readonly string[]]> = [
   ["zenoti", ["zenoti.com"]],
   ["aesthetic-record", ["myaestheticrecord.com"]],
   ["gohighlevel", ["msgsndr.com", "leadconnectorhq.com", "ludicrous.cloud"]],
@@ -71,7 +71,7 @@ const CNAME_SIGNATURES: ReadonlyArray<readonly [string, readonly string[]]> = [
 ];
 
 /** SPF includes that name a platform. Read from the apex TXT records. */
-const SPF_SIGNATURES: ReadonlyArray<readonly [string, readonly string[]]> = [
+export const SPF_SIGNATURES: ReadonlyArray<readonly [string, readonly string[]]> = [
   ["gohighlevel", ["spf.leadconnectorhq.com"]],
   ["zoho-bookings", ["sender.zohobooks.com", "zcsend.net"]],
 ];

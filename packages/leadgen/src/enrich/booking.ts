@@ -179,7 +179,11 @@ export const BOOKING_PLATFORMS: readonly BookingPlatform[] = [
   },
   {
     id: "booker",
-    name: "Booker (Mindbody)",
+    // Reports as "Mindbody" so the two products aggregate into one commercial
+    // counterparty, which is how the platform-coverage numbers get read. The
+    // id stays distinct because Booker is a separate API surface — a Mindbody
+    // adapter is not assumed to work here.
+    name: "Mindbody",
     signatures: [".secure-booker.com/", "//api.booker.com/", "//ccwidget.secure-booker.com", "//go.booker.com/"],
   },
   {
@@ -197,6 +201,13 @@ export const BOOKING_PLATFORMS: readonly BookingPlatform[] = [
     id: "zocdoc",
     name: "Zocdoc",
     signatures: ["zocdoc.com/practice/", "zocdoc.com/doctor/", "zocdoc.com/wl/"],
+  },
+  {
+    // The DNS probe already reported this id; without an entry here it had no
+    // display name and leaked into the reporting column as the raw id.
+    id: "zoho-bookings",
+    name: "Zoho Bookings",
+    signatures: ["zohobookings.com/portal/", "bookings.zoho.com/portal/", "zohobookings.com/embed/"],
   },
   {
     id: "glossgenius",
@@ -373,6 +384,17 @@ export type BookingDetection = {
  * business associate. So the offer there is intent capture and handoff, never
  * anything clinical, and the enrichment only records that the channel exists.
  */
+/**
+ * Display name for a platform id.
+ *
+ * The DNS probe reports ids, not names. Writing an id straight into the
+ * reporting column is what split `zenoti` from `Zenoti` and `gohighlevel` from
+ * `GoHighLevel` in all-leads.csv, understating both platforms' real footprint.
+ */
+export function platformNameFor(id: string): string {
+  return BOOKING_PLATFORMS.find((p) => p.id === id)?.name ?? id;
+}
+
 export function detectSocial(links: readonly string[]): string[] {
   const found = new Set<string>();
   for (const raw of links) {

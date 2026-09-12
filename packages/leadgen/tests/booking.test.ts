@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 
-import { BOOKING_PLATFORMS, detectBooking } from "../src/enrich/booking.ts";
+import {
+  BOOKING_PLATFORMS,
+  detectBooking,
+  platformNameFor,
+} from "../src/enrich/booking.ts";
+import { CNAME_SIGNATURES, SPF_SIGNATURES } from "../src/enrich/dns-probe.ts";
 
 /**
  * The asymmetry that shapes every test here.
@@ -167,6 +172,18 @@ describe("the signature table itself", () => {
   test("platform ids are unique", () => {
     const ids = BOOKING_PLATFORMS.map((p) => p.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  test("every id the DNS probe can report has a display name", () => {
+    // The DNS probe reports ids; the reporting column wants names. An id with
+    // no entry here falls back to itself, which is how `zenoti` and `Zenoti`
+    // ended up as two rows in all-leads.csv, splitting one platform's real
+    // footprint across two lines and understating it in every coverage count.
+    const probeIds = [...CNAME_SIGNATURES, ...SPF_SIGNATURES].map(([id]) => id);
+
+    for (const id of probeIds) {
+      expect(platformNameFor(id), `no display name for "${id}"`).not.toBe(id);
+    }
   });
 });
 

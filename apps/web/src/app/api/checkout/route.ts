@@ -1,11 +1,13 @@
 import {
   getPlan,
+  isBillingInterval,
   SIGNATURE_HEADER,
   TIMESTAMP_HEADER,
   sign,
 } from "@healdesk/catalog";
 
 import { createCheckout, isBillingConfigured } from "@/lib/billing";
+import { type ChatChannelChoice, isChatChannelChoice } from "@/lib/pricing";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 
 /**
@@ -72,15 +74,62 @@ export async function POST(request: Request): Promise<Response> {
    */
   delete payload.idempotencyKey;
 
+  /**
+   * The billing terms, validated here on BOTH paths.
+   *
+   * apps/app validates the plan again, but the interval and the chat-channel
+   * choice decide what Stripe charges and what provisioning enables, and the
+   * place to refuse a value the catalog does not know is before either of
+   * those has happened. A missing interval is monthly, which is what every
+   * button that does not say otherwise has always meant; a wrong one is an
+   * error, not a silent fallback to the cheaper option.
+   */
+  const plan = getPlan(String(payload.plan ?? ""));
+  if (!plan) {
+    return Response.json(
+      { error: "Unknown plan.", field: "plan" },
+      { status: 422 },
+    );
+  }
+
+  const chosenInterval: unknown = payload.interval ?? "month";
+  if (!isBillingInterval(chosenInterval)) {
+    return Response.json(
+      { error: "Unknown billing interval.", field: "interval" },
+      { status: 422 },
+    );
+  }
+
+  // Only a package sold as "Web OR Meta" carries a choice. For every other
+  // package the field is dropped rather than validated, so a stray value can
+  // never reach provisioning and enable a channel the package does not include.
+  let chatChannelChoice: ChatChannelChoice | undefined;
+  if (plan.chatChannelChoice) {
+    const chosen = payload.chatChannelChoice ?? "web";
+    if (!isChatChannelChoice(chosen)) {
+      return Response.json(
+        { error: "Unknown chat channel.", field: "chatChannelChoice" },
+        { status: 422 },
+      );
+    }
+    chatChannelChoice = chosen;
+  }
+
+  // The browser's spelling is replaced by the validated terms under the names
+  // provisioning reads, so the paid path (via Session metadata) and the unpaid
+  // path below deliver the same shape.
+  delete payload.interval;
+  delete payload.chatChannelChoice;
+  payload.billingInterval = chosenInterval;
+  if (chatChannelChoice) payload.chatChannelChoice = chatChannelChoice;
+
   // Paid path: hand off to Stripe and let the webhook provision after payment.
   if (isBillingConfigured()) {
-    const plan = getPlan(String(payload.plan ?? ""));
-    if (!plan) {
-      return Response.json({ error: "Unknown plan." }, { status: 422 });
-    }
     try {
       const checkout = await createCheckout({
         plan,
+        interval: chosenInterval,
+        chatChannelChoice,
         clinicName: String(payload.clinicName ?? ""),
         contactEmail: String(payload.contactEmail ?? ""),
         provisionPayload: payload,

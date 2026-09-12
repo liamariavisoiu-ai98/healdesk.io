@@ -1,14 +1,18 @@
-import { plans, TRIAL_DAYS } from "@healdesk/catalog";
-
+import { cheapestPlan, usd } from "@/lib/pricing";
 import { site } from "@/lib/site";
 
 /**
  * The closing band. Lives on /pricing now rather than the homepage, the
  * homepage ends on the FAQ and the contact form, because a visitor who has
  * questions left converts worse than one who has just had them answered.
+ *
+ * The price line names the setup fee beside the monthly figure on purpose.
+ * A "From $397/mo" that meets a $497 line item at checkout is the kind of
+ * surprise that ends in a chargeback; both numbers come from the cheapest
+ * package so the line cannot quote one package's rate and another's fee.
  */
 export function CTA() {
-  const entry = plans[0]!;
+  const entry = cheapestPlan();
 
   return (
     <section id="get-started" className="scroll-mt-24 pt-8 pb-24 sm:pb-32">
@@ -26,7 +30,7 @@ export function CTA() {
             href="/get-started"
             className="text-ink inline-flex items-center gap-2 rounded-full bg-white px-8 py-4 text-base font-bold transition-transform duration-200 hover:-translate-y-0.5"
           >
-            Start {TRIAL_DAYS}-day free trial
+            Get started
           </a>
           <a
             href={`mailto:${site.email}?subject=healdesk%20demo`}
@@ -37,8 +41,8 @@ export function CTA() {
         </div>
 
         <p className="mt-7 text-[15.6px] font-medium text-white/70">
-          From ${entry.monthlyUsd}/mo · ${entry.setupFeeUsd} setup · No booking
-          software required
+          From {usd.format(entry.monthlyUsd)}/mo + {usd.format(entry.setupFeeUsd)}{" "}
+          setup · No booking software required
         </p>
       </div>
     </section>

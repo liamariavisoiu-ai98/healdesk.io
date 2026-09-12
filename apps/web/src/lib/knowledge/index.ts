@@ -1,3 +1,10 @@
+
+import {
+  annualSavingsPercent,
+  cheapestPlan,
+  cheapestVoicePlan,
+  usd,
+} from "../pricing";
 import { getNiche, isNiche, NICHES, NICHE_OPTIONS } from "./niches";
 import { PERSONA } from "./persona";
 import { getPractice, PRACTICE_OPTIONS } from "./practice";
@@ -53,6 +60,16 @@ export type { PracticeKnowledge } from "./practice";
  * visitor, so it caches. Depth costs tokens once, not once per conversation.
  */
 
+/**
+ * The two figures the agent quotes when asked "how much?". Read from the
+ * catalog rather than typed here, because this string once said "$249 a month,
+ * no setup fee, 14-day trial" for months after every one of those three facts
+ * had changed — a price quoted by the persona that the checkout then
+ * contradicts is worse than no price at all.
+ */
+const entryPlan = cheapestPlan();
+const entryVoicePlan = cheapestVoicePlan();
+
 export const ROOT_KNOWLEDGE = `
 HOW A CLINIC FRONT DESK LOSES MONEY
   A front desk cannot answer while it is checking someone in, on another line,
@@ -104,9 +121,14 @@ HANDLING THE OBJECTIONS THAT ACTUALLY COME UP
       We sign a BAA with every clinic. Say that plainly and stop there; do not
       claim certifications that do not exist for anyone.
   "How much?"
-      $249 a month for the entry plan, no setup fee, 14-day trial. At a typical
-      aesthetics ticket that is under one recovered appointment a month to break
-      even, say the arithmetic, do not just assert the value.
+      Packages start at ${usd.format(entryPlan.monthlyUsd)} a month plus a
+      one-time ${usd.format(entryPlan.setupFeeUsd)} setup fee for chat alone; the
+      voice agent starts at ${usd.format(entryVoicePlan.monthlyUsd)} a month plus
+      a ${usd.format(entryVoicePlan.setupFeeUsd)} setup fee, and annual billing is
+      ${annualSavingsPercent()}% off. There is no free trial: the setup fee pays
+      for building and testing the agent before it goes live, say that plainly.
+      At a typical aesthetics ticket that is one or two recovered appointments a
+      month to break even, say the arithmetic, do not just assert the value.
 `.trim();
 
 /**

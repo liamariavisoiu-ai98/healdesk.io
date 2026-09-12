@@ -1,27 +1,35 @@
-import { ALTERNATIVES, TRIAL_DAYS, plans } from "@healdesk/catalog";
+import { ALTERNATIVES } from "@healdesk/catalog";
 import type { Metadata } from "next";
 
 import { CTA } from "@/components/CTA";
 import { BuyModalProvider } from "@/components/BuyModal";
 import { Footer } from "@/components/Footer";
 import { Nav } from "@/components/Nav";
-import { site } from "@/lib/site";
+import { PricingCards } from "@/components/PricingCards";
+import {
+  annualSavingsPercent,
+  cheapestPlan,
+  cheapestVoicePlan,
+  usd,
+} from "@/lib/pricing";
 
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "What healdesk costs, and what it replaces. No setup fee, a free trial, " +
-    "and every minute cap stated up front.",
+    "What healdesk costs, and what it replaces. Five packages, monthly or " +
+    "annual, a one-time setup fee, and every allowance stated up front.",
 };
 
-const currency = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 0,
-});
-
+/**
+ * "Channels per package", not a list of channels.
+ *
+ * The old first line promised voice, web chat, Instagram and WhatsApp in every
+ * plan, which was true of the old three plans and is false of the five
+ * packages: a voice-only package has no chat and a chat-only package has no
+ * phone. The cards above say what each includes; this list must not say more.
+ */
 const INCLUDED = [
-  "Voice, SMS, web chat, Instagram DM and WhatsApp",
+  "Channels per package: voice, web chat, Instagram DM and WhatsApp",
   "Automatic callbacks to missed numbers",
   "Booking written into your existing system or calendar",
   "Deposit links to cut no-shows",
@@ -33,26 +41,41 @@ const INCLUDED = [
 /**
  * Pricing, linked only from the footer.
  *
+ * ## The hero has to be true
+ *
+ * It used to promise no setup fee, a free trial and no annual option, and all
+ * three are now false: there is a one-time setup fee because a person builds
+ * and QA-tests the agent before the clinic sees it, there is no trial because
+ * a trial and a setup fee do not compose (see the catalog header), and annual
+ * billing exists at a discount. So the hero says exactly those things, and it
+ * reads them from the catalog rather than restating them.
+ *
  * ## Why the comparison band is here and not a testimonial
  *
  * The number a clinic actually writes down is not ours in isolation, it is ours
  * against the thing it displaces, and both of those figures are sourced ranges
  * in the catalog (docs/launch-plan.md), not invented ones. A prospect who does
  * that arithmetic themselves trusts it in a way they do not trust a quote from
- * a clinic they have never heard of.
+ * a clinic they have never heard of. The figure is the cheapest package WITH
+ * VOICE, found by price rather than by position in the array: the two things
+ * it is set against both answer the phone, and the cheapest package overall
+ * (a chatbot) does not, so quoting it there would be a comparison the reader
+ * could fairly call rigged. The modal's default package stays the cheapest
+ * overall — that is a starting point, not a comparison.
  *
- * Minutes are capped and the cap is on screen. Every competitor caps them too;
- * saying so plainly costs nothing and pre-empts the "what's the catch" that an
- * unqualified "unlimited" invites.
+ * Allowances are capped and the cap is on screen. Every competitor caps them
+ * too; saying so plainly costs nothing and pre-empts the "what's the catch"
+ * that an unqualified "unlimited" invites.
  */
 export default function PricingPage() {
-  const entry = plans[0]!;
+  const entry = cheapestPlan();
+  const voiceEntry = cheapestVoicePlan();
   const [receptionistLow, receptionistHigh] =
     ALTERNATIVES.inHouseReceptionistMonthlyUsd;
   const [serviceLow, serviceHigh] = ALTERNATIVES.answeringServiceMonthlyUsd;
 
   return (
-    <BuyModalProvider initialPlan={plans[0]!.id}>
+    <BuyModalProvider initialPlan={entry.id}>
       <Nav />
 
       <main className="mx-auto max-w-[1240px] px-5 pt-16 sm:px-8 sm:pt-20 lg:px-14">
@@ -64,117 +87,50 @@ export default function PricingPage() {
             Less than a fortnight of a receptionist.
           </h1>
           <p className="text-muted mt-5 text-[20.4px] font-medium">
-            No setup fee, a {TRIAL_DAYS}-day free trial, and every minute cap
-            written down. Cancel whenever. There is no annual lock-in.
+            Five packages, billed monthly or annually at{" "}
+            {annualSavingsPercent()}% off. A one-time setup fee covers building
+            and QA-testing your agent before it takes a call. Cancel at the end
+            of any period.
           </p>
         </div>
 
-        <div className="mt-12 grid gap-4 lg:grid-cols-3">
-          {plans.map((plan) => {
-            const featured = Boolean(plan.highlight);
-            return (
-              <div
-                key={plan.id}
-                className={[
-                  "flex flex-col rounded-[22px] border p-7 sm:p-8",
-                  featured
-                    ? "border-sun bg-sun/[0.16]"
-                    : "border-line bg-white",
-                ].join(" ")}
-              >
-                <div className="flex items-baseline justify-between gap-3">
-                  <h2 className="font-display text-[26.4px] font-medium tracking-[-0.02em]">
-                    {plan.name}
-                  </h2>
-                  {/* Ink on Tuscan Sun is 9.3:1. The same label set IN Sun on
-                      the page ground would be 1.5:1 and unreadable. This
-                      accent is a fill, never a text colour. */}
-                  {plan.highlight ? (
-                    <span className="bg-sun text-ink rounded-full px-2.5 py-1 text-[12.6px] font-bold tracking-[0.08em] uppercase">
-                      Most picked
-                    </span>
-                  ) : null}
-                </div>
-
-                <p className="font-figure mt-4 text-[48px] leading-none font-semibold tracking-[-0.03em] tabular-nums">
-                  {currency.format(plan.monthlyUsd)}
-                  <span className="text-muted font-sans text-[18px] font-semibold">
-                    /mo
-                  </span>
-                </p>
-
-                <dl className="text-muted mt-6 space-y-2 text-[16.2px]">
-                  <Row label="Setup fee">
-                    {plan.setupFeeUsd === 0
-                      ? "None"
-                      : currency.format(plan.setupFeeUsd)}
-                  </Row>
-                  <Row label="Included minutes">
-                    {plan.includedMinutes.toLocaleString()}/mo
-                  </Row>
-                  <Row label="After that">
-                    ${plan.overagePerMinuteUsd.toFixed(2)}/min
-                  </Row>
-                  <Row label="Locations">
-                    {plan.locations === 1 ? "One" : `Up to ${plan.locations}`}
-                  </Row>
-                </dl>
-
-                <a
-                  href="/get-started"
-                  className={[
-                    "mt-7 rounded-full px-6 py-3.5 text-center text-[18px] font-bold transition-transform duration-200 hover:-translate-y-px",
-                    featured
-                      ? "bg-brand-gradient shadow-brand text-white"
-                      : "border-line-strong text-ink hover:border-ink border-[1.5px]",
-                  ].join(" ")}
-                >
-                  Start free trial
-                </a>
-              </div>
-            );
-          })}
-        </div>
-
-        <p className="text-muted mt-5 text-xs">
-          Minutes are capped because voice minutes are the real cost and they
-          scale with how busy you are. Overage is billed at the rate above, never
-          as a surprise tier change.
-        </p>
+        <PricingCards />
 
         {/* What it replaces. */}
         <section className="border-line mt-20 rounded-[24px] border bg-white p-7 sm:p-10">
           <h2 className="font-display text-[clamp(28.8px,3.6vw,40.8px)] leading-tight font-medium tracking-[-0.024em]">
-            What {currency.format(entry.monthlyUsd)} a month is standing in for.
+            What {usd.format(voiceEntry.monthlyUsd)} a month is standing in for.
           </h2>
           <div className="mt-8 grid gap-8 sm:grid-cols-3">
             <Compare
               label="A full-time receptionist"
-              value={`${currency.format(receptionistLow)}–${currency.format(receptionistHigh)}`}
+              value={`${usd.format(receptionistLow)}–${usd.format(receptionistHigh)}`}
               note="Loaded monthly cost. Works one shift, takes holidays, and still can't answer at 9pm."
             />
             <Compare
               label="An answering service"
-              value={`${currency.format(serviceLow)}–${currency.format(serviceHigh)}`}
+              value={`${usd.format(serviceLow)}–${usd.format(serviceHigh)}`}
               note="Takes a message. Doesn't quote, doesn't qualify, doesn't book."
             />
             <Compare
-              label={site.agent}
-              value={`${currency.format(entry.monthlyUsd)}`}
-              note="Answers everything, books it, calls back what was missed, and reports what collected."
+              label={voiceEntry.name}
+              value={usd.format(voiceEntry.monthlyUsd)}
+              note="Answers the calls the desk missed, books them, follows up what was missed, and reports what collected."
               featured
             />
           </div>
           <p className="text-muted mt-7 max-w-[70ch] text-xs">
             Comparison ranges are sourced industry figures, not quotes for your
-            market. They are here so you can do the arithmetic yourself.
+            market. They are here so you can do the arithmetic yourself. The
+            healdesk figure is the entry voice package billed monthly, before
+            the one-time setup fee.
           </p>
         </section>
 
-        {/* What every plan includes. */}
+        {/* What every package includes. */}
         <section className="mt-20">
           <h2 className="font-display text-[clamp(28.8px,3.6vw,40.8px)] leading-tight font-medium tracking-[-0.024em]">
-            In every plan.
+            In every package.
           </h2>
           <ul className="mt-7 grid gap-x-10 gap-y-3 sm:grid-cols-2">
             {INCLUDED.map((item) => (
@@ -198,15 +154,6 @@ export default function PricingPage() {
 
       <Footer />
     </BuyModalProvider>
-  );
-}
-
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex justify-between gap-4">
-      <dt>{label}</dt>
-      <dd className="text-ink font-semibold">{children}</dd>
-    </div>
   );
 }
 

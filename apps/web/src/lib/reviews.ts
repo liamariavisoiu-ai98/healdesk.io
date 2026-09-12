@@ -285,7 +285,7 @@ export const REVIEWS: readonly Review[] = [
     rating: 5,
     headline: "I signed up planning to cancel",
     body:
-      "Setup took one call and part of an afternoon, there was no setup fee, and by day four it had recovered " +
+      "Setup took one call and part of an afternoon, and by day four it had recovered " +
       "two consults we would otherwise have lost. I stopped looking for a reason to back out.",
     name: "Lauren P.",
     jobTitle: "Owner",

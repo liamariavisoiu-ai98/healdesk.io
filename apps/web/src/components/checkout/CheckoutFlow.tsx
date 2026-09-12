@@ -1,13 +1,14 @@
 "use client";
 
 import {
+  type BillingInterval,
+  type Plan,
   getPlan,
   NO_PLATFORM_ID,
   plans,
   platforms,
   specialties,
   supportsVerifiedAttribution,
-  TRIAL_DAYS,
 } from "@healdesk/catalog";
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
 
@@ -16,6 +17,17 @@ import {
   readStoredAgreement,
   storeAgreement,
 } from "@/lib/agreement-recovery";
+import {
+  allowanceRows,
+  annualSavingsPercent,
+  channelChips,
+  cheapestPlan,
+  CHAT_CHANNEL_CHOICES,
+  type ChatChannelChoice,
+  dueToday,
+  monthlyFigureUsd,
+  usd,
+} from "@/lib/pricing";
 
 import { AgreementStep, type AgreementResult } from "./AgreementStep";
 import {
@@ -111,12 +123,15 @@ export type CheckoutProgress = {
 
 export function CheckoutFlow({
   initialPlan,
+  initialInterval = "month",
   initialState,
   onClose,
   onProgress,
   downloadHost,
 }: {
   initialPlan: string;
+  /** From the toggle on /pricing, so the buyer lands on the terms they chose. */
+  initialInterval?: BillingInterval;
   /** Prefill from wherever the buyer came from. Step 1 is still shown. */
   initialState?: Partial<State>;
   /** Present only when hosted in something dismissable. */
@@ -127,6 +142,15 @@ export function CheckoutFlow({
   const [step, setStep] = useState(1);
   const [state, setState] = useState<State>(() => ({ ...INITIAL, ...initialState }));
   const [planId, setPlanId] = useState(initialPlan);
+  const [interval, setBillingInterval] = useState<BillingInterval>(initialInterval);
+  /**
+   * Which chat channel a "Web OR Meta" package enables. Defaults to the
+   * website, because a web widget is live the day provisioning finishes while
+   * a Meta connection waits on the clinic's Business account, and a default
+   * that cannot stall setup is the right one. Sent only for packages that
+   * offer the choice; the route drops it for the rest.
+   */
+  const [chatChannel, setChatChannel] = useState<ChatChannelChoice>("web");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorField, setErrorField] = useState<string | null>(null);
@@ -176,7 +200,7 @@ export function CheckoutFlow({
     onProgress?.({ step, signed: Boolean(agreement), done: Boolean(done) });
   }, [step, agreement, done, onProgress]);
 
-  const plan = getPlan(planId) ?? plans[0]!;
+  const plan = getPlan(planId) ?? cheapestPlan();
   const platform = useMemo(
     () => platforms.find((p) => p.id === state.platform),
     [state.platform],
@@ -207,6 +231,8 @@ export function CheckoutFlow({
               ? Number(state.averageTreatmentValueUsd)
               : undefined,
           plan: plan.id,
+          interval,
+          chatChannelChoice: plan.chatChannelChoice ? chatChannel : undefined,
           contactName: state.contactName.trim(),
           contactEmail: state.contactEmail.trim(),
           contactTitle: state.contactTitle.trim() || undefined,
@@ -700,7 +726,7 @@ export function CheckoutFlow({
       step={6}
       totalSteps={TOTAL_STEPS}
       eyebrow="Get started"
-      title="Choose your plan."
+      title="Choose your package."
       subtitle="Your agreement is signed and on file. Nothing has been charged yet."
       onBack={back}
     >
@@ -740,39 +766,63 @@ export function CheckoutFlow({
         </p>
       ) : null}
 
-      <div className="border-line mt-8 rounded-2xl border bg-white p-5">
-        <div className="flex items-baseline justify-between gap-4">
-          <span className="font-display text-[22.8px] font-medium">
-            {plan.name}
-          </span>
-          <span className="font-figure text-[26.4px] font-semibold tabular-nums">
-            ${plan.monthlyUsd}
-            <span className="text-muted text-sm font-medium">/mo</span>
-          </span>
-        </div>
-        <ul className="text-muted mt-3 space-y-1 text-sm">
-          <li>{plan.includedMinutes.toLocaleString()} minutes included</li>
-          <li>${plan.setupFeeUsd} setup</li>
-          <li>{TRIAL_DAYS}-day free trial, cancel any time</li>
-        </ul>
-        <div className="border-line mt-4 flex flex-wrap gap-2 border-t pt-4">
-          {plans.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => setPlanId(p.id)}
-              className={[
-                "rounded-full border px-3.5 py-2 text-[15.6px] font-semibold transition-colors",
-                p.id === plan.id
-                  ? "border-red text-red-deep"
-                  : "border-line text-muted hover:border-line-strong",
-              ].join(" ")}
-            >
-              {p.name}
-            </button>
-          ))}
-        </div>
+      {/* Monthly or annual, before the cards, because it changes every price
+          on them. A segmented control rather than a checkbox: "billed
+          annually" as a tick box reads as an upsell, two named options read
+          as a choice. */}
+      <IntervalToggle value={interval} onChange={setBillingInterval} />
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {plans.map((p) => (
+          <PackageCard
+            key={p.id}
+            plan={p}
+            interval={interval}
+            selected={p.id === plan.id}
+            onSelect={() => setPlanId(p.id)}
+          />
+        ))}
       </div>
+
+      {/* Only a "Web OR Meta" package asks. The others either include both
+          chat channels or neither, and a question with one answer is noise on
+          the screen where the buyer is about to pay. */}
+      {plan.chatChannelChoice ? (
+        <fieldset className="border-line mt-6 rounded-2xl border bg-white p-5">
+          <legend className="text-[15.6px] font-bold tracking-[0.04em] uppercase">
+            Which chat channel?
+          </legend>
+          <p className="text-muted mt-1.5 text-sm">
+            {plan.name} includes one. Instagram and WhatsApp are connected
+            through your Meta Business account after payment; the website
+            widget is live as soon as setup finishes.
+          </p>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            {CHAT_CHANNEL_CHOICES.map((option) => (
+              <label
+                key={option.id}
+                className={[
+                  "flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition-colors",
+                  chatChannel === option.id
+                    ? "border-red bg-red/[0.04]"
+                    : "border-line hover:border-line-strong",
+                ].join(" ")}
+              >
+                <input
+                  type="radio"
+                  name="chatChannelChoice"
+                  checked={chatChannel === option.id}
+                  onChange={() => setChatChannel(option.id)}
+                  className="accent-red size-4 shrink-0"
+                />
+                <span className="text-sm font-semibold">{option.label}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      ) : null}
+
+      <DueTodayBreakdown plan={plan} interval={interval} />
 
       {error ? (
         <p className="text-red-deep mt-4 text-sm font-semibold">{error}</p>
@@ -783,11 +833,197 @@ export function CheckoutFlow({
           onClick={() => void submit()}
           disabled={!agreement || submitting}
         >
-          {submitting ? "Setting up…" : `Start ${TRIAL_DAYS}-day trial`}
+          {submitting
+            ? "Taking you to payment…"
+            : `Pay ${usd.format(dueToday(plan, interval).totalUsd)} and start setup`}
         </PrimaryButton>
       </div>
       <Reassurance />
     </StepShell>
+  );
+}
+
+/**
+ * Monthly / annual. The saving is computed from the catalog, never typed
+ * here, so the badge cannot outlive the discount it describes.
+ *
+ * Pressed buttons rather than a radio group: `role="radio"` promises
+ * arrow-key movement that two native buttons do not provide, and
+ * `aria-pressed` describes exactly what these are. Same as PricingCards.
+ */
+function IntervalToggle({
+  value,
+  onChange,
+}: {
+  value: BillingInterval;
+  onChange: (interval: BillingInterval) => void;
+}) {
+  const options: { id: BillingInterval; label: string; badge?: string }[] = [
+    { id: "month", label: "Monthly" },
+    { id: "year", label: "Annual", badge: `Save ${annualSavingsPercent()}%` },
+  ];
+  return (
+    <div
+      role="group"
+      aria-label="Billing period"
+      className="border-line inline-flex rounded-full border bg-white p-1"
+    >
+      {options.map((option) => {
+        const on = option.id === value;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onChange(option.id)}
+            className={[
+              "inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-bold transition-colors",
+              on ? "bg-ink text-white" : "text-muted hover:text-ink",
+            ].join(" ")}
+          >
+            {option.label}
+            {option.badge ? (
+              <span
+                className={[
+                  "rounded-full px-2 py-0.5 text-[11px] font-bold tracking-[0.06em] uppercase",
+                  on ? "bg-white/15 text-white" : "bg-sun text-ink",
+                ].join(" ")}
+              >
+                {option.badge}
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * One package, as a selectable card.
+ *
+ * The price shown is always per month, even on annual, because that is how
+ * the pricing page quotes it and a buyer who arrives from there must see the
+ * same figure. The annual total appears in the breakdown below the cards,
+ * where it is the amount actually charged.
+ */
+function PackageCard({
+  plan,
+  interval,
+  selected,
+  onSelect,
+}: {
+  plan: Plan;
+  interval: BillingInterval;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      className={[
+        "flex w-full flex-col rounded-2xl border p-5 text-left transition-all duration-200",
+        selected
+          ? "border-red bg-orange/[0.06] shadow-brand"
+          : "border-line hover:border-line-strong bg-white",
+      ].join(" ")}
+    >
+      <span className="flex flex-wrap items-center gap-2">
+        <span className="font-display text-[20.4px] leading-tight font-medium">
+          {plan.name}
+        </span>
+        {plan.highlight ? (
+          <span className="bg-sun text-ink rounded-full px-2 py-0.5 text-[11px] font-bold tracking-[0.06em] uppercase">
+            {plan.highlight}
+          </span>
+        ) : null}
+      </span>
+
+      <span className="mt-2 flex flex-wrap gap-1.5">
+        {channelChips(plan).map((chip) => (
+          <span
+            key={chip}
+            className="bg-paper-2 text-muted rounded-full px-2 py-0.5 text-[12px] font-bold"
+          >
+            {chip}
+          </span>
+        ))}
+      </span>
+
+      <span className="font-figure mt-3 text-[26.4px] leading-none font-semibold tabular-nums">
+        {usd.format(monthlyFigureUsd(plan, interval))}
+        <span className="text-muted font-sans text-sm font-medium">/mo</span>
+        {interval === "year" ? (
+          <span className="text-muted ml-2 font-sans text-xs font-medium">
+            billed annually
+          </span>
+        ) : null}
+      </span>
+
+      {/* Both allowance rows, an em dash for a zero — the same rows and the
+          same policy as /pricing, from the same helper. */}
+      <span className="text-muted mt-3 flex flex-col gap-0.5 text-sm">
+        {allowanceRows(plan).map((row) => (
+          <span key={row.label}>
+            {row.label}: {row.value}
+          </span>
+        ))}
+        <span>Setup {usd.format(plan.setupFeeUsd)} once</span>
+      </span>
+    </button>
+  );
+}
+
+/**
+ * What the card is charged, added up in front of the buyer.
+ *
+ * The lines and the total come from the same catalog helpers Stripe's line
+ * items are built from, so this cannot show a total the invoice will not
+ * match. Renewal is stated separately because the first invoice is the only
+ * one that carries the setup fee, and a buyer who reads "$894" and assumes it
+ * is the monthly price will leave.
+ */
+function DueTodayBreakdown({
+  plan,
+  interval,
+}: {
+  plan: Plan;
+  interval: BillingInterval;
+}) {
+  const due = dueToday(plan, interval);
+  return (
+    <div className="border-line mt-6 rounded-2xl border bg-white p-5">
+      <p className="text-[15.6px] font-bold tracking-[0.04em] uppercase">
+        Due today
+      </p>
+      <dl className="mt-3 space-y-1.5 text-sm">
+        <div className="flex justify-between gap-4">
+          <dt className="text-muted">
+            {due.periodLabel} · {plan.name}
+          </dt>
+          <dd className="font-semibold tabular-nums">
+            {usd.format(due.recurringUsd)}
+          </dd>
+        </div>
+        <div className="flex justify-between gap-4">
+          <dt className="text-muted">Setup fee, charged once</dt>
+          <dd className="font-semibold tabular-nums">
+            {usd.format(due.setupFeeUsd)}
+          </dd>
+        </div>
+        <div className="border-line flex justify-between gap-4 border-t pt-2">
+          <dt className="font-bold">Total</dt>
+          <dd className="font-figure text-[20.4px] leading-none font-semibold tabular-nums">
+            {usd.format(due.totalUsd)}
+          </dd>
+        </div>
+      </dl>
+      <p className="text-muted mt-3 text-xs">
+        Renews at {due.renewsAt}. Cancel at the end of any period.
+      </p>
+    </div>
   );
 }
 

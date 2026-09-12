@@ -15,8 +15,15 @@ export const metadata: Metadata = {
  * and the account is created by the `checkout.session.completed` webhook, which
  * fires whether or not the customer's browser ever comes back.
  *
- * So the copy promises an email rather than showing a login link. If the
- * webhook is still in flight, or retrying, this page is still true.
+ * So the copy promises nothing this page cannot see. It does NOT promise a
+ * "choose a password" email either — nothing sends one. Clinic logins were
+ * removed on purpose (apps/app/src/lib/provisioning.ts): there is no console
+ * to log into, and the only thing a clinic is ever sent to click is the
+ * single-use connection link, issued separately and only when they chose
+ * verified reporting. This mirrors the in-flow Complete screen in
+ * components/checkout/CheckoutFlow.tsx, which says the same thing to a buyer
+ * who finished inside the modal. If the webhook is still in flight, or
+ * retrying, every sentence here is still true.
  */
 export default function CheckoutDonePage() {
   return (
@@ -35,13 +42,14 @@ export default function CheckoutDonePage() {
           Payment received.
         </h1>
         <p className="text-muted mt-4 text-[19.2px] font-medium">
-          We&apos;re setting up your account now. Check your inbox in the next
-          couple of minutes for a link to choose a password and finish setup.
+          Your agreement is on file and we&apos;ve emailed a copy to you.
         </p>
         <p className="text-muted mt-6 text-sm">
-          Your agreement is on file and your trial has started. Nothing else is
-          needed from you right now, if the email hasn&apos;t arrived in ten
-          minutes, reply to your receipt and we&apos;ll sort it out.
+          Next we configure the agent for your clinic and provision your number.
+          There is nothing for you to log into. If you chose verified reporting,
+          we&apos;ll send you a single link to connect your booking system, and
+          it takes about five minutes. Questions in the meantime: reply to your
+          receipt.
         </p>
       </main>
     </div>

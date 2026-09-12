@@ -1,5 +1,6 @@
 "use client";
 
+import type { BillingInterval } from "@healdesk/catalog";
 import {
   createContext,
   useCallback,
@@ -74,9 +75,12 @@ export function useBuy(): BuyCtx | null {
 export function BuyModalProvider({
   children,
   initialPlan,
+  initialInterval = "month",
 }: {
   children: React.ReactNode;
   initialPlan: string;
+  /** Monthly unless the page hosting the modal was opened on annual terms. */
+  initialInterval?: BillingInterval;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -177,6 +181,7 @@ export function BuyModalProvider({
           {mounted ? (
             <CheckoutFlow
               initialPlan={initialPlan}
+              initialInterval={initialInterval}
               initialState={prefillToState(prefill)}
               onClose={close}
               onProgress={setProgress}

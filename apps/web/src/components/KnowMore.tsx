@@ -81,8 +81,7 @@ const FAQS = [
     q: "Can we hear her before we commit?",
     a:
       "Yes. Put your number into the phone panel above and she'll ring you " +
-      "back in about a minute, talk to her the way a patient would. There's " +
-      "also a free trial, and no setup fee.",
+      "back in about a minute, talk to her the way a patient would.",
   },
 ] as const;
 

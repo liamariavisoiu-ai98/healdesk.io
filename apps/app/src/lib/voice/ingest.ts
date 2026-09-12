@@ -1,9 +1,9 @@
 import { isAfterHours, parseOpeningHours } from "@/lib/clinic/opening-hours";
 import { toE164 } from "@healdesk/connectors";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
-import { clinics, contacts, conversations } from "@/db/schema";
+import { appointments, clinics, contacts, conversations } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { withTenant } from "@/lib/tenant";
 
@@ -75,6 +75,29 @@ export type VoiceCallEvent = {
   responseLatencySeconds?: number;
   transcriptUri?: string;
   recordingUri?: string;
+  /**
+   * What the agent actually booked, when `outcome` is "booked".
+   *
+   * Required for the booking to count. `outcome: "booked"` on its own is a
+   * label the agent set on its way out of the call, and report.ts refuses to
+   * count those — deliberately. An appointment row is the evidence, and this is
+   * where the facts for it come from.
+   *
+   * `externalId` is present only when we wrote the booking into the clinic's
+   * own system and it handed an id back. Supplying it is what lets the next
+   * sync land on this same row through the (clinic, source, external id) unique
+   * index instead of creating a duplicate beside it.
+   */
+  booking?: {
+    scheduledFor: Date;
+    treatment?: string;
+    providerName?: string;
+    /** The booking platform's id for the appointment we created. */
+    externalId?: string;
+    /** Which platform that id belongs to. Required alongside externalId. */
+    externalSource?: string;
+    depositUsd?: string;
+  };
 };
 
 export class VoiceIngestError extends Error {
@@ -88,6 +111,8 @@ export type IngestResult = {
   conversationId: string;
   recoveryReason: RecoveryReason | null;
   duplicate: boolean;
+  /** The appointment this call produced, where it produced one. */
+  appointmentId: string | null;
 };
 
 type RecoveryReason =
@@ -197,6 +222,64 @@ function isOutsideOpeningHours(
  * clinic booking a midday appointment), and it must not be counted here — that
  * is business the clinic would have had anyway.
  */
+/**
+ * Should this call produce an appointment row, and with what?
+ *
+ * Pure and exported so the interesting cases are tested in milliseconds without
+ * a database, exactly as the reconciler's matcher is. The three refusals below
+ * are the whole point: every one of them is a case where writing a row would
+ * put a booking into the clinic's monthly figure that we cannot stand behind.
+ */
+export function bookingRowFrom(
+  event: VoiceCallEvent,
+  conversationId: string,
+  contactId: string | null,
+): {
+  conversationId: string;
+  contactId: string;
+  scheduledFor: Date;
+  treatment: string | null;
+  providerName: string | null;
+  depositUsd: string | null;
+  externalAppointmentId: string | null;
+  externalSource: string | null;
+} | null {
+  // Refusal 1: the call did not book. An agent that qualified someone without
+  // booking them has done useful work, and it is not a booking.
+  if (event.outcome !== "booked") return null;
+
+  // Refusal 2: it booked, but we were told nothing about what. An appointment
+  // row with no time is not evidence; report.ts counts rows, so a hollow one
+  // inflates the figure exactly as much as a real one.
+  if (!event.booking) return null;
+
+  // Refusal 3: we do not know who. appointments.contact_id is NOT NULL, and
+  // inventing a contact to satisfy it would put a stranger in the clinic's
+  // records. A caller who withheld their number gets no row.
+  if (!contactId) return null;
+
+  const external = event.booking.externalId?.trim() || null;
+  const source = event.booking.externalSource?.trim() || null;
+
+  return {
+    conversationId,
+    contactId,
+    scheduledFor: event.booking.scheduledFor,
+    treatment: event.booking.treatment ?? null,
+    providerName: event.booking.providerName ?? null,
+    depositUsd: event.booking.depositUsd ?? null,
+    // Both or neither, enforced in both directions. An id with no source is
+    // the worse half: it satisfies the partial index predicate but, because
+    // NULLs never conflict, no sync can ever land on it — upsertAppointments
+    // filters on external_source = <provider>. The row would then sit there
+    // permanently unconfirmed while the next sync inserted a second row for the
+    // same real visit, and the report would tell the clinic we authored a
+    // booking their own system had in fact reported back.
+    externalAppointmentId: source ? external : null,
+    externalSource: external ? source : null,
+  };
+}
+
 export function classifyBooking(
   event: VoiceCallEvent,
   recoveryReason: RecoveryReason | null,
@@ -264,6 +347,15 @@ export async function ingestCall(
       })
       .onConflictDoNothing({
         target: [conversations.clinicId, conversations.externalCallId],
+        // conversations_external_call_idx is PARTIAL (WHERE external_call_id is
+        // not null). Postgres will only infer a partial unique index when the
+        // matching predicate accompanies the conflict target, so without this
+        // the statement raises 42P10 and no call is ever ingested at all. Every
+        // sibling writer in sync/upsert.ts passes it for the same reason, and
+        // that file's header warns about precisely this. Note the option is
+        // `where` here and `targetWhere` on onConflictDoUpdate; both are the
+        // index predicate, and drizzle names them differently per builder.
+        where: isNotNull(conversations.externalCallId),
       })
       .returning({ id: conversations.id });
 
@@ -284,11 +376,92 @@ export async function ingestCall(
         )
         .limit(1);
 
+      // A retrying vendor must get the same answer, including the same
+      // appointment. Looking it up rather than returning null keeps the reply
+      // truthful, and re-inserting would double-count the one figure the
+      // clinic judges us on.
+      const [priorAppointment] = await tx.db
+        .select({ id: appointments.id })
+        .from(appointments)
+        .where(
+          and(
+            eq(appointments.clinicId, event.clinicId),
+            eq(appointments.conversationId, existing!.id),
+          ),
+        )
+        .limit(1);
+
       return {
         conversationId: existing!.id,
         recoveryReason: existing!.recoveryReason,
         duplicate: true,
+        appointmentId: priorAppointment?.id ?? null,
       };
+    }
+
+    /**
+     * The causation link, written by the only layer that knows it.
+     *
+     * Everything downstream reads `appointments.conversation_id`: report.ts
+     * inner-joins on it to count bookings, reconcile-store.ts left-joins it to
+     * decide which revenue was recovered. Nothing wrote it until here, which is
+     * why a perfect connector would still have reported zero.
+     *
+     * Three conditions, all required, none of them inferred. The call has to
+     * have booked something; we have to know what was booked, because an
+     * appointment row with no time is not evidence of anything; and we have to
+     * know who, because contact_id is NOT NULL and inventing a contact to
+     * satisfy it would be worse than recording no booking at all.
+     */
+    let appointmentId: string | null = null;
+    const bookingRow = bookingRowFrom(event, row.id, contactId);
+    if (bookingRow) {
+      const [booked] = await tx.db
+        .insert(appointments)
+        .values({
+          clinicId: event.clinicId,
+          ...bookingRow,
+          // Deliberately NOT set. We booked it; the clinic's own system has not
+          // confirmed it back to us, and may never. See schema.ts.
+          externalConfirmedAt: null,
+        })
+        // The booking platform's own webhook can import this appointment
+        // before the call-ended webhook reaches us, and the pair we were handed
+        // is the same pair the sync used. Without a conflict clause that is a
+        // 23505 which aborts the whole ingest transaction — losing the
+        // conversation, the contact and both audit rows, permanently, because
+        // the vendor's retry re-runs the identical path. So it repairs instead.
+        .onConflictDoUpdate({
+          target: [
+            appointments.clinicId,
+            appointments.externalSource,
+            appointments.externalAppointmentId,
+          ],
+          targetWhere: isNotNull(appointments.externalAppointmentId),
+          set: {
+            // First writer wins. A link already recorded is a link we already
+            // proved; this only fills a null one, and it deliberately leaves
+            // external_confirmed_at alone so corroboration stays the sync's to
+            // grant.
+            conversationId: sql`coalesce(${appointments.conversationId}, excluded.conversation_id)`,
+            updatedAt: new Date(),
+          },
+        })
+        .returning({ id: appointments.id });
+
+      appointmentId = booked?.id ?? null;
+
+      tx.audit.record({
+        action: "create",
+        resourceType: "appointment",
+        resourceId: booked!.id,
+        metadata: {
+          conversationId: row.id,
+          bookedByAgent: true,
+          externalSource: bookingRow.externalSource ?? "none",
+          confirmedByClinicSystem: false,
+        },
+      });
     }
 
     tx.audit.record({
@@ -306,7 +479,7 @@ export async function ingestCall(
       },
     });
 
-    return { conversationId: row.id, recoveryReason, duplicate: false };
+    return { conversationId: row.id, recoveryReason, duplicate: false, appointmentId };
   });
 }
 

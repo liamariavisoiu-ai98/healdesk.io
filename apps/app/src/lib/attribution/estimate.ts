@@ -35,6 +35,15 @@ export type ActivityCounts = {
   conversationsRecovered: number;
   /** Recovered conversations that produced a booking. */
   recoveredBookings: number;
+  /**
+   * The subset of those the clinic's own booking system has confirmed back.
+   *
+   * Set only by a sync reading the appointment out of their software, never by
+   * the agent that created it. The difference is reported as a caveat and never
+   * subtracted: a booking we made that has not synced yet is still real, but a
+   * clinic is entitled to know how much of the figure it wrote itself.
+   */
+  recoveredBookingsConfirmed: number;
   /** All bookings from agent conversations, recovered or not. */
   totalBookings: number;
 };
@@ -94,6 +103,31 @@ const usd = (value: number): string =>
     maximumFractionDigits: 0,
   });
 
+/**
+ * How much of the booking count did we author?
+ *
+ * report.ts joins bookings to appointments so that a booking is a row and not a
+ * label the agent set on its way out of the call. The agent now writes those
+ * rows itself, so that join no longer proves it — `external_confirmed_at`,
+ * which only a sync sets, is what separates the two. The gap is disclosed and
+ * never deducted: a booking we made that has not synced yet is still real.
+ *
+ * Shared by BOTH modes deliberately. It lived only in `estimated()` at first,
+ * which meant the mode presenting dollars as measured was the one that stayed
+ * quiet about authorship — the exact inversion this file's own rules forbid.
+ */
+function provenanceCaveat(activity: ActivityCounts): string | null {
+  const unconfirmed = Math.max(
+    0,
+    activity.recoveredBookings - activity.recoveredBookingsConfirmed,
+  );
+  if (activity.recoveredBookings === 0 || unconfirmed === 0) return null;
+
+  return unconfirmed === activity.recoveredBookings
+    ? `All ${activity.recoveredBookings} ${plural(activity.recoveredBookings, "booking")} here were recorded by our agent and have not been read back from your booking system.`
+    : `${unconfirmed} of ${activity.recoveredBookings} bookings were recorded by our agent and have not yet been read back from your booking system.`;
+}
+
 export function computeAttribution(
   input: AttributionInput,
 ): AttributionResult {
@@ -133,6 +167,10 @@ function estimated(input: EstimatedInput): AttributionResult {
     );
   }
 
+  // Whose evidence is this? Say it before the clinic has to ask.
+  const provenance = provenanceCaveat(activity);
+  if (provenance) caveats.push(provenance);
+
   // Say the quiet part out loud, every time.
   caveats.push(
     `Estimated from your own average appointment value of ${usd(value)}, not read from a point-of-sale. Connect your booking system to replace these with measured figures.`,
@@ -149,6 +187,13 @@ function estimated(input: EstimatedInput): AttributionResult {
 function verified(input: VerifiedInput): AttributionResult {
   const { activity } = input;
   const caveats: string[] = [];
+
+  // Same disclosure as the estimated mode, and it matters MORE here: this is
+  // the mode that presents a figure as measured, so a clinic reading it is
+  // entitled to know how much of the booking count came from our own record
+  // rather than from theirs.
+  const provenance = provenanceCaveat(activity);
+  if (provenance) caveats.push(provenance);
 
   const base = {
     mode: "verified" as const,

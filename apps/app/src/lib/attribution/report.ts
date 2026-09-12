@@ -277,10 +277,40 @@ async function activityFor(
     )
     .where(and(eq(appointments.clinicId, clinicId), inPeriod));
 
+  /**
+   * The subset the clinic's own software has confirmed back to us.
+   *
+   * The join above proves a booking is a row rather than a label. It stopped
+   * proving that the moment the agent began writing rows itself, because we
+   * became the author of our own evidence. `external_confirmed_at` is set only
+   * by upsertAppointments, when a sync reads the appointment back out of the
+   * clinic's system, so this count is the half we did not write.
+   *
+   * It is reported as a caveat, never subtracted. A booking we made and the
+   * clinic has not synced yet is still a real booking; the clinic is simply
+   * entitled to know which figure is which.
+   */
+  const [confirmedBookings] = await db
+    .select({ value: count() })
+    .from(appointments)
+    .innerJoin(
+      conversations,
+      eq(appointments.conversationId, conversations.id),
+    )
+    .where(
+      and(
+        eq(appointments.clinicId, clinicId),
+        inPeriod,
+        RECOVERED,
+        isNotNull(appointments.externalConfirmedAt),
+      ),
+    );
+
   return {
     conversationsHandled: handled?.value ?? 0,
     conversationsRecovered: recovered?.value ?? 0,
     recoveredBookings: recoveredBookings?.value ?? 0,
+    recoveredBookingsConfirmed: confirmedBookings?.value ?? 0,
     totalBookings: totalBookings?.value ?? 0,
   };
 }

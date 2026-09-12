@@ -17,6 +17,9 @@ const activity = (over: Partial<ActivityCounts> = {}): ActivityCounts => ({
   conversationsHandled: 120,
   conversationsRecovered: 40,
   recoveredBookings: 14,
+  // Defaults to fully corroborated so existing cases keep testing what they
+  // were written to test. The provenance caveat has its own block below.
+  recoveredBookingsConfirmed: 14,
   totalBookings: 52,
   ...over,
 });
@@ -243,5 +246,80 @@ describe("trend", () => {
   test("returns nothing at all when either side is unknown", () => {
     expect(trend(7_700, null)).toBeNull();
     expect(trend(null, 5_500)).toBeNull();
+  });
+});
+
+/**
+ * Whose evidence is the booking count?
+ *
+ * report.ts joins bookings to appointments so that a booking is a row rather
+ * than a label the agent set on its way out of the call. Once the agent began
+ * writing those rows itself, that join stopped proving it — we became the
+ * author of our own evidence. `recoveredBookingsConfirmed` counts only what a
+ * sync read back out of the clinic's own software, and the gap is disclosed
+ * rather than deducted.
+ */
+describe("bookings we wrote versus bookings the clinic confirmed", () => {
+  const estimated = (over: Partial<ActivityCounts>) =>
+    computeAttribution({
+      mode: "estimated",
+      activity: activity(over),
+      averageTreatmentValueUsd: 500,
+    });
+
+  test("fully corroborated figures raise no provenance caveat", () => {
+    const result = estimated({ recoveredBookings: 8, recoveredBookingsConfirmed: 8 });
+    expect(result.caveats.join(" ")).not.toMatch(/read back/i);
+  });
+
+  test("a partly corroborated figure says how much of it we wrote", () => {
+    const result = estimated({ recoveredBookings: 8, recoveredBookingsConfirmed: 3 });
+    expect(result.caveats.join(" ")).toMatch(/5 of 8 bookings were recorded by our agent/i);
+  });
+
+  test("an entirely self-reported figure says so plainly", () => {
+    const result = estimated({ recoveredBookings: 4, recoveredBookingsConfirmed: 0 });
+    expect(result.caveats.join(" ")).toMatch(/All 4 bookings here were recorded by our agent/i);
+  });
+
+  // The clinic runs no booking software, so nothing will ever confirm these.
+  // The caveat is still the truth, and the revenue figure is unchanged by it.
+  test("disclosure never reduces the number", () => {
+    const written = estimated({ recoveredBookings: 6, recoveredBookingsConfirmed: 0 });
+    const confirmed = estimated({ recoveredBookings: 6, recoveredBookingsConfirmed: 6 });
+    expect(written.revenueUsd).toBe(confirmed.revenueUsd);
+  });
+});
+
+/**
+ * The disclosure has to appear in the mode that looks hardest.
+ *
+ * `verified` presents dollars read from a point of sale, so a clinic reading it
+ * assumes every part of it was measured. If only `estimated` disclosed who
+ * authored the booking count, the softer number would be the honest one — which
+ * inverts the rule this file exists to enforce.
+ */
+describe("provenance is disclosed in both modes", () => {
+  const counts = { recoveredBookings: 8, recoveredBookingsConfirmed: 0 };
+
+  test("verified says so too", () => {
+    const result = computeAttribution({
+      mode: "verified",
+      activity: activity(counts),
+      matchedRevenueUsd: 4_200,
+      unmatchedTransactionCount: 0,
+      unmatchedRevenueUsd: 0,
+      sources: ["Stripe"],
+    });
+    expect(result.caveats.join(" ")).toMatch(/recorded by our agent/i);
+  });
+
+  test("and estimated still does", () => {
+    const result = computeAttribution({
+      mode: "estimated",
+      activity: activity(counts),
+      averageTreatmentValueUsd: 500,
+    });
+    expect(result.caveats.join(" ")).toMatch(/recorded by our agent/i);
   });
 });

@@ -117,6 +117,10 @@ export async function upsertAppointments(
         treatment: item.treatment ?? null,
         providerName: item.providerName ?? null,
         depositUsd: item.depositUsd ?? null,
+        // Corroboration. This is the ONLY place it is ever written: seeing the
+        // appointment in the clinic's own system is what makes it true, and an
+        // agent that booked it cannot vouch for itself. See schema.ts.
+        externalConfirmedAt: new Date(),
         updatedAt: new Date(),
       };
     })
@@ -141,6 +145,11 @@ export async function upsertAppointments(
         treatment: sql`excluded.treatment`,
         providerName: sql`excluded.provider_name`,
         depositUsd: sql`excluded.deposit_usd`,
+        externalConfirmedAt: sql`excluded.external_confirmed_at`,
+        // conversationId is deliberately absent from this set list, and that
+        // absence is load-bearing. The agent writes the causation link when it
+        // books; a later sync of the same appointment must refresh the clinic's
+        // facts about it without erasing whose call produced it.
         updatedAt: new Date(),
       },
     })

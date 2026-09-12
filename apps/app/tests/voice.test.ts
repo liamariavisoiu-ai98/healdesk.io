@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { COMMON_WEEKDAY_HOURS } from "@/lib/clinic/opening-hours";
 import {
+  bookingRowFrom,
   classifyBooking,
   classifyRecovery,
   type VoiceCallEvent,
@@ -169,5 +170,104 @@ describe("booking is a separate question from recovery", () => {
         if (r.recoveredBooking) expect(r.recovered && r.booked).toBe(true);
       }
     }
+  });
+});
+
+/**
+ * The causation link.
+ *
+ * `appointments.conversation_id` is what report.ts inner-joins on to count
+ * bookings and what reconcile-store.ts left-joins to decide which revenue was
+ * recovered. Nothing wrote it, so a flawless connector would have reported zero
+ * bookings and no recovered revenue. These cover the decision that fixes it,
+ * and in particular the three cases where the honest answer is to write nothing.
+ */
+const CONV = "22222222-2222-4222-8222-222222222222";
+const CONTACT = "33333333-3333-4333-8333-333333333333";
+const WHEN = new Date("2026-09-09T15:00:00Z");
+
+describe("the call-to-booking link", () => {
+  test("a booked call with details and a caller produces the row", () => {
+    const row = bookingRowFrom(
+      call({ outcome: "booked", booking: { scheduledFor: WHEN, treatment: "Botox" } }),
+      CONV,
+      CONTACT,
+    );
+    expect(row).not.toBeNull();
+    expect(row!.conversationId).toBe(CONV);
+    expect(row!.contactId).toBe(CONTACT);
+    expect(row!.scheduledFor).toEqual(WHEN);
+    expect(row!.treatment).toBe("Botox");
+  });
+
+  test("a call that did not book produces nothing", () => {
+    for (const outcome of ["qualified_no_booking", "price_shopper", "abandoned"] as const) {
+      expect(bookingRowFrom(call({ outcome, booking: { scheduledFor: WHEN } }), CONV, CONTACT)).toBeNull();
+    }
+  });
+
+  // report.ts joins to appointments precisely so that a booking is a row and
+  // not a label. An outcome of "booked" with nothing behind it must not become
+  // a row, or that join is counting the label again through a longer path.
+  test("an outcome of booked with no booking details produces nothing", () => {
+    expect(bookingRowFrom(call({ outcome: "booked" }), CONV, CONTACT)).toBeNull();
+  });
+
+  // contact_id is NOT NULL. A caller who withheld their number gets no row,
+  // because the alternative is inventing a person in the clinic's records.
+  test("a caller we cannot identify produces nothing", () => {
+    expect(
+      bookingRowFrom(call({ outcome: "booked", booking: { scheduledFor: WHEN } }), CONV, null),
+    ).toBeNull();
+  });
+
+  test("an external id is carried with its source, so the next sync lands on this row", () => {
+    const row = bookingRowFrom(
+      call({
+        outcome: "booked",
+        booking: { scheduledFor: WHEN, externalId: "appt_88", externalSource: "zenoti" },
+      }),
+      CONV,
+      CONTACT,
+    );
+    expect(row!.externalAppointmentId).toBe("appt_88");
+    expect(row!.externalSource).toBe("zenoti");
+  });
+
+  // The unique index is (clinic, source, external id) where the id is not null.
+  // An id with no source is the dangerous half: it satisfies the index
+  // predicate, but NULLs never conflict and upsertAppointments filters on
+  // external_source, so no sync could ever land on it. The row would stay
+  // unconfirmed forever while the next sync inserted a second row for the same
+  // visit. This test previously asserted the id was KEPT, which is the bug its
+  // own name forbids.
+  test("an id without a source is dropped rather than half-written", () => {
+    const row = bookingRowFrom(
+      call({ outcome: "booked", booking: { scheduledFor: WHEN, externalId: "appt_88" } }),
+      CONV,
+      CONTACT,
+    );
+    expect(row!.externalAppointmentId).toBeNull();
+    expect(row!.externalSource).toBeNull();
+  });
+
+  test("a source with no id keeps neither", () => {
+    const row = bookingRowFrom(
+      call({ outcome: "booked", booking: { scheduledFor: WHEN, externalSource: "zenoti" } }),
+      CONV,
+      CONTACT,
+    );
+    expect(row!.externalAppointmentId).toBeNull();
+    expect(row!.externalSource).toBeNull();
+  });
+
+  // We booked it. The clinic's own system has not agreed yet, and might never.
+  test("the row never claims the clinic's system confirmed it", () => {
+    const row = bookingRowFrom(
+      call({ outcome: "booked", booking: { scheduledFor: WHEN } }),
+      CONV,
+      CONTACT,
+    );
+    expect(row).not.toHaveProperty("externalConfirmedAt");
   });
 });

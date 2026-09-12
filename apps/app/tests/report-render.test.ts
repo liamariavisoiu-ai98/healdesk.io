@@ -174,7 +174,7 @@ describe("PHI guard", () => {
     // none is worse than a crash — it looks like success for a month.
     const result = await new ConsoleTransport().send(
       { to: "owner@clinic.test", clinicId: "c1", clinicName: "Radiance" },
-      renderMonthlyReport(report()),
+      { ...renderMonthlyReport(report()), phiClass: "none" },
     );
 
     expect(result.status).toBe("skipped");

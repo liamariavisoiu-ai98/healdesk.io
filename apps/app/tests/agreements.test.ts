@@ -398,6 +398,29 @@ describe("validation", () => {
     ).toThrow(/bills insurance/i);
   });
 
+  test("refuses at signature an address the mail layer could not send to", () => {
+    // This is the earliest point a bad address can be caught and the one that
+    // decides what goes on an append-only legal record. The check used to be
+    // `/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/` — negated classes, which accept every
+    // code point they do not name — so a non-ASCII mailbox name passed here
+    // and was refused later by the transport: a signed agreement whose
+    // counterparty could never be sent their copy, on a row nobody can amend.
+    expect(() =>
+      validateSignRequest(
+        validSignRequest({ signatoryEmail: "günter@clinic.test" }),
+      ),
+    ).toThrow(/work email/i);
+
+    // An internationalised DOMAIN is the other case. It has an A-label, the
+    // transport converts it at send time, and refusing it here would turn away
+    // a practice at an address we can reach perfectly well.
+    expect(() =>
+      validateSignRequest(
+        validSignRequest({ signatoryEmail: "gunter@klinik-münchen.test" }),
+      ),
+    ).not.toThrow();
+  });
+
   test("refuses a stale template version", () => {
     expect(() =>
       validateSignRequest(validSignRequest({ templateVersion: "0.0.0-ancient" })),

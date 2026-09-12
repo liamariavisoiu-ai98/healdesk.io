@@ -98,7 +98,7 @@ export type Label = {
  */
 const MODEL = "claude-haiku-4-5";
 
-const SYSTEM = `You classify US aesthetic and medical clinics into exactly one primary segment, from their own website text.
+const SYSTEM = `You classify US aesthetic, medical and veterinary clinics into exactly one primary segment, from their own website text.
 
 SEGMENTS — choose exactly one id:
 ${SEGMENT_RULES}

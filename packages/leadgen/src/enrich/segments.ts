@@ -1,42 +1,47 @@
-import type { Segment } from "@healdesk/catalog";
+import { SEGMENT_DEFINITIONS, type Segment } from "@healdesk/catalog";
 
 export { SEGMENTS, SEGMENT_LABELS, type Segment } from "@healdesk/catalog";
 
 /**
  * Classification rules and launch guidance.
  *
- * The enum itself lives in @healdesk/catalog — it is shared with the marketing
- * site's chat agent, so a segment the pipeline targets is a branch the bot can
- * actually take. What stays here is the prospecting-side knowledge: how to
- * DECIDE a label from a website, and which segments are worth launching into.
+ * The enum lives in @healdesk/catalog, and so — since the veterinary and
+ * massage labels were added — do the per-label decision rules, as
+ * `SEGMENT_DEFINITIONS`. They used to be a prose block here, and the enum
+ * gained six segments in one commit without the block learning any of them:
+ * the classifier was still told to file chiropractors under `other-medical`
+ * while the report tallied a `chiropractic` bucket it could never fill.
+ * A Record over the enum makes that a type error. What stays here is the
+ * rendering into the column layout the prompt uses, and the prospecting-side
+ * judgement about which segments are worth launching into.
  */
 
-export const SEGMENT_RULES = `
-injectables       Neurotoxins (Botox, Dysport, Xeomin, Jeuveau) and dermal
-                  fillers are the lead offering. The default for a general med
-                  spa whose homepage leads with injectables.
-laser-skin        Laser hair removal, IPL, resurfacing, microneedling, chemical
-                  peels, facials as the lead offering.
-body-contouring   CoolSculpting, Emsculpt, truSculpt, Morpheus8 body, cellulite
-                  and fat-reduction devices as the lead offering.
-weight-loss-glp1  Medical weight loss, semaglutide/tirzepatide programmes,
-                  metabolic health. Choose this whenever a supervised weight-loss
-                  PROGRAMME is a headline offering, even alongside aesthetics —
-                  it is a distinct intake conversation.
-wellness-iv       IV drips, vitamin injections, hormone/TRT, peptides, longevity
-                  and functional medicine as the lead offering.
-hair-restoration  PRP for hair, transplants, hair-loss programmes.
-plastic-surgery   A board-certified plastic or cosmetic SURGEON performing
-                  surgical procedures. Surgical practice, not a med spa.
-dermatology       A medical dermatology practice — skin cancer, acne, eczema,
-                  Mohs — even where it also sells cosmetics.
-dental            Dentistry or orthodontics of any kind.
-other-medical     A medical practice that is none of the above: primary care,
-                  OB-GYN, urology, ophthalmology, physio, chiropractic.
-not-a-target      Not a clinic at all: a product brand, a device manufacturer, a
-                  distributor, a training academy, a non-medical salon or spa, a
-                  marketing agency, a dead or parked domain.
-`.trim();
+const ID_COLUMN = 18;
+
+/**
+ * The definitions as the classifier sees them: one label per line, the id in
+ * a fixed-width column, the rule wrapped underneath it. Column layout rather
+ * than JSON because the model reads it once per clinic and a table of
+ * fifteen-word rules scans better than fifteen quoted strings.
+ */
+export const SEGMENT_RULES = Object.entries(SEGMENT_DEFINITIONS)
+  .map(([id, rule]) => {
+    const words = rule.split(" ");
+    const lines: string[] = [];
+    let line = "";
+    for (const word of words) {
+      if (line && line.length + 1 + word.length > 62) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = line ? `${line} ${word}` : word;
+      }
+    }
+    lines.push(line);
+    const indent = " ".repeat(ID_COLUMN);
+    return [id.padEnd(ID_COLUMN) + lines[0], ...lines.slice(1).map((l) => indent + l)].join("\n");
+  })
+  .join("\n");
 
 /**
  * Segments worth a tuned agent, and why.

@@ -13,6 +13,18 @@ export default defineConfig({
     environment: "node",
     include: ["src/**/*.test.ts"],
   },
+  /**
+   * The app's tsconfig sets `jsx: "preserve"` — Next compiles the JSX itself —
+   * so without this the transform refuses any file that imports a component and
+   * every rule that lives in a `.tsx` is untestable. That is not a hypothetical:
+   * the honesty rules on /admin (an em-dash where nothing was measured, a
+   * hatched day where nobody looked, an empty state that names which kind of
+   * empty it is) are all in components, and all of them were unguarded.
+   *
+   * The tests render to static markup and assert on the text, so `node` stays
+   * the environment — no DOM, no testing-library, no new dependency.
+   */
+  oxc: { jsx: { runtime: "automatic" } },
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

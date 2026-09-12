@@ -1,26 +1,130 @@
 @import "tailwindcss";
 
 /* =============================================================================
-   Design tokens — carried over verbatim from the original hero prototype.
-   Warm paper + red→orange gradient, deliberately not clinical-blue: this is
-   elective, cash-pay, experience-driven medicine, so the register is hospitality.
+   Design tokens.
+
+   The palette is the logo's own red and orange, plus Tuscan Sun, Light Green
+   and Deep Space Blue on a neutral near-white. The brand pair was bent to the
+   artwork rather than the other way round, see the note above the tokens. It replaced a warm-cream-and-brown scheme, so
+   the register shifted: the ground is now near-white and the ink is a blue-black
+   rather than a warm brown, with the heat carried entirely by the accents.
+
+   The ground is a plain neutral rather than the palette's own off-white, which
+   carries a magenta cast that shows as pink across a full page.
+
+   Two notes for anyone changing these. `--color-paper-2` is derived, not given
+   see its comment. And the two semantic accents are fills only; both fail
+   text contrast on Snow by a wide margin.
    ============================================================================= */
 
 @theme {
-  --color-red: #e23a2a;
-  --color-orange: #f47b1f;
-  --color-ink: #24160f;
-  --color-paper: #fbf4ea;
-  --color-paper-2: #f5e8d6;
-  --color-muted: #8b7a6c;
-  --color-line: rgb(36 22 15 / 0.12);
-  --color-line-strong: rgb(36 22 15 / 0.25);
+  /* --- Brand ------------------------------------------------------------- */
+  /*
+   * Sampled straight off the logo artwork rather than taken from the palette
+   * sheet: both healdesk-logo.webp and healdesk-logo-slogan.webp are flat fills
+   * of exactly these two values, and a gradient a shade off the wordmark it
+   * sits beside is the kind of wrongness people feel without locating.
+   *
+   * Fills, borders and the gradient only. For red TEXT see --color-red-deep.
+   */
+  --color-red: #e62627;
+  --color-orange: #ff761e;
+
+  /*
+   * The logo red, darkened just enough to be readable.
+   *
+   * Small red text is the one place the brand red cannot be used as-is: at
+   * 4.42:1 on the page ground it misses AA, and `text-red` is used at 11-14px
+   * throughout, section eyebrows, error messages, step numbers. Same hue and
+   * saturation, 9% less lightness, which clears 4.5:1 on BOTH surfaces and is
+   * indistinguishable from the logo red unless the two are laid side by side.
+   */
+  --color-red-deep: #da191a;
+
+  /*
+   * The logo orange, darkened for the same reason and by the same method.
+   *
+   * Brand orange is the worse of the two as text: #ff761e measures 2.67:1 on
+   * the page ground, which fails not only AA for body copy but the 3:1 bar for
+   * large text as well, so there is no size at which it is safe. Same hue
+   * (23.5deg) and the same full saturation, 12% less lightness, which lands at
+   * 3.69:1 and clears large text with margin. It reads as the same orange
+   * unless the two are laid side by side.
+   *
+   * Headings only. It still fails 4.5:1, so nothing under 24px may use it.
+   */
+  --color-orange-deep: #e05800;
+
+  /* --- Ground and ink ---------------------------------------------------- */
+  --color-ink: #172a3a; /* Deep Space Blue */
+  --color-paper: #fdfdfd; /* Surface, shared with scalabid */
+
+  /*
+   * The secondary surface. Not from the supplied palette, because that palette
+   * has exactly one light value and a page needs two, every raised card on it
+   * would otherwise disappear.
+   *
+   * Taken from the same neutral pair as the ground rather than derived from the
+   * ink: a tint of Deep Space Blue reads faintly cold against the warm accents,
+   * and this palette already carries all the heat it needs in the accents.
+   */
+  --color-paper-2: #f1f1f1;
+
+  /* Deep Space Blue, lightened to 5.2:1 on Snow, readable as body text. */
+  --color-muted: #5c6e7e;
+
+  --color-line: rgb(23 42 58 / 0.12);
+  --color-line-strong: rgb(23 42 58 / 0.25);
+
+  /* --- Semantic accents --------------------------------------------------- */
+  /*
+   * Both are FILL colours and neither may carry small text on Snow: Tuscan Sun
+   * reaches about 1.5:1 there and Light Green about 1.7:1, so a label in either
+   * is unreadable. Used as backgrounds with ink on top, they are fine.
+   */
+  --color-sun: #fac748; /* Tuscan Sun, highlight, "most picked" */
+  --color-mint: #87d68d; /* Light Green, success, completed, verified */
+
+  /* --- Type scale ---------------------------------------------------------- */
+  /*
+   * Every step 20% up from Tailwind's defaults.
+   *
+   * The arbitrary sizes scattered through the components were multiplied in
+   * place, but `text-sm` and `text-xs` are used about 150 times between them
+   * and are rem-based, so they had to move here instead. Raising the root font
+   * size would have done it in one line and taken every rem-based SPACING
+   * utility up with it, which is a layout change wearing a typography change's
+   * clothes.
+   */
+  --text-xs: 0.9rem;
+  --text-sm: 1.05rem;
+  --text-base: 1.2rem;
+  --text-lg: 1.35rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 1.8rem;
+  --text-3xl: 2.25rem;
+  --text-4xl: 2.7rem;
+  --text-5xl: 3.6rem;
 
   --font-display: var(--font-fraunces), Georgia, serif;
+
+  /*
+   * Figures only, and the distinction is the point.
+   *
+   * TAN Ashford is a single-weight display face with a lot of voice. It held
+   * the whole heading layer briefly and overpowered every one of them; on a
+   * lone number it is exactly right. `font-figure` goes on the rating, the
+   * prices and the calculator's money, which are the places a number is the
+   * content rather than part of a sentence.
+   */
+  --font-figure: var(--font-ashford), Georgia, serif;
+  /*
+   * The body slot. Hanken Grotesk, as it was.
+   */
   --font-sans: var(--font-hanken), system-ui, sans-serif;
 
-  --shadow-brand: 0 20px 44px -24px rgb(226 58 42 / 0.5);
-  --shadow-brand-lg: 0 24px 48px -20px rgb(226 58 42 / 0.66);
+  --shadow-brand: 0 20px 44px -24px rgb(230 38 39 / 0.5);
+  --shadow-brand-lg: 0 24px 48px -20px rgb(230 38 39 / 0.66);
 
   --ease-panel: cubic-bezier(0.22, 0.61, 0.36, 1);
 }
@@ -51,6 +155,9 @@
 @layer base {
   html {
     scroll-behavior: smooth;
+    /* Applies to anchor jumps AND to focus-driven scrollIntoView, so tabbing
+       into the chat demo can't land it under the sticky nav or hero stage. */
+    scroll-padding-top: 5rem;
   }
 
   body {
@@ -91,5 +198,923 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* =============================================================================
+   The purchase modal
+   =============================================================================
+   A UA-default <dialog> is `background: Canvas; color: CanvasText; border:
+   solid; padding: 1em; width: fit-content; height: fit-content` with
+   `overflow: visible`. Every one of those is wrong here, and two of them break
+   the flow outright rather than just looking wrong:
+
+   - `color: CanvasText` cuts the inheritance chain from body, so the palette
+     never reaches the contents. Every card in checkout is bg-white and reads
+     as a raised surface only because the ground behind it is warm paper; on
+     system Canvas they vanish, and in a dark-mode OS the text inverts against
+     utilities that did not.
+   - `overflow: visible` plus fit-content means a flow several thousand pixels
+     tall paints outside the dialog box and is clipped by the viewport with no
+     scrollbar, the buyer cannot reach the Sign button at all.
+
+   `color-scheme: light` is set because this palette is light-only; without it
+   the form controls inside render dark on a dark-mode host.
+   ============================================================================= */
+
+.hd-modal {
+  width: min(860px, 100vw - 2rem);
+  max-width: none;
+  max-height: min(92dvh, 960px);
+  /*
+   * Centring, and a fourth UA default this file has to put back.
+   *
+   * A modal <dialog> is centred by the UA stylesheet's `margin: auto`, and
+   * Tailwind's preflight resets margin to 0 on every element, `dialog`
+   * included. The result is a modal pinned to the top-left corner of the
+   * viewport rather than floating in it, which is what the checkout flow has
+   * been doing: 860px wide at x:0, y:0 on a 1440px screen.
+   *
+   * It reads as a rendering fault rather than a design, and it is easy to miss
+   * on a phone, where the block below squares the corners and takes the whole
+   * screen anyway. That block sets `margin: 0` explicitly, so it still wins
+   * there.
+   */
+  margin: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 24px;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  color-scheme: light;
+  box-shadow: 0 40px 90px -30px rgb(23 42 58 / 0.45);
+  overflow: hidden;
+}
+
+.hd-modal::backdrop {
+  background: rgb(23 42 58 / 0.55);
+  backdrop-filter: blur(3px);
+}
+
+/* The scroll lives here, not on the dialog, so the rounded corners never clip
+   a scrollbar and the chrome can later be pinned outside it if needed. */
+.hd-modal-scroll {
+  max-height: min(92dvh, 960px);
+  overflow-y: auto;
+  /* Stops a scroll that reaches the end of this box from chaining to the page
+     behind it, which is the one thing showModal does not already prevent. */
+  overscroll-behavior: contain;
+  padding: 28px 24px 40px;
+}
+
+@media (min-width: 640px) {
+  .hd-modal-scroll {
+    padding: 36px 40px 48px;
+  }
+}
+
+/* A phone has no room for a floating card: take the whole screen, square the
+   corners, and let the flow use every pixel. */
+@media (max-width: 639px) {
+  .hd-modal {
+    width: 100vw;
+    max-width: 100vw;
+    max-height: 100dvh;
+    height: 100dvh;
+    border-radius: 0;
+    margin: 0;
+  }
+
+  .hd-modal-scroll {
+    max-height: 100dvh;
+    height: 100dvh;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .hd-modal[open] {
+    animation: hd-modal-in 220ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+
+  @keyframes hd-modal-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.99);
+    }
+  }
+}
+
+/* =============================================================================
+   Niche card, the circular flood
+   =============================================================================
+   Written here rather than as Tailwind variants because the utility version did
+   not animate, and the reason is worth recording. Tailwind v4's `scale-100`
+   emits `scale: var(--tw-scale-x) var(--tw-scale-y)` resolving to `100% 100%`,
+   while the hover variant emits `scale: <number>`. Those are different value
+   types for the same property, so the browser has nothing to interpolate
+   between and the circle jumps to full size instead of growing. Setting one
+   property, in one syntax, from one place removes the whole class of problem.
+
+   `transform: scale()` rather than animating width/height, so the growth stays
+   on the compositor and never triggers layout. There are two of these on
+   screen at once inside a deck that springs on every move.
+   ============================================================================= */
+
+.niche-card__flood {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  transform-origin: 50% 50%;
+  transform: scale(1);
+  /*
+   * 620ms is tuned for a 320x440 niche card. The variable exists because the
+   * "leave a review" banner is the full width of the page: the same duration
+   * over four times the distance reads as a slow wipe rather than a flood, and
+   * the copy waiting underneath it cannot turn white until the circle arrives.
+   */
+  transition: transform var(--flood-ms, 620ms) var(--ease-panel);
+  /*
+   * Semi-transparent so the footage keeps moving underneath rather than being
+   * replaced by a flat panel. The text mask below buys back the contrast.
+   *
+   * 0.50, not the 0.72 this started at, and the number was measured rather
+   * than eyeballed. The clips are slow push-ins, so the frame-to-frame change
+   * is small to begin with; at 0.72 it fell to about 2.3 on a 0-255 scale,
+   * which is the bottom edge of what the eye registers as movement, and the
+   * cards read as stills even while the video was demonstrably playing. At
+   * 0.50 it is about 4.2 and clearly moves. White copy over this, on the
+   * brightest frame the footage can produce, still measures 6.1:1.
+   *
+   * The variable exists for the one borrower of this effect that has no
+   * footage under it: the "leave a review" tile in Reviews.tsx is a white card,
+   * and 50% red over white is pink. It overrides the fill to solid red and
+   * inherits everything else. The 0.50 default is still the measured value
+   * above and still what every niche card gets.
+   */
+  background-color: var(--flood-fill, rgb(230 38 39 / 0.5));
+}
+
+.niche-card--ready:hover .niche-card__flood,
+.niche-card--ready:focus-visible .niche-card__flood {
+  /* --flood is set per card from the diagonal it has to cover. */
+  transform: scale(var(--flood, 18));
+}
+
+/*
+ * The arrow turns a full half-circle as the card opens, from pointing up and
+ * out to pointing down and back.
+ *
+ * The easing overshoots past 180 and settles, which is the whole point: a
+ * linear or ease-out turn of a symmetrical glyph is nearly impossible to read
+ * as motion, because the shape at 179 degrees looks like the shape at 181. The
+ * bounce is what makes the eye register that it moved at all.
+ *
+ * Rotation is on the wrapper rather than the SVG so the 44px hit area and the
+ * grid centring stay put while the glyph turns inside them.
+ */
+.niche-card__arrow {
+  transform: rotate(0deg);
+  transition: transform 560ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.niche-card--ready:hover .niche-card__arrow,
+.niche-card--ready:focus-visible .niche-card__arrow {
+  transform: rotate(180deg);
+}
+
+.niche-card__video {
+  opacity: 0;
+  transition: opacity 420ms ease;
+}
+
+.niche-card--ready:hover .niche-card__video,
+.niche-card--ready:focus-visible .niche-card__video {
+  opacity: 1;
+}
+
+/* Sits above the flood, under the copy. Without it, white text over 72% red
+   over a bright frame of footage lands at 3.1:1; with it, 6.4:1 at the worst
+   frame the video can produce. */
+.niche-card__mask {
+  background-image: linear-gradient(
+    to top,
+    rgb(23 42 58 / 0.82) 0%,
+    rgb(23 42 58 / 0.5) 42%,
+    rgb(23 42 58 / 0.12) 72%,
+    transparent 100%
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The global rule already collapses the duration; this stops the flood from
+     being the one element that still reads as motion by making the change
+     instant and complete rather than a 0.01ms sweep. */
+  .niche-card__flood,
+  .niche-card__video,
+  .niche-card__arrow {
+    transition: none;
+  }
+}
+
+/* =============================================================================
+   The soul
+   =============================================================================
+   One orb per demo panel, in the header, alive from first paint. See the note
+   at the top of HealdeskSoul.tsx for what it replaced and why it never appears
+   inside the message thread.
+
+   ## Three stacked elements, because one cannot hold two transforms
+
+   The heartbeat is a scale and the rotation is a rotate, and an element gets
+   one `transform` animation. So `__beat` scales, `__orb` rotates inside it,
+   and `__sheen` sits over the top doing neither. That last one is not
+   decoration: a rotating picture reads as a spinner, and a rotating picture
+   under a highlight that stays put reads as a sphere turning under a lamp. It
+   is the difference between "loading" and "alive".
+
+   ## Two knobs, one keyframe
+
+   `--soul-beat` is the length of one heartbeat and `--soul-amp` is how hard it
+   lands. Both are read inside the keyframes with calc(), so the same lub-dub
+   serves a resting orb and one racing through a streamed answer, and the
+   panels can drive the tempo from what is actually happening rather than
+   picking from a menu of canned speeds.
+
+   Everything animated is transform and opacity, so all of it stays on the
+   compositor. Two of these loop forever on a page that is also streaming text.
+
+   The global reduced-motion rule collapses all of it to a single frame, which
+   is the right outcome: the orb is a status light, and a still one still says
+   which panel you are in.
+   ============================================================================= */
+
+.soul {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  /*
+   * One beat every three and a half seconds, which is seventeen a minute and
+   * nothing like a real pulse.
+   *
+   * It was 1.1s, a plausible resting rate, and it read as a notification badge
+   * rather than as a living thing: quick, small, faintly urgent. Slowing it by
+   * a factor of three and tripling the travel inverts that. The movement is
+   * now large enough to catch at the edge of vision and slow enough that
+   * catching it is not an interruption, which is the whole difference between
+   * a thing that is alive and a thing that wants something.
+   */
+  --soul-beat: 3500ms;
+  --soul-amp: 1;
+  /* How far the aura reaches past the orb, as a share of its size. */
+  --soul-aura: -46%;
+}
+
+/*
+ * The aura: a flowing body, not a halo.
+ *
+ * It was a single centred radial gradient, which is a clean concentric ring of
+ * light and reads as a UI glow, because a perfect circle around a perfect
+ * circle can only ever read as one. What is wanted is something living around
+ * the sphere, so this is three layers that never agree with each other:
+ *
+ *   the element   a faint symmetric wash, the base warmth
+ *   ::before      a lopsided gold mass, turning one way over 26 seconds
+ *   ::after       a hot orange mass, turning the other way over 19, and drifting
+ *
+ * The three are keyed to the clip they surround, which runs cream through gold
+ * to a red hot spot and carries no magenta at all. The rose that used to sit in
+ * this layer belonged to the still it replaced, and beside the new artwork it
+ * read as a second, colder light source.
+ *
+ * Each pseudo has an asymmetric `border-radius`, so rotating it changes the
+ * silhouette continuously without animating the shape itself. That distinction
+ * is the whole performance argument: morphing `border-radius` repaints a
+ * heavily blurred box every frame, where rotation stays on the compositor and
+ * costs nothing. Two of these run forever on a page that also streams text.
+ *
+ * 26 and 19 seconds do not divide into each other, so the composite silhouette
+ * takes over eight minutes to come back round to where it started. Nobody
+ * watches it that long, which is the point: it never visibly loops.
+ *
+ * The blur is proportional to the rendered size, and heavy. Without it the
+ * two masses read as two blobs; with it they read as one body with weather in
+ * it.
+ */
+.soul__aura {
+  position: absolute;
+  inset: var(--soul-aura);
+  pointer-events: none;
+  /* The base wash carries no filter, so the pseudo layers inside can each
+     take their own blur. A filter here would apply to the group and flatten
+     the three into one. */
+  background: radial-gradient(
+    closest-side,
+    rgb(250 198 88 / 0.32) 0%,
+    rgb(246 128 52 / 0.2) 44%,
+    rgb(246 128 52 / 0) 74%
+  );
+  animation: soul-aura var(--soul-beat) cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+.soul__aura::before,
+.soul__aura::after {
+  content: "";
+  position: absolute;
+  filter: blur(var(--soul-aura-blur, 6px));
+}
+
+.soul__aura::before {
+  inset: -4%;
+  border-radius: 62% 38% 47% 53% / 57% 43% 57% 43%;
+  background: radial-gradient(
+    closest-side at 42% 36%,
+    rgb(250 206 96 / 0.62) 0%,
+    rgb(247 160 54 / 0.3) 52%,
+    rgb(247 160 54 / 0) 82%
+  );
+  animation: soul-drift-a 15s linear infinite;
+}
+
+.soul__aura::after {
+  inset: 3%;
+  border-radius: 44% 56% 63% 37% / 39% 61% 39% 61%;
+  background: radial-gradient(
+    closest-side at 64% 68%,
+    rgb(252 92 46 / 0.56) 0%,
+    rgb(240 58 40 / 0.28) 50%,
+    rgb(240 58 40 / 0) 80%
+  );
+  animation: soul-drift-b 11s linear infinite;
+}
+
+/*
+ * Liquid, not clockwork.
+ *
+ * The angles between stops are deliberately uneven: 0, 95, 170, 262, 360 is a
+ * full turn that speeds up and slows down inside itself. The timing function
+ * stays `linear` precisely so these stops define the rhythm, rather than an
+ * easing curve imposing a symmetric one over the top of them. Two layers with
+ * evenly spaced keyframes read as two spinning discs however slow they are;
+ * uneven ones slosh.
+ *
+ * Scale and translate move on their own schedule again, so no layer is ever
+ * doing only one thing, and the two periods (15s and 11s) do not divide into
+ * each other.
+ */
+@keyframes soul-drift-a {
+  0% {
+    transform: rotate(0deg) translate(0, 0) scale(1);
+  }
+  25% {
+    transform: rotate(95deg) translate(3%, 2%) scale(1.16);
+  }
+  50% {
+    transform: rotate(170deg) translate(-1%, 4%) scale(0.97);
+  }
+  75% {
+    transform: rotate(262deg) translate(-3%, -2%) scale(1.12);
+  }
+  100% {
+    transform: rotate(360deg) translate(0, 0) scale(1);
+  }
+}
+
+@keyframes soul-drift-b {
+  0% {
+    transform: rotate(0deg) translate(3%, -2%) scale(1.08);
+  }
+  30% {
+    transform: rotate(-130deg) translate(-2%, -3%) scale(0.92);
+  }
+  55% {
+    transform: rotate(-190deg) translate(-3%, 3%) scale(1.14);
+  }
+  80% {
+    transform: rotate(-295deg) translate(2%, 3%) scale(0.96);
+  }
+  100% {
+    transform: rotate(-360deg) translate(3%, -2%) scale(1.08);
+  }
+}
+
+/*
+ * The soft edge.
+ *
+ * ⚠️ This rule was deleted by accident once and nothing noticed for several
+ * changes, because the artwork it masks was a PNG with its own alpha: the
+ * corners were already transparent, so a missing mask looked identical to a
+ * working one. The clip that replaced it has no alpha, and the same missing
+ * rule immediately painted a hard white square. If the sphere ever grows
+ * corners again, look here first.
+ *
+ * The mask lives on the beat wrapper rather than on the orb inside it, so the
+ * sheen above can be given the identical falloff. Opaque through the middle,
+ * then alpha down to nothing before the nominal radius. There is no boundary
+ * anywhere in it, which is what makes the edge read as soft: an edge is only
+ * ever the place where something stops abruptly.
+ */
+.soul__edge {
+  --soul-fade: radial-gradient(
+    closest-side,
+    #000 54%,
+    rgb(0 0 0 / 0.86) 72%,
+    rgb(0 0 0 / 0.45) 87%,
+    transparent 99%
+  );
+  -webkit-mask-image: var(--soul-fade);
+  mask-image: var(--soul-fade);
+}
+
+.soul__beat {
+  display: block;
+  width: 100%;
+  height: 100%;
+  animation: soul-heartbeat var(--soul-beat) cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  /*
+   * The white the clip arrives on is removed here, not on the video itself,
+   * and the distinction cost an hour. A mask makes an element an isolated
+   * blending group, so `mix-blend-mode` on the video inside this one had
+   * nothing to blend against and multiplied against emptiness: the white
+   * survived and painted a rounded white square over the aura. Moved up one
+   * level it blends against the real backdrop, white multiplies away, and the
+   * warm mass keeps its colour.
+   */
+  mix-blend-mode: multiply;
+}
+
+/*
+ * No blur on the orb.
+ *
+ * It existed to take the crispness off the still's rim. The clip has no rim to
+ * soften: its own edges are already diffuse, and blurring them again only cost
+ * the artwork its detail, which is the hot spot and the grain in the mass.
+ */
+
+.soul__orb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /*
+   * The clip's orb sits inside a white margin, so at 1:1 it reads small and
+   * pale once the mask has taken the outer fifth off as well. Overscaling puts
+   * the mass back in the box; the mask clips whatever leaves it.
+   */
+  transform: scale(1.35);
+}
+
+/*
+ * The fixed light, and the rim under it.
+ *
+ * A specular highlight up and to the left, a warm bounce at the lower right,
+ * and an inset rim to round the edge off. None of it turns with the orb, which
+ * is the whole trick.
+ */
+.soul__sheen {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /*
+   * The radius is back, and it is not decorative.
+   *
+   * Without it this square box painted a faint lighter rectangle over the
+   * aura at its lower right, visible against the flowing layers behind. Both
+   * gradients are also pulled well inside the box now, so nothing of the sheen
+   * survives as far as the edge, where the sphere is meant to be dissolving.
+   */
+  border-radius: 999px;
+  background-image:
+    radial-gradient(
+      52% 46% at 33% 27%,
+      rgb(255 255 255 / 0.5) 0%,
+      rgb(255 255 255 / 0.1) 40%,
+      rgb(255 255 255 / 0) 62%
+    ),
+    radial-gradient(
+      54% 50% at 66% 72%,
+      rgb(255 180 90 / 0.26) 0%,
+      rgb(255 180 90 / 0) 58%
+    );
+  /*
+   * No inset rim any more. It drew a crisp hairline right where the orb is now
+   * fading out, which is the one place a hard line is most obvious: a sharp
+   * ring hanging in the air a pixel outside a soft sphere.
+   */
+}
+
+/* The ring the voice state emits. Always mounted, normally invisible. */
+.soul__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  border: 1.5px solid rgb(250 140 44 / 0.5);
+  filter: blur(0.6px);
+  opacity: 0;
+  transform: scale(1);
+  pointer-events: none;
+}
+
+/*
+ * Lub-dub, then a long rest.
+ *
+ * The two beats sit in the first third of the cycle and the remaining two
+ * thirds is diastole, which is what separates a heartbeat from a throb. At
+ * this tempo the rest is well over two seconds, and that silence is doing as
+ * much work as the movement: it is the pause that makes the next beat land.
+ */
+@keyframes soul-heartbeat {
+  0% {
+    transform: scale(1);
+  }
+  8% {
+    transform: scale(calc(1 + 0.14 * var(--soul-amp)));
+  }
+  17% {
+    transform: scale(calc(1 + 0.025 * var(--soul-amp)));
+  }
+  26% {
+    transform: scale(calc(1 + 0.085 * var(--soul-amp)));
+  }
+  40%,
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Swells just behind the orb's own beat, and falls away more slowly. */
+@keyframes soul-aura {
+  0%,
+  100% {
+    /* Never off. "The whole time" is the requirement, so the trough is a low
+       glow rather than nothing. */
+    transform: scale(0.92);
+    opacity: 0.66;
+  }
+  14% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+  46% {
+    transform: scale(0.95);
+    opacity: 0.62;
+  }
+}
+
+/* --- typing: she is composing ------------------------------------------- */
+/*
+ * Harder beat, and the tempo arrives from the panel as `--soul-beat`. The halo
+ * is on the orb rather than a separate element because thinking is a state;
+ * speech, below, is an event that leaves.
+ */
+.soul--typing {
+  /* Smaller, because it is also much faster. The idle beat is big and slow;
+     this one is quick and contained, which is what busy looks like next to
+     what calm looks like. */
+  --soul-amp: 0.55;
+}
+
+.soul--typing .soul__orb {
+  filter: drop-shadow(0 0 6px rgb(250 150 50 / 0.5));
+}
+
+/* --- voice: she is speaking ---------------------------------------------- */
+.soul--voice {
+  --soul-amp: 0.68;
+}
+
+/* Speech pushes more energy out than thought does. */
+.soul--voice .soul__aura {
+  --soul-aura: -58%;
+}
+
+/*
+ * The ring's cycle is deliberately not a multiple of the beat, so the two
+ * drift against each other instead of landing together. In step they read as
+ * one shape with a thick edge; out of step they read as a source and a wave.
+ */
+@keyframes soul-emit {
+  0% {
+    transform: scale(0.92);
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(2.05);
+    opacity: 0;
+  }
+}
+
+.soul--voice .soul__ring {
+  animation: soul-emit 1.7s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
+}
+
+/* =============================================================================
+   Share your experience, the disclosure
+   =============================================================================
+   The review form asks for three things and then stops. Everything else, the
+   job title, the town, the headline and the review itself, sits behind one
+   question.
+
+   That question used to draw an underline under itself three times to be
+   noticed. It has a chevron now instead, which is better for a duller reason
+   than aesthetics: an underline that animates and then stops is a hint with a
+   shelf life, and anybody who arrives after the third pass gets nothing. A
+   chevron is a permanent statement about what the row does, and it is the same
+   chevron the homepage uses for "there is more this way", so it needs no
+   learning here.
+
+   The rotation overshoots and settles. That easing is the one the niche card's
+   arrow uses, and the reason is the same: a symmetrical glyph turning through
+   a half circle is nearly impossible to read as motion, because the shape at
+   179 degrees looks like the shape at 181. The bounce is what makes the eye
+   register that it moved at all.
+   ============================================================================= */
+
+.share-chevron {
+  transition: transform 460ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.share-toggle[aria-expanded="true"] .share-chevron {
+  transform: rotate(180deg);
+}
+
+/*
+ * The fields flowing in.
+ *
+ * Each child of the revealed block rises and fades on its own delay, so the
+ * section unfolds rather than appearing. `both` holds the first frame before
+ * the delay elapses, without which every field would flash at full opacity for
+ * one frame and then start.
+ */
+@keyframes share-field-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+.share-reveal > * {
+  animation: share-field-in 460ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+.share-reveal > *:nth-child(1) {
+  animation-delay: 40ms;
+}
+.share-reveal > *:nth-child(2) {
+  animation-delay: 110ms;
+}
+.share-reveal > *:nth-child(3) {
+  animation-delay: 180ms;
+}
+.share-reveal > *:nth-child(4) {
+  animation-delay: 250ms;
+}
+.share-reveal > *:nth-child(5) {
+  animation-delay: 320ms;
+}
+.share-reveal > *:nth-child(6) {
+  animation-delay: 390ms;
+}
+
+/* =============================================================================
+   Example call, the line changing
+   =============================================================================
+   One line at a time, each replacing the last. The element is keyed on the
+   line index so React remounts it, which is what replays this: a CSS animation
+   does not restart when its element's text changes, only when the element is
+   new.
+
+   It rises rather than fading in place. A line that appears where the previous
+   one was reads as the same line rewriting itself; one that arrives from
+   slightly below reads as the next thing said.
+   ============================================================================= */
+
+@keyframes call-line-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.call-line {
+  animation: call-line-in 420ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* =============================================================================
+   Reviews slider, the nudge
+   =============================================================================
+   The arrowhead beside the dots drifts right and comes back, slowly, forever.
+   It is the only thing telling a reader there are ten more cards behind the
+   five they can see, now that the flanking buttons have gone.
+
+   Most of the cycle is rest. A shape that moves continuously reads as a
+   loading spinner and stops meaning "go this way"; one that sits still for a
+   second and then leans is a gesture. Hence the 0-55% hold, the lean at 75%,
+   and the ease-in-out either side of it so nothing starts or stops abruptly.
+
+   Five pixels, not fifteen. It is a hint next to a control, not a marquee.
+
+   Both arrowheads lean, each towards the page it would take you to. They share
+   a period, so the pair breathes in and out together rather than alternating,
+   which would read as fidgeting.
+
+   The global reduced-motion rule collapses this to a single instant frame,
+   which is correct: the arrowhead still points the way, it just does not move.
+   ============================================================================= */
+
+@keyframes review-nudge {
+  0%,
+  55%,
+  100% {
+    transform: translateX(0);
+  }
+  75% {
+    transform: translateX(5px);
+  }
+}
+
+.review-nudge {
+  animation: review-nudge 2.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+/* The same lean, mirrored, for the arrowhead pointing the other way. */
+@keyframes review-nudge-back {
+  0%,
+  55%,
+  100% {
+    transform: translateX(0);
+  }
+  75% {
+    transform: translateX(-5px);
+  }
+}
+
+.review-nudge--back {
+  animation: review-nudge-back 2.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+/* =============================================================================
+   Review card, the flip
+   =============================================================================
+   The card shows a rating, a headline and a name face up, and turns over to
+   show the quote. Written here rather than as Tailwind variants for the same
+   reason the niche flood is: this is one property animated from one place, and
+   the utility version needs `[transform-style:preserve-3d]`,
+   `[backface-visibility:hidden]` and two `[transform:rotateY()]` arbitrary
+   values scattered across three elements, where a stray `transform` utility on
+   any of them silently flattens the whole thing.
+
+   ## Three things that are not stylistic
+
+   `perspective` is on the OUTER element and `preserve-3d` on the inner one.
+   Putting both on the same element flattens the children into its own plane and
+   the card fades between faces instead of turning.
+
+   The rotation is negative, so the right edge swings towards the reader and the
+   card turns to the left. That direction is deliberate: the slider advances
+   leftward, and a card that turned the other way would fight it.
+
+   Hover is inside `@media (hover: hover)`. On a touch screen a `:hover` rule
+   latches after a tap and the card sits reversed until something else is
+   touched, so touch gets the explicit `data-flipped` toggle instead. Both are
+   listed here because a laptop with a touchscreen is both.
+   ============================================================================= */
+
+.review-flip {
+  perspective: 1400px;
+}
+
+.review-flip__inner {
+  position: relative;
+  height: 100%;
+  transform-style: preserve-3d;
+  /*
+   * Ease-in-out, and no bounce. A half turn is a physical movement of something
+   * already on screen, which is the one case the ease-out family reads wrong,
+   * and an overshoot on a hover state means a card that wobbles every time a
+   * pointer crosses it.
+   */
+  transition: transform 700ms cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+
+@media (hover: hover) {
+  .review-flip:hover .review-flip__inner {
+    transform: rotateY(-180deg);
+  }
+}
+
+.review-flip:focus-visible .review-flip__inner,
+.review-flip[data-flipped="true"] .review-flip__inner {
+  transform: rotateY(-180deg);
+}
+
+.review-flip__face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  overflow: hidden;
+}
+
+.review-flip__face--back {
+  transform: rotateY(180deg);
+}
+
+/* -----------------------------------------------------------------------------
+   The laminate.
+
+   Three layers, and all three are needed. A gloss is not one effect:
+
+     1. The stock. A flat white card cannot show a sheen, because a highlight
+        the same colour as the surface is invisible. So the face carries a very
+        slight gradient of its own, brightest at the top left, and the sheen has
+        something to be brighter than.
+     2. The rim. An inset hairline of white along the top edge and a whisper of
+        ink along the bottom, which is what the folded edge of a laminate pouch
+        actually does to the light.
+     3. The specular streak, below.
+
+   The streak is on ::after and therefore paints OVER the copy, which is correct
+   rather than a bug: laminate goes on top of the print. It is pointer-events:
+   none, so nothing under it stops being clickable, and it inherits the radius
+   so it cannot square off the corner.
+   -------------------------------------------------------------------------- */
+
+/*
+ * The sheen is a BACKGROUND layer, not an overlay, and that is the second
+ * thing this effect got wrong.
+ *
+ * A laminate physically sits over the print, so the first version put the
+ * streak on ::after above the copy. At the strength a white band needs to be
+ * visible on a white card, it greys every word it crosses: the headline lost
+ * its left half and the first star went pale. Behind the type it reads as the
+ * same gloss and costs the copy nothing, and no reader has ever audited a card
+ * for whether its highlight is in front of the ink.
+ *
+ * The stock underneath goes to a cool grey rather than staying white, because
+ * a highlight the same colour as the surface is not a highlight. The band has
+ * to have something to be brighter than.
+ */
+.review-flip__face:not(.review-flip__face--back) {
+  background-image:
+    linear-gradient(
+      114deg,
+      rgb(255 255 255 / 0) 6%,
+      rgb(255 255 255 / 0.9) 17%,
+      rgb(255 255 255 / 0.3) 27%,
+      rgb(255 255 255 / 0) 41%,
+      rgb(255 255 255 / 0) 71%,
+      rgb(255 255 255 / 0.6) 88%,
+      rgb(255 255 255 / 0) 100%
+    ),
+    linear-gradient(152deg, #ffffff 0%, #fafbfc 40%, #edf0f3 100%);
+  /*
+   * No border, so the shadow is the whole edge.
+   *
+   * The card used to carry a hairline outline and the shadow only had to lift
+   * it; with the outline gone a near-white card on a near-white page has
+   * nothing to separate it, so this is three shadows rather than two. The
+   * first is a contact shadow tight under the card, the second the ambient
+   * one, the third the soft cast that gives it height. The inset white line
+   * stays: it is the top edge catching the light, which is inside the card
+   * rather than an outline around it.
+   */
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.95),
+    0 1px 2px rgb(23 42 58 / 0.07),
+    0 6px 12px -8px rgb(23 42 58 / 0.28),
+    0 20px 36px -22px rgb(23 42 58 / 0.45);
+}
+
+/* Same material, different strengths. White on ink is a real highlight where
+   white on white is barely a suggestion, so the numbers cannot match. */
+.review-flip__face--back {
+  background-image: linear-gradient(
+    114deg,
+    rgb(255 255 255 / 0) 6%,
+    rgb(255 255 255 / 0.16) 18%,
+    rgb(255 255 255 / 0.04) 28%,
+    rgb(255 255 255 / 0) 42%,
+    rgb(255 255 255 / 0) 74%,
+    rgb(255 255 255 / 0.1) 90%,
+    rgb(255 255 255 / 0) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.18),
+    0 2px 4px -2px rgb(23 42 58 / 0.3),
+    0 18px 36px -20px rgb(23 42 58 / 0.55);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Snap, rather than run the same half turn in 0.01ms. The global rule would
+     do that on its own and it reads as a glitch rather than as a card. */
+  .review-flip__inner {
+    transition: none;
   }
 }

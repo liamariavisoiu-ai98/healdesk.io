@@ -45,3 +45,10 @@ test-results.json
 # Generated local working-docs page (npm run docs)
 .docs-site/
 .docs-comments.json
+
+# python bytecode from the asset build scripts
+__pycache__/
+*.pyc
+
+# scratch page used to check video autoplay by hand
+apps/web/public/__vtest.html

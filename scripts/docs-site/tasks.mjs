@@ -70,41 +70,26 @@ export const TASKS = [
     group: "onboarding",
     status: "ready",
     blockedBy: null,
-    title: "Create the Stripe products and prices",
-    effort: "2 minutes",
+    title: "Create the Stripe products, prices and meters",
+    effort: "10 minutes, twice (test, then live)",
     plain:
-      "Checkout is built and your Stripe keys work, but your Stripe account has no " +
-      "products in it yet. Right now the first customer who tries to pay gets an error.",
+      "Checkout is built and your Stripe keys work, but your Stripe account has none of " +
+      "the catalog in it yet: five packages, each with a monthly, an annual and a one-time " +
+      "setup price, plus two Billing Meters with a metered overage price each — 17 price " +
+      "objects. Right now the first customer who tries to pay gets an error.",
     why:
-      "createCheckout() looks up a price by a stable key derived from the plan and its " +
-      "amount. No price, no checkout — it throws rather than guessing, so nobody is " +
-      "ever charged an amount the site did not quote.",
+      "createCheckout() looks up every price by a stable lookup_key derived from the " +
+      "package, the kind and the amount. No price, no checkout — it throws rather than " +
+      "guessing, so nobody is ever charged an amount the site did not quote. The meters " +
+      "are what let overage minutes and conversations land on the invoice at all.",
     steps: [
-      "Run: npm run stripe:setup -w @healdesk/web",
-      "It prints one line per plan. A + means created, a ✓ means already correct.",
-      "If it reports DRIFT, Stripe and packages/catalog/src/plans.ts disagree on a price — fix the catalog or add a new price, never edit a live one.",
-      "Re-run it against the live key when you go to production. It is safe to run repeatedly.",
-    ],
-    source: { doc: "handover", heading: "Stripe account — built, three steps from working" },
-  },
-  {
-    id: "stripe-cli",
-    group: "onboarding",
-    status: "ready",
-    blockedBy: null,
-    title: "Refresh the Stripe CLI login",
-    effort: "1 minute",
-    plain:
-      "The Stripe CLI stores its own key, separate from your app's. It expires after " +
-      "90 days and yours lapsed in July, which is why stripe listen fails with " +
-      "api_key_expired.",
-    why:
-      "Without it you cannot forward test webhooks to your machine, so you cannot " +
-      "watch an account get created end to end before a real customer does it.",
-    steps: [
-      "Run: stripe login — it opens a browser once.",
-      "Or skip it: prefix commands with STRIPE_API_KEY=\"$STRIPE_SECRET_KEY\", which uses your app key instead. That key is valid.",
-      "Then, in a spare terminal while developing: stripe listen --forward-to localhost:3000/api/webhooks/stripe",
+      "Preview first, with no key and no calls: npm run stripe:setup -w @healdesk/web -- --dry-run. It lists the 17 prices and 2 meters it would create.",
+      "Run it for real against the test key: npm run stripe:setup -w @healdesk/web. It prints one line per object — a + means created, a ✓ means already correct, STALE means a superseded price still active for old subscriptions.",
+      "If it reports DRIFT, Stripe and packages/catalog/src/plans.ts disagree on an amount — fix the catalog or add a new price, never edit a live one. The script never updates or deletes anything.",
+      "Run it again with the live key when you go to production. It is idempotent by lookup_key, so re-running after any catalog change is the normal way to apply it.",
+      "Then the Dashboard settings the script cannot set: configure the Customer Portal (card update, plan change, cancel at period end).",
+      "Turn Stripe Tax on so the checkout collects sales tax where SaaS is taxable.",
+      "Under Subscriptions settings set \"on payment failure\" to do not cancel — the app suspends the agent itself after the grace period and needs the subscription left standing to resume it.",
     ],
     source: { doc: "handover", heading: "Stripe account — built, three steps from working" },
   },
@@ -153,28 +138,6 @@ export const TASKS = [
     source: { doc: "handover", heading: "Unblocked, just not done" },
   },
   {
-    id: "approved-by-counsel",
-    group: "website",
-    status: "ready",
-    blockedBy: null,
-    title: "Make approvedByCounsel actually gate something",
-    effort: "small, but decide first",
-    plain:
-      "The BAA template carries a flag saying whether a lawyer has approved it. Nothing " +
-      "in the code reads that flag to refuse anything — it is only ever reported.",
-    why:
-      "Comments in the codebase claim provisioning refuses to put a clinic into " +
-      "production while the flag is false. It does not. A safeguard that is documented " +
-      "but absent is worse than no safeguard, because people rely on it.",
-    steps: [
-      "Decide which you want: wire the gate, or correct the comment. Either is fine; leaving both is not.",
-      "The real gate today is drizzle/0004_baa_gate.sql, keyed on data_classification plus baa_signed_at — and a signature on the draft satisfies it.",
-      "If wiring: refuse to move a clinic to production classification while the signed template's approvedByCounsel is false.",
-      "If correcting: fix the docstrings in packages/catalog/src/baa.ts that claim the gate exists.",
-    ],
-    source: { doc: "handover", heading: "Unblocked, just not done" },
-  },
-  {
     id: "sync-flake",
     group: "foundations",
     status: "ready",
@@ -198,50 +161,6 @@ export const TASKS = [
 
   // -------------------------------------------------------------- waiting
   {
-    id: "synthflow",
-    group: "send-today",
-    status: "vendor",
-    blockedBy: null,
-    title: "Ask Synthflow the seven questions",
-    effort: "send today",
-    plain:
-      "Synthflow is the voice platform. Everything about your costs, your compliance " +
-      "posture and whether the recovery numbers work depends on answers only they have.",
-    why:
-      "If HIPAA turns out to be Enterprise-only, your fixed cost goes from about $145 " +
-      "a month to about $2,645 — break-even moves from roughly 2 clinics to roughly 24. " +
-      "That changes the business, not just the build.",
-    steps: [
-      "Open the runbook's \"Send this to sales\" section and send it verbatim — it is written to be pasted.",
-      "Question 7 is the one that gates engineering: does their post-call webhook report whether the clinic's own line rang out or was busy before the call reached them?",
-      "While you wait, check your workspace region. It is permanent and defaults to EU. If it is not US, create a new workspace before anything else touches it.",
-      "Run the storage-off test on the same call: turn off Save Recordings and Save Transcripts, dial in through a forwarded number, and capture the payload.",
-    ],
-    source: { doc: "blockers-runbook", heading: "Send this to sales" },
-  },
-  {
-    id: "counsel",
-    group: "send-today",
-    status: "counsel",
-    blockedBy: null,
-    title: "Engage a health-privacy lawyer for Phase 1",
-    effort: "weeks — start now",
-    plain:
-      "Three things need a lawyer before you can take a real clinic: whether each " +
-      "clinic is a HIPAA covered entity, your click-through BAA text, and your position " +
-      "on call recording under CIPA.",
-    why:
-      "They interlock. The BAA text depends on the covered-entity answer, and the CIPA " +
-      "position has to be written into the BAA. Doing them separately means doing them twice.",
-    steps: [
-      "Find a health-information-privacy lawyer. This is a different specialism from a TCPA lawyer; you will eventually need both.",
-      "Screen them: if they say CIPA is solved by a recording disclosure, end the call — that reading is out of date.",
-      "Scope Phase 1 only. Send them docs/state-of-play.md Part 1 — it reviews the current draft clause by clause against 45 CFR 164.504(e)(2)(ii) and makes their job much smaller.",
-      "The template stays marked approvedByCounsel: false until they sign off.",
-    ],
-    source: { doc: "handover", heading: "2. Blocked on counsel" },
-  },
-  {
     id: "voice-ingest",
     group: "onboarding",
     status: "vendor",
@@ -261,7 +180,7 @@ export const TASKS = [
       "Add a route at apps/app/src/app/api/webhooks/voice/[clinicId], modelled on the existing connector webhook: verify the signature, store fast, return 200.",
       "Map the vendor payload to VoiceCallEvent. Supply observable facts only — rangAtClinicFirst, clinicLineBusy, isCallback — and let ingestCall decide what they mean.",
       "Do not pass through the vendor's own \"missed call\" flag. Platforms report what happened, not what would have happened without you.",
-      "If Synthflow cannot supply the pre-forward disposition, read it from Twilio's call-status webhook and join on the call id.",
+      "If Synthflow cannot supply the pre-forward disposition there is no carrier webhook to fall back on — numbers are Synthflow-issued and there is no Twilio account — so infer it from the clinic's opening hours and the forward timing, mark the reason as inferred, and let the report caveat it.",
     ],
     source: { doc: "handover", heading: "Unblocked, just not done" },
   },
@@ -287,53 +206,6 @@ export const TASKS = [
     source: { doc: "handover", heading: "Cyber / tech E&O insurance" },
   },
 
-  // --------------------------------------------------------------- decide
-  {
-    id: "scheduler",
-    group: "send-today",
-    status: "decision",
-    blockedBy: null,
-    title: "Pick the embedded scheduler for clinics with no system",
-    effort: "one API check, then decide",
-    plain:
-      "Clinics with nothing digital need a calendar you provide. Two candidates clear " +
-      "the bar: Cal.com and PracticeQ.",
-    why:
-      "Your voice agent deliberately keeps medical detail off the phone, which means it " +
-      "needs somewhere to send intake. PracticeQ is both the scheduler and that " +
-      "destination — one signed vendor instead of two — and its BAA is self-serve on " +
-      "every plan, where Cal.com's needs an enterprise conversation.",
-    steps: [
-      "Check one thing: can PracticeQ's API create bookings programmatically, not just read them?",
-      "If yes, take PracticeQ. It collapses two BAA'd vendors into one.",
-      "If no, take Cal.com — its booking-write and BOOKING_PAID webhook are confirmed today, and accept that you need a separate intake destination.",
-      "Do not start building the provisioned-booking path before this is settled.",
-    ],
-    source: { doc: "handover", heading: "Unblocked, just not done" },
-  },
-  {
-    id: "anthropic-org",
-    group: "send-today",
-    status: "decision",
-    blockedBy: null,
-    title: "Separate Anthropic organisation for patient traffic",
-    effort: "10 minutes, but irreversible",
-    plain:
-      "Anthropic's HIPAA setting applies to a whole organisation, not to a key. Turning " +
-      "it on is permanent.",
-    why:
-      "A service account or an unlinked key in the same org changes who owns the key, " +
-      "not which rules apply to it. Enable HIPAA on the org that runs your marketing " +
-      "demo and it applies there too, permanently, blocking features that demo may want.",
-    steps: [
-      "Create a brand-new Anthropic organisation used only for patient traffic.",
-      "Enable HIPAA readiness in that org only — Settings → Privacy. It is a one-way door.",
-      "Leave the marketing key where it is. It belongs to the non-PHI org.",
-      "For the marketing key, prefer a service account over a personal one: it survives someone leaving and can be revoked on its own.",
-      "Do not also request Zero Data Retention. HIPAA-ready access is designed to replace it, and asking for both costs you features.",
-    ],
-    source: { doc: "handover", heading: "Anthropic BAA — and keep it off the marketing org" },
-  },
   {
     id: "privacy-policy",
     group: "website",
@@ -363,13 +235,13 @@ export const TASKS = [
     effort: "1 day to draft, plus counsel turnaround",
     blockedBy: null,
     plain:
-      "The checkout flow at /get-started collects a card, starts a 14-day trial and creates a recurring $249/$449/$799 subscription with metered minute overage — and there is no terms of service page anywhere. The only agreement a buyer ever signs is the BAA assembled in packages/catalog/src/baa.ts and presented in components/checkout/AgreementStep.tsx, which governs patient data only and says nothing about money, cancellation, uptime or liability.",
+      "The checkout flow at /get-started collects a card and charges the first invoice at once — the package's setup fee plus the first month or year — then a recurring subscription across five packages ($397 to $1,497 a month) with metered voice-minute and chat-conversation overage — and there is no terms of service page anywhere. The only agreement a buyer ever signs is the BAA assembled in packages/catalog/src/baa.ts and presented in components/checkout/AgreementStep.tsx, which governs patient data only and says nothing about money, cancellation, uptime or liability.",
     why:
-      "Without terms there is no contractual basis for charging the card after the trial, no cap on liability, no stated overage rate (plans.ts sets $0.35–0.45/min above the included minutes and nothing tells the buyer that), and no clause putting the TCPA consent obligation for outbound calls on the clinic — where docs/launch-plan.md says it belongs. A chargeback dispute or a single TCPA claim with no written terms is unwinnable and uninsurable.",
+      "Without terms there is no contractual basis for the setup fee or the renewal, no cap on liability, no stated overage rate (plans.ts carries provisional per-minute and per-conversation rates above the allowances and nothing tells the buyer that), and no clause putting the TCPA consent obligation for outbound calls on the clinic — where docs/launch-plan.md says it belongs. A chargeback dispute or a single TCPA claim with no written terms is unwinnable and uninsurable.",
     steps: [
       "Create apps/web/src/app/terms/page.tsx alongside /privacy, sharing the same legal-page layout component.",
-      "Pull the commercial terms straight from packages/catalog/src/plans.ts rather than retyping them: TRIAL_DAYS = 14, the three plans, includedMinutes, overagePerMinuteUsd, setupFeeUsd = 0, and the locations cap — so a catalog change cannot leave the contract quoting a stale number.",
-      "Write the clauses this product specifically needs: the trial converts to a paid subscription unless cancelled, cancellation is self-serve and takes effect at period end, minutes over the cap bill at the stated rate, the service is not a medical device and gives no medical advice, and the clinic is responsible for having consent on file for any number healdesk contacts on its behalf.",
+      "Pull the commercial terms straight from packages/catalog/src/plans.ts rather than retyping them: the five packages, setupFeeUsd, monthlyUsd and annualMonthlyUsd, includedVoiceMinutes and includedChatConversations, the two overage rates, and the locations cap — so a catalog change cannot leave the contract quoting a stale number.",
+      "Write the clauses this product specifically needs: the setup fee is charged on the first invoice and is not refundable once provisioning has begun, there is no trial, cancellation is self-serve and takes effect at period end, minutes over the cap bill at the stated rate, the service is not a medical device and gives no medical advice, and the clinic is responsible for having consent on file for any number healdesk contacts on its behalf.",
       "Add a section stating the order of precedence between these terms and the BAA (BAA controls for PHI), so the two documents cannot be read as conflicting — the BAA text lives in packages/catalog/src/baa.ts.",
       "Link /terms and /privacy from apps/web/src/components/Footer.tsx and add a line under the pay button in components/checkout/CheckoutFlow.tsx reading \"By subscribing you agree to the Terms and Privacy Policy\", so acceptance is captured at the moment of purchase.",
       "Send to counsel with the privacy policy as one deliverable.",
@@ -424,15 +296,15 @@ export const TASKS = [
     effort: "1 day",
     blockedBy: null,
     plain:
-      "The site never shows its own prices. The only figure anywhere on the homepage is \"From $249/mo\" in the corner of components/CTA.tsx; $449 and $799 appear nowhere, and neither do the included minutes or the overage rate. packages/catalog/src/plans.ts even exports an ALTERNATIVES constant whose comment reads \"for the comparison on the pricing page\" — a page that does not exist.",
+      "The site never shows its own prices. Nothing on the homepage shows the five packages, the setup fee, the annual discount, or the included minutes and conversations. packages/catalog/src/plans.ts even exports an ALTERNATIVES constant whose comment reads \"for the comparison on the pricing page\" — a page that does not exist.",
     why:
-      "This is a self-serve product sold without a sales call. A buyer who cannot see the price does not email to ask, they leave. Competitors in this category all publish at $295–299 and the whole pricing argument in docs/launch-plan.md — that healdesk undercuts them and charges no setup fee — is invisible to every visitor. It is also the page cold-email links should land on for a price-aware prospect.",
+      "This is a self-serve product sold without a sales call. A buyer who cannot see the price does not email to ask, they leave. Competitors in this category all publish at $295–299 and the whole pricing argument in docs/launch-plan.md — that healdesk is priced by channel with a setup fee that pays for a provisioned, QA'd agent — is invisible to every visitor. It is also the page cold-email links should land on for a price-aware prospect.",
     steps: [
-      "Create apps/web/src/app/pricing/page.tsx rendering the three plans from packages/catalog/src/plans.ts — never hard-code the numbers, since lib/billing.ts already resolves Stripe prices by a lookup_key derived from the same catalog and a divergence means the site quotes one price and the card is charged another.",
-      "Show per plan: monthly price, $0 setup, includedMinutes, overagePerMinuteUsd, locations, and the highlight string on Core.",
+      "Create apps/web/src/app/pricing/page.tsx rendering the five packages from packages/catalog/src/plans.ts — never hard-code the numbers, since lib/billing.ts already resolves Stripe prices by a lookup_key derived from the same catalog and a divergence means the site quotes one price and the card is charged another.",
+      "Show per package: monthly and annual price, the one-time setup fee, channels, included voice minutes and chat conversations, locations, and the highlight string.",
       "Add the displacement comparison from ALTERNATIVES in plans.ts — an in-house receptionist at $3,900–4,830/mo and an answering service at $400–1,500/mo — which is the argument that actually closes this sale.",
       "Make each plan's CTA link to /get-started?plan=<id>; the page at app/get-started/page.tsx already reads the plan search param through isPlanId() and seeds CheckoutFlow with it, so this wiring exists and just needs a caller.",
-      "Add a short FAQ block covering the 14-day trial, what happens when it ends (trial_settings in lib/billing.ts cancels rather than lapsing into an unpaid subscription), and the fact that no booking software is required.",
+      "Add a short FAQ block covering the setup fee (charged on the first invoice, there is no trial), what the annual option saves, and the fact that no booking software is required.",
       "Add \"Pricing\" to the nav in src/lib/site.ts — note the nav is currently all on-page anchors, so this is the first entry needing a real href.",
     ],
     source: { doc: "launch-plan", heading: "Recommended pricing" },
@@ -803,7 +675,7 @@ export const TASKS = [
       "Publish SPF, DKIM and DMARC for that subdomain at Cloudflare. Note `docs/outreach/run-log.md` records healdesk.io itself as parked with no MX, no SPF and no DMARC, so this is from zero.",
       "Wire bounces and complaints back to a suppression flag on the lead row before sending the first message, not after.",
     ],
-    source: { doc: "handover", heading: "Once AWS + Bandwidth land" },
+    source: { doc: "handover", heading: "Once AWS lands" },
   },
   {
     id: "legal-pages",
@@ -837,7 +709,7 @@ export const TASKS = [
     why:
       "Sending a marketing SMS on an unregistered 10DLC campaign gets the traffic filtered by carriers and the number blocked, so the messages simply do not arrive. Sending them without a working STOP path is a TCPA violation at $500-1,500 per message, uncapped, with a ready-made class — and the prospects are business owners, exactly the population that files.",
     steps: [
-      "Open the Bandwidth account and get the BAA in writing (Bandwidth is the only provider found with no documented tier, uplift or minimum gating its BAA — Twilio requires Security or Enterprise Edition, Plivo gates at $1,000/month).",
+      "Send from a Synthflow-issued number — there is no Bandwidth or Twilio account, by decision — and confirm in writing that SMS on that number sits inside Synthflow's BAA.",
       "Register healdesk as its own 10DLC Brand under its own EIN and file a marketing campaign, using the /privacy and /terms URLs from `legal-pages`. Budget 1-4 weeks for approval. Use placeholder sample messages containing no real names.",
       "Build a prospect-side suppression store in the marketing lead database — a separate table, not the tenant-scoped `suppressions` one — keyed on E.164 phone with no clinic dimension.",
       "Add an inbound SMS webhook that runs `isStopRequest()` from `apps/app/src/lib/compliance/contact-policy.ts` (import the regex list, do not fork it — it deliberately matches far more than the carrier keywords) and writes suppression synchronously before acknowledging.",
@@ -915,7 +787,7 @@ export const TASKS = [
     plain:
       "There is no way to connect a sale back to the email that caused it. The checkout payload assembled in `apps/web/src/components/checkout/CheckoutFlow.tsx` carries clinic name, specialty, platform, attribution mode, plan, contact details and the agreement id — and no source, campaign or lead id. Stripe therefore records a customer with no origin.",
     why:
-      "With ten sending domains, thirty mailboxes and five outreach angles selected by `packages/leadgen/src/angle.ts`, you will have a dozen concurrent variables and no way to tell which produced revenue. That is the difference between scaling what works and scaling spend. It also means you cannot compute cost per acquisition, which is what decides whether the $249/$449/$799 tiers are viable at all.",
+      "With ten sending domains, thirty mailboxes and five outreach angles selected by `packages/leadgen/src/angle.ts`, you will have a dozen concurrent variables and no way to tell which produced revenue. That is the difference between scaling what works and scaling spend. It also means you cannot compute cost per acquisition, which is what decides whether the five packages are viable at all.",
     steps: [
       "Add a `leadId` and `campaign` field to the checkout payload in `CheckoutFlow.tsx`, sourced from the claim token or a URL parameter and persisted in sessionStorage so a mid-flow refresh does not lose it.",
       "Pass both through `apps/web/src/app/api/checkout/route.ts` into `createCheckout` in `apps/web/src/lib/billing.ts` as Stripe Checkout Session metadata — do not add them to the provisioning payload unless apps/app has a column for them.",
@@ -963,7 +835,7 @@ export const TASKS = [
       "Subscribe an SNS topic to SES bounce and complaint notifications and write them into the suppression tables used by apps/app/src/lib/compliance/contact-policy.ts.",
       "Do a live end-to-end test purchase in Stripe test mode and confirm the invite lands, the link opens /accept-invite, and the password can be set.",
     ],
-    source: { doc: "handover", heading: "Once AWS + Bandwidth land" },
+    source: { doc: "handover", heading: "Once AWS lands" },
   },
   {
     id: "invite-delivery-recovery",
@@ -995,7 +867,7 @@ export const TASKS = [
     plain:
       "After setting a password the owner lands on /c/[clinicSlug] (apps/app/src/app/(console)/c/[clinicSlug]/page.tsx), which shows status tags, a connections panel, the BAA record and an audit log. It never tells them what to do next. Opening hours live on a separate tab, the connect wizard is only linked when a read-only platform was picked, and there is nothing at all about their phone line.",
     why:
-      "The purchase flow ends with \"Next we'll provision your number and configure the agent\" and then hands the customer a compliance dashboard. Nothing gets done, so no call is ever forwarded, no conversations row is ever written, and the first monthly report reads zero — which is exactly what a 14-day trial cancels over.",
+      "The purchase flow ends with \"Next we'll provision your number and configure the agent\" and then hands the customer a compliance dashboard. Nothing gets done, so no call is ever forwarded, no conversations row is ever written, and the first monthly report reads zero — which is exactly what a clinic that just paid a setup fee disputes.",
     steps: [
       "Add a clinic_onboarding table (or JSONB column on clinics) with one row per clinic holding the ordered steps and their completion timestamps: hours confirmed, phone type confirmed, call routing chosen, forwarding configured, test call passed, agent script approved, platform connected.",
       "Insert it in provisionOnce() in apps/app/src/lib/provisioning.ts inside the same transaction as the clinic row.",
@@ -1046,40 +918,22 @@ export const TASKS = [
     source: { doc: "architecture", heading: "Recovery is a reason, and after-hours needs opening hours" },
   },
   {
-    id: "twilio-landing-numbers",
-    group: "send-today",
-    status: "vendor",
-    title: "Open Twilio and provision one landing number per clinic",
-    effort: "2 days once the Twilio account exists",
-    blockedBy: null,
-    plain:
-      "The architecture is: the clinic keeps its published number and conditionally forwards it to a landing number we own. There is no Twilio account, no number, and no place in the database to put one — the clinics table has no phone columns at all, and TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_PHONE_NUMBER in .env.example are empty placeholders.",
-    why:
-      "Without a number we own, there is nothing for a clinic to forward to and no call can ever reach the agent. Synthflow's own numbers do not solve it — no two inbound agents can share a number, so each clinic needs its own regardless, and buying them inside Synthflow makes switching voice vendors a port instead of a config change.",
-    steps: [
-      "Sign up at https://www.twilio.com/try-twilio and buy one US local number with Voice and SMS to prove the path, in Twilio rather than in Synthflow.",
-      "Add landing_number_e164, telephony_provider_sid and number_provisioned_at columns to the clinics table in apps/app/src/db/schema.ts with a migration under apps/app/drizzle/.",
-      "Write apps/app/src/lib/telephony/numbers.ts wrapping Twilio's available-numbers search and purchase, keyed by the clinic's area code, idempotent on clinic id so a retry never buys two numbers.",
-      "Call it from the ops console as an explicit operator action first (not automatically from the Stripe webhook) so a failed purchase never breaks provisioning, and record it with recordSecurityEvent().",
-      "Connect Twilio to the voice vendor once the account exists: Admin, Workspace Settings, Integrations, Twilio, pasting Account SID and Auth Token.",
-    ],
-    source: { doc: "research-conclusions", heading: "Telephony — you were right about Bandwidth, and wrong about the conclusion" },
-  },
-  {
     id: "forwarding-setup-page",
     group: "onboarding",
     status: "ready",
     title: "Ship the call-forwarding setup page, with a test call that proves it works",
     effort: "2 days",
-    blockedBy: "twilio-landing-numbers",
+    blockedBy: null,
     plain:
-      "The clinic has to set conditional forwarding on their own line — typically *61*<number># for no-answer and *67*<number># for busy on a landline, or a routing rule in a VoIP PBX. Nothing in the product tells them this. There is also no check that the original caller's number survives the hop, which is what upsertCaller() in lib/voice/ingest.ts needs to identify who rang.",
+      "The decision is made: each clinic gets a Synthflow-issued number and keeps its published one, forwarding to ours only when busy, unanswered or after hours. The clinic has to dial that forward in on its own carrier line — and the codes are carrier-specific (Verizon, AT&T, T-Mobile and the cable carriers each use their own *xx sequences for busy versus no-answer, and a VoIP PBX uses a routing rule instead). Nothing in the product shows them their number or the right code. There is also no check that the original caller's number survives the hop, which is what upsertCaller() in lib/voice/ingest.ts needs to identify who rang.",
     why:
-      "If forwarding is never configured the product is inert: calls keep ringing out at the clinic and healdesk answers nothing. If the caller ID does not survive the forward, every call arrives from the clinic's own number, contacts collapse into one row, and no callback or text-back can ever be sent to the right person.",
+      "If forwarding is never configured the product is inert: calls keep ringing out at the clinic and healdesk answers nothing. If the caller ID does not survive the forward, every call arrives from the clinic's own number, contacts collapse into one row, and no callback or text-back can ever be sent to the right person. And because the number lives with the voice vendor, this page is also what makes a future vendor switch survivable — it is the one place a clinic ever learns what to dial.",
     steps: [
-      "Build apps/app/src/app/(console)/c/[clinicSlug]/phone/page.tsx showing the clinic's landing number, the exact codes to dial for no-answer and busy, and a separate path for VoIP systems (RingCentral, Nextiva, Dialpad).",
-      "Branch the instructions on clinics.phone_system_type, already captured at checkout and stored in the clinics table.",
-      "Add a Test my forwarding button that watches for an inbound call to the landing number within two minutes and reports back three things: it arrived, the caller ID was preserved, and which forward condition fired.",
+      "Add a synthflow_number_e164 column (and the vendor's number id) to the clinics table in apps/app/src/db/schema.ts with a migration under apps/app/drizzle/ — there is nowhere to put the number today.",
+      "Build apps/app/src/app/(console)/c/[clinicSlug]/phone/page.tsx showing the clinic's Synthflow number, the conditional-forward codes for busy and for no-answer, and a separate path for VoIP systems (RingCentral, Nextiva, Dialpad).",
+      "Keep a small carrier table of star codes (activate and deactivate, busy and no-answer) rather than asserting one set: the page shows the right one for the clinic's carrier and says which carrier it assumed. Do not print unconditional forwarding (*72-style) as the default — that takes the clinic's line away from its staff.",
+      "Branch the instructions on clinics.phone_system_type, already captured at checkout and stored in the clinics table, and ask for the carrier there if it is not known.",
+      "Add a Test my forwarding button that watches for an inbound call to the Synthflow number within two minutes and reports back three things: it arrived, the caller ID was preserved, and which forward condition fired.",
       "Store the outcome as the forwarding step of the onboarding checklist, so no clinic is ever marked live on an unverified line.",
       "State plainly on the page that forwarding is reversible in one step — the runbook calls this the biggest objection-killer in the sales conversation.",
     ],
@@ -1097,13 +951,13 @@ export const TASKS = [
     why:
       "Unregistered traffic is filtered or blocked outright by the carriers, so appointment reminders, missed-call text-backs and post-call SMS all silently fail. Approval takes days to weeks and cannot be compressed, so starting it the week before launch means launching without texting.",
     steps: [
-      "In the Twilio Console go to Messaging, Regulatory Compliance, A2P 10DLC and register a Brand under healdesk's EIN — Low-Volume Standard, not Sole Proprietor, if healdesk is an LLC.",
+      "Numbers are Synthflow-issued, so ask Synthflow which registry path applies to SMS on their numbers and register the Brand there under healdesk's EIN — Low-Volume Standard, not Sole Proprietor, if healdesk is an LLC. There is no Twilio account to do this in.",
       "Publish the privacy policy and terms pages on healdesk.io first and use those URLs on the submission; the registry rejects submissions without them.",
       "Register one Campaign with use case Customer Care or Account Notification. Do not describe it as marketing.",
       "Write sample messages that contain no real patient information — humans at the registry read them — and make the opt-out language match what apps/app/src/lib/compliance/contact-policy.ts actually enforces.",
       "Record the brand id, campaign id and approval date somewhere the ops console can show, and treat texting as unavailable in the product until it is approved.",
     ],
-    source: { doc: "handover", heading: "Once AWS + Bandwidth land" },
+    source: { doc: "handover", heading: "Once AWS lands" },
   },
   {
     id: "textback-number-and-trigger",
@@ -1149,19 +1003,21 @@ export const TASKS = [
     id: "agent-vendor-provisioning",
     group: "send-today",
     status: "vendor",
-    title: "Push each clinic's config into the voice vendor and map its number to that agent",
+    title: "Provision each clinic in Synthflow: agent, number, webhook",
     effort: "1 week",
     blockedBy: "agent-config-store",
     plain:
-      "Even once the configuration exists in our database, something has to create the assistant at the voice vendor, attach the clinic's landing number to it, and point its post-call webhook back at us with the clinic id. That whole layer is unwritten — there are zero lines of Synthflow, Vapi, Twilio or Deepgram anywhere in the tree, and VAPI_API_KEY / VAPI_ASSISTANT_ID in .env.example are empty.",
+      "Synthflow is the voice vendor, decided. Even once the configuration exists in our database, something has to create the assistant in Synthflow, buy or allocate a Synthflow number for the clinic, attach the two, and point the post-call webhook back at us with the clinic id. That whole layer is unwritten — there are zero lines of Synthflow anywhere in the tree, the clinics table has no phone columns, and the VAPI_* placeholders in .env.example belong to a vendor that was never chosen.",
     why:
-      "This is the step that makes a paid clinic a working front desk. Until it runs, a forwarded call reaches a number attached to no agent. It also has to be automatic per clinic: doing it by hand caps growth at whatever a person can configure in a day and guarantees drift between what the console shows and what the agent says.",
+      "This is the step that makes a paid clinic a working front desk. Until it runs, there is no number for the clinic to forward to, and a forwarded call would reach a number attached to no agent. It also has to be automatic per clinic: doing it by hand caps growth at whatever a person can configure in a day and guarantees drift between what the console shows and what the agent says. Because the number lives with the vendor, the allocation must be recorded on our side or a vendor switch cannot even enumerate what to re-forward.",
     steps: [
-      "Put the vendor behind an interface in apps/app/src/lib/voice/ (createAgent, updateAgent, attachNumber, setWebhook) so the orchestration layer stays swappable, as the architecture doc requires.",
+      "Put Synthflow behind an interface in apps/app/src/lib/voice/ (createAgent, updateAgent, allocateNumber, attachNumber, setWebhook) so the orchestration layer stays swappable, as the architecture doc requires — swapping is a re-forwarding exercise, but the code should not need a rewrite as well.",
+      "Allocate one Synthflow number per clinic (no two inbound agents share a number), in the clinic's area code where available, idempotent on clinic id so a retry never allocates two, and store it as synthflow_number_e164 on the clinic — the forwarding page reads it from there.",
       "Render the agent prompt from the agent_configs row plus the non-defeatable disclosure from apps/app/src/lib/compliance/disclosure.ts.",
-      "Attach the clinic's landing_number_e164 to that agent and set the post-call webhook to the per-clinic URL under apps/app/src/app/api/webhooks/[provider]/[clinicId].",
+      "Attach the clinic's number to that agent and set the post-call webhook to the per-clinic URL under apps/app/src/app/api/webhooks/[provider]/[clinicId].",
       "Store the vendor's agent id on the clinic and make re-running the provisioner idempotent, so a config edit updates rather than duplicates.",
-      "Confirm first, in writing, that the vendor's post-call webhook carries the pre-answer carrier disposition — whether the clinic's line rang out or was engaged — because classifyRecovery() needs it; if not, fall back to Twilio's call-status webhook.",
+      "Run it from the ops console as an explicit operator action first, not automatically from the Stripe webhook, so a failed vendor call never breaks provisioning, and record it with recordSecurityEvent().",
+      "Confirm, in writing, that Synthflow's post-call webhook carries the pre-answer carrier disposition — whether the clinic's line rang out or was engaged — because classifyRecovery() needs it. There is no Twilio call-status webhook to fall back on; if they cannot supply it, the ingest route infers and caveats.",
     ],
     source: { doc: "launch-plan", heading: "You grant, I take over" },
   },
@@ -1233,7 +1089,7 @@ export const TASKS = [
     effort: "half a day to write, then kept current",
     blockedBy: null,
     plain:
-      "Today, provisioning writes an org, a clinic and an invitation and then stops. Everything else in the path from payment to a working front desk is a person: buy the Twilio number, accept the platform invite sent to connect+<slug>@healdesk.io, build the agent from the clinic's website and price list, walk the owner through forwarding, verify the caller ID survives, and flip the clinic to production. None of that is written down anywhere.",
+      "Today, provisioning writes an org, a clinic and an invitation and then stops. Everything else in the path from payment to a working front desk is a person: allocate the Synthflow number, accept the platform invite sent to connect+<slug>@healdesk.io, build the agent from the clinic's website and price list, walk the owner through forwarding, verify the caller ID survives, and flip the clinic to production. None of that is written down anywhere.",
     why:
       "With no runbook, each new customer is a different improvisation, steps get skipped, and the one that gets skipped is usually the forwarding test or the routing question — the two that decide whether the product works and whether the revenue figure is honest. It is also the document that says which of these to automate first, in cost order.",
     steps: [
@@ -1575,7 +1431,7 @@ export const TASKS = [
       "Add an editable recipients section to apps/app/src/app/(console)/c/[clinicSlug]/report/page.tsx so a clinic can point reports at a shared front-desk inbox and remove a departed manager.",
       "Run `npm run db:migrate -w @healdesk/app` then `npm test -w @healdesk/app` to confirm the 159 existing tests still pass.",
     ],
-    source: { doc: "handover", heading: "Once AWS + Bandwidth land" },
+    source: { doc: "handover", heading: "Once AWS lands" },
   },
   {
     id: "report-send-path",
@@ -1587,7 +1443,7 @@ export const TASKS = [
     plain:
       "Three modules exist, are tested, and are wired to nothing: `buildMonthlyReport()` computes the figures, `renderMonthlyReport()` turns them into an email, and `deliverReport()` sends it. Nothing calls them in sequence — `runMonthlyReportJob()` in apps/app/src/lib/scheduler/monthly-report.ts deliberately throws \"Report delivery is not implemented\" the moment you pass `send: true`, and no code anywhere calls that function at all. The tenant-enumeration problem that blocked this is already solved: `app_clinics_overview()` (apps/app/drizzle/0008_scheduler_enumeration.sql) is a SECURITY DEFINER function with a fixed non-PHI projection, and the job already uses it — but the comment at the bottom of apps/app/src/lib/attribution/report.ts still says it was left undone, which will send the next reader in circles.",
     why:
-      "The product's entire promise after the phone stops ringing is \"here is what we earned you\". A customer on a 14-day trial who pays $249–799/month and receives nothing at the end of month one churns, and there is no second impression. Every downstream number is correct and reaches nobody.",
+      "The product's entire promise after the phone stops ringing is \"here is what we earned you\". A customer who paid a setup fee and $397–1,497/month and receives nothing at the end of month one churns, and there is no second impression. Every downstream number is correct and reaches nobody.",
     steps: [
       "In apps/app/src/lib/scheduler/monthly-report.ts, replace the `throw` inside the `options.send` branch with a loop that renders each report via `renderMonthlyReport()` (apps/app/src/lib/reporting/render.ts) and sends it via `deliverReport()` (apps/app/src/lib/reporting/deliver.ts), which already runs `assertNoPhiInReport()` first.",
       "Filter `buildAllReports()` so it only mails clinics that should get mail: `data_classification = 'production'`, a signed BAA, a recipient address, and at least one full month elapsed since `created_at` — today it builds for every clinic including synthetic ones.",
@@ -1731,14 +1587,14 @@ export const TASKS = [
     effort: "2–3 days",
     blockedBy: "report-send-path",
     plain:
-      "The only feedback the customer ever gets is the monthly email. A clinic that buys on the 20th, on a 14-day trial, will have decided whether to keep paying before a single report exists. There is currently no weekly digest and no real-time notification of anything — not a booking, not an escalation, not a high-value lead.",
+      "The only feedback the customer ever gets is the monthly email. A clinic that buys on the 20th will have decided whether the setup fee was worth it before a single report exists. There is currently no weekly digest and no real-time notification of anything — not a booking, not an escalation, not a high-value lead.",
     why:
-      "Two things break. The trial converts on felt value, and felt value at day 7 is \"the agent booked Sarah at 9pm last night and texted me about it\", not a spreadsheet in five weeks. And the clinic has no way to catch a bad call while it still matters — an escalation nobody was told about is a patient who waited.",
+      "Two things break. The renewal turns on felt value, and felt value at day 7 is \"the agent booked Sarah at 9pm last night and texted me about it\", not a spreadsheet in five weeks. And the clinic has no way to catch a bad call while it still matters — an escalation nobody was told about is a patient who waited.",
     steps: [
       "Add a `weekly-recap` job beside `monthly-report`, reusing `buildMonthlyReport()`'s aggregate shape over a 7-day period — the aggregate-only rule in apps/app/src/lib/reporting/render.ts applies identically and `assertNoPhiInReport()` already enforces it.",
       "Add a live alert on two events only, to start: a booking written by the agent, and `outcome = 'escalated_to_human'` from apps/app/src/lib/voice/ingest.ts. Send to the clinic's chosen channel with no patient detail in the body — a count and a prompt to open the console, since SMS and email to a shared inbox are not places to put a name.",
       "Make alert frequency a per-clinic setting with a sane default, and route it through the same recipient table as the report so one unsubscribe means one unsubscribe.",
-      "During the 14-day trial, send the recap on day 7 regardless of period boundaries — the first one is the one that sells.",
+      "In the first month, send the recap on day 7 regardless of period boundaries — the first one is the one that sells.",
       "Add both jobs to the `scheduled_jobs` seed so they appear on the ops console switched off, matching how `monthly-report` ships.",
       "Assert in tests that a recap over a period with zero conversations sends nothing at all rather than an email saying zero.",
     ],
@@ -1853,15 +1709,15 @@ export const TASKS = [
     id: "trial-first-win-and-expansion",
     group: "delivery",
     status: "ready",
-    title: "Build the trial-health view that drives the day 7–14 first-win call",
+    title: "Build the first-two-weeks health view that drives the day 7–14 first-win call",
     effort: "2 days for the view, then continuous",
     blockedBy: "report-send-path",
     plain:
-      "The funnel sells with no sales call, which means the only human contact in the whole relationship is the one you choose to make after they buy. There is currently no view anywhere showing which clinics are in their trial, how many days in they are, whether the agent has recovered anything yet, and whether anyone has spoken to them. The ops console lists clinics with BAA and covered-entity status and nothing about how they are doing.",
+      "The funnel sells with no sales call, which means the only human contact in the whole relationship is the one you choose to make after they buy. There is currently no view anywhere showing which clinics are in their first weeks, how many days in they are, whether the agent has recovered anything yet, and whether anyone has spoken to them. The ops console lists clinics with BAA and covered-entity status and nothing about how they are doing.",
     why:
-      "A self-serve $249–799/month product with a 14-day trial converts or churns on whether the customer has seen a win before the first full charge. Without a list, that call gets made to whoever comes to mind, which in practice means the clinics that complain. It also has to be a human call, not an AI-placed one — placing an outbound AI call to sell to a clinic owner is a different legal regime from answering patients, and it undercuts the one moment where a person is the product.",
+      "A self-serve product that charges a setup fee up front renews or churns on whether the customer has seen a win before the first renewal. Without a list, that call gets made to whoever comes to mind, which in practice means the clinics that complain. It also has to be a human call, not an AI-placed one — placing an outbound AI call to sell to a clinic owner is a different legal regime from answering patients, and it undercuts the one moment where a person is the product.",
     steps: [
-      "Add a trial section to apps/app/src/app/(console)/page.tsx listing clinics by days since `created_at`, with calls handled, conversations with a non-null `recovery_reason`, first booking date, and whether opening hours and any connection are configured.",
+      "Add a new-clinics section to apps/app/src/app/(console)/page.tsx listing clinics by days since `created_at`, with calls handled, conversations with a non-null `recovery_reason`, first booking date, and whether opening hours and any connection are configured.",
       "Flag the two states that need a human today: a clinic past day 7 with zero conversations (the phone was never forwarded — a setup failure, not a product failure) and a clinic with its first recovered booking (the moment to call and say so).",
       "Record the outreach: who called, when, what was said, and the outcome, so the second call knows about the first.",
       "Use the same data to spot expansion — a clinic consistently over its plan's call volume — and make the tier conversation a fact rather than a guess; `clinics.plan` already carries the slug and needs a volume threshold beside it.",
@@ -1959,12 +1815,12 @@ export const TASKS = [
     effort: "3 days",
     blockedBy: null,
     plain:
-      "packages/catalog/src/plans.ts sells 500, 1,200 and 2,500 included minutes with overage at $0.45, $0.40 and $0.35 a minute. Nothing counts minutes: there is no usage table in apps/app/src/db/schema.ts, no call duration recorded, and no Stripe usage record ever created. The other side of the same number — what a minute costs healdesk in voice-vendor, telephony and model fees — is also measured nowhere.",
+      "packages/catalog/src/plans.ts sells five packages with included voice minutes and chat conversations and a provisional overage rate for each (OVERAGE_RATES_PROVISIONAL is still true), and stripe:setup creates two Billing Meters for them. Nothing counts anything: there is no usage table in apps/app/src/db/schema.ts, no call duration recorded, and no meter event ever sent to Stripe. The other side of the same number — what a minute costs healdesk in voice-vendor, telephony and model fees — is also measured nowhere.",
     why:
-      "Two failures at once. A busy clinic on Core can burn 3,000 minutes on a $249 plan and never be billed the overage the plan promises, which is revenue you have already sold. And docs/launch-plan.md calls the per-minute cost \"⚠️ The number that decides everything\" for break-even — without measurement you will not notice a negative-margin customer until the vendor invoice arrives.",
+      "Two failures at once. A busy clinic on the $797 voice package can burn 3,000 minutes against a 1,000-minute allowance and never be billed the overage the package promises, which is revenue you have already sold. And docs/launch-plan.md calls the per-minute cost \"⚠️ The number that decides everything\" for break-even — without measurement you will not notice a negative-margin customer until the vendor invoice arrives.",
     steps: [
       "Add a duration field to the conversations write path in apps/app/src/lib/voice/ingest.ts (the vendor payload carries it) and a monthly per-clinic usage rollup, computed in the clinic's own timezone so it lines up with the billing period.",
-      "Decide how overage is charged — a Stripe metered price alongside the flat subscription, or an invoice item added before the period closes — and implement one; note the checkout in apps/web/src/lib/billing.ts currently creates a flat recurring price only.",
+      "Send one Stripe meter event per unit consumed against the meters stripe:setup created (METERS in packages/catalog/src/plans.ts names the event keys), then sign off the overage rates and flip OVERAGE_RATES_PROVISIONAL to false.",
       "Show minutes used against minutes included in the console at /c/[clinicSlug] so the clinic is never surprised by an overage line, and warn by email at 80%.",
       "Record vendor cost per clinic per month next to the revenue: voice vendor, telephony, and Anthropic. Compare against docs/launch-plan.md \"Cost breakdown — per clinic, per month\".",
       "Set hard spend alarms on the accounts that can run away: an AWS Budgets alert, an Anthropic org spend limit, and a telephony balance alert. A prompt-injection loop or a runaway retry is a five-figure bill with no ceiling.",
@@ -1975,16 +1831,16 @@ export const TASKS = [
     id: "billing-lifecycle-events",
     group: "foundations",
     status: "ready",
-    title: "Handle the rest of the subscription lifecycle: failed payments, trial ending, plan changes",
+    title: "Finish the subscription lifecycle: dunning emails, suspension, plan changes",
     effort: "2 days",
     blockedBy: null,
     plain:
-      "apps/web/src/app/api/webhooks/stripe/route.ts accepts exactly two event types — checkout.session.completed and checkout.session.async_payment_succeeded — and ignores everything else. docs/blockers-runbook.md §9 says to subscribe to six events, including invoice.payment_failed, customer.subscription.trial_will_end and customer.subscription.updated. There is no dunning email, no card-update page, and no way for a clinic to move between the $249, $449 and $799 plans.",
+      "apps/web/src/app/api/webhooks/stripe/route.ts accepts exactly two event types — checkout.session.completed and checkout.session.async_payment_succeeded — and ignores everything else. docs/handover.md lists the ten lifecycle events the production endpoint must subscribe to, from invoice.payment_failed through customer.subscription.deleted to charge.dispute.created. There is no dunning email, no card-update page, and no self-serve way for a clinic to move between the five packages.",
     why:
-      "When a card fails, Stripe retries quietly and then cancels; healdesk would keep answering that clinic's phone for free, indefinitely, with nobody noticing. When a trial ends, the customer gets charged $249 with no warning email — that is the classic chargeback, and chargebacks on a shared Stripe account put scalabid's processing at risk too. And a clinic that outgrows Core has no way to give you more money.",
+      "When a card fails, Stripe retries quietly and then cancels; healdesk would keep answering that clinic's phone for free, indefinitely, with nobody noticing. A disputed setup fee with no email trail is the classic chargeback, and chargebacks on a shared Stripe account put scalabid's processing at risk too. And a clinic that outgrows its package has no way to give you more money.",
     steps: [
-      "Add handlers for invoice.payment_failed, invoice.paid, customer.subscription.trial_will_end and customer.subscription.updated to apps/web/src/app/api/webhooks/stripe/route.ts, keeping the existing `metadata.app === \"healdesk\"` ownership check on every one — the scalabid account emits the same events.",
-      "Wire trial_will_end to a plain \"your trial ends in three days, here is what we found\" email three days before the first charge.",
+      "Handle the full event set from docs/handover.md \"Stripe account\" in apps/web/src/app/api/webhooks/stripe/route.ts, keeping the existing `metadata.app === \"healdesk\"` ownership check on every one — the scalabid account emits the same events.",
+      "Send a receipt on invoice.paid for the first invoice that itemises the setup fee, so the charge is never a surprise on the statement.",
       "Wire invoice.payment_failed to an email with a Stripe billing-portal link, and add a grace period after which the clinic's agent is suspended rather than silently served for free.",
       "Enable the Stripe customer portal and link to it from the console so a clinic can update its card and change plan without emailing you; keep plan changes flowing back through customer.subscription.updated so `clinics.plan` stays correct.",
       "Test each one with `stripe listen --project-name=healdesk` against a real session — the runbook warns that `stripe trigger` produces a session with no metadata, which exercises the ownership guard rather than the path you are testing.",
@@ -2032,26 +1888,6 @@ export const TASKS = [
     source: { doc: "research-conclusions", heading: "The default that will get you" },
   },
   {
-    id: "telephony-vendor-decision",
-    group: "foundations",
-    status: "decision",
-    title: "Settle Bandwidth versus Twilio in writing, because the docs currently say both",
-    effort: "2 hours plus a vendor call",
-    blockedBy: null,
-    plain:
-      "docs/launch-plan.md has a section headed \"Use Bandwidth, not Twilio\" and docs/handover.md lists a Bandwidth account and BAA as a blocker. docs/blockers-runbook.md §4 then gives a step-by-step that buys the number in Twilio and registers A2P 10DLC in the Twilio console, and .env.example holds TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_PHONE_NUMBER with the comment \"Twilio signs BAAs\". Nobody has recorded which one is actually being used.",
-    why:
-      "This choice sits underneath three other tasks that are already queued — provisioning a landing number per clinic, A2P 10DLC brand and campaign registration, and the prospect SMS path — and 10DLC registration takes weeks and is per-carrier-registry, so registering under the wrong vendor means doing it twice. There is also a live cost question the runbook flags: Twilio's HIPAA posture needs the paid Security Edition, which changes the per-clinic maths.",
-    steps: [
-      "Read docs/launch-plan.md \"Use Bandwidth, not Twilio\" against docs/blockers-runbook.md §4 and list where they actually conflict — number ownership, SMS, and which console 10DLC is registered in.",
-      "Get the Twilio Security Edition price and confirm whether the standard Twilio BAA covers voice and SMS without it; the runbook says decide this before the first covered-entity go-live.",
-      "Confirm Bandwidth's BAA has no hidden tier gate or minimum commit — docs/handover.md \"Bandwidth account + BAA\" says there is no documented gate but wants it in writing.",
-      "Whichever wins, own the numbers there and not in the voice vendor, so switching voice vendors is a config change rather than a port.",
-      "Write the decision and its date into docs/launch-plan.md \"Open items\", and delete or rename the losing vendor's variables in .env.example so the next person is not misled.",
-    ],
-    source: { doc: "launch-plan", heading: "Use Bandwidth, not Twilio" },
-  },
-  {
     id: "non-covered-entity-posture",
     group: "send-today",
     status: "counsel",
@@ -2081,7 +1917,7 @@ export const TASKS = [
     plain:
       "docs/launch-plan.md lists a \"Documented §164.308(a)(1)(ii)(A) risk analysis\" as a required control and calls it \"OCR's most-cited failure against BAs\". No such document exists in the repo, and neither do the other administrative safeguards the Security Rule requires of a business associate: a named security official, workforce access and sanction policies, and evidence of training.",
     why:
-      "The risk analysis is the first document any regulator, any enterprise clinic's compliance officer, and any cyber insurer asks for — and it is the single most common finding in OCR enforcement against business associates. It is also the cheapest item on this list to produce and the most embarrassing to be missing when a clinic's lawyer asks during a $249/month sale.",
+      "The risk analysis is the first document any regulator, any enterprise clinic's compliance officer, and any cyber insurer asks for — and it is the single most common finding in OCR enforcement against business associates. It is also the cheapest item on this list to produce and the most embarrassing to be missing when a clinic's lawyer asks during a $397/month sale.",
     steps: [
       "Write the risk analysis as a document in docs/: enumerate where PHI lives (the RDS instance, S3 recordings, the voice vendor, the LLM, SES, the queue), the threats to each, what control exists today, and what remains accepted risk. The architecture is already documented well enough that this is a day's honest work.",
       "Designate yourself the security official in writing with a date — §164.308(a)(2) requires a named person, and a solo founder still has to name one.",
@@ -2115,18 +1951,18 @@ export const TASKS = [
     id: "revenue-gate-decision",
     group: "foundations",
     status: "decision",
-    title: "Decide what may be sold before counsel approves the BAA — and enforce it in Stripe",
+    title: "Decide what may be sold before counsel settles the covered-entity and CIPA posture — and enforce it in Stripe",
     effort: "2 hours",
     blockedBy: null,
     plain:
-      "The site sells a $249/month subscription self-serve with a 14-day trial. The agreement the buyer signs on the way through still says DRAFT in its own body, `approvedByCounsel` is false, and docs/state-of-play.md \"Still open\" records that the clause text has never been reviewed. Nobody has written down whether it is acceptable to take money in this state, or what the alternative posture is.",
+      "The site sells five packages self-serve, setup fee on the first invoice. The BAA is approved (version 1.0.0, `approvedByCounsel: true`, and provisioning refuses anything else), but the covered-entity determination and the CIPA positioning in docs/handover.md § 2 are still open. Nobody has written down whether it is acceptable to take money before those are settled, or what the alternative posture is.",
     why:
       "This is the one ordering constraint that sits above every other task: if the answer is \"not until counsel signs\", then the Stripe live-mode keys, the cold-email campaign and the onboarding build all point at a door that must stay shut, and you should know that before the InboxKit and domain money is spent. If the answer is \"design partners on a written pilot letter\", the funnel, the pricing page and the email copy all say something different from what they say today.",
     steps: [
-      "Choose one of three and write it down with a date: (a) no revenue until counsel approves the BAA; (b) paid design partners under a short pilot agreement with a stated draft-BAA caveat; (c) sell now and accept the risk.",
+      "Choose one of three and write it down with a date: (a) no revenue until counsel settles the § 2 items; (b) paid design partners under a short pilot agreement with a stated draft-BAA caveat; (c) sell now and accept the risk.",
       "Make Stripe match the decision — keep the account in test mode, or create the live products and webhook endpoint only once the gate opens. Nothing in apps/web/src/lib/billing.ts distinguishes the two beyond which key is set.",
       "If the answer is not (c), change what the site says: the checkout copy in apps/web/src/components/checkout/ and the pricing page both currently promise an immediately-available paid subscription.",
-      "Wire the decision to the existing code gate — either make `approvedByCounsel` actually block signature as its docstring claims, or fix the docstring, which docs/state-of-play.md lists as still open.",
+      "The code gate already exists: provisioning.ts refuses an unapproved BAA template. If the decision is (a) or (b), add the same kind of gate for the covered-entity and CIPA decisions rather than relying on people remembering.",
       "Record the decision in docs/launch-plan.md \"Open items\" so the next agent or contractor does not quietly reopen it.",
     ],
     source: { doc: "state-of-play", heading: "Still open" },
@@ -2159,14 +1995,14 @@ export const TASKS = [
     effort: "2 hours plus an accountant call",
     blockedBy: null,
     plain:
-      "The checkout creates a $249/$449/$799 recurring subscription with no tax handling at all — apps/web/src/lib/billing.ts sets no `automatic_tax`, collects no billing address beyond what Stripe defaults to, and the prices are treated as final. Sales tax on SaaS is not mentioned in any document in docs/.",
+      "The checkout creates a setup-fee-plus-subscription invoice across five packages with no tax handling at all — apps/web/src/lib/billing.ts sets no `automatic_tax`, collects no billing address beyond what Stripe defaults to, and the prices are treated as final. Sales tax on SaaS is not mentioned in any document in docs/.",
     why:
-      "Roughly twenty US states tax software-as-a-service, and several of the biggest med-spa markets are among them. Tax not collected is still tax owed: it comes out of the $249, with interest and penalties, and it is the kind of liability that surfaces during diligence years later. Fixing it after a hundred customers means re-issuing invoices; switching it on before the first sale costs almost nothing.",
+      "Roughly twenty US states tax software-as-a-service, and several of the biggest med-spa markets are among them. Tax not collected is still tax owed: it comes out of the package price, with interest and penalties, and it is the kind of liability that surfaces during diligence years later. Fixing it after a hundred customers means re-issuing invoices; switching it on before the first sale costs almost nothing.",
     steps: [
       "Confirm the selling entity and its home state first — docs/blockers-runbook.md §9 keeps healdesk on the scalabid Stripe account, which means the entity on the invoice may not be the one the customer thinks they are buying from. Register for a sales tax permit where you have physical nexus.",
       "Ask an accountant one question: is a monthly AI phone-answering subscription taxable SaaS or an exempt service, in your home state and in the top five states in your lead list?",
-      "If taxable, enable Stripe Tax, set the product tax code on the three products, and turn on `automatic_tax: { enabled: true }` plus address collection in the checkout session created by apps/web/src/lib/billing.ts.",
-      "Decide tax-inclusive or tax-exclusive pricing and make the pricing page and checkout copy say which, so $249 does not silently become $269 at the card step.",
+      "If taxable, enable Stripe Tax, set the product tax code on the five products, and turn on `automatic_tax: { enabled: true }` plus address collection in the checkout session created by apps/web/src/lib/billing.ts.",
+      "Decide tax-inclusive or tax-exclusive pricing and make the pricing page and checkout copy say which, so $397 does not silently become $429 at the card step.",
       "Set a reminder to re-check economic nexus once monthly revenue passes a few thousand dollars — thresholds are per-state and are crossed without any notification.",
     ],
     source: { doc: "blockers-runbook", heading: "9. Stripe — reuse the scalabid account, not its worst habits" },

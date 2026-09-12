@@ -204,6 +204,15 @@ claims it, the docs never mention it. Forwarding is the only documented path.
 
 ### Use Bandwidth, not Twilio
 
+> **Decision (September 2026): neither.** Numbers are issued inside Synthflow and each clinic
+> sets conditional call forwarding (busy / no answer / after hours) from its existing carrier
+> line to its Synthflow number. There is no Bandwidth account and no Twilio account. The
+> research in this section and the one above it is kept as the record of what was weighed —
+> the lock-in and SMS points are real and were accepted: a vendor switch is a re-forwarding
+> exercise per clinic, SMS from a Synthflow number still needs A2P 10DLC registration, and
+> the forwarding page has to show each clinic its number and its carrier's star codes. The
+> live version of this decision is `docs/handover.md` → "Telephony — decided".
+
 I said Twilio earlier without checking the alternative. **Bandwidth is the better call:**
 
 | | Twilio | Bandwidth |
@@ -416,23 +425,43 @@ Boulevard bundling AI: Boulevard doesn't.
 
 ### Recommended pricing
 
-| Tier | Price | Included | Overage | Undercuts |
-|---|---|---|---|---|
-| **Core** | **$249/mo** | 500 min | $0.45/min | 16% under the $295–299 cluster |
-| **Growth** | **$449/mo** | 1,200 min | $0.40/min | Under MedspAI $499, Clara $500 |
-| **Multi-location** | **$799/mo** | 2,500 min | $0.35/min | Under AgentZap Business $899 |
+The catalog of record is `packages/catalog/src/plans.ts`; this table is a copy for the argument
+below and the code wins if they disagree. Five packages, priced **by channel** rather than by
+minutes alone, because the cost driver differs per channel (voice minutes are metered by the
+vendor, chat conversations by LLM tokens). Annual is a flat 20% off, quoted per month.
 
-Plus **$0 setup** and a **14-day free trial**.
+| Package | Monthly | Annual (per mo) | Setup (once) | Voice min / mo | Chat conv / mo |
+|---|---|---|---|---|---|
+| **Web OR Meta Chatbot** | **$397** | $317 | $497 | — | 1,500 |
+| **Web + Meta Chatbot** | **$597** | $477 | $997 | — | 3,000 |
+| **AI Voice Agent Alone** | **$797** | $637 | $997 | 1,000 | — |
+| **Web OR Meta + Voice** | **$897** | $717 | $997 | 1,000 | 1,500 |
+| **Complete FrontDesk AI** | **$1,197** | $957 | $997 | 1,500 | 4,000 |
 
-**Why $249 and not lower.** It reads as a deliberate discount to a $299 buyer rather than a
-cheaper category. Below ~$199, dental analysts report buyers assume it's a chatbot with no real
-integration — **pricing too low actively hurts conversion here.**
+**Overage rates are provisional.** The catalog carries placeholder per-minute and per-conversation
+rates flagged `OVERAGE_RATES_PROVISIONAL`; the pricing page does not print them and checkout
+attaches no metered price while the flag is set, so overage is not billed until the rates are
+signed off. Setting them needs the Synthflow per-minute cost (see the blocker above) and a
+measured LLM cost per conversation.
 
-**Two non-price levers worth more than the $50:**
-- **$0 setup, stated loudly.** AgentZap charges **$499**. At $249 + $0 vs $295 + $499, year-one
-  cost is **$2,988 vs $4,039 — 26% cheaper in the number the buyer actually writes down.** Bigger
-  wedge than the monthly delta, and it costs nothing since $0 setup is already the market norm.
-- **14-day trial.** AgentZap has none, only a money-back guarantee.
+**Why above the $295–299 cluster, not under it.** The cluster is voice-only, single-channel,
+and sold on answered calls. These packages are sold on *recovered* calls with closed-loop
+revenue reporting, and the voice packages ship a provisioned, QA-tested agent rather than a
+self-serve configurator. Below ~$199, dental analysts report buyers assume it's a chatbot with
+no real integration — **pricing too low actively hurts conversion here** — and the same logic
+runs upward: a $797 voice package with a $997 setup reads as a service, not a widget.
+
+**Two non-price decisions, both made:**
+- **A setup fee, not $0 setup.** Provisioning builds the voice agent, allocates the number, and
+  runs a QA pass before the clinic hears a call; the fee is what pays for that work, and it is
+  charged on the first invoice alongside the first period. An earlier draft argued $0 setup was
+  the wedge against AgentZap's $499; with a per-channel package and a person in the loop it is
+  the thing that would have made the first month unprofitable. An upgrade owes only the
+  difference between fees (`setupFeeDeltaUsd`), collected by hand until it is automated.
+- **No free trial.** A trial and a setup fee do not compose: either nobody is provisioned for
+  fourteen days or the agent ships before a dollar clears. The trial-length constant is gone
+  from the catalog and nothing may reintroduce it. The demo on the homepage is the try-before-
+  you-buy.
 
 **Minutes must be capped.** Voice minutes are the dominant cost and scale with usage, which is why
 every competitor caps them. A flat "unlimited" price would be a margin trap.

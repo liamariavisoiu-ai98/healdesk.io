@@ -21,7 +21,7 @@ Rule of thumb: **one list, four references.** If you find yourself tracking two
 lists, one of them is stale — fold it in here and delete it.
 
 > **A browsable version of all of this:** `npm run docs` serves every document at
-> <http://localhost:4321> with a landing page of 102 tasks — grouped into the seven
+> <http://localhost:4321> with a landing page of 94 tasks — grouped into the seven
 > phases that get you from here to a running business, each with a plain-English
 > explanation and steps. It is generated from these files and fails to build if it
 > drifts from them, so it stays a view rather than becoming a list of its own.
@@ -34,7 +34,11 @@ These gate real work. Roughly in the order they unblock the most.
 
 ### ⚠️ Synthflow: is HIPAA available below Enterprise?
 
-**The single most consequential open question.** Ask them, verbatim:
+**DECIDED: Synthflow is the voice vendor.** The seven questions below are still
+worth asking when convenient but no longer block the build. Numbers are
+Synthflow-issued and clinics forward to them — see the telephony section below.
+
+**The single most consequential open question on cost.** Ask them, verbatim:
 
 > *"Is the HIPAA Setting available on pay-as-you-go, and will you sign a BAA at
 > that tier? If not, what is the lowest-cost plan that includes both?"*
@@ -50,8 +54,8 @@ It decides the unit economics, not just the compliance posture:
 | on pay-as-you-go | ~$145 (AWS only) | **~2 clinics** |
 | Enterprise-only | ~$2,645 | **~24 clinics** |
 
-At ten clinics on Enterprise, Synthflow alone costs $250 per clinic — more than
-the entire $249 subscription. If the answer is Enterprise-only, the honest
+At ten clinics on Enterprise, Synthflow alone costs $250 per clinic — a third
+of the $797 voice-only package before a minute is served. If the answer is Enterprise-only, the honest
 options are: raise prices well above the market cluster, delay HIPAA-covered
 clinics until scale, or reconsider the vendor.
 
@@ -68,9 +72,11 @@ While you're on the call, get these in writing too:
 - **Does the post-call webhook carry the carrier disposition from *before* the
   call reached them** — clinic line rang out, or was engaged? This one gates a
   shipped feature rather than a cost: `lib/voice/ingest.ts` needs it to classify
-  a call as recovered, and if Synthflow can't supply it the fallback is a second
-  integration against Twilio's call-status webhook. Full wording and the reason
-  are question 7 in the runbook. Ask before anyone writes the ingest route.
+  a call as recovered. There is no Twilio account to fall back on now that the
+  numbers are Synthflow-issued, so if they can't supply it the fallback is the
+  weaker inference from the clinic's opening hours and the forward timing, and
+  the report says so. Full wording and the reason are question 7 in the runbook.
+  Ask before anyone writes the ingest route.
 
 **Then, before creating anything:** the workspace region choice is **permanent**
 and defaults to **EU**. Create a **US** workspace or you rebuild.
@@ -86,18 +92,37 @@ Docker Postgres; provision RDS when the first clinic signs (~$25/mo at
 
 *Note: App Runner is not HIPAA-eligible. Use ECS on Fargate.*
 
-### Bandwidth account + BAA
+### Telephony — decided: Synthflow-issued numbers, clinics forward their existing number
 
-For SMS and for owning the phone numbers. Bandwidth is the only provider found
-with **no documented tier gate** on its BAA — Twilio requires Security or
-Enterprise Edition at an unpublished price, and Plivo gates it behind $1,000/mo.
-Confirm in writing that there's no hidden commitment.
+**No Bandwidth account and no Twilio account.** The earlier plan — own the DIDs
+in a carrier account under our own BAA and bring them into the voice vendor —
+is closed. The research behind it stays in `docs/launch-plan.md` for the day it
+is worth revisiting; the decision does not.
 
-Own the numbers here rather than in Synthflow: it makes switching voice vendors
-a config change instead of a port, and Synthflow's own docs frame their numbers
-as *"for quick testing"* with no toll-free and undocumented porting.
+How it works: each clinic receives a number issued inside Synthflow, and sets
+**conditional call forwarding** — busy, no answer, after hours — from its
+existing carrier line to that number. The clinic's published number never
+changes and the forward is reversible in one dial code, which is the
+objection-killer in the sales conversation.
+
+Consequences, all accepted:
+
+1. **The number lives with the voice vendor.** A vendor switch is a
+   re-forwarding exercise per clinic (a new number, a new star code), not a
+   config change. Accepted for the size of the book we have.
+2. **SMS from that number still needs A2P 10DLC registration.** Carrier
+   registration is per brand and campaign whoever issues the number, so the
+   text-back and reminder paths wait on it exactly as before.
+3. **The call-forwarding handshake page must show the number and the
+   carrier-specific star codes.** Conditional-forward codes differ by carrier
+   and by PBX, so the page branches on the clinic's phone system and shows the
+   right one, then proves the forward with a test call before the clinic is
+   marked live.
 
 ### Anthropic BAA — and keep it off the marketing org
+
+**DONE: the marketing key is already from a separate, non-PHI organisation.**
+What follows is kept as reference for when the PHI organisation is created.
 
 Via Sales. Note web search is excluded from BAA coverage — it must be disabled on
 any endpoint touching patient data. Don't chase zero data retention alongside the
@@ -122,19 +147,40 @@ Checkout, the webhook, and idempotent provisioning are implemented. A test-mode
 secret key and a local webhook signing secret are already in
 `apps/web/.env.local`. What is left:
 
-1. **Create the products and prices.** `npm run stripe:setup -w @healdesk/web`.
-   The account currently has **zero** prices, so `createCheckout` throws a
-   "run the setup script" error on the first attempt. Re-run it per environment
-   (test, then live) — it is idempotent and reports drift between Stripe and
-   `packages/catalog/src/plans.ts`.
-2. **Refresh the CLI credential.** `stripe login` mints a key that expires after
-   90 days and ours lapsed in July, so `stripe listen` fails with
-   `api_key_expired`. Either run `stripe login` again, or prefix commands with
-   `STRIPE_API_KEY="$STRIPE_SECRET_KEY"` — the app key is valid and works.
-3. **Production webhook endpoint.** Dashboard → Developers → Webhooks, pointing
-   at `/api/webhooks/stripe`, subscribed to `checkout.session.completed` and
-   `checkout.session.async_payment_succeeded`. Its signing secret is a
-   **different value** from the local one — per-endpoint, not per-account.
+1. **Create the products, prices and meters.** `npm run stripe:setup -w
+   @healdesk/web` (add `--dry-run` to see the plan with no key and no calls).
+   The catalog now has **five packages**, each with a monthly, an annual and a
+   one-time setup price — 15 package prices plus 2 metered overage prices, 17
+   price objects — and **two Billing Meters** (voice minutes, chat
+   conversations). The account has none of them yet, so `createCheckout` throws
+   a "run the setup script" error on the first attempt. Run it against the test
+   key, then the live key — it is idempotent by `lookup_key`, never edits a
+   price, and reports drift between Stripe and `packages/catalog/src/plans.ts`.
+2. **Production webhook endpoint.** Dashboard → Developers → Webhooks, pointing
+   at `/api/webhooks/stripe`, subscribed to the full lifecycle set:
+   `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+   `invoice.paid`, `invoice.payment_failed`, `invoice.payment_action_required`,
+   `customer.subscription.updated`, `customer.subscription.deleted`,
+   `charge.dispute.created`. Not `customer.subscription.paused` /
+   `.resumed`: those fire only when a trial ends without a card, and there is
+   no trial; a Dashboard or portal pause arrives as
+   `customer.subscription.updated` with `pause_collection` set, which the app
+   reads. Its signing secret is a **different value** from the local one —
+   per-endpoint, not per-account.
+3. **Dashboard settings the script cannot set.** Customer Portal configuration
+   (card update, plan change, cancel at period end), Stripe Tax on, and under
+   Subscriptions → "on payment failure" choose **do not cancel** — the app
+   owns suspension: the `billing-sweep` job moves a clinic to `suspended` once
+   its 7-day grace window closes, and a subscription Stripe gives up on
+   (`status: unpaid`) is suspended on the update event. **That job ships
+   switched off** like every job; enable it from the ops console the same day
+   you set "do not cancel", because with the job off a clinic whose card fails
+   keeps full service for as long as Stripe keeps retrying.
+4. **Collect upgrade setup-fee deltas by hand.** The portal's plan change swaps
+   the recurring price only. A clinic moving from the $497-setup package to a
+   $997-setup one owes the $500 difference (`setupFeeDeltaUsd` in the catalog)
+   and nothing invoices it yet — `entitlements.setup_fee_paid_usd` records
+   what was paid, so the ops console can show what is owed.
 
 Two things about that flow worth not rediscovering:
 
@@ -173,7 +219,7 @@ exclude exactly these, which is the point. Earlier than feels necessary.
 | **Ad-platform attribution — removed, keep it that way** | Sending person-level conversion data to Meta/Google is the GoodRx fact pattern — $1.5M there, $7.8M at BetterHelp. `ad_interactions` and the `conversations` join to it were **dropped in `drizzle/0017`**; this is no longer deferred, it is out of scope. Reintroducing a click-id column needs counsel first. Note `src/lib/attribution/` is a different thing wearing a confusing name: it reconciles the clinic's own POS money event and reports it back to them, and nothing leaves for a third party |
 | **Covered-entity determination** | Cash-pay med spas often aren't covered entities, which removes five defences at once including Washington MHMDA's — and that has a private right of action. Needs a method and a different posture for non-covered clinics |
 | **CIPA positioning** | Party-extension or independent third party? Contracts, architecture and marketing copy must all say the same thing |
-| **Click-through BAA** | The mechanism is production-ready — versioned, hashed, append-only acceptance. The text in `packages/catalog/src/baa.ts` is a placeholder marked `approvedByCounsel: false` and must be replaced |
+| **Click-through BAA — approved and enforced, not open** | The mechanism is production-ready — versioned, hashed, append-only acceptance — and the text is no longer a placeholder: `packages/catalog/src/baa.ts` `BAA_TEMPLATES[0]` is version 1.0.0, published 2026-09-05, `approvedByCounsel: true`, and `apps/app/src/lib/provisioning.ts` refuses to provision a clinic against any template that isn't (`currentBaaTemplate().approvedByCounsel`). Listed here so nobody re-opens it. What still needs counsel is the **other five rows** of this table |
 | **Reactivation = HIPAA marketing?** | Determines whether a separate authorisation is needed on top of written TCPA consent |
 | **Missed-call callback consent** | Especially hangups where we hold only the number |
 
@@ -183,7 +229,7 @@ exclude exactly these, which is the point. Earlier than feels necessary.
 
 Ordered by what unblocks the most.
 
-### Once Synthflow is answered
+### Voice — Synthflow, now unblocked
 
 - **Voice integration.** Behind an interface so the vendor stays swappable. The
   compliance core it needs — consent, suppression, frequency caps, disclosure —
@@ -193,7 +239,7 @@ Ordered by what unblocks the most.
 - **Wire `canContact()` into the outbound path.** It exists and is tested;
   nothing calls it yet because nothing places calls yet.
 
-### Once AWS + Bandwidth land
+### Once AWS lands
 
 - **SES sending.** `SesTransport` throws with instructions. Needs a verified
   domain, DKIM, and a configuration set with `TlsPolicy: Require` — opportunistic
@@ -243,15 +289,10 @@ Ordered by what unblocks the most.
   a clinic wrongly assumed to shut at 5 would have its 6pm calls claimed as
   recovered while its own staff answered them. Hours are collected at
   `/c/[slug]/hours`; while they are empty the report understates, on purpose.
-- **The embedded scheduler for no-system clinics is still unchosen.** Cal.com
-  and PracticeQ both clear the three axes (offers a BAA, agent can write
-  bookings, exposes show/collect). Current recommendation is **PracticeQ**,
-  because the PHI-light voice agent needs somewhere to push intake and PracticeQ
-  is both the scheduler and that destination — one BAA'd vendor instead of two —
-  and its BAA is self-serve on every plan. **Contingent on one check:** whether
-  its API creates bookings programmatically, not just reads. If it doesn't,
-  Cal.com is the fallback; its booking-write and `BOOKING_PAID` webhook are
-  confirmed today. Settle that before building the provisioned-booking path.
+- **Embedded scheduler for no-system clinics — DECIDED: Cal.com.** Its
+  booking-write API and `BOOKING_PAID` webhook are confirmed, which is what the
+  provisioned-booking path needs; PracticeQ's programmatic booking never was.
+  Build the provisioned-booking path against Cal.com.
 - **`stripe:setup` has never been run against a live-mode key.** Only test mode
   is exercised. The script is idempotent and prints drift, but the live run is
   still a first run.
@@ -262,14 +303,9 @@ Ordered by what unblocks the most.
   on the wording of the assent action — so the one field that must not be
   caller-controlled currently is. Compare it to `BAA_ASSENT_LABEL` and reject a
   mismatch. **Verified still true, 3 Sep.**
-- **`approvedByCounsel` gates nothing.** It is read in three places and every one
-  of them only *reports* it (`agreements.ts:319,332`, `api/agreements/route.ts:88`).
-  The real production gate is `drizzle/0004_baa_gate.sql`, which keys on
-  `data_classification` + `baa_signed_at` — and a signature on the draft satisfies
-  that. Comments in `packages/catalog/src/baa.ts` claim provisioning refuses to
-  classify a clinic as production while it is false; nothing does. Either wire it
-  or fix the comment, but do not leave a claimed safeguard that isn't there.
-  **Verified still true, 3 Sep.**
+- **Done: `approvedByCounsel` now gates provisioning.** It used to be
+  report-only; `apps/app/src/lib/provisioning.ts` now refuses to provision a
+  clinic against an unapproved template, and the current template is approved.
 - **Database-layer findings from the 2 Sep audit, untouched.** `0019`'s backfill
   silently affects zero rows; the BAA gate sits on state the gated role can write;
   `baa_acceptances` has no RLS. See `docs/state-of-play.md` → Database-layer
@@ -339,7 +375,7 @@ npm run db:up -w @healdesk/app     # Postgres in Docker, both roles, migrated
 # export the four URLs it prints
 npm run dev:web                    # marketing + checkout  → :3000
 npm run dev:app                    # ops console           → :3001
-npm test -w @healdesk/app          # 159 tests
+npm test -w @healdesk/app          # 483 tests
 npm test -w @healdesk/connectors   # 15, no database needed
 ```
 

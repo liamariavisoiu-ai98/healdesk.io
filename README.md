@@ -107,5 +107,8 @@ vars, and their own domains.
 - ✅ Server-side gated chat route
 - ✅ Attribution data model (`apps/app/src/db/schema.ts`)
 - ✅ Lead-gen pipeline
+- ✅ Click-through BAA — version 1.0.0 approved by counsel and enforced: provisioning refuses an unapproved template
+- ✅ Pricing — five channel-priced packages in `packages/catalog`, monthly + annual + one-time setup fee, no trial; `stripe:setup` creates the 17 prices and 2 meters
+- ✅ Entitlements + billing lifecycle — per-clinic channel and allowance entitlements, Stripe invoice/subscription/dispute events handled (this pass)
 - ⬜ Product console — auth, connectors, reconciliation job (see the console page for the ordered list)
-- ⬜ Voice — telephony stack chosen, deliberately not built until a clinic is paying
+- ⬜ Voice — Synthflow is the vendor; clinics forward their existing number to a Synthflow-issued one. Agent provisioning and the forwarding page are not built yet

@@ -844,6 +844,21 @@ export function CheckoutFlow({
             ? "Taking you to payment…"
             : `Pay ${usd.format(dueToday(plan, interval).totalUsd)} and start setup`}
         </PrimaryButton>
+        {/* Acceptance of the commercial terms is captured at the moment of
+            purchase, beside the action that spends the money. The BAA was
+            signed a step earlier and governs patient information; these two
+            govern everything else. */}
+        <p className="text-muted mt-3 text-xs">
+          By subscribing you agree to the{" "}
+          <a href="/terms" className="underline underline-offset-2" target="_blank" rel="noreferrer">
+            Terms of service
+          </a>{" "}
+          and{" "}
+          <a href="/privacy" className="underline underline-offset-2" target="_blank" rel="noreferrer">
+            Privacy policy
+          </a>
+          . Your subscription renews automatically until you cancel.
+        </p>
       </div>
       <Reassurance />
     </StepShell>

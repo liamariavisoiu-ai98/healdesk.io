@@ -51,6 +51,9 @@ export const site = {
   footerLinks: [
     { label: "Pricing", href: "/pricing" },
     { label: "Contact us", href: "/contact" },
+    { label: "Privacy", href: "/privacy" },
+    { label: "Terms", href: "/terms" },
+    { label: "Subprocessors", href: "/subprocessors" },
   ],
 
   email: "hello@healdesk.io",

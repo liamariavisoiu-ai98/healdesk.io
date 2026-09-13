@@ -148,6 +148,24 @@ export async function recordLeadEvent(
   }
 }
 
+/**
+ * Delete leads that never became customers and have not been seen for
+ * `months`. This is what makes the retention line in the privacy policy true:
+ * the policy quotes POLICY.leadRetentionMonths and a Vercel cron calls this
+ * daily (app/api/cron/purge-leads). Events cascade with the lead.
+ *
+ * A lead with a claim token is a prospect who was sent a personalised bot;
+ * the same clock applies — the token expires long before this does.
+ */
+export async function purgeStaleLeads(months: number): Promise<number> {
+  if (!isMarketingDbConfigured()) return 0;
+  const result = await marketingDb()
+    .delete(leads)
+    .where(sql`${leads.lastSeenAt} < now() - make_interval(months => ${months})`)
+    .returning({ id: leads.id });
+  return result.length;
+}
+
 export async function findLeadByEmail(email: string): Promise<Lead | null> {
   if (!isMarketingDbConfigured()) return null;
   const [row] = await marketingDb()

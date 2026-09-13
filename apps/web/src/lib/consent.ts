@@ -66,13 +66,20 @@ export const CALL_CONSENT = {
  *   2. The checkbox, UNTICKED by default, is the marketing opt-in. Its exact
  *      wording is the consent record.
  */
-export const CONSENT_NOTICE_VERSION = "2026-09-13.1";
+export const CONSENT_NOTICE_VERSION = "2026-09-13.2";
 
-/** Under the email input. Links to /privacy from the component. */
+/**
+ * Under the email input. Links to /privacy from the component.
+ *
+ * Says only what is true: the email unlocks the demo and tells us who tried
+ * it. Nothing emails a transcript — an earlier draft of this sentence
+ * promised one, which is exactly the kind of claim a privacy notice must not
+ * make on a feature's behalf.
+ */
 export const GATE_NOTICE =
-  "Your email unlocks the demo and we'll send you a copy of this conversation. " +
-  "It sets one cookie (hd_demo, 30 days) so you don't have to re-enter it. " +
-  "We don't sell it and we don't share it with ad platforms.";
+  "Your email unlocks the demo and tells us who tried it. It sets one cookie " +
+  "(hd_demo, 30 days) so you don't have to re-enter it. We don't sell it and " +
+  "we don't share it with ad platforms.";
 
 /** The marketing checkbox. Must be rendered verbatim; the server stores this string. */
 export const MARKETING_CONSENT_LABEL =

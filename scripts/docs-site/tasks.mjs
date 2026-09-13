@@ -1539,6 +1539,26 @@ export const TASKS = [
     source: { doc: "architecture", heading: "The sync and reconciliation path" },
   },
   {
+    id: "annual-renewal-reminder",
+    group: "delivery",
+    status: "ready",
+    title: "Send the 30-day annual renewal reminder the terms promise",
+    effort: "half a day",
+    blockedBy: null,
+    plain:
+      "The terms of service (apps/web/src/app/terms/page.tsx, \"Annual plans\") say we email the billing contact at least 30 days before an annual subscription renews. Nothing sends that email yet. Stripe can send its own renewal reminder for subscriptions on a yearly price (Settings → Billing → Subscriptions and emails → \"upcoming renewal\"), but that goes to the Stripe customer email and is not under our copy or our log.",
+    why:
+      "A promise in the terms that the product does not keep is the first thing a chargeback or an auto-renewal complaint reaches for. California's ARL and several state auto-renewal laws require a clear renewal notice for terms of a year or more, and the terms already commit us to it, so this is the cheapest way to make a legal claim true rather than argue it later.",
+    steps: [
+      "Add a scheduled job in apps/app/src/lib/scheduler (next to billing-sweep) that runs daily, reads `entitlements` rows with `interval = 'year'` and a `current_period_end` between 30 and 31 days out, and sends one reminder email per subscription per period via Resend to the billing contact.",
+      "Record the send as a `billing_events` row (kind `renewal_reminder_sent`) so the job is idempotent across restarts and the ops console can show that the reminder went out.",
+      "Copy: the package name, the renewal date, the amount from `annualTotalUsd()`, and a link to the Stripe Customer Portal to cancel before the date. No PHI, no usage figures.",
+      "Ship the job switched off like the others; enable it from the ops console the day the first annual customer signs.",
+      "Add a test in apps/app/tests that seeds an entitlement 30 days from renewal, runs one tick, asserts one email and one event, and asserts a second tick sends nothing.",
+    ],
+    source: { doc: "handover", heading: "Stripe account — built, three steps from working" },
+  },
+  {
     id: "quiet-hours-fail-closed",
     group: "delivery",
     status: "ready",

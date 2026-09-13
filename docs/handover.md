@@ -181,6 +181,11 @@ secret key and a local webhook signing secret are already in
    $997-setup one owes the $500 difference (`setupFeeDeltaUsd` in the catalog)
    and nothing invoices it yet — `entitlements.setup_fee_paid_usd` records
    what was paid, so the ops console can show what is owed.
+5. **Send the annual renewal reminder.** The terms promise an email at least
+   30 days before an annual plan renews. Nothing sends it yet; see the
+   `annual-renewal-reminder` task. Until it exists, turn on Stripe's own
+   "upcoming renewal" email under Settings → Billing → Subscriptions and
+   emails, which covers the legal minimum in our absence.
 
 Two things about that flow worth not rediscovering:
 
@@ -262,6 +267,9 @@ Ordered by what unblocks the most.
 
 ### Unblocked, just not done
 
+- **Annual renewal reminder.** The terms say we email 30 days before an
+  annual renewal. No job sends it; `annual-renewal-reminder` in the task list
+  has the design. Stripe's built-in renewal email is the stopgap.
 - **Real connection verification.** `verify.ts` currently validates the shape of
   what was pasted and reports capabilities from the catalogue. The per-platform
   HTTP calls need real credentials against real tenants.

@@ -112,6 +112,23 @@ describeDb("recordDemoUnlock", () => {
     expect(again.consent_text).toBe("Email me about AYA.");
   });
 
+  it("purges leads not seen for the retention period, and nothing newer", async () => {
+    const { purgeStaleLeads, recordDemoUnlock } = await import("./leads");
+    await recordDemoUnlock({ email: "old@clinic.com", isBusinessEmail: true });
+    await recordDemoUnlock({ email: "fresh@clinic.com", isBusinessEmail: true });
+    await pool.query(
+      "update leads set last_seen_at = now() - interval '13 months' where email_normalized = 'old@clinic.com'",
+    );
+    expect(await purgeStaleLeads(12)).toBe(1);
+    const left = (await pool.query("select email_normalized from leads")).rows.map((r) => r.email_normalized);
+    expect(left).toEqual(["fresh@clinic.com"]);
+    // Events go with the lead.
+    const orphaned = await pool.query(
+      "select count(*)::int as n from lead_events e left join leads l on l.id = e.lead_id where l.id is null",
+    );
+    expect(orphaned.rows[0].n).toBe(0);
+  });
+
   it("keeps only the referrer's host and a well-formed campaign", async () => {
     const { recordDemoUnlock } = await import("./leads");
     await recordDemoUnlock({

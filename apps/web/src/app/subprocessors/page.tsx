@@ -92,6 +92,8 @@ function describe(status: BaaStatus): string {
       return `BAA signed ${status.on}`;
     case "requested":
       return `BAA requested ${status.on}; no patient information is sent until it is signed`;
+    case "pending":
+      return "BAA to be executed before any patient information is processed; none is today";
     case "not-needed":
       return `Not required — ${status.because}`;
   }

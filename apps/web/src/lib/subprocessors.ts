@@ -13,13 +13,17 @@
  * and marked so a compliance reader does not go looking for a BAA that is
  * not needed.
  *
- * `baa` is a fact about paper, not a hope. It changes only when a signed
- * document exists and its date is written here.
+ * `baa` is a fact about paper, not a hope. "pending" means the agreement has
+ * not yet been requested; "requested" means it has, with the date; "signed"
+ * means a countersigned document exists and its date is written here. The
+ * state moves forward only when the paper does.
  */
 
 export type BaaStatus =
   | { state: "signed"; on: string }
   | { state: "requested"; on: string }
+  /** Not yet requested. No patient information is sent until it is signed. */
+  | { state: "pending" }
   | { state: "not-needed"; because: string };
 
 export type Subprocessor = {
@@ -41,7 +45,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     data: "All patient information the product holds: contacts, conversations, appointments, recordings, transcripts",
     region: "United States (single region)",
     handlesPhi: true,
-    baa: { state: "requested", on: "2026-09-13" },
+    baa: { state: "pending" },
     scope: "product",
   },
   {
@@ -50,7 +54,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     data: "Caller audio, transcript, caller number, call outcome",
     region: "United States workspace",
     handlesPhi: true,
-    baa: { state: "requested", on: "2026-09-13" },
+    baa: { state: "pending" },
     scope: "product",
   },
   {
@@ -59,7 +63,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     data: "Chat messages and the clinic's public service information; no training on customer data",
     region: "United States",
     handlesPhi: true,
-    baa: { state: "requested", on: "2026-09-13" },
+    baa: { state: "pending" },
     scope: "product",
   },
   {
@@ -68,7 +72,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     data: "Booking name, contact number, appointment time",
     region: "United States",
     handlesPhi: true,
-    baa: { state: "requested", on: "2026-09-13" },
+    baa: { state: "pending" },
     scope: "product",
   },
   {

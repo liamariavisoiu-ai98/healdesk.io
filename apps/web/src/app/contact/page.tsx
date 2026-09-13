@@ -32,8 +32,9 @@ const COMMITMENTS = [
   {
     q: "What happens to an email I give you?",
     a:
-      "We use it to follow up about healdesk. One sender, no list swapping, " +
-      "and reply \"stop\" and we won't contact you again.",
+      "We use it to reply to you. We email you about healdesk only if you " +
+      "ticked the box that says so — one sender, no list swapping, and one " +
+      "click or a reply of \"stop\" ends it.",
   },
   {
     q: "And patient data, once we're a customer?",

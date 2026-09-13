@@ -172,8 +172,8 @@ export default function TermsPage() {
           fully on for seven days. If the invoice is still unpaid after that, the agent is
           suspended: calls reach your Practice directly, the chat widget shows a contact form, and
           your data is kept and readable. Paying the open invoice restores everything at once. If
-          the invoice is unpaid thirty days after it was due, the subscription is cancelled and
-          section 7 applies. Amounts unpaid when due may bear interest at the lower of 1% per
+          the invoice is still unpaid thirty days after it was due, we may cancel the subscription,
+          and section 7 then applies. Amounts unpaid when due may bear interest at the lower of 1% per
           month and the maximum lawful rate.
         </p>
       </Section>

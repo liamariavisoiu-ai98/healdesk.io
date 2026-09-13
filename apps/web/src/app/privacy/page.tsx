@@ -56,10 +56,11 @@ export default function PrivacyPage() {
         <ul className="list-disc space-y-3 pl-6">
           <li>
             <strong>Your email, when you unlock the demo.</strong> The chat demo asks for an email
-            after your first message. We use it to send you a copy of the conversation and to know
-            who tried the product. It sets one cookie, <code>{GATE_COOKIE}</code>, for 30 days, so
-            you are not asked again. We record whether the address is a business or a personal
-            domain, and nothing else about it.
+            after your first message. We use it to know who tried the product and to reply if you
+            ask us something. It sets one cookie, <code>{GATE_COOKIE}</code>, for 30 days, so you
+            are not asked again. We record whether the address is a business or a personal domain,
+            and nothing else about it. We do not email you a transcript, and we do not email you
+            about the product unless you tick the box below.
           </li>
           <li>
             <strong>Whether you ticked the marketing box.</strong> Beside the email field is an
@@ -93,8 +94,10 @@ export default function PrivacyPage() {
             servers.
           </li>
           <li>
-            <strong>Technical data.</strong> Your IP address and the page requested, kept in server
-            logs for {POLICY.logRetentionDays} days to stop abuse and to rate-limit the demo.
+            <strong>Technical data.</strong> Your IP address and the page requested, used to
+            rate-limit the demo and stop abuse. Rate-limit counters expire with their window
+            (at most an hour); request logs are kept briefly by our hosting provider and never
+            longer than {POLICY.logRetentionDays} days.
           </li>
           <li>
             <strong>Analytics, only if you accept the cookie notice.</strong> Page views and named
@@ -128,8 +131,8 @@ export default function PrivacyPage() {
             for a cookie that only does the thing you asked for.
           </li>
           <li>
-            <code>hd_consent</code> — functional. Remembers your answer to the cookie notice, in your
-            browser only.
+            <strong>Your cookie-notice answer</strong> — functional, and not a cookie: it is kept
+            in your browser's local storage under <code>hd_consent</code> and never sent to us.
           </li>
           <li>
             <strong>Analytics cookies</strong> — set by PostHog only after you accept the notice, to
@@ -215,7 +218,7 @@ export default function PrivacyPage() {
         <p>
           If you give us a mobile number and agree to texts, here is the programme in the terms
           the carriers require: <strong>{site.name} notifications</strong> — replies to your
-          enquiry, your demo link, and appointment-related messages if you are a customer. Message
+          enquiry, your demo link, and, for customers, account notifications. Message
           frequency varies. Message and data rates may apply. Reply <strong>STOP</strong> to opt
           out at any time and <strong>HELP</strong> for help. We never send marketing texts without
           a separate, explicit opt-in.
@@ -226,12 +229,12 @@ export default function PrivacyPage() {
         <p>
           The marketing site holds no patient information, which is the first and best security
           control. What it does hold is encrypted in transit and at rest, reachable only through
-          this site's own server code, and rate-limited. The product's controls — a signed
-          agreement with every vendor that touches patient data, US-only infrastructure,
-          encryption with customer-managed keys, and audit logging of every access — are described
-          in the Business Associate Agreement and on the subprocessor page. No third party has
-          audited us; these are our own commitments and we will show you the architecture behind
-          any of them.
+          this site's own server code, and rate-limited. The controls the product commits to for
+          patient information — a signed agreement with every vendor that touches it, US-only
+          infrastructure, encryption with customer-managed keys, and an audit record of every
+          access — are set out in the Business Associate Agreement, and the vendors are listed on
+          the subprocessor page with the status of each agreement. No third party has audited us;
+          these are our own commitments and we will show you the architecture behind any of them.
         </p>
       </Section>
 

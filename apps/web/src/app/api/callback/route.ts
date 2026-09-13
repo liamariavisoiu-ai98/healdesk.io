@@ -68,7 +68,7 @@ function fail(message: string, status: number): NextResponse {
 export async function POST(request: Request): Promise<NextResponse> {
   // 1. Loose per-IP attempt limit, before we parse anything.
   const ip = clientKey(request.headers);
-  const attempts = rateLimit(
+  const attempts = await rateLimit(
     `callback:attempt:${ip}`,
     ATTEMPT_LIMIT,
     ATTEMPT_WINDOW_MS,
@@ -124,7 +124,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   //    "(415) 867-5309" and "+14158675309" would occupy separate buckets and
   //    the limit would be trivially doubled.
   const numberKey = `callback:num:${parsed.e164}`;
-  if (isOverLimit(numberKey, NUMBER_LIMIT)) {
+  if (await isOverLimit(numberKey, NUMBER_LIMIT)) {
     return NextResponse.json(
       { error: "We've already called this number today." },
       { status: 429, headers: { "Retry-After": "3600" } },
@@ -133,7 +133,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   // 5. The tight per-IP budget, charged only now that the request is one we
   //    would actually dial. Everything above this line is free to get wrong.
-  const placed = rateLimit(`callback:placed:${ip}`, PLACED_LIMIT, PLACED_WINDOW_MS);
+  const placed = await rateLimit(`callback:placed:${ip}`, PLACED_LIMIT, PLACED_WINDOW_MS);
   if (!placed.ok) {
     return NextResponse.json(
       { error: "You've requested a few calls already. Try again later." },
@@ -213,7 +213,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   // The call is away. Only now does it come out of the number's budget.
-  rateLimit(numberKey, NUMBER_LIMIT, NUMBER_WINDOW_MS);
+  await rateLimit(numberKey, NUMBER_LIMIT, NUMBER_WINDOW_MS);
 
   console.info("[healdesk] callback placed", {
     callId: result.callId,

@@ -46,7 +46,7 @@ function text(value: unknown, max: number): string {
 
 export async function POST(request: Request): Promise<NextResponse> {
   const ip = clientKey(request.headers);
-  const limit = rateLimit(`contact:${ip}`, RATE_LIMIT, RATE_WINDOW_MS);
+  const limit = await rateLimit(`contact:${ip}`, RATE_LIMIT, RATE_WINDOW_MS);
   if (!limit.ok) {
     return NextResponse.json(
       { error: `You've sent a few already. Email ${site.email} directly.` },

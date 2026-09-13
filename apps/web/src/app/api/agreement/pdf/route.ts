@@ -302,7 +302,7 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   // 3. Rate limit.
-  const limit = rateLimit(`agreement-pdf:${id}`, RATE_LIMIT, RATE_WINDOW_MS);
+  const limit = await rateLimit(`agreement-pdf:${id}`, RATE_LIMIT, RATE_WINDOW_MS);
   if (!limit.ok) {
     return problem("Too many download attempts. Try again shortly.", 429, {
       "Retry-After": String(limit.retryAfter),

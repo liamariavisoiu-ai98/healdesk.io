@@ -42,7 +42,7 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "Signup is unavailable." }, { status: 503 });
   }
 
-  const limit = rateLimit(
+  const limit = await rateLimit(
     `checkout:${clientKey(request.headers)}`,
     RATE_LIMIT,
     RATE_WINDOW_MS,

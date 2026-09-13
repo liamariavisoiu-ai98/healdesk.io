@@ -361,7 +361,7 @@ export async function POST(request: Request): Promise<NextResponse> {
    * server gets 429 after five tries, which is fine: the sign-in page says it is
    * unconfigured without touching this endpoint at all.
    */
-  const limit = rateLimit(
+  const limit = await rateLimit(
     `admin-session:${clientKey(request.headers)}`,
     ATTEMPT_LIMIT,
     ATTEMPT_WINDOW_MS,

@@ -186,7 +186,7 @@ async function checkCustomer(customerId: string): Promise<CustomerCheck> {
 
 export async function POST(request: Request): Promise<NextResponse> {
   const ip = clientKey(request.headers);
-  const limit = rateLimit(`reviews:${ip}`, RATE_LIMIT, RATE_WINDOW_MS);
+  const limit = await rateLimit(`reviews:${ip}`, RATE_LIMIT, RATE_WINDOW_MS);
   if (!limit.ok) {
     return NextResponse.json(
       { error: `That's a few attempts now. Email ${site.email} instead.` },

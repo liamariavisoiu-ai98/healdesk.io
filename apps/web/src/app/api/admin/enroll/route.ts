@@ -188,7 +188,7 @@ function json(body: unknown, status: number): NextResponse {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const limit = rateLimit(
+  const limit = await rateLimit(
     `admin-enroll:${clientKey(request.headers)}`,
     ATTEMPT_LIMIT,
     ATTEMPT_WINDOW_MS,

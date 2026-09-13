@@ -121,7 +121,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // 2. Rate limit.
-  const limit = rateLimit(
+  const limit = await rateLimit(
     `chat:${clientKey(request.headers)}`,
     RATE_LIMIT,
     RATE_WINDOW_MS,

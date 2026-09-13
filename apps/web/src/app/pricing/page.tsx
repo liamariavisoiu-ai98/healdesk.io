@@ -1,6 +1,7 @@
 import { ALTERNATIVES } from "@healdesk/catalog";
 import type { Metadata } from "next";
 
+import { TrackView } from "@/components/analytics/TrackView";
 import { CTA } from "@/components/CTA";
 import { BuyModalProvider } from "@/components/BuyModal";
 import { Footer } from "@/components/Footer";
@@ -76,6 +77,7 @@ export default function PricingPage() {
 
   return (
     <BuyModalProvider initialPlan={entry.id}>
+      <TrackView event="pricing_viewed" />
       <Nav />
 
       <main className="mx-auto max-w-[1240px] px-5 pt-16 sm:px-8 sm:pt-20 lg:px-14">

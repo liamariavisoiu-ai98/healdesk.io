@@ -12,6 +12,7 @@ import {
 } from "@healdesk/catalog";
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
 
+import { track } from "@/lib/analytics";
 import {
   clearStoredAgreement,
   readStoredAgreement,
@@ -201,6 +202,12 @@ export function CheckoutFlow({
   }, [step, agreement, done, onProgress]);
 
   const plan = getPlan(planId) ?? cheapestPlan();
+
+  // Funnel step, with the package and interval — never a form field. Fires
+  // only once analytics is live (consent given), no-op otherwise.
+  useEffect(() => {
+    track("checkout_step", { step, plan: plan.id, interval });
+  }, [step, plan.id, interval]);
   const platform = useMemo(
     () => platforms.find((p) => p.id === state.platform),
     [state.platform],

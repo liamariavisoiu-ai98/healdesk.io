@@ -4,7 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { BuyButton } from "@/components/BuyModal";
 import { HealdeskSoul } from "@/components/HealdeskSoul";
-import { CHAT_EMAIL_NOTE } from "@/lib/consent";
+import { track } from "@/lib/analytics";
+import {
+  CHAT_EMAIL_NOTE,
+  CONSENT_NOTICE_VERSION,
+  GATE_NOTICE,
+  MARKETING_CONSENT_LABEL,
+} from "@/lib/consent";
 import { DEMO_AGENT } from "@/lib/demo-agent";
 import { site } from "@/lib/site";
 
@@ -62,6 +68,8 @@ export function ChatDemo() {
 
   const [needsEmail, setNeedsEmail] = useState(false);
   const [email, setEmail] = useState("");
+  // Unticked by default, and never required. See src/lib/consent.ts.
+  const [marketingConsent, setMarketingConsent] = useState(false);
   const [gateError, setGateError] = useState<string | null>(null);
   const [unlocking, setUnlocking] = useState(false);
 
@@ -142,6 +150,7 @@ export function ChatDemo() {
       if (response.status === 401) {
         setMessages(next);
         setNeedsEmail(true);
+        track("demo_gate_viewed");
         return;
       }
 
@@ -231,7 +240,11 @@ export function ChatDemo() {
         const response = await fetch("/api/gate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email }),
+          body: JSON.stringify({
+            email,
+            marketingConsent,
+            noticeVersion: CONSENT_NOTICE_VERSION,
+          }),
         });
         if (!response.ok) {
           const data = (await response.json().catch(() => null)) as
@@ -240,6 +253,7 @@ export function ChatDemo() {
           setGateError(data?.error ?? "Something went wrong. Try again.");
           return;
         }
+        track("demo_unlocked", { consent: marketingConsent });
         setNeedsEmail(false);
         // The question is still the last entry in `messages`, send it as-is.
         void runTurn(messages);
@@ -249,7 +263,7 @@ export function ChatDemo() {
         setUnlocking(false);
       }
     },
-    [email, messages, runTurn],
+    [email, marketingConsent, messages, runTurn],
   );
 
   const showChips = messages.length === 0;
@@ -349,6 +363,26 @@ export function ChatDemo() {
               {CHAT_EMAIL_NOTE}
             </p>
           )}
+
+          {/* Collection notice and the SEPARATE marketing opt-in. The box is
+              unticked by default and is never required: unlocking the demo is
+              the service asked for, not consent to be marketed to. The label
+              is rendered verbatim from the constant the server stores. */}
+          <p className="text-muted mt-3 text-[12.6px] leading-relaxed">
+            {GATE_NOTICE}{" "}
+            <a href="/privacy" className="text-red-deep underline underline-offset-2">
+              Privacy policy
+            </a>
+          </p>
+          <label className="mt-2 flex cursor-pointer items-start gap-2 text-[13.2px] leading-relaxed">
+            <input
+              type="checkbox"
+              checked={marketingConsent}
+              onChange={(event) => setMarketingConsent(event.target.checked)}
+              className="accent-red-deep mt-[3px] h-4 w-4 shrink-0"
+            />
+            <span className="text-ink">{MARKETING_CONSENT_LABEL}</span>
+          </label>
         </form>
       ) : (
         <form

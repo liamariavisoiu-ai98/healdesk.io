@@ -16,11 +16,11 @@ export function CTA() {
 
   return (
     <section id="get-started" className="scroll-mt-24 pt-8 pb-24 sm:pb-32">
-      <div className="bg-brand-gradient shadow-brand-lg relative overflow-hidden rounded-[28px] px-8 py-16 text-center text-white sm:px-14 sm:py-20">
+      <div className="bg-brand-gradient-deep shadow-brand-lg relative overflow-hidden rounded-[28px] px-8 py-16 text-center text-white sm:px-14 sm:py-20">
         <h2 className="font-display mx-auto max-w-[18ch] text-[clamp(38.4px,6vw,67.2px)] leading-[1.02] font-medium tracking-[-0.03em]">
           Make it yours.
         </h2>
-        <p className="mx-auto mt-5 max-w-[46ch] text-[20.4px] font-medium text-white/85">
+        <p className="mx-auto mt-5 max-w-[46ch] text-[20.4px] font-medium text-white">
           Tell us your specialty and where the phone drops. We&apos;ll build the
           front desk around your treatments, your pricing, and your booking stack.
         </p>
@@ -40,7 +40,7 @@ export function CTA() {
           </a>
         </div>
 
-        <p className="mt-7 text-[15.6px] font-medium text-white/70">
+        <p className="mt-7 text-[15.6px] font-medium text-white">
           From {usd.format(entry.monthlyUsd)}/mo + {usd.format(entry.setupFeeUsd)}{" "}
           setup · No booking software required
         </p>

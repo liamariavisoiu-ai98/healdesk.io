@@ -47,7 +47,38 @@ export const CALL_CONSENT = {
     "add it to a marketing list, and we delete it on request.",
 } as const;
 
+/**
+ * The demo gate's collection notice and its marketing checkbox.
+ *
+ * Same rule as CALL_CONSENT: the words live here, the gate renders them, and
+ * the server (app/api/gate/route.ts) writes its OWN copy of the label onto the
+ * lead together with `CONSENT_NOTICE_VERSION`, refusing to record consent when
+ * the client reports a different version. Bump the version whenever either
+ * string changes, in the same commit.
+ *
+ * Two separate facts are collected on that form and they must never merge:
+ *
+ *   1. The email unlocks the demo. That is the service the visitor asked for,
+ *      and the notice says what it is used for and which cookie it sets
+ *      (`hd_demo`, HTTP-only, 30 days — src/lib/gate.ts). It is not consent to
+ *      anything else. CAN-SPAM lets a business email a customer about the
+ *      thing they asked for; it does not make a demo unlock a marketing opt-in.
+ *   2. The checkbox, UNTICKED by default, is the marketing opt-in. Its exact
+ *      wording is the consent record.
+ */
+export const CONSENT_NOTICE_VERSION = "2026-09-13.1";
+
+/** Under the email input. Links to /privacy from the component. */
+export const GATE_NOTICE =
+  "Your email unlocks the demo and we'll send you a copy of this conversation. " +
+  "It sets one cookie (hd_demo, 30 days) so you don't have to re-enter it. " +
+  "We don't sell it and we don't share it with ad platforms.";
+
+/** The marketing checkbox. Must be rendered verbatim; the server stores this string. */
+export const MARKETING_CONSENT_LABEL =
+  "Email me about AYA and healdesk. Unsubscribe with one click, any time.";
+
 /** The email ask that follows the visitor's first message in the chat demo. */
 export const CHAT_EMAIL_NOTE =
-  "One email, no spam. We'll only follow up about healdesk, and you can " +
-  "reply \"stop\" to never hear from us again.";
+  "One email, no spam. We'll only send you this conversation unless you tick " +
+  "the box below, and you can reply \"stop\" to never hear from us again.";

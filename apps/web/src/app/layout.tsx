@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Fraunces, Hanken_Grotesk } from "next/font/google";
 import localFont from "next/font/local";
 
+import { CookieNotice } from "@/components/analytics/CookieNotice";
+import { PostHogProvider } from "@/components/analytics/PostHogProvider";
 import { site } from "@/lib/site";
 
 import "./globals.css";
@@ -110,7 +112,15 @@ export default function RootLayout({
       data-scroll-behavior="smooth"
       className={`${fraunces.variable} ${hanken.variable} ${ashford.variable}`}
     >
-      <body className="min-h-screen antialiased">{children}</body>
+      <body className="min-h-screen antialiased">
+        {children}
+        {/* Analytics initialises only after the visitor accepts the notice,
+            and never on /get-started/done or /admin. No advertising pixel or
+            tag manager may ever be added here — see src/lib/analytics.ts and
+            docs/architecture.md "No conversion attribution to ad platforms". */}
+        <PostHogProvider />
+        <CookieNotice />
+      </body>
     </html>
   );
 }

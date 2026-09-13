@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  assentSentence,
+  BAA_ACTION_LABEL,
   BAA_ASSENT_LABEL,
   BAA_EXPLAINER,
   currentBaaTemplate,
@@ -164,7 +166,10 @@ export function AgreementStep({
       clinicLegalName: clinicName.trim() || "[your practice]",
       signatoryName: signature.trim() || "[your name]",
       signatoryTitle: title.trim() || undefined,
-      signatoryEmail: contactEmail.trim() || "[your email]",
+      // Lower-cased here because the server lower-cases it before rendering
+      // its copy; a mixed-case address would otherwise hash differently on
+      // the two sides and fail the displayed-hash check with no way out.
+      signatoryEmail: contactEmail.trim().toLowerCase() || "[your email]",
       effectiveDate: new Date().toISOString().slice(0, 10),
       specialty: specialty || "healthcare",
       isCoveredEntity: coveredEntity,
@@ -264,8 +269,10 @@ export function AgreementStep({
           platform: platformId,
           signatoryName: signature.trim(),
           signatoryTitle: title.trim() || undefined,
-          signatoryEmail: contactEmail.trim(),
+          signatoryEmail: contactEmail.trim().toLowerCase(),
           isCoveredEntity: coveredEntity ?? null,
+          // The fixed half of the sentence, as proof this UI showed it. The
+          // server stores the full sentence it derives itself, never this.
           assentLabel: BAA_ASSENT_LABEL,
           templateVersion: CURRENT_BAA_VERSION,
           displayedHash,
@@ -567,8 +574,8 @@ export function AgreementStep({
         ) : (
           <>
             <p className="text-muted mt-5 text-xs">
-              Signing as {contactEmail || "your work email"} · {today()} · A copy
-              is emailed to you and stays available in your account.
+              Signing as {contactEmail.trim().toLowerCase() || "your work email"} · {today()} · A copy
+              is emailed to you.
             </p>
 
             <label className="mt-4 flex cursor-pointer items-start gap-3">
@@ -585,11 +592,9 @@ export function AgreementStep({
               {/* The authority attestation is the point of this sentence. Whether the
                   person clicking can bind the practice is ordinary contract law, and
                   asking them to say so is the cheapest thing that helps. */}
-              <span className="text-sm font-medium">
-                {BAA_ASSENT_LABEL} on behalf of{" "}
-                <strong>{clinicName || "my practice"}</strong>, and I confirm I
-                am authorised to enter into it.
-              </span>
+              {/* Rendered from the same function the server stores, so the
+                  words on screen and the words in the record are one string. */}
+              <span className="text-sm font-medium">{assentSentence(clinicName)}</span>
             </label>
 
             {error ? (
@@ -605,7 +610,7 @@ export function AgreementStep({
                 onClick={() => void sign()}
                 disabled={!canSign || submitting}
               >
-                {submitting ? "Recording…" : "Sign and continue"}
+                {submitting ? "Recording…" : BAA_ACTION_LABEL}
               </PrimaryButton>
             </div>
           </>
@@ -641,10 +646,19 @@ async function sha256(text: string | null): Promise<string | undefined> {
   }
 }
 
+/**
+ * The date shown beside "Signing as", in UTC.
+ *
+ * The document's own effective date is the UTC date (agreements.ts sets it
+ * from toISOString), so this must be too: formatted in local time, a signer on
+ * the US west coast after 5pm saw one date on this line and another inside
+ * the agreement they were signing.
+ */
 function today(): string {
   return new Intl.DateTimeFormat("en-GB", {
     day: "numeric",
     month: "long",
     year: "numeric",
+    timeZone: "UTC",
   }).format(new Date());
 }

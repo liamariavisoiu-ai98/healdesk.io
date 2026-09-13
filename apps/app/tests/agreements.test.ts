@@ -9,6 +9,7 @@ import {
   renderBaa,
   type BaaVariables,
 } from "@healdesk/catalog";
+import { assentSentence, BAA_ASSENT_LABEL } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import {
@@ -62,7 +63,7 @@ const validSignRequest = (over: Record<string, unknown> = {}) =>
   isCoveredEntity: false,
   attributionMode: "estimated",
   platform: "none",
-  assentLabel: "I agree to the Business Associate Agreement",
+  assentLabel: BAA_ASSENT_LABEL,
     templateVersion: CURRENT_BAA_VERSION,
     ...over,
   }) as SignAgreementRequest;
@@ -433,6 +434,24 @@ describe("validation", () => {
     ).toThrow(AgreementError);
   });
 
+  test("refuses an assent label that is not the published one, exactly", () => {
+    // The whole reason the column exists is that enforceability turns on the
+    // wording of the assent action. A client that reports different words —
+    // an old build, or a tampered request — must not be able to freeze them
+    // into the record as "what the button said".
+    expect(() =>
+      validateSignRequest(
+        validSignRequest({ assentLabel: "I agree to the Business Associate Agreement" }),
+      ),
+    ).toThrow(/does not match/);
+    expect(() =>
+      validateSignRequest(validSignRequest({ assentLabel: `${BAA_ASSENT_LABEL} ` })),
+    ).not.toThrow(); // surrounding whitespace is trimmed, nothing else is forgiven
+    expect(() =>
+      validateSignRequest(validSignRequest({ assentLabel: BAA_ASSENT_LABEL.toLowerCase() })),
+    ).toThrow(/does not match/);
+  });
+
   test("rejects a malformed displayed-document hash", () => {
     expect(() =>
       validateSignRequest(validSignRequest({ displayedHash: "not-a-hash" })),
@@ -507,7 +526,9 @@ describeDb("signing", () => {
     );
 
     const row = rows[0]!;
-    expect(row.assent_label).toBe("I agree to the Business Associate Agreement");
+    // The FULL sentence beside the checkbox, derived on the server from the
+    // validated clinic name — not the fixed label the client sent as proof.
+    expect(row.assent_label).toBe(assentSentence("Evidence Clinic"));
     expect(row.accepted_by_name).toBe("Alex Chen");
     expect(row.accepted_by_title).toBe("Owner");
     expect(row.ip_address).toBe("203.0.113.9");

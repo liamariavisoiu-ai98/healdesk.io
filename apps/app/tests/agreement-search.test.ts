@@ -1,3 +1,4 @@
+import { BAA_ASSENT_LABEL } from "@healdesk/catalog";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 
@@ -234,7 +235,7 @@ async function seed(row: SeedRow): Promise<string> {
       documentHash: row.hash,
       renderedText: `BUSINESS ASSOCIATE AGREEMENT\n\n${TEXT_MARKER}\n\nSigned by ${row.name}.`,
       variables,
-      assentLabel: "I agree to the Business Associate Agreement",
+      assentLabel: BAA_ASSENT_LABEL,
       acceptedByName: row.name,
       acceptedByEmail: row.email,
       acceptedByTitle: row.title ?? null,

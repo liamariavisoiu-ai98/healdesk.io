@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { CURRENT_BAA_VERSION, hashBaaText } from "@healdesk/catalog";
+import { BAA_ASSENT_LABEL } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { signAgreement } from "@/lib/agreements";
@@ -68,7 +69,7 @@ async function signFor(
     isCoveredEntity: false,
     attributionMode: "estimated",
     platform: "none",
-    assentLabel: "I agree to the Business Associate Agreement",
+    assentLabel: BAA_ASSENT_LABEL,
     templateVersion: CURRENT_BAA_VERSION,
   });
   return signed.agreementId;

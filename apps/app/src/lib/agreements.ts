@@ -1,4 +1,6 @@
 import {
+  assentSentence,
+  BAA_ASSENT_LABEL,
   BaaRenderError,
   currentBaaTemplate,
   getBaaTemplate,
@@ -185,8 +187,18 @@ export function validateSignRequest(
     );
   }
 
+  // The one field that must not be caller-controlled. The record's value is
+  // what makes a click-through enforceable — "what did the button say" — so
+  // the client may only confirm it showed the published label, exactly; the
+  // sentence that is stored is derived server-side (see signAgreement).
   if (!body.assentLabel?.trim() || body.assentLabel.length > MAX_ASSENT_LABEL) {
     throw new AgreementError("Missing assent label.", "assentLabel");
+  }
+  if (body.assentLabel.trim() !== BAA_ASSENT_LABEL) {
+    throw new AgreementError(
+      "The assent label does not match the published agreement label.",
+      "assentLabel",
+    );
   }
 
   if (
@@ -305,7 +317,10 @@ export async function signAgreement(
         // this one could not be checked against what the browser displayed.
         displayedHashVerified: Boolean(request.displayedHash),
       } as unknown as Record<string, unknown>,
-      assentLabel: request.assentLabel.trim(),
+      // The full sentence beside the checkbox, re-derived from the validated
+      // clinic name rather than copied from the request. validateSignRequest
+      // has already proved the client displayed the published label.
+      assentLabel: assentSentence(variables.clinicLegalName),
       acceptedByName: variables.signatoryName,
       acceptedByEmail: email,
       acceptedByTitle: variables.signatoryTitle ?? null,

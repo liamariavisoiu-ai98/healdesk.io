@@ -778,6 +778,25 @@ export const CURRENT_BAA_VERSION = BAA_TEMPLATES[0]!.version;
 export const BAA_ASSENT_LABEL =
   "I agree to the Business Associate Agreement and confirm the consent warranty above";
 
+/**
+ * The COMPLETE sentence beside the checkbox, as the signer sees it.
+ *
+ * `BAA_ASSENT_LABEL` is the fixed half; the practice name is spliced into the
+ * middle and the authority attestation closes it. The server stores this
+ * whole sentence, re-derived from the clinic name it validated, rather than
+ * whatever the browser reported — the September 2026 review found the client
+ * could send any string and it would be frozen into the record as "what the
+ * button said". The signing screen renders from this same function, so the
+ * words on screen and the words in the record cannot differ.
+ */
+export function assentSentence(clinicLegalName: string): string {
+  const name = clinicLegalName.trim() || "my practice";
+  return `${BAA_ASSENT_LABEL} on behalf of ${name}, and I confirm I am authorised to enter into it.`;
+}
+
+/** The words on the button that completes the signature. Stored beside the sentence. */
+export const BAA_ACTION_LABEL = "Sign and continue";
+
 export function getBaaTemplate(version: string): BaaTemplate | undefined {
   return BAA_TEMPLATES.find((t) => t.version === version);
 }

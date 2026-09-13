@@ -168,14 +168,21 @@ secret key and a local webhook signing secret are already in
    reads. Its signing secret is a **different value** from the local one —
    per-endpoint, not per-account.
 3. **Dashboard settings the script cannot set.** Customer Portal configuration
-   (card update, plan change, cancel at period end), Stripe Tax on, and under
-   Subscriptions → "on payment failure" choose **do not cancel** — the app
+   (card update, plan change, cancel at period end), Stripe Tax on, Settings →
+   Billing → Emails → "send emails about failed payments" **on** (the terms
+   say we email the billing contact when a renewal fails, and this is what
+   sends it), and under Subscriptions → "on payment failure" choose **do not
+   cancel** — the app
    owns suspension: the `billing-sweep` job moves a clinic to `suspended` once
    its 7-day grace window closes, and a subscription Stripe gives up on
    (`status: unpaid`) is suspended on the update event. **That job ships
    switched off** like every job; enable it from the ops console the same day
    you set "do not cancel", because with the job off a clinic whose card fails
    keeps full service for as long as Stripe keeps retrying.
+   Suspension is a status in our database, not a switch on the phone line:
+   when a clinic goes `suspended`, switch its Synthflow agent off by hand and
+   send the remove-forwarding instructions the terms (§2, §6) promise. The
+   `offboarding` work in the task list automates both.
 4. **Collect upgrade setup-fee deltas by hand.** The portal's plan change swaps
    the recurring price only. A clinic moving from the $497-setup package to a
    $997-setup one owes the $500 difference (`setupFeeDeltaUsd` in the catalog)

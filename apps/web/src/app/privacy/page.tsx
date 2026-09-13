@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { LegalPage, Section } from "@/components/LegalPage";
+import { CookieChoice } from "@/components/analytics/CookieChoice";
 import { CALL_CONSENT, CONSENT_NOTICE_VERSION, MARKETING_CONSENT_LABEL } from "@/lib/consent";
 import { GATE_COOKIE } from "@/lib/gate";
 import { ENTITY, POLICY, entityDisplayName } from "@/lib/legal";
@@ -26,7 +27,9 @@ export const metadata: Metadata = {
  * Every concrete fact is imported from the module that owns it — the cookie
  * name from src/lib/gate.ts, the consent wording from src/lib/consent.ts, the
  * vendors from src/lib/subprocessors.ts — so the policy cannot describe a
- * site that no longer exists.
+ * site that no longer exists. The rule for the prose is the same: a sentence
+ * may describe only something the code does today. Two adversarial reviews
+ * removed every sentence that described a feature we meant to build.
  */
 export default function PrivacyPage() {
   const marketingVendors = SUBPROCESSORS.filter((s) => s.scope !== "product");
@@ -58,9 +61,11 @@ export default function PrivacyPage() {
             <strong>Your email, when you unlock the demo.</strong> The chat demo asks for an email
             after your first message. We use it to know who tried the product and to reply if you
             ask us something. It sets one cookie, <code>{GATE_COOKIE}</code>, for 30 days, so you
-            are not asked again. We record whether the address is a business or a personal domain,
-            and nothing else about it. We do not email you a transcript, and we do not email you
-            about the product unless you tick the box below.
+            are not asked again. Alongside the address we keep: whether it is a business or a
+            personal domain, which specialty's demo you opened, the campaign code if you arrived
+            from an email we sent, the site that referred you (the site name only, never the full
+            link), and the dates you first and last unlocked the demo. We do not email you a
+            transcript, and we do not email you about the product unless you tick the box below.
           </li>
           <li>
             <strong>Whether you ticked the marketing box.</strong> Beside the email field is an
@@ -70,34 +75,43 @@ export default function PrivacyPage() {
             is not consent to marketing.
           </li>
           <li>
-            <strong>What you type into the demo.</strong> Your messages are sent to our language
-            model provider to generate a reply. We do not store the conversation on our servers
-            after it ends. Do not put anyone's health information into the demo; it is a
-            demonstration for clinic staff, not a patient channel.
+            <strong>What you type into the demo.</strong> Your messages are sent to Anthropic, our
+            language model provider, to generate a reply, together with the public service
+            information of the specialty being demonstrated. We do not store the conversation on
+            our servers, during or after it. Do not put anyone's health information into the demo;
+            it is a demonstration for clinic staff, not a patient channel.
           </li>
           <li>
-            <strong>Your phone number, if you ask AYA to call you.</strong> Only when you tick a
-            separate box reading: <em>"{CALL_CONSENT.text}"</em>. {CALL_CONSENT.note}
+            <strong>Your phone number, if you ask {site.agent} to call you.</strong> Only when you
+            tick a separate box reading: <em>"{CALL_CONSENT.text}"</em>. {CALL_CONSENT.note} The
+            call is placed by Synthflow, our voice platform. The number, the version of that
+            wording and the time you agreed are written to our server log as the consent record,
+            and go nowhere else.
           </li>
           <li>
-            <strong>Your clinic's public website, if you request a personalised demo.</strong> We
-            read the pages your site already publishes to build a demo that knows your services
-            and hours. We keep the extracted summary with your lead record and show it back to you
-            to correct.
+            <strong>If we contacted you first.</strong> We research practices before we send a
+            first email, using only what the practice publishes: its website, its public business
+            listing (name, address, phone, rating, opening hours), its public job posts, and how
+            it takes bookings. We keep that business profile with the email we sent. It is
+            information about a business, not about a person; it is never patient information;
+            and every email we send this way says who we are and carries a working unsubscribe.
           </li>
           <li>
-            <strong>Contact form submissions</strong> — your name, email and message, to reply.
+            <strong>Contact form submissions</strong> — your name, your clinic's name if you give
+            it, your email and your message. They are delivered to our inbox by email and kept as
+            ordinary correspondence.
           </li>
           <li>
-            <strong>Billing identity, when you buy.</strong> Your clinic's name, your work email
-            and the package you chose. Card details go directly to Stripe and never touch our
-            servers.
+            <strong>What you enter at checkout.</strong> Your clinic's legal name, its specialty,
+            the booking system it uses, how you want results measured, your work email, and — to
+            sign the Business Associate Agreement — your name and your title at the practice. Card
+            details go directly to Stripe and never touch our servers.
           </li>
           <li>
             <strong>Technical data.</strong> Your IP address and the page requested, used to
-            rate-limit the demo and stop abuse. Rate-limit counters expire with their window
-            (at most an hour); request logs are kept briefly by our hosting provider and never
-            longer than {POLICY.logRetentionDays} days.
+            rate-limit the demo and stop abuse. Rate-limit counters expire with their window: an
+            hour for most, a day for the demo-call limit on a given number. Request logs are kept
+            briefly by our hosting provider and never longer than {POLICY.logRetentionDays} days.
           </li>
           <li>
             <strong>Analytics, only if you accept the cookie notice.</strong> Page views and named
@@ -114,10 +128,11 @@ export default function PrivacyPage() {
             <strong>We do not sell or share your personal information</strong>, in the ordinary
             sense or in the sense defined by California law. There is no advertising pixel, tag
             manager or conversion tag on this site, and no data is sent to Meta, Google Ads or
-            any other advertising platform. This is a design rule written into the site's code,
-            not only a policy.
+            any other advertising platform. This is a design rule written into the site's code —
+            the browser is told which servers this site may talk to, and those are not on the
+            list — not only a policy.
           </li>
-          <li>We do not use what you type into the demo to train any model.</li>
+          <li>We do not use what you type into the demo to train any model, and neither does Anthropic.</li>
           <li>We do not knowingly collect information from anyone under 18; the site is for businesses.</li>
           <li>We do not use "dark patterns": declining analytics is one click and changes nothing else.</li>
         </ul>
@@ -133,11 +148,17 @@ export default function PrivacyPage() {
           <li>
             <strong>Your cookie-notice answer</strong> — functional, and not a cookie: it is kept
             in your browser's local storage under <code>hd_consent</code> and never sent to us.
+            Because it is not a cookie, clearing cookies does not change it; this does:
           </li>
+        </ul>
+        <div className="pl-6">
+          <CookieChoice />
+        </div>
+        <ul className="list-disc space-y-3 pl-6">
           <li>
             <strong>Analytics cookies</strong> — set by PostHog only after you accept the notice, to
-            tell one visit from another. Withdraw at any time by clearing the site's cookies; the
-            notice will ask again.
+            tell one visit from another. Withdraw with the button above; analytics stops on the
+            next page load and the notice asks again.
           </li>
         </ul>
       </Section>
@@ -145,9 +166,10 @@ export default function PrivacyPage() {
       <Section id="vendors" title="5. Who processes it">
         <p>
           The companies below process visitor data for this website. Each receives only what
-          the row says, and none receives patient information. The full register, including the
-          vendors inside the product that do handle patient information under signed agreements,
-          is at <a href="/subprocessors" className="underline underline-offset-2">/subprocessors</a>.
+          the row says, and none receives patient information from this site. The full register,
+          including the vendors inside the product that do handle patient information and the
+          status of each one's agreement with us, is at{" "}
+          <a href="/subprocessors" className="underline underline-offset-2">/subprocessors</a>.
         </p>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[560px] text-[15px]">
@@ -175,10 +197,13 @@ export default function PrivacyPage() {
         <ul className="list-disc space-y-3 pl-6">
           <li>
             A lead that never becomes a customer: {POLICY.leadRetentionMonths} months after the
-            last visit, then deleted.
+            last visit, then deleted automatically, together with the funnel events recorded
+            against it.
           </li>
-          <li>Server logs: {POLICY.logRetentionDays} days.</li>
-          <li>Demo conversations: not stored by us after the session; the model provider's own retention applies to its processing.</li>
+          <li>Server logs, including the demo-call consent record: {POLICY.logRetentionDays} days.</li>
+          <li>Demo conversations: not stored by us at all; Anthropic's own retention applies to its processing.</li>
+          <li>The demo call itself: Synthflow keeps its call record under its own retention; we hold the number only in the log above.</li>
+          <li>Contact-form messages: as ordinary email correspondence, until the enquiry is closed.</li>
           <li>Customer billing records: for as long as tax and accounting law require.</li>
           <li>The record of a signed Business Associate Agreement: for six years after the relationship ends, as HIPAA requires.</li>
         </ul>
@@ -216,12 +241,11 @@ export default function PrivacyPage() {
 
       <Section id="sms" title="8. Text messages">
         <p>
-          If you give us a mobile number and agree to texts, here is the programme in the terms
-          the carriers require: <strong>{site.name} notifications</strong> — replies to your
-          enquiry, your demo link, and, for customers, account notifications. Message
-          frequency varies. Message and data rates may apply. Reply <strong>STOP</strong> to opt
-          out at any time and <strong>HELP</strong> for help. We never send marketing texts without
-          a separate, explicit opt-in.
+          This website does not send text messages, and nothing on it asks you to agree to any.
+          The demo call in section 2 is a voice call. If we ever add texts, the programme will be
+          described here first, with the carrier-standard terms: message frequency, "message and
+          data rates may apply", and <strong>STOP</strong> to opt out and <strong>HELP</strong>{" "}
+          for help. Marketing texts would need a separate, explicit opt-in.
         </p>
       </Section>
 
@@ -230,11 +254,12 @@ export default function PrivacyPage() {
           The marketing site holds no patient information, which is the first and best security
           control. What it does hold is encrypted in transit and at rest, reachable only through
           this site's own server code, and rate-limited. The controls the product commits to for
-          patient information — a signed agreement with every vendor that touches it, US-only
-          infrastructure, encryption with customer-managed keys, and an audit record of every
-          access — are set out in the Business Associate Agreement, and the vendors are listed on
-          the subprocessor page with the status of each agreement. No third party has audited us;
-          these are our own commitments and we will show you the architecture behind any of them.
+          patient information — a signed agreement with every vendor that touches it, United States
+          infrastructure, encryption at rest and in transit, no patient information over email,
+          and breach notice to the clinic within five calendar days of discovery — are set out in the
+          Business Associate Agreement, and the vendors are listed on the subprocessor page with
+          the status of each agreement. No third party has audited us; these are our own
+          commitments and we will show you the architecture behind any of them.
         </p>
       </Section>
 

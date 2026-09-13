@@ -18,7 +18,7 @@ import { plans, type Plan } from "@healdesk/catalog";
  * changes; the footer of each page prints both.
  */
 
-export const LEGAL_VERSION = "2026-09-13.1";
+export const LEGAL_VERSION = "2026-09-13.2";
 export const LEGAL_LAST_UPDATED = "13 September 2026";
 
 export const ENTITY = {

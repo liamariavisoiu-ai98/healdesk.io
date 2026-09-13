@@ -70,9 +70,11 @@ export default function TermsPage() {
             for keeping them accurate.
           </li>
           <li>
-            <strong>It never leaves a dead line.</strong> If the service is suspended or ends,
-            calls to your number reach your Practice as they did before, and we tell you how to
-            remove call forwarding.
+            <strong>It never leaves you without a line in silence.</strong> Your number stays
+            yours: you forward it to the agent, and you can remove that forwarding at any time
+            without us. If the service is suspended or ends, we tell you at once, and again in
+            writing, how to remove it so calls reach your Practice exactly as they did before, and we
+            switch the agent off, so forwarded calls are not answered until you do.
           </li>
         </ul>
       </Section>
@@ -116,8 +118,7 @@ export default function TermsPage() {
           {OVERAGE_RATES_PROVISIONAL
             ? "Until those rates are published, usage above the allowance is not billed."
             : null}{" "}
-          You may choose, in onboarding, to have the agent stop rather than bill overage; if you
-          do, calls beyond the allowance reach your Practice directly.
+          Nothing else is charged for usage.
         </p>
         <p>
           <strong>The setup fee</strong> is charged once, on your first invoice, and pays for
@@ -170,8 +171,9 @@ export default function TermsPage() {
         <p>
           If a renewal payment fails we retry it and email your billing contact. The service stays
           fully on for seven days. If the invoice is still unpaid after that, the agent is
-          suspended: calls reach your Practice directly, the chat widget shows a contact form, and
-          your data is kept and readable. Paying the open invoice restores everything at once. If
+          suspended: it stops answering on every channel, we tell you how to remove call
+          forwarding so callers reach your Practice, and your data is kept and stays readable in
+          your console. Paying the open invoice restores everything at once. If
           the invoice is still unpaid thirty days after it was due, we may cancel the subscription,
           and section 7 then applies. Amounts unpaid when due may bear interest at the lower of 1% per
           month and the maximum lawful rate.

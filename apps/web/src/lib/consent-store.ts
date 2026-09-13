@@ -58,3 +58,21 @@ export function onConsentChange(fn: (state: ConsentState) => void): () => void {
     window.removeEventListener("storage", storage);
   };
 }
+
+/**
+ * Forget the answer so the notice asks again. Used by the "change my cookie
+ * choice" control on /privacy; analytics is opted out on the next load
+ * because a `null` state never initialises it.
+ */
+export function clearConsent(): void {
+  try {
+    window.localStorage.removeItem(KEY);
+  } catch {
+    // Nothing stored, nothing to clear.
+  }
+  try {
+    window.dispatchEvent(new CustomEvent<ConsentState>(EVENT, { detail: null }));
+  } catch {
+    // See setConsent.
+  }
+}

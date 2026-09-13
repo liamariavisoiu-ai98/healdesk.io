@@ -87,5 +87,5 @@ export const MARKETING_CONSENT_LABEL =
 
 /** The email ask that follows the visitor's first message in the chat demo. */
 export const CHAT_EMAIL_NOTE =
-  "One email, no spam. We'll only send you this conversation unless you tick " +
-  "the box below, and you can reply \"stop\" to never hear from us again.";
+  "Your email unlocks the demo. Nothing is emailed to you unless you tick the " +
+  "box below.";

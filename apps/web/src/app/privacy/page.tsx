@@ -64,15 +64,18 @@ export default function PrivacyPage() {
             are not asked again. Alongside the address we keep: whether it is a business or a
             personal domain, which specialty's demo you opened, the campaign code if you arrived
             from an email we sent, the site that referred you (the site name only, never the full
-            link), and the dates you first and last unlocked the demo. We do not email you a
-            transcript, and we do not email you about the product unless you tick the box below.
+            link), the dates you first and last unlocked the demo, and which steps of this site
+            you reached afterwards (for example "viewed pricing", "started checkout"), recorded
+            against your record so we know what worked. We do not email you a transcript, and we
+            do not email you about the product unless you tick the box below.
           </li>
           <li>
             <strong>Whether you ticked the marketing box.</strong> Beside the email field is an
             unticked checkbox reading: <em>"{MARKETING_CONSENT_LABEL}"</em>. If you tick it we
             record that, the wording you saw (notice version {CONSENT_NOTICE_VERSION}) and the
-            time. If you do not tick it, we do not email you about the product. Unlocking the demo
-            is not consent to marketing.
+            time, and we send at most four emails over the following eight days, each with a
+            one-click unsubscribe; then we stop. If you do not tick it, we do not email you about
+            the product. Unlocking the demo is not consent to marketing.
           </li>
           <li>
             <strong>What you type into the demo.</strong> Your messages are sent to Anthropic, our
@@ -84,9 +87,10 @@ export default function PrivacyPage() {
           <li>
             <strong>Your phone number, if you ask {site.agent} to call you.</strong> Only when you
             tick a separate box reading: <em>"{CALL_CONSENT.text}"</em>. {CALL_CONSENT.note} The
-            call is placed by Synthflow, our voice platform. The number, the version of that
-            wording and the time you agreed are written to our server log as the consent record,
-            and go nowhere else.
+            call is placed by Synthflow, our voice platform. The number, the exact wording you
+            agreed to, its version, the time and your IP address are stored as the consent record
+            for {POLICY.callConsentRetentionYears} years — the period in which a call could be
+            disputed — and are used for nothing else.
           </li>
           <li>
             <strong>If we contacted you first.</strong> We research practices before we send a
@@ -105,7 +109,9 @@ export default function PrivacyPage() {
             <strong>What you enter at checkout.</strong> Your clinic's legal name, its specialty,
             the booking system it uses, how you want results measured, your work email, and — to
             sign the Business Associate Agreement — your name and your title at the practice. Card
-            details go directly to Stripe and never touch our servers.
+            details go directly to Stripe and never touch our servers. If you reach the payment
+            page and stop, we send one email about it, an hour later, and no more; it carries the
+            same one-click unsubscribe.
           </li>
           <li>
             <strong>Technical data.</strong> Your IP address and the page requested, used to
@@ -200,9 +206,10 @@ export default function PrivacyPage() {
             last visit, then deleted automatically, together with the funnel events recorded
             against it.
           </li>
-          <li>Server logs, including the demo-call consent record: {POLICY.logRetentionDays} days.</li>
+          <li>Server logs: {POLICY.logRetentionDays} days.</li>
+          <li>Demo-call consent records: {POLICY.callConsentRetentionYears} years, then deleted.</li>
           <li>Demo conversations: not stored by us at all; Anthropic's own retention applies to its processing.</li>
-          <li>The demo call itself: Synthflow keeps its call record under its own retention; we hold the number only in the log above.</li>
+          <li>The demo call itself: Synthflow keeps its call record under its own retention; we hold the number only in the consent record above.</li>
           <li>Contact-form messages: as ordinary email correspondence, until the enquiry is closed.</li>
           <li>Customer billing records: for as long as tax and accounting law require.</li>
           <li>The record of a signed Business Associate Agreement: for six years after the relationship ends, as HIPAA requires.</li>

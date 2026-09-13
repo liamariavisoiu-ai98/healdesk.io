@@ -1,4 +1,5 @@
 import {
+  getPlan,
   isBillingInterval,
   SIGNATURE_HEADER,
   TIMESTAMP_HEADER,
@@ -7,6 +8,7 @@ import {
 import type Stripe from "stripe";
 
 import { APP_MARKER, isBillingConfigured, stripeClient } from "@/lib/billing";
+import { markCheckoutAbandoned, markConverted } from "@/lib/leads";
 import { isChatChannelChoice } from "@/lib/pricing";
 
 /**
@@ -77,6 +79,13 @@ const PROVISIONING_EVENTS: ReadonlySet<EventType> = new Set<EventType>([
   "checkout.session.completed",
   "checkout.session.async_payment_succeeded",
 ]);
+
+/**
+ * The buyer left. Nothing to provision and nothing to relay; the lead store
+ * records the abandonment so the one follow-up email can go (lib/email).
+ * Subscribe the endpoint to this event too (docs/handover.md).
+ */
+const ABANDONMENT_EVENTS: ReadonlySet<EventType> = new Set<EventType>(["checkout.session.expired"]);
 
 /**
  * Must match HANDLED_EVENT_TYPES in apps/app/src/lib/billing/events.ts, minus
@@ -166,6 +175,13 @@ export async function POST(request: Request): Promise<Response> {
   if (PROVISIONING_EVENTS.has(event.type)) {
     return provision(event, relay);
   }
+  if (ABANDONMENT_EVENTS.has(event.type)) {
+    const session = event.data.object as Stripe.Checkout.Session;
+    if (session.metadata?.app === APP_MARKER && session.customer_email) {
+      await markCheckoutAbandoned(session.customer_email);
+    }
+    return Response.json({ received: true });
+  }
   if (LIFECYCLE_EVENTS.has(event.type)) {
     return forwardLifecycle(event, relay);
   }
@@ -244,6 +260,12 @@ async function provision(event: Stripe.Event, relay: Relay): Promise<Response> {
       // 200 (replayed) and 201 (created) are both success. The idempotency
       // ledger in apps/app is what makes a duplicate delivery a no-op rather
       // than a second account, so retries land here harmlessly.
+      //
+      // Close the funnel loop: the lead becomes a customer, with the plan and
+      // its monthly revenue, so the cold-email question ("which campaign paid")
+      // has an answer in the lead store. Best-effort and after the account
+      // exists — a lead-store outage must never fail a paid provisioning.
+      await recordConversion(session);
       return Response.json({ received: true });
 
     case "unreachable":
@@ -492,6 +514,9 @@ export function provisionRequestFromMetadata(
 ): Record<string, unknown> {
   const {
     app: _app,
+    // Attribution rides on the Session for the lead store, never for apps/app.
+    campaign: _campaign,
+    leadId: _leadId,
     averageTreatmentValueUsd,
     billingInterval,
     chatChannelChoice,
@@ -510,4 +535,20 @@ export function provisionRequestFromMetadata(
     request.chatChannelChoice = chatChannelChoice;
   }
   return request;
+}
+
+/** The lead store's view of a completed purchase. Never throws. */
+async function recordConversion(session: Stripe.Checkout.Session): Promise<void> {
+  try {
+    const email = session.customer_email ?? session.customer_details?.email;
+    if (!email) return;
+    const plan = getPlan(String(session.metadata?.plan ?? ""));
+    const interval = session.metadata?.billingInterval;
+    const mrr = plan ? (interval === "year" ? plan.annualMonthlyUsd : plan.monthlyUsd) : 0;
+    await markConverted({ email, plan: plan?.id ?? "unknown", mrrUsd: mrr });
+  } catch (error) {
+    console.error("[healdesk] could not record conversion in the lead store", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }

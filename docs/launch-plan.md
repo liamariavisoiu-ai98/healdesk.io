@@ -615,6 +615,9 @@ opt-out, and calling windows in recipient local time.
 - **BAAs with every subprocessor**, zero-retention verified in the vendor console, not just the
   contract. Prompt logging on a non-BAA tier is a reportable disclosure
 - **Documented §164.308(a)(1)(ii)(A) risk analysis** — OCR's most-cited failure against BAs
+- **No AI voice ever dials a prospect.** Prospect voice is inbound or click-to-call only — the
+  prospect initiates, every time, through the one consent gate (`canContactProspect()`); a
+  scraped listing has given no consent and never will
 - **No geofencing near clinics** — Washington MHMDA bans it within 2,000 feet, no consent exception
 - **Hard clinical guardrails** — no candidacy, dosing, symptom or triage output; adversarially
   tested escalation

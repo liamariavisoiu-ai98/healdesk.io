@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BuyButton } from "@/components/BuyModal";
 import { HealdeskSoul } from "@/components/HealdeskSoul";
 import { track } from "@/lib/analytics";
+import { campaignCode } from "@/lib/attribution";
 import {
   CHAT_EMAIL_NOTE,
   CONSENT_NOTICE_VERSION,
@@ -244,6 +245,9 @@ export function ChatDemo() {
             email,
             marketingConsent,
             noticeVersion: CONSENT_NOTICE_VERSION,
+            // `?c=` from a cold-email link, remembered for the session so a
+            // visitor who browses first still attributes to the campaign.
+            campaign: campaignCode(),
           }),
         });
         if (!response.ok) {

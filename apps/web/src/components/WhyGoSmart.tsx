@@ -1,14 +1,20 @@
 "use client";
 
-import { useId, useMemo } from "react";
+import { useId, useMemo, useState } from "react";
 
 import { site } from "@/lib/site";
 import { specialties, type Specialty } from "@/lib/specialties";
 
 const WEEKS_PER_MONTH = 4.33;
 
-/** Share of missed inquiries a 24/7 agent converts that a voicemail does not. */
-const RECOVERY_RATE = 0.7;
+/**
+ * The starting point for the fourth dial: what share of a missed call an
+ * answered one recovers. The VISITOR'S assumption, adjustable and labelled as
+ * theirs. No independent figure exists and the product has not yet answered
+ * a real call, so nothing here claims one — the earlier hard-coded 70% was
+ * the largest unsupported number on the site.
+ */
+const DEFAULT_RECOVERY_PERCENT = 50;
 
 const currency = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -59,6 +65,9 @@ export function WhyGoSmart({
   missedPercent: number;
   onMissedPercent: (value: number) => void;
 }) {
+  const [recoveryPercent, setRecoveryPercent] = useState(DEFAULT_RECOVERY_PERCENT);
+  const recoveryShare = recoveryPercent / 100;
+
   const result = useMemo(() => {
     const callsPerMonth = callsPerWeek * WEEKS_PER_MONTH;
     const missedPerMonth = callsPerMonth * (missedPercent / 100);
@@ -70,10 +79,10 @@ export function WhyGoSmart({
       lostBookings,
       monthlyInPlay,
       annualInPlay: monthlyInPlay * 12,
-      monthlyRecovered: monthlyInPlay * RECOVERY_RATE,
-      annualRecovered: monthlyInPlay * RECOVERY_RATE * 12,
+      monthlyRecovered: monthlyInPlay * recoveryShare,
+      annualRecovered: monthlyInPlay * recoveryShare * 12,
     };
-  }, [callsPerWeek, missedPercent, specialty]);
+  }, [callsPerWeek, missedPercent, recoveryShare, specialty]);
 
   return (
     <section id="why" className="scroll-mt-24 py-20 sm:py-28">
@@ -86,8 +95,8 @@ export function WhyGoSmart({
           <span className="text-brand-gradient">worth the most</span>.
         </h2>
         <p className="text-muted mt-4 text-[20.4px] font-medium">
-          Not a lost call, a lost case. Answer {site.agent}&apos;s three
-          questions and see what a full front desk is actually worth to you.
+          Not a lost call, a lost case. Answer {site.agent}&apos;s four
+          questions and see what a full front desk could be worth to you.
         </p>
       </div>
 
@@ -153,6 +162,24 @@ export function WhyGoSmart({
             </p>
           </Ask>
 
+          <Ask question="If I answered every one of those, what share would you keep?">
+            <Dial
+              value={recoveryPercent}
+              min={10}
+              max={90}
+              step={5}
+              display={`${recoveryPercent}%`}
+              unit="your guess, not my promise"
+              onChange={setRecoveryPercent}
+              label="Share recovered"
+            />
+            <p className="text-muted mt-3 text-xs">
+              There is no independent figure for this and we will not invent
+              one. After your first month the report replaces this dial with
+              your real number.
+            </p>
+          </Ask>
+
           {/* The assumptions. Quiet, but never hidden, see the note above. */}
           <dl className="border-line text-muted space-y-2 border-t pt-6 text-[15.6px]">
             <Assumption label="Booking rate assumed">
@@ -162,19 +189,17 @@ export function WhyGoSmart({
               {currency.format(specialty.economics.valuePerBooking)}
             </Assumption>
             <Assumption label="Basis">{specialty.economics.basis}</Assumption>
-            <Assumption label="Recovered by AYA">
-              {Math.round(RECOVERY_RATE * 100)}%
-            </Assumption>
+            <Assumption label="Share recovered (yours)">{recoveryPercent}%</Assumption>
           </dl>
         </div>
 
         {/* ── The answer ───────────────────────────────────────────────── */}
         <div className="bg-paper-2/50 flex flex-col items-center justify-center gap-8 p-8 text-center sm:p-12">
-          <Ring share={RECOVERY_RATE} />
+          <Ring share={recoveryShare} />
 
           <div>
             <p className="text-muted text-xs font-bold tracking-[0.14em] uppercase">
-              Stays in the practice
+              Would stay in the practice, at your {recoveryPercent}%
             </p>
             <p className="font-figure text-brand-gradient mt-3 text-[clamp(50.4px,7.68vw,81.6px)] leading-none font-semibold tracking-[-0.03em] tabular-nums">
               {currency.format(result.annualRecovered)}
@@ -192,12 +217,14 @@ export function WhyGoSmart({
             </span>{" "}
             people a month never hear back from you. That&apos;s{" "}
             <span className="not-italic">{result.lostBookings.toFixed(1)}</span>{" "}
-            bookings you never knew you had. Let me catch them.&rdquo;
+            bookings you never knew you had. If I caught {recoveryPercent}% of
+            them, that is what stays with you. Let me try.&rdquo;
           </p>
 
           <p className="text-muted max-w-[42ch] text-xs leading-relaxed">
-            Approximate industry ranges, not a quote.{" "}
-            {currency.format(result.annualInPlay)} a year is in play;{" "}
+            Approximate industry ranges and your own dials, not a quote and not
+            a promise of results. {currency.format(result.annualInPlay)} a year
+            is in play;{" "}
             {site.agent} answers 24/7 and rings missed numbers back, and the
             closed-loop report tells you which of those recovered calls actually
             collected.

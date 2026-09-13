@@ -13,6 +13,7 @@ import {
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
 
 import { track } from "@/lib/analytics";
+import { campaignCode, leadIdFromUrl } from "@/lib/attribution";
 import {
   clearStoredAgreement,
   readStoredAgreement,
@@ -246,6 +247,11 @@ export function CheckoutFlow({
           phoneSystemType: state.phoneSystemType,
           // The signature itself, not a claim about it. See AgreementStep.
           agreementId: agreement?.agreementId,
+          // Attribution: the cold-email campaign remembered for this session,
+          // and the lead id when the buyer arrived from a claim link. The
+          // server validates both and drops what it cannot verify.
+          campaign: campaignCode(),
+          leadId: leadIdFromUrl(),
         }),
       });
 

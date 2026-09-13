@@ -543,7 +543,7 @@ export const TASKS = [
     status: "ready",
     title: "Build the /claim page that redeems the free demo bot from a cold email",
     effort: "2 days",
-    blockedBy: "lead-store",
+    blockedBy: null,
     plain:
       "The designed funnel has cold emails pointing at a page where a clinic redeems a free personalised bot, giving email, phone and what they treat. That page does not exist. `apps/web/src/app/` contains exactly three pages — the homepage, /get-started and /get-started/done — so every cold email currently has to land on the generic homepage.",
     why:
@@ -658,46 +658,6 @@ export const TASKS = [
     source: { doc: "architecture", heading: "The voice agent is PHI-light by design" },
   },
   {
-    id: "marketing-email",
-    group: "sales",
-    status: "decision",
-    title: "Pick and wire a transactional email provider for the marketing side",
-    effort: "1 day",
-    blockedBy: "lead-store",
-    plain:
-      "apps/web sends no email at all. The only email code in the repo is `apps/app/src/lib/reporting/deliver.ts`, which is a port with one working implementation (`ConsoleTransport`, which refuses to run in production) and an SES transport that throws with setup instructions. That path is also on the PHI side of the boundary and blocked on the AWS BAA.",
-    why:
-      "The bot is delivered by email. The nurture sequence is email. Neither can exist. And you cannot simply reuse the apps/app SES path: it is deliberately behind the AWS BAA and lives in the service that holds the database that will contain PHI, whereas prospect email is ordinary business marketing that must stay outside that boundary.",
-    steps: [
-      "Decide the provider. Because no PHI is involved, the BAA constraint that forced SES on the product side does not apply here, so Resend or Postmark are both live today — where SES needs the AWS BAA that is still outstanding in `docs/handover.md`.",
-      "Add a small `apps/web/src/lib/email/` module mirroring the port/transport shape already proven in `apps/app/src/lib/reporting/deliver.ts`, including its rule that the dev transport throws rather than silently no-ops in production.",
-      "Send from a subdomain of healdesk.io that is NOT one of the ten cold-sending domains — mixing transactional delivery into a cold-sending reputation pool loses you both.",
-      "Publish SPF, DKIM and DMARC for that subdomain at Cloudflare. Note `docs/outreach/run-log.md` records healdesk.io itself as parked with no MX, no SPF and no DMARC, so this is from zero.",
-      "Wire bounces and complaints back to a suppression flag on the lead row before sending the first message, not after.",
-    ],
-    source: { doc: "handover", heading: "Once AWS lands" },
-  },
-  {
-    id: "legal-pages",
-    group: "sales",
-    status: "ready",
-    title: "Write and publish the privacy policy and terms pages on healdesk.io",
-    effort: "1 day",
-    blockedBy: null,
-    plain:
-      "There are no /privacy or /terms routes on the marketing site — `apps/web/src/app/` has only the homepage, /get-started and /get-started/done, and `Footer.tsx` links nothing but a mailto. Both pages are hard prerequisites for the SMS leg of the funnel.",
-    why:
-      "Since 30 June 2026, A2P 10DLC campaign registration requires a live Privacy Policy URL and a live Terms URL — no pages, no campaign, no SMS delivery of the bot link. The same pages are what a cold-email footer and an unsubscribe path point at, and California Bus. & Prof. Code §17529.5 carries $1,000 per email in liquidated damages with a private right of action and strict liability on the advertiser.",
-    steps: [
-      "Add `apps/web/src/app/privacy/page.tsx` and `apps/web/src/app/terms/page.tsx`, both indexable, and link them from `apps/web/src/components/Footer.tsx`.",
-      "Cover what the marketing site collects specifically: the demo-gate email, the claim-form phone number, the scraped public website content, and cookies — and state plainly that the marketing site holds no patient data.",
-      "State the SMS terms the registry reads: who sends, what for, message frequency, that message and data rates apply, and STOP/HELP keywords.",
-      "Do not put any HIPAA compliance badge or 'HIPAA certified' claim on either page — no such certification exists and claiming one is itself a violation; use the honest formulation already in the chat prompt (signed BAA, encrypted US storage, audit-ready consent records).",
-      "Send both to counsel in the Phase 1 bundle rather than paying for a separate review, and mark the version and date at the foot of each page.",
-    ],
-    source: { doc: "blockers-runbook", heading: "10. Trust badges — what we can honestly show" },
-  },
-  {
     id: "prospect-sms",
     group: "send-today",
     status: "vendor",
@@ -716,106 +676,6 @@ export const TASKS = [
       "Include the STOP/HELP footer and sender identification in every prospect message, and gate the send path on a suppression lookup that fails closed.",
     ],
     source: { doc: "blockers-runbook", heading: "SMS is double-metered" },
-  },
-  {
-    id: "no-outbound-ai-voice",
-    group: "sales",
-    status: "ready",
-    title: "Block AI-voiced outbound calls to prospects at the code level, not the policy level",
-    effort: "2 days",
-    blockedBy: null,
-    plain:
-      "The funnel design flirts with calling prospects — a reserved local area code, a speak-to-your-bot experience, a voice audit touch. No outbound call path exists today, which is the only reason there is no violation yet. There is also no marketing-side equivalent of the consent gate: `canContact()` lives in apps/app and is scoped to a clinic's own patients.",
-    why:
-      "FCC Declaratory Ruling 24-17 (February 2024) confirmed an AI-generated voice is an 'artificial voice' under TCPA §227(b)(1), and that prong is independent of autodialer status — so Facebook v. Duguid buys nothing and every AI-voiced call to a prospect needs prior consent however the number was dialled. A cold prospect from a scraped Google Maps listing has given none. Damages are $500-1,500 per call, uncapped, and TCPA is excluded as standard from cyber and tech E&O policies.",
-    steps: [
-      "Write the rule down explicitly in `docs/launch-plan.md`: no AI voice ever dials a prospect. Prospect voice is inbound or click-to-call only — the prospect initiates, every time.",
-      "Make the portal's speak-to-your-bot a WebRTC session in the browser or a click-to-dial where the prospect places the call, never a form that takes a number and rings it.",
-      "Add a marketing-side `canContactProspect()` that requires an explicit recorded opt-in with exact wording and timestamp before any voice or SMS touch, mirroring the consent-ledger shape in `apps/app/src/db/schema.ts` (`consentRecords`) but without the clinic dimension.",
-      "Capture that opt-in on the claim form as a separate, unticked checkbox with its own wording — not bundled into a terms acceptance — and store the exact string shown.",
-      "Add a test that asserts no code path in apps/web can initiate an outbound voice call, so the guard survives whoever builds the voice audit touch later.",
-    ],
-    source: { doc: "launch-plan", heading: "TCPA — the AI voice is an \"artificial voice\"" },
-  },
-  {
-    id: "nurture-sequence",
-    group: "sales",
-    status: "ready",
-    title: "Build the nurture sequence and the cart-abandonment trigger",
-    effort: "3 days",
-    blockedBy: "marketing-email",
-    plain:
-      "None of the follow-up for non-buyers exists — no 24h ROI touch, no 48h expiry touch, no 96h audit, no 7-day breakup, and no 10-minute cart-abandonment message. There is also nothing to trigger the abandonment case: `apps/web/src/app/api/webhooks/stripe/route.ts` handles only `checkout.session.completed` and `checkout.session.async_payment_succeeded`, so an expired session is invisible.",
-    why:
-      "Most of the value in a self-serve funnel with no sales call sits in the follow-up, and a prospect who reaches Stripe Checkout and leaves is the single most valuable segment you have. Today they vanish silently. Note also that `CheckoutFlow.tsx` puts the BAA signature at step 5 and payment at step 6 on purpose — so an abandonment leaves a signed agreement with no account, which is a strong and honest reason to reach out.",
-    steps: [
-      "Add `checkout.session.expired` to the event filter in `apps/web/src/app/api/webhooks/stripe/route.ts` and write an `abandoned` event against the lead, carrying the plan and the agreement id.",
-      "Build a scheduler for the touches. pg-boss is already installed and running in apps/app (`apps/app/src/lib/queue/boss.ts`, `scripts/install-queue.ts`), but the marketing store is deliberately a separate database — decide between a second pg-boss instance there or a cron in the provider you chose for email.",
-      "Write the five touches as templates in `apps/web/src/lib/email/`: 10 min abandonment, 24h ROI, 48h draft expiring, 96h audit, 7 day breakup. Only claim the draft is expiring if you actually expire the claim token — otherwise it is a false statement to a healthcare buyer.",
-      "Check the prospect suppression store and a global 'stop nurture' flag before every send, and stop the whole sequence the moment a checkout completes.",
-      "Cap the SMS touches to one, and only where a phone opt-in was recorded per `no-outbound-ai-voice`; deliver the rest by email.",
-    ],
-    source: { doc: "launch-plan", heading: "Step 3 — attribution as an opt-in" },
-  },
-  {
-    id: "funnel-instrumentation",
-    group: "sales",
-    status: "ready",
-    title: "Instrument the funnel — there is currently zero analytics in the repo",
-    effort: "2 days",
-    blockedBy: "lead-store",
-    plain:
-      "Nothing measures the funnel. A grep across apps and packages for PostHog, Plausible, gtag, Segment, Mixpanel and Umami returns no hits at all. The only observability on the whole conversion path is one `console.info` in the gate route. You cannot currently answer 'how many people opened the bot' or 'what fraction of claims reach checkout'.",
-    why:
-      "You are about to spend real money on domains, mailboxes, warmup and Apify runs to drive a funnel you have no way to read. Without event data you cannot tell a bad list from bad copy from a broken scrape step, and the sequencing decisions in the plan — which niche, which angle — stay guesses. Getting this in before the first send costs a day; retrofitting it after three weeks of sending means those three weeks tell you nothing.",
-    steps: [
-      "Pick a self-hostable or EU-hosted product analytics tool and put it on apps/web only — apps/app carries PHI and gets no third-party client script, ever.",
-      "Emit named events at each stage: `email_sent`, `claim_opened`, `email_captured`, `scrape_started`, `scrape_failed`, `profile_ready`, `portal_opened`, `bot_message_sent`, `calculator_moved`, `checkout_started`, `agreement_signed`, `payment_completed`.",
-      "Mirror every event into the `lead_events` table from `lead-store` so the numbers survive a vendor change and can be joined against the lead's segment and angle from `packages/leadgen`.",
-      "Never send an event property containing a clinic's patient-facing content, a phone number or an email address — send the lead id and join server-side.",
-      "Build one query that prints the stage-to-stage conversion table, and put it in `scripts/` so it is one command rather than a dashboard nobody opens.",
-    ],
-    source: { doc: "state-of-play", heading: "Now — this week, no external dependency" },
-  },
-  {
-    id: "lead-attribution-token",
-    group: "sales",
-    status: "ready",
-    title: "Carry a signed campaign token from the cold email all the way into the Stripe payload",
-    effort: "1 day",
-    blockedBy: "lead-store",
-    plain:
-      "There is no way to connect a sale back to the email that caused it. The checkout payload assembled in `apps/web/src/components/checkout/CheckoutFlow.tsx` carries clinic name, specialty, platform, attribution mode, plan, contact details and the agreement id — and no source, campaign or lead id. Stripe therefore records a customer with no origin.",
-    why:
-      "With ten sending domains, thirty mailboxes and five outreach angles selected by `packages/leadgen/src/angle.ts`, you will have a dozen concurrent variables and no way to tell which produced revenue. That is the difference between scaling what works and scaling spend. It also means you cannot compute cost per acquisition, which is what decides whether the five packages are viable at all.",
-    steps: [
-      "Add a `leadId` and `campaign` field to the checkout payload in `CheckoutFlow.tsx`, sourced from the claim token or a URL parameter and persisted in sessionStorage so a mid-flow refresh does not lose it.",
-      "Pass both through `apps/web/src/app/api/checkout/route.ts` into `createCheckout` in `apps/web/src/lib/billing.ts` as Stripe Checkout Session metadata — do not add them to the provisioning payload unless apps/app has a column for them.",
-      "Note the existing rule in the checkout route: it deletes any client-supplied `idempotencyKey` because the HMAC authenticates apps/web and not the buyer. Treat leadId the same way — validate it against the lead store server-side rather than trusting what the browser sent.",
-      "Read the metadata back in the Stripe webhook and write a `converted` row against the lead with the plan and MRR.",
-      "Add a script that joins converted leads to their `packages/leadgen` segment and angle, so the answer to 'which niche and which opener actually pay' is one command.",
-    ],
-    source: { doc: "launch-plan", heading: "Build phases" },
-  },
-  {
-    id: "recovery-rate-claim",
-    group: "sales",
-    status: "ready",
-    title: "Substantiate or restate the 70% recovery figure on the lost-revenue calculator",
-    effort: "3 hours",
-    blockedBy: null,
-    plain:
-      "`apps/web/src/components/LeakCalculator.tsx` hard-codes `RECOVERY_RATE = 0.7` and prints 'Recover ~70% of it and that's $X a month back' as the headline outcome. Every other input on that calculator is adjustable and sourced — the per-specialty booking rate and value-per-booking each carry a `basis` string shown on screen — but the 70% has only a one-line code comment and no citation, and the visitor cannot change it.",
-    why:
-      "This is the single largest number the funnel shows a prospect, and it is a quantified performance claim about a product that has never answered a real call. The FTC treats unsubstantiated efficacy claims to small-business buyers as a Section 5 violation and banned Air AI — an AI voice agent sold to small businesses — in March 2026. The rest of the page has already been corrected once away from ad-attribution claims; this is the last unsupported number left on it.",
-    steps: [
-      "Find a citable basis or drop the figure. If you can point to a published industry figure for missed-call recovery by a 24/7 answering service, cite it inline the way `specialty.economics.basis` is cited.",
-      "If you cannot, turn 70% into a third slider with an honest default and a label saying it is the visitor's own assumption, not a healdesk claim.",
-      "Change the sentence from 'Recover ~70% of it' to a conditional — 'if the agent recovers 70% of those calls' — so the arithmetic is presented as the prospect's scenario rather than a promise.",
-      "Keep the existing disclaimer ('Estimates from industry ranges, not a quote') but move it adjacent to the headline number instead of below the fold of the card.",
-      "Apply the same treatment to the seeded calculator on the bot portal, where the number is more persuasive because it is built from the prospect's own scraped data.",
-    ],
-    source: { doc: "launch-plan", heading: "The three findings that shape the product" },
   },
   {
     id: "ses-invite-delivery",

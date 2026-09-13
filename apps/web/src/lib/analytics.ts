@@ -40,6 +40,7 @@ export const EVENTS = {
   checkout_started: ["plan", "interval"],
   checkout_step: ["step", "plan", "interval"],
   contact_submitted: [],
+  call_requested: [],
 } as const satisfies Record<string, readonly string[]>;
 
 export type EventName = keyof typeof EVENTS;
@@ -84,9 +85,27 @@ function looksLikeContact(value: string): boolean {
 
 export function track(event: EventName, props?: Record<string, unknown>): void {
   if (!(event in EVENTS)) return;
+  const clean = sanitize(event, props);
+  // First-party mirror (app/api/track): recorded against the lead only when
+  // the demo gate has identified one, and independent of the cookie notice —
+  // it is our own record of our own funnel, not a third party's. The server
+  // answers 204 and records nothing for anonymous visitors.
+  if (typeof window !== "undefined" && typeof fetch === "function") {
+    try {
+      void fetch("/api/track", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event, props: clean }),
+        keepalive: true,
+        credentials: "same-origin",
+      }).catch(() => {});
+    } catch {
+      // Never break a page over instrumentation.
+    }
+  }
   if (!client) return;
   try {
-    client.capture(event, sanitize(event, props));
+    client.capture(event, clean);
   } catch {
     // Analytics must never break a page.
   }

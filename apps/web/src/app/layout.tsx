@@ -3,6 +3,7 @@ import { Fraunces, Hanken_Grotesk } from "next/font/google";
 import localFont from "next/font/local";
 
 import { CookieNotice } from "@/components/analytics/CookieNotice";
+import { CampaignMemory } from "@/components/analytics/CampaignMemory";
 import { PostHogProvider } from "@/components/analytics/PostHogProvider";
 import { site } from "@/lib/site";
 
@@ -120,6 +121,7 @@ export default function RootLayout({
             docs/architecture.md "No conversion attribution to ad platforms". */}
         <PostHogProvider />
         <CookieNotice />
+        <CampaignMemory />
       </body>
     </html>
   );

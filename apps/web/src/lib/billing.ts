@@ -107,6 +107,13 @@ export type CheckoutIntent = {
   contactEmail: string;
   /** Field-per-key on the Session; read back by the webhook. */
   provisionPayload: Record<string, unknown>;
+  /**
+   * Which cold email, and which lead, this purchase came from. Session-only
+   * metadata (not copied to the subscription), stripped by the webhook before
+   * the provisioning payload is built, and written back to the lead store as
+   * the conversion. Null when organic.
+   */
+  attribution?: { campaign: string | null; leadId: string | null };
 };
 
 export type CheckoutResult =
@@ -236,7 +243,11 @@ export async function createCheckout(
      */
     payment_method_collection: "always",
 
-    metadata,
+    metadata: {
+      ...metadata,
+      ...(intent.attribution?.campaign ? { campaign: intent.attribution.campaign } : {}),
+      ...(intent.attribution?.leadId ? { leadId: intent.attribution.leadId } : {}),
+    },
     // Surfaces in the Dashboard next to the payment, so support can find a
     // clinic without opening metadata.
     client_reference_id: intent.clinicName.slice(0, 200),

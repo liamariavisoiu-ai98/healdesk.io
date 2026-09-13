@@ -161,7 +161,9 @@ secret key and a local webhook signing secret are already in
    `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
    `invoice.paid`, `invoice.payment_failed`, `invoice.payment_action_required`,
    `customer.subscription.updated`, `customer.subscription.deleted`,
-   `charge.dispute.created`. Not `customer.subscription.paused` /
+   `charge.dispute.created`, and `checkout.session.expired` (no provisioning;
+   it marks the lead as an abandoned checkout so the one follow-up email can
+   go). Not `customer.subscription.paused` /
    `.resumed`: those fire only when a trial ends without a card, and there is
    no trial; a Dashboard or portal pause arrives as
    `customer.subscription.updated` with `pause_collection` set, which the app
@@ -411,6 +413,47 @@ nothing more. Re-running is safe.
 
 The worker is a plain Node entry point, not a Next route, so it runs as an ECS
 task or a Fly machine with nothing Vercel-shaped in the way.
+
+### Marketing email and the funnel
+
+Everything a prospect receives from us by email is on the marketing side
+(`apps/web/src/lib/email/`), through Resend, with no patient information
+anywhere near it. `send()` picks Resend when `RESEND_API_KEY` and
+`HEALDESK_EMAIL_FROM` are set and otherwise prints and — in production —
+throws. The From must be a real person at a subdomain that is not one of the
+cold-outreach domains.
+
+- **Who may be emailed** is one function, `canEmail()` in `lib/leads.ts`:
+  marketing mail needs the ticked box and stops on unsubscribe, bounce or
+  purchase; relationship mail (the abandoned-checkout note) needs no box but
+  still stops on unsubscribe and bounce.
+- **The nurture sequence** is four plain-text emails at 24h, 72h, 120h and
+  192h after consent (`lib/email/nurture.ts`), keyed on elapsed time so a
+  missed cron day sends one touch, not three. Nothing in them expires, counts
+  down, or quotes a recovery rate. `/api/cron/nurture` runs hourly on Vercel
+  Cron (daily on Hobby) behind `CRON_SECRET`.
+- **Abandoned checkout** is one email an hour after a Stripe Session was
+  created with no completion, or when Stripe reports `checkout.session.expired`.
+  Subscribe the webhook endpoint to that event.
+- **Unsubscribe** is `/api/email/unsubscribe?t=<signed token>`, in the footer
+  and in the RFC 8058 `List-Unsubscribe` headers. It never asks "are you
+  sure". **Bounces and complaints** arrive at `/api/webhooks/resend`
+  (`RESEND_WEBHOOK_SECRET`) and flag the lead before the next send.
+- **Attribution.** A cold email links with `?c=<campaign>`; the code is kept
+  for the session, written on the lead at demo unlock or checkout, carried on
+  the Stripe Session as metadata, and closed by the webhook as
+  `payment_completed` with the plan and MRR. `scripts/funnel-report.ts`
+  prints the stage-to-stage table, optionally by campaign.
+- **The funnel mirror.** Every browser `track()` event also POSTs to
+  `/api/track`, which appends to `lead_events` only when the demo gate cookie
+  names a lead. Anonymous visitors are never recorded there.
+- **No AI voice ever dials a prospect.** The one call the site places is the
+  demo call the visitor asked for, through `canContactProspect()`, with the
+  consent row written to `call_consents` before dialling and kept four years.
+  `no-outbound-voice.test.ts` fails if `placeCall()` gains a second caller.
+- **Spend ceilings.** `DEMO_DAILY_CHAT_CAP` (2,000 turns) and
+  `DEMO_DAILY_CALL_CAP` (40 calls) per UTC day, site-wide, on top of the
+  per-visitor limits. Zero switches a demo off.
 
 ### Retention
 

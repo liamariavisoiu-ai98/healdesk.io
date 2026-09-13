@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
-import { CALL_CONSENT } from "@/lib/consent";
 import { GATE_COOKIE, verifyGateToken } from "@/lib/gate";
+import { markCallPlaced, recordCallConsent } from "@/lib/leads";
+import { canContactProspect } from "@/lib/prospect-consent";
 import { maskPhone, normalizePhone } from "@/lib/phone";
 import { clientKey, isOverLimit, rateLimit } from "@/lib/rate-limit";
 import { getSpecialty } from "@/lib/specialties";
@@ -61,6 +62,13 @@ const PLACED_WINDOW_MS = 60 * 60 * 1000;
 const NUMBER_LIMIT = 2;
 const NUMBER_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Site-wide calls per UTC day. Every placed call costs real vendor minutes,
+ * and this is the one budget that bounds the bill rather than a visitor.
+ * Override with DEMO_DAILY_CALL_CAP; 0 switches the demo call off.
+ */
+const DAILY_CALL_CAP = Number(process.env.DEMO_DAILY_CALL_CAP ?? 40);
+
 function fail(message: string, status: number): NextResponse {
   return NextResponse.json({ error: message }, { status });
 }
@@ -95,15 +103,13 @@ export async function POST(request: Request): Promise<NextResponse> {
     name?: unknown;
   };
 
-  // 2. Consent, checked strictly. `=== true` rather than truthy: a "1" or a
-  //    "yes" arriving from a hand-rolled client is not a box someone ticked.
-  if (consent !== true) {
-    return fail("Tick the consent box so we're allowed to call you.", 400);
-  }
-  // A stale tab holding last month's wording must not produce a record that
-  // claims agreement to this month's. Re-consent instead.
-  if (consentVersion !== CALL_CONSENT.version) {
-    return fail("This page is out of date, reload and try again.", 409);
+  // 2. Consent, decided by the one gate every prospect contact passes
+  //    through (lib/prospect-consent.ts): `=== true`, and the wording version
+  //    the client rendered must be the one we publish now. A stale tab must
+  //    not produce a record that claims agreement to this month's words.
+  const decision = canContactProspect({ channel: "voice", consent, consentVersion });
+  if (!decision.allowed) {
+    return fail(decision.reason, decision.code === "stale_consent" ? 409 : 400);
   }
 
   // 3. Shape.
@@ -141,6 +147,17 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
+  // 5b. The site-wide daily ceiling. After the per-IP budget for the same
+  //     reason the chat demo checks its own last: one abuser exhausts their
+  //     own allowance, not everyone's.
+  const daily = await rateLimit("callback:global:day", DAILY_CALL_CAP, NUMBER_WINDOW_MS);
+  if (!daily.ok) {
+    return NextResponse.json(
+      { error: "The demo line has reached its daily limit. Try the chat demo, or book a live walkthrough from the contact page." },
+      { status: 429, headers: { "Retry-After": String(daily.retryAfter) } },
+    );
+  }
+
   const specialty =
     typeof specialtyId === "string" ? getSpecialty(specialtyId) : undefined;
   const callerName =
@@ -160,24 +177,22 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   // 6. The consent record. Written before the call is placed, so a request
   //    that fails at the vendor still leaves evidence of what was agreed to.
-  //
-  //    TODO: persist this. Today it is a log line, which survives only as long
-  //    as the platform's log retention, and the record is the entire defence
-  //    if the call is ever disputed.
-  //
-  //    Note where it must NOT go: apps/app is the PHI boundary, and this is a
-  //    clinic operator's own business contact detail, not patient data. It
-  //    belongs on the marketing side, alongside the /api/gate lead TODO. The
-  //    call/text consent gate that already exists in apps/app is a different
-  //    thing entirely. That one governs contacting a clinic's PATIENTS.
+  //    It lives in the marketing store's call_consents table (not apps/app,
+  //    which is the PHI boundary — this is a clinic operator's own business
+  //    contact detail), keyed to the lead when the gate cookie names one,
+  //    and it outlives the lead: the reference is SET NULL on delete.
+  const consentId = await recordCallConsent({
+    phoneE164: parsed.e164,
+    consentVersion: decision.consentVersion,
+    consentText: decision.consentText,
+    ipAddress: ip,
+    userAgent: request.headers.get("user-agent"),
+    leadEmail: gateEmail,
+  });
   console.info("[healdesk] callback requested", {
-    phone: parsed.e164,
-    name: callerName,
+    consentId,
     specialty: specialty?.id,
-    consentVersion: CALL_CONSENT.version,
-    consentText: CALL_CONSENT.text,
-    ip,
-    userAgent: request.headers.get("user-agent")?.slice(0, 200),
+    consentVersion: decision.consentVersion,
     at: new Date().toISOString(),
   });
 
@@ -214,6 +229,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   // The call is away. Only now does it come out of the number's budget.
   await rateLimit(numberKey, NUMBER_LIMIT, NUMBER_WINDOW_MS);
+  await markCallPlaced(consentId);
 
   console.info("[healdesk] callback placed", {
     callId: result.callId,

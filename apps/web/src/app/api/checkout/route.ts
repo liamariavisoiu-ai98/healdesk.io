@@ -7,6 +7,8 @@ import {
 } from "@healdesk/catalog";
 
 import { createCheckout, isBillingConfigured } from "@/lib/billing";
+import { isCampaignCode } from "@/lib/attribution";
+import { findLeadById, markCheckoutStarted } from "@/lib/leads";
 import { type ChatChannelChoice, isChatChannelChoice } from "@/lib/pricing";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 
@@ -123,6 +125,20 @@ export async function POST(request: Request): Promise<Response> {
   payload.billingInterval = chosenInterval;
   if (chatChannelChoice) payload.chatChannelChoice = chatChannelChoice;
 
+  /**
+   * Attribution, treated like idempotencyKey: whatever the browser claims is
+   * validated server-side, never trusted. The campaign is a slug; the lead id
+   * must name a row in the lead store, else it is dropped. Neither reaches
+   * provisioning — apps/app has no column for them — they ride on the Stripe
+   * Session as metadata and are read back by the webhook to close the loop.
+   */
+  const campaign = isCampaignCode(payload.campaign) ? payload.campaign : null;
+  const claimedLead = typeof payload.leadId === "string" ? await findLeadById(payload.leadId) : null;
+  delete payload.campaign;
+  delete payload.leadId;
+  const contactEmail = String(payload.contactEmail ?? "");
+  const attribution = { campaign, leadId: claimedLead?.id ?? null };
+
   // Paid path: hand off to Stripe and let the webhook provision after payment.
   if (isBillingConfigured()) {
     try {
@@ -131,10 +147,22 @@ export async function POST(request: Request): Promise<Response> {
         interval: chosenInterval,
         chatChannelChoice,
         clinicName: String(payload.clinicName ?? ""),
-        contactEmail: String(payload.contactEmail ?? ""),
+        contactEmail,
         provisionPayload: payload,
+        attribution,
       });
       if (checkout.kind === "redirect") {
+        // The funnel's "checkout_started" is the Session existing, not the
+        // button click: a lead row is created here if the demo never made one.
+        await markCheckoutStarted({
+          email: contactEmail,
+          clinicName: typeof payload.clinicName === "string" ? payload.clinicName : undefined,
+          specialty: typeof payload.specialty === "string" ? payload.specialty : undefined,
+          plan: plan.id,
+          interval: chosenInterval,
+          campaign,
+          leadId: attribution.leadId,
+        });
         return Response.json({ checkoutUrl: checkout.url }, { status: 200 });
       }
     } catch (error) {

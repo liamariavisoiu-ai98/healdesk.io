@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
-import { purgeStaleLeads } from "@/lib/leads";
+import { purgeStaleCallConsents, purgeStaleLeads } from "@/lib/leads";
 import { POLICY } from "@/lib/legal";
 
 export const runtime = "nodejs";
@@ -36,9 +36,12 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   const deleted = await purgeStaleLeads(POLICY.leadRetentionMonths);
+  const consentsDeleted = await purgeStaleCallConsents(POLICY.callConsentRetentionYears);
   console.info("[healdesk] lead retention purge", {
     deleted,
+    consentsDeleted,
     olderThanMonths: POLICY.leadRetentionMonths,
+    consentsOlderThanYears: POLICY.callConsentRetentionYears,
   });
-  return NextResponse.json({ ok: true, deleted });
+  return NextResponse.json({ ok: true, deleted, consentsDeleted });
 }

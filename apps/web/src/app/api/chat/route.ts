@@ -29,6 +29,14 @@ const RATE_LIMIT = 30;
 const RATE_WINDOW_MS = 60 * 60 * 1000;
 /** Caps thinking + visible text together. Adaptive thinking at low effort fits comfortably. */
 const MAX_TOKENS = 2_000;
+/**
+ * The spend ceiling, site-wide, per UTC day. The per-IP limit above bounds one
+ * visitor; this bounds the bill when a thousand of them (or one with a proxy
+ * pool) arrive at once. At ~2k output tokens a turn the default is a few
+ * dollars a day at most. Override with DEMO_DAILY_CHAT_CAP; 0 disables the demo.
+ */
+const DAILY_CAP = Number(process.env.DEMO_DAILY_CHAT_CAP ?? 2_000);
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 type ClientMessage = { role: "user" | "assistant"; content: string };
 
@@ -132,6 +140,17 @@ export async function POST(request: Request): Promise<Response> {
       { status: 429, headers: { "Retry-After": String(limit.retryAfter) } },
     );
   }
+  // Site-wide daily ceiling, checked after the per-IP limit so a single
+  // abusive address is turned away by its own budget rather than by
+  // everyone's. When it trips, the demo says so honestly instead of hanging.
+  const daily = await rateLimit("chat:global:day", DAILY_CAP, DAY_MS);
+  if (!daily.ok) {
+    return Response.json(
+      { error: "The demo has hit its daily limit. It resets at midnight UTC — or book a live walkthrough from the contact page." },
+      { status: 429, headers: { "Retry-After": String(daily.retryAfter) } },
+    );
+  }
+
 
   // 3. Validate input.
   let body: unknown;

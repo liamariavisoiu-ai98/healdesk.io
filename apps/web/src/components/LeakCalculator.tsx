@@ -5,8 +5,15 @@ import { useMemo, useState } from "react";
 import { specialties } from "@/lib/specialties";
 
 const WEEKS_PER_MONTH = 4.33;
-/** Share of missed inquiries a 24/7 agent converts that a voicemail does not. */
-const RECOVERY_RATE = 0.7;
+/**
+ * The default for the recovery slider. It is the VISITOR'S assumption, not a
+ * healdesk claim: no independent figure exists for what share of missed
+ * clinic calls a 24/7 AI agent converts, and this product has not yet
+ * answered a real one. So the number is adjustable, labelled as theirs, and
+ * the sentence beside it is conditional. The 70% an earlier draft hard-coded
+ * was the single largest unsupported number on the site.
+ */
+const DEFAULT_RECOVERY_PERCENT = 50;
 
 const currency = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -27,6 +34,7 @@ export function LeakCalculator() {
   const [specialtyId, setSpecialtyId] = useState(specialties[0]!.id);
   const [callsPerWeek, setCallsPerWeek] = useState(80);
   const [missedPercent, setMissedPercent] = useState(28);
+  const [recoveryPercent, setRecoveryPercent] = useState(DEFAULT_RECOVERY_PERCENT);
 
   const specialty =
     specialties.find((s) => s.id === specialtyId) ?? specialties[0]!;
@@ -42,9 +50,9 @@ export function LeakCalculator() {
       lostBookings,
       monthlyAtRisk,
       annualAtRisk: monthlyAtRisk * 12,
-      monthlyRecovered: monthlyAtRisk * RECOVERY_RATE,
+      monthlyRecovered: monthlyAtRisk * (recoveryPercent / 100),
     };
-  }, [callsPerWeek, missedPercent, specialty]);
+  }, [callsPerWeek, missedPercent, recoveryPercent, specialty]);
 
   return (
     <section id="leak" className="scroll-mt-24 py-20 sm:py-28">
@@ -99,6 +107,17 @@ export function LeakCalculator() {
             hint="Industry surveys put medspa and dental miss rates in the 20-40% band once you count after-hours."
           />
 
+          <Slider
+            label="Share you think an answered call recovers"
+            value={recoveryPercent}
+            min={10}
+            max={90}
+            step={5}
+            display={`${recoveryPercent}%`}
+            onChange={setRecoveryPercent}
+            hint="Your assumption, not our promise. There is no independent figure for this, so set it to what you believe about your own callers."
+          />
+
           <dl className="border-line text-muted space-y-1.5 border-t pt-5 text-[15.6px]">
             <div className="flex justify-between gap-4">
               <dt>Booking rate assumed</dt>
@@ -147,27 +166,31 @@ export function LeakCalculator() {
           </div>
 
           <div>
+            <p className="text-muted text-xs">
+              Estimates from industry ranges and your own sliders, not a quote and
+              not a promise of results.
+            </p>
             <div
-              className="bg-line/40 flex h-2.5 overflow-hidden rounded-full"
+              className="bg-line/40 mt-3 flex h-2.5 overflow-hidden rounded-full"
               role="img"
-              aria-label={`healdesk recovers an estimated ${Math.round(RECOVERY_RATE * 100)} percent of the revenue at risk`}
+              aria-label={`If ${recoveryPercent} percent of those calls were recovered, the share of revenue at risk recovered`}
             >
               <span
                 className="bg-brand-gradient h-full"
-                style={{ width: `${RECOVERY_RATE * 100}%` }}
+                style={{ width: `${recoveryPercent}%` }}
               />
             </div>
             <p className="mt-3 text-[18px] font-semibold">
-              Recover ~{Math.round(RECOVERY_RATE * 100)}% of it and that&apos;s{" "}
+              If the agent recovered {recoveryPercent}% of those calls, that would be{" "}
               <span className="text-red-deep">
                 {currency.format(result.monthlyRecovered)}
               </span>{" "}
-              a month back.
+              a month.
             </p>
             <p className="text-muted mt-2 text-xs">
-              Estimates from industry ranges, not a quote. healdesk answers 24/7
-              and calls missed numbers back automatically, the closed-loop view
-              then tells you which recovered calls actually collected.
+              healdesk answers 24/7 and calls missed numbers back automatically;
+              the closed-loop report then shows you which recovered calls actually
+              collected, so after the first month this number is yours, not a slider.
             </p>
           </div>
         </div>

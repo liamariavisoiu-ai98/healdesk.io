@@ -18,7 +18,7 @@ import { plans, type Plan } from "@healdesk/catalog";
  * changes; the footer of each page prints both.
  */
 
-export const LEGAL_VERSION = "2026-09-13.2";
+export const LEGAL_VERSION = "2026-09-13.3";
 export const LEGAL_LAST_UPDATED = "13 September 2026";
 
 export const ENTITY = {
@@ -55,6 +55,12 @@ export const POLICY = {
   leadRetentionMonths: 12,
   /** Days server logs (IP + path, for abuse control) are kept. */
   logRetentionDays: 30,
+  /**
+   * How long the record of consent to a demo call is kept. The TCPA's
+   * limitation period is four years; the record is the whole defence, so it
+   * is kept for that and then purged (api/cron/purge-leads).
+   */
+  callConsentRetentionYears: 4,
   /** Days of notice before a new subprocessor that handles patient data goes live. */
   subprocessorNoticeDays: 15,
 } as const;

@@ -11,6 +11,7 @@ import {
   type SignedCopyDelivery,
 } from "@/lib/agreements";
 import { env } from "@/lib/env";
+import { describeError, log } from "@/lib/log";
 
 /**
  * POST /api/agreements — record a signed business associate agreement.
@@ -100,7 +101,7 @@ function copyReport(copy: SignedCopyDelivery): CopyReport {
 export async function POST(request: Request): Promise<Response> {
   const secret = env.provisionSecret();
   if (!secret) {
-    console.error("[healdesk] HEALDESK_PROVISION_SECRET is not set");
+    log.error("HEALDESK_PROVISION_SECRET is not set");
     return problem("Signing is unavailable.", 503);
   }
 
@@ -112,7 +113,7 @@ export async function POST(request: Request): Promise<Response> {
     secret,
   );
   if (!verification.ok) {
-    console.warn("[healdesk] agreement rejected:", verification.reason);
+    log.warn("agreement rejected", { reason: verification.reason });
     return problem("Unauthorized.", 401);
   }
 
@@ -148,9 +149,10 @@ export async function POST(request: Request): Promise<Response> {
       // with addresses scrubbed out of it; repeating it here unscrubbed would
       // put the signatory's address into the application log, which is the one
       // thing the catch below is careful not to do. The id finds the row.
-      console.warn(
-        `[healdesk] agreement ${signed.agreementId}: signed copy not sent (${signed.copy.status})`,
-      );
+      log.warn("signed copy not sent", {
+        agreementId: signed.agreementId,
+        status: signed.copy.status,
+      });
     }
 
     return Response.json(
@@ -170,7 +172,7 @@ export async function POST(request: Request): Promise<Response> {
       return problem(error.message, 422, error.field);
     }
     // Never echo the payload — it carries the signatory's name and email.
-    console.error("[healdesk] signing failed", error);
+    log.error("signing failed", { error: describeError(error) });
     return problem("Could not record your agreement.", 500);
   }
 }

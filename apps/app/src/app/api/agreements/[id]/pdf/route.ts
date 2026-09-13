@@ -16,6 +16,7 @@ import {
 } from "@/lib/agreements/pdf";
 import { recordSecurityEvent } from "@/lib/audit";
 import { env } from "@/lib/env";
+import { describeError, log } from "@/lib/log";
 
 /**
  * POST /api/agreements/[id]/pdf — the signed agreement as a PDF, served only to
@@ -292,10 +293,9 @@ async function traceIntegrityFailure(
       },
     });
   } catch (error) {
-    console.error(
-      "[healdesk] could not record BAA record-integrity failure:",
-      error instanceof Error ? error.name : "unknown error",
-    );
+    log.error("could not record BAA record-integrity failure", {
+      error: error instanceof Error ? error.name : "unknown error",
+    });
   }
 }
 
@@ -305,7 +305,7 @@ export async function POST(
 ): Promise<Response> {
   const secret = env.provisionSecret();
   if (!secret) {
-    console.error("[healdesk] HEALDESK_PROVISION_SECRET is not set");
+    log.error("HEALDESK_PROVISION_SECRET is not set");
     return problem("Copies are unavailable.", 503, "unavailable");
   }
 
@@ -330,7 +330,7 @@ export async function POST(
     // Vague to the caller; the reason goes to our logs only. verify() checks the
     // timestamp window in both directions, so a captured request stops working
     // five minutes after it was made.
-    console.warn("[healdesk] agreement pdf rejected:", verification.reason);
+    log.warn("agreement pdf rejected", { reason: verification.reason });
     return problem("Unauthorized.", 401, "unauthorized");
   }
 
@@ -376,10 +376,10 @@ export async function POST(
     // newline in it would forge a second line in this log. Reduced to the
     // alphabet a UUID is made of and clamped, because what matters here is that
     // the two disagreed, not the exact bytes of the wrong one.
-    console.warn(
-      `[healdesk] agreement pdf: signed body ${agreementId} disagrees with path ` +
-        pathId.replace(/[^A-Za-z0-9-]/g, "?").slice(0, 64),
-    );
+    log.warn("agreement pdf: signed body disagrees with path", {
+      agreementId,
+      hint: pathId.replace(/[^A-Za-z0-9-]/g, "?").slice(0, 64),
+    });
     return problem("Invalid request body.", 400, "invalid_body");
   }
 
@@ -419,7 +419,7 @@ export async function POST(
   if (!row) {
     // Byte-identical to the malformed-id answer above, and it says nothing about
     // whether this id ever existed, was deleted, or belongs to someone else.
-    console.warn(`[healdesk] agreement pdf: no such agreement ${agreementId}`);
+    log.warn("agreement pdf: no such agreement", { agreementId });
     return problem("Not found.", 404, "not_found");
   }
 
@@ -438,9 +438,10 @@ export async function POST(
    */
   const integrity = checkIntegrity(row);
   if (!integrity.ok) {
-    console.error(
-      `[healdesk] agreement ${row.id} failed its record-integrity check (${integrity.fault}); refusing to render`,
-    );
+    log.error("agreement failed its record-integrity check; refusing to render", {
+      agreementId: row.id,
+      reason: integrity.fault,
+    });
     await traceIntegrityFailure(row.id, row.organizationId, integrity, {
       ipAddress,
       userAgent,
@@ -464,10 +465,10 @@ export async function POST(
      * parameters, and the signatory's address is one of the values this row
      * holds.
      */
-    console.error(
-      `[healdesk] agreement ${row.id} pdf render failed:`,
-      error instanceof Error ? `${error.name}: ${error.message}` : "unknown error",
-    );
+    log.error("agreement pdf render failed", {
+      agreementId: row.id,
+      error: describeError(error),
+    });
     return problem("Could not produce the PDF copy.", 500, "render_failed");
   }
 

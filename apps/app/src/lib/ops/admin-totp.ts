@@ -12,6 +12,7 @@ import { unsafeDb } from "@/db";
 import { adminTotp } from "@/db/schema";
 import { open, seal } from "@/lib/crypto/envelope";
 import { env } from "@/lib/env";
+import { log } from "@/lib/log";
 
 /**
  * The administrator's second factor: the secret, the arithmetic, and the one
@@ -476,16 +477,15 @@ export async function verifyAdminTotpCode(
      * never the error object: envelope.open()'s message is written to be safe
      * to log, but its `cause` carries the underlying crypto error.
      */
-    console.error(
-      "[healdesk] admin totp secret could not be opened:",
-      error instanceof Error ? error.name : "unknown error",
-    );
+    log.error("admin totp secret could not be opened", {
+      error: error instanceof Error ? error.name : "unknown error",
+    });
     return { ok: false, reason: "unreadable" };
   }
 
   const key = base32Decode(secret);
   if (!key) {
-    console.error("[healdesk] admin totp secret is not valid base32");
+    log.error("admin totp secret is not valid base32");
     return { ok: false, reason: "unreadable" };
   }
 

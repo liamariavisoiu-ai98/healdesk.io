@@ -22,6 +22,7 @@ import {
 } from "./entitlements";
 import { clinicIdForStripe } from "./resolve";
 import { canTransition, recordBillingNote, transition } from "./state-machine";
+import { log } from "@/lib/log";
 
 /**
  * The Stripe subscription lifecycle, applied to entitlements.
@@ -226,7 +227,7 @@ export async function handleStripeEvent(
     const failures = await recordFailure(event.id, clinicId, error);
     if (failures >= MAX_FAILURES) {
       // Parked. 200 to Stripe so the endpoint lives; a person replays it.
-      console.error("[healdesk] billing event dead-lettered", {
+      log.error("billing event dead-lettered", {
         event: event.id,
         type: event.type,
         failures,
@@ -369,7 +370,7 @@ export async function replayParkedBillingEvents(
       const result = await replayBillingEvent(row.stripeEventId, context);
       if (result?.outcome === "processed") processed += 1;
     } catch (error) {
-      console.error("[healdesk] parked billing event replay failed", {
+      log.error("parked billing event replay failed", {
         event: row.stripeEventId,
         type: row.type,
         error: error instanceof Error ? error.name : "unknown",

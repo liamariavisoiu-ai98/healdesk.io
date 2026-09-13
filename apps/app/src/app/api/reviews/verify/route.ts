@@ -6,6 +6,7 @@ import {
 
 import { env } from "@/lib/env";
 import { listClinics } from "@/lib/ops/clinics";
+import { log } from "@/lib/log";
 
 /**
  * POST /api/reviews/verify — does this customer ID belong to a clinic?
@@ -50,7 +51,7 @@ const MAX_CUSTOMER_ID = 120;
 export async function POST(request: Request): Promise<Response> {
   const secret = env.provisionSecret();
   if (!secret) {
-    console.error("[healdesk] HEALDESK_PROVISION_SECRET is not set");
+    log.error("HEALDESK_PROVISION_SECRET is not set");
     return Response.json({ error: "Verification is unavailable." }, { status: 503 });
   }
 
@@ -62,7 +63,7 @@ export async function POST(request: Request): Promise<Response> {
     secret,
   );
   if (!verification.ok) {
-    console.warn("[healdesk] review verification rejected:", verification.reason);
+    log.warn("review verification rejected", { reason: verification.reason });
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 

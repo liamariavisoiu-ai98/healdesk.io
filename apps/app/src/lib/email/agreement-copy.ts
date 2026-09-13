@@ -4,6 +4,7 @@ import {
   type EmailTransport,
   type OutgoingEmail,
 } from "@/lib/reporting/deliver";
+import { log } from "@/lib/log";
 
 /**
  * The counterparty's copy of the business associate agreement.
@@ -282,10 +283,13 @@ function outcome(
   reason: string,
 ): AgreementCopyResult {
   const safe = redactAddress(reason, acceptance.to);
-  console.error(
-    `[healdesk] agreement copy ${status} for ${acceptance.clinicName} ` +
-      `(document ${acceptance.documentHash}): ${safe}`,
-  );
+  // The clinic's legal name is business data, not PHI, but it is still not
+  // an identifier the log needs: the document hash finds the row.
+  log.error("agreement copy not delivered", {
+    status,
+    hint: `document ${acceptance.documentHash}`,
+    reason: safe,
+  });
   return { sent: false, status, reason: safe };
 }
 

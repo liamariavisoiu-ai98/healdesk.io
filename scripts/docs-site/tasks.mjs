@@ -1759,7 +1759,7 @@ export const TASKS = [
       "Everything downstream is stranded without it: the Stripe webhook calls HEALDESK_APP_URL to provision an account, so with no deployed apps/app a real purchase creates nothing and the customer's card is charged for a login that does not exist. The worker (apps/app/src/workers/index.ts) is a plain Node process, not a Next route, so it needs a second running service Vercel cannot provide at all.",
     steps: [
       "Pick the host and write it down: docs/launch-plan.md \"Infrastructure & cost\" recommends ECS Fargate plus RDS db.t4g.small (~$25/mo) and notes App Runner is not HIPAA-eligible; Fly or Render are the cheaper alternatives. One US region only.",
-      "Add a Dockerfile to apps/app that runs `next start --port 3001`, plus a second image or command for `npm run worker -w @healdesk/app`, and add a `/api/health` route for the load balancer — apps/app/src/app/api currently has only agreements, auth, provision and webhooks.",
+      "Build the image: `docker build -f apps/app/Dockerfile -t healdesk-app .` from the repo root. The same image runs the web server (`node apps/app/server.js`, the default) and the worker (`npm run worker -w @healdesk/app`); `/api/health` answers 200 for liveness and reports `db` in the body for readiness.",
       "Create RDS with storage encryption and a customer-managed KMS key AT CREATION (it cannot be added in place), `rds.force_ssl = 1` via a custom parameter group, and connect with `sslmode=verify-full` — see docs/blockers-runbook.md \"The engineering obligations people miss\".",
       "Create both database roles the security model requires (healdesk_migrator owns the schema, healdesk_app is NOBYPASSRLS), run `npm run db:migrate -w @healdesk/app` as the migrator, then `npm run queue:install -w @healdesk/app` once as the migrator before the worker will start.",
       "Set every apps/app env var from .env.example on the host, point HEALDESK_APP_URL in apps/web at the new origin, and confirm both sides share the same HEALDESK_PROVISION_SECRET.",
@@ -1806,26 +1806,6 @@ export const TASKS = [
       "Write a one-page rotation schedule (who rotates what, how often, what breaks while it rotates) into docs/handover.md, and rotate the outreach tokens the moment the cold-email work finishes.",
     ],
     source: { doc: "blockers-runbook", heading: "2. AWS BAA — the exact click path" },
-  },
-  {
-    id: "database-audit-findings",
-    group: "foundations",
-    status: "ready",
-    title: "Fix the four database findings the September audit left untouched",
-    effort: "2 days",
-    blockedBy: null,
-    plain:
-      "docs/state-of-play.md lists four defects in the database layer under \"Database-layer findings\" and records that all four are still open. They are: migration 0019 backfilled zero rows under FORCE RLS and then dropped the source column; the BAA production gate sits on a column the gated role can itself write; `baa_acceptances` has no row-level security and the 0016 column grant lets any tenant session rebind another organisation's signed BAA; and rls-drift.test.ts never checks that a policy actually references clinic_id.",
-    why:
-      "These are the only known holes in the tenant-isolation model, which is the single control standing between one clinic and another clinic's patients. The `baa_acceptances` one is the worst: the signed agreement is the legal record that a clinic may hold real patient data, and any authenticated tenant session can currently rewrite someone else's. The BAA gate is likewise theatre — healdesk_app holds unrestricted UPDATE on `clinics`, so the application can flip its own permission to hold PHI.",
-    steps: [
-      "Re-read docs/state-of-play.md \"Database-layer findings\" and docs/next-steps.md section C3 for the exact wording of all four.",
-      "Check what migration 0019 was supposed to backfill in apps/app/drizzle/ and write a corrective migration that runs as the migrator with RLS bypassed, or confirm in a comment that zero rows was genuinely correct at the time.",
-      "Add RLS to `baa_acceptances` (enabled and FORCEd, keyed on organization_id) and narrow the 0016 column grant so a tenant session cannot update another org's row.",
-      "Move the production gate off state the runtime role can write: revoke healdesk_app's UPDATE on clinics.data_classification and clinics.baa_signed_at, and have the go-live flip run as the migrator or through a SECURITY DEFINER function.",
-      "Strengthen apps/app/tests/rls-drift.test.ts so it asserts each policy expression actually references clinic_id, not merely that a policy exists, and confirm CI still passes its minimum test count.",
-    ],
-    source: { doc: "state-of-play", heading: "Database-layer findings" },
   },
   {
     id: "usage-metering-and-margin",
@@ -1886,26 +1866,6 @@ export const TASKS = [
       "Add a test alongside apps/app/tests/ asserting the purge respects tenant isolation and cannot be run without a clinic tag set.",
     ],
     source: { doc: "blockers-runbook", heading: "What to ship instead" },
-  },
-  {
-    id: "phi-log-hygiene",
-    group: "foundations",
-    status: "ready",
-    title: "Prove no patient data reaches the logs, and stop logs living forever",
-    effort: "2 days",
-    blockedBy: null,
-    plain:
-      "The worker and every route log with console.log/console.error to stdout, which on a real host becomes CloudWatch. docs/hipaa-compliance.md says \"Never log PHI. Not to stdout, not to Sentry, not to analytics\" — but nothing checks, and there is no error tracker at all. CloudWatch log groups default to \"Never expire\", which docs/research-conclusions.md calls \"an indefinite store of patient data you never meant to create\".",
-    why:
-      "An unbounded, unencrypted log of caller phone numbers and treatment questions is a PHI database you did not intend to build and cannot enumerate during a breach notification. It also leaks through names, not just payloads: an S3 key, an RDS identifier or an ECS task tag containing a patient name lands in CloudTrail, console listings and the billing export, defeating every encryption control underneath it.",
-    steps: [
-      "Grep the app for what actually gets logged — start at apps/app/src/workers/index.ts, apps/app/src/app/api/webhooks/[provider]/[clinicId]/route.ts and apps/app/src/lib/sync/ — and replace any log line carrying a contact, transcript or payload body with an id-only line.",
-      "Reuse the existing guard: the reporting layer already has a PHI scanner, and packages' assertNoPhiInPayload() enforces an allowlist for queue payloads. Put the same allowlist idea in front of the logger, and add a test that fails if a contact name or phone can reach it.",
-      "Set explicit CloudWatch log-group retention (30 or 90 days) with a customer-managed KMS key, on every group, and add the cloudwatch-log-group-encrypted Config rule.",
-      "Pick an error tracker that will sign a BAA, turn its default request/body capture OFF, and configure scrubbing before pointing production at it — or run without one rather than shipping stack traces containing patient data to a vendor with no agreement.",
-      "Add a naming rule to docs/handover.md: never put a patient identifier in an S3 key, bucket, database identifier, task name or resource tag.",
-    ],
-    source: { doc: "research-conclusions", heading: "The default that will get you" },
   },
   {
     id: "non-covered-entity-posture",

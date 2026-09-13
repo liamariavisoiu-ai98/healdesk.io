@@ -15,6 +15,7 @@ import { processWebhookEvent } from "@/lib/sync/webhooks";
 import { withTenant } from "@/lib/tenant";
 import { clinics } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { describeError, log } from "@/lib/log";
 
 /**
  * The background worker.
@@ -50,12 +51,13 @@ async function main(): Promise<void> {
         });
 
         const failed = summary.resources.filter((r) => r.status === "failed");
-        console.info(
-          `[healdesk][sync] ${summary.provider} clinic=${summary.clinicId} ` +
-            summary.resources
-              .map((r) => `${r.resource}=${r.status}(${r.itemsWritten})`)
-              .join(" "),
-        );
+        log.info("sync run finished", {
+          provider: summary.provider,
+          clinicId: summary.clinicId,
+          status: summary.resources
+            .map((r) => `${r.resource}=${r.status}(${r.itemsWritten})`)
+            .join(" "),
+        });
 
         // Throw so pg-boss retries with its own backoff, rather than
         // reimplementing retry here badly. The sync run row already records
@@ -75,10 +77,11 @@ async function main(): Promise<void> {
     async (jobs) => {
       for (const job of jobs) {
         const result = await reconcileOne(job.data);
-        console.info(
-          `[healdesk][reconcile] clinic=${job.data.clinicId} ` +
-            `matched=${result.matched} exceptions=${result.exceptions}`,
-        );
+        log.info("reconcile finished", {
+          clinicId: job.data.clinicId,
+          matched: result.matched,
+          exceptions: result.exceptions,
+        });
       }
     },
   );
@@ -89,22 +92,23 @@ async function main(): Promise<void> {
     async (jobs) => {
       for (const job of jobs) {
         const result = await processWebhookEvent(job.data);
-        console.info(
-          `[healdesk][webhook] clinic=${job.data.clinicId} ` +
-            `written=${result.written}${result.deferred ? " deferred=sync" : ""}`,
-        );
+        log.info("webhook event processed", {
+          clinicId: job.data.clinicId,
+          written: result.written,
+          deferred: Boolean(result.deferred),
+        });
       }
     },
   );
 
-  console.info("[healdesk] worker ready");
+  log.info("worker ready");
 
   // SIGTERM is what ECS and Fly send. Without a graceful stop, an in-flight
   // sync is killed mid-page and its run row stays "running" until the stale
   // lock expires an hour later.
   for (const signal of ["SIGTERM", "SIGINT"] as const) {
     process.on(signal, () => {
-      console.info(`[healdesk] ${signal} — draining`);
+      log.info("draining on signal", { signal });
       void stopBoss().then(() => process.exit(0));
     });
   }
@@ -155,6 +159,6 @@ function monthStart(periodKey: string): Date {
 }
 
 main().catch((error) => {
-  console.error("[healdesk] worker failed to start:", error);
+  log.error("worker failed to start", { error: describeError(error) });
   process.exit(1);
 });

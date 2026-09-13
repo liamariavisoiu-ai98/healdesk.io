@@ -9,6 +9,7 @@ import type Stripe from "stripe";
 
 import { handleStripeEvent } from "@/lib/billing/events";
 import { env } from "@/lib/env";
+import { log } from "@/lib/log";
 
 /**
  * POST /api/billing/events — a verified Stripe event, relayed by apps/web.
@@ -63,7 +64,7 @@ function isStripeEvent(value: unknown): value is Stripe.Event {
 export async function POST(request: Request): Promise<Response> {
   const secret = env.provisionSecret();
   if (!secret) {
-    console.error("[healdesk] HEALDESK_PROVISION_SECRET is not set");
+    log.error("HEALDESK_PROVISION_SECRET is not set");
     return problem("Billing events are unavailable.", 503);
   }
 
@@ -76,7 +77,7 @@ export async function POST(request: Request): Promise<Response> {
     secret,
   );
   if (!verification.ok) {
-    console.warn("[healdesk] billing event rejected:", verification.reason);
+    log.warn("billing event rejected", { reason: verification.reason });
     return problem("Unauthorized.", 401);
   }
 
@@ -102,7 +103,7 @@ export async function POST(request: Request): Promise<Response> {
   } catch (error) {
     // Recorded in billing_events already; this is the retry signal. Never
     // echo the payload — it carries the buyer's contact details.
-    console.error("[healdesk] billing event failed; asking Stripe to retry", {
+    log.error("billing event failed; asking Stripe to retry", {
       event: body.id,
       type: body.type,
       error: error instanceof Error ? error.name : "unknown",

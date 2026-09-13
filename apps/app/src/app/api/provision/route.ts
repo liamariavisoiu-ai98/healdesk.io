@@ -10,6 +10,7 @@ import {
   provisionClinic,
   validateProvisionRequest,
 } from "@/lib/provisioning";
+import { describeError, log } from "@/lib/log";
 
 /**
  * POST /api/provision — turn a completed checkout into an account.
@@ -38,7 +39,7 @@ function problem(message: string, status: number, field?: string): Response {
 export async function POST(request: Request): Promise<Response> {
   const secret = env.provisionSecret();
   if (!secret) {
-    console.error("[healdesk] HEALDESK_PROVISION_SECRET is not set");
+    log.error("HEALDESK_PROVISION_SECRET is not set");
     return problem("Provisioning is unavailable.", 503);
   }
 
@@ -52,7 +53,7 @@ export async function POST(request: Request): Promise<Response> {
   );
   if (!verification.ok) {
     // Deliberately vague to the caller; the reason goes to our logs only.
-    console.warn("[healdesk] provision rejected:", verification.reason);
+    log.warn("provision rejected", { reason: verification.reason });
     return problem("Unauthorized.", 401);
   }
 
@@ -111,7 +112,7 @@ export async function POST(request: Request): Promise<Response> {
       return problem(error.message, 422, error.field);
     }
     // Never echo the payload: it carries the buyer's contact details.
-    console.error("[healdesk] provisioning failed", error);
+    log.error("provisioning failed", { error: describeError(error) });
     return problem("Could not complete setup.", 500);
   }
 }

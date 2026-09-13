@@ -15,6 +15,7 @@ import {
   runOperation,
   type OpsOutcome,
 } from "@/lib/ops/api";
+import { describeError, log } from "@/lib/log";
 
 /**
  * POST /api/ops — the one door the admin console comes through.
@@ -90,7 +91,7 @@ function respond(outcome: OpsOutcome): Response {
 export async function POST(request: Request): Promise<Response> {
   const secret = env.provisionSecret();
   if (!secret) {
-    console.error("[healdesk] HEALDESK_PROVISION_SECRET is not set");
+    log.error("HEALDESK_PROVISION_SECRET is not set");
     return respond(
       opsProblem("The operations API is unavailable.", 503, "unavailable"),
     );
@@ -119,7 +120,7 @@ export async function POST(request: Request): Promise<Response> {
     // Vague to the caller; the reason goes to our logs only. verify() checks
     // the timestamp window in both directions, so a captured request stops
     // working five minutes after it was made.
-    console.warn("[healdesk] ops api rejected:", verification.reason);
+    log.warn("ops api rejected", { reason: verification.reason });
     return respond(opsProblem("Unauthorized.", 401, "unauthorized"));
   }
 
@@ -154,10 +155,7 @@ export async function POST(request: Request): Promise<Response> {
      * forge a second line in this log. The operator is not logged, because
      * there is only one and naming them adds nothing.
      */
-    console.error(
-      `[healdesk] ops api: ${op} failed:`,
-      error instanceof Error ? `${error.name}: ${error.message}` : "unknown error",
-    );
+    log.error("ops api operation failed", { op, error: describeError(error) });
 
     // Whether the act happened before the throw is unknown here, and for a
     // mutating op that is worth saying out loud rather than letting an operator

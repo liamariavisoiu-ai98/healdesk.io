@@ -191,15 +191,8 @@ email targeting `weight-loss-glp1` can deep-link straight to that branch.
 
 ### C3. The database findings from the audit
 
-Untouched, and none of them block launch:
-
-- Migration 0019's backfill silently updated zero rows under FORCE RLS, then
-  dropped the source column.
-- The BAA gate sits on state the gated role can write — `healdesk_app` holds
-  unrestricted `UPDATE` on `clinics`.
-- `baa_acceptances` has no RLS, and the 0016 column grant lets any tenant session
-  rebind any organisation's signed BAA.
-- `rls-drift.test.ts` never verifies a policy actually references `clinic_id`.
+Closed by migration 0031 and `tests/database-audit.test.ts`; see
+docs/state-of-play.md "Database-layer findings" for the per-finding verdict.
 
 ---
 

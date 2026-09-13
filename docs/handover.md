@@ -412,6 +412,50 @@ nothing more. Re-running is safe.
 The worker is a plain Node entry point, not a Next route, so it runs as an ECS
 task or a Fly machine with nothing Vercel-shaped in the way.
 
+### Logs
+
+Every log line on the PHI side goes through `apps/app/src/lib/log.ts`, and
+`tests/no-console.test.ts` fails the suite on a bare `console.*` anywhere
+else in `apps/app/src`. The logger allowlists field keys (ids, counters,
+statuses, a short `reason`/`error`) and scrubs emails, phone-shaped numbers
+and URLs with query strings out of free text. Log an id, then read the row
+inside `withTenant()` if you need the thing.
+
+Three rules that live outside the code:
+
+- **Retention on the host, not "never expire".** Whatever collects stdout
+  (CloudWatch on ECS, the Fly log shipper, journald on a box) gets an explicit
+  retention — 30 days is enough for debugging and short enough to bound a
+  breach — and, on AWS, a customer-managed KMS key on every log group plus
+  the `cloudwatch-log-group-encrypted` Config rule.
+- **No error tracker.** There is none on purpose. Sentry, Datadog and the
+  like capture request bodies and local variables by default, and the only
+  ones that sign a BAA cost more than the product earns this year. The
+  structured log line plus the `security_events` and `audit_log` tables are
+  the trace. Revisit when there is a second engineer and a budget.
+- **Never put a patient identifier in a name.** Not in an S3 key, a bucket,
+  an RDS identifier, an ECS task name, a queue name or a resource tag. Names
+  land in CloudTrail, console listings and the billing export, none of which
+  are encrypted with our key. Clinic ids and opaque uuids only.
+
+### Three database rules the audit taught us
+
+- **A migration that writes to a FORCEd table must declare a tenant.** The
+  migrator is `NOBYPASSRLS`, so `UPDATE conversations ...` with no
+  `app.clinic_id` set matches zero rows and reports success. 0019 did exactly
+  that. Loop over clinics with `set_config('app.clinic_id', id, true)`, or
+  write the backfill as a `SECURITY DEFINER` function, and count the rows.
+- **A new column on `clinics` needs its own `GRANT UPDATE`.** 0031 scoped the
+  runtime role's UPDATE to a column list so it cannot touch
+  `data_classification` or `baa_signed_at`; column grants do not extend to
+  columns added later. `tests/database-audit.test.ts` fails until the grant
+  is added.
+- **Nothing writes the two gate columns except `app_mark_clinic_production()`**
+  and nothing binds an agreement except `app_bind_agreement()`. Both are
+  `SECURITY DEFINER`, both refuse the unsafe case, and the runtime role has no
+  other route. Going live is a call to the first; the go-live step in the
+  console is the only place it should be called from.
+
 ### The one thing not to break
 
 `apps/app/tests/rls-drift.test.ts` asks the catalog which tables carry a

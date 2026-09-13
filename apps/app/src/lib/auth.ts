@@ -10,6 +10,7 @@ import { invitation } from "@/db/auth-schema";
 
 import { acceptInvitationFor } from "./access";
 import { env } from "./env";
+import { describeError, log } from "@/lib/log";
 
 /**
  * Authentication for the healdesk console.
@@ -134,10 +135,9 @@ export const auth = betterAuth({
           try {
             await acceptInvitationFor(email, user.id);
           } catch (error) {
-            console.error(
-              "[healdesk] failed to grant access after signup",
-              error instanceof Error ? error.message : error,
-            );
+            log.error("failed to grant access after signup", {
+              error: describeError(error),
+            });
           }
         },
       },

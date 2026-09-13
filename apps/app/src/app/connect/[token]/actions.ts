@@ -18,6 +18,7 @@ import {
 import { withTenant } from "@/lib/tenant";
 
 import { connectRequestContext } from "./request-context";
+import { log } from "@/lib/log";
 
 /**
  * The one write a clinic ever makes to healdesk.
@@ -355,10 +356,7 @@ export async function submitCredential(
     // where the bound parameters on this path are a clinic's sealed credential.
     // The clinic gets nothing specific either: whoever is holding this link
     // should not be able to read our internals through the form.
-    console.error(
-      "[healdesk] connect-link submission failed:",
-      describeError(error),
-    );
+    log.error("connect-link submission failed", { error: describeError(error) });
     return {
       status: "failed",
       message:
@@ -423,9 +421,8 @@ async function recordLostBurn(context: {
       });
     });
   } catch (error) {
-    console.error(
-      "[healdesk] could not record a losing connect-link submission:",
-      describeError(error),
-    );
+    log.error("could not record a losing connect-link submission", {
+      error: describeError(error),
+    });
   }
 }

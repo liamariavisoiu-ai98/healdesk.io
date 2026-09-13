@@ -211,19 +211,29 @@ compliance with the HIPAA Rules."* A drafting aid, **not a safe harbour**.
 
 ### Database-layer findings
 
-- **Migration 0019's backfill silently updated zero rows.** It runs as the table
-  owner against a FORCE-RLS table with no tenant GUC set, then drops the source
-  column. Irreversible, silent loss of exactly the figure the product is sold on.
-- **The BAA gate sits on state the gated party can write.** `healdesk_app` holds
-  unrestricted `UPDATE` on `clinics`, so a tenant session can set its own
-  `baa_signed_at`. And `app_enforce_baa_gate()` is the one function with no pinned
-  `search_path`.
-- **The gate covers only the four tables that existed in 0004** — `webhook_events`,
-  whose `raw_payload` the migration's own comment calls PHI, was never added.
-- **`baa_acceptances` has no RLS at all**, and the 0016 column grant lets any tenant
-  session rebind any organisation's signed BAA.
-- **`rls-drift.test.ts` checks less than it claims** — it never verifies a policy
-  actually references `clinic_id`.
+Five findings were recorded here in September. Four are closed by migration
+0031 (`apps/app/drizzle/0031_database_audit.sql`) and asserted by
+`tests/database-audit.test.ts`; the fifth is a verdict, not a fix.
+
+- **Migration 0019's backfill under FORCE RLS** — matched zero rows, as
+  reported. No data was lost: no clinic had ever left `synthetic`, so every row
+  it could have touched was seed data. The rule that prevents a repeat is in
+  the handover ("Three database rules").
+- **The BAA gate on writable state** — closed. The runtime role's UPDATE on
+  `clinics` is now column-scoped and excludes `data_classification` and
+  `baa_signed_at`; the only route to production is
+  `app_mark_clinic_production()`, which requires a bound, in-effect agreement
+  and copies its date. `app_enforce_baa_gate()` has a pinned `search_path`.
+- **The gate's coverage** — closed. `webhook_events`, `consent_records`,
+  `contact_attempts` and `suppressions` carry the trigger too.
+- **`baa_acceptances` without RLS, and the rebinding grant** — closed. Binding
+  goes through `app_bind_agreement()` (unbound rows only, once, to an
+  organisation that exists and holds none); the column grant is revoked; the
+  table is ENABLEd and FORCEd, and a tenant session sees only its own
+  organisation's agreement.
+- **`rls-drift.test.ts`** — now asserts that every clinic-scoped table has a
+  policy that names `clinic_id`, and that any other policy is confined to the
+  no-tenant context.
 
 ### Testing
 

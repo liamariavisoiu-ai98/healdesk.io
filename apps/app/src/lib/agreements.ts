@@ -22,6 +22,7 @@ import { isSendableAddress } from "@/lib/reporting/deliver";
 
 import { recordSecurityEvent } from "./audit";
 import type { RequestContext } from "./audit";
+import { log } from "@/lib/log";
 
 /**
  * Signing the business associate agreement, before payment.
@@ -818,10 +819,9 @@ async function traceCopy(
      * the outcome it failed to record is already the return value of the
      * function that called this.
      */
-    console.error(
-      "[healdesk] could not record BAA copy outcome:",
-      error instanceof Error ? error.name : "unknown error",
-    );
+    log.error("could not record BAA copy outcome", {
+      error: error instanceof Error ? error.name : "unknown error",
+    });
   }
 }
 
@@ -1011,19 +1011,19 @@ export async function bindAgreement(
     throw new AgreementError("Invalid agreement reference.", "agreementId");
   }
 
-  const bound = await tx
-    .update(baaAcceptances)
-    .set({ organizationId, boundAt: new Date() })
-    .where(
-      and(
-        eq(baaAcceptances.id, agreementId),
-        isNull(baaAcceptances.organizationId),
-      ),
-    )
-    .returning({ variables: baaAcceptances.variables });
-
-  const row = bound[0];
-  return row ? (row.variables as unknown as BaaVariables) : null;
+  // The write itself is app_bind_agreement() (drizzle/0031): the runtime
+  // role no longer holds UPDATE on organization_id or bound_at at all, so the
+  // "only an unbound row, only once, only to an organisation that holds none"
+  // rule is enforced by the function rather than by the WHERE clause that
+  // used to live here. NULL comes back when the row is missing or already
+  // bound; the two organisation-level refusals raise instead, and a raise is
+  // right — those are not "try again", they are "this purchase is wrong".
+  const result = await tx.execute<{ variables: unknown }>(
+    sql`select app_bind_agreement(${agreementId}::uuid, ${organizationId}::text) as variables`,
+  );
+  const rows = (result as unknown as { rows?: { variables: unknown }[] }).rows ?? [];
+  const variables = rows[0]?.variables;
+  return variables ? (variables as BaaVariables) : null;
 }
 
 /**

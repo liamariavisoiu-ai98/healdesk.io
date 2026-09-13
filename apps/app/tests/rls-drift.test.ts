@@ -135,6 +135,56 @@ describeDb("RLS drift", () => {
     }
   });
 
+  test("every clinic-scoped table has an isolation policy that names clinic_id; any other policy is a no-tenant bootstrap", async () => {
+    const { rows } = await getMigratorPool().query<{
+      relname: string;
+      polname: string;
+      expression: string;
+    }>(`
+      select c.relname,
+             p.polname,
+             coalesce(pg_get_expr(p.polqual, p.polrelid), '') || ' ' ||
+             coalesce(pg_get_expr(p.polwithcheck, p.polrelid), '') as expression
+        from pg_policy p
+        join pg_class c on c.oid = p.polrelid
+        join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = 'public'
+         and exists (
+           select 1 from information_schema.columns col
+            where col.table_schema = 'public'
+              and col.table_name = c.relname
+              and col.column_name = 'clinic_id'
+         )
+    `);
+    expect(rows.length).toBeGreaterThan(0);
+
+    const byTable = new Map<string, typeof rows>();
+    for (const row of rows) {
+      byTable.set(row.relname, [...(byTable.get(row.relname) ?? []), row]);
+    }
+
+    for (const [table, policies] of byTable) {
+      // The audit's complaint: "a policy exists" is not "the policy isolates".
+      // At least one policy per table must compare clinic_id to the tenant.
+      const isolating = policies.filter((p) => /\bclinic_id\b/.test(p.expression));
+      expect(
+        isolating.length,
+        `${table}: no policy references clinic_id — RLS is on but isolates nothing`,
+      ).toBeGreaterThan(0);
+
+      // Everything else must be a bootstrap that only applies OUTSIDE a tenant
+      // (the Stripe lookup, the connect-link token), never a second door into
+      // another clinic's rows from inside one.
+      for (const p of policies) {
+        if (isolating.includes(p)) continue;
+        expect(
+          p.expression.includes("app_current_clinic_id() IS NULL"),
+          `${table}.${p.polname} neither references clinic_id nor is limited to the no-tenant context: ${p.expression}`,
+        ).toBe(true);
+      }
+    }
+  });
+
   test("the tenant helper is STABLE, so the planner can hoist it", async () => {
     const { rows } = await getMigratorPool().query<{ provolatile: string }>(
       `select provolatile from pg_proc where proname = 'app_current_clinic_id'`,

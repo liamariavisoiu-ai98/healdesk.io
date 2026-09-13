@@ -565,13 +565,27 @@ describeDb("signing", () => {
         app.query(`delete from baa_acceptances`),
       ).rejects.toMatchObject({ code: "42501" });
 
-      // The one permitted write: binding it to an organization.
-      await expect(
-        app.query(
-          `update baa_acceptances set bound_at = now() where id = $1`,
-          [signed.agreementId],
-        ),
-      ).resolves.toBeTruthy();
+      // Since 0031 the binding columns are not writable directly either — the
+      // only write path to organization_id/bound_at is app_bind_agreement().
+      for (const column of ["bound_at = now()", "organization_id = 'org_x'"]) {
+        await expect(
+          app.query(`update baa_acceptances set ${column} where id = $1`, [
+            signed.agreementId,
+          ]),
+        ).rejects.toMatchObject({ code: "42501" });
+      }
+
+      // And that path works, once, for an organisation that exists.
+      const orgId = `org_bind_${signed.agreementId.slice(0, 8)}`;
+      await getMigratorPool().query(
+        `insert into organization (id, name, slug, created_at) values ($1, 'Immutable Group', $2, now())`,
+        [orgId, `${orgId}-slug`],
+      );
+      const bound = await app.query<{ v: { clinicLegalName: string } }>(
+        `select app_bind_agreement($1::uuid, $2::text) as v`,
+        [signed.agreementId, orgId],
+      );
+      expect(bound.rows[0]!.v.clinicLegalName).toBe("Immutable Clinic");
     } finally {
       await app.end();
     }

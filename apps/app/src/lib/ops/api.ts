@@ -44,6 +44,7 @@ import {
 } from "@/lib/reporting/deliver";
 import { getJob, listJobs as listJobRecords } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
+import { log } from "@/lib/log";
 
 /**
  * The inward operations API: everything the admin console needs, behind one
@@ -475,8 +476,8 @@ export function resolveOperator(context: OpsContext): OperatorResolution {
   const configured = env.adminEmail();
 
   if (!configured || !EMAIL_SHAPED.test(configured)) {
-    console.error(
-      "[healdesk] HEALDESK_ADMIN_EMAIL is not set or is not an address; the ops API cannot attribute anything",
+    log.error(
+      "HEALDESK_ADMIN_EMAIL is not set or is not an address; the ops API cannot attribute anything",
     );
     return {
       ok: false,
@@ -571,10 +572,10 @@ async function audit(
     });
     return true;
   } catch (error) {
-    console.error(
-      `[healdesk] ops api: could not record ${event}:`,
-      error instanceof Error ? error.name : "unknown error",
-    );
+    log.error("ops api: could not record event", {
+      event,
+      error: error instanceof Error ? error.name : "unknown error",
+    });
     return false;
   }
 }

@@ -5,6 +5,7 @@ import { env } from "@/lib/env";
 
 import * as authSchema from "./auth-schema";
 import * as appSchema from "./schema";
+import { log } from "@/lib/log";
 
 /**
  * Database clients.
@@ -53,8 +54,8 @@ function sslConfig(url: string): { rejectUnauthorized: boolean } | undefined {
 
   if (disabled) {
     if (env.isProduction()) {
-      console.warn(
-        "[healdesk] TLS to the database is DISABLED via sslmode=disable. " +
+      log.warn(
+        "TLS to the database is DISABLED via sslmode=disable. " +
           "This is only acceptable if encryption is terminated elsewhere.",
       );
     }

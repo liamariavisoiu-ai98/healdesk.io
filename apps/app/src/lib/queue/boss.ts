@@ -1,6 +1,7 @@
 import PgBoss from "pg-boss";
 
 import { env } from "@/lib/env";
+import { describeError, log } from "@/lib/log";
 
 /**
  * The job queue.
@@ -93,7 +94,7 @@ export async function getBoss(
   // the process down, and a transient database blip should not kill a worker
   // that pg-boss will reconnect on its own.
   boss.on("error", (error) => {
-    console.error("[healdesk][queue]", error instanceof Error ? error.message : error);
+    log.error("queue error", { error: describeError(error) });
   });
 
   await boss.start();

@@ -5,6 +5,7 @@ import { env } from "@/lib/env";
 
 import type { RenderedReport } from "./render";
 import { PhiRoutingError, ResendTransport } from "./resend-transport";
+import { log } from "@/lib/log";
 
 /**
  * Email delivery, behind a port.
@@ -163,9 +164,12 @@ export class ConsoleTransport implements EmailTransport {
           .join(", ")}`
       : "";
 
-    console.info(
-      `[healdesk] would send to ${target.to}: ${message.subject}${files}`,
-    );
+    // The recipient is a clinic's business mailbox, not a patient, but the
+    // address still has no business in a log: the domain says which clinic.
+    log.info("no email transport configured; would have sent", {
+      hint: `to @${target.to.split("@")[1] ?? "?"}`,
+      subject: `${message.subject}${files}`,
+    });
     return {
       status: "skipped",
       reason: attachments.length

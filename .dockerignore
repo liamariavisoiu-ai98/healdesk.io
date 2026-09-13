@@ -1,0 +1,15 @@
+# Build context for apps/app/Dockerfile (built from the repo root).
+**/node_modules
+**/.next
+**/.turbo
+**/dist
+**/.env
+**/.env.*
+!**/.env.example
+.git
+.docs-site
+docs
+scripts/docs-site
+apps/web/public/**/*.png
+**/coverage
+**/*.log

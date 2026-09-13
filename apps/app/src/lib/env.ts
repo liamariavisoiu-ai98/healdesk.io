@@ -1,3 +1,4 @@
+import { log } from "@/lib/log";
 /**
  * Environment accessors.
  *
@@ -18,7 +19,7 @@ function required(name: string, hint?: string): string {
   const message = `${name} is not set.${hint ? ` ${hint}` : ""}`;
   if (process.env.NODE_ENV === "production") throw new Error(message);
 
-  console.warn(`[healdesk] ${message} Using a development fallback.`);
+  log.warn(`${message} Using a development fallback.`);
   return "";
 }
 

@@ -32,6 +32,8 @@ describe("sitemap()", () => {
       "https://healdesk.io/contact",
       "https://healdesk.io/privacy",
       "https://healdesk.io/terms",
+      "https://healdesk.io/subprocessors",
+      "https://healdesk.io/trust",
     ]);
   });
 

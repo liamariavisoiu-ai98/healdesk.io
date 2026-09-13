@@ -54,6 +54,7 @@ export const site = {
     { label: "Privacy", href: "/privacy" },
     { label: "Terms", href: "/terms" },
     { label: "Subprocessors", href: "/subprocessors" },
+    { label: "Trust", href: "/trust" },
   ],
 
   email: "hello@healdesk.io",

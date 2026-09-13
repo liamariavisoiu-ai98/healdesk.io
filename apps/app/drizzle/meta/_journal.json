@@ -225,6 +225,13 @@
       "when": 1789203783165,
       "tag": "0031_database_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1789325235925,
+      "tag": "0032_retention_and_purge",
+      "breakpoints": true
     }
   ]
 }

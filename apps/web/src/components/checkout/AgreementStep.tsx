@@ -349,32 +349,37 @@ export function AgreementStep({
       {/* ---------------- Covered entity ---------------- */}
       <section className="mt-8">
         <h2 className="text-[15.6px] font-bold tracking-[0.04em] uppercase">
-          Does {clinicName || "your practice"} bill insurance electronically?
+          Does {clinicName || "your practice"} send health information electronically to
+          insurers or payers?
         </h2>
         <p className="text-muted mt-1.5 text-sm">
-          It decides which version of the agreement applies to you. If you are
-          cash-pay only, that is completely normal here. It just changes the
-          wording.
+          This is the legal test for whether HIPAA applies to you as a "covered
+          entity": any claim, eligibility check, prior authorisation or claim-status
+          enquiry sent electronically — by you, by a billing service on your
+          behalf, or through a clearinghouse — makes the answer yes. Cash-pay only,
+          with no electronic transactions to any payer, is a no, and it is
+          completely normal here. It changes the wording of the agreement, not
+          the protection.
         </p>
 
         <div className="mt-4 grid gap-3">
           <ChoiceCard
             selected={coveredEntity === true}
             onSelect={() => chooseCoveredEntity(true)}
-            title="Yes, we bill insurance"
-            description="Claims, eligibility checks or similar, submitted electronically."
+            title="Yes — we, or a billing service for us, do"
+            description="Claims, eligibility checks, prior authorisations or claim status, sent electronically to any insurer, Medicare, Medicaid or a clearinghouse."
           />
           <ChoiceCard
             selected={coveredEntity === false}
             onSelect={() => chooseCoveredEntity(false)}
-            title="No, we're cash-pay only"
-            description="Patients pay us directly. We don't submit anything to insurers."
+            title="No — cash-pay only, nothing electronic to any payer"
+            description="Patients pay us directly. Nobody submits anything to insurers on our behalf. (Giving a patient a receipt to claim themselves does not count.)"
           />
           <ChoiceCard
             selected={coveredEntity === null}
             onSelect={() => chooseCoveredEntity(null)}
             title="I'm not sure"
-            description="We'll apply the same safeguards either way and confirm with you before any real patient information is processed."
+            description="We apply the full safeguards either way. We will confirm the answer with you during onboarding, and the agent is not switched on for real patients until it is confirmed."
           />
         </div>
       </section>

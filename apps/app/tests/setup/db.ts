@@ -79,7 +79,8 @@ export async function truncateAll(): Promise<void> {
   await pool.query(`
     insert into scheduled_jobs (name, cadence, enabled) values
       ('monthly-report', 'Monthly, on the 1st, per clinic timezone', false),
-      ('billing-sweep', 'Hourly; suspends past-due clinics after grace, rolls annual allowances monthly', false)
+      ('billing-sweep', 'Hourly; suspends past-due clinics after grace, rolls annual allowances monthly', false),
+      ('retention-purge', 'Nightly; removes media references and rows past each clinic''s retention window, and processed webhook payloads older than 30 days', false)
     on conflict (name) do update set enabled = false, updated_by = null
   `);
 }

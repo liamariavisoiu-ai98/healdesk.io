@@ -34,6 +34,8 @@ export const PUBLIC_ROUTES = [
   { path: "/contact", changeFrequency: "monthly", priority: 0.7 },
   { path: "/privacy", changeFrequency: "yearly", priority: 0.3 },
   { path: "/terms", changeFrequency: "yearly", priority: 0.3 },
+  { path: "/subprocessors", changeFrequency: "monthly", priority: 0.3 },
+  { path: "/trust", changeFrequency: "monthly", priority: 0.5 },
 ] as const satisfies ReadonlyArray<{
   path: `/${string}`;
   changeFrequency: "weekly" | "monthly" | "yearly";

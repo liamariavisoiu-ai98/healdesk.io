@@ -412,6 +412,23 @@ nothing more. Re-running is safe.
 The worker is a plain Node entry point, not a Next route, so it runs as an ECS
 task or a Fly machine with nothing Vercel-shaped in the way.
 
+### Retention
+
+Two clocks per clinic, on the `clinics` row: `retention_media_days` (90)
+clears transcript and recording references; `retention_record_days` (730)
+deletes conversation, appointment and transaction rows and then contacts
+nothing refers to. `retention-purge` runs both nightly, ships switched off
+like every job, skips a clinic mid-sync, and writes one audit row per clinic
+with counts. Consent records, suppressions and contact attempts are never
+purged — they are the evidence a call was lawful — and `baa_acceptances` has
+its own six-year floor. Vendor-side audio (Synthflow) is a retention setting
+in their console, not a delete we run: set it at or below the media window
+and screenshot it. Single-patient erasure is `eraseContact()` in
+`apps/app/src/lib/retention/purge.ts`; it leaves a suppression row behind on
+purpose. Backups: set the host's snapshot retention to 35 days so "deleted
+within 30 days, including backups" is a statement about the calendar, not a
+hope.
+
 ### Logs
 
 Every log line on the PHI side goes through `apps/app/src/lib/log.ts`, and

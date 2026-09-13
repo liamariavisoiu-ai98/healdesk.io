@@ -14,6 +14,8 @@ elective healthcare.
 | [leadgen-playbook.md](./leadgen-playbook.md) | How to find and qualify target clinics — targeting signals, the Apify pipeline, and trigger events. Implemented in [`packages/leadgen`](../packages/leadgen). |
 | [architecture.md](./architecture.md) | Stack decisions and why, the repo layout, and the two-deploy-target split. |
 | [hipaa-compliance.md](./hipaa-compliance.md) | The PHI boundary, what needs a BAA, and the rules that keep `apps/app` portable. **Read before touching patient data.** |
+| [hipaa-risk-analysis.md](./hipaa-risk-analysis.md) | The §164.308(a)(1)(ii)(A) risk analysis: where PHI lives, the threats, the controls, and the accepted risks, stated plainly. |
+| [policies/](./policies/) | The administrative safeguards a business associate must have on paper: the named Security Official, access control, sanctions, and the training/access/review log. |
 | [archive/](./archive/) | The original working doc, preserved verbatim as the source these were split from. |
 
 ## How these relate

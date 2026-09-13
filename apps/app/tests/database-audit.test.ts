@@ -114,6 +114,15 @@ describeDb("database audit (0031)", () => {
     });
 
     const agreementId = await seedAcceptance(organizationId);
+
+    // Bound agreement but covered-entity status still "I'm not sure": still no.
+    await asTenant(null, async (c) => {
+      await expect(
+        c.query(`select app_mark_clinic_production($1::uuid)`, [clinicId]),
+      ).rejects.toMatchObject({ code: "23514" });
+    });
+    await getMigratorPool().query(`update clinics set is_covered_entity = false where id = $1`, [clinicId]);
+
     const { rows: accepted } = await getMigratorPool().query<{ accepted_at: Date }>(
       `select accepted_at from baa_acceptances where id = $1`,
       [agreementId],

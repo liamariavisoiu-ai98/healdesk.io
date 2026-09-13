@@ -315,6 +315,24 @@ export const clinics = pgTable(
     isCoveredEntity: boolean("is_covered_entity"),
     baaSignedAt: timestamp("baa_signed_at", { withTimezone: true }),
 
+    /**
+     * The retention clocks, in days, per clinic. Two, because the two kinds
+     * of data have different value and different risk:
+     *
+     *   media   — transcript and recording references. Pure liability after
+     *             the dispute window closes; 90 days by default.
+     *   records — the conversation, appointment and transaction rows the
+     *             revenue report is built from. Two years by default, so a
+     *             year-over-year comparison is possible and no longer.
+     *
+     * Consent records, suppressions and contact attempts are NOT on either
+     * clock: they are the evidence that a call was lawful and that an
+     * opt-out was honoured, and deleting evidence is not a privacy control.
+     * The purge job (lib/retention/purge.ts) is the only reader.
+     */
+    retentionMediaDays: integer("retention_media_days").notNull().default(90),
+    retentionRecordDays: integer("retention_record_days").notNull().default(730),
+
     /** The BAA gate, made mechanical. See drizzle/0004_baa_gate.sql. */
     dataClassification: dataClassificationEnum("data_classification")
       .notNull()

@@ -49,8 +49,25 @@ const hanken = Hanken_Grotesk({
   display: "swap",
 });
 
+/**
+ * Site-wide metadata. Per-page files set `title` and `description` and the
+ * template below appends the name.
+ *
+ * No `openGraph.images` or `twitter.images` here on purpose. The share card is
+ * app/opengraph-image.tsx (and twitter-image.tsx), which Next turns into the
+ * og:image / twitter:image tags with the right width, height, type and alt.
+ * Declaring an image here as well would emit two, and validators pick the
+ * first one they meet, which is not reliably ours. Same for icons: app/icon.png
+ * and app/apple-icon.png become the <link rel="icon"> tags by convention.
+ *
+ * `metadataBase` is `site.url`, which reads NEXT_PUBLIC_SITE_URL and falls
+ * back to the production domain, so every relative URL Next builds from the
+ * file conventions resolves against the deployed origin, and a preview deploy
+ * with the variable set previews its own cards.
+ */
 export const metadata: Metadata = {
   metadataBase: new URL(site.url),
+  applicationName: site.name,
   title: {
     default: `${site.name}, ${site.tagline}`,
     template: `%s, ${site.name}`,
@@ -58,6 +75,7 @@ export const metadata: Metadata = {
   description: site.description,
   openGraph: {
     type: "website",
+    locale: "en_US",
     url: site.url,
     siteName: site.name,
     title: `${site.name}, ${site.tagline}`,
@@ -68,6 +86,8 @@ export const metadata: Metadata = {
     title: `${site.name}, ${site.tagline}`,
     description: site.description,
   },
+  // Pages that must not rank (/get-started, the 404) override this locally;
+  // robots.ts keeps crawlers out of the funnel before it is ever fetched.
   robots: { index: true, follow: true },
 };
 

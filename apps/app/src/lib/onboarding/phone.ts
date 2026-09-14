@@ -19,6 +19,8 @@ export type PhoneSettings = {
   carrier?: Carrier | null;
   callRouting?: CallRouting;
   synthflowNumberE164?: string | null;
+  /** The clinic's own published number; the forwarding test needs it. */
+  publishedPhoneE164?: string | null;
 };
 
 export async function setPhoneSettings(tx: TenantTx, input: PhoneSettings): Promise<void> {
@@ -39,6 +41,12 @@ export async function setPhoneSettings(tx: TenantTx, input: PhoneSettings): Prom
     }
     set.synthflowNumberE164 = input.synthflowNumberE164;
   }
+  if (input.publishedPhoneE164 !== undefined) {
+    if (input.publishedPhoneE164 !== null && !/^\+[1-9]\d{6,14}$/.test(input.publishedPhoneE164)) {
+      throw new Error("The clinic's published number must be E.164.");
+    }
+    set.publishedPhoneE164 = input.publishedPhoneE164;
+  }
   await tx.db.update(clinics).set(set).where(eq(clinics.id, tx.clinicId));
   tx.audit.record({
     action: "update",
@@ -49,6 +57,7 @@ export async function setPhoneSettings(tx: TenantTx, input: PhoneSettings): Prom
       carrier: input.carrier ?? undefined,
       callRouting: input.callRouting,
       synthflowNumberSet: input.synthflowNumberE164 !== undefined,
+      publishedNumberSet: input.publishedPhoneE164 !== undefined,
     },
   });
   if (input.phoneSystemType && input.phoneSystemType !== "unknown") {

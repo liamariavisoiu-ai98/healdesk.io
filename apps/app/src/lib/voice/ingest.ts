@@ -3,8 +3,9 @@ import { toE164 } from "@healdesk/connectors";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
-import { appointments, clinics, contacts, conversations } from "@/db/schema";
+import { agentConfigs, appointments, clinics, contacts, conversations } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
+import { observeForwardingCall } from "@/lib/onboarding/forwarding-test";
 import { withTenant } from "@/lib/tenant";
 
 /**
@@ -310,12 +311,23 @@ export async function ingestCall(
         timezone: clinics.timezone,
         openingHours: clinics.openingHours,
         callRouting: clinics.callRouting,
+        forwardingTestUntil: clinics.forwardingTestUntil,
+        publishedPhoneE164: clinics.publishedPhoneE164,
       })
       .from(clinics)
       .where(eq(clinics.id, event.clinicId))
       .limit(1);
 
     if (!clinic) throw new VoiceIngestError("Unknown clinic.");
+
+    // The clinic's deposit rule, as the agent stated it on the call. With no
+    // payment link path yet, a required deposit is owed to the front desk.
+    const [agent] = await tx.db
+      .select({ depositPolicy: agentConfigs.depositPolicy })
+      .from(agentConfigs)
+      .where(eq(agentConfigs.clinicId, event.clinicId))
+      .limit(1);
+    const depositPolicy = agent?.depositPolicy ?? null;
 
     const recoveryReason = classifyRecovery(event, {
       callRouting: clinic.callRouting,
@@ -421,6 +433,10 @@ export async function ingestCall(
         .values({
           clinicId: event.clinicId,
           ...bookingRow,
+          depositUsd:
+            bookingRow.depositUsd ??
+            (depositPolicy?.required && depositPolicy.amountUsd !== null ? String(depositPolicy.amountUsd) : null),
+          depositStatus: depositPolicy?.required ? "pending_front_desk" : "none",
           // Deliberately NOT set. We booked it; the clinic's own system has not
           // confirmed it back to us, and may never. See schema.ts.
           externalConfirmedAt: null,
@@ -478,6 +494,11 @@ export async function ingestCall(
         disclosurePlayed: Boolean(event.disclosurePlayedAt),
       },
     });
+
+    // The forwarding test, and the caller-ID watch: after the row exists, in
+    // the same transaction, so a test call that stamps the step and the
+    // conversation it stamped it from commit or roll back together.
+    await observeForwardingCall(tx, clinic, event, row.id);
 
     return { conversationId: row.id, recoveryReason, duplicate: false, appointmentId };
   });

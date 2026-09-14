@@ -4,7 +4,10 @@ import { useState, useTransition } from "react";
 
 import type {
   AgentService,
+  DepositPolicy,
+  ForwardingTestOutcome,
   GoLiveOutcome,
+  MetaPlatform,
   OnboardingView,
   OpsResult,
   SimpleOutcome,
@@ -18,6 +21,7 @@ type Actions = {
     callRouting?: "conditional" | "always";
     carrier?: string | null;
     synthflowNumberE164?: string | null;
+    publishedPhoneE164?: string | null;
   }) => Promise<OpsResult<SimpleOutcome>>;
   saveAgent: (input: {
     greeting: string;
@@ -25,9 +29,13 @@ type Actions = {
     escalationPhone: string | null;
     escalationHours: string | null;
     notes: string | null;
+    depositPolicy: DepositPolicy | null;
   }) => Promise<OpsResult<SimpleOutcome>>;
   approveAgent: (approvedBy: string) => Promise<OpsResult<SimpleOutcome>>;
   goLive: () => Promise<OpsResult<GoLiveOutcome>>;
+  startForwardingTest: () => Promise<OpsResult<ForwardingTestOutcome>>;
+  attachMeta: (input: { platform: MetaPlatform; externalId: string; accessToken: string; label?: string }) => Promise<OpsResult<SimpleOutcome>>;
+  setMeta: (enabled: boolean) => Promise<OpsResult<SimpleOutcome>>;
 };
 
 const CARRIERS = [
@@ -39,7 +47,7 @@ const CARRIERS = [
   ["other", "Other / not sure"],
 ] as const;
 
-function describe(result: OpsResult<SimpleOutcome> | OpsResult<GoLiveOutcome>): string | null {
+function describe(result: OpsResult<SimpleOutcome> | OpsResult<GoLiveOutcome> | OpsResult<ForwardingTestOutcome>): string | null {
   if (!result.ok) return result.message;
   if (result.data.status === "refused") return result.data.message;
   return null;
@@ -105,10 +113,32 @@ export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingV
         ) : (
           <p className="text-muted mt-3 text-sm">Enter the Synthflow number to see the forwarding codes.</p>
         )}
+        <ForwardingTest view={v} onStart={actions.startForwardingTest} />
       </Section>
 
       <Section title={`Agent script${v.agent ? ` — version ${v.agent.version}${v.agent.approvedAt ? ", approved" : ", not approved"}` : ""}`}>
         <AgentForm view={v} onSave={actions.saveAgent} onApprove={actions.approveAgent} />
+      </Section>
+
+      <Section title="Deposits — Stripe Connect">
+        {v.stripeConnect.accountId ? (
+          <p className="text-sm">
+            Connected to the clinic&rsquo;s own Stripe ({v.stripeConnect.accountId}){v.stripeConnect.connectedAt ? ` on ${v.stripeConnect.connectedAt.slice(0, 10)}` : ""}.
+            Deposits can be collected there once a text channel exists to send the link on.
+          </p>
+        ) : v.stripeConnect.authorizeUrl ? (
+          <p className="text-sm">
+            Send the clinic this link, or open it with them on the call; they sign in to their own Stripe and approve healdesk:{" "}
+            <a href={v.stripeConnect.authorizeUrl} className="underline break-all" target="_blank" rel="noreferrer">connect the clinic&rsquo;s Stripe</a>.
+            The link is valid for an hour.
+          </p>
+        ) : (
+          <p className="text-muted text-sm">Stripe Connect is not enabled on the platform yet. Until it is, deposits are collected by the front desk.</p>
+        )}
+      </Section>
+
+      <Section title={`Meta front door — ${v.meta.enabled ? "on" : "off"}`}>
+        <MetaFrontDoor view={v} onAttach={actions.attachMeta} onSwitch={actions.setMeta} />
       </Section>
 
       <Section title="Go live">
@@ -182,6 +212,7 @@ function PhoneForm({ view, onSave }: { view: OnboardingView; onSave: Actions["sa
             callRouting: String(f.get("callRouting")) as "conditional" | "always",
             carrier: String(f.get("carrier") || "") || null,
             synthflowNumberE164: number || null,
+            publishedPhoneE164: String(f.get("publishedPhoneE164") ?? "").trim() || null,
           });
           setProblem(describe(result) ?? "Saved.");
         });
@@ -219,6 +250,11 @@ function PhoneForm({ view, onSave }: { view: OnboardingView; onSave: Actions["sa
         <span className="text-muted block text-xs font-bold uppercase">Synthflow number (E.164)</span>
         <input name="synthflowNumberE164" defaultValue={view.clinic.synthflowNumberE164 ?? ""} placeholder="+14155550100" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
       </label>
+      <label className="text-sm">
+        <span className="text-muted block text-xs font-bold uppercase">The clinic&rsquo;s own published number (E.164)</span>
+        <input name="publishedPhoneE164" defaultValue={view.clinic.publishedPhoneE164 ?? ""} placeholder="+14155550199" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+        <span className="text-muted block text-xs">The forwarding test checks that a forwarded call does not arrive carrying this number.</span>
+      </label>
       <div className="sm:col-span-2 flex items-center gap-3">
         <button type="submit" disabled={pending} className="bg-ink rounded-full px-4 py-2 text-sm font-bold text-white">Save phone settings</button>
         {problem ? <span className="text-sm">{problem}</span> : null}
@@ -232,6 +268,7 @@ function AgentForm({ view, onSave, onApprove }: { view: OnboardingView; onSave: 
   const [problem, setProblem] = useState<string | null>(null);
   const agent = view.agent;
   const [services, setServices] = useState<AgentService[]>(agent?.services ?? []);
+  const [deposit, setDeposit] = useState<DepositPolicy | null>(agent?.depositPolicy ?? null);
 
   return (
     <div>
@@ -251,6 +288,7 @@ function AgentForm({ view, onSave, onApprove }: { view: OnboardingView; onSave: 
               escalationPhone: String(f.get("escalationPhone") ?? "").trim() || null,
               escalationHours: String(f.get("escalationHours") ?? "").trim() || null,
               notes: String(f.get("notes") ?? "").trim() || null,
+              depositPolicy: deposit,
             });
             setProblem(describe(result) ?? "Saved as a new version. Approval is cleared until the clinic approves it again.");
           });
@@ -285,6 +323,48 @@ function AgentForm({ view, onSave, onApprove }: { view: OnboardingView; onSave: 
             <span className="text-muted block text-xs font-bold uppercase">When a human answers that line</span>
             <input name="escalationHours" defaultValue={agent?.escalationHours ?? ""} placeholder="Weekdays 9–5" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
           </label>
+        </div>
+        <div className="border-line rounded-xl border p-3 text-sm">
+          <label className="flex items-center gap-2 font-semibold">
+            <input
+              type="checkbox"
+              checked={Boolean(deposit?.required)}
+              onChange={(e) =>
+                setDeposit(e.target.checked ? { required: true, amountUsd: deposit?.amountUsd ?? null, collection: deposit?.collection ?? "front_desk" } : null)
+              }
+            />
+            The clinic takes a booking deposit
+          </label>
+          {deposit?.required ? (
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <label>
+                <span className="text-muted block text-xs font-bold uppercase">Amount (whole dollars; blank = &ldquo;a deposit&rdquo;)</span>
+                <input
+                  value={deposit.amountUsd ?? ""}
+                  inputMode="numeric"
+                  onChange={(e) => setDeposit({ ...deposit, amountUsd: e.target.value ? Number(e.target.value) : null })}
+                  className="border-line mt-1 w-full rounded-lg border px-3 py-2"
+                />
+              </label>
+              <label>
+                <span className="text-muted block text-xs font-bold uppercase">Collected by</span>
+                <select
+                  value={deposit.collection}
+                  onChange={(e) => setDeposit({ ...deposit, collection: e.target.value as DepositPolicy["collection"] })}
+                  className="border-line mt-1 w-full rounded-lg border px-3 py-2"
+                >
+                  <option value="front_desk">The front desk calls to collect it</option>
+                  <option value="stripe_connect" disabled={!view.stripeConnect.accountId}>
+                    Stripe Connect{view.stripeConnect.accountId ? "" : " (connect the clinic&rsquo;s Stripe first)"}
+                  </option>
+                </select>
+              </label>
+              <p className="text-muted sm:col-span-2 text-xs">
+                The agent says a deposit is due and that the desk will call to collect it; the booking is flagged for the desk
+                and the booked alert says so. A payment link needs a text channel, which waits on 10DLC.
+              </p>
+            </div>
+          ) : null}
         </div>
         <label className="text-sm">
           <span className="text-muted block text-xs font-bold uppercase">Anything else the agent may say (parking, new-patient policy)</span>
@@ -365,6 +445,129 @@ function GoLiveControl({ view, onGoLive }: { view: OnboardingView; onGoLive: Act
         Go live
       </button>
       {message ? <p className="mt-2 text-sm">{message}</p> : null}
+    </div>
+  );
+}
+
+function ForwardingTest({ view, onStart }: { view: OnboardingView; onStart: Actions["startForwardingTest"] }) {
+  const [pending, start] = useTransition();
+  const [message, setMessage] = useState<string | null>(null);
+  const ft = view.forwardingTest;
+  const passed = view.steps.find((s) => s.id === "test_call_passed")?.completedAt;
+  return (
+    <div className="border-line mt-5 rounded-xl border p-4 text-sm">
+      <p className="font-semibold">Prove the forwarding</p>
+      <p className="text-muted mt-1 text-xs">
+        Start a five-minute window, then ring the clinic&rsquo;s published number from any other phone and let it ring out (or
+        have the desk pick up and hang up, to test the busy condition). The first call to arrive is the test: it must show the
+        caller&rsquo;s number, not the clinic&rsquo;s.
+      </p>
+      {ft.windowUntil ? <p className="mt-2">Window open until {ft.windowUntil.slice(11, 16)} UTC. Ring the clinic now.</p> : null}
+      {ft.observed ? (
+        <p className={`mt-2 ${ft.observed.callerIdPreserved ? "text-done" : "text-red-deep"}`}>
+          {ft.observed.callerIdPreserved
+            ? `A call arrived at ${ft.observed.arrivedAt.slice(11, 16)} UTC with the caller ID intact (forward condition: ${ft.observed.condition.replace("_", " ")}).`
+            : `A call arrived at ${ft.observed.arrivedAt.slice(11, 16)} UTC but the caller ID was lost — it carried the clinic's own number. Ask the carrier to preserve caller ID on forwarded calls, then test again.`}
+        </p>
+      ) : null}
+      {passed ? <p className="text-done mt-1 text-xs">Step stamped {passed.slice(0, 16).replace("T", " ")}.</p> : null}
+      {message ? <p className="mt-2 text-xs">{message}</p> : null}
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() =>
+          start(async () => {
+            const result = await onStart();
+            setMessage(describe(result) ?? "Window open. Ring the clinic within five minutes.");
+          })
+        }
+        className="border-line-strong mt-3 rounded-full border px-3 py-1 text-xs font-bold"
+      >
+        {ft.windowUntil ? "Restart the window" : "Start a test window"}
+      </button>
+    </div>
+  );
+}
+
+function MetaFrontDoor({ view, onAttach, onSwitch }: { view: OnboardingView; onAttach: Actions["attachMeta"]; onSwitch: Actions["setMeta"] }) {
+  const [pending, start] = useTransition();
+  const [problem, setProblem] = useState<string | null>(null);
+  const m = view.meta;
+  return (
+    <div className="text-sm">
+      <p className="text-muted">
+        Messenger, Instagram DMs and WhatsApp are a front door, not a hallway: the assistant answers public questions (hours,
+        address, services, price ranges) and hands off to the phone. It never acknowledges a condition, names a time or a
+        provider, or discusses payment, and a guard replaces any reply that tries. Meta signs no BAA — the clinic accepts that
+        residual risk explicitly before this is switched on, and a dermatology or fertility practice may reasonably decline.
+      </p>
+      <ul className="mt-3 grid gap-2">
+        {m.channels.map((c) => (
+          <li key={`${c.platform}-${c.externalId}`} className="border-line rounded-xl border px-3 py-2">
+            <span className="font-semibold">{c.platform}</span> · id {c.externalId}{c.label ? ` · ${c.label}` : ""} · {c.status}
+          </li>
+        ))}
+        {m.channels.length === 0 ? <li className="text-muted">No channel attached yet.</li> : null}
+      </ul>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          const form = event.currentTarget;
+          const f = new FormData(form);
+          start(async () => {
+            setProblem(null);
+            const result = await onAttach({
+              platform: String(f.get("platform")) as MetaPlatform,
+              externalId: String(f.get("externalId") ?? "").trim(),
+              accessToken: String(f.get("accessToken") ?? "").trim(),
+              label: String(f.get("label") ?? "").trim() || undefined,
+            });
+            const message = describe(result);
+            setProblem(message ?? "Attached. The token is sealed; it is not shown again.");
+            if (!message) form.reset();
+          });
+        }}
+        className="mt-4 grid gap-3 sm:grid-cols-2"
+      >
+        <label>
+          <span className="text-muted block text-xs font-bold uppercase">Platform</span>
+          <select name="platform" className="border-line mt-1 w-full rounded-lg border px-3 py-2">
+            <option value="messenger">Messenger (Facebook page)</option>
+            <option value="instagram">Instagram DMs</option>
+            <option value="whatsapp">WhatsApp (Cloud API)</option>
+          </select>
+        </label>
+        <label>
+          <span className="text-muted block text-xs font-bold uppercase">Page id / IG account id / WhatsApp phone number id</span>
+          <input name="externalId" required inputMode="numeric" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+        </label>
+        <label className="sm:col-span-2">
+          <span className="text-muted block text-xs font-bold uppercase">Access token (sealed at rest; never shown again)</span>
+          <input name="accessToken" type="password" required autoComplete="off" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+        </label>
+        <label>
+          <span className="text-muted block text-xs font-bold uppercase">Label (optional)</span>
+          <input name="label" maxLength={120} placeholder="Main page" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+        </label>
+        <div className="flex items-end">
+          <button type="submit" disabled={pending} className="border-line-strong rounded-full border px-4 py-2 text-xs font-bold">Attach channel</button>
+        </div>
+      </form>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => {
+            if (!m.enabled && !window.confirm("Has the clinic accepted, in writing, that Meta channels carry a named residual risk and are answered by a narrow assistant that hands off?")) return;
+            start(async () => setProblem(describe(await onSwitch(!m.enabled)) ?? (m.enabled ? "Switched off." : "Switched on.")));
+          }}
+          className={`rounded-full px-4 py-2 text-xs font-bold ${m.enabled ? "border-line-strong border" : "bg-black text-white"}`}
+        >
+          {m.enabled ? "Switch the front door off" : "Switch the front door on"}
+        </button>
+        <span className="text-muted text-xs">Webhook: <code>/api/webhooks/meta</code> on the product host, subscribed in the Meta app to messages for each product.</span>
+      </div>
+      {problem ? <p className="mt-2 text-xs">{problem}</p> : null}
     </div>
   );
 }

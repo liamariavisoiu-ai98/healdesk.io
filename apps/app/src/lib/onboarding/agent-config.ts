@@ -6,7 +6,7 @@ import {
   type SpecialtyId,
 } from "@healdesk/catalog";
 
-import { agentConfigs, clinics, type AgentService } from "@/db/schema";
+import { agentConfigs, clinics, type AgentService, type DepositPolicy } from "@/db/schema";
 import type { TenantTx } from "@/lib/tenant";
 
 import { completeStep } from "./steps";
@@ -31,6 +31,8 @@ export type AgentConfigInput = {
   escalationPhone: string | null;
   escalationHours: string | null;
   notes: string | null;
+  /** Null: the agent never mentions a deposit. See DepositPolicy. */
+  depositPolicy?: DepositPolicy | null;
 };
 
 export class AgentConfigError extends Error {
@@ -82,6 +84,7 @@ export function defaultAgentConfig(specialty: string, clinicName: string): Agent
     escalationPhone: null,
     escalationHours: null,
     notes: null,
+    depositPolicy: null,
   };
 }
 
@@ -93,6 +96,15 @@ export function validateAgentConfig(input: AgentConfigInput): void {
     throw new AgentConfigError("The escalation number must be E.164 (e.g. +14155550100).");
   }
   if (input.services.length > 40) throw new AgentConfigError("At most 40 services.");
+  const deposit = input.depositPolicy ?? null;
+  if (deposit) {
+    if (deposit.amountUsd !== null && (!Number.isFinite(deposit.amountUsd) || deposit.amountUsd < 0 || deposit.amountUsd > 10_000)) {
+      throw new AgentConfigError("The deposit amount must be between $0 and $10,000, or left blank.");
+    }
+    if (deposit.collection !== "front_desk" && deposit.collection !== "stripe_connect") {
+      throw new AgentConfigError("Deposits are collected by the front desk or through Stripe Connect.");
+    }
+  }
   for (const service of input.services) {
     if (!service.name.trim() || service.name.length > 120) {
       throw new AgentConfigError("Every service needs a name under 120 characters.");
@@ -149,6 +161,7 @@ export async function updateAgentConfig(tx: TenantTx, input: AgentConfigInput): 
     escalationPhone: input.escalationPhone,
     escalationHours: input.escalationHours?.trim() || null,
     notes: input.notes?.trim() || null,
+    depositPolicy: input.depositPolicy ?? null,
     approvedAt: null,
     approvedByLabel: null,
     updatedAt: now,

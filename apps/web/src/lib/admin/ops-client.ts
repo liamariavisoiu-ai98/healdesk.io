@@ -171,7 +171,12 @@ type OperatorOp =
   | "markIncidentNotified"
   | "resolveIncident"
   | "startOffboarding"
-  | "markExportDelivered";
+  | "markExportDelivered"
+  | "startForwardingTest"
+  | "listClinicHealth"
+  | "recordClinicTouch"
+  | "attachMetaChannel"
+  | "setMetaFrontDoor";
 
 /**
  * The operations that happen BEFORE there is a session, and there are exactly
@@ -1697,10 +1702,17 @@ export type OnboardingView = {
     callRoutingConfirmedAt: string | null;
     carrier: string | null;
     synthflowNumberE164: string | null;
+    publishedPhoneE164: string | null;
     openingHoursPresent: boolean;
     wentLiveAt: string | null;
   };
   steps: OnboardingStepView[];
+  forwardingTest: {
+    windowUntil: string | null;
+    observed: { arrivedAt: string; callerIdPreserved: boolean; condition: string } | null;
+  };
+  stripeConnect: { accountId: string | null; connectedAt: string | null; authorizeUrl: string | null };
+  meta: { enabled: boolean; channels: { platform: MetaPlatform; externalId: string; label: string | null; status: string }[] };
   forwarding: {
     steps: { label: string; dial: string }[];
     undo: { label: string; dial: string }[];
@@ -1714,11 +1726,16 @@ export type OnboardingView = {
     escalationPhone: string | null;
     escalationHours: string | null;
     notes: string | null;
+    depositPolicy: DepositPolicy | null;
     approvedAt: string | null;
     approvedByLabel: string | null;
   } | null;
   goLive: { ok: true } | { ok: false; missing: string[] };
 };
+
+export type DepositPolicy = { required: boolean; amountUsd: number | null; collection: "front_desk" | "stripe_connect" };
+export type MetaPlatform = "messenger" | "instagram" | "whatsapp";
+export const META_PLATFORMS: readonly MetaPlatform[] = ["messenger", "instagram", "whatsapp"];
 
 export type SimpleOutcome = { status: "updated" } | { status: "refused"; message: string };
 export type GoLiveOutcome =
@@ -1754,9 +1771,48 @@ function readOnboardingView(value: unknown): OnboardingView {
       callRoutingConfirmedAt: optionalString(clinic.callRoutingConfirmedAt),
       carrier: optionalString(clinic.carrier),
       synthflowNumberE164: optionalString(clinic.synthflowNumberE164),
+      publishedPhoneE164: optionalString(clinic.publishedPhoneE164),
       openingHoursPresent: bool(clinic.openingHoursPresent, "clinic.openingHoursPresent"),
       wentLiveAt: optionalString(clinic.wentLiveAt),
     },
+    forwardingTest: (() => {
+      const ft = object(data.forwardingTest ?? {}, "getOnboarding.forwardingTest");
+      const observed = ft.observed ? object(ft.observed, "forwardingTest.observed") : null;
+      return {
+        windowUntil: optionalString(ft.windowUntil),
+        observed: observed
+          ? {
+              arrivedAt: text(observed.arrivedAt, "forwardingTest.arrivedAt"),
+              callerIdPreserved: bool(observed.callerIdPreserved, "forwardingTest.callerIdPreserved"),
+              condition: text(observed.condition, "forwardingTest.condition"),
+            }
+          : null,
+      };
+    })(),
+    stripeConnect: (() => {
+      const sc = object(data.stripeConnect ?? {}, "getOnboarding.stripeConnect");
+      const url = optionalString(sc.authorizeUrl);
+      return {
+        accountId: optionalString(sc.accountId),
+        connectedAt: optionalString(sc.connectedAt),
+        authorizeUrl: url && url.startsWith("https://connect.stripe.com/") ? url : null,
+      };
+    })(),
+    meta: (() => {
+      const m = object(data.meta ?? {}, "getOnboarding.meta");
+      return {
+        enabled: m.enabled === true,
+        channels: list(m.channels ?? [], "meta.channels").map((entry) => {
+          const ch = object(entry, "meta.channel");
+          return {
+            platform: literal(ch.platform, META_PLATFORMS, "meta.channel.platform"),
+            externalId: text(ch.externalId, "meta.channel.externalId"),
+            label: optionalText(ch.label, "meta.channel.label"),
+            status: text(ch.status, "meta.channel.status"),
+          };
+        }),
+      };
+    })(),
     steps: list(data.steps, "getOnboarding.steps").map((entry) => {
       const row = object(entry, "step");
       return {
@@ -1792,6 +1848,15 @@ function readOnboardingView(value: unknown): OnboardingView {
           escalationPhone: optionalString(agent.escalationPhone),
           escalationHours: optionalString(agent.escalationHours),
           notes: optionalString(agent.notes),
+          depositPolicy: (() => {
+            const d = agent.depositPolicy && typeof agent.depositPolicy === "object" ? (agent.depositPolicy as Record<string, unknown>) : null;
+            if (!d || d.required !== true) return null;
+            return {
+              required: true,
+              amountUsd: typeof d.amountUsd === "number" ? d.amountUsd : null,
+              collection: d.collection === "stripe_connect" ? ("stripe_connect" as const) : ("front_desk" as const),
+            };
+          })(),
           approvedAt: optionalString(agent.approvedAt),
           approvedByLabel: optionalString(agent.approvedByLabel),
         }
@@ -1829,6 +1894,7 @@ export function setPhoneSettings(
     callRouting?: "conditional" | "always";
     carrier?: string | null;
     synthflowNumberE164?: string | null;
+    publishedPhoneE164?: string | null;
   },
 ) {
   return simple("setPhoneSettings", { clinicId, ...settings });
@@ -1842,6 +1908,7 @@ export function updateAgentConfig(
     escalationPhone: string | null;
     escalationHours: string | null;
     notes: string | null;
+    depositPolicy: DepositPolicy | null;
   },
 ) {
   return simple("updateAgentConfig", { clinicId, ...input });
@@ -2034,4 +2101,108 @@ export function openIncident(
       ftcNotifyBy: optionalInstant(data.ftcNotifyBy, "openIncident.ftcNotifyBy")?.on ?? null,
     };
   });
+}
+
+
+// -----------------------------------------------------------------------------
+// Phase 8: forwarding test, first-weeks health, touches
+// -----------------------------------------------------------------------------
+
+export type ForwardingTestOutcome = { status: "started"; windowUntil: string } | { status: "refused"; message: string };
+
+export function startForwardingTest(clinicId: string): Promise<OpsResult<ForwardingTestOutcome>> {
+  return callOps("startForwardingTest", "write", { clinicId }, (value) => {
+    const data = object(value, "startForwardingTest");
+    if (state(data, "startForwardingTest") !== "started") return refusal(data, "startForwardingTest");
+    return { status: "started", windowUntil: instant(data.windowUntil, "startForwardingTest.windowUntil").at };
+  });
+}
+
+export type HealthFlag = "no_calls_after_day_7" | "first_win" | "quiet_week" | "near_allowance";
+export const HEALTH_FLAGS: readonly HealthFlag[] = ["no_calls_after_day_7", "first_win", "quiet_week", "near_allowance"];
+
+export type ClinicHealth = {
+  clinicId: string;
+  slug: string;
+  name: string;
+  plan: string | null;
+  wentLiveOn: string;
+  daysLive: number;
+  conversations: { total: number; last7: number };
+  recovered: { total: number; last7: number };
+  bookings: number;
+  firstRecoveredBookingOn: string | null;
+  lastConversationAt: string | null;
+  recipients: number;
+  forwardingTested: boolean;
+  connected: boolean;
+  usage: { voiceMinutesUsed: number; voiceMinutesIncluded: number; chatUsed: number; chatIncluded: number } | null;
+  touches: { touchedAt: string; byLabel: string; kind: "call" | "email" | "note"; summary: string; outcome: string | null }[];
+  flags: HealthFlag[];
+};
+
+function readHealth(value: unknown): ClinicHealth[] {
+  const data = object(value, "listClinicHealth");
+  return list(data.clinics, "health.clinics").map((entry) => {
+    const h = object(entry, "health.clinic");
+    const pair = (v: unknown, at: string) => {
+      const o = object(v, at);
+      return { total: count(o.total, `${at}.total`), last7: count(o.last7, `${at}.last7`) };
+    };
+    const usage = h.usage ? object(h.usage, "health.usage") : null;
+    return {
+      clinicId: id(h.clinicId, "health.clinicId"),
+      slug: text(h.slug, "health.slug"),
+      name: text(h.name, "health.name"),
+      plan: optionalText(h.plan, "health.plan"),
+      wentLiveOn: instant(h.wentLiveAt, "health.wentLiveAt").on,
+      daysLive: count(h.daysLive, "health.daysLive"),
+      conversations: pair(h.conversations, "health.conversations"),
+      recovered: pair(h.recovered, "health.recovered"),
+      bookings: count(h.bookings, "health.bookings"),
+      firstRecoveredBookingOn: optionalInstant(h.firstRecoveredBookingAt, "health.firstRecoveredBookingAt")?.on ?? null,
+      lastConversationAt: optionalInstant(h.lastConversationAt, "health.lastConversationAt")?.at ?? null,
+      recipients: count(h.recipients, "health.recipients"),
+      forwardingTested: bool(h.forwardingTested, "health.forwardingTested"),
+      connected: bool(h.connected, "health.connected"),
+      usage: usage
+        ? {
+            voiceMinutesUsed: Number(usage.voiceMinutesUsed) || 0,
+            voiceMinutesIncluded: count(usage.voiceMinutesIncluded, "health.usage.voiceMinutesIncluded"),
+            chatUsed: count(usage.chatUsed, "health.usage.chatUsed"),
+            chatIncluded: count(usage.chatIncluded, "health.usage.chatIncluded"),
+          }
+        : null,
+      touches: list(h.touches, "health.touches").map((t) => {
+        const o = object(t, "health.touch");
+        return {
+          touchedAt: instant(o.touchedAt, "health.touch.touchedAt").at,
+          byLabel: text(o.byLabel, "health.touch.byLabel"),
+          kind: literal(o.kind, ["call", "email", "note"], "health.touch.kind"),
+          summary: text(o.summary, "health.touch.summary"),
+          outcome: optionalText(o.outcome, "health.touch.outcome"),
+        };
+      }),
+      flags: list(h.flags, "health.flags").map((f) => literal(f, HEALTH_FLAGS, "health.flag")),
+    };
+  });
+}
+
+export function fetchClinicHealth(): Promise<OpsResult<ClinicHealth[]>> {
+  return callOps("listClinicHealth", "read", {}, readHealth);
+}
+
+export function recordClinicTouch(clinicId: string, input: { kind: "call" | "email" | "note"; summary: string; outcome?: string }) {
+  return careWrite("recordClinicTouch", { clinicId, ...input });
+}
+
+export function attachMetaChannel(
+  clinicId: string,
+  input: { platform: MetaPlatform; externalId: string; accessToken: string; label?: string },
+) {
+  return careWrite("attachMetaChannel", { clinicId, ...input });
+}
+
+export function setMetaFrontDoor(clinicId: string, enabled: boolean) {
+  return careWrite("setMetaFrontDoor", { clinicId, enabled });
 }

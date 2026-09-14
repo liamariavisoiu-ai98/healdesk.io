@@ -388,7 +388,7 @@ npm run db:up -w @healdesk/app     # Postgres in Docker, both roles, migrated
 npm run dev:web                    # marketing + checkout  → :3000
 npm run dev:app                    # ops console           → :3001
 npm run worker -w @healdesk/app    # REQUIRED: the hourly tick, the queues, every job
-npm test -w @healdesk/app          # ~580 tests, needs TEST_APP_URL/TEST_MIGRATOR_URL
+npm test -w @healdesk/app          # ~600 tests, needs TEST_APP_URL/TEST_MIGRATOR_URL
 npm test -w @healdesk/connectors   # 15, no database needed
 ```
 
@@ -419,7 +419,8 @@ destruction (04) and the annual renewal reminder (09). Every job still ships
 switched off and is enabled from the ops console; the `heartbeat` row is the
 liveness signal and `/api/health` reports its age. If the worker is not
 running, nothing scheduled happens and the console's job list says "Never".
-`docs/on-call.md` is the one-page runbook.
+`docs/on-call.md` is the one-page runbook. `/admin/ops` also carries the
+first-weeks list (Phase 8 below).
 
 Mail goes to each clinic's **report recipients** (`report_recipients`, seeded
 with the buyer at provisioning, managed at `/admin/ops/[clinicId]/care`), and
@@ -520,6 +521,47 @@ connections, and writes one security event. It keeps the clinic row, the
 audit log, the signed agreement, the billing history, and the TCPA evidence
 (consent records, suppressions, contact attempts). Vendor-side recordings are
 deleted in the Synthflow console by hand and noted on the event.
+
+### Phase 8 — the forwarding test, the first-weeks list, deposits, Meta
+
+**Forwarding test.** The onboarding page opens a five-minute window
+(`startForwardingTest`); the first call to arrive inside it is the test, and
+`lib/onboarding/forwarding-test.ts` records whether the caller ID survived
+and which forward condition fired, stamping `test_call_passed` only when it
+did. It needs the clinic's own published number (`clinics.published_phone_e164`)
+to compare against — a call that arrives carrying that number has lost its
+caller, and one arriving that way at any later date reopens the step on its
+own.
+
+**First weeks.** `/admin/ops` opens with the clinics live under sixty days:
+calls handled, calls the desk would have missed, first recovered booking, and
+every human touch (`clinic_touches`, append-only, PHI-scanned like an incident
+summary). Two flags name the calls a person must make — past day seven with no
+calls (the phone was never forwarded), and the first recovered booking nobody
+has phoned about. `lib/ops/health.ts`.
+
+**Deposits.** The agent script carries a deposit rule (`agent_configs.deposit_policy`);
+a booking under a required deposit is flagged `pending_front_desk` and the
+booked alert tells the desk it owes the call. That is the whole path until a
+text channel exists to send a payment link on. Stripe Connect (Standard) is
+scaffolded: with `STRIPE_CONNECT_CLIENT_ID` set, the onboarding page shows a
+signed OAuth link, `/api/connect/stripe` stores the clinic's account id. No
+money moves yet, by design.
+
+**The Meta front door.** Built as option A from the launch guide (a front
+door, not a hallway) unless the owner says B. `POST /api/webhooks/meta` takes
+Messenger, Instagram and WhatsApp events, verifies `X-Hub-Signature-256` with
+`META_APP_SECRET`, resolves the clinic by page / account / number id
+(`app_meta_channel`, a tenant walk like the enumerators), and answers with a
+narrow agent (`lib/meta/front-door.ts`: public facts only, hands off to the
+phone) whose every reply passes a deterministic guard before it is sent — an
+acknowledgement, a time, a provider, insurance or guidance becomes the fixed
+hand-off line. Nothing the person wrote is stored; the audit row says a
+message was answered and whether the guard fired. Off per clinic until an
+operator switches it on (`clinics.meta_front_door_enabled`, production only,
+published number required). Tokens are sealed on `provider_connections` as
+`meta-<platform>`. `npm run qa:meta -w @healdesk/app` runs the nine probes
+against the real model with `ANTHROPIC_API_KEY` (the patient org's key).
 
 ### Incidents and patient rights
 

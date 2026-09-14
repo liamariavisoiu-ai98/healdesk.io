@@ -1,0 +1,130 @@
+import { eq } from "drizzle-orm";
+
+import { clinics, type ForwardingTestObservation } from "@/db/schema";
+import type { TenantTx } from "@/lib/tenant";
+import type { VoiceCallEvent } from "@/lib/voice/ingest";
+
+import { completeStep, readOnboarding, reopenStep } from "./steps";
+
+/**
+ * The forwarding test: proof that the clinic's line reaches us with the
+ * caller's number intact.
+ *
+ * An operator opens a short window from the onboarding page and rings the
+ * clinic's published number from another phone (or lets it ring out). The
+ * first call to arrive inside the window is the test. Three facts are
+ * recorded — it arrived, the caller ID survived the forward, and which
+ * condition fired where the carrier told us — and `test_call_passed` is
+ * stamped only when the caller ID survived. If it did not, every future
+ * caller would look like the clinic and no callback could ever reach the
+ * right person, so the step stays open with the reason on the page.
+ *
+ * Separately, and at any time: a call whose caller ID IS the clinic's own
+ * published number is the carrier substituting the forwarding line. That
+ * reopens the step on its own — the carrier changed something, and the
+ * clinic should hear about it before the report shrinks.
+ */
+export const FORWARDING_TEST_WINDOW_MS = 5 * 60 * 1000;
+
+export async function startForwardingTest(tx: TenantTx, now: Date = new Date()): Promise<Date> {
+  const until = new Date(now.getTime() + FORWARDING_TEST_WINDOW_MS);
+  await tx.db
+    .update(clinics)
+    .set({ forwardingTestUntil: until, forwardingTestObserved: null, updatedAt: now })
+    .where(eq(clinics.id, tx.clinicId));
+  tx.audit.record({
+    action: "update",
+    resourceType: "clinic_forwarding_test",
+    resourceId: tx.clinicId,
+    metadata: { started: true, windowMinutes: FORWARDING_TEST_WINDOW_MS / 60_000 },
+  });
+  return until;
+}
+
+export type ForwardingClinicFacts = {
+  forwardingTestUntil: Date | null;
+  publishedPhoneE164: string | null;
+};
+
+export type ForwardingOutcome = "ignored" | "passed" | "failed" | "caller_id_lost";
+
+function condition(event: VoiceCallEvent): ForwardingTestObservation["condition"] {
+  if (event.clinicLineBusy) return "busy";
+  if (event.rangAtClinicFirst) return "no_answer";
+  if (event.rangAtClinicFirst === false) return "all";
+  return "unknown";
+}
+
+/** Pure: is this call the test, and what did it show? */
+export function evaluateForwardingCall(
+  clinic: ForwardingClinicFacts,
+  event: VoiceCallEvent,
+  conversationId: string,
+): { isTest: boolean; callerIsClinic: boolean; observation: ForwardingTestObservation | null } {
+  const callerIsClinic = Boolean(
+    event.callerPhone && clinic.publishedPhoneE164 && event.callerPhone === clinic.publishedPhoneE164,
+  );
+  const until = clinic.forwardingTestUntil?.getTime();
+  const at = event.startedAt.getTime();
+  const isTest = until !== undefined && at <= until && at >= until - FORWARDING_TEST_WINDOW_MS;
+  if (!isTest) return { isTest: false, callerIsClinic, observation: null };
+  return {
+    isTest: true,
+    callerIsClinic,
+    observation: {
+      arrivedAt: event.startedAt.toISOString(),
+      conversationId,
+      callerIdPreserved: Boolean(event.callerPhone) && !callerIsClinic,
+      condition: condition(event),
+    },
+  };
+}
+
+/** Called by ingestCall() once the conversation row exists, inside its transaction. */
+export async function observeForwardingCall(
+  tx: TenantTx,
+  clinic: ForwardingClinicFacts,
+  event: VoiceCallEvent,
+  conversationId: string,
+): Promise<ForwardingOutcome> {
+  const verdict = evaluateForwardingCall(clinic, event, conversationId);
+  const now = new Date();
+
+  if (verdict.observation) {
+    await tx.db
+      .update(clinics)
+      .set({ forwardingTestObserved: verdict.observation, forwardingTestUntil: null, updatedAt: now })
+      .where(eq(clinics.id, tx.clinicId));
+    tx.audit.record({
+      action: "update",
+      resourceType: "clinic_forwarding_test",
+      resourceId: tx.clinicId,
+      metadata: {
+        observed: true,
+        callerIdPreserved: verdict.observation.callerIdPreserved,
+        condition: verdict.observation.condition,
+        conversationId,
+      },
+    });
+    if (verdict.observation.callerIdPreserved) {
+      await completeStep(tx, "test_call_passed", { at: event.startedAt, note: "test call observed" });
+      return "passed";
+    }
+    // The step stays open; the page shows why. A test whose caller ID was
+    // lost is exactly the finding the test exists to surface.
+    if (verdict.callerIsClinic) await reopenIfStamped(tx);
+    return "failed";
+  }
+
+  if (verdict.callerIsClinic) {
+    return (await reopenIfStamped(tx)) ? "caller_id_lost" : "ignored";
+  }
+  return "ignored";
+}
+
+async function reopenIfStamped(tx: TenantTx): Promise<boolean> {
+  const state = await readOnboarding(tx);
+  if (!state.test_call_passed) return false;
+  await reopenStep(tx, "test_call_passed", "a call arrived carrying the clinic's own number as caller ID");
+  return true;
+}

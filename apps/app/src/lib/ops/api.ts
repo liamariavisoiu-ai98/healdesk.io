@@ -46,7 +46,13 @@ import {
   resolveIncident,
   type IncidentClass,
 } from "@/lib/incidents/incidents";
+import { connectAuthorizeUrl } from "@/lib/billing/connect";
 import { markExportDelivered, startOffboarding } from "@/lib/offboarding/offboarding";
+import { startForwardingTest } from "@/lib/onboarding/forwarding-test";
+import { listConnections } from "@/lib/connections/store";
+import { attachMetaChannel, isMetaPlatform, META_PROVIDERS, setMetaFrontDoor } from "@/lib/meta/channels";
+import type { MetaPlatform } from "@/lib/meta/front-door";
+import { clinicHealth, recordTouch, type ClinicHealth } from "@/lib/ops/health";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
 import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
@@ -225,6 +231,13 @@ const OPERATIONS = [
   "resolveIncident",
   "startOffboarding",
   "markExportDelivered",
+  // Phase 8: the forwarding test, the first-weeks view, human touches.
+  "startForwardingTest",
+  "listClinicHealth",
+  "recordClinicTouch",
+  // The Meta front door: a sealed token per platform, and the per-clinic switch.
+  "attachMetaChannel",
+  "setMetaFrontDoor",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -257,6 +270,10 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "resolveIncident",
   "startOffboarding",
   "markExportDelivered",
+  "startForwardingTest",
+  "recordClinicTouch",
+  "attachMetaChannel",
+  "setMetaFrontDoor",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -722,6 +739,16 @@ export async function runOperation(
       return opStartOffboarding(args, operator);
     case "markExportDelivered":
       return opMarkExportDelivered(args, operator);
+    case "startForwardingTest":
+      return opStartForwardingTest(args, operator);
+    case "listClinicHealth":
+      return opListClinicHealth(operator);
+    case "recordClinicTouch":
+      return opRecordClinicTouch(args, operator);
+    case "attachMetaChannel":
+      return opAttachMetaChannel(args, operator);
+    case "setMetaFrontDoor":
+      return opSetMetaFrontDoor(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The
@@ -2168,10 +2195,20 @@ export type OnboardingView = {
     callRoutingConfirmedAt: string | null;
     carrier: string | null;
     synthflowNumberE164: string | null;
+    publishedPhoneE164: string | null;
     openingHoursPresent: boolean;
     wentLiveAt: string | null;
   };
   steps: { id: string; title: string; why: string; required: boolean; completedAt: string | null }[];
+  /** The forwarding test: an open window, or what the last one saw. */
+  forwardingTest: {
+    windowUntil: string | null;
+    observed: { arrivedAt: string; callerIdPreserved: boolean; condition: string } | null;
+  };
+  /** Stripe Connect for deposits: linked, or the link to do it, or neither. */
+  stripeConnect: { accountId: string | null; connectedAt: string | null; authorizeUrl: string | null };
+  /** The Meta front door: the per-clinic switch and the channels attached. */
+  meta: { enabled: boolean; channels: { platform: MetaPlatform; externalId: string; label: string | null; status: string }[] };
   forwarding: ForwardingInstruction | null;
   agent: {
     version: number;
@@ -2180,6 +2217,7 @@ export type OnboardingView = {
     escalationPhone: string | null;
     escalationHours: string | null;
     notes: string | null;
+    depositPolicy: { required: boolean; amountUsd: number | null; collection: "front_desk" | "stripe_connect" } | null;
     approvedAt: string | null;
     approvedByLabel: string | null;
   } | null;
@@ -2208,11 +2246,26 @@ async function opGetOnboarding(
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return opsProblem("No such clinic.", 404, "invalid_args");
 
-  const agent = await withTenant(
+  const { agent, metaChannels } = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
     async (tx) => {
       tx.audit.record({ action: "read", resourceType: "agent_config", resourceId: tx.clinicId });
-      return getAgentConfig(tx);
+      const connections = await listConnections(tx.db, tx.clinicId);
+      return {
+        agent: await getAgentConfig(tx),
+        metaChannels: connections
+          .filter((c) => c.provider.startsWith("meta-"))
+          .map((c) => {
+            const meta = (c.metadata ?? {}) as { externalId?: unknown; label?: unknown };
+            const platform = (Object.keys(META_PROVIDERS) as MetaPlatform[]).find((p) => META_PROVIDERS[p] === c.provider) ?? "messenger";
+            return {
+              platform,
+              externalId: typeof meta.externalId === "string" ? meta.externalId : "",
+              label: typeof meta.label === "string" ? meta.label : null,
+              status: c.status,
+            };
+          }),
+      };
     },
   );
 
@@ -2231,10 +2284,30 @@ async function opGetOnboarding(
       callRoutingConfirmedAt: clinic.callRoutingConfirmedAt?.toISOString() ?? null,
       carrier: clinic.carrier,
       synthflowNumberE164: clinic.synthflowNumberE164,
+      publishedPhoneE164: clinic.publishedPhoneE164,
       openingHoursPresent: clinic.openingHoursPresent,
       wentLiveAt: clinic.wentLiveAt?.toISOString() ?? null,
     },
     steps: stepsView(clinic.onboarding),
+    forwardingTest: {
+      windowUntil:
+        clinic.forwardingTestUntil && clinic.forwardingTestUntil.getTime() > Date.now()
+          ? clinic.forwardingTestUntil.toISOString()
+          : null,
+      observed: clinic.forwardingTestObserved
+        ? {
+            arrivedAt: clinic.forwardingTestObserved.arrivedAt,
+            callerIdPreserved: clinic.forwardingTestObserved.callerIdPreserved,
+            condition: clinic.forwardingTestObserved.condition,
+          }
+        : null,
+    },
+    stripeConnect: {
+      accountId: clinic.stripeConnectAccountId,
+      connectedAt: clinic.stripeConnectConnectedAt?.toISOString() ?? null,
+      authorizeUrl: clinic.stripeConnectAccountId ? null : connectAuthorizeUrl(clinic.id),
+    },
+    meta: { enabled: clinic.metaFrontDoorEnabled, channels: metaChannels },
     forwarding: clinic.synthflowNumberE164
       ? forwardingInstructions({
           carrier: isCarrier(clinic.carrier) ? clinic.carrier : null,
@@ -2251,6 +2324,7 @@ async function opGetOnboarding(
           escalationPhone: agent.escalationPhone,
           escalationHours: agent.escalationHours,
           notes: agent.notes,
+          depositPolicy: agent.depositPolicy ?? null,
           approvedAt: agent.approvedAt?.toISOString() ?? null,
           approvedByLabel: agent.approvedByLabel,
         }
@@ -2306,6 +2380,8 @@ async function opSetPhoneSettings(
   const carrier = args.carrier === null ? null : stringArg(args, "carrier", 32);
   const synthflowNumberE164 =
     args.synthflowNumberE164 === null ? null : stringArg(args, "synthflowNumberE164", 20);
+  const publishedPhoneE164 =
+    args.publishedPhoneE164 === null ? null : stringArg(args, "publishedPhoneE164", 20);
 
   if (phoneSystemType !== undefined && !["landline", "voip", "unknown"].includes(phoneSystemType)) {
     return ok({ status: "error", message: "Unknown phone system type." } satisfies PhoneSettingsState);
@@ -2326,6 +2402,7 @@ async function opSetPhoneSettings(
           callRouting: callRouting as "conditional" | "always" | undefined,
           carrier: carrier as never,
           synthflowNumberE164,
+          publishedPhoneE164,
         }),
     );
   } catch (error) {
@@ -2366,6 +2443,19 @@ function readAgentInput(args: Record<string, unknown>): AgentConfigInput | strin
     escalationPhone: stringArg(args, "escalationPhone", 20) ?? null,
     escalationHours: stringArg(args, "escalationHours", 200) ?? null,
     notes: stringArg(args, "notes", 1000) ?? null,
+    depositPolicy: readDepositPolicy(args.depositPolicy),
+  };
+}
+
+function readDepositPolicy(raw: unknown): AgentConfigInput["depositPolicy"] {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (r.required !== true) return null;
+  const amount = typeof r.amountUsd === "number" && Number.isFinite(r.amountUsd) ? Math.round(r.amountUsd) : null;
+  return {
+    required: true,
+    amountUsd: amount,
+    collection: r.collection === "stripe_connect" ? "stripe_connect" : "front_desk",
   };
 }
 
@@ -2770,5 +2860,111 @@ async function opMarkExportDelivered(
     (tx) => markExportDelivered(tx, how),
   );
   await audit(operator, "offboarding_export_delivered", { clinicSlug: clinic.slug });
+  return care.updated();
+}
+
+
+// -----------------------------------------------------------------------------
+// Phase 8: forwarding test, first-weeks health, human touches
+// -----------------------------------------------------------------------------
+
+export type ForwardingTestOutcome = { status: "started"; windowUntil: string } | { status: "error"; message: string };
+
+async function opStartForwardingTest(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies ForwardingTestOutcome);
+  if (!clinic.synthflowNumberE164) {
+    return ok({ status: "error", message: "Enter the Synthflow number first; there is nothing to forward to." } satisfies ForwardingTestOutcome);
+  }
+  if (!clinic.publishedPhoneE164) {
+    return ok({
+      status: "error",
+      message: "Enter the clinic's own published number first; the test checks the caller ID against it.",
+    } satisfies ForwardingTestOutcome);
+  }
+  const until = await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    (tx) => startForwardingTest(tx),
+  );
+  await audit(operator, "forwarding_test_started", { clinicSlug: clinic.slug });
+  return ok({ status: "started", windowUntil: until.toISOString() } satisfies ForwardingTestOutcome);
+}
+
+async function opListClinicHealth(operator: Operator): Promise<OpsOutcome> {
+  const rows: ClinicHealth[] = await clinicHealth(new Date(), { type: "service", serviceName: operator.email });
+  return ok({ clinics: rows });
+}
+
+async function opRecordClinicTouch(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return care.error("No such clinic.");
+  const kind = stringArg(args, "kind", 16);
+  if (kind !== "call" && kind !== "email" && kind !== "note") return care.error("A touch is a call, an email or a note.");
+  const summary = incidentText(stringArg(args, "summary", 2000), "summary");
+  if (typeof summary !== "string") return care.error(summary.error);
+  const outcomeRaw = stringArg(args, "outcome", 500);
+  const outcome = outcomeRaw ? incidentText(outcomeRaw, "outcome") : null;
+  if (outcome && typeof outcome !== "string") return care.error(outcome.error);
+  await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    (tx) => recordTouch(tx, { kind, summary, outcome: outcome as string | null, byLabel: operator.email }),
+  );
+  await audit(operator, "clinic_touch_recorded", { clinicSlug: clinic.slug, kind });
+  return care.updated();
+}
+
+
+// -----------------------------------------------------------------------------
+// The Meta front door
+// -----------------------------------------------------------------------------
+
+async function opAttachMetaChannel(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return care.error("No such clinic.");
+  const platform = stringArg(args, "platform", 16);
+  if (!isMetaPlatform(platform)) return care.error("The platform is messenger, instagram or whatsapp.");
+  const externalId = stringArg(args, "externalId", 64);
+  if (!externalId || !/^\d{5,32}$/.test(externalId)) {
+    return care.error("The page id, Instagram account id or WhatsApp phone number id is a number.");
+  }
+  const accessToken = stringArg(args, "accessToken", 1024);
+  if (!accessToken || accessToken.length < 20) return care.error("Paste the page or WhatsApp access token.");
+  const label = stringArg(args, "label", 120);
+  await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    (tx) => attachMetaChannel(tx, { platform, externalId, accessToken, label }),
+  );
+  await audit(operator, "meta_channel_attached", { clinicSlug: clinic.slug, platform });
+  return care.updated();
+}
+
+async function opSetMetaFrontDoor(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return care.error("No such clinic.");
+  const enabled = booleanArg(args, "enabled");
+  if (enabled === undefined) return care.error("On or off?");
+  if (enabled && clinic.dataClassification !== "production") {
+    return care.error("Go live first: the front door answers real people.");
+  }
+  if (enabled && !clinic.publishedPhoneE164) {
+    return care.error("Enter the clinic's published number first; the front door hands off to it.");
+  }
+  await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    (tx) => setMetaFrontDoor(tx, enabled),
+  );
+  await audit(operator, enabled ? "meta_front_door_enabled" : "meta_front_door_disabled", { clinicSlug: clinic.slug });
   return care.updated();
 }

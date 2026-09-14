@@ -674,24 +674,6 @@ export const TASKS = [
     source: { doc: "handover", heading: "Once AWS lands" },
   },
   {
-    id: "forwarding-setup-page",
-    group: "onboarding",
-    status: "ready",
-    title: "Automate the forwarding test call",
-    effort: "1 day",
-    blockedBy: null,
-    plain:
-      "The forwarding instructions exist: packages/catalog/src/forwarding.ts holds the carrier star codes (conditional busy/no-answer by default, unconditional only for \"AYA answers everything\", \"ask your carrier\" when unknown) and the console's onboarding page shows them once the Synthflow number is entered. What is still manual is the proof: the operator rings the clinic's number and reads Synthflow's call log to confirm the caller ID survived (docs/onboarding-runbook.md, step 10).",
-    why:
-      "If caller ID does not survive the forward, every caller looks like the clinic and no callback can ever reach the right person. Today a human checks; a button that watches for the inbound event cannot forget.",
-    steps: [
-      "The voice webhook (apps/app/src/app/api/webhooks/voice/[clinicId]/route.ts) now delivers inbound call events to apps/app; add a `startForwardingTest` ops operation that records a two-minute window on the clinic, and have the ingest path stamp `test_call_passed` when a call arrives on the clinic's Synthflow number inside it with a caller number that is not the clinic's own.",
-      "Show the three facts on the console: it arrived, the caller ID was preserved, and which forward condition fired (busy, no-answer, or all).",
-      "Reopen `test_call_passed` automatically if a later call arrives with the clinic's own number as caller ID — the carrier changed something.",
-    ],
-    source: { doc: "blockers-runbook", heading: "The architecture that actually works" },
-  },
-  {
     id: "a2p-10dlc-registration",
     group: "send-today",
     status: "vendor",
@@ -1166,27 +1148,6 @@ export const TASKS = [
       "Write down the target numbers before you look at the first ones, so the thresholds are a standard rather than a description of whatever happened.",
     ],
     source: { doc: "launch-plan", heading: "Verification" },
-  },
-  {
-    id: "trial-first-win-and-expansion",
-    group: "delivery",
-    status: "ready",
-    title: "Build the first-two-weeks health view that drives the day 7–14 first-win call",
-    effort: "2 days for the view, then continuous",
-    blockedBy: null,
-    plain:
-      "The funnel sells with no sales call, which means the only human contact in the whole relationship is the one you choose to make after they buy. There is currently no view anywhere showing which clinics are in their first weeks, how many days in they are, whether the agent has recovered anything yet, and whether anyone has spoken to them. The ops console lists clinics with BAA and covered-entity status and nothing about how they are doing.",
-    why:
-      "A self-serve product that charges a setup fee up front renews or churns on whether the customer has seen a win before the first renewal. Without a list, that call gets made to whoever comes to mind, which in practice means the clinics that complain. It also has to be a human call, not an AI-placed one — placing an outbound AI call to sell to a clinic owner is a different legal regime from answering patients, and it undercuts the one moment where a person is the product.",
-    steps: [
-      "Add a new-clinics section to apps/app/src/app/(console)/page.tsx listing clinics by days since `created_at`, with calls handled, conversations with a non-null `recovery_reason`, first booking date, and whether opening hours and any connection are configured.",
-      "Flag the two states that need a human today: a clinic past day 7 with zero conversations (the phone was never forwarded — a setup failure, not a product failure) and a clinic with its first recovered booking (the moment to call and say so).",
-      "Record the outreach: who called, when, what was said, and the outcome, so the second call knows about the first.",
-      "Use the same data to spot expansion — a clinic consistently over its plan's call volume — and make the tier conversation a fact rather than a guess; `clinics.plan` already carries the slug and needs a volume threshold beside it.",
-      "Ask for the case study and the referral at the point of the first verified win, not at renewal, and keep a field on the clinic recording whether they have agreed to be named.",
-      "Keep every one of these calls human-placed and log them in the same place as the incident cases, so one screen shows every human touch on an account.",
-    ],
-    source: { doc: "state-of-play", heading: "Then — the thing that makes the product a product" },
   },
   {
     id: "app-production-host",

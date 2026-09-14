@@ -70,7 +70,7 @@ export async function truncateAll(): Promise<void> {
       billing_events, billing_transitions, entitlements,
       audit_log, security_events, reconciliation_exceptions,
       webhook_events, sync_runs, transactions, appointments,
-      conversations, contacts, provider_connections,
+      conversations, contacts, provider_connections, clinic_touches,
       clinic_memberships, clinics, baa_acceptances,
       invitation, member, organization, session, account, verification, "user"
     restart identity cascade

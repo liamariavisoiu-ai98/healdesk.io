@@ -2,7 +2,11 @@
 
 import { useState, useTransition } from "react";
 
+import { FirstWeeks } from "./FirstWeeks";
+
 import type {
+  CareOutcome,
+  ClinicHealth,
   ConnectionState,
   ConnectLinkDelivery,
   IssueLinkOutcome,
@@ -58,15 +62,21 @@ export type OpsConsoleActions = {
     clinicId: string,
     recipientEmail: string | null,
   ) => Promise<OpsResult<IssueLinkOutcome>>;
+  recordTouch: (
+    clinicId: string,
+    input: { kind: "call" | "email" | "note"; summary: string; outcome?: string },
+  ) => Promise<OpsResult<CareOutcome>>;
 };
 
 export function OpsConsole({
   clinics,
   jobs,
+  health,
   actions,
 }: {
   clinics: OpsResult<OpsClinics>;
   jobs: OpsResult<OpsJob[]>;
+  health: OpsResult<ClinicHealth[]>;
   actions: OpsConsoleActions;
 }) {
   /**
@@ -99,6 +109,7 @@ export function OpsConsole({
         </p>
       ) : null}
 
+      <FirstWeeks health={health} onTouch={actions.recordTouch} />
       <JobsSection jobs={jobs} onToggle={actions.toggleJob} />
       <ClinicsSection clinics={clinics} onIssue={actions.issueConnectLink} />
     </main>

@@ -4,10 +4,13 @@ import { redirect } from "next/navigation";
 
 import { requireOperator } from "@/lib/admin/operator";
 import {
+  fetchClinicHealth,
   fetchClinics,
   fetchJobs,
   issueConnectLink as issueConnectLinkUpstream,
+  recordClinicTouch as recordTouchUpstream,
   toggleJob as toggleJobUpstream,
+  type CareOutcome,
   type IssueLinkOutcome,
   type OpsResult,
   type ToggleJobOutcome,
@@ -65,13 +68,14 @@ export const dynamic = "force-dynamic";
 export default async function OpsPage() {
   if (!(await requireOperator())) redirect("/admin/sign-in");
 
-  const [clinics, jobs] = await Promise.all([fetchClinics(), fetchJobs()]);
+  const [clinics, jobs, health] = await Promise.all([fetchClinics(), fetchJobs(), fetchClinicHealth()]);
 
   return (
     <OpsConsole
       clinics={clinics}
       jobs={jobs}
-      actions={{ toggleJob, issueConnectLink }}
+      health={health}
+      actions={{ toggleJob, issueConnectLink, recordTouch }}
     />
   );
 }
@@ -122,6 +126,17 @@ async function issueConnectLink(
    * it could be copied, which is why it is written down here rather than left
    * as something the next person has to rediscover.
    */
+  revalidatePath("/admin/ops");
+  return result;
+}
+
+async function recordTouch(
+  clinicId: string,
+  input: { kind: "call" | "email" | "note"; summary: string; outcome?: string },
+): Promise<OpsResult<CareOutcome>> {
+  "use server";
+
+  const result = await recordTouchUpstream(clinicId, input);
   revalidatePath("/admin/ops");
   return result;
 }

@@ -345,6 +345,32 @@ export const clinics = pgTable(
     carrier: text("carrier"),
     /** The Synthflow-issued number the clinic forwards to, E.164. */
     synthflowNumberE164: text("synthflow_number_e164"),
+    /**
+     * The clinic's own published number, E.164. A forwarded call that arrives
+     * carrying THIS as its caller ID has lost the caller: the carrier
+     * substituted the forwarding line. The forwarding test checks for it.
+     */
+    publishedPhoneE164: text("published_phone_e164"),
+    /**
+     * The forwarding test: an operator opens a short window; the first call to
+     * arrive inside it is the test, and what was observed about it is written
+     * to forwarding_test_observed and stamps test_call_passed when it passed.
+     */
+    forwardingTestUntil: timestamp("forwarding_test_until", { withTimezone: true }),
+    forwardingTestObserved: jsonb("forwarding_test_observed").$type<ForwardingTestObservation>(),
+    /**
+     * Stripe Connect (Standard) account for deposits into the clinic's own
+     * Stripe. An account id, never a key: the platform's own secret authorises
+     * calls on its behalf.
+     */
+    stripeConnectAccountId: text("stripe_connect_account_id"),
+    stripeConnectConnectedAt: timestamp("stripe_connect_connected_at", { withTimezone: true }),
+    /**
+     * The Meta front door (Messenger, Instagram, WhatsApp): off by default,
+     * switched on per clinic by an operator once the clinic has accepted the
+     * pattern's named residual risk. See lib/meta/front-door.ts.
+     */
+    metaFrontDoorEnabled: boolean("meta_front_door_enabled").notNull().default(false),
     /** When call_routing stopped being the column default and became an answer. */
     callRoutingConfirmedAt: timestamp("call_routing_confirmed_at", { withTimezone: true }),
     /** Denormalised from agent_configs.approved_at so the overview can read it. */
@@ -676,6 +702,12 @@ export const appointments = pgTable(
     providerName: text("provider_name"),
 
     depositUsd: numeric("deposit_usd", { precision: 12, scale: 2 }),
+    /**
+     * Where the deposit stands. "pending_front_desk" is the fallback path: the
+     * agent said the desk will call to collect, and the desk owes the call.
+     * "pending_link" is a Stripe Connect payment link awaiting payment.
+     */
+    depositStatus: text("deposit_status").$type<DepositStatus>().notNull().default("none"),
 
     scheduledFor: timestamp("scheduled_for", { withTimezone: true }).notNull(),
     /**
@@ -793,6 +825,12 @@ export const agentConfigs = pgTable(
     escalationHours: text("escalation_hours"),
     /** Anything else the agent may say, e.g. parking, new-patient policy. */
     notes: text("notes"),
+    /**
+     * The clinic's deposit rule, as the agent must state it. Null means no
+     * deposit is mentioned. With Stripe Connect unavailable the only
+     * collection path is the front desk, and the agent says so on the call.
+     */
+    depositPolicy: jsonb("deposit_policy").$type<DepositPolicy>(),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
     approvedByLabel: text("approved_by_label"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -863,6 +901,24 @@ export const reportDeliveries = pgTable(
 // Incidents — the BAA's two clocks, as rows with deadlines
 // -----------------------------------------------------------------------------
 
+/** What the forwarding test saw. Facts from the call; no caller in it. */
+export type ForwardingTestObservation = {
+  arrivedAt: string;
+  conversationId: string;
+  callerIdPreserved: boolean;
+  /** Which forward condition fired, where the carrier told us. */
+  condition: "busy" | "no_answer" | "all" | "unknown";
+};
+
+export type DepositStatus = "none" | "pending_front_desk" | "pending_link" | "paid" | "waived";
+
+export type DepositPolicy = {
+  required: boolean;
+  amountUsd: number | null;
+  /** How it is collected. "front_desk" until Stripe Connect is enabled for the clinic. */
+  collection: "front_desk" | "stripe_connect";
+};
+
 export const incidentClassEnum = pgEnum("incident_class", [
   "security_incident",
   "improper_use_or_disclosure",
@@ -899,6 +955,30 @@ export const incidents = pgTable(
     index("incidents_clinic_idx").on(t.clinicId, t.discoveredAt),
     index("incidents_open_idx").on(t.notifyBy).where(sql`${t.resolvedAt} is null`),
   ],
+);
+
+/**
+ * Human touches on an account: the day-7 call, the first-win call, a note.
+ * One screen shows every human contact so the second call knows about the
+ * first. Configuration-plane prose, PHI-scanned on the way in like an
+ * incident summary; never a patient.
+ */
+export const clinicTouches = pgTable(
+  "clinic_touches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    touchedAt: timestamp("touched_at", { withTimezone: true }).notNull().defaultNow(),
+    byLabel: text("by_label").notNull(),
+    /** call | email | note */
+    kind: text("kind").$type<"call" | "email" | "note">().notNull(),
+    summary: text("summary").notNull(),
+    outcome: text("outcome"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("clinic_touches_clinic_idx").on(t.clinicId, t.touchedAt)],
 );
 
 // -----------------------------------------------------------------------------
@@ -2062,4 +2142,5 @@ export const TENANT_SCOPED_TABLES = [
   "report_recipients",
   "report_deliveries",
   "incidents",
+  "clinic_touches",
 ] as const;

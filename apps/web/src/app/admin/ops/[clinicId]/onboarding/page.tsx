@@ -5,13 +5,18 @@ import { notFound, redirect } from "next/navigation";
 import { requireOperator } from "@/lib/admin/operator";
 import {
   approveAgentConfig as approveUpstream,
+  attachMetaChannel as metaChannelUpstream,
+  setMetaFrontDoor as metaSwitchUpstream,
   completeOnboardingStep as completeUpstream,
   fetchOnboarding,
   goLive as goLiveUpstream,
   reopenOnboardingStep as reopenUpstream,
   setPhoneSettings as phoneUpstream,
+  startForwardingTest as forwardingTestUpstream,
   updateAgentConfig as agentUpstream,
   type AgentService,
+  type DepositPolicy,
+  type MetaPlatform,
 } from "@/lib/admin/ops-client";
 
 import { OnboardingPanel } from "./OnboardingPanel";
@@ -70,6 +75,7 @@ export default async function OnboardingPage({
     escalationPhone: string | null;
     escalationHours: string | null;
     notes: string | null;
+    depositPolicy: DepositPolicy | null;
   }) {
     "use server";
     const result = await agentUpstream(clinicId, input);
@@ -89,11 +95,29 @@ export default async function OnboardingPage({
     revalidatePath("/admin/ops");
     return result;
   }
+  async function startForwardingTest() {
+    "use server";
+    const result = await forwardingTestUpstream(clinicId);
+    revalidatePath(path);
+    return result;
+  }
+  async function attachMeta(input: { platform: MetaPlatform; externalId: string; accessToken: string; label?: string }) {
+    "use server";
+    const result = await metaChannelUpstream(clinicId, input);
+    revalidatePath(path);
+    return result;
+  }
+  async function setMeta(enabled: boolean) {
+    "use server";
+    const result = await metaSwitchUpstream(clinicId, enabled);
+    revalidatePath(path);
+    return result;
+  }
 
   return (
     <OnboardingPanel
       view={view}
-      actions={{ completeStep, reopenStep, savePhone, saveAgent, approveAgent, goLive }}
+      actions={{ completeStep, reopenStep, savePhone, saveAgent, approveAgent, goLive, startForwardingTest, attachMeta, setMeta }}
     />
   );
 }

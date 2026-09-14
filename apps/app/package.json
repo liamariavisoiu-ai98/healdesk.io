@@ -17,12 +17,14 @@
     "queue:install": "tsx --env-file-if-exists=.env.local scripts/install-queue.ts",
     "worker": "tsx --env-file-if-exists=.env.local src/workers/index.ts",
     "patient-export": "tsx --env-file-if-exists=.env.local scripts/patient-export.ts",
+    "qa:meta": "tsx --env-file-if-exists=.env.local scripts/meta-qa-gate.ts",
     "db:up": "bash scripts/dev-db.sh up",
     "db:down": "bash scripts/dev-db.sh down",
     "db:reset": "bash scripts/dev-db.sh reset",
     "clean": "rm -rf .next .turbo node_modules"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.115.0",
     "@healdesk/catalog": "*",
     "@healdesk/connectors": "*",
     "better-auth": "^1.6.26",

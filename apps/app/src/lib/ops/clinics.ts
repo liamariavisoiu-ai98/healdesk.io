@@ -7,6 +7,7 @@ import {
 import { sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
+import type { ForwardingTestObservation } from "@/db/schema";
 
 /**
  * Clinic listing for ops, via the SECURITY DEFINER function.
@@ -43,6 +44,13 @@ export type ClinicOverview = {
   exportDeliveredAt: Date | null;
   destroyAfter: Date | null;
   destroyedAt: Date | null;
+  // Phase 8 (0035): the forwarding test and the Connect account. Configuration.
+  publishedPhoneE164: string | null;
+  forwardingTestUntil: Date | null;
+  forwardingTestObserved: ForwardingTestObservation | null;
+  stripeConnectAccountId: string | null;
+  stripeConnectConnectedAt: Date | null;
+  metaFrontDoorEnabled: boolean;
 };
 
 /** Something an operator has to act on before this clinic can go live. */
@@ -56,7 +64,9 @@ export async function listClinics(): Promise<ClinicOverview[]> {
                phone_system_type, call_routing, call_routing_confirmed_at,
                carrier, synthflow_number_e164, opening_hours_present,
                onboarding, agent_approved_at, went_live_at,
-               offboarding_started_at, export_delivered_at, destroy_after, destroyed_at
+               offboarding_started_at, export_delivered_at, destroy_after, destroyed_at,
+               published_phone_e164, forwarding_test_until, forwarding_test_observed,
+               stripe_connect_account_id, stripe_connect_connected_at, meta_front_door_enabled
           from app_clinics_overview()`,
   );
 
@@ -93,6 +103,12 @@ export async function listClinics(): Promise<ClinicOverview[]> {
     exportDeliveredAt: row.export_delivered_at ? new Date(row.export_delivered_at as string) : null,
     destroyAfter: row.destroy_after ? new Date(row.destroy_after as string) : null,
     destroyedAt: row.destroyed_at ? new Date(row.destroyed_at as string) : null,
+    publishedPhoneE164: (row.published_phone_e164 as string | null) ?? null,
+    forwardingTestUntil: row.forwarding_test_until ? new Date(row.forwarding_test_until as string) : null,
+    forwardingTestObserved: (row.forwarding_test_observed as ForwardingTestObservation | null) ?? null,
+    stripeConnectAccountId: (row.stripe_connect_account_id as string | null) ?? null,
+    stripeConnectConnectedAt: row.stripe_connect_connected_at ? new Date(row.stripe_connect_connected_at as string) : null,
+    metaFrontDoorEnabled: Boolean(row.meta_front_door_enabled),
   }));
 }
 

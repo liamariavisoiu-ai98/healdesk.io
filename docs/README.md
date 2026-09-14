@@ -15,6 +15,7 @@ elective healthcare.
 | [architecture.md](./architecture.md) | Stack decisions and why, the repo layout, and the two-deploy-target split. |
 | [hipaa-compliance.md](./hipaa-compliance.md) | The PHI boundary, what needs a BAA, and the rules that keep `apps/app` portable. **Read before touching patient data.** |
 | [hipaa-risk-analysis.md](./hipaa-risk-analysis.md) | The §164.308(a)(1)(ii)(A) risk analysis: where PHI lives, the threats, the controls, and the accepted risks, stated plainly. |
+| [onboarding-runbook.md](./onboarding-runbook.md) | Payment to first answered call: the ordered steps, who does each, how long, and what to automate first. |
 | [policies/](./policies/) | The administrative safeguards a business associate must have on paper: the named Security Official, access control, sanctions, and the training/access/review log. |
 | [archive/](./archive/) | The original working doc, preserved verbatim as the source these were split from. |
 

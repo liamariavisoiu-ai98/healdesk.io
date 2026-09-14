@@ -20,7 +20,7 @@ const CLINICAL_PATTERNS: { pattern: RegExp; label: string }[] = [
   { pattern: /\b(side[- ]?effects?|risks?|complications?|contraindicat\w*)\b/i, label: "side effects or risks" },
   { pattern: /\b(pregnan\w*|breastfeed\w*|nursing mothers?)\b/i, label: "pregnancy or breastfeeding" },
   { pattern: /\b(dos(e|age|ing)|units?|mg\b|milligrams?|ml\b)\b/i, label: "dosing" },
-  { pattern: /\b(candidate|candidacy|eligib\w*|suitable for|ideal for)\b/i, label: "candidacy" },
+  { pattern: /\b(candidates?|candidacy|eligib\w*|suitable for|ideal for)\b/i, label: "candidacy" },
   { pattern: /\b(diagnos\w*|symptom\w*|triage)\b/i, label: "diagnosis, symptoms or triage" },
   { pattern: /\b(recover\w* (time|period)|downtime|healing|aftercare|post[- ]?op\w*)\b/i, label: "recovery or aftercare" },
   { pattern: /\b(interact\w* with|blood thinners?|medications?|prescri\w*)\b/i, label: "medication or interactions" },

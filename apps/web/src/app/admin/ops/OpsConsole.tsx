@@ -373,6 +373,13 @@ function ClinicCard({
         <p className="text-muted mt-3 text-sm">{first.message}</p>
       ) : null}
 
+      <a
+        href={`/admin/ops/${clinic.id}/onboarding`}
+        className="mt-3 inline-block text-sm font-semibold underline underline-offset-2"
+      >
+        Onboarding checklist, phone, script, go-live →
+      </a>
+
       <ConnectLinkControl clinic={clinic} onIssue={onIssue} />
     </div>
   );

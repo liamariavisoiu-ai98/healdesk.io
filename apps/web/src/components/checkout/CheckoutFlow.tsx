@@ -88,6 +88,8 @@ export type State = {
   contactTitle: string;
   /** Discovery question B. Decides whether their number can be text-enabled. */
   phoneSystemType: "landline" | "voip" | "unknown";
+  /** Does the number ring at the practice first? Decides what "recovered" means. */
+  callRouting: "conditional" | "always";
 };
 
 const INITIAL: State = {
@@ -102,6 +104,7 @@ const INITIAL: State = {
   // Not a guess. An assumed "landline" fails during setup, in front of the
   // customer; "unknown" routes it to a check instead.
   phoneSystemType: "unknown",
+  callRouting: "conditional",
 };
 
 /**
@@ -245,6 +248,7 @@ export function CheckoutFlow({
           contactEmail: state.contactEmail.trim(),
           contactTitle: state.contactTitle.trim() || undefined,
           phoneSystemType: state.phoneSystemType,
+          callRouting: state.callRouting,
           // The signature itself, not a claim about it. See AgreementStep.
           agreementId: agreement?.agreementId,
           // Attribution: the cold-email campaign remembered for this session,
@@ -674,6 +678,60 @@ export function CheckoutFlow({
                   <span className="block text-sm font-semibold">
                     {option.label}
                   </span>
+                  <span className="text-muted block text-xs">{option.hint}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        {/* ---------------- Call routing ----------------
+            Decides what the revenue report counts as recovered. "Ring at the
+            practice first" means every call AYA takes is one the desk missed;
+            "AYA answers everything" means only after-hours calls count. It is
+            asked here so the default is never silently inherited, and it is
+            confirmed again on the onboarding call. */}
+        <fieldset className="border-line mt-6 rounded-2xl border bg-white p-5">
+          <legend className="text-[15.6px] font-bold tracking-[0.04em] uppercase">
+            Who should answer first?
+          </legend>
+          <p className="text-muted mt-1.5 text-sm">
+            This decides what your monthly report counts as a recovered call.
+            You can change it during setup.
+          </p>
+          <div className="mt-4 grid gap-2">
+            {(
+              [
+                {
+                  id: "conditional",
+                  label: "My team answers first; AYA takes what we miss",
+                  hint: "Calls forward to AYA only when the line is busy, unanswered, or after hours. Every call AYA takes counts as recovered.",
+                },
+                {
+                  id: "always",
+                  label: "AYA answers everything",
+                  hint: "All calls forward straight to AYA. Only after-hours calls count as recovered, because your team would have taken the rest.",
+                },
+              ] as const
+            ).map((option) => (
+              <label
+                key={option.id}
+                className={[
+                  "flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 transition-colors",
+                  state.callRouting === option.id
+                    ? "border-red bg-red/[0.04]"
+                    : "border-line hover:border-line-strong",
+                ].join(" ")}
+              >
+                <input
+                  type="radio"
+                  name="callRouting"
+                  checked={state.callRouting === option.id}
+                  onChange={() => set("callRouting", option.id)}
+                  className="accent-red mt-1 size-4 shrink-0"
+                />
+                <span>
+                  <span className="block text-sm font-semibold">{option.label}</span>
                   <span className="text-muted block text-xs">{option.hint}</span>
                 </span>
               </label>

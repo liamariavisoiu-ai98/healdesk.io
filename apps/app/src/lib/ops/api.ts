@@ -21,6 +21,16 @@ import {
   type AgreementFilter,
   type AgreementStatus,
 } from "@/lib/agreements/search";
+import {
+  forwardingInstructions,
+  isCarrier,
+  isOnboardingStep,
+  ONBOARDING_LABELS,
+  ONBOARDING_STEPS,
+  type ForwardingInstruction,
+  type OnboardingState,
+} from "@healdesk/catalog";
+
 import { recordSecurityEvent, type ActorContext, type RequestContext } from "@/lib/audit";
 import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
@@ -42,6 +52,16 @@ import {
   type DeliveryTarget,
   type OutgoingEmail,
 } from "@/lib/reporting/deliver";
+import {
+  AgentConfigError,
+  approveAgentConfig,
+  getAgentConfig,
+  updateAgentConfig,
+  type AgentConfigInput,
+} from "@/lib/onboarding/agent-config";
+import { goLive, goLivePreconditions } from "@/lib/onboarding/go-live";
+import { setPhoneSettings } from "@/lib/onboarding/phone";
+import { completeStep, reopenStep } from "@/lib/onboarding/steps";
 import { getJob, listJobs as listJobRecords } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
 import { log } from "@/lib/log";
@@ -169,6 +189,14 @@ const OPERATIONS = [
   "verifyAdminTotpStep",
   "burnRecoveryCode",
   "sendSignInAlert",
+  // Onboarding (lib/onboarding): configuration, never patient data.
+  "getOnboarding",
+  "completeOnboardingStep",
+  "reopenOnboardingStep",
+  "setPhoneSettings",
+  "updateAgentConfig",
+  "approveAgentConfig",
+  "goLive",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -188,6 +216,12 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   // that a retry could undo, which is exactly why the failure copy for a
   // mutating op ("reload before trying again") is the right thing to show.
   "sendSignInAlert",
+  "completeOnboardingStep",
+  "reopenOnboardingStep",
+  "setPhoneSettings",
+  "updateAgentConfig",
+  "approveAgentConfig",
+  "goLive",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -623,6 +657,20 @@ export async function runOperation(
       return opBurnRecoveryCode(args, operator);
     case "sendSignInAlert":
       return opSendSignInAlert(args, operator);
+    case "getOnboarding":
+      return opGetOnboarding(args, operator);
+    case "completeOnboardingStep":
+      return opCompleteOnboardingStep(args, operator, false);
+    case "reopenOnboardingStep":
+      return opCompleteOnboardingStep(args, operator, true);
+    case "setPhoneSettings":
+      return opSetPhoneSettings(args, operator);
+    case "updateAgentConfig":
+      return opUpdateAgentConfig(args, operator);
+    case "approveAgentConfig":
+      return opApproveAgentConfig(args, operator);
+    case "goLive":
+      return opGoLive(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The
@@ -2039,4 +2087,329 @@ function endOfUtcDay(date: string): Date | null {
 /** UTC calendar date. These are dates, not moments, everywhere they are shown. */
 function asDate(at: Date): string {
   return at.toISOString().slice(0, 10);
+}
+
+
+// -----------------------------------------------------------------------------
+// Onboarding
+// -----------------------------------------------------------------------------
+
+/**
+ * Everything the operator needs for one clinic's onboarding call, in one read:
+ * the checklist with labels, the phone facts and the forwarding codes they
+ * imply, the agent's current words, and what go-live would refuse on. All of
+ * it is clinic configuration — the same class of data the overview function
+ * already exposes — read inside the clinic's tenant so the agent config row
+ * (RLS forced) is visible and the read is audited.
+ */
+export type OnboardingView = {
+  clinic: {
+    id: string;
+    slug: string;
+    name: string;
+    specialty: string;
+    timezone: string;
+    dataClassification: "synthetic" | "production";
+    attributionMode: "estimated" | "verified";
+    isCoveredEntity: boolean | null;
+    phoneSystemType: "landline" | "voip" | "unknown";
+    callRouting: "conditional" | "always";
+    callRoutingConfirmedAt: string | null;
+    carrier: string | null;
+    synthflowNumberE164: string | null;
+    openingHoursPresent: boolean;
+    wentLiveAt: string | null;
+  };
+  steps: { id: string; title: string; why: string; required: boolean; completedAt: string | null }[];
+  forwarding: ForwardingInstruction | null;
+  agent: {
+    version: number;
+    greeting: string;
+    services: unknown[];
+    escalationPhone: string | null;
+    escalationHours: string | null;
+    notes: string | null;
+    approvedAt: string | null;
+    approvedByLabel: string | null;
+  } | null;
+  goLive: { ok: true } | { ok: false; missing: string[] };
+};
+
+function stepsView(state: OnboardingState) {
+  return ONBOARDING_STEPS.map((id) => ({
+    id,
+    title: ONBOARDING_LABELS[id].title,
+    why: ONBOARDING_LABELS[id].why,
+    required: ONBOARDING_LABELS[id].required,
+    completedAt: state[id] ?? null,
+  }));
+}
+
+async function clinicById(clinicId: string | undefined) {
+  if (!clinicId || !UUID_SHAPED.test(clinicId)) return undefined;
+  return (await listClinicOverviews()).find((c) => c.id === clinicId);
+}
+
+async function opGetOnboarding(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return opsProblem("No such clinic.", 404, "invalid_args");
+
+  const agent = await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    async (tx) => {
+      tx.audit.record({ action: "read", resourceType: "agent_config", resourceId: tx.clinicId });
+      return getAgentConfig(tx);
+    },
+  );
+
+  const view: OnboardingView = {
+    clinic: {
+      id: clinic.id,
+      slug: clinic.slug,
+      name: clinic.name,
+      specialty: clinic.specialty,
+      timezone: clinic.timezone,
+      dataClassification: clinic.dataClassification,
+      attributionMode: clinic.attributionMode,
+      isCoveredEntity: clinic.isCoveredEntity,
+      phoneSystemType: clinic.phoneSystemType,
+      callRouting: clinic.callRouting,
+      callRoutingConfirmedAt: clinic.callRoutingConfirmedAt?.toISOString() ?? null,
+      carrier: clinic.carrier,
+      synthflowNumberE164: clinic.synthflowNumberE164,
+      openingHoursPresent: clinic.openingHoursPresent,
+      wentLiveAt: clinic.wentLiveAt?.toISOString() ?? null,
+    },
+    steps: stepsView(clinic.onboarding),
+    forwarding: clinic.synthflowNumberE164
+      ? forwardingInstructions({
+          carrier: isCarrier(clinic.carrier) ? clinic.carrier : null,
+          phoneSystemType: clinic.phoneSystemType,
+          routing: clinic.callRouting,
+          destinationE164: clinic.synthflowNumberE164,
+        })
+      : null,
+    agent: agent
+      ? {
+          version: agent.version,
+          greeting: agent.greeting,
+          services: agent.services,
+          escalationPhone: agent.escalationPhone,
+          escalationHours: agent.escalationHours,
+          notes: agent.notes,
+          approvedAt: agent.approvedAt?.toISOString() ?? null,
+          approvedByLabel: agent.approvedByLabel,
+        }
+      : null,
+    goLive: goLivePreconditions(clinic),
+  };
+  return ok(view);
+}
+
+export type OnboardingMutationState =
+  | { status: "updated"; steps: OnboardingView["steps"]; auditRecorded: boolean }
+  | { status: "error"; message: string };
+
+async function opCompleteOnboardingStep(
+  args: Record<string, unknown>,
+  operator: Operator,
+  reopen: boolean,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  const step = stringArg(args, "step", 64);
+  const note = stringArg(args, "note", 200);
+  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies OnboardingMutationState);
+  if (!isOnboardingStep(step)) {
+    return ok({ status: "error", message: "Unknown onboarding step." } satisfies OnboardingMutationState);
+  }
+  const state = await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    (tx) =>
+      reopen
+        ? reopenStep(tx, step, note ?? "reopened by operator")
+        : completeStep(tx, step, { note }),
+  );
+  const auditRecorded = await audit(operator, reopen ? "onboarding_step_reopened" : "onboarding_step_completed", {
+    clinicSlug: clinic.slug,
+    step,
+  });
+  return ok({ status: "updated", steps: stepsView(state), auditRecorded } satisfies OnboardingMutationState);
+}
+
+export type PhoneSettingsState =
+  | { status: "updated"; auditRecorded: boolean }
+  | { status: "error"; message: string };
+
+async function opSetPhoneSettings(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies PhoneSettingsState);
+
+  const phoneSystemType = stringArg(args, "phoneSystemType", 16);
+  const callRouting = stringArg(args, "callRouting", 16);
+  const carrier = args.carrier === null ? null : stringArg(args, "carrier", 32);
+  const synthflowNumberE164 =
+    args.synthflowNumberE164 === null ? null : stringArg(args, "synthflowNumberE164", 20);
+
+  if (phoneSystemType !== undefined && !["landline", "voip", "unknown"].includes(phoneSystemType)) {
+    return ok({ status: "error", message: "Unknown phone system type." } satisfies PhoneSettingsState);
+  }
+  if (callRouting !== undefined && !["conditional", "always"].includes(callRouting)) {
+    return ok({ status: "error", message: "Unknown call routing." } satisfies PhoneSettingsState);
+  }
+  if (carrier !== undefined && carrier !== null && !isCarrier(carrier)) {
+    return ok({ status: "error", message: "Unknown carrier." } satisfies PhoneSettingsState);
+  }
+
+  try {
+    await withTenant(
+      { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+      (tx) =>
+        setPhoneSettings(tx, {
+          phoneSystemType: phoneSystemType as "landline" | "voip" | "unknown" | undefined,
+          callRouting: callRouting as "conditional" | "always" | undefined,
+          carrier: carrier as never,
+          synthflowNumberE164,
+        }),
+    );
+  } catch (error) {
+    return ok({
+      status: "error",
+      message: error instanceof Error ? error.message : "Could not save.",
+    } satisfies PhoneSettingsState);
+  }
+  const auditRecorded = await audit(operator, "clinic_phone_updated", {
+    clinicSlug: clinic.slug,
+    callRouting,
+    phoneSystemType,
+  });
+  return ok({ status: "updated", auditRecorded } satisfies PhoneSettingsState);
+}
+
+export type AgentConfigState =
+  | { status: "updated"; version: number; approvedAt: string | null; auditRecorded: boolean }
+  | { status: "error"; message: string };
+
+function readAgentInput(args: Record<string, unknown>): AgentConfigInput | string {
+  const greeting = stringArg(args, "greeting", 600);
+  if (!greeting) return "The greeting is required.";
+  const rawServices = Array.isArray(args.services) ? args.services : [];
+  const services = rawServices.map((raw) => {
+    const r = (raw ?? {}) as Record<string, unknown>;
+    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v) : null);
+    return {
+      name: typeof r.name === "string" ? r.name.trim().slice(0, 120) : "",
+      priceFromUsd: num(r.priceFromUsd),
+      priceToUsd: num(r.priceToUsd),
+      durationMinutes: num(r.durationMinutes),
+    };
+  });
+  return {
+    greeting,
+    services,
+    escalationPhone: stringArg(args, "escalationPhone", 20) ?? null,
+    escalationHours: stringArg(args, "escalationHours", 200) ?? null,
+    notes: stringArg(args, "notes", 1000) ?? null,
+  };
+}
+
+async function opUpdateAgentConfig(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies AgentConfigState);
+  const input = readAgentInput(args);
+  if (typeof input === "string") return ok({ status: "error", message: input } satisfies AgentConfigState);
+
+  try {
+    const row = await withTenant(
+      { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+      (tx) => updateAgentConfig(tx, input),
+    );
+    const auditRecorded = await audit(operator, "agent_config_updated", {
+      clinicSlug: clinic.slug,
+      version: row.version,
+    });
+    return ok({
+      status: "updated",
+      version: row.version,
+      approvedAt: null,
+      auditRecorded,
+    } satisfies AgentConfigState);
+  } catch (error) {
+    if (error instanceof AgentConfigError) {
+      return ok({ status: "error", message: error.message } satisfies AgentConfigState);
+    }
+    throw error;
+  }
+}
+
+async function opApproveAgentConfig(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  const approvedBy = stringArg(args, "approvedBy", 200);
+  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies AgentConfigState);
+  if (!approvedBy) {
+    return ok({
+      status: "error",
+      message: "Name who at the clinic approved the script.",
+    } satisfies AgentConfigState);
+  }
+  try {
+    const row = await withTenant(
+      { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+      (tx) => approveAgentConfig(tx, `${approvedBy} (recorded by ${operator.email})`),
+    );
+    const auditRecorded = await audit(operator, "agent_config_approved", {
+      clinicSlug: clinic.slug,
+      version: row.version,
+    });
+    return ok({
+      status: "updated",
+      version: row.version,
+      approvedAt: row.approvedAt?.toISOString() ?? null,
+      auditRecorded,
+    } satisfies AgentConfigState);
+  } catch (error) {
+    if (error instanceof AgentConfigError) {
+      return ok({ status: "error", message: error.message } satisfies AgentConfigState);
+    }
+    throw error;
+  }
+}
+
+export type GoLiveState =
+  | { status: "live"; baaSignedOn: string }
+  | { status: "refused"; message: string; missing: string[] }
+  | { status: "error"; message: string };
+
+async function opGoLive(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinicId = stringArg(args, "clinicId");
+  if (!clinicId || !UUID_SHAPED.test(clinicId)) {
+    return ok({ status: "error", message: "That is not a clinic id." } satisfies GoLiveState);
+  }
+  const result = await goLive(clinicId, {
+    label: operator.email,
+    ipAddress: operator.request.ipAddress,
+    userAgent: operator.request.userAgent,
+  });
+  switch (result.status) {
+    case "live":
+      return ok({ status: "live", baaSignedOn: asDate(result.baaSignedAt) } satisfies GoLiveState);
+    case "refused":
+      return ok({ status: "refused", message: result.reason, missing: result.missing } satisfies GoLiveState);
+    case "not_found":
+      return ok({ status: "error", message: "No such clinic." } satisfies GoLiveState);
+  }
 }

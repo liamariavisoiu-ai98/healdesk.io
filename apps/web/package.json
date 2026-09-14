@@ -12,7 +12,8 @@
     "stripe:setup": "tsx --env-file-if-exists=.env.local scripts/stripe-setup.ts",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "qa:gate": "tsx --env-file-if-exists=.env.local scripts/qa-gate.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

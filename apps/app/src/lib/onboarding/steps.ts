@@ -46,7 +46,7 @@ export async function completeStep(
     action: "update",
     resourceType: "clinic_onboarding",
     resourceId: tx.clinicId,
-    metadata: { step, note: options.note?.slice(0, 200) },
+    metadata: { step, remark: options.note?.slice(0, 200) },
   });
   return readOnboarding(tx);
 }

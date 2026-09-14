@@ -414,6 +414,25 @@ nothing more. Re-running is safe.
 The worker is a plain Node entry point, not a Next route, so it runs as an ECS
 task or a Fly machine with nothing Vercel-shaped in the way.
 
+### Onboarding — payment to the first answered call
+
+`docs/onboarding-runbook.md` is the ordered list. In the software: the
+checklist lives on `clinics.onboarding` (steps from `@healdesk/catalog`),
+the agent's words in `agent_configs` (per clinic, versioned, approved by
+name, screened by `findClinicalContent()` so no dosing, candidacy, safety or
+recovery copy is ever spoken), the phone facts on the clinic row, and the
+forwarding codes computed from carrier + line type + routing. The operator
+page is `/admin/ops/<clinicId>/onboarding`; every write goes through the ops
+API and is audited. Go-live is `app_mark_clinic_production()`: it refuses in
+the database until the covered-entity answer, opening hours, confirmed
+routing, an approved script and every required step are on the row, then
+copies the bound agreement's date and stamps `went_live_at`.
+
+`npm run qa:gate -w @healdesk/web` runs the demo prompt against twelve
+patient-shaped probes and an injection attempt and fails on any clinical
+affirmation or missing deflection. It costs tokens; run it nightly and before
+any prompt change, not per commit.
+
 ### Marketing email and the funnel
 
 Everything a prospect receives from us by email is on the marketing side

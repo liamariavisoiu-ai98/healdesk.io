@@ -156,7 +156,14 @@ type OperatorOp =
   | "issueConnectLink"
   | "searchAgreements"
   | "resendAgreementCopy"
-  | "markAgreementTerminated";
+  | "markAgreementTerminated"
+  | "getOnboarding"
+  | "completeOnboardingStep"
+  | "reopenOnboardingStep"
+  | "setPhoneSettings"
+  | "updateAgentConfig"
+  | "approveAgentConfig"
+  | "goLive";
 
 /**
  * The operations that happen BEFORE there is a session, and there are exactly
@@ -1646,4 +1653,208 @@ function readDelivery(value: unknown): ConnectLinkDelivery {
   return status === "sent"
     ? { attempted: true, status }
     : { attempted: true, status, reason: text(row.reason, "delivery.reason") };
+}
+
+// -----------------------------------------------------------------------------
+// Onboarding
+// -----------------------------------------------------------------------------
+
+export type OnboardingStepView = {
+  id: string;
+  title: string;
+  why: string;
+  required: boolean;
+  completedAt: string | null;
+};
+
+export type AgentService = {
+  name: string;
+  priceFromUsd: number | null;
+  priceToUsd: number | null;
+  durationMinutes: number | null;
+};
+
+export type OnboardingView = {
+  clinic: {
+    id: string;
+    slug: string;
+    name: string;
+    specialty: string;
+    timezone: string;
+    dataClassification: "synthetic" | "production";
+    attributionMode: "estimated" | "verified";
+    isCoveredEntity: boolean | null;
+    phoneSystemType: "landline" | "voip" | "unknown";
+    callRouting: "conditional" | "always";
+    callRoutingConfirmedAt: string | null;
+    carrier: string | null;
+    synthflowNumberE164: string | null;
+    openingHoursPresent: boolean;
+    wentLiveAt: string | null;
+  };
+  steps: OnboardingStepView[];
+  forwarding: {
+    steps: { label: string; dial: string }[];
+    undo: { label: string; dial: string }[];
+    notes: string[];
+    needsCarrierHelp: boolean;
+  } | null;
+  agent: {
+    version: number;
+    greeting: string;
+    services: AgentService[];
+    escalationPhone: string | null;
+    escalationHours: string | null;
+    notes: string | null;
+    approvedAt: string | null;
+    approvedByLabel: string | null;
+  } | null;
+  goLive: { ok: true } | { ok: false; missing: string[] };
+};
+
+export type SimpleOutcome = { status: "updated" } | { status: "refused"; message: string };
+export type GoLiveOutcome =
+  | { status: "live"; baaSignedOn: string }
+  | { status: "refused"; message: string; missing: string[] };
+
+function optionalString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function readOnboardingView(value: unknown): OnboardingView {
+  const data = object(value, "getOnboarding");
+  const clinic = object(data.clinic, "getOnboarding.clinic");
+  const forwarding = data.forwarding ? object(data.forwarding, "getOnboarding.forwarding") : null;
+  const agent = data.agent ? object(data.agent, "getOnboarding.agent") : null;
+  const goLiveRaw = object(data.goLive, "getOnboarding.goLive");
+  const pair = (entry: unknown) => {
+    const row = object(entry, "forwarding.step");
+    return { label: text(row.label, "forwarding.label"), dial: typeof row.dial === "string" ? row.dial : "" };
+  };
+  return {
+    clinic: {
+      id: id(clinic.id, "clinic.id"),
+      slug: text(clinic.slug, "clinic.slug"),
+      name: text(clinic.name, "clinic.name"),
+      specialty: text(clinic.specialty, "clinic.specialty"),
+      timezone: text(clinic.timezone, "clinic.timezone"),
+      dataClassification: literal(clinic.dataClassification, ["synthetic", "production"], "clinic.dataClassification"),
+      attributionMode: literal(clinic.attributionMode, ["estimated", "verified"], "clinic.attributionMode"),
+      isCoveredEntity: typeof clinic.isCoveredEntity === "boolean" ? clinic.isCoveredEntity : null,
+      phoneSystemType: literal(clinic.phoneSystemType, ["landline", "voip", "unknown"], "clinic.phoneSystemType"),
+      callRouting: literal(clinic.callRouting, ["conditional", "always"], "clinic.callRouting"),
+      callRoutingConfirmedAt: optionalString(clinic.callRoutingConfirmedAt),
+      carrier: optionalString(clinic.carrier),
+      synthflowNumberE164: optionalString(clinic.synthflowNumberE164),
+      openingHoursPresent: bool(clinic.openingHoursPresent, "clinic.openingHoursPresent"),
+      wentLiveAt: optionalString(clinic.wentLiveAt),
+    },
+    steps: list(data.steps, "getOnboarding.steps").map((entry) => {
+      const row = object(entry, "step");
+      return {
+        id: text(row.id, "step.id"),
+        title: text(row.title, "step.title"),
+        why: text(row.why, "step.why"),
+        required: bool(row.required, "step.required"),
+        completedAt: optionalString(row.completedAt),
+      };
+    }),
+    forwarding: forwarding
+      ? {
+          steps: list(forwarding.steps, "forwarding.steps").map(pair),
+          undo: list(forwarding.undo, "forwarding.undo").map(pair),
+          notes: list(forwarding.notes, "forwarding.notes").map((n) => text(n, "forwarding.note")),
+          needsCarrierHelp: bool(forwarding.needsCarrierHelp, "forwarding.needsCarrierHelp"),
+        }
+      : null,
+    agent: agent
+      ? {
+          version: count(agent.version, "agent.version"),
+          greeting: text(agent.greeting, "agent.greeting"),
+          services: list(agent.services, "agent.services").map((entry) => {
+            const row = object(entry, "service");
+            const num = (v: unknown) => (typeof v === "number" ? v : null);
+            return {
+              name: text(row.name, "service.name"),
+              priceFromUsd: num(row.priceFromUsd),
+              priceToUsd: num(row.priceToUsd),
+              durationMinutes: num(row.durationMinutes),
+            };
+          }),
+          escalationPhone: optionalString(agent.escalationPhone),
+          escalationHours: optionalString(agent.escalationHours),
+          notes: optionalString(agent.notes),
+          approvedAt: optionalString(agent.approvedAt),
+          approvedByLabel: optionalString(agent.approvedByLabel),
+        }
+      : null,
+    goLive: goLiveRaw.ok === true
+      ? { ok: true }
+      : { ok: false, missing: list(goLiveRaw.missing, "goLive.missing").map((m) => text(m, "goLive.missing")) },
+  };
+}
+
+export function fetchOnboarding(clinicId: string): Promise<OpsResult<OnboardingView>> {
+  return callOps("getOnboarding", "read", { clinicId }, readOnboardingView);
+}
+
+function simple(op: OperatorOp, args: Record<string, unknown>): Promise<OpsResult<SimpleOutcome>> {
+  return callOps(op, "write", args, (value) => {
+    const data = object(value, op);
+    if (state(data, op) !== "updated") return refusal(data, op);
+    return { status: "updated" };
+  });
+}
+
+export function completeOnboardingStep(clinicId: string, step: string, note?: string) {
+  return simple("completeOnboardingStep", { clinicId, step, ...(note ? { note } : {}) });
+}
+
+export function reopenOnboardingStep(clinicId: string, step: string, note?: string) {
+  return simple("reopenOnboardingStep", { clinicId, step, ...(note ? { note } : {}) });
+}
+
+export function setPhoneSettings(
+  clinicId: string,
+  settings: {
+    phoneSystemType?: "landline" | "voip" | "unknown";
+    callRouting?: "conditional" | "always";
+    carrier?: string | null;
+    synthflowNumberE164?: string | null;
+  },
+) {
+  return simple("setPhoneSettings", { clinicId, ...settings });
+}
+
+export function updateAgentConfig(
+  clinicId: string,
+  input: {
+    greeting: string;
+    services: AgentService[];
+    escalationPhone: string | null;
+    escalationHours: string | null;
+    notes: string | null;
+  },
+) {
+  return simple("updateAgentConfig", { clinicId, ...input });
+}
+
+export function approveAgentConfig(clinicId: string, approvedBy: string) {
+  return simple("approveAgentConfig", { clinicId, approvedBy });
+}
+
+export function goLive(clinicId: string): Promise<OpsResult<GoLiveOutcome>> {
+  return callOps("goLive", "write", { clinicId }, (value) => {
+    const data = object(value, "goLive");
+    const s = state(data, "goLive");
+    if (s === "live") return { status: "live", baaSignedOn: date(data.baaSignedOn, "goLive.baaSignedOn") };
+    if (s === "refused") {
+      return {
+        status: "refused",
+        message: text(data.message, "goLive.message"),
+        missing: list(data.missing ?? [], "goLive.missing").map((m) => text(m, "goLive.missing")),
+      };
+    }
+    throw new Error(text(data.message, "goLive.message"));
+  });
 }

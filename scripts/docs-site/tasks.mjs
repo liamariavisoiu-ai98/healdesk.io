@@ -698,104 +698,20 @@ export const TASKS = [
     source: { doc: "handover", heading: "Once AWS lands" },
   },
   {
-    id: "invite-delivery-recovery",
-    group: "onboarding",
-    status: "ready",
-    title: "Record invite-email outcomes and add a resend button to the ops console",
-    effort: "half a day",
-    blockedBy: null,
-    plain:
-      "If sendInvite() fails, apps/app/src/app/api/provision/route.ts writes console.error and returns 201 anyway — deliberately, so Stripe does not retry and create a duplicate account. But nothing anywhere records that the email failed, and there is no way to send it again short of writing SQL. The ops console at apps/app/src/app/(console)/page.tsx lists clinics and their blockers but says nothing about whether the owner was ever reachable.",
-    why:
-      "A single bounced or throttled invite is an invisible dead customer: they paid, we took the money, and neither they nor we can tell that the one message the whole funnel depends on never arrived. Support only finds out when the customer emails to complain, if they bother.",
-    steps: [
-      "Add an invite_deliveries table (or columns on provisioning_attempts) recording invitationId, address, transport result status, messageId or failure reason, and attempt timestamps.",
-      "Write the row from apps/app/src/app/api/provision/route.ts on both the success and non-success branches of sendInvite().",
-      "Add blockersFor() logic in apps/app/src/lib/ops/clinics.ts for \"invite never delivered\" and \"invite delivered but not accepted after 3 days\".",
-      "Add a Resend invite server action in apps/app/src/app/(console)/actions.ts that re-issues from lib/email/invite.ts, guarded by requireInternalStaff() and recorded with recordSecurityEvent().",
-      "Show the state and the resend button per clinic on the ops console page.",
-    ],
-    source: { doc: "state-of-play", heading: "Built but connected to nothing" },
-  },
-  {
-    id: "onboarding-checklist",
-    group: "onboarding",
-    status: "ready",
-    title: "Build the day-1 onboarding checklist the clinic lands on after accepting the invite",
-    effort: "2 days",
-    blockedBy: null,
-    plain:
-      "After setting a password the owner lands on /c/[clinicSlug] (apps/app/src/app/(console)/c/[clinicSlug]/page.tsx), which shows status tags, a connections panel, the BAA record and an audit log. It never tells them what to do next. Opening hours live on a separate tab, the connect wizard is only linked when a read-only platform was picked, and there is nothing at all about their phone line.",
-    why:
-      "The purchase flow ends with \"Next we'll provision your number and configure the agent\" and then hands the customer a compliance dashboard. Nothing gets done, so no call is ever forwarded, no conversations row is ever written, and the first monthly report reads zero — which is exactly what a clinic that just paid a setup fee disputes.",
-    steps: [
-      "Add a clinic_onboarding table (or JSONB column on clinics) with one row per clinic holding the ordered steps and their completion timestamps: hours confirmed, phone type confirmed, call routing chosen, forwarding configured, test call passed, agent script approved, platform connected.",
-      "Insert it in provisionOnce() in apps/app/src/lib/provisioning.ts inside the same transaction as the clinic row.",
-      "Render it as the top section of apps/app/src/app/(console)/c/[clinicSlug]/page.tsx: one open step highlighted, everything else collapsed, each linking to the page that completes it.",
-      "Add Connect and Phone tabs to apps/app/src/app/(console)/c/[clinicSlug]/ClinicNav.tsx, which today has no route to the connect wizard at all.",
-      "Mark the hours step complete from saveOpeningHours() in hours/actions.ts and the platform step from connectPlatform() in the clinic actions.ts, so the checklist reflects real state rather than a self-reported tick.",
-    ],
-    source: { doc: "launch-plan", heading: "The flow" },
-  },
-  {
-    id: "connect-route-honesty",
-    group: "onboarding",
-    status: "ready",
-    title: "Give all four integration routes a real state instead of a dead end",
-    effort: "1 day",
-    blockedBy: null,
-    plain:
-      "The checkout picker in packages/catalog/src/platforms.ts offers seven platforms plus \"No booking software\". Only the five readonly_user ones (Acuity, Mindbody, Zenoti, Vagaro, PatientNow) have a wizard in packages/catalog/src/connection-steps.ts. Boulevard and GoHighLevel are sold as \"oauth\" and get a page saying \"We'll email you when that's ready\"; a clinic with no platform gets notFound() from apps/app/src/app/(console)/c/[clinicSlug]/connect/page.tsx because bookingProvider is null.",
-    why:
-      "Boulevard and GoHighLevel buyers can pay for verified attribution and reach a page that promises an email nobody will send. The \"no booking software\" segment, which launch-plan calls where most customers start, hits a 404 on the only setup page in the product. Both are refund conversations.",
-    steps: [
-      "Change the connect page so a null bookingProvider renders the provisioned-booking explanation instead of calling notFound().",
-      "For the two OAuth platforms, replace the vague copy with a dated waitlist state that records interest on the clinic row and shows the same read-only grants list the wizard shows, so expectations are set before month end.",
-      "Stop offering verified attribution for platforms with no adapter, or label them clearly in the checkout picker — packages/connectors/src/registry.ts registers only the fixture, so any connection saved today syncs nothing.",
-      "Surface isImplemented(platformId) from the registry on the clinic overview page next to a connected platform, so \"connected but not syncing\" is visible rather than showing an empty report with no reason.",
-      "Add a test asserting every platform id in platforms.ts either has a guide, an adapter, or an explicit not-yet state.",
-    ],
-    source: { doc: "handover", heading: "Once Boulevard / GoHighLevel accounts exist" },
-  },
-  {
-    id: "call-routing-capture",
-    group: "onboarding",
-    status: "ready",
-    title: "Ask each clinic whether we answer first or second, and store it",
-    effort: "1 day",
-    blockedBy: "onboarding-checklist",
-    plain:
-      "clinics.call_routing decides what counts as recovered revenue: \"conditional\" means their number rings at the practice first and only reaches us unanswered, so every call we take is one they missed; \"always\" means we are the primary answerer and only after-hours calls count. The column exists with a default of \"conditional\", classifyRecovery() in apps/app/src/lib/voice/ingest.ts reads it — and nothing in the entire codebase ever sets it. It is not asked at checkout and there is no console page to change it.",
-    why:
-      "Every clinic silently inherits \"conditional\". For a solo operator who points their line straight at us, that labels their whole call volume as recovered revenue, which inflates the single number the customer judges the invoice by. That is the failure mode the schema comment says must never happen, and it is currently the default behaviour.",
-    steps: [
-      "Add the routing question to the phone step of apps/web/src/components/checkout/CheckoutFlow.tsx, next to the existing landline/VoIP question, worded as \"does your number ring at the practice first?\".",
-      "Add callRouting to ProvisionRequest and validateProvisionRequest() in apps/app/src/lib/provisioning.ts, validated against the enum, and write it in provisionOnce() rather than relying on the column default.",
-      "Add a Phone settings page under apps/app/src/app/(console)/c/[clinicSlug]/ that lets the clinic change routing and phone system type later, auditing the change like hours/actions.ts does.",
-      "Make the routing answer a required step in the onboarding checklist and surface the chosen mode on the report preview page so the customer sees which definition of recovered we are using.",
-      "Extend apps/app/tests/voice.test.ts with a case asserting an always-forwarded clinic gets null recovery for a midday call, so a future default change cannot pass silently.",
-    ],
-    source: { doc: "architecture", heading: "Recovery is a reason, and after-hours needs opening hours" },
-  },
-  {
     id: "forwarding-setup-page",
     group: "onboarding",
     status: "ready",
-    title: "Ship the call-forwarding setup page, with a test call that proves it works",
-    effort: "2 days",
-    blockedBy: null,
+    title: "Automate the forwarding test call",
+    effort: "1 day, after voice-ingest",
+    blockedBy: "voice-ingest",
     plain:
-      "The decision is made: each clinic gets a Synthflow-issued number and keeps its published one, forwarding to ours only when busy, unanswered or after hours. The clinic has to dial that forward in on its own carrier line — and the codes are carrier-specific (Verizon, AT&T, T-Mobile and the cable carriers each use their own *xx sequences for busy versus no-answer, and a VoIP PBX uses a routing rule instead). Nothing in the product shows them their number or the right code. There is also no check that the original caller's number survives the hop, which is what upsertCaller() in lib/voice/ingest.ts needs to identify who rang.",
+      "The forwarding instructions exist: packages/catalog/src/forwarding.ts holds the carrier star codes (conditional busy/no-answer by default, unconditional only for \"AYA answers everything\", \"ask your carrier\" when unknown) and the console's onboarding page shows them once the Synthflow number is entered. What is still manual is the proof: the operator rings the clinic's number and reads Synthflow's call log to confirm the caller ID survived (docs/onboarding-runbook.md, step 10).",
     why:
-      "If forwarding is never configured the product is inert: calls keep ringing out at the clinic and healdesk answers nothing. If the caller ID does not survive the forward, every call arrives from the clinic's own number, contacts collapse into one row, and no callback or text-back can ever be sent to the right person. And because the number lives with the voice vendor, this page is also what makes a future vendor switch survivable — it is the one place a clinic ever learns what to dial.",
+      "If caller ID does not survive the forward, every caller looks like the clinic and no callback can ever reach the right person. Today a human checks; a button that watches for the inbound event cannot forget.",
     steps: [
-      "Add a synthflow_number_e164 column (and the vendor's number id) to the clinics table in apps/app/src/db/schema.ts with a migration under apps/app/drizzle/ — there is nowhere to put the number today.",
-      "Build apps/app/src/app/(console)/c/[clinicSlug]/phone/page.tsx showing the clinic's Synthflow number, the conditional-forward codes for busy and for no-answer, and a separate path for VoIP systems (RingCentral, Nextiva, Dialpad).",
-      "Keep a small carrier table of star codes (activate and deactivate, busy and no-answer) rather than asserting one set: the page shows the right one for the clinic's carrier and says which carrier it assumed. Do not print unconditional forwarding (*72-style) as the default — that takes the clinic's line away from its staff.",
-      "Branch the instructions on clinics.phone_system_type, already captured at checkout and stored in the clinics table, and ask for the carrier there if it is not known.",
-      "Add a Test my forwarding button that watches for an inbound call to the Synthflow number within two minutes and reports back three things: it arrived, the caller ID was preserved, and which forward condition fired.",
-      "Store the outcome as the forwarding step of the onboarding checklist, so no clinic is ever marked live on an unverified line.",
-      "State plainly on the page that forwarding is reversible in one step — the runbook calls this the biggest objection-killer in the sales conversation.",
+      "Once voice-ingest delivers inbound call events to apps/app, add a `startForwardingTest` ops operation that records a two-minute window on the clinic, and have the ingest path stamp `test_call_passed` when a call arrives on the clinic's Synthflow number inside it with a caller number that is not the clinic's own.",
+      "Show the three facts on the console: it arrived, the caller ID was preserved, and which forward condition fired (busy, no-answer, or all).",
+      "Reopen `test_call_passed` automatically if a later call arrives with the clinic's own number as caller ID — the carrier changed something.",
     ],
     source: { doc: "blockers-runbook", heading: "The architecture that actually works" },
   },
@@ -840,26 +756,6 @@ export const TASKS = [
     source: { doc: "blockers-runbook", heading: "Two traps that will bite" },
   },
   {
-    id: "agent-config-store",
-    group: "onboarding",
-    status: "ready",
-    title: "Create the per-clinic agent configuration: greeting, treatments, prices, hours, escalation",
-    effort: "3 days",
-    blockedBy: null,
-    plain:
-      "There is no per-clinic agent configuration anywhere. The clinics table holds name, specialty, timezone, platform, plan, attribution and phone type — and nothing about what the agent should say. No greeting, no treatment list, no price ranges, no escalation number, no rules about what to deflect. The voice agent is designed to collect exactly four things (name, callback number, requested service, preferred time) and to push everything clinical off the phone, but nothing stores what it should offer or where to escalate.",
-    why:
-      "Without this every clinic gets an identical generic agent that cannot name a treatment, quote a range, or transfer to a human — which is the difference between an AI front desk and a voicemail. It also has to be per-clinic data we can show and the clinic can correct, or the first complaint about a wrong price has no audit trail.",
-    steps: [
-      "Add an agent_configs table in apps/app/src/db/schema.ts keyed by clinic_id, RLS enabled and forced like every other clinic_id table, holding greeting, treatment list with price ranges, escalation phone number and hours-of-transfer, plus a version and approvedAt.",
-      "Seed a default from the specialty at provisioning time in apps/app/src/lib/provisioning.ts so a clinic is never configured with nothing.",
-      "Build a review-and-approve page in the console that shows the exact greeting and the deflection lines, and require an explicit approval before go-live — the disclosure line must be injected and not switchable off by the clinic.",
-      "Forbid clinical content by validation: no candidacy, dosing, symptom or triage text in any field, tested the way the PHI guard in lib/reporting/deliver.ts is tested.",
-      "Record every edit through tx.audit.record(), because these words are what the agent says on a recorded call.",
-    ],
-    source: { doc: "architecture", heading: "The voice agent is PHI-light by design" },
-  },
-  {
     id: "agent-vendor-provisioning",
     group: "send-today",
     status: "vendor",
@@ -880,26 +776,6 @@ export const TASKS = [
       "Confirm, in writing, that Synthflow's post-call webhook carries the pre-answer carrier disposition — whether the clinic's line rang out or was engaged — because classifyRecovery() needs it. There is no Twilio call-status webhook to fall back on; if they cannot supply it, the ingest route infers and caveats.",
     ],
     source: { doc: "launch-plan", heading: "You grant, I take over" },
-  },
-  {
-    id: "go-live-gate",
-    group: "onboarding",
-    status: "ready",
-    title: "Build the go-live step that flips a clinic from synthetic to production",
-    effort: "1 day",
-    blockedBy: null,
-    plain:
-      "Every clinic is created with dataClassification \"synthetic\" in provisionOnce(), and nothing in the codebase ever changes it or sets clinics.baa_signed_at. The trigger in apps/app/drizzle/0004_baa_gate.sql refuses writes to contacts, conversations and appointments for any clinic marked production without a signed BAA — and the ops console at apps/app/src/app/(console)/page.tsx only reports the state, it cannot change it.",
-    why:
-      "The moment a real patient call arrives, ingestCall() writes a contacts row with a real phone number. That is PHI. Today it goes into a clinic still marked synthetic, so either the gate is being bypassed or the very first real call fails at the database. There is no path from paid customer to a clinic that may lawfully hold patient data.",
-    steps: [
-      "Add a go-live server action in apps/app/src/app/(console)/actions.ts, guarded by requireInternalStaff(), that sets baa_signed_at from the bound agreement row and data_classification to production in one transaction.",
-      "Refuse it unless every precondition holds: a bound BAA acceptance, covered-entity status determined (not null), opening hours present, call routing chosen, forwarding test passed and the agent config approved.",
-      "Extend blockersFor() in apps/app/src/lib/ops/clinics.ts to list those preconditions as the actions to take, the way it already does for the BAA.",
-      "Record the flip with recordSecurityEvent() naming the operator, and show the go-live timestamp on the clinic overview page.",
-      "Add a test that a clinic cannot be marked production without a bound agreement, and that a PHI write into a synthetic clinic is refused as expected.",
-    ],
-    source: { doc: "state-of-play", heading: "Database-layer findings" },
   },
   {
     id: "connect-mailbox",
@@ -940,26 +816,6 @@ export const TASKS = [
       "Extend packages/connectors/tests/contract.test.ts with a recorded-fixture case per platform so the checks stay honest without live credentials in CI.",
     ],
     source: { doc: "handover", heading: "Unblocked, just not done" },
-  },
-  {
-    id: "onboarding-runbook",
-    group: "onboarding",
-    status: "ready",
-    title: "Write the manual runbook for what a human at healdesk does for each new customer",
-    effort: "half a day to write, then kept current",
-    blockedBy: null,
-    plain:
-      "Today, provisioning writes an org, a clinic and an invitation and then stops. Everything else in the path from payment to a working front desk is a person: allocate the Synthflow number, accept the platform invite sent to connect+<slug>@healdesk.io, build the agent from the clinic's website and price list, walk the owner through forwarding, verify the caller ID survives, and flip the clinic to production. None of that is written down anywhere.",
-    why:
-      "With no runbook, each new customer is a different improvisation, steps get skipped, and the one that gets skipped is usually the forwarding test or the routing question — the two that decide whether the product works and whether the revenue figure is honest. It is also the document that says which of these to automate first, in cost order.",
-    steps: [
-      "Write docs/onboarding-runbook.md as an ordered checklist from Stripe payment to first answered call, naming the exact page or dashboard for each step.",
-      "For every step, record whether it is automated today, who does it, and how long it takes, so the automation order is decided by measured time rather than guessing.",
-      "Include the per-platform acceptance steps for the connect mailbox invitations and the per-platform vendor lead times already captured in connection-steps.ts (Vagaro up to seven business days, Zenoti one to two days for the API package).",
-      "Include the discovery questions that must be asked before go-live: landline versus VoIP, does the number ring at the practice first, and opening hours by day.",
-      "Mirror the checklist as the operator view in the ops console so the runbook and the software cannot drift apart.",
-    ],
-    source: { doc: "launch-plan", heading: "What you do, what I do" },
   },
   {
     id: "scalabid-seed-test",

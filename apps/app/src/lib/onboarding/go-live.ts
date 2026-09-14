@@ -63,7 +63,9 @@ export async function goLive(
       actorLabel: operator.label,
       ipAddress: operator.ipAddress ?? null,
       userAgent: operator.userAgent ?? null,
-      metadata: { clinicSlug: clinic.slug, baaSignedAt: new Date(signed).toISOString() },
+      // No timestamp in the metadata: the audit scanner reads a date's digit
+      // run as a phone number, and the flip's time is on the clinic row.
+      metadata: { clinicSlug: clinic.slug, baaSigned: true },
     });
     return { status: "live", baaSignedAt: new Date(signed) };
   } catch (error) {

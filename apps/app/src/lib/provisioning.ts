@@ -8,8 +8,7 @@ import {
   isBillingInterval,
   isSpecialtyId,
   NO_PLATFORM_ID,
-  supportsVerifiedAttribution,
-} from "@healdesk/catalog";
+  supportsVerifiedAttribution, emptyOnboarding } from "@healdesk/catalog";
 import { eq, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
@@ -21,6 +20,8 @@ import {
 } from "@/db/schema";
 
 import { bindAgreement } from "./agreements";
+import { AuditRecorder } from "./audit";
+import { seedAgentConfig } from "./onboarding/agent-config";
 import { recordSecurityEvent } from "./audit";
 import type { RequestContext } from "./audit";
 import { isChatChannelChoice, seedEntitlements } from "./billing/entitlements";
@@ -164,6 +165,14 @@ export type ProvisionRequest = {
   phoneSystemType?: "landline" | "voip" | "unknown";
 
   /**
+   * Whether the clinic's number rings at the practice first ("conditional")
+   * or comes straight to us ("always"). Decides what counts as recovered
+   * revenue, so it is asked at checkout and confirmed at onboarding; when
+   * absent the column default applies and the onboarding step stays open.
+   */
+  callRouting?: "conditional" | "always";
+
+  /**
    * The agreement signed BEFORE payment, from POST /api/agreements.
    *
    * Provisioning no longer records the acceptance itself — by the time we get
@@ -294,6 +303,12 @@ export function validateProvisionRequest(
     throw new ProvisioningError("A valid email is required.", "contactEmail");
   }
 
+  if (
+    body.callRouting !== undefined &&
+    !["conditional", "always"].includes(body.callRouting as string)
+  ) {
+    throw new ProvisioningError("Invalid call routing.", "callRouting");
+  }
   if (
     body.phoneSystemType !== undefined &&
     !["landline", "voip", "unknown"].includes(body.phoneSystemType)
@@ -474,6 +489,19 @@ async function provisionOnce({
       timezone: request.timezone ?? "America/New_York",
       bookingProvider: request.platform === NO_PLATFORM_ID ? null : platform.id,
       phoneSystemType: request.phoneSystemType ?? "unknown",
+      callRouting: request.callRouting ?? "conditional",
+      callRoutingConfirmedAt: request.callRouting ? new Date() : null,
+      // Every step open; the ones checkout already answered are stamped below.
+      onboarding: {
+        ...emptyOnboarding(),
+        ...(request.callRouting ? { call_routing_chosen: new Date().toISOString() } : {}),
+        ...(request.phoneSystemType && request.phoneSystemType !== "unknown"
+          ? { phone_type_confirmed: new Date().toISOString() }
+          : {}),
+        ...(signed.isCoveredEntity !== null && signed.isCoveredEntity !== undefined
+          ? { covered_entity_confirmed: new Date().toISOString() }
+          : {}),
+      },
       attributionMode: request.attributionMode,
       averageTreatmentValueUsd:
         request.averageTreatmentValueUsd?.toFixed(2) ?? null,
@@ -502,6 +530,14 @@ async function provisionOnce({
       stripeCustomerId: request.stripeCustomerId,
       stripeSubscriptionId: request.stripeSubscriptionId,
     });
+
+    // The agent's default words, from the specialty, so onboarding starts
+    // from something the clinic can correct rather than from a blank.
+    await seedAgentConfig(
+      { db: tx, clinicId, audit: new AuditRecorder(clinicId, { type: "service", serviceName: "provisioning" }) },
+      request.specialty,
+      request.clinicName.trim(),
+    );
 
     await recordSecurityEvent(tx, {
       event: "clinic_provisioned",

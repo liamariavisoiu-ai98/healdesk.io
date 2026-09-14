@@ -18,7 +18,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-import type { BillingInterval, Channel } from "@healdesk/catalog";
+import type { BillingInterval, Channel, OnboardingState } from "@healdesk/catalog";
 
 import type { OpeningHours } from "../lib/clinic/opening-hours";
 import type { SealedPayload } from "../lib/crypto/envelope";
@@ -332,6 +332,25 @@ export const clinics = pgTable(
      */
     retentionMediaDays: integer("retention_media_days").notNull().default(90),
     retentionRecordDays: integer("retention_record_days").notNull().default(730),
+
+    // --- Onboarding: the road from payment to the first answered call. ---
+    /**
+     * `{ [OnboardingStep]: ISO timestamp | null }` from @healdesk/catalog.
+     * Seeded with every step null at provisioning. Kept on the clinic row
+     * rather than in a table so the ops overview (a SECURITY DEFINER over
+     * clinics only) can show open steps without a second privileged reader.
+     */
+    onboarding: jsonb("onboarding").$type<OnboardingState>().notNull().default({}),
+    /** Who bills the clinic for its main line; decides the forwarding codes. */
+    carrier: text("carrier"),
+    /** The Synthflow-issued number the clinic forwards to, E.164. */
+    synthflowNumberE164: text("synthflow_number_e164"),
+    /** When call_routing stopped being the column default and became an answer. */
+    callRoutingConfirmedAt: timestamp("call_routing_confirmed_at", { withTimezone: true }),
+    /** Denormalised from agent_configs.approved_at so the overview can read it. */
+    agentApprovedAt: timestamp("agent_approved_at", { withTimezone: true }),
+    /** When app_mark_clinic_production() ran. */
+    wentLiveAt: timestamp("went_live_at", { withTimezone: true }),
 
     /** The BAA gate, made mechanical. See drizzle/0004_baa_gate.sql. */
     dataClassification: dataClassificationEnum("data_classification")
@@ -725,6 +744,53 @@ export const transactions = pgTable(
       .where(sql`${t.externalTransactionId} is not null`),
   ],
 );
+
+// -----------------------------------------------------------------------------
+// The agent's own words — per clinic, approved, audited
+// -----------------------------------------------------------------------------
+
+/**
+ * What the agent says for this clinic: the greeting, the services it may
+ * name with their price ranges, the hours it quotes, and where it escalates.
+ * Not PHI, but said aloud on recorded calls, so every edit is audited and the
+ * clinic approves a version before go-live. The AI disclosure is NOT stored
+ * here — lib/compliance/disclosure.ts prepends it and nothing in this row can
+ * remove it. Text is screened by findClinicalContent() before it is written.
+ */
+export const agentConfigs = pgTable(
+  "agent_configs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    version: integer("version").notNull().default(1),
+    /** Spoken after the disclosure. Mentions the clinic by name. */
+    greeting: text("greeting").notNull(),
+    /** What callers can book, with a price range the clinic approved. */
+    services: jsonb("services").$type<AgentService[]>().notNull().default([]),
+    /** E.164 of the human line to transfer to, or null to take a message. */
+    escalationPhone: text("escalation_phone"),
+    /** When a human is reachable on that line, in the clinic's own words. */
+    escalationHours: text("escalation_hours"),
+    /** Anything else the agent may say, e.g. parking, new-patient policy. */
+    notes: text("notes"),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    approvedByLabel: text("approved_by_label"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("agent_configs_clinic_idx").on(t.clinicId)],
+);
+
+export type AgentService = {
+  name: string;
+  /** Whole dollars; null means "quote on the call is not allowed, offer a consult". */
+  priceFromUsd: number | null;
+  priceToUsd: number | null;
+  /** Minutes, for scheduling. */
+  durationMinutes: number | null;
+};
 
 // -----------------------------------------------------------------------------
 // Audit — required for HIPAA

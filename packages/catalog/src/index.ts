@@ -14,7 +14,10 @@
 
 export * from "./baa";
 export * from "./baa-explainer";
+export * from "./clinical-content";
 export * from "./connection-steps";
+export * from "./forwarding";
+export * from "./onboarding";
 export * from "./plans";
 export * from "./platforms";
 export * from "./request-signing";

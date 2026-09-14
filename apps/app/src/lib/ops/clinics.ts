@@ -1,3 +1,9 @@
+import {
+  emptyOnboarding,
+  ONBOARDING_LABELS,
+  openRequiredSteps,
+  type OnboardingState,
+} from "@healdesk/catalog";
 import { sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
@@ -23,6 +29,16 @@ export type ClinicOverview = {
   isCoveredEntity: boolean | null;
   baaSignedAt: Date | null;
   createdAt: Date;
+  // Onboarding state (0033). Configuration, never patient data.
+  phoneSystemType: "landline" | "voip" | "unknown";
+  callRouting: "conditional" | "always";
+  callRoutingConfirmedAt: Date | null;
+  carrier: string | null;
+  synthflowNumberE164: string | null;
+  openingHoursPresent: boolean;
+  onboarding: OnboardingState;
+  agentApprovedAt: Date | null;
+  wentLiveAt: Date | null;
 };
 
 /** Something an operator has to act on before this clinic can go live. */
@@ -32,7 +48,10 @@ export async function listClinics(): Promise<ClinicOverview[]> {
   const result = await unsafeDb.execute(
     sql`select id, slug, name, timezone, specialty, plan,
                attribution_mode, data_classification,
-               is_covered_entity, baa_signed_at, created_at
+               is_covered_entity, baa_signed_at, created_at,
+               phone_system_type, call_routing, call_routing_confirmed_at,
+               carrier, synthflow_number_e164, opening_hours_present,
+               onboarding, agent_approved_at, went_live_at
           from app_clinics_overview()`,
   );
 
@@ -54,6 +73,17 @@ export async function listClinics(): Promise<ClinicOverview[]> {
     isCoveredEntity: (row.is_covered_entity as boolean | null) ?? null,
     baaSignedAt: row.baa_signed_at ? new Date(row.baa_signed_at as string) : null,
     createdAt: new Date(row.created_at as string),
+    phoneSystemType: (row.phone_system_type as "landline" | "voip" | "unknown") ?? "unknown",
+    callRouting: (row.call_routing as "conditional" | "always") ?? "conditional",
+    callRoutingConfirmedAt: row.call_routing_confirmed_at
+      ? new Date(row.call_routing_confirmed_at as string)
+      : null,
+    carrier: (row.carrier as string | null) ?? null,
+    synthflowNumberE164: (row.synthflow_number_e164 as string | null) ?? null,
+    openingHoursPresent: Boolean(row.opening_hours_present),
+    onboarding: { ...emptyOnboarding(), ...((row.onboarding as OnboardingState | null) ?? {}) },
+    agentApprovedAt: row.agent_approved_at ? new Date(row.agent_approved_at as string) : null,
+    wentLiveAt: row.went_live_at ? new Date(row.went_live_at as string) : null,
   }));
 }
 
@@ -87,6 +117,24 @@ export function blockersFor(clinic: ClinicOverview): ClinicBlocker[] {
   }
 
   if (clinic.dataClassification === "synthetic") {
+    // What stands between this clinic and go-live, as actions. The database
+    // function refuses on the same facts; this is the list before the call.
+    const open = openRequiredSteps(clinic.onboarding, {
+      requirePlatform: clinic.attributionMode === "verified",
+    });
+    if (!clinic.openingHoursPresent) {
+      blockers.push({ level: "attention", message: "Confirm opening hours — after-hours recovery needs them." });
+    }
+    if (!clinic.callRoutingConfirmedAt) {
+      blockers.push({ level: "attention", message: "Confirm call routing: does the number ring at the practice first?" });
+    }
+    if (!clinic.agentApprovedAt) {
+      blockers.push({ level: "attention", message: "Get the agent script approved by the clinic." });
+    }
+    for (const step of open) {
+      if (["hours_confirmed", "call_routing_chosen", "agent_script_approved"].includes(step)) continue;
+      blockers.push({ level: "attention", message: `Onboarding: ${ONBOARDING_LABELS[step].title}.` });
+    }
     blockers.push({
       level: "attention",
       message: "Synthetic only — not yet accepting real patient data.",

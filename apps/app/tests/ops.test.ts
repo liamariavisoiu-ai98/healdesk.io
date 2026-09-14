@@ -1,3 +1,4 @@
+import { ONBOARDING_STEPS } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { blockersFor, listClinics, type ClinicOverview } from "@/lib/ops/clinics";
@@ -25,6 +26,15 @@ const clinic = (over: Partial<ClinicOverview> = {}): ClinicOverview => ({
   isCoveredEntity: true,
   baaSignedAt: new Date(),
   createdAt: new Date(),
+  phoneSystemType: "landline",
+  callRouting: "conditional",
+  callRoutingConfirmedAt: new Date(),
+  carrier: "verizon",
+  synthflowNumberE164: "+14155550100",
+  openingHoursPresent: true,
+  onboarding: Object.fromEntries(ONBOARDING_STEPS.map((step) => [step, "2026-09-13T00:00:00.000Z"])),
+  agentApprovedAt: new Date(),
+  wentLiveAt: null,
   ...over,
 });
 
@@ -101,17 +111,26 @@ describeDb("ops clinic listing", () => {
     // column ever appears here, it bypasses RLS for every caller.
     expect(Object.keys(first!).sort()).toEqual(
       [
+        "agentApprovedAt",
         "attributionMode",
         "baaSignedAt",
+        "callRouting",
+        "callRoutingConfirmedAt",
+        "carrier",
         "createdAt",
         "dataClassification",
         "id",
         "isCoveredEntity",
         "name",
+        "onboarding",
+        "openingHoursPresent",
+        "phoneSystemType",
         "plan",
         "slug",
+        "synthflowNumberE164",
         "specialty",
         "timezone",
+        "wentLiveAt",
       ].sort(),
     );
   });

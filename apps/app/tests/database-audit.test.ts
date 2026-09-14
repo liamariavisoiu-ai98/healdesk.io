@@ -123,6 +123,26 @@ describeDb("database audit (0031)", () => {
     });
     await getMigratorPool().query(`update clinics set is_covered_entity = false where id = $1`, [clinicId]);
 
+    // Still no: the onboarding checklist (0033) is open. The refusal names it.
+    await asTenant(null, async (c) => {
+      await expect(
+        c.query(`select app_mark_clinic_production($1::uuid)`, [clinicId]),
+      ).rejects.toMatchObject({ code: "23514", message: expect.stringMatching(/opening hours/) });
+    });
+    await getMigratorPool().query(
+      `update clinics
+          set opening_hours = '{"mon":[["09:00","17:00"]]}'::jsonb,
+              call_routing_confirmed_at = now(),
+              agent_approved_at = now(),
+              onboarding = jsonb_build_object(
+                'hours_confirmed', now()::text, 'phone_type_confirmed', now()::text,
+                'call_routing_chosen', now()::text, 'covered_entity_confirmed', now()::text,
+                'agent_script_approved', now()::text, 'forwarding_configured', now()::text,
+                'test_call_passed', now()::text)
+        where id = $1`,
+      [clinicId],
+    );
+
     const { rows: accepted } = await getMigratorPool().query<{ accepted_at: Date }>(
       `select accepted_at from baa_acceptances where id = $1`,
       [agreementId],

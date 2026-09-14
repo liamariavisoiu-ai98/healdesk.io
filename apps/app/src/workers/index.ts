@@ -5,11 +5,13 @@ import {
   QUEUE_PROCESS_WEBHOOK,
   QUEUE_RECONCILE_CLINIC,
   QUEUE_SYNC_CONNECTION,
+  QUEUE_TICK,
   stopBoss,
   type ProcessWebhookPayload,
   type ReconcileClinicPayload,
   type SyncConnectionPayload,
 } from "@/lib/queue/boss";
+import { runTick } from "@/lib/scheduler/tick";
 import { syncConnection } from "@/lib/sync/run";
 import { processWebhookEvent } from "@/lib/sync/webhooks";
 import { withTenant } from "@/lib/tenant";
@@ -35,7 +37,11 @@ import { describeError, log } from "@/lib/log";
  */
 
 async function main(): Promise<void> {
-  const boss = await getBoss({ supervise: true });
+  // `schedule: true` turns on pg-boss's own cron, which is what sends the
+  // hourly tick. One process owns the clock; the scheduler tables live in the
+  // pgboss schema and survive a restart, so re-registering the schedule below
+  // is an upsert, not a second schedule.
+  const boss = await getBoss({ supervise: true, schedule: true });
 
   // pg-boss v10 hands the handler an ARRAY of jobs, even with batchSize 1.
   // Treating it as a single job silently drops every job after the first.
@@ -100,6 +106,17 @@ async function main(): Promise<void> {
       }
     },
   );
+
+  // The clock. Every hour on the hour; the handler decides what that hour
+  // means (lib/scheduler/tick.ts). Registered every start so a fresh
+  // database gets its schedule without a separate install step.
+  await boss.schedule(QUEUE_TICK, "0 * * * *", {}, { tz: "UTC" });
+  await boss.work(QUEUE_TICK, { batchSize: 1 }, async () => {
+    const outcomes = await runTick();
+    log.info("tick", {
+      status: outcomes.map((o) => `${o.job}=${o.status}`).join(" "),
+    });
+  });
 
   log.info("worker ready");
 

@@ -352,6 +352,16 @@ export const clinics = pgTable(
     /** When app_mark_clinic_production() ran. */
     wentLiveAt: timestamp("went_live_at", { withTimezone: true }),
 
+    // --- Offboarding: the BAA's return-or-destroy clause, as dates. ---
+    /** The clinic left (subscription deleted, or an operator ended it). */
+    offboardingStartedAt: timestamp("offboarding_started_at", { withTimezone: true }),
+    /** The export was produced and handed over; destruction may proceed after destroy_after. */
+    exportDeliveredAt: timestamp("export_delivered_at", { withTimezone: true }),
+    /** Hard-delete of every PHI row is allowed from this instant. */
+    destroyAfter: timestamp("destroy_after", { withTimezone: true }),
+    /** The destruction ran. The clinic row and its audit trail remain; nothing else does. */
+    destroyedAt: timestamp("destroyed_at", { withTimezone: true }),
+
     /** The BAA gate, made mechanical. See drizzle/0004_baa_gate.sql. */
     dataClassification: dataClassificationEnum("data_classification")
       .notNull()
@@ -533,6 +543,14 @@ export const contacts = pgTable(
     externalSource: text("external_source"),
 
     isReturning: boolean("is_returning").notNull().default(false),
+
+    /**
+     * IANA timezone for quiet-hours. Set at ingestion from the clinic's own
+     * timezone (a caller rang a local clinic), refined later if a better
+     * source exists. canContact() REFUSES outbound contact when this is
+     * null: the quiet-hours check fails closed, never open.
+     */
+    timezone: text("timezone"),
 
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -791,6 +809,97 @@ export type AgentService = {
   /** Minutes, for scheduling. */
   durationMinutes: number | null;
 };
+
+// -----------------------------------------------------------------------------
+// Report delivery — who gets the monthly email, and proof of what was sent
+// -----------------------------------------------------------------------------
+
+export const reportRecipients = pgTable(
+  "report_recipients",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    label: text("label"),
+    addedBy: text("added_by").notNull(),
+    /** Set when the address bounced or asked to stop; never sent to again. */
+    unsubscribedAt: timestamp("unsubscribed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("report_recipients_clinic_email_idx").on(t.clinicId, t.email)],
+);
+
+/**
+ * One row per (clinic, kind, period, recipient). The unique index is what
+ * makes a re-run a conflict rather than a second email.
+ */
+export const reportDeliveries = pgTable(
+  "report_deliveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** "monthly" | "weekly" | "alert" | "renewal" */
+    kind: text("kind").notNull(),
+    /** e.g. "2026-08" for monthly, "2026-W37" for weekly, an event id for alerts. */
+    periodKey: text("period_key").notNull(),
+    recipient: text("recipient").notNull(),
+    /** "sent" | "skipped" | "failed" */
+    status: text("status").notNull(),
+    messageId: text("message_id"),
+    reason: text("reason"),
+    attemptedAt: timestamp("attempted_at", { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("report_deliveries_once_idx").on(t.clinicId, t.kind, t.periodKey, t.recipient),
+  ],
+);
+
+// -----------------------------------------------------------------------------
+// Incidents — the BAA's two clocks, as rows with deadlines
+// -----------------------------------------------------------------------------
+
+export const incidentClassEnum = pgEnum("incident_class", [
+  "security_incident",
+  "improper_use_or_disclosure",
+  "breach",
+  "service_complaint",
+]);
+
+export const incidents = pgTable(
+  "incidents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "restrict" }),
+    class: incidentClassEnum("class").notNull(),
+    /** What happened, in words with no patient in them. Ids only. */
+    summary: text("summary").notNull(),
+    /** A conversation id, never its transcript. */
+    conversationId: uuid("conversation_id"),
+    discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull(),
+    /** From the class: 5 business days, or 5 calendar days for a breach. */
+    notifyBy: timestamp("notify_by", { withTimezone: true }).notNull(),
+    notifiedAt: timestamp("notified_at", { withTimezone: true }),
+    notifiedHow: text("notified_how"),
+    /** For non-covered clinics, the FTC Health Breach Notification Rule clock when it applies. */
+    ftcNotifyBy: timestamp("ftc_notify_by", { withTimezone: true }),
+    openedBy: text("opened_by").notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolution: text("resolution"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("incidents_clinic_idx").on(t.clinicId, t.discoveredAt),
+    index("incidents_open_idx").on(t.notifyBy).where(sql`${t.resolvedAt} is null`),
+  ],
+);
 
 // -----------------------------------------------------------------------------
 // Audit — required for HIPAA
@@ -1949,4 +2058,8 @@ export const TENANT_SCOPED_TABLES = [
   "connection_links",
   "entitlements",
   "billing_transitions",
+  "agent_configs",
+  "report_recipients",
+  "report_deliveries",
+  "incidents",
 ] as const;

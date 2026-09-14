@@ -39,6 +39,10 @@ export type ClinicOverview = {
   onboarding: OnboardingState;
   agentApprovedAt: Date | null;
   wentLiveAt: Date | null;
+  offboardingStartedAt: Date | null;
+  exportDeliveredAt: Date | null;
+  destroyAfter: Date | null;
+  destroyedAt: Date | null;
 };
 
 /** Something an operator has to act on before this clinic can go live. */
@@ -51,7 +55,8 @@ export async function listClinics(): Promise<ClinicOverview[]> {
                is_covered_entity, baa_signed_at, created_at,
                phone_system_type, call_routing, call_routing_confirmed_at,
                carrier, synthflow_number_e164, opening_hours_present,
-               onboarding, agent_approved_at, went_live_at
+               onboarding, agent_approved_at, went_live_at,
+               offboarding_started_at, export_delivered_at, destroy_after, destroyed_at
           from app_clinics_overview()`,
   );
 
@@ -84,6 +89,10 @@ export async function listClinics(): Promise<ClinicOverview[]> {
     onboarding: { ...emptyOnboarding(), ...((row.onboarding as OnboardingState | null) ?? {}) },
     agentApprovedAt: row.agent_approved_at ? new Date(row.agent_approved_at as string) : null,
     wentLiveAt: row.went_live_at ? new Date(row.went_live_at as string) : null,
+    offboardingStartedAt: row.offboarding_started_at ? new Date(row.offboarding_started_at as string) : null,
+    exportDeliveredAt: row.export_delivered_at ? new Date(row.export_delivered_at as string) : null,
+    destroyAfter: row.destroy_after ? new Date(row.destroy_after as string) : null,
+    destroyedAt: row.destroyed_at ? new Date(row.destroyed_at as string) : null,
   }));
 }
 

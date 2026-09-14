@@ -57,6 +57,8 @@ describeDb("scheduler", () => {
     const jobs = await listJobs();
     expect(jobs.length).toBeGreaterThan(0);
     for (const job of jobs) {
+      // The heartbeat is the liveness signal, not a job an operator enables.
+      if (job.name === "heartbeat") continue;
       expect(job.enabled, `${job.name} is enabled by default`).toBe(false);
     }
   });

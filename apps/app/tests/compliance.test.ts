@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import {
+  HEALTHCARE_EXEMPTION,
   canContact,
   isStopRequest,
   recordAttempt,
@@ -33,6 +34,8 @@ import { seedClinic } from "./setup/factories";
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const PHONE = "+15551230000";
+/** 16:00Z = noon in New York (EDT), inside the window on either coast. */
+const NOON_NEW_YORK = new Date("2026-09-14T16:00:00Z");
 
 const actor = { type: "service" as const, serviceName: "test" };
 
@@ -136,6 +139,8 @@ describeDb("contact policy", () => {
         phone: PHONE,
         channel: "voice",
         purpose: "reminder",
+        recipientTimezone: "America/New_York",
+        now: NOON_NEW_YORK,
       }),
     );
 
@@ -153,6 +158,8 @@ describeDb("contact policy", () => {
         phone: PHONE,
         channel: "voice",
         purpose: "reminder",
+        recipientTimezone: "America/New_York",
+        now: NOON_NEW_YORK,
       }),
     );
 
@@ -171,6 +178,8 @@ describeDb("contact policy", () => {
         phone: PHONE,
         channel: "voice",
         purpose: "reactivation",
+        recipientTimezone: "America/New_York",
+        now: NOON_NEW_YORK,
       }),
     );
 
@@ -190,6 +199,8 @@ describeDb("contact policy", () => {
         phone: PHONE,
         channel: "voice",
         purpose: "reactivation",
+        recipientTimezone: "America/New_York",
+        now: NOON_NEW_YORK,
       }),
     );
 
@@ -214,6 +225,8 @@ describeDb("contact policy", () => {
         phone: PHONE,
         channel: "voice",
         purpose: "reminder",
+        recipientTimezone: "America/New_York",
+        now: NOON_NEW_YORK,
       }),
     );
 
@@ -250,6 +263,8 @@ describeDb("contact policy", () => {
             phone: PHONE,
             channel,
             purpose: "reminder",
+            recipientTimezone: "America/New_York",
+            now: NOON_NEW_YORK,
           }),
       );
       expect(decision.allowed, channel).toBe(false);
@@ -277,6 +292,8 @@ describeDb("contact policy", () => {
         phone: PHONE,
         channel: "voice",
         purpose: "reminder",
+        recipientTimezone: "America/New_York",
+        now: NOON_NEW_YORK,
       }),
     );
 
@@ -306,6 +323,8 @@ describeDb("contact policy", () => {
         phone: PHONE,
         channel: "voice",
         purpose: "transactional",
+        recipientTimezone: "America/New_York",
+        now: NOON_NEW_YORK,
       }),
     );
 
@@ -322,12 +341,55 @@ describeDb("contact policy", () => {
         phone: PHONE,
         channel: "voice",
         purpose: "reminder",
-        localHour: 22,
+        // 05:00Z is 01:00 in New York and 22:00 in Los Angeles: the same
+        // instant is refused on one coast and refused on the other too, for
+        // different reasons; 03:00Z is 23:00 New York, 20:00 Los Angeles.
+        recipientTimezone: "America/New_York",
+        now: new Date("2026-09-14T03:00:00Z"),
       }),
     );
 
     expect(decision.allowed).toBe(false);
     expect(decision.allowed === false && decision.code).toBe("quiet_hours");
+
+    const westCoast = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+      canContact(tx.db, {
+        clinicId: clinic.clinicId,
+        phone: PHONE,
+        channel: "voice",
+        purpose: "reminder",
+        recipientTimezone: "America/Los_Angeles",
+        now: new Date("2026-09-14T03:00:00Z"),
+      }),
+    );
+    expect(westCoast.allowed).toBe(true);
+  });
+
+  test("an unknown timezone is refused, not assumed — the check fails closed", async () => {
+    const clinic = await seedClinic("tcpa-tz");
+    await grantConsent(clinic.clinicId, "express");
+
+    for (const timezone of [null, "Not/AZone"]) {
+      const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+        canContact(tx.db, {
+          clinicId: clinic.clinicId,
+          phone: PHONE,
+          channel: "voice",
+          purpose: "reminder",
+          recipientTimezone: timezone,
+          now: NOON_NEW_YORK,
+        }),
+      );
+      expect(decision.allowed, String(timezone)).toBe(false);
+      expect(decision.allowed === false && decision.code).toBe("quiet_hours");
+      expect(decision.allowed === false && decision.reason).toMatch(/timezone is unknown/);
+    }
+  });
+
+  test("the healthcare exemption's caller-side conditions are stated as constants", () => {
+    expect(HEALTHCARE_EXEMPTION.maxVoiceReminderSeconds).toBe(60);
+    expect(HEALTHCARE_EXEMPTION.maxSmsReminderChars).toBe(160);
+    expect(HEALTHCARE_EXEMPTION.mustIdentifyProviderAtOutset).toBe(true);
   });
 
   test("one clinic's consent does not authorise another's call", async () => {
@@ -341,6 +403,8 @@ describeDb("contact policy", () => {
         phone: PHONE,
         channel: "voice",
         purpose: "reminder",
+        recipientTimezone: "America/New_York",
+        now: NOON_NEW_YORK,
       }),
     );
 

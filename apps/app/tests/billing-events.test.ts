@@ -452,6 +452,16 @@ describeDb("handleStripeEvent", () => {
       event("customer.subscription.deleted", { ...subscription(ids, { lookupKey: "" }), status: "canceled" }),
     );
     expect((await row()).status).toBe("canceled");
+    // The end of the subscription is the start of offboarding: the BAA's
+    // return-or-destroy clock is stamped on the clinic, not remembered.
+    const { rows: offboarding } = await inTenant(clinicId, (client) =>
+      client.query<{ offboarding_started_at: Date | null; destroy_after: Date | null }>(
+        `select offboarding_started_at, destroy_after from clinics where id = $1`,
+        [clinicId],
+      ),
+    );
+    expect(offboarding[0]!.offboarding_started_at).not.toBeNull();
+    expect(offboarding[0]!.destroy_after).not.toBeNull();
   });
 
   test("payment_action_required writes a note without moving the status", async () => {

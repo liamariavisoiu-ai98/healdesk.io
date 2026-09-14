@@ -58,6 +58,57 @@ export const QUIET_HOURS_START = 21;
 export const QUIET_HOURS_END = 8;
 
 /**
+ * Conditions of the TCPA healthcare exemption (47 CFR 64.1200(a)(9)) that the
+ * caps above implement half of. The other half is on the CALLER, and every
+ * outbound integration must satisfy it; they are constants here so the code
+ * that places a call can assert against them rather than remember them.
+ *
+ *   - The message must state the name and contact number of the healthcare
+ *     provider at the outset (64.1200(b)); lib/compliance/disclosure.ts
+ *     builds that opener.
+ *   - A voice reminder may not exceed sixty seconds, excluding opt-out
+ *     instructions. An SMS reminder may not exceed one hundred sixty
+ *     characters.
+ *   - Every message must offer an opt-out mechanism honoured immediately
+ *     (isStopRequest + suppress below).
+ *   - No telemarketing, solicitation or advertising content, and no billing
+ *     content — which is why "reactivation" is classed PROMOTIONAL and needs
+ *     prior express WRITTEN consent instead of the exemption.
+ */
+export const HEALTHCARE_EXEMPTION = {
+  maxVoiceReminderSeconds: 60,
+  maxSmsReminderChars: 160,
+  mustIdentifyProviderAtOutset: true,
+  mustOfferOptOut: true,
+} as const;
+
+/**
+ * The recipient's local hour, or null when it cannot be known.
+ *
+ * Null is a REFUSAL upstream, not a default: the quiet-hours check used to
+ * be skipped when the caller did not pass an hour, which meant the one
+ * control in this file that could fail open did. A timezone that cannot be
+ * resolved is treated exactly like a missing opening-hours schedule in
+ * lib/clinic/opening-hours.ts — as "we do not know", never as "it's fine".
+ */
+export function localHourIn(timezone: string | null | undefined, at: Date): number | null {
+  if (!timezone) return null;
+  try {
+    const hour = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      hour: "numeric",
+      hour12: false,
+    })
+      .formatToParts(at)
+      .find((p) => p.type === "hour")?.value;
+    const n = Number(hour);
+    return Number.isInteger(n) ? n % 24 : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Purposes that are promotional, and therefore need prior express WRITTEN
  * consent rather than plain express consent.
  *
@@ -82,8 +133,13 @@ export async function canContact(
     phone: string;
     channel: ContactChannel;
     purpose: ContactPurpose;
-    /** Recipient's local hour, 0–23, for the quiet-hours check. */
-    localHour?: number;
+    /**
+     * IANA timezone of the recipient. Required, and nullable on purpose:
+     * `null` means "unknown", and unknown is refused all day rather than
+     * permitted at 3am. Read it from `contacts.timezone`, which ingestion
+     * fills from the clinic's own timezone.
+     */
+    recipientTimezone: string | null;
     now?: Date;
   },
 ): Promise<ContactDecision> {
@@ -117,15 +173,24 @@ export async function canContact(
   }
 
   // 2. Quiet hours. Recipient's local time, not ours — an 8pm campaign in
-  //    California is an 11pm call in New York.
-  if (input.localHour !== undefined) {
-    if (input.localHour >= QUIET_HOURS_START || input.localHour < QUIET_HOURS_END) {
-      return {
-        allowed: false,
-        code: "quiet_hours",
-        reason: `Outside the permitted window (${QUIET_HOURS_END}:00–${QUIET_HOURS_START}:00 recipient local time).`,
-      };
-    }
+  //    California is an 11pm call in New York. Computed HERE from the
+  //    timezone so no caller can leave it out, and an unknown timezone is a
+  //    refusal: the only control in this file that could fail open, closed.
+  const localHour = localHourIn(input.recipientTimezone, now);
+  if (localHour === null) {
+    return {
+      allowed: false,
+      code: "quiet_hours",
+      reason:
+        "The recipient's timezone is unknown, so the quiet-hours window cannot be checked. Record contacts.timezone before contacting this number.",
+    };
+  }
+  if (localHour >= QUIET_HOURS_START || localHour < QUIET_HOURS_END) {
+    return {
+      allowed: false,
+      code: "quiet_hours",
+      reason: `Outside the permitted window (${QUIET_HOURS_END}:00–${QUIET_HOURS_START}:00 recipient local time).`,
+    };
   }
 
   // 3. Consent.

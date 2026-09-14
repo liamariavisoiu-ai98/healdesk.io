@@ -108,8 +108,8 @@ export async function seedConversation(
   return inTenant(clinicId, async (client) => {
     const { rows: convo } = await client.query<{ id: string }>(
       `insert into conversations
-         (clinic_id, channel, recovery_reason, outcome, started_at)
-       values ($1, $2, $3, $4, $5)
+         (clinic_id, channel, recovery_reason, outcome, started_at, contact_id)
+       values ($1, $2, $3, $4, $5, $6)
        returning id`,
       [
         clinicId,
@@ -117,6 +117,7 @@ export async function seedConversation(
         recoveryReason,
         options.booked ? "booked" : "qualified_no_booking",
         options.startedAt,
+        options.contactId ?? null,
       ],
     );
     const conversationId = convo[0]!.id;

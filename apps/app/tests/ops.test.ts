@@ -35,6 +35,10 @@ const clinic = (over: Partial<ClinicOverview> = {}): ClinicOverview => ({
   onboarding: Object.fromEntries(ONBOARDING_STEPS.map((step) => [step, "2026-09-13T00:00:00.000Z"])),
   agentApprovedAt: new Date(),
   wentLiveAt: null,
+  offboardingStartedAt: null,
+  exportDeliveredAt: null,
+  destroyAfter: null,
+  destroyedAt: null,
   ...over,
 });
 
@@ -119,8 +123,12 @@ describeDb("ops clinic listing", () => {
         "carrier",
         "createdAt",
         "dataClassification",
+        "destroyAfter",
+        "destroyedAt",
+        "exportDeliveredAt",
         "id",
         "isCoveredEntity",
+        "offboardingStartedAt",
         "name",
         "onboarding",
         "openingHoursPresent",

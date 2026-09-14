@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 
-import { and, eq, gt, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, ne, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import {
   baaAcceptances,
   connectionLinks,
   providerConnections,
+  reportDeliveries,
   scheduledJobs,
 } from "@/db/schema";
 import {
@@ -31,7 +32,22 @@ import {
   type OnboardingState,
 } from "@healdesk/catalog";
 
-import { recordSecurityEvent, type ActorContext, type RequestContext } from "@/lib/audit";
+import {
+  assertNoPhi,
+  PhiInAuditError,
+  recordSecurityEvent,
+  type ActorContext,
+  type RequestContext,
+} from "@/lib/audit";
+import {
+  listIncidents,
+  markNotified,
+  openIncident,
+  resolveIncident,
+  type IncidentClass,
+} from "@/lib/incidents/incidents";
+import { markExportDelivered, startOffboarding } from "@/lib/offboarding/offboarding";
+import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
 import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
 import { env } from "@/lib/env";
@@ -49,6 +65,7 @@ import {
 } from "@/lib/ops/clinics";
 import {
   getTransport,
+  isSendableAddress,
   type DeliveryTarget,
   type OutgoingEmail,
 } from "@/lib/reporting/deliver";
@@ -197,6 +214,17 @@ const OPERATIONS = [
   "updateAgentConfig",
   "approveAgentConfig",
   "goLive",
+  // Care (lib/reporting, lib/incidents, lib/offboarding): who gets mail, what
+  // was sent, what went wrong, and the end of the relationship. Never a
+  // patient: the export that carries one is a script on the app host.
+  "getClinicCare",
+  "addReportRecipient",
+  "removeReportRecipient",
+  "openIncident",
+  "markIncidentNotified",
+  "resolveIncident",
+  "startOffboarding",
+  "markExportDelivered",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -222,6 +250,13 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "updateAgentConfig",
   "approveAgentConfig",
   "goLive",
+  "addReportRecipient",
+  "removeReportRecipient",
+  "openIncident",
+  "markIncidentNotified",
+  "resolveIncident",
+  "startOffboarding",
+  "markExportDelivered",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -671,6 +706,22 @@ export async function runOperation(
       return opApproveAgentConfig(args, operator);
     case "goLive":
       return opGoLive(args, operator);
+    case "getClinicCare":
+      return opGetClinicCare(args, operator);
+    case "addReportRecipient":
+      return opAddReportRecipient(args, operator);
+    case "removeReportRecipient":
+      return opRemoveReportRecipient(args, operator);
+    case "openIncident":
+      return opOpenIncident(args, operator);
+    case "markIncidentNotified":
+      return opMarkIncidentNotified(args, operator);
+    case "resolveIncident":
+      return opResolveIncident(args, operator);
+    case "startOffboarding":
+      return opStartOffboarding(args, operator);
+    case "markExportDelivered":
+      return opMarkExportDelivered(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The
@@ -2412,4 +2463,312 @@ async function opGoLive(
     case "not_found":
       return ok({ status: "error", message: "No such clinic." } satisfies GoLiveState);
   }
+}
+
+
+// -----------------------------------------------------------------------------
+// Care: recipients, deliveries, incidents, offboarding
+// -----------------------------------------------------------------------------
+
+/**
+ * One clinic's care view: who gets its mail, what was sent, what went wrong,
+ * and where it is on the way out. Configuration and ledgers, never a patient.
+ * An incident's summary is written by the operator and PHI-scanned on the
+ * way in (see opOpenIncident) so this view cannot carry one by accident.
+ */
+export type CareView = {
+  clinic: {
+    id: string;
+    slug: string;
+    name: string;
+    dataClassification: "synthetic" | "production";
+    isCoveredEntity: boolean | null;
+    wentLiveAt: string | null;
+    offboardingStartedAt: string | null;
+    exportDeliveredAt: string | null;
+    destroyAfter: string | null;
+    destroyedAt: string | null;
+  };
+  recipients: { email: string; label: string | null; addedBy: string; addedAt: string }[];
+  deliveries: {
+    kind: string;
+    periodKey: string;
+    recipient: string;
+    status: string;
+    reason: string | null;
+    attemptedAt: string;
+  }[];
+  incidents: {
+    id: string;
+    class: IncidentClass;
+    summary: string;
+    conversationId: string | null;
+    discoveredAt: string;
+    notifyBy: string;
+    ftcNotifyBy: string | null;
+    notifiedAt: string | null;
+    notifiedHow: string | null;
+    resolvedAt: string | null;
+    resolution: string | null;
+    openedBy: string;
+  }[];
+};
+
+const DELIVERY_ROWS = 40;
+
+async function opGetClinicCare(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return opsProblem("No such clinic.", 404, "invalid_args");
+
+  const view = await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    async (tx): Promise<CareView> => {
+      const recipients = await listRecipients(tx);
+      const deliveries = await tx.db
+        .select()
+        .from(reportDeliveries)
+        .where(eq(reportDeliveries.clinicId, tx.clinicId))
+        .orderBy(desc(reportDeliveries.attemptedAt))
+        .limit(DELIVERY_ROWS);
+      const incidents = await listIncidents(tx);
+      tx.audit.record({ action: "read", resourceType: "incident", resultCount: incidents.length, metadata: { purpose: "care_view" } });
+      return {
+        clinic: {
+          id: clinic.id,
+          slug: clinic.slug,
+          name: clinic.name,
+          dataClassification: clinic.dataClassification,
+          isCoveredEntity: clinic.isCoveredEntity,
+          wentLiveAt: clinic.wentLiveAt?.toISOString() ?? null,
+          offboardingStartedAt: clinic.offboardingStartedAt?.toISOString() ?? null,
+          exportDeliveredAt: clinic.exportDeliveredAt?.toISOString() ?? null,
+          destroyAfter: clinic.destroyAfter?.toISOString() ?? null,
+          destroyedAt: clinic.destroyedAt?.toISOString() ?? null,
+        },
+        recipients: recipients.map((r) => ({
+          email: r.email,
+          label: r.label,
+          addedBy: r.addedBy,
+          addedAt: r.createdAt.toISOString(),
+        })),
+        deliveries: deliveries.map((d) => ({
+          kind: d.kind,
+          periodKey: d.periodKey,
+          recipient: d.recipient,
+          status: d.status,
+          reason: d.reason,
+          attemptedAt: d.attemptedAt.toISOString(),
+        })),
+        incidents: incidents
+          .sort((a, b) => b.discoveredAt.getTime() - a.discoveredAt.getTime())
+          .map((i) => ({
+            id: i.id,
+            class: i.class,
+            summary: i.summary,
+            conversationId: i.conversationId,
+            discoveredAt: i.discoveredAt.toISOString(),
+            notifyBy: i.notifyBy.toISOString(),
+            ftcNotifyBy: i.ftcNotifyBy?.toISOString() ?? null,
+            notifiedAt: i.notifiedAt?.toISOString() ?? null,
+            notifiedHow: i.notifiedHow,
+            resolvedAt: i.resolvedAt?.toISOString() ?? null,
+            resolution: i.resolution,
+            openedBy: i.openedBy,
+          })),
+      };
+    },
+  );
+  return ok(view);
+}
+
+export type CareOutcome = { status: "updated" } | { status: "error"; message: string };
+
+const care = {
+  updated: () => ok({ status: "updated" } satisfies CareOutcome),
+  error: (message: string) => ok({ status: "error", message } satisfies CareOutcome),
+};
+
+async function opAddReportRecipient(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return care.error("No such clinic.");
+  const email = stringArg(args, "email", 254)?.toLowerCase();
+  if (!email || !isSendableAddress(email)) return care.error("That is not an email address we can send to.");
+  const label = stringArg(args, "label", 120) ?? undefined;
+  await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    (tx) => addRecipient(tx, { email, label, addedBy: operator.email }),
+  );
+  await audit(operator, "report_recipient_added", { clinicSlug: clinic.slug });
+  return care.updated();
+}
+
+async function opRemoveReportRecipient(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return care.error("No such clinic.");
+  const email = stringArg(args, "email", 254);
+  if (!email) return care.error("Which address?");
+  const removed = await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    (tx) => removeRecipient(tx, email, "removed from the ops console"),
+  );
+  if (!removed) return care.error("That address is not on the list.");
+  await audit(operator, "report_recipient_removed", { clinicSlug: clinic.slug });
+  return care.updated();
+}
+
+const INCIDENT_CLASSES: readonly IncidentClass[] = [
+  "security_incident",
+  "improper_use_or_disclosure",
+  "breach",
+  "service_complaint",
+];
+
+/**
+ * The summary is prose an operator typed under pressure, and it is the one
+ * field on this page that could carry a patient by accident. It goes through
+ * the same scanner the audit log uses: a phone number, an email address or a
+ * denylisted word refuses the whole incident with the reason, and the
+ * operator rewrites it in ids. A conversation id is the pointer to the
+ * evidence; the transcript is never the summary.
+ */
+function incidentText(value: string | undefined, field: string): string | { error: string } {
+  if (!value) return { error: `${field} is required.` };
+  try {
+    assertNoPhi({ [field]: value }, field);
+    return value;
+  } catch (error) {
+    if (error instanceof PhiInAuditError) {
+      return { error: `The ${field} looks like it carries patient details (${error.message}). Describe the event in ids and counts; the conversation id points to the evidence.` };
+    }
+    throw error;
+  }
+}
+
+export type OpenIncidentOutcome =
+  | { status: "opened"; id: string; notifyBy: string; ftcNotifyBy: string | null }
+  | { status: "error"; message: string };
+
+async function opOpenIncident(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies OpenIncidentOutcome);
+  const cls = stringArg(args, "class", 40);
+  if (!cls || !INCIDENT_CLASSES.includes(cls as IncidentClass)) {
+    return ok({ status: "error", message: "Pick one of the four incident classes." } satisfies OpenIncidentOutcome);
+  }
+  const summary = incidentText(stringArg(args, "summary", 2000), "summary");
+  if (typeof summary !== "string") return ok({ status: "error", message: summary.error } satisfies OpenIncidentOutcome);
+  const conversationId = stringArg(args, "conversationId");
+  if (conversationId && !UUID_SHAPED.test(conversationId)) {
+    return ok({ status: "error", message: "The conversation id is not an id." } satisfies OpenIncidentOutcome);
+  }
+  const discoveredRaw = stringArg(args, "discoveredAt", 40);
+  const discoveredAt = discoveredRaw ? new Date(discoveredRaw) : new Date();
+  if (Number.isNaN(discoveredAt.getTime()) || discoveredAt.getTime() > Date.now() + 60_000) {
+    return ok({ status: "error", message: "When was it discovered? A past date and time." } satisfies OpenIncidentOutcome);
+  }
+
+  const row = await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    (tx) =>
+      openIncident(tx, {
+        class: cls as IncidentClass,
+        summary,
+        conversationId: conversationId ?? null,
+        discoveredAt,
+        openedBy: operator.email,
+        isCoveredEntity: clinic.isCoveredEntity,
+      }),
+  );
+  await audit(operator, "incident_opened", { clinicSlug: clinic.slug, class: cls, incidentId: row.id });
+  return ok({
+    status: "opened",
+    id: row.id,
+    notifyBy: row.notifyBy.toISOString(),
+    ftcNotifyBy: row.ftcNotifyBy?.toISOString() ?? null,
+  } satisfies OpenIncidentOutcome);
+}
+
+async function opMarkIncidentNotified(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return care.error("No such clinic.");
+  const id = stringArg(args, "incidentId");
+  if (!id || !UUID_SHAPED.test(id)) return care.error("Which incident?");
+  const how = incidentText(stringArg(args, "how", 500), "how");
+  if (typeof how !== "string") return care.error(how.error);
+  const row = await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    (tx) => markNotified(tx, id, `${how} (recorded by ${operator.email})`),
+  );
+  if (!row) return care.error("No such incident at this clinic.");
+  await audit(operator, "incident_clinic_notified", { clinicSlug: clinic.slug, incidentId: id });
+  return care.updated();
+}
+
+async function opResolveIncident(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return care.error("No such clinic.");
+  const id = stringArg(args, "incidentId");
+  if (!id || !UUID_SHAPED.test(id)) return care.error("Which incident?");
+  const resolution = incidentText(stringArg(args, "resolution", 2000), "resolution");
+  if (typeof resolution !== "string") return care.error(resolution.error);
+  const row = await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    (tx) => resolveIncident(tx, id, `${resolution} (resolved by ${operator.email})`),
+  );
+  if (!row) return care.error("No open incident with that id at this clinic.");
+  await audit(operator, "incident_resolved", { clinicSlug: clinic.slug, incidentId: id });
+  return care.updated();
+}
+
+async function opStartOffboarding(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return care.error("No such clinic.");
+  if (clinic.destroyedAt) return care.error("This clinic's data has already been destroyed.");
+  const reason = incidentText(stringArg(args, "reason", 300), "reason");
+  if (typeof reason !== "string") return care.error(reason.error);
+  await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    (tx) => startOffboarding(tx, reason),
+  );
+  await audit(operator, "offboarding_started", { clinicSlug: clinic.slug });
+  return care.updated();
+}
+
+async function opMarkExportDelivered(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return care.error("No such clinic.");
+  if (!clinic.offboardingStartedAt) return care.error("Start offboarding first; the export is part of leaving.");
+  if (clinic.destroyedAt) return care.error("This clinic's data has already been destroyed.");
+  const how = incidentText(stringArg(args, "how", 200), "how");
+  if (typeof how !== "string") return care.error(how.error);
+  await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    (tx) => markExportDelivered(tx, how),
+  );
+  await audit(operator, "offboarding_export_delivered", { clinicSlug: clinic.slug });
+  return care.updated();
 }

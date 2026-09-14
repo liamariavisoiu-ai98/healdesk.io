@@ -21,6 +21,12 @@ export const JOB_MONTHLY_REPORT = "monthly-report";
 /** See billing-sweep.ts. Seeded by drizzle/0030, switched off. */
 export const JOB_BILLING_SWEEP = "billing-sweep";
 export const JOB_RETENTION_PURGE = "retention-purge";
+export const JOB_HEARTBEAT = "heartbeat";
+export const JOB_CONNECTION_HEALTH = "connection-health";
+export const JOB_ANNUAL_RENEWAL_REMINDER = "annual-renewal-reminder";
+export const JOB_WEEKLY_RECAP = "weekly-recap";
+export const JOB_NIGHTLY_SYNC = "nightly-sync";
+export const JOB_OFFBOARDING_DESTROY = "offboarding-destroy";
 
 /** How long before a `runningSince` lock is assumed to be a crashed run. */
 const STALE_LOCK_MS = 60 * 60 * 1000;
@@ -139,4 +145,23 @@ async function record(
       runningSince: null,
     })
     .where(eq(scheduledJobs.name, name));
+}
+
+/**
+ * The worker's liveness signal. Written on every tick regardless of what
+ * else ran, so "the process is up" and "the process is doing work" are the
+ * same timestamp, and a dead worker is a stale one on the console.
+ */
+export async function heartbeat(at: Date = new Date()): Promise<void> {
+  await unsafeDb
+    .update(scheduledJobs)
+    .set({ lastRunAt: at, lastRunStatus: "ok", lastRunNote: "tick", runningSince: null })
+    .where(eq(scheduledJobs.name, JOB_HEARTBEAT));
+}
+
+/** Age of the last heartbeat in seconds, or null if none was ever written. */
+export async function heartbeatAgeSeconds(now: Date = new Date()): Promise<number | null> {
+  const job = await getJob(JOB_HEARTBEAT);
+  if (!job?.lastRunAt) return null;
+  return Math.round((now.getTime() - job.lastRunAt.getTime()) / 1000);
 }

@@ -16,6 +16,7 @@
     "db:studio": "drizzle-kit studio",
     "queue:install": "tsx --env-file-if-exists=.env.local scripts/install-queue.ts",
     "worker": "tsx --env-file-if-exists=.env.local src/workers/index.ts",
+    "patient-export": "tsx --env-file-if-exists=.env.local scripts/patient-export.ts",
     "db:up": "bash scripts/dev-db.sh up",
     "db:down": "bash scripts/dev-db.sh down",
     "db:reset": "bash scripts/dev-db.sh reset",

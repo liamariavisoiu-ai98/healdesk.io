@@ -243,15 +243,27 @@ exclude exactly these, which is the point. Earlier than feels necessary.
 
 Ordered by what unblocks the most.
 
-### Voice — Synthflow, now unblocked
+### Voice — Synthflow, the webhook is built
 
-- **Voice integration.** Behind an interface so the vendor stays swappable. The
-  compliance core it needs — consent, suppression, frequency caps, disclosure —
-  is already built and vendor-independent.
+- **The post-call webhook exists.** `POST /api/webhooks/voice/[clinicId]`
+  (`apps/app/src/app/api/webhooks/voice/[clinicId]/route.ts`) takes a fixed
+  Bearer secret (`HEALDESK_VOICE_WEBHOOK_SECRET`), stores the raw body inside
+  the tenant, maps it through `lib/voice/synthflow-payload.ts` and lets
+  `ingestCall()` decide recovery, booking and the contact's timezone. A replay
+  of the same call id is a duplicate, not a second conversation. The field
+  names are **provisional** until Synthflow confirms them (question 7 in
+  `docs/synthflow-voice-agent-context.md`); the fixture in
+  `apps/app/tests/voice-webhook.test.ts` is the contract, and the reader
+  accepts the aliases their docs show today. Point the agent's webhook at the
+  route with the `Authorization: Bearer …` header and watch `webhook_events`.
 - **Disclosure injection**, non-defeatable by clinic configuration. If a clinic
-  can switch it off, a clinic will, and you become a co-defendant.
-- **Wire `canContact()` into the outbound path.** It exists and is tested;
-  nothing calls it yet because nothing places calls yet.
+  can switch it off, a clinic will, and you become a co-defendant. The webhook
+  records `disclosure_played_at` from the payload; the agent script has to
+  play it.
+- **Wire `canContact()` into the outbound path.** It exists and is tested, and
+  it now fails closed on an unknown timezone (a contact's timezone is set from
+  the clinic's at ingest). Nothing calls it yet because nothing places calls
+  yet.
 
 ### Once AWS lands
 
@@ -276,9 +288,6 @@ Ordered by what unblocks the most.
 
 ### Unblocked, just not done
 
-- **Annual renewal reminder.** The terms say we email 30 days before an
-  annual renewal. No job sends it; `annual-renewal-reminder` in the task list
-  has the design. Stripe's built-in renewal email is the stopgap.
 - **Real connection verification.** `verify.ts` currently validates the shape of
   what was pasted and reports capabilities from the catalogue. The per-platform
   HTTP calls need real credentials against real tenants.
@@ -288,24 +297,10 @@ Ordered by what unblocks the most.
   let the sync engine pick it up and fail at runtime instead of at connect time.
   Adding one is a single line in `registry.ts` plus the adapter — the engine,
   the matcher and the reports need no changes.
-- **Nothing schedules the queue yet.** `install-queue.ts` creates the queues and
-  the worker drains them, but no cron enqueues a nightly sync. That is one
-  `boss.schedule()` call, deliberately left off until there are tenants — the
-  same reason the monthly report job ships switched off.
 - **Write-back (Channel B).** Deferred deliberately. Research is done —
   GoodHighLevel and Boulevard are the best targets, PatientNow needs
   `customeruserdefined` not `customernote` because it's a real EMR, and Vagaro
   has no write-back path at all.
-- **Ingestion must set `recovery_reason`, and `after_hours` needs the hours.**
-  The column and the report read it, but nothing writes it — voice ingestion
-  isn't built. Set it at the moment the call arrives; it cannot be reconstructed
-  afterwards. For `after_hours`, call
-  `isAfterHours(hours, at, clinic.timezone)` from `lib/clinic/opening-hours.ts`
-  and record the reason **only when it returns `true`**. It returns `null` when
-  the clinic's hours were never collected, and that null must not be coerced —
-  a clinic wrongly assumed to shut at 5 would have its 6pm calls claimed as
-  recovered while its own staff answered them. Hours are collected at
-  `/c/[slug]/hours`; while they are empty the report understates, on purpose.
 - **Embedded scheduler for no-system clinics — DECIDED: Cal.com.** Its
   booking-write API and `BOOKING_PAID` webhook are confirmed, which is what the
   provisioned-booking path needs; PracticeQ's programmatic booking never was.
@@ -392,7 +387,8 @@ npm run db:up -w @healdesk/app     # Postgres in Docker, both roles, migrated
 # export the four URLs it prints
 npm run dev:web                    # marketing + checkout  → :3000
 npm run dev:app                    # ops console           → :3001
-npm test -w @healdesk/app          # 483 tests
+npm run worker -w @healdesk/app    # REQUIRED: the hourly tick, the queues, every job
+npm test -w @healdesk/app          # ~580 tests, needs TEST_APP_URL/TEST_MIGRATOR_URL
 npm test -w @healdesk/connectors   # 15, no database needed
 ```
 
@@ -413,6 +409,24 @@ nothing more. Re-running is safe.
 
 The worker is a plain Node entry point, not a Next route, so it runs as an ECS
 task or a Fly machine with nothing Vercel-shaped in the way.
+
+**It is not optional.** Since Phase 6 the worker owns the clock: pg-boss
+schedules one `tick-hourly` job and `runTick()` in
+`apps/app/src/lib/scheduler/tick.ts` runs, every hour, the billing sweep, the
+monthly report send, the weekly recap and the connection watchdog, and at fixed
+UTC hours the nightly sync (02), the retention purge (03), the offboarding
+destruction (04) and the annual renewal reminder (09). Every job still ships
+switched off and is enabled from the ops console; the `heartbeat` row is the
+liveness signal and `/api/health` reports its age. If the worker is not
+running, nothing scheduled happens and the console's job list says "Never".
+`docs/on-call.md` is the one-page runbook.
+
+Mail goes to each clinic's **report recipients** (`report_recipients`, seeded
+with the buyer at provisioning, managed at `/admin/ops/[clinicId]/care`), and
+every send is claimed in `report_deliveries` before the transport is called, so
+a job that runs twice mails once. The monthly report, the weekly recap, the
+two live alerts (booked, escalated) and the renewal notice all carry counts
+and never a patient, so they travel as `phiClass: "none"`.
 
 ### Onboarding — payment to the first answered call
 
@@ -490,6 +504,32 @@ and screenshot it. Single-patient erasure is `eraseContact()` in
 purpose. Backups: set the host's snapshot retention to 35 days so "deleted
 within 30 days, including backups" is a statement about the calendar, not a
 hope.
+
+### Offboarding
+
+When Stripe sends `customer.subscription.deleted` (or an operator starts it
+from the care page) the clinic gets `offboarding_started_at` and a
+`destroy_after` thirty days out. In between, by a person: switch the agent off
+at Synthflow, send the clinic the forwarding-removal codes, and produce the
+return bundle on the app host —
+`npm run patient-export -w @healdesk/app -- --clinic <id> --all --requested-by "…"`
+— hand it over, and record it on the care page. `offboarding-destroy` runs
+daily and deletes every patient row once `destroy_after` has passed and the
+export is recorded (or 90 days after the start if it never is), revokes the
+connections, and writes one security event. It keeps the clinic row, the
+audit log, the signed agreement, the billing history, and the TCPA evidence
+(consent records, suppressions, contact attempts). Vendor-side recordings are
+deleted in the Synthflow console by hand and noted on the event.
+
+### Incidents and patient rights
+
+`docs/incident-response.md` is the procedure. Incidents are rows with
+deadlines (`incidents`, opened from the care page; the summary is PHI-scanned
+on the way in and refuses a phone number or an address), and the daily tick
+does not close them — a person does. Patient access, amendment and accounting
+requests are answered with `npm run patient-export` (one person by phone or
+email) and `amendContact()`; the bundle is a file on the app host, never a
+page in the console, because `apps/web` holds no PHI.
 
 ### Logs
 

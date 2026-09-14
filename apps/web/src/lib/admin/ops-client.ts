@@ -163,7 +163,15 @@ type OperatorOp =
   | "setPhoneSettings"
   | "updateAgentConfig"
   | "approveAgentConfig"
-  | "goLive";
+  | "goLive"
+  | "getClinicCare"
+  | "addReportRecipient"
+  | "removeReportRecipient"
+  | "openIncident"
+  | "markIncidentNotified"
+  | "resolveIncident"
+  | "startOffboarding"
+  | "markExportDelivered";
 
 /**
  * The operations that happen BEFORE there is a session, and there are exactly
@@ -1856,5 +1864,174 @@ export function goLive(clinicId: string): Promise<OpsResult<GoLiveOutcome>> {
       };
     }
     throw new Error(text(data.message, "goLive.message"));
+  });
+}
+
+
+// -----------------------------------------------------------------------------
+// Care: recipients, deliveries, incidents, offboarding
+// -----------------------------------------------------------------------------
+
+/**
+ * One clinic's care view. Configuration and ledgers, never a patient: the
+ * incident summaries were PHI-scanned by the ops API before they were stored,
+ * and the patient-rights export is a script on the app host, not a page here.
+ */
+export type CareView = {
+  clinic: {
+    id: string;
+    slug: string;
+    name: string;
+    dataClassification: "synthetic" | "production";
+    isCoveredEntity: boolean | null;
+    wentLiveOn: string | null;
+    offboardingStartedOn: string | null;
+    exportDeliveredOn: string | null;
+    destroyAfterOn: string | null;
+    destroyedOn: string | null;
+  };
+  recipients: { email: string; label: string | null; addedBy: string; addedOn: string }[];
+  deliveries: {
+    kind: string;
+    periodKey: string;
+    recipient: string;
+    status: string;
+    reason: string | null;
+    attemptedAt: string;
+  }[];
+  incidents: {
+    id: string;
+    class: IncidentClass;
+    summary: string;
+    conversationId: string | null;
+    discoveredAt: string;
+    notifyBy: string;
+    ftcNotifyBy: string | null;
+    notifiedAt: string | null;
+    notifiedHow: string | null;
+    resolvedAt: string | null;
+    resolution: string | null;
+    openedBy: string;
+  }[];
+};
+
+export type IncidentClass = "security_incident" | "improper_use_or_disclosure" | "breach" | "service_complaint";
+export const INCIDENT_CLASSES: readonly IncidentClass[] = [
+  "security_incident",
+  "improper_use_or_disclosure",
+  "breach",
+  "service_complaint",
+];
+
+function readCareView(value: unknown): CareView {
+  const data = object(value, "getClinicCare");
+  const clinic = object(data.clinic, "getClinicCare.clinic");
+  const on = (v: unknown, at: string) => optionalInstant(v, at)?.on ?? null;
+  return {
+    clinic: {
+      id: id(clinic.id, "care.clinic.id"),
+      slug: text(clinic.slug, "care.clinic.slug"),
+      name: text(clinic.name, "care.clinic.name"),
+      dataClassification: literal(clinic.dataClassification, ["synthetic", "production"], "care.clinic.dataClassification"),
+      isCoveredEntity:
+        clinic.isCoveredEntity === null || clinic.isCoveredEntity === undefined
+          ? null
+          : bool(clinic.isCoveredEntity, "care.clinic.isCoveredEntity"),
+      wentLiveOn: on(clinic.wentLiveAt, "care.clinic.wentLiveAt"),
+      offboardingStartedOn: on(clinic.offboardingStartedAt, "care.clinic.offboardingStartedAt"),
+      exportDeliveredOn: on(clinic.exportDeliveredAt, "care.clinic.exportDeliveredAt"),
+      destroyAfterOn: on(clinic.destroyAfter, "care.clinic.destroyAfter"),
+      destroyedOn: on(clinic.destroyedAt, "care.clinic.destroyedAt"),
+    },
+    recipients: list(data.recipients, "care.recipients").map((entry) => {
+      const r = object(entry, "care.recipient");
+      return {
+        email: text(r.email, "care.recipient.email"),
+        label: optionalText(r.label, "care.recipient.label"),
+        addedBy: text(r.addedBy, "care.recipient.addedBy"),
+        addedOn: instant(r.addedAt, "care.recipient.addedAt").on,
+      };
+    }),
+    deliveries: list(data.deliveries, "care.deliveries").map((entry) => {
+      const d = object(entry, "care.delivery");
+      return {
+        kind: text(d.kind, "care.delivery.kind"),
+        periodKey: text(d.periodKey, "care.delivery.periodKey"),
+        recipient: text(d.recipient, "care.delivery.recipient"),
+        status: text(d.status, "care.delivery.status"),
+        reason: optionalText(d.reason, "care.delivery.reason"),
+        attemptedAt: instant(d.attemptedAt, "care.delivery.attemptedAt").at,
+      };
+    }),
+    incidents: list(data.incidents, "care.incidents").map((entry) => {
+      const i = object(entry, "care.incident");
+      return {
+        id: id(i.id, "care.incident.id"),
+        class: literal(i.class, INCIDENT_CLASSES, "care.incident.class"),
+        summary: text(i.summary, "care.incident.summary"),
+        conversationId: i.conversationId === null || i.conversationId === undefined ? null : id(i.conversationId, "care.incident.conversationId"),
+        discoveredAt: instant(i.discoveredAt, "care.incident.discoveredAt").at,
+        notifyBy: instant(i.notifyBy, "care.incident.notifyBy").at,
+        ftcNotifyBy: optionalInstant(i.ftcNotifyBy, "care.incident.ftcNotifyBy")?.on ?? null,
+        notifiedAt: optionalInstant(i.notifiedAt, "care.incident.notifiedAt")?.at ?? null,
+        notifiedHow: optionalText(i.notifiedHow, "care.incident.notifiedHow"),
+        resolvedAt: optionalInstant(i.resolvedAt, "care.incident.resolvedAt")?.at ?? null,
+        resolution: optionalText(i.resolution, "care.incident.resolution"),
+        openedBy: text(i.openedBy, "care.incident.openedBy"),
+      };
+    }),
+  };
+}
+
+export function fetchClinicCare(clinicId: string): Promise<OpsResult<CareView>> {
+  return callOps("getClinicCare", "read", { clinicId }, readCareView);
+}
+
+export type CareOutcome = { status: "updated" } | { status: "refused"; message: string };
+
+function careWrite(op: OperatorOp, args: Record<string, unknown>): Promise<OpsResult<CareOutcome>> {
+  return callOps(op, "write", args, (value) => {
+    const data = object(value, op);
+    if (state(data, op) !== "updated") return refusal(data, op);
+    return { status: "updated" };
+  });
+}
+
+export function addReportRecipient(clinicId: string, email: string, label?: string) {
+  return careWrite("addReportRecipient", { clinicId, email, ...(label ? { label } : {}) });
+}
+export function removeReportRecipient(clinicId: string, email: string) {
+  return careWrite("removeReportRecipient", { clinicId, email });
+}
+export function markIncidentNotified(clinicId: string, incidentId: string, how: string) {
+  return careWrite("markIncidentNotified", { clinicId, incidentId, how });
+}
+export function resolveIncident(clinicId: string, incidentId: string, resolution: string) {
+  return careWrite("resolveIncident", { clinicId, incidentId, resolution });
+}
+export function startOffboarding(clinicId: string, reason: string) {
+  return careWrite("startOffboarding", { clinicId, reason });
+}
+export function markExportDelivered(clinicId: string, how: string) {
+  return careWrite("markExportDelivered", { clinicId, how });
+}
+
+export type OpenIncidentOutcome =
+  | { status: "opened"; id: string; notifyBy: string; ftcNotifyBy: string | null }
+  | { status: "refused"; message: string };
+
+export function openIncident(
+  clinicId: string,
+  input: { class: IncidentClass; summary: string; conversationId?: string; discoveredAt?: string },
+): Promise<OpsResult<OpenIncidentOutcome>> {
+  return callOps("openIncident", "write", { clinicId, ...input }, (value) => {
+    const data = object(value, "openIncident");
+    if (state(data, "openIncident") !== "opened") return refusal(data, "openIncident");
+    return {
+      status: "opened",
+      id: id(data.id, "openIncident.id"),
+      notifyBy: instant(data.notifyBy, "openIncident.notifyBy").at,
+      ftcNotifyBy: optionalInstant(data.ftcNotifyBy, "openIncident.ftcNotifyBy")?.on ?? null,
+    };
   });
 }

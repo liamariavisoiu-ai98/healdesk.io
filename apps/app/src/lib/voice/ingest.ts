@@ -324,7 +324,7 @@ export async function ingestCall(
     });
 
     const contactId = event.callerPhone
-      ? await upsertCaller(tx.db, event)
+      ? await upsertCaller(tx.db, event, clinic.timezone)
       : null;
 
     const [row] = await tx.db
@@ -494,6 +494,7 @@ export async function ingestCall(
 async function upsertCaller(
   db: Transaction,
   event: VoiceCallEvent,
+  clinicTimezone: string,
 ): Promise<string> {
   const phone = toE164(event.callerPhone) ?? event.callerPhone!.trim();
 
@@ -513,6 +514,9 @@ async function upsertCaller(
       clinicId: event.clinicId,
       phone,
       fullName: event.callerName?.trim() || null,
+      // The caller rang a local clinic: its timezone is the best evidence we
+      // have, recorded now so the quiet-hours check can run later at all.
+      timezone: clinicTimezone,
       updatedAt: new Date(),
     })
     .returning({ id: contacts.id });

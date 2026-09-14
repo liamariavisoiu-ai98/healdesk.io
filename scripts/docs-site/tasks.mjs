@@ -161,30 +161,6 @@ export const TASKS = [
 
   // -------------------------------------------------------------- waiting
   {
-    id: "voice-ingest",
-    group: "onboarding",
-    status: "vendor",
-    blockedBy: null,
-    title: "Write the voice webhook that creates a conversation",
-    effort: "small once Synthflow answers",
-    plain:
-      "This is the single highest-leverage thing left. Reporting, reconciliation and the " +
-      "whole pitch are built, tested — and fed by nothing. Until a call writes a row, " +
-      "every customer's monthly report reads $0.00.",
-    why:
-      "The hard part is already done: ingestCall() in apps/app/src/lib/voice/ingest.ts " +
-      "decides whether a call counts as recovered, reading the clinic's own routing and " +
-      "opening hours rather than trusting the vendor. It just has no caller.",
-    steps: [
-      "Wait for Synthflow question 7 — the payload shape determines the mapping, and guessing it means writing the route twice.",
-      "Add a route at apps/app/src/app/api/webhooks/voice/[clinicId], modelled on the existing connector webhook: verify the signature, store fast, return 200.",
-      "Map the vendor payload to VoiceCallEvent. Supply observable facts only — rangAtClinicFirst, clinicLineBusy, isCallback — and let ingestCall decide what they mean.",
-      "Do not pass through the vendor's own \"missed call\" flag. Platforms report what happened, not what would have happened without you.",
-      "If Synthflow cannot supply the pre-forward disposition there is no carrier webhook to fall back on — numbers are Synthflow-issued and there is no Twilio account — so infer it from the clinic's opening hours and the forward timing, mark the reason as inferred, and let the report caveat it.",
-    ],
-    source: { doc: "handover", heading: "Unblocked, just not done" },
-  },
-  {
     id: "insurance",
     group: "send-today",
     status: "vendor",
@@ -702,14 +678,14 @@ export const TASKS = [
     group: "onboarding",
     status: "ready",
     title: "Automate the forwarding test call",
-    effort: "1 day, after voice-ingest",
-    blockedBy: "voice-ingest",
+    effort: "1 day",
+    blockedBy: null,
     plain:
       "The forwarding instructions exist: packages/catalog/src/forwarding.ts holds the carrier star codes (conditional busy/no-answer by default, unconditional only for \"AYA answers everything\", \"ask your carrier\" when unknown) and the console's onboarding page shows them once the Synthflow number is entered. What is still manual is the proof: the operator rings the clinic's number and reads Synthflow's call log to confirm the caller ID survived (docs/onboarding-runbook.md, step 10).",
     why:
       "If caller ID does not survive the forward, every caller looks like the clinic and no callback can ever reach the right person. Today a human checks; a button that watches for the inbound event cannot forget.",
     steps: [
-      "Once voice-ingest delivers inbound call events to apps/app, add a `startForwardingTest` ops operation that records a two-minute window on the clinic, and have the ingest path stamp `test_call_passed` when a call arrives on the clinic's Synthflow number inside it with a caller number that is not the clinic's own.",
+      "The voice webhook (apps/app/src/app/api/webhooks/voice/[clinicId]/route.ts) now delivers inbound call events to apps/app; add a `startForwardingTest` ops operation that records a two-minute window on the clinic, and have the ingest path stamp `test_call_passed` when a call arrives on the clinic's Synthflow number inside it with a caller number that is not the clinic's own.",
       "Show the three facts on the console: it arrived, the caller ID was preserved, and which forward condition fired (busy, no-answer, or all).",
       "Reopen `test_call_passed` automatically if a later call arrives with the clinic's own number as caller ID — the carrier changed something.",
     ],
@@ -1129,96 +1105,12 @@ export const TASKS = [
     source: { doc: "outreach-step-by-step", heading: "Phase 4 — The real go/no-go" },
   },
   {
-    id: "report-recipient-and-ledger",
-    group: "delivery",
-    status: "ready",
-    title: "Give the monthly report an address to send to, and a record of what was sent",
-    effort: "1 day",
-    blockedBy: null,
-    plain:
-      "The monthly report is the one thing every customer is promised, but the database has nowhere to put the email address it should go to. `clinics` (apps/app/src/db/schema.ts:212) has no contact-email column, and `app_clinics_overview()` — the only function a background job may use to list clinics — returns id, slug, name, timezone, specialty, plan, attribution mode, classification, covered-entity, BAA date and created-at, and no address. There is also nothing recording that a report was ever sent, so re-running the job would mail every clinic a second copy of the same month.",
-    why:
-      "Without a recipient the send job has nothing to do. Without a delivery ledger, one retried or double-triggered run mails 40 clinics the same figures twice, which reads as a broken product on the single artefact they judge you by; and one crash mid-run silently skips whoever came after it with no way to tell who was missed.",
-    steps: [
-      "Add a `report_recipients` table (clinic_id, email, label, added_by, verified_at, unsubscribed_at) and a `report_deliveries` table (clinic_id, period_key, recipient, status, message_id, sent_at) with a unique index on (clinic_id, period_key, recipient) so a second send is a conflict, not a duplicate email — follow the RLS pattern in apps/app/drizzle/0010_consent_rls.sql.",
-      "Seed the first recipient at provisioning time from the buyer's email in apps/app/src/lib/provisioning.ts (it already has `email` at line 235 and writes the clinic under `organizationId`).",
-      "Write migration 0024 that DROPs and recreates `app_clinics_overview()` adding a `report_email` column, copying the shape of apps/app/drizzle/0012_clinics_overview_status.sql exactly — including the REVOKE ALL / GRANT EXECUTE TO healdesk_app pair at the bottom.",
-      "Extend `ClinicOverview` in apps/app/src/lib/ops/clinics.ts and the local `clinicsForScheduler()` in apps/app/src/lib/scheduler/monthly-report.ts to read the new column.",
-      "Add an editable recipients section to apps/app/src/app/(console)/c/[clinicSlug]/report/page.tsx so a clinic can point reports at a shared front-desk inbox and remove a departed manager.",
-      "Run `npm run db:migrate -w @healdesk/app` then `npm test -w @healdesk/app` to confirm the 159 existing tests still pass.",
-    ],
-    source: { doc: "handover", heading: "Once AWS lands" },
-  },
-  {
-    id: "report-send-path",
-    group: "delivery",
-    status: "ready",
-    title: "Join the monthly report's three finished halves into one path that actually sends",
-    effort: "1–2 days",
-    blockedBy: "report-recipient-and-ledger",
-    plain:
-      "Three modules exist, are tested, and are wired to nothing: `buildMonthlyReport()` computes the figures, `renderMonthlyReport()` turns them into an email, and `deliverReport()` sends it. Nothing calls them in sequence — `runMonthlyReportJob()` in apps/app/src/lib/scheduler/monthly-report.ts deliberately throws \"Report delivery is not implemented\" the moment you pass `send: true`, and no code anywhere calls that function at all. The tenant-enumeration problem that blocked this is already solved: `app_clinics_overview()` (apps/app/drizzle/0008_scheduler_enumeration.sql) is a SECURITY DEFINER function with a fixed non-PHI projection, and the job already uses it — but the comment at the bottom of apps/app/src/lib/attribution/report.ts still says it was left undone, which will send the next reader in circles.",
-    why:
-      "The product's entire promise after the phone stops ringing is \"here is what we earned you\". A customer who paid a setup fee and $397–1,497/month and receives nothing at the end of month one churns, and there is no second impression. Every downstream number is correct and reaches nobody.",
-    steps: [
-      "In apps/app/src/lib/scheduler/monthly-report.ts, replace the `throw` inside the `options.send` branch with a loop that renders each report via `renderMonthlyReport()` (apps/app/src/lib/reporting/render.ts) and sends it via `deliverReport()` (apps/app/src/lib/reporting/deliver.ts), which already runs `assertNoPhiInReport()` first.",
-      "Filter `buildAllReports()` so it only mails clinics that should get mail: `data_classification = 'production'`, a signed BAA, a recipient address, and at least one full month elapsed since `created_at` — today it builds for every clinic including synthetic ones.",
-      "Write each attempt into `report_deliveries` before calling the transport and update it after, so a crash mid-run leaves an unambiguous record and the re-run skips what already went.",
-      "Delete or rewrite the stale \"NOT IMPLEMENTED HERE: enumerating which clinics are due a report\" block at the end of apps/app/src/lib/attribution/report.ts, and point it at 0008 instead.",
-      "Extend apps/app/tests/scheduler.test.ts with a run that uses a fake `EmailTransport` and asserts: one email per eligible clinic, zero for ineligible ones, and zero on a second run of the same period.",
-      "Leave the job switched off in the ops console until a real tenant exists — the toggle is at apps/app/src/app/(console)/page.tsx.",
-    ],
-    source: { doc: "launch-plan", heading: "Delivery: Channel A only for v1" },
-  },
-  {
-    id: "scheduler-tick",
-    group: "delivery",
-    status: "ready",
-    title: "Give the job runner a clock, because nothing ever calls it",
-    effort: "half a day",
-    blockedBy: null,
-    plain:
-      "`runJob()` in apps/app/src/lib/scheduler/jobs.ts is a lock and a ledger, not a scheduler — it decides whether a job may run and records what happened, but something outside has to invoke it. Nothing does. The ops console can toggle `monthly-report` to \"On\" and it will sit there forever showing \"Last run: Never\".",
-    why:
-      "Every scheduled behaviour in the product — the monthly report, sync, reconciliation, health checks, retention — depends on something ticking. Without it, turning a job on in the console is a button that lies, which is worse than no button: an operator will believe reports are going out.",
-    steps: [
-      "Put the tick inside the existing long-lived worker at apps/app/src/workers/index.ts rather than adding a hosting dependency: call `boss.schedule('tick-hourly', '0 * * * *')` and have the handler call `runMonthlyReportJob()`; pg-boss already owns cron and the worker is already the process that stays up.",
-      "Turn on pg-boss's scheduler in that process — `options()` in apps/app/src/lib/queue/boss.ts currently passes `schedule: false`, so add an override alongside the existing `supervise: true` the worker already passes.",
-      "Make the monthly job timezone-aware rather than midnight-UTC: run hourly, and for each clinic send only when the 1st has arrived in that clinic's own timezone and nothing is recorded in `report_deliveries` for that period — `previousMonth()` in apps/app/src/lib/attribution/period.ts already does the timezone maths.",
-      "Add a `heartbeat` row to `scheduled_jobs` written on every tick, so a stopped worker shows as a stale timestamp on the console instead of as silence.",
-      "Document the worker as a required process next to the two dev servers in docs/handover.md § \"5. Running it\" — today it is `npm run worker -w @healdesk/app` and easy to forget.",
-      "Confirm the schedule survives a restart: stop and start the worker and check `pgboss.schedule` still holds one row per job, not two.",
-    ],
-    source: { doc: "architecture", heading: "Deployment" },
-  },
-  {
-    id: "nightly-sync-schedule",
-    group: "delivery",
-    status: "ready",
-    title: "Schedule the nightly sync and the month-end reconcile",
-    effort: "1 day",
-    blockedBy: "scheduler-tick",
-    plain:
-      "`scripts/install-queue.ts` creates the three queues and apps/app/src/workers/index.ts drains them, but nothing puts work in. The only enqueue site in the codebase is the inbound-webhook path, which no registered adapter can currently reach, so a clinic that connects its point-of-sale gets one sync at connect time and never again.",
-    why:
-      "Verified attribution is sold as the upgrade that makes the numbers real. If nothing re-syncs, the month-end report reconciles against data frozen on the day they connected — the figure silently drifts down every month and the clinic concludes the agent stopped working. PatientNow also allows only 1,000 API requests a day, so an unstaggered catch-up burst can exhaust a clinic's whole daily budget in one go.",
-    steps: [
-      "Add a `app_active_connections()` SECURITY DEFINER function in a new migration, returning `(clinic_id, connection_id, provider)` for connections with status 'active' or 'degraded' and nothing else — the runtime role cannot list connections across tenants for exactly the same reason it cannot list clinics, and apps/app/drizzle/0008_scheduler_enumeration.sql is the template for how narrow it must be.",
-      "In apps/app/src/workers/index.ts, schedule a nightly job that enumerates those rows and calls `enqueue(QUEUE_SYNC_CONNECTION, { clinicId, connectionId })` from apps/app/src/lib/queue/boss.ts — the payload allowlist already permits exactly those two keys.",
-      "Stagger the sends across the window with a per-connection `startAfter` offset so a hundred clinics do not hit their platforms in the same minute, and pass a `singletonKey` so a webhook-triggered sync and the nightly one collapse into one run.",
-      "Schedule `QUEUE_RECONCILE_CLINIC` for each verified clinic on the 1st, before the report job fires, so the report reads a settled reconciliation rather than triggering one inline.",
-      "Fix the two `sync.test.ts` fixture failures first if you want a green baseline — they fail in the first days of a month because packages/connectors/src/fixture/generator.ts anchors to `new Date()` rather than the period under test.",
-      "Verify with `npm run queue:install -w @healdesk/app` then `npm run worker -w @healdesk/app` against the dev database and confirm `sync_runs` gains one row per connection per night.",
-    ],
-    source: { doc: "handover", heading: "Unblocked, just not done" },
-  },
-  {
     id: "ses-bounce-suppression",
     group: "send-today",
     status: "vendor",
     title: "Wire SES bounces and complaints to suppression before the first report goes out",
     effort: "1 day once the AWS account exists",
-    blockedBy: "report-send-path",
+    blockedBy: null,
     plain:
       "apps/app/src/lib/reporting/deliver.ts refuses to send without a configuration set enforcing `TlsPolicy=REQUIRE`, and re-reads it from AWS to check. The consequence of that correct choice is that a recipient whose mail server will not negotiate TLS is dropped rather than delivered — and nothing in the codebase listens for that. There is no bounce handler, no complaint handler, and no email suppression list.",
     why:
@@ -1234,73 +1126,12 @@ export const TASKS = [
     source: { doc: "blockers-runbook", heading: "The engineering obligations people miss" },
   },
   {
-    id: "connection-health-watchdog",
-    group: "delivery",
-    status: "ready",
-    title: "Notice a dead connection or a stalled webhook queue before the clinic does",
-    effort: "1–2 days",
-    blockedBy: "scheduler-tick",
-    plain:
-      "apps/app/src/app/(console)/c/[clinicSlug]/sync/page.tsx shows connection status, sync runs and the reconciliation exception queue, and its own header note says a table nobody looks at is the same as deleting it. The same is true of a screen: nothing pushes any of it at anyone. A revoked OAuth token sets `provider_connections.status = 'revoked'` and `last_error`, sync then throws \"Connection has been revoked\" (apps/app/src/lib/sync/run.ts:405), and the reports keep arriving with quietly shrinking numbers.",
-    why:
-      "The failure mode is the worst kind: everything looks fine, the monthly email still sends, and the recovered-revenue figure falls month over month for reasons the clinic reads as \"the AI stopped working\". The report's own caveat text — \"this usually means the connection needs re-authorising\" — arrives up to thirty days after the connection died. Unprocessed webhook rows behave the same way; `webhook_events` already has a partial index on unprocessed rows and nothing queries it.",
-    steps: [
-      "Add a `connection-health` row to `scheduled_jobs` (follow the seed INSERT in apps/app/drizzle/0008_scheduler_enumeration.sql) and an hourly handler in apps/app/src/workers/index.ts.",
-      "Flag three conditions: any connection whose status is 'revoked' or 'error'; any active connection with no `sync_runs` row of status 'ok' or 'partial' in 48 hours; and any clinic with `webhook_events` rows unprocessed for over an hour or with `signature_valid = false` in the last day.",
-      "Email the clinic a plain-English re-authorise prompt with a deep link to /c/[slug]/connect, and email ops a single digest — never one message per condition per clinic, or the alert becomes noise inside a week.",
-      "Show the same three conditions as a red band on the ops console at apps/app/src/app/(console)/page.tsx, alongside the existing BAA blockers from `blockersFor()` in apps/app/src/lib/ops/clinics.ts.",
-      "Add a caveat to the monthly report when coverage was incomplete for the period, so a report built over a broken connection says so on its face rather than under-reporting in silence.",
-      "Test by revoking a fixture connection in the dev database and confirming the alert fires within one tick.",
-    ],
-    source: { doc: "architecture", heading: "The sync and reconciliation path" },
-  },
-  {
-    id: "annual-renewal-reminder",
-    group: "delivery",
-    status: "ready",
-    title: "Send the 30-day annual renewal reminder the terms promise",
-    effort: "half a day",
-    blockedBy: null,
-    plain:
-      "The terms of service (apps/web/src/app/terms/page.tsx, \"Annual plans\") say we email the billing contact at least 30 days before an annual subscription renews. Nothing sends that email yet. Stripe can send its own renewal reminder for subscriptions on a yearly price (Settings → Billing → Subscriptions and emails → \"upcoming renewal\"), but that goes to the Stripe customer email and is not under our copy or our log.",
-    why:
-      "A promise in the terms that the product does not keep is the first thing a chargeback or an auto-renewal complaint reaches for. California's ARL and several state auto-renewal laws require a clear renewal notice for terms of a year or more, and the terms already commit us to it, so this is the cheapest way to make a legal claim true rather than argue it later.",
-    steps: [
-      "Add a scheduled job in apps/app/src/lib/scheduler (next to billing-sweep) that runs daily, reads `entitlements` rows with `interval = 'year'` and a `current_period_end` between 30 and 31 days out, and sends one reminder email per subscription per period via Resend to the billing contact.",
-      "Record the send as a `billing_events` row (kind `renewal_reminder_sent`) so the job is idempotent across restarts and the ops console can show that the reminder went out.",
-      "Copy: the package name, the renewal date, the amount from `annualTotalUsd()`, and a link to the Stripe Customer Portal to cancel before the date. No PHI, no usage figures.",
-      "Ship the job switched off like the others; enable it from the ops console the day the first annual customer signs.",
-      "Add a test in apps/app/tests that seeds an entitlement 30 days from renewal, runs one tick, asserts one email and one event, and asserts a second tick sends nothing.",
-    ],
-    source: { doc: "handover", heading: "Stripe account — built, three steps from working" },
-  },
-  {
-    id: "quiet-hours-fail-closed",
-    group: "delivery",
-    status: "ready",
-    title: "Make the quiet-hours check impossible to skip",
-    effort: "3 hours",
-    blockedBy: null,
-    plain:
-      "`canContact()` in apps/app/src/lib/compliance/contact-policy.ts is the gate every outbound call and text must pass, and it is good — suppression first, then consent, then frequency caps. But the quiet-hours check is wrapped in `if (input.localHour !== undefined)` at line 121, and `localHour` is an optional argument. A caller that simply does not pass it gets an \"allowed\" decision at 3am with no warning.",
-    why:
-      "This is the one control in the file that fails open. Everything else refuses when it lacks information; this one permits. TCPA statutory damages are $500–1,500 per call, uncapped, with a ready-made class — and the caller most likely to omit the field is the first outbound integration, written months from now by someone who reads the type signature and not the comment.",
-    steps: [
-      "Change the input from an optional `localHour` to a required recipient timezone (or a phone-to-timezone resolution), and compute the local hour inside `canContact()` so no caller can omit it.",
-      "When the timezone cannot be determined, return `{ allowed: false, code: \"quiet_hours\" }` with a reason saying so — mirror the deliberate `null`-not-coerced handling that `isAfterHours()` in apps/app/src/lib/clinic/opening-hours.ts already uses for missing opening hours.",
-      "Add the recipient timezone to the `contacts` table so it is captured at ingestion, where the area code and the clinic's own location are both known, rather than guessed at dial time.",
-      "Add a test to apps/app/tests/compliance.test.ts asserting that a call to `canContact()` with no timezone information is refused, not allowed.",
-      "While in the file, add the §64.1200(b) identification requirement and the 60-second cap for reminder calls as explicit checks or as documented obligations on the caller — both are conditions of the healthcare exemption the caps already implement half of.",
-    ],
-    source: { doc: "launch-plan", heading: "TCPA — the AI voice is an \"artificial voice\"" },
-  },
-  {
     id: "outbound-reactivation-switch",
     group: "send-today",
     status: "counsel",
     title: "Build the per-clinic switch that turns the reactivation loop on safely",
     effort: "a week of build, plus counsel turnaround",
-    blockedBy: "quiet-hours-fail-closed",
+    blockedBy: null,
     plain:
       "Reactivating the dormant list is sold on the homepage as \"the lever nobody pulls\" and is the closest thing the product has to a moat. The compliance core for it is already built and tested — `canContact()`, `recordAttempt()`, `suppress()` and `isStopRequest()` in apps/app/src/lib/compliance/contact-policy.ts, plus the consent, suppression and attempt tables — and every one of those functions is called by nothing. There is also no path that ingests an inbound \"STOP\" into the suppression list, and no per-clinic flag that says this clinic may send at all.",
     why:
@@ -1314,27 +1145,6 @@ export const TASKS = [
       "Get counsel's answer to the open question in docs/handover.md — whether reactivation is HIPAA marketing under §164.501 needing a separate authorisation on top of TCPA written consent — before any real send.",
     ],
     source: { doc: "launch-plan", heading: "On suppression — taking your direction" },
-  },
-  {
-    id: "weekly-recap-and-live-alerts",
-    group: "delivery",
-    status: "ready",
-    title: "Add a weekly recap and a live booking alert, so the first feedback is not thirty days away",
-    effort: "2–3 days",
-    blockedBy: "report-send-path",
-    plain:
-      "The only feedback the customer ever gets is the monthly email. A clinic that buys on the 20th will have decided whether the setup fee was worth it before a single report exists. There is currently no weekly digest and no real-time notification of anything — not a booking, not an escalation, not a high-value lead.",
-    why:
-      "Two things break. The renewal turns on felt value, and felt value at day 7 is \"the agent booked Sarah at 9pm last night and texted me about it\", not a spreadsheet in five weeks. And the clinic has no way to catch a bad call while it still matters — an escalation nobody was told about is a patient who waited.",
-    steps: [
-      "Add a `weekly-recap` job beside `monthly-report`, reusing `buildMonthlyReport()`'s aggregate shape over a 7-day period — the aggregate-only rule in apps/app/src/lib/reporting/render.ts applies identically and `assertNoPhiInReport()` already enforces it.",
-      "Add a live alert on two events only, to start: a booking written by the agent, and `outcome = 'escalated_to_human'` from apps/app/src/lib/voice/ingest.ts. Send to the clinic's chosen channel with no patient detail in the body — a count and a prompt to open the console, since SMS and email to a shared inbox are not places to put a name.",
-      "Make alert frequency a per-clinic setting with a sane default, and route it through the same recipient table as the report so one unsubscribe means one unsubscribe.",
-      "In the first month, send the recap on day 7 regardless of period boundaries — the first one is the one that sells.",
-      "Add both jobs to the `scheduled_jobs` seed so they appear on the ops console switched off, matching how `monthly-report` ships.",
-      "Assert in tests that a recap over a period with zero conversations sends nothing at all rather than an email saying zero.",
-    ],
-    source: { doc: "launch-plan", heading: "Delivery: Channel A only for v1" },
   },
   {
     id: "agent-quality-metrics",
@@ -1358,96 +1168,12 @@ export const TASKS = [
     source: { doc: "launch-plan", heading: "Verification" },
   },
   {
-    id: "incident-response-and-breach-clock",
-    group: "delivery",
-    status: "ready",
-    title: "Write and staff the incident process the BAA already commits you to",
-    effort: "3 days of writing plus a day of build",
-    blockedBy: null,
-    plain:
-      "The assembled BAA promises each clinic notice within five business days of any improper use or disclosure, and within five calendar days of a discovered breach — deliberately tighter than the sixty days 45 CFR 164.410 allows (see the clauses around packages/catalog/src/baa.ts:311–351). Nothing in the product detects, triages, records or notifies. There is also no defined path for the ordinary version of this: a clinic saying \"your AI mishandled a call yesterday\".",
-    why:
-      "This is a signed contractual clock running against a process that does not exist. A five-day promise you learn about on day four is worse than the sixty-day statutory floor. Separately, the first mishandled call is going to happen, and the difference between a retained customer and a cancellation is whether you can pull the transcript, explain what happened and say what changed — within hours, not days.",
-    steps: [
-      "Write docs/incident-response.md: what counts as a security incident versus a breach, who decides, the five-business-day and five-calendar-day clocks copied from the BAA clause text, who at the clinic gets told and how, and what gets written down.",
-      "Add an incident record to the database (clinic, discovered_at, class, summary, notified_at, resolution) so the clock is a row with a deadline rather than a memory, and surface overdue ones on the ops console.",
-      "Give clinics a one-click \"flag this call\" action from the console that creates a support case carrying the conversation id — never the transcript body — and routes it to a monitored inbox.",
-      "Define the human response: who reads it, the target first-reply time, and what the customer is told while it is being looked at. `security_events` already exists in the schema as the place identity-plane incidents land; reuse it rather than inventing a parallel log.",
-      "Run one tabletop against a fabricated scenario — the agent read appointment details to the wrong caller — and time yourself against the five-day clock end to end.",
-      "Check the retention side while you are here: `webhook_events.raw_payload` is commented \"Reaped on a retention schedule\" and no such schedule exists, so PHI-bearing payloads accumulate forever.",
-    ],
-    source: { doc: "research-conclusions", heading: "The lawyer plan" },
-  },
-  {
-    id: "patient-rights-export",
-    group: "delivery",
-    status: "ready",
-    title: "Build the patient access, amendment and accounting export the BAA promises in ten business days",
-    effort: "2–3 days",
-    blockedBy: null,
-    plain:
-      "The BAA's `patient-rights` clause (packages/catalog/src/baa.ts:426) commits healdesk to giving the clinic what it needs to answer a patient's access, amendment or accounting-of-disclosures request within ten business days — and to forwarding any request made directly to healdesk within five. Amendment specifically promises that healdesk's own copy is corrected, not merely annotated. None of this is built, and there is no way today to produce everything held about one patient.",
-    why:
-      "This is a signed obligation with a named deadline that would currently be met by an engineer writing ad-hoc SQL against production under time pressure, which is exactly the situation that produces a second incident. `audit_log` is the only possible source for an accounting of disclosures, so if it is not queryable per-patient the promise cannot be kept at all.",
-    steps: [
-      "Build a per-contact export inside `withTenant()` that gathers the contact, their conversations, appointments, transactions, consent records, suppressions and contact attempts, and writes its own audit row for the access.",
-      "Build the accounting of disclosures as a query over `audit_log` filtered to that contact, since apps/app/src/lib/attribution/report.ts already demonstrates that even counting conversations records an access — the trail exists, it just has no reader.",
-      "Implement amendment as a real correction with the prior value preserved in the audit trail, not a note appended alongside the wrong value, because the clause is explicit about that distinction.",
-      "Add the forwarding path: a documented address and a procedure for passing a direct patient request to the clinic within five business days and telling the patient it was done.",
-      "Put the export behind ops-staff-only authorisation, audited, and never expose it as a self-serve clinic feature — the request has to be validated by the covered entity first.",
-      "Test it end to end against fixture data and time the run, so the ten-day promise is backed by a number you have measured.",
-    ],
-    source: { doc: "handover", heading: "4. Known gaps, deliberately" },
-  },
-  {
-    id: "offboarding-and-retention",
-    group: "delivery",
-    status: "ready",
-    title: "Build the offboarding path: stop the service, and return or destroy the data",
-    effort: "3–4 days",
-    blockedBy: null,
-    plain:
-      "Nothing in the codebase handles a customer leaving. There is no `customer.subscription.deleted` handler, no way to stop the agent answering a number, no way to revoke connections, and no deletion tooling — while the BAA's `return-or-destroy` clause (packages/catalog/src/baa.ts) commits healdesk to returning or destroying all the clinic's patient information on termination and retaining no copies. There is also no retention schedule for live customers, despite the schema comments assuming one exists.",
-    why:
-      "A cancelled clinic whose recordings, transcripts and raw webhook payloads sit in your database forever is a signed-contract breach and a growing breach-blast-radius for data you are no longer being paid to hold. Practically, a churned customer whose phone number still routes to your agent is also a live patient-safety problem and a bill you keep paying.",
-    steps: [
-      "Handle `customer.subscription.deleted` alongside the existing checkout webhook, and put the clinic into a terminal state that stops the agent, halts scheduled jobs for it and revokes its provider connections.",
-      "Define the retention schedule per clinic and per data class — recordings, transcripts, `webhook_events.raw_payload`, audit log — and write the reaper as a scheduled job, since the schema comment on `raw_payload` already promises one.",
-      "Build a two-step destruction: an export handed to the clinic first, then a hard delete on a stated delay, with the delay and the process written down and shown to the clinic at signup.",
-      "Confirm the delete actually reaches everything — S3 objects behind `recording_uri` and `transcript_uri`, not just the database rows that point at them — and record the destruction as an auditable event.",
-      "Release the telephone number, or hold it long enough to play a forwarding message, and decide which before the first cancellation rather than during it.",
-      "Rehearse it once against a synthetic clinic and confirm `TENANT_SCOPED_TABLES` in apps/app/src/db/schema.ts leaves nothing behind.",
-    ],
-    source: { doc: "handover", heading: "4. Known gaps, deliberately" },
-  },
-  {
-    id: "observability-and-oncall",
-    group: "delivery",
-    status: "ready",
-    title: "Fix what breaks silently: the worker, the queue and the absence of any alarm",
-    effort: "2 days",
-    blockedBy: "scheduler-tick",
-    plain:
-      "The worker at apps/app/src/workers/index.ts logs to stdout and nothing else. pg-boss error events are caught and `console.error`'d deliberately, so the process survives a database blip — which also means a permanently broken queue looks identical to a healthy one. There is no health endpoint, no error tracking, no uptime check and nothing that pages a human. If the worker dies at 2am, nobody finds out until someone opens the console.",
-    why:
-      "Every scheduled behaviour you are about to build — reports, sync, health checks, retention, alerts — runs in that one process. A worker that has been dead for a week produces exactly the symptom the product exists to prevent: quiet failure that looks like success. And the ops console's own promise, that a job failing for three weeks is visible as a stale timestamp, only holds if somebody is looking at the timestamp.",
-    steps: [
-      "Add a `/api/health` route in apps/app that reports database reachability, the queue's oldest unprocessed job age, and the freshest `scheduled_jobs.last_run_at`, then point an external uptime check at it so the alarm lives outside the thing it watches.",
-      "Emit a heartbeat from the worker on every tick and alert when it goes stale — the process being up is not the same as the process doing work.",
-      "Add error tracking with PHI scrubbing verified before it is switched on, per the \"Never log PHI — not to stdout, not to Sentry\" rule in docs/hipaa-compliance.md; note that apps/app/src/lib/scheduler/jobs.ts already truncates error messages rather than echoing driver errors, and the tracker must be at least as careful.",
-      "Alert on the queue itself: dead-letter depth, retry counts and jobs older than a threshold, none of which is visible today.",
-      "Write a one-page on-call note — what the three alerts mean, what to check first, and how to restart the worker safely given the SIGTERM drain it already implements.",
-      "Test by killing the worker and confirming you are told within minutes, not by noticing.",
-    ],
-    source: { doc: "state-of-play", heading: "Built but connected to nothing" },
-  },
-  {
     id: "trial-first-win-and-expansion",
     group: "delivery",
     status: "ready",
     title: "Build the first-two-weeks health view that drives the day 7–14 first-win call",
     effort: "2 days for the view, then continuous",
-    blockedBy: "report-send-path",
+    blockedBy: null,
     plain:
       "The funnel sells with no sales call, which means the only human contact in the whole relationship is the one you choose to make after they buy. There is currently no view anywhere showing which clinics are in their first weeks, how many days in they are, whether the agent has recovered anything yet, and whether anyone has spoken to them. The ops console lists clinics with BAA and covered-entity status and nothing about how they are doing.",
     why:

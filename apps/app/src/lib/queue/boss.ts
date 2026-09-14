@@ -36,11 +36,14 @@ const SCHEMA = "pgboss";
 export const QUEUE_SYNC_CONNECTION = "sync-connection";
 export const QUEUE_RECONCILE_CLINIC = "reconcile-clinic";
 export const QUEUE_PROCESS_WEBHOOK = "process-webhook";
+/** The clock. pg-boss's cron sends one empty job here every hour; the worker's tick handler drains it. */
+export const QUEUE_TICK = "tick-hourly";
 
 export const QUEUES = [
   QUEUE_SYNC_CONNECTION,
   QUEUE_RECONCILE_CLINIC,
   QUEUE_PROCESS_WEBHOOK,
+  QUEUE_TICK,
 ] as const;
 
 export type QueueName = (typeof QUEUES)[number];

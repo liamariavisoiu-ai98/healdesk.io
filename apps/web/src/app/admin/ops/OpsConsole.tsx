@@ -379,6 +379,12 @@ function ClinicCard({
       >
         Onboarding checklist, phone, script, go-live →
       </a>
+      <a
+        href={`/admin/ops/${clinic.id}/care`}
+        className="mt-1 ml-4 inline-block text-sm font-semibold underline underline-offset-2"
+      >
+        Report recipients, deliveries, incidents, offboarding →
+      </a>
 
       <ConnectLinkControl clinic={clinic} onIssue={onIssue} />
     </div>

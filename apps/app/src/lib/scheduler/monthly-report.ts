@@ -1,8 +1,15 @@
 import { sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
+import { previousMonth } from "@/lib/attribution/period";
 import { buildMonthlyReport } from "@/lib/attribution/report";
 import type { MonthlyReport } from "@/lib/attribution/report";
+import { describeError, log } from "@/lib/log";
+import { listClinics } from "@/lib/ops/clinics";
+import { deliverReport, type EmailTransport } from "@/lib/reporting/deliver";
+import { claimDelivery, deliveredAlready, listRecipients, recordDelivery } from "@/lib/reporting/recipients";
+import { renderMonthlyReport, type RenderedReport } from "@/lib/reporting/render";
+import { withTenant } from "@/lib/tenant";
 
 import { JOB_MONTHLY_REPORT, runJob } from "./jobs";
 
@@ -52,33 +59,106 @@ async function clinicsForScheduler(): Promise<
 }
 
 export async function runMonthlyReportJob(
-  options: { now?: Date; send?: boolean } = {},
+  options: { now?: Date; send?: boolean; transport?: EmailTransport } = {},
 ) {
   const now = options.now ?? new Date();
 
   return runJob(
     JOB_MONTHLY_REPORT,
     async () => {
-      const result = await buildAllReports(now);
-
-      if (options.send) {
-        // Deliberately unreachable for now. Wiring delivery before the
-        // aggregate-only shape and the suppression rules are verified end to
-        // end is how PHI ends up in an inbox.
-        throw new Error(
-          "Report delivery is not implemented. See docs/launch-plan.md, Phase 8.",
+      if (!options.send) {
+        const result = await buildAllReports(now);
+        const failed = result.failures.length;
+        return (
+          `Built ${result.reportsBuilt}/${result.clinicsConsidered} reports` +
+          (failed ? `, ${failed} failed` : "") +
+          ". Delivery not requested."
         );
       }
-
-      const failed = result.failures.length;
+      const sent = await sendDueReports(now, options.transport);
       return (
-        `Built ${result.reportsBuilt}/${result.clinicsConsidered} reports` +
-        (failed ? `, ${failed} failed` : "") +
-        ". Delivery not enabled."
+        `Considered ${sent.considered} clinics: ${sent.sent} sent, ${sent.skipped} skipped` +
+        (sent.failed ? `, ${sent.failed} failed` : "") +
+        "."
       );
     },
     now,
   );
+}
+
+export type SendRunResult = { considered: number; sent: number; skipped: number; failed: number };
+
+/**
+ * The send path: build → render → assertNoPhiInReport → deliver, per clinic
+ * and per recipient, with the ledger claimed before the transport is called.
+ *
+ * Who is due: a production clinic that went live before the month being
+ * reported on ended, with at least one recipient, in whose own timezone the
+ * 1st has arrived, and with nothing already sent for that period. Every
+ * other clinic is skipped in silence — a synthetic clinic never gets mail.
+ */
+export async function sendDueReports(now: Date, transport?: EmailTransport): Promise<SendRunResult> {
+  const result: SendRunResult = { considered: 0, sent: 0, skipped: 0, failed: 0 };
+  const actor = { type: "service", serviceName: "monthly-report" } as const;
+
+  for (const clinic of await listClinics()) {
+    result.considered += 1;
+    if (clinic.dataClassification !== "production" || !clinic.wentLiveAt || clinic.destroyedAt) {
+      result.skipped += 1;
+      continue;
+    }
+    const period = previousMonth(now, clinic.timezone);
+    // The clinic must have been live for the whole reported month to get a
+    // report about it; the first one arrives after the first full month.
+    if (clinic.wentLiveAt.getTime() > period.start.getTime()) {
+      result.skipped += 1;
+      continue;
+    }
+
+    const recipients = await withTenant({ clinicId: clinic.id, actor }, async (tx) => {
+      if (await deliveredAlready(tx, { kind: "monthly", periodKey: period.key })) return [];
+      return listRecipients(tx);
+    });
+    if (recipients.length === 0) {
+      result.skipped += 1;
+      continue;
+    }
+
+    let rendered: RenderedReport;
+    try {
+      rendered = renderMonthlyReport(await buildMonthlyReport(clinic.id, { now, actor }));
+    } catch (error) {
+      result.failed += 1;
+      log.error("monthly report could not be built", { clinicId: clinic.id, error: describeError(error) });
+      continue;
+    }
+
+    for (const recipient of recipients) {
+      const claim = await withTenant({ clinicId: clinic.id, actor }, (tx) =>
+        claimDelivery(tx, { kind: "monthly", periodKey: period.key, recipient: recipient.email }),
+      );
+      if (!claim) continue; // another run owns this slot
+
+      const outcome = await deliverReport(
+        { to: recipient.email, clinicId: clinic.id, clinicName: clinic.name },
+        rendered,
+        transport,
+      );
+      await withTenant({ clinicId: clinic.id, actor }, (tx) =>
+        recordDelivery(
+          tx,
+          claim,
+          outcome.status === "sent"
+            ? { status: "sent", messageId: outcome.messageId }
+            : { status: outcome.status, reason: outcome.reason },
+        ),
+      );
+      if (outcome.status === "sent") result.sent += 1;
+      else if (outcome.status === "failed") result.failed += 1;
+      else result.skipped += 1;
+    }
+  }
+  return result;
 }
 
 export async function buildAllReports(now: Date): Promise<ReportRunResult> {

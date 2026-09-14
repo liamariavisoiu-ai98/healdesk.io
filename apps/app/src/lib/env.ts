@@ -69,6 +69,14 @@ export const env = {
   kmsProvider: (): "local" | "aws-kms" =>
     process.env.HEALDESK_KMS_PROVIDER === "aws-kms" ? "aws-kms" : "local",
 
+  /**
+   * Bearer secret the voice platform sends on its post-call webhook
+   * (Authorization: Bearer …). Synthflow lets you set a fixed header on a
+   * webhook; until it signs payloads this is the authentication. Unset means
+   * the route answers 503 and records nothing.
+   */
+  voiceWebhookSecret: () => optional("HEALDESK_VOICE_WEBHOOK_SECRET"),
+
   kmsKeyId: () => optional("HEALDESK_KMS_KEY_ID"),
 
   /** Base64, 32 bytes. Development only. */

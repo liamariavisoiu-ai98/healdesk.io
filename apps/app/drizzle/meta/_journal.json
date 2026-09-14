@@ -239,6 +239,13 @@
       "when": 1789326567208,
       "tag": "0033_onboarding_and_agent_config",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1789409471817,
+      "tag": "0034_delivery_and_incidents",
+      "breakpoints": true
     }
   ]
 }

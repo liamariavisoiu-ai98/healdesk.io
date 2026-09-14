@@ -23,6 +23,7 @@ import {
 import { clinicIdForStripe } from "./resolve";
 import { canTransition, recordBillingNote, transition } from "./state-machine";
 import { log } from "@/lib/log";
+import { startOffboarding } from "@/lib/offboarding/offboarding";
 
 /**
  * The Stripe subscription lifecycle, applied to entitlements.
@@ -430,6 +431,8 @@ async function dispatch(
         reason: type,
         stripeEventId: eventId,
       });
+      // The customer left: start the return-or-destroy clock (lib/offboarding).
+      await startOffboarding(tx, type);
       return;
 
     case "charge.dispute.created":

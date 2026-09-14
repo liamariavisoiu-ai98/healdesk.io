@@ -22,6 +22,7 @@ import {
 import { bindAgreement } from "./agreements";
 import { AuditRecorder } from "./audit";
 import { seedAgentConfig } from "./onboarding/agent-config";
+import { addRecipient } from "./reporting/recipients";
 import { recordSecurityEvent } from "./audit";
 import type { RequestContext } from "./audit";
 import { isChatChannelChoice, seedEntitlements } from "./billing/entitlements";
@@ -533,11 +534,20 @@ async function provisionOnce({
 
     // The agent's default words, from the specialty, so onboarding starts
     // from something the clinic can correct rather than from a blank.
-    await seedAgentConfig(
-      { db: tx, clinicId, audit: new AuditRecorder(clinicId, { type: "service", serviceName: "provisioning" }) },
-      request.specialty,
-      request.clinicName.trim(),
-    );
+    const provisioningTx = {
+      db: tx,
+      clinicId,
+      audit: new AuditRecorder(clinicId, { type: "service", serviceName: "provisioning" }),
+    };
+    await seedAgentConfig(provisioningTx, request.specialty, request.clinicName.trim());
+    // The buyer is the first recipient of the monthly report; the clinic can
+    // point it at a front-desk inbox later from the console.
+    await addRecipient(provisioningTx, {
+      email: request.contactEmail,
+      label: request.contactName.trim() || undefined,
+      addedBy: "provisioning",
+    });
+    await provisioningTx.audit.flush(tx);
 
     await recordSecurityEvent(tx, {
       event: "clinic_provisioned",

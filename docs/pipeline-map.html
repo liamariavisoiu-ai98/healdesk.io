@@ -3,8 +3,8 @@
 <title>The healdesk Pipeline</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;800&family=JetBrains+Mono:wght@400;500;700&display=swap">
 <style>
-  /* Dark-first. The bare :root carries the terminal palette; the light blocks
-     below swap the same tokens to a paper-blueprint set. */
+  /* Dark-first: the bare :root carries the schematic palette, the light blocks
+     below swap the same tokens. Status hues are validated in both modes. */
   :root {
     --ground: #0b1316;
     --panel: #111d21;
@@ -12,51 +12,42 @@
     --line: #23343a;
     --line-soft: #1a272c;
     --bone: #e4ece9;
-    --mute: #7d949b;
-    --faint: #4f6971;
-    --open: #4fb3a5;        /* apps/web — no PHI */
-    --sealed: #d98e52;      /* apps/app — PHI */
-    --stop: #cd5844;        /* a refusal */
-    --open-wash: rgba(79,179,165,.12);
-    --sealed-wash: rgba(217,142,82,.12);
-    --stop-wash: rgba(205,88,68,.12);
+    --mute: #8299a0;
+    --faint: #56717a;
+
+    --auto:  #1f9c81;   /* runs with nobody watching */
+    --hand:  #c4851f;   /* a person does it */
+    --off:   #4288d4;   /* built, nothing calls it */
+    --none:  #cf4c3a;   /* not built */
+    --auto-wash: rgba(31,156,129,.13);
+    --hand-wash: rgba(196,133,31,.13);
+    --off-wash:  rgba(66,136,212,.13);
+    --none-wash: rgba(207,76,58,.13);
     --shadow: 0 1px 0 rgba(255,255,255,.02) inset;
   }
   @media (prefers-color-scheme: light) {
     :root:not([data-theme="dark"]) {
-      --ground: #eef1ef;
-      --panel: #ffffff;
-      --panel-2: #f6f8f6;
-      --line: #c8d3d2;
-      --line-soft: #dde4e2;
-      --bone: #10201f;
-      --mute: #5d7175;
-      --faint: #8a9b9e;
-      --open: #1a7d72;
-      --sealed: #a35f21;
-      --stop: #a8392a;
-      --open-wash: rgba(26,125,114,.09);
-      --sealed-wash: rgba(163,95,33,.09);
-      --stop-wash: rgba(168,57,42,.08);
-      --shadow: 0 1px 2px rgba(16,32,31,.05);
+      --ground: #edf0ee; --panel: #ffffff; --panel-2: #f6f8f7;
+      --line: #c7d2d1; --line-soft: #dde4e3;
+      --bone: #101f1e; --mute: #4f6468; --faint: #7c8f92;
+      --auto: #00806a; --hand: #96620c; --off: #2a6fb8; --none: #b33a28;
+      --auto-wash: rgba(0,128,106,.09);
+      --hand-wash: rgba(150,98,12,.09);
+      --off-wash:  rgba(42,111,184,.09);
+      --none-wash: rgba(179,58,40,.09);
+      --shadow: 0 1px 2px rgba(16,31,30,.05);
     }
   }
   :root[data-theme="light"] {
-    --ground: #eef1ef;
-    --panel: #ffffff;
-    --panel-2: #f6f8f6;
-    --line: #c8d3d2;
-    --line-soft: #dde4e2;
-    --bone: #10201f;
-    --mute: #5d7175;
-    --faint: #8a9b9e;
-    --open: #1a7d72;
-    --sealed: #a35f21;
-    --stop: #a8392a;
-    --open-wash: rgba(26,125,114,.09);
-    --sealed-wash: rgba(163,95,33,.09);
-    --stop-wash: rgba(168,57,42,.08);
-    --shadow: 0 1px 2px rgba(16,32,31,.05);
+    --ground: #edf0ee; --panel: #ffffff; --panel-2: #f6f8f7;
+    --line: #c7d2d1; --line-soft: #dde4e3;
+    --bone: #101f1e; --mute: #4f6468; --faint: #7c8f92;
+    --auto: #00806a; --hand: #96620c; --off: #2a6fb8; --none: #b33a28;
+    --auto-wash: rgba(0,128,106,.09);
+    --hand-wash: rgba(150,98,12,.09);
+    --off-wash:  rgba(42,111,184,.09);
+    --none-wash: rgba(179,58,40,.09);
+    --shadow: 0 1px 2px rgba(16,31,30,.05);
   }
 
   * { box-sizing: border-box; }
@@ -70,1425 +61,579 @@
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }
-
   .sheet {
-    max-width: 1320px;
+    max-width: 1240px;
     margin: 0 auto;
-    padding-inline: 20px;
-    padding-block: 40px 56px;
+    padding-inline: 18px;
+    padding-block: 34px 48px;
   }
-
-  /* ---- shared atoms ------------------------------------------------- */
   .mono { font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace; }
 
-  .eyebrow {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 10.5px;
-    letter-spacing: .16em;
-    text-transform: uppercase;
-    color: var(--faint);
-  }
+  /* state carries color AND a glyph AND a word — never color alone */
+  .st-auto { --hue: var(--auto); --wash: var(--auto-wash); }
+  .st-hand { --hue: var(--hand); --wash: var(--hand-wash); }
+  .st-off  { --hue: var(--off);  --wash: var(--off-wash); }
+  .st-none { --hue: var(--none); --wash: var(--none-wash); }
 
-  .tag {
+  .state {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
     font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 9.5px;
-    letter-spacing: .12em;
+    font-size: 9px;
+    letter-spacing: .13em;
     text-transform: uppercase;
+    color: var(--hue);
     white-space: nowrap;
   }
-  .tag::before {
-    content: "";
-    width: 7px; height: 7px;
-    border: 1px solid currentColor;
-  }
-  .tag.open { color: var(--open); }
-  .tag.open::before { background: var(--open-wash); }
-  .tag.sealed { color: var(--sealed); }
-  .tag.sealed::before { background: var(--sealed-wash); }
-  .tag.stop { color: var(--stop); }
-  .tag.stop::before { background: var(--stop-wash); }
+  .state .g { font-size: 11px; line-height: 1; }
 
-  /* ---- masthead ----------------------------------------------------- */
-  header.masthead {
-    border-bottom: 1px solid var(--line);
-    padding-bottom: 26px;
-    margin-bottom: 30px;
-  }
-  .wordmark {
-    display: flex;
-    align-items: baseline;
-    gap: 9px;
-    margin-bottom: 20px;
-  }
+  /* ---------- masthead ---------- */
+  header.top { border-bottom: 1px solid var(--line); padding-bottom: 22px; margin-bottom: 24px; }
+  .wordmark { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
   .wordmark .mark {
-    width: 20px; height: 20px;
-    border: 1.5px solid var(--open);
-    border-radius: 50%;
-    position: relative;
-    align-self: center;
+    width: 17px; height: 17px; border: 1.5px solid var(--auto);
+    border-radius: 50%; position: relative;
   }
-  .wordmark .mark::after {
-    content: "";
-    position: absolute;
-    inset: 4px;
-    background: var(--open);
-    border-radius: 50%;
-  }
-  .wordmark b {
-    font-weight: 600;
-    font-size: 17px;
-    letter-spacing: -.02em;
-  }
-  .wordmark span { color: var(--faint); font-size: 12px; }
+  .wordmark .mark::after { content: ""; position: absolute; inset: 3.5px; background: var(--auto); border-radius: 50%; }
+  .wordmark b { font-weight: 600; font-size: 15px; letter-spacing: -.02em; }
+  .wordmark span { color: var(--faint); font-size: 11.5px; }
 
   h1 {
-    font-size: clamp(34px, 6.2vw, 68px);
-    font-weight: 800;
-    letter-spacing: -.035em;
-    line-height: .95;
-    margin: 0 0 14px;
-    text-wrap: balance;
+    font-size: clamp(30px, 5.4vw, 56px);
+    font-weight: 800; letter-spacing: -.035em; line-height: .96;
+    margin: 0 0 12px; text-wrap: balance;
   }
-  h1 .dot { color: var(--sealed); }
-  .standfirst {
-    max-width: 62ch;
-    color: var(--mute);
-    font-size: 15px;
-    margin: 0 0 22px;
-  }
-  .standfirst strong { color: var(--bone); font-weight: 600; }
+  h1 em { font-style: normal; color: var(--hand); }
+  .standfirst { max-width: 78ch; color: var(--mute); font-size: 14.5px; margin: 0; }
+  .standfirst b { color: var(--bone); font-weight: 600; }
 
-  .legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px 22px;
-    padding-top: 18px;
-    border-top: 1px solid var(--line-soft);
-  }
-  .legend .tag { font-size: 10px; }
-  .legend .tag em { font-style: normal; color: var(--faint); letter-spacing: .04em; }
-
-  /* ---- two-column shell --------------------------------------------- */
-  .shell {
+  /* ---------- verdict tiles ---------- */
+  .verdict {
     display: grid;
-    grid-template-columns: 252px minmax(0, 1fr);
-    gap: 26px;
-    align-items: start;
-  }
-  @media (max-width: 940px) {
-    .shell { grid-template-columns: minmax(0, 1fr); }
-    .rail { order: 2; }
-  }
-
-  .rail {
-    display: grid;
-    gap: 16px;
-    position: sticky;
-    top: calc(env(safe-area-inset-top, 0px) + 16px);
-  }
-  @media (max-width: 940px) { .rail { position: static; } }
-
-  .refcard {
-    border: 1px solid var(--line);
-    background: var(--panel);
-    border-radius: 3px;
-    padding: 15px 16px 16px;
-    box-shadow: var(--shadow);
-  }
-  .refcard > h3 {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 10.5px;
-    letter-spacing: .15em;
-    text-transform: uppercase;
-    margin: 0 0 3px;
-    color: var(--bone);
-  }
-  .refcard > .sub {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 10px;
-    color: var(--faint);
-    letter-spacing: .06em;
-    margin: 0 0 12px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--line-soft);
-  }
-  .refcard ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
-  .refcard li {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 11px;
-    color: var(--mute);
-    display: flex;
-    justify-content: space-between;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
     gap: 10px;
+    margin-bottom: 12px;
   }
-  .refcard li i {
-    font-style: normal;
-    color: var(--faint);
-    font-size: 9.5px;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    flex: none;
-  }
-  .refcard li.scoped { color: var(--sealed); }
-  .refcard li.held { color: var(--bone); }
-  .refcard .foot {
-    margin: 12px 0 0;
-    padding-top: 10px;
-    border-top: 1px solid var(--line-soft);
-    font-size: 11.5px;
-    line-height: 1.45;
-    color: var(--faint);
-  }
-
-  /* ---- flow --------------------------------------------------------- */
-  .flow { display: grid; gap: 0; min-width: 0; }
-
-  .seam {
-    height: 26px;
-    margin-inline: auto;
-    width: 1px;
-    border-left: 1px dashed var(--line);
-    position: relative;
-  }
-  .seam::after {
-    content: "";
-    position: absolute;
-    left: -3px; top: 50%;
-    width: 7px; height: 7px;
-    margin-top: -3.5px;
-    background: var(--sealed);
-  }
-
-  .band {
-    border: 1px dashed var(--line);
-    border-radius: 5px;
-    padding: 16px;
-    background: var(--panel-2);
-  }
-  .band > header {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 6px 14px;
-    margin-bottom: 14px;
-  }
-  .band > header h2 {
-    font-size: 19px;
-    font-weight: 700;
-    letter-spacing: -.02em;
-    margin: 0;
-  }
-  .band > header h2 .num {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--faint);
-    margin-right: 9px;
-    letter-spacing: 0;
-  }
-  .band > header .note {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 10px;
-    letter-spacing: .12em;
-    text-transform: uppercase;
-    color: var(--faint);
-  }
-  .band > header .spacer { flex: 1 1 40px; }
-
-  .cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(258px, 1fr));
-    gap: 12px;
-  }
-  .cards.two { grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); }
-  .cards.three, .cards.four { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
-  @media (min-width: 1120px) {
-    .cards.three { grid-template-columns: repeat(3, 1fr); }
-    .cards.four  { grid-template-columns: repeat(4, 1fr); }
-  }
-
-  .card {
+  .tile {
     border: 1px solid var(--line);
+    border-top: 3px solid var(--hue);
     background: var(--panel);
     border-radius: 3px;
     padding: 13px 14px 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 9px;
     box-shadow: var(--shadow);
+  }
+  .tile .n {
+    font-size: 34px; font-weight: 800; letter-spacing: -.04em;
+    line-height: 1; font-variant-numeric: tabular-nums;
+    color: var(--hue); display: block; margin-bottom: 8px;
+  }
+  .tile .state { margin-bottom: 6px; }
+  .tile p { margin: 0; font-size: 12px; line-height: 1.4; color: var(--faint); }
+  .tile p b { color: var(--mute); font-weight: 600; }
+
+  .readout {
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    border-radius: 3px;
+    padding: 12px 14px;
+    margin-bottom: 26px;
+    font-size: 13.5px;
+    color: var(--mute);
+  }
+  .readout b { color: var(--bone); font-weight: 600; }
+  .readout .hl { color: var(--hand); font-weight: 600; }
+
+  /* ---------- lanes ---------- */
+  .map { display: grid; gap: 10px; }
+
+  .lane {
+    display: grid;
+    grid-template-columns: 186px minmax(0, 1fr);
+    gap: 16px;
+    border: 1px solid var(--line-soft);
+    border-radius: 4px;
+    padding: 13px;
+    background: var(--panel-2);
+    align-items: start;
+  }
+  @media (max-width: 860px) { .lane { grid-template-columns: minmax(0,1fr); gap: 11px; } }
+
+  .lane > .who .num {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px; letter-spacing: .14em; color: var(--faint);
+  }
+  .lane > .who h2 {
+    margin: 3px 0 5px;
+    font-size: 17px; font-weight: 700; letter-spacing: -.02em;
+  }
+  .lane > .who .side {
+    display: inline-block;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 8.5px; letter-spacing: .14em; text-transform: uppercase;
+    border: 1px solid var(--line); border-radius: 2px;
+    padding: 2px 5px; color: var(--faint); margin-bottom: 7px;
+  }
+  .lane > .who p { margin: 0; font-size: 11.5px; line-height: 1.4; color: var(--faint); }
+
+  .chips {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+    gap: 8px;
+  }
+  @media (min-width: 1000px) {
+    .chips { grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); }
+  }
+
+  .chip {
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--hue);
+    background: var(--panel);
+    border-radius: 3px;
+    padding: 9px 10px 10px;
     min-width: 0;
+    box-shadow: var(--shadow);
   }
-  .card > .top {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 10px;
-  }
-  .card .kicker {
+  .chip.st-none { border-style: dashed; border-left-style: solid; }
+  .chip .state { margin-bottom: 5px; }
+  .chip b {
+    display: block;
     font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 9.5px;
-    letter-spacing: .14em;
-    text-transform: uppercase;
-    color: var(--faint);
+    font-size: 12px; font-weight: 700; color: var(--bone);
+    letter-spacing: -.01em; overflow-wrap: anywhere;
   }
-  .card h4 {
-    margin: 2px 0 0;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 14px;
-    font-weight: 700;
-    letter-spacing: -.01em;
-    color: var(--bone);
-    overflow-wrap: anywhere;
+  .chip span {
+    display: block; margin-top: 4px;
+    font-size: 11px; line-height: 1.38; color: var(--faint);
   }
-  .card h4 .brace { color: var(--faint); font-weight: 400; }
+  .chip span em { font-style: normal; color: var(--mute); }
 
-  dl.spec { margin: 0; display: grid; grid-template-columns: 62px minmax(0,1fr); gap: 4px 10px; }
-  dl.spec dt {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 9.5px;
-    letter-spacing: .12em;
-    text-transform: uppercase;
-    color: var(--faint);
-    padding-top: 2px;
-  }
-  dl.spec dd {
-    margin: 0;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 11.5px;
-    color: var(--mute);
-    overflow-wrap: anywhere;
-  }
-  dl.spec dd b { color: var(--bone); font-weight: 500; }
-  dl.spec dt.hot { color: var(--stop); }
-  dl.spec dd.hot { color: var(--stop); }
-
-  .why {
-    margin: 0;
-    padding-top: 9px;
-    border-top: 1px solid var(--line-soft);
-    font-size: 12.5px;
-    line-height: 1.45;
-    color: var(--faint);
-  }
-  .why strong { color: var(--mute); font-weight: 600; }
-
-  /* the decision line at the foot of a band */
-  .verdict {
-    margin-top: 12px;
-    padding-top: 11px;
-    border-top: 1px solid var(--line);
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 16px;
-    align-items: baseline;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 11px;
-    color: var(--mute);
-  }
-  .verdict .q { color: var(--bone); }
-  .verdict .yes { color: var(--open); }
-  .verdict .no { color: var(--faint); }
-  .verdict .lead {
-    color: var(--sealed);
-    letter-spacing: .12em;
-    text-transform: uppercase;
-    font-size: 9.5px;
-  }
-
-  /* ---- the crossing ------------------------------------------------- */
+  /* ---------- the crossing ---------- */
   .crossing {
-    border: 1px solid var(--sealed);
+    display: grid;
+    grid-template-columns: 186px minmax(0, 1fr);
+    gap: 16px;
+    align-items: center;
+    border: 1px solid var(--auto);
+    border-radius: 4px;
+    padding: 13px;
     background:
-      repeating-linear-gradient(
-        -45deg,
-        var(--sealed-wash) 0 10px,
-        transparent 10px 20px
-      ),
+      repeating-linear-gradient(-45deg, var(--auto-wash) 0 9px, transparent 9px 18px),
       var(--panel-2);
-    border-radius: 5px;
-    padding: 18px 16px;
   }
-  .crossing h2 {
-    margin: 0 0 4px;
-    font-size: 17px;
-    font-weight: 700;
-    letter-spacing: -.02em;
-  }
-  .crossing .lede {
-    margin: 0 0 14px;
-    font-size: 13px;
-    color: var(--mute);
-    max-width: 70ch;
-  }
-  .hops {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: stretch;
-    gap: 8px;
-  }
-  .hop {
-    flex: 1 1 200px;
-    border: 1px solid var(--line);
-    background: var(--panel);
-    border-radius: 3px;
-    padding: 10px 12px;
-    min-width: 0;
-  }
-  .hop .n {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 9.5px;
-    letter-spacing: .14em;
-    color: var(--faint);
-    text-transform: uppercase;
-  }
-  .hop p {
-    margin: 4px 0 0;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 11.5px;
-    color: var(--bone);
-    overflow-wrap: anywhere;
-  }
-  .hop small {
-    display: block;
-    margin-top: 5px;
-    font-family: Archivo, sans-serif;
-    font-size: 11.5px;
-    color: var(--faint);
-    line-height: 1.4;
-  }
+  @media (max-width: 860px) { .crossing { grid-template-columns: minmax(0,1fr); gap: 11px; } }
+  .crossing .who h2 { color: var(--auto); }
 
-  /* ---- step rail (checkout / connect) -------------------------------- */
-  ol.steps {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
-    gap: 8px;
-  }
-  @media (min-width: 1120px) {
-    ol.steps.six  { grid-template-columns: repeat(3, 1fr); }
-    ol.steps.five { grid-template-columns: repeat(5, 1fr); }
-  }
-  ol.steps li {
-    border: 1px solid var(--line);
-    background: var(--panel);
-    border-radius: 3px;
-    padding: 10px 11px 11px;
-    position: relative;
-    min-width: 0;
-  }
-  ol.steps li .idx {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 9.5px;
-    letter-spacing: .14em;
-    color: var(--faint);
-  }
-  ol.steps li b {
-    display: block;
-    margin-top: 3px;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 12.5px;
-    font-weight: 700;
-    color: var(--bone);
-  }
-  ol.steps li span {
-    display: block;
-    margin-top: 4px;
-    font-size: 11.5px;
-    line-height: 1.4;
-    color: var(--faint);
-  }
-  ol.steps li.pivot {
-    border-color: var(--sealed);
-    background: linear-gradient(var(--sealed-wash), var(--sealed-wash)), var(--panel);
-  }
-  ol.steps li.pivot .idx { color: var(--sealed); }
-
-  /* ---- footer numbers ------------------------------------------------ */
-  .tally {
-    margin-top: 34px;
-    border: 1px solid var(--line);
-    background: var(--panel);
-    border-radius: 5px;
-    padding: 22px 18px 18px;
-  }
-  .tally .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-    gap: 20px 12px;
-  }
-  .tally .fig { text-align: center; }
-  .tally .fig b {
-    display: block;
-    font-size: 30px;
-    font-weight: 800;
-    letter-spacing: -.03em;
-    font-variant-numeric: tabular-nums;
-    line-height: 1;
-  }
-  .tally .fig span {
-    display: block;
-    margin-top: 7px;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 9.5px;
-    letter-spacing: .12em;
-    text-transform: uppercase;
-    color: var(--faint);
-  }
-  .tally .fig.zero b { color: var(--open); }
-  .stack {
-    margin-top: 20px;
-    padding-top: 16px;
-    border-top: 1px solid var(--line-soft);
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 18px;
-  }
-  .stack .tag { color: var(--mute); }
-  .stack .tag::before { border-color: var(--faint); }
-  .stack .tag.pending { color: var(--faint); }
-  .stack .tag.pending::before { border-style: dashed; }
-
-  footer.colophon {
+  /* ---------- human touches ---------- */
+  .touches {
     margin-top: 26px;
+    border: 1px solid var(--hand);
+    border-radius: 4px;
+    background: var(--panel);
+    padding: 18px 16px 16px;
+  }
+  .touches > .state { margin-bottom: 8px; }
+  .touches h2 { margin: 0 0 6px; font-size: 21px; font-weight: 800; letter-spacing: -.03em; }
+  .touches > p { margin: 0 0 16px; max-width: 70ch; color: var(--mute); font-size: 13.5px; }
+  .touches > p b { color: var(--bone); }
+  .hands { display: grid; grid-template-columns: repeat(auto-fit, minmax(255px, 1fr)); gap: 12px; }
+  .hands section {
+    border: 1px solid var(--line-soft);
+    border-radius: 3px;
+    padding: 12px 13px 13px;
+    background: var(--panel-2);
+  }
+  .hands h3 {
+    margin: 0 0 9px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--line-soft);
     font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 10.5px;
-    color: var(--faint);
-    letter-spacing: .04em;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 18px;
-    justify-content: space-between;
+    font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint);
   }
+  .hands ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; counter-reset: h; }
+  .hands li {
+    font-size: 12.5px; line-height: 1.4; color: var(--faint);
+    display: flex; align-items: baseline; gap: 7px;
+  }
+  .hands li > div { min-width: 0; }
+  .hands li::before {
+    counter-increment: h; content: counter(h);
+    flex: none; width: 12px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px; color: var(--hand); padding-top: 2px;
+  }
+  .hands li b { color: var(--bone); font-weight: 600; display: block; }
+  .hands .once { border-color: var(--hand); }
+  .hands .once li::before { color: var(--hand); }
 
-  a { color: inherit; }
-  :focus-visible { outline: 2px solid var(--open); outline-offset: 2px; }
-  @media (prefers-reduced-motion: no-preference) {
-    .band, .crossing { transition: border-color .2s ease; }
+  /* ---------- footer ---------- */
+  .foot {
+    margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line);
+    display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px; letter-spacing: .06em; color: var(--faint);
   }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+
+  :focus-visible { outline: 2px solid var(--auto); outline-offset: 2px; }
 </style>
 
 <div class="sheet">
 
-  <header class="masthead">
+  <header class="top">
     <div class="wordmark">
       <span class="mark" aria-hidden="true"></span>
       <b>healdesk</b>
-      <span class="mono">healdesk.io</span>
+      <span class="mono">healdesk.io · the whole motion, one page</span>
     </div>
 
-    <h1>Stranger to signed clinic<span class="dot">.</span></h1>
+    <h1>The machine sells itself.<br><em>Switching it on is still by hand.</em></h1>
 
     <p class="standfirst">
-      The whole motion, as the code actually runs it: a med spa that has never
-      heard of us, through outbound, the two demos, six checkout steps and one
-      emailed link, to a monthly report that says what we earned them.
-      <strong>Nine stages, one boundary, and exactly one thing ever crosses it.</strong>
+      Thirty-three steps carry a stranger to a clinic whose recovered revenue we can
+      prove. <b>A buyer can go from cold email to paid without a person touching
+      anything</b> — but everything after the payment either needs one of us, or has
+      not been wired up yet. Read out of the code, not the plan.
     </p>
-
-    <div class="legend">
-      <span class="tag open">apps/web <em>— no PHI · Vercel · no database client</em></span>
-      <span class="tag sealed">apps/app <em>— PHI · BAA host · plain Node</em></span>
-      <span class="tag stop">a refusal <em>— the check that says no</em></span>
-    </div>
   </header>
 
-  <div class="shell">
-
-    <!-- ================= LEFT RAIL ================= -->
-    <aside class="rail">
-
-      <section class="refcard">
-        <h3>The ledger</h3>
-        <p class="sub">20 tables · 14 tenant-scoped</p>
-        <ul>
-          <li class="held">clinics <i>root</i></li>
-          <li class="scoped">contacts</li>
-          <li class="scoped">conversations</li>
-          <li class="scoped">appointments</li>
-          <li class="scoped">transactions</li>
-          <li class="scoped">provider_connections</li>
-          <li class="scoped">reconciliation_exceptions</li>
-          <li class="scoped">connection_links</li>
-          <li class="scoped">consent_records</li>
-          <li class="scoped">suppressions</li>
-          <li class="scoped">contact_attempts</li>
-          <li class="scoped">sync_runs</li>
-          <li class="scoped">webhook_events</li>
-          <li class="scoped">audit_log</li>
-          <li class="scoped">clinic_memberships</li>
-          <li>baa_acceptances</li>
-          <li>provisioning_attempts</li>
-          <li>scheduled_jobs</li>
-          <li>security_events</li>
-          <li>admin_totp</li>
-        </ul>
-        <p class="foot">
-          Amber rows are invisible without a tenant set. Row-level security, not a
-          <code class="mono">WHERE</code> clause someone has to remember.
-        </p>
-      </section>
-
-      <section class="refcard">
-        <h3>The hands</h3>
-        <p class="sub">What we actually reach for</p>
-        <ul>
-          <li>Apify <i>maps + crawl</i></li>
-          <li>Claude <i>classify</i></li>
-          <li>Synthflow <i>demo call</i></li>
-          <li>Stripe <i>checkout</i></li>
-          <li>Resend <i>contact + links</i></li>
-          <li>pg-boss <i>queue</i></li>
-          <li>Postgres <i>rls</i></li>
-          <li>Better Auth <i>org</i></li>
-          <li>AWS KMS <i>wrap</i></li>
-          <li>AWS SES <i>pending</i></li>
-        </ul>
-        <p class="foot">
-          No <code class="mono">@vercel/*</code> anywhere in <code class="mono">apps/app</code>,
-          and no edge runtime. If it would not run under
-          <code class="mono">node server.js</code> in a container, it does not go there.
-        </p>
-      </section>
-
-      <section class="refcard">
-        <h3>Not built yet</h3>
-        <p class="sub">Stated, not implied</p>
-        <ul>
-          <li>AVA on a patient call <i>phi</i></li>
-          <li>Real connector adapters <i>fixture</i></li>
-          <li>Credential verification <i>shape</i></li>
-          <li>Report delivery <i>no ses</i></li>
-          <li>apps/app deploy artifact <i>build</i></li>
-        </ul>
-        <p class="foot">
-          The voice agent is deliberately absent: the day AVA answers a patient,
-          that path is PHI and moves across the boundary. Everything here is
-          read out of the code, never out of a plan document.
-        </p>
-      </section>
-
-    </aside>
-
-    <!-- ================= FLOW ================= -->
-    <div class="flow">
-
-      <!-- 00 ------------------------------------------------------------ -->
-      <section class="band">
-        <header>
-          <h2><span class="num">00</span>Four ways in</h2>
-          <span class="spacer"></span>
-          <span class="note">every one of them talks to an owner, never a patient</span>
-        </header>
-
-        <div class="cards four">
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Source 01</p>
-                <h4>cold outbound</h4>
-              </div>
-              <span class="tag open">web</span>
-            </div>
-            <dl class="spec">
-              <dt>in</dt><dd>Google Maps, 4 queries × one metro, ≤120 places each</dd>
-              <dt>enrich</dt><dd>site crawl · booking footprint · paid-ad signals · front-desk job posts</dd>
-              <dt>out</dt><dd><b>scored prospect + one angle</b></dd>
-            </dl>
-            <p class="why">
-              The free filter first: dedupe by place id, fall back to phone.
-              The same clinic surfaces under four category queries.
-            </p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Source 02</p>
-                <h4>the site itself</h4>
-              </div>
-              <span class="tag open">web</span>
-            </div>
-            <dl class="spec">
-              <dt>in</dt><dd>an owner on healdesk.io</dd>
-              <dt>holds</dt><dd>one page: hero · two demos · eight specialties · the money question</dd>
-              <dt>out</dt><dd><b>demo, or Get Started</b></dd>
-            </dl>
-            <p class="why">
-              Pricing and contact exist but are linked from the footer only.
-              A nav full of links is an invitation to leave before the demo has
-              done its job.
-            </p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Source 03</p>
-                <h4>referral + reviews</h4>
-              </div>
-              <span class="tag open">web</span>
-            </div>
-            <dl class="spec">
-              <dt>in</dt><dd>a customer with a clinic id</dd>
-              <dt>gate</dt><dd>id checked upstream · 3 attempts an hour · bare yes or no</dd>
-              <dt>out</dt><dd><b>a review that reaches a person</b></dd>
-            </dl>
-            <p class="why">
-              Nothing self-publishes. A named testimonial that goes live on POST
-              means the first human here to read it reads it on the homepage.
-            </p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Source 04</p>
-                <h4>inbound enquiry</h4>
-              </div>
-              <span class="tag open">web</span>
-            </div>
-            <dl class="spec">
-              <dt>in</dt><dd>the “want to know more” form</dd>
-              <dt>rule</dt><dd>sends, or refuses and prints the mailbox</dd>
-              <dt class="hot">never</dt><dd class="hot">accepts a message it cannot deliver</dd>
-            </dl>
-            <p class="why">
-              Someone typed a question and is waiting. A handler that writes to
-              stdout and says “we'll be in touch” is a promise kept by nobody.
-            </p>
-          </article>
-        </div>
-
-        <p class="verdict">
-          <span class="lead">why none of this is PHI</span>
-          <span>a clinic owner's name, work email and title are <span class="q">business contact data</span></span>
-          <span class="no">the line is the individual, not the industry</span>
-        </p>
-      </section>
-
-      <div class="seam"></div>
-
-      <!-- 01 ------------------------------------------------------------ -->
-      <section class="band">
-        <header>
-          <h2><span class="num">01</span>Qualify</h2>
-          <span class="spacer"></span>
-          <span class="note">two scores, deliberately never one number</span>
-        </header>
-
-        <div class="cards three">
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Score A</p>
-                <h4>can we sell them</h4>
-              </div>
-              <span class="tag open">web</span>
-            </div>
-            <dl class="spec">
-              <dt>in</dt><dd>booking method · ads · hiring · reviews · rating</dd>
-              <dt>out</dt><dd><b>0–100 + the reasons</b></dd>
-              <dt>rule</dt><dd>a score, not a filter — no single signal gates inclusion</dd>
-            </dl>
-            <p class="why">
-              The real disqualifier is a clinic already running a live AI
-              receptionist, and <strong>none of these signals can see it.</strong>
-            </p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Score B</p>
-                <h4>can we prove it</h4>
-              </div>
-              <span class="tag open">web</span>
-            </div>
-            <dl class="spec">
-              <dt>in</dt><dd>detected scheduler vendor</dd>
-              <dt>out</dt><dd><b>0–100 integration score</b></dd>
-              <dt>why</dt><dd>“how easy to sell” and “can we measure them” disagree</dd>
-            </dl>
-            <p class="why">
-              A Zenoti clinic is the hardest sell — it bundles its own AI — and
-              the cleanest integration by a distance. One number loses whichever
-              half matters at the moment you look.
-            </p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Angle</p>
-                <h4>what to lead with</h4>
-              </div>
-              <span class="tag open">web</span>
-            </div>
-            <dl class="spec">
-              <dt>picks</dt><dd>paid-traffic-leak · hiring-front-desk · no-booking-path · high-demand-no-capture · generic-leakage</dd>
-              <dt>out</dt><dd><b>one angle + its evidence</b></dd>
-            </dl>
-            <p class="why">
-              The email carries a consequence, not a fact. A clinic knows it
-              closes at five. It has never worked out that this leaves
-              <strong>126 hours a week</strong> where a new patient reaches a machine.
-            </p>
-          </article>
-        </div>
-
-        <p class="verdict">
-          <span class="lead">decide</span>
-          <span class="q">worth a first email?</span>
-          <span class="yes">YES → the angle picks the opening line</span>
-          <span class="no">NO → stays in the segment file, nothing sent</span>
-        </p>
-      </section>
-
-      <div class="seam"></div>
-
-      <!-- 02 ------------------------------------------------------------ -->
-      <section class="band">
-        <header>
-          <h2><span class="num">02</span>Meet AVA</h2>
-          <span class="spacer"></span>
-          <span class="note">the demo is the product argument</span>
-        </header>
-
-        <div class="cards three">
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Unlock</p>
-                <h4>one email</h4>
-              </div>
-              <span class="tag open">web</span>
-            </div>
-            <dl class="spec">
-              <dt>in</dt><dd>an address, 10 attempts an hour per client</dd>
-              <dt>out</dt><dd><b>a signed cookie + a lead</b></dd>
-              <dt>flag</dt><dd>business address or free mailbox</dd>
-            </dl>
-            <p class="why">Every unlock is a lead, and it is business contact data — so it stays this side of the wall.</p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Chat</p>
-                <h4>she works it out</h4>
-              </div>
-              <span class="tag open">web</span>
-            </div>
-            <dl class="spec">
-              <dt>in</dt><dd>anything a patient or a supplier-checker would ask</dd>
-              <dt>tree</dt><dd>one root, deepening as she learns the specialty</dd>
-              <dt class="hot">gone</dt><dd class="hot">the specialty picker</dd>
-            </dl>
-            <p class="why">
-              A visitor does not arrive pre-sorted. A picker demonstrated the
-              wrong capability — six bots to choose from, rather than one agent
-              that discovers who it is talking to.
-            </p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Voice</p>
-                <h4>she calls you</h4>
-              </div>
-              <span class="tag stop">3 gates</span>
-            </div>
-            <dl class="spec">
-              <dt>1 shape</dt><dd>refuses 911, service codes and junk</dd>
-              <dt>2 consent</dt><dd>explicit, unbundled, stored <b>with the version of the words</b></dd>
-              <dt>3 volume</dt><dd>20 attempts/hr · 3 placed/hr · and a cap per destination number</dd>
-            </dl>
-            <p class="why">
-              This endpoint makes a real telephone ring with our name on the
-              caller ID. Unguarded it is a harassment tool and
-              <strong>$500–$1,500 of TCPA exposure a call.</strong>
-              The per-number cap is the one that matters.
-            </p>
-          </article>
-        </div>
-
-        <p class="verdict">
-          <span class="lead">boundary note</span>
-          <span>the demos sit on the no-PHI side <span class="q">only because of who they talk to</span></span>
-          <span class="no">/api/callback places a demo call — it never handles one</span>
-        </p>
-      </section>
-
-      <div class="seam"></div>
-
-      <!-- 03 ------------------------------------------------------------ -->
-      <section class="band">
-        <header>
-          <h2><span class="num">03</span>Checkout</h2>
-          <span class="spacer"></span>
-          <span class="note">six steps · signing is step 5 · paying is step 6</span>
-        </header>
-
-        <ol class="steps six">
-          <li><span class="idx">STEP 1</span><b>specialty</b><span>Eight, from med spa to veterinary. Prefilled from wherever they came from; still shown.</span></li>
-          <li><span class="idx">STEP 2</span><b>platform</b><span>Boulevard · GoHighLevel · Zenoti · PatientNow · Acuity · Vagaro · Mindbody · none.</span></li>
-          <li><span class="idx">STEP 3</span><b>attribution</b><span>Estimated from their own average treatment value, or verified from settled sales.</span></li>
-          <li><span class="idx">STEP 4</span><b>details</b><span>Including the phone system: landline, VoIP, or the honest “unknown”.</span></li>
-          <li class="pivot"><span class="idx">STEP 5</span><b>sign the BAA</b><span>Its own screen. Scroll to the end, answer the covered-entity question, type your name. Written to the database here.</span></li>
-          <li><span class="idx">STEP 6</span><b>plan &amp; pay</b><span>Core $249 · Growth $449 · Multi $799. No setup fee. 14-day trial. Carries only the id of what was already signed.</span></li>
-        </ol>
-
-        <div class="cards two" style="margin-top:12px">
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Why that order</p>
-                <h4>contract before money</h4>
-              </div>
-              <span class="tag sealed">rule</span>
-            </div>
-            <p class="why" style="border-top:0; padding-top:0">
-              A healthcare provider may not hand patient information to a
-              supplier without a written contract <strong>first</strong>. So it
-              cannot be a checkbox bundled into the payment button, and it
-              cannot be something a webhook records afterwards. The visible
-              consequence: <strong>abandoning at step 6 leaves a signed
-              agreement and no charge</strong> — and that is the correct outcome.
-            </p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Deliberately absent</p>
-                <h4>integration</h4>
-              </div>
-              <span class="tag open">web</span>
-            </div>
-            <p class="why" style="border-top:0; padding-top:0">
-              Connecting a booking platform is <strong>not on the critical
-              path</strong> to a purchase. Nothing about the sale waits on a
-              clinic finding its API key, which is the step most likely to stall
-              for three weeks. The link for it is issued later, once.
-            </p>
-          </article>
-        </div>
-      </section>
-
-      <div class="seam"></div>
-
-      <!-- CROSSING ------------------------------------------------------ -->
-      <section class="crossing">
-        <span class="tag sealed">the boundary</span>
-        <h2>One signed request, and nothing else</h2>
-        <p class="lede">
-          <code class="mono">apps/web</code> has no Drizzle, no <code class="mono">pg</code>,
-          no connection string — and must stay that way. That single fact is what
-          makes the split enforceable rather than aspirational. When the marketing
-          site needs something from the PHI side, it asks, and the PHI side
-          decides what to answer.
-        </p>
-        <div class="hops">
-          <div class="hop">
-            <span class="n">Hop 1 · stripe</span>
-            <p>checkout.session.completed</p>
-            <small>Not the success URL. A buyer who closes the tab after paying still gets their account; a stranger who hand-crafts a success URL gets nothing.</small>
-          </div>
-          <div class="hop">
-            <span class="n">Hop 2 · apps/web</span>
-            <p>verify raw body → HMAC re-sign</p>
-            <small>The Stripe secret lives here, the database lives there. Re-serialising the body would change the bytes and fail the signature, so the raw text is what gets verified.</small>
-          </div>
-          <div class="hop">
-            <span class="n">Hop 3 · apps/app</span>
-            <p>POST /api/provision</p>
-            <small>Signature checked before the body is even parsed as JSON, so an unauthenticated caller cannot make us do work.</small>
-          </div>
-          <div class="hop">
-            <span class="n">Retry law</span>
-            <p>every non-2xx, for 3 days</p>
-            <small>So a failure a later attempt could fix must be non-2xx, and a failure no attempt will ever fix must be 2xx plus a loud noise — or the endpoint gets disabled and every later sale is lost.</small>
-          </div>
-        </div>
-      </section>
-
-      <div class="seam"></div>
-
-      <!-- 04 ------------------------------------------------------------ -->
-      <section class="band">
-        <header>
-          <h2><span class="num">04</span>Provision</h2>
-          <span class="spacer"></span>
-          <span class="note">an account with nobody in it</span>
-        </header>
-
-        <div class="cards four">
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Creates</p>
-                <h4>org + clinic</h4>
-              </div>
-              <span class="tag sealed">app</span>
-            </div>
-            <dl class="spec">
-              <dt>org</dt><dd>the customer — billing and settings</dd>
-              <dt>clinic</dt><dd>a <b>location</b>, and the root of every PHI query</dd>
-              <dt>binds</dt><dd>the agreement they signed at step 5</dd>
-            </dl>
-            <p class="why">
-              A three-location group is one org with three clinic rows. The PHI
-              blast radius is smaller than the billing entity on purpose: a
-              Scottsdale hire gets Scottsdale.
-            </p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Creates nothing</p>
-                <h4>no login</h4>
-              </div>
-              <span class="tag stop">by design</span>
-            </div>
-            <dl class="spec">
-              <dt class="hot">no</dt><dd class="hot">user · invitation · password · session · welcome mail</dd>
-              <dt>why</dt><dd>a clinic never signs in, so there is nothing to invite anyone into</dd>
-            </dl>
-            <p class="why">
-              A clinic-facing console was built once and deleted.
-              <strong>healdesk is a service, not software a clinic operates.</strong>
-            </p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Status</p>
-                <h4>synthetic</h4>
-              </div>
-              <span class="tag sealed">app</span>
-            </div>
-            <dl class="spec">
-              <dt>starts</dt><dd>synthetic — seed data only</dd>
-              <dt>moves</dt><dd>to production once the BAA is bound</dd>
-              <dt>gate</dt><dd>a database trigger, not a code path</dd>
-            </dl>
-            <p class="why">
-              Until BAA coverage is in place the PHI side must not receive real
-              patient data, and the enforcement sits under the application where
-              no route can forget it.
-            </p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Replay</p>
-                <h4>201, then 200</h4>
-              </div>
-              <span class="tag sealed">app</span>
-            </div>
-            <dl class="spec">
-              <dt>201</dt><dd>a genuine creation</dd>
-              <dt>200</dt><dd>a duplicate delivery</dd>
-              <dt>why</dt><dd>both 2xx — the clinic exists and nothing further is owed</dd>
-            </dl>
-            <p class="why">
-              Answering 409 would tell Stripe to keep trying for three days
-              against a sale that already succeeded.
-            </p>
-          </article>
-        </div>
-      </section>
-
-      <div class="seam"></div>
-
-      <!-- 05 ------------------------------------------------------------ -->
-      <section class="band">
-        <header>
-          <h2><span class="num">05</span>Onboard</h2>
-          <span class="spacer"></span>
-          <span class="note">one link, one credential, finished forever</span>
-        </header>
-
-        <ol class="steps five">
-          <li><span class="idx">A</span><b>operator issues</b><span>From /admin. The URL is composed upstream, because the internal origin must never appear in a browser.</span></li>
-          <li><span class="idx">B</span><b>one email</b><span>The single-use link. The link <em>is</em> the credential — there is no account to attach it to.</span></li>
-          <li><span class="idx">C</span><b>their wizard</b><span>Per-platform steps for whichever scheduler they picked at checkout.</span></li>
-          <li><span class="idx">D</span><b>paste, read-only</b><span>One credential, wrapped by KMS before it lands.</span></li>
-          <li class="pivot"><span class="idx">E</span><b>read-back</b><span>What we can and cannot see: appointments · arrival · revenue · writeback. It demonstrates the promise instead of asserting it.</span></li>
-        </ol>
-
-        <div class="cards" style="margin-top:12px">
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Token</p>
-                <h4>what we store cannot be used</h4>
-              </div>
-              <span class="tag sealed">app</span>
-            </div>
-            <dl class="spec">
-              <dt>is</dt><dd>32 bytes of CSPRNG, base64url</dd>
-              <dt>stored</dt><dd>SHA-256 of it, column constrained to 32 bytes</dd>
-              <dt>why</dt><dd>a database dump must not be a folder of working links into other people's booking systems</dd>
-            </dl>
-            <p class="why">
-              No bcrypt, no HMAC — both defend a <em>guessable</em> secret, and
-              this one carries 256 bits of entropy.
-            </p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Single use</p>
-                <h4>one conditional UPDATE</h4>
-              </div>
-              <span class="tag sealed">app</span>
-            </div>
-            <dl class="spec">
-              <dt>does</dt><dd><b>UPDATE … WHERE used_at IS NULL RETURNING</b></dd>
-              <dt>never</dt><dd>SELECT, check, then UPDATE</dd>
-            </dl>
-            <p class="why">
-              Read-then-write has both racing submissions seeing NULL and both
-              proceeding: one link, two stored credentials. It passes every
-              sequential test anyone writes.
-            </p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Failure</p>
-                <h4>all of them look alike</h4>
-              </div>
-              <span class="tag stop">opaque</span>
-            </div>
-            <dl class="spec">
-              <dt>same</dt><dd>expired · already used · unknown · malformed</dd>
-              <dt>kept</dt><dd>the real reason, in the audit log</dd>
-            </dl>
-            <p class="why">
-              A visitor never learns whether a token existed or which clinic it
-              belonged to. The distinction is recorded where only we can read it.
-            </p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Honesty</p>
-                <h4>“saved, not yet checked”</h4>
-              </div>
-              <span class="tag stop">gap</span>
-            </div>
-            <dl class="spec">
-              <dt>built</dt><dd>validation + capability read-back from the catalogue</dd>
-              <dt class="hot">not built</dt><dd class="hot">the per-platform HTTP call</dd>
-            </dl>
-            <p class="why">
-              A wizard that says “verified” without having verified anything is
-              worse than one that admits it — the first is discovered at month
-              end, when the report is empty.
-            </p>
-          </article>
-        </div>
-      </section>
-
-      <div class="seam"></div>
-
-      <!-- 06 ------------------------------------------------------------ -->
-      <section class="band">
-        <header>
-          <h2><span class="num">06</span>Run the desk</h2>
-          <span class="spacer"></span>
-          <span class="note">everything past this point writes an audit row</span>
-        </header>
-
-        <div class="cards four">
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Ingest</p>
-                <h4>webhooks in</h4>
-              </div>
-              <span class="tag sealed">app</span>
-            </div>
-            <dl class="spec">
-              <dt>rule</dt><dd>store fast, return 200, process off the queue</dd>
-              <dt>auth</dt><dd>the <b>signature</b> — the clinic id in the path only says which credential to check</dd>
-              <dt>why</dt><dd>platforms disable endpoints that are slow</dd>
-            </dl>
-            <p class="why">
-              Parsing, matching or reporting inline eventually costs us the
-              integration.
-            </p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Worker</p>
-                <h4>three queues</h4>
-              </div>
-              <span class="tag sealed">app</span>
-            </div>
-            <dl class="spec">
-              <dt>runs</dt><dd>sync-connection · process-webhook · reconcile-clinic</dd>
-              <dt>where</dt><dd>a separate plain-Node process</dd>
-              <dt>fails</dt><dd>by throwing, so the queue owns the backoff</dd>
-            </dl>
-            <p class="why">
-              A month-end backfill must not compete with a request handler — and
-              a plain entry point runs as an ECS task, a Fly machine or a box.
-            </p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Conversations</p>
-                <h4>what “recovered” means</h4>
-              </div>
-              <span class="tag sealed">app</span>
-            </div>
-            <dl class="spec">
-              <dt>channel</dt><dd>voice · sms · web chat · instagram · whatsapp · form</dd>
-              <dt>reason</dt><dd>after hours · line busy · rang unanswered · missed-call callback</dd>
-              <dt>routing</dt><dd>conditional or always — and it changes the answer</dd>
-            </dl>
-            <p class="why">
-              This replaced a single <em>missed call</em> boolean, which counted
-              only the last of the four and so <strong>understated the
-              product</strong>: a 9pm call answered live was not “recovered”,
-              though nobody at the clinic was ever going to pick it up.
-            </p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Appointments</p>
-                <h4>the honest states</h4>
-              </div>
-              <span class="tag sealed">app</span>
-            </div>
-            <dl class="spec">
-              <dt>path</dt><dd>scheduled → confirmed → <b>showed</b></dd>
-              <dt>or</dt><dd>no_show · cancelled · rescheduled</dd>
-            </dl>
-            <p class="why">
-              Only one of those six states is revenue, and the whole next stage
-              exists to tell them apart with money rather than optimism.
-            </p>
-          </article>
-        </div>
-      </section>
-
-      <div class="seam"></div>
-
-      <!-- 07 ------------------------------------------------------------ -->
-      <section class="band">
-        <header>
-          <h2><span class="num">07</span>Prove it</h2>
-          <span class="spacer"></span>
-          <span class="note">this is the product; everything else feeds it honest inputs</span>
-        </header>
-
-        <div class="cards four">
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Rule 1</p>
-                <h4>a deposit is not attendance</h4>
-              </div>
-              <span class="tag sealed">app</span>
-            </div>
-            <p class="why" style="border-top:0;padding-top:0">
-              Money taken at booking proves the appointment was made, nothing
-              more. Treating it as evidence of a visit counts every forfeited
-              deposit as a successful one — inflating precisely the number we
-              are asking to be trusted on.
-            </p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Rule 2</p>
-                <h4>ambiguity is not a guess</h4>
-              </div>
-              <span class="tag stop">exception</span>
-            </div>
-            <p class="why" style="border-top:0;padding-top:0">
-              Two appointments in a week and one payment produces an exception,
-              not a coin flip. A wrong match is worse than an unmatched one: the
-              unmatched is a caveat the clinic can check, the wrong one silently
-              misattributes revenue. Confidence is only ever
-              <em>exact</em>, <em>high</em> or <em>medium</em>.
-            </p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Rule 3</p>
-                <h4>unmatched money is surfaced</h4>
-              </div>
-              <span class="tag sealed">app</span>
-            </div>
-            <p class="why" style="border-top:0;padding-top:0">
-              Sales we cannot place go to the exception queue with an amount
-              attached, and the total appears in the report as a caveat.
-              <strong>A total that quietly omits what it could not explain is
-              the failure mode this whole system exists to replace.</strong>
-            </p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">The report</p>
-                <h4>aggregates only</h4>
-              </div>
-              <span class="tag sealed">app</span>
-            </div>
-            <dl class="spec">
-              <dt>says</dt><dd><b>estimated</b> or <b>verified</b> — always which</dd>
-              <dt>carries</dt><dd>counts and totals: none of HIPAA's 18 identifiers</dd>
-              <dt>so</dt><dd>it needs no login and is safe in a shared front-desk inbox</dd>
-              <dt class="hot">never</dt><dd class="hot">which patient, which treatment, which day</dd>
-            </dl>
-            <p class="why">
-              An estimate presented as a measurement is the dishonesty this
-              product exists to replace. Counting a conversation is still a PHI
-              access, so building the report writes an audit row.
-            </p>
-          </article>
-        </div>
-
-        <p class="verdict">
-          <span class="lead">status</span>
-          <span>the job <span class="q">builds and counts</span> — every month, per clinic, in its own timezone</span>
-          <span class="no">delivery waits on SES and a verified sending domain</span>
-        </p>
-      </section>
-
-      <div class="seam"></div>
-
-      <!-- 08 ------------------------------------------------------------ -->
-      <section class="band">
-        <header>
-          <h2><span class="num">08</span>Operate</h2>
-          <span class="spacer"></span>
-          <span class="note">the only console, and it is ours</span>
-        </header>
-
-        <div class="cards four">
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">/admin</p>
-                <h4>seven operations</h4>
-              </div>
-              <span class="tag open">web</span>
-            </div>
-            <dl class="spec">
-              <dt>ops</dt><dd>listClinics · listJobs · toggleJob · issueConnectLink · searchAgreements · resendAgreementCopy · markAgreementTerminated</dd>
-              <dt>gets</dt><dd>a hand-written projection — <b>never a patient row</b></dd>
-            </dl>
-            <p class="why">
-              The console runs on the no-PHI side and holds no connection string.
-              Widening what crosses means adding an operation, deliberately, with
-              an argument beside it.
-            </p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Sign-in</p>
-                <h4>five, before a session</h4>
-              </div>
-              <span class="tag stop">separate type</span>
-            </div>
-            <dl class="spec">
-              <dt>are</dt><dd>the TOTP path itself — asked while the browser holds no session</dd>
-              <dt>why</dt><dd>requiring one would deadlock first sign-in</dd>
-            </dl>
-            <p class="why">
-              Kept as its own union so no clinic list, connect link or
-              termination can ever be asked for without a session, however a
-              future caller is written.
-            </p>
-          </article>
-
-          <article class="card">
-            <div class="top">
-              <div>
-                <p class="kicker">Jobs</p>
-                <h4>off by default</h4>
-              </div>
-              <span class="tag sealed">app</span>
-            </div>
-            <dl class="spec">
-              <dt>rule</dt><dd>every job switched on by hand, by a named operator</dd>
-              <dt>logs</dt><dd>the boring outcomes too: disabled, nothing to do, already running</dd>
-            </dl>
-            <p class="why">
-              A report job that started the moment it deployed would mail
-              whatever half-configured clinics happened to exist — and
-              “we'll remember to turn it off” is not a control. A job failing
-              for three weeks should read as a stale timestamp, not as silence.
-            </p>
-          </article>
-        </div>
-      </section>
-
-      <!-- TALLY --------------------------------------------------------- -->
-      <section class="tally">
-        <div class="grid">
-          <div class="fig"><b>4</b><span>ways in</span></div>
-          <div class="fig"><b>5</b><span>outreach angles</span></div>
-          <div class="fig"><b>8</b><span>specialties</span></div>
-          <div class="fig"><b>8</b><span>platforms</span></div>
-          <div class="fig"><b>6</b><span>steps to paid</span></div>
-          <div class="fig"><b>1</b><span>emailed link</span></div>
-          <div class="fig"><b>20</b><span>ledger tables</span></div>
-          <div class="fig"><b>3</b><span>worker queues</span></div>
-          <div class="fig zero"><b>0</b><span>clinic logins</span></div>
-        </div>
-        <div class="stack">
-          <span class="tag">apify</span>
-          <span class="tag">claude</span>
-          <span class="tag">synthflow</span>
-          <span class="tag">stripe</span>
-          <span class="tag">resend</span>
-          <span class="tag">better auth</span>
-          <span class="tag">postgres + rls</span>
-          <span class="tag">pg-boss</span>
-          <span class="tag">drizzle</span>
-          <span class="tag">next.js</span>
-          <span class="tag pending">aws kms</span>
-          <span class="tag pending">aws ses</span>
-        </div>
-      </section>
-
-      <footer class="colophon">
-        <span>healdesk.io — an AI front desk for high-ticket elective clinics</span>
-        <span>read out of the code, September 2026</span>
-      </footer>
-
+  <div class="verdict">
+    <div class="tile st-auto">
+      <b class="n">16</b>
+      <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+      <p>Runs with nobody watching. <b>The whole path to a paid account is here.</b></p>
+    </div>
+    <div class="tile st-hand">
+      <b class="n">6</b>
+      <span class="state"><span class="g" aria-hidden="true">◑</span> by hand</span>
+      <p>A person acts — five of them us, <b>one of them the clinic, once.</b></p>
+    </div>
+    <div class="tile st-off">
+      <b class="n">5</b>
+      <span class="state"><span class="g" aria-hidden="true">◔</span> built, switched off</span>
+      <p>The code exists and is tested. <b>Nothing calls it yet.</b></p>
+    </div>
+    <div class="tile st-none">
+      <b class="n">6</b>
+      <span class="state"><span class="g" aria-hidden="true">○</span> not built</span>
+      <p>Three on purpose, three still owed. <b>Named, never implied.</b></p>
     </div>
   </div>
+
+  <p class="readout">
+    Put plainly: <b>selling is automatic, onboarding is manual, and proving it is
+    written but unplugged.</b> The gap is not in the hard part — the matcher that ties
+    money to visits is finished and tested — it is in the boring wiring:
+    <span class="hl">no mail transport, no timer, no real connector</span>.
+  </p>
+
+  <div class="map">
+
+    <!-- 01 -->
+    <div class="lane">
+      <div class="who">
+        <span class="num">LANE 01</span>
+        <h2>Find them</h2>
+        <span class="side">apps/web · no PHI</span>
+        <p>Two scores, never one number: how easy to sell, and can we measure them.</p>
+      </div>
+      <div class="chips" style="--cols:4">
+        <div class="chip st-hand">
+          <span class="state"><span class="g" aria-hidden="true">◑</span> by hand</span>
+          <b>sweep a metro</b>
+          <span>We run it per city. <em>Maps, four queries, ≤120 places each.</em></span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>enrich + detect</b>
+          <span>Crawl the site, find the booking widget, read ads and job posts.</span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>score, pick an angle</b>
+          <span>Two 0–100 scores and one of five openings, with its evidence.</span>
+        </div>
+        <div class="chip st-none">
+          <span class="state"><span class="g" aria-hidden="true">○</span> not built</span>
+          <b>send the email</b>
+          <span>The pipeline writes a CSV. <em>No sender lives in this repo.</em></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 02 -->
+    <div class="lane">
+      <div class="who">
+        <span class="num">LANE 02</span>
+        <h2>Convince them</h2>
+        <span class="side">apps/web · no PHI</span>
+        <p>AVA talks to owners here, from a generic tree — which is the only reason this side is PHI-free.</p>
+      </div>
+      <div class="chips" style="--cols:3">
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>unlock with an email</b>
+          <span>Ten attempts an hour. Flags a business address.</span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>AVA answers in chat</b>
+          <span>Streams live. No specialty picker — she works it out from the turn.</span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>AVA calls you back</b>
+          <span>Three gates first: <em>number shape, recorded consent, and a cap per destination.</em></span>
+        </div>
+        <div class="chip st-none">
+          <span class="state"><span class="g" aria-hidden="true">○</span> not built</span>
+          <b>keep the lead</b>
+          <span>Every unlock is a lead and it goes to <em>stdout</em>. Nothing stores it.</span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>contact form</b>
+          <span>Mails us, or refuses and prints the address. Never accepts silently.</span>
+        </div>
+        <div class="chip st-hand">
+          <span class="state"><span class="g" aria-hidden="true">◑</span> by hand</span>
+          <b>publish a review</b>
+          <span>Checked upstream, then read by a person. <em>Nothing self-publishes.</em></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 03 -->
+    <div class="lane">
+      <div class="who">
+        <span class="num">LANE 03</span>
+        <h2>Take the money</h2>
+        <span class="side">apps/web · no PHI</span>
+        <p>Six steps, self-serve. Signing is step 5 and paying is step 6, and that order is the law.</p>
+      </div>
+      <div class="chips" style="--cols:4">
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>four questions</b>
+          <span>Specialty, booking platform, attribution mode, phone system.</span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>sign the BAA</b>
+          <span>Scroll to the end, type your name. Stored and hashed <em>before a price is shown</em>.</span>
+        </div>
+        <div class="chip st-off">
+          <span class="state"><span class="g" aria-hidden="true">◔</span> switched off</span>
+          <b>mail their copy</b>
+          <span>Rendered and ready. <em>No mail transport is configured, so it never goes.</em></span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>take the payment</b>
+          <span>Stripe. Core $249 · Growth $449 · Multi $799, no setup fee.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- crossing -->
+    <div class="crossing">
+      <div class="who">
+        <span class="num">THE BOUNDARY</span>
+        <h2>One signed hop</h2>
+        <span class="side">web → app</span>
+        <p>The marketing site holds no connection string. It asks; the PHI side answers.</p>
+      </div>
+      <div class="chips" style="--cols:2">
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>webhook → HMAC → provision</b>
+          <span>Not the success URL: close the tab after paying and the account still appears.</span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>org + clinic, agreement bound</b>
+          <span>And <em>no user, no password, no session</em> — a clinic never signs in to anything.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 04 -->
+    <div class="lane">
+      <div class="who">
+        <span class="num">LANE 04</span>
+        <h2>Turn it on</h2>
+        <span class="side">apps/app · PHI</span>
+        <p>The manual stretch. Everything here is a person, a missing transport, or a missing call.</p>
+      </div>
+      <div class="chips" style="--cols:5">
+        <div class="chip st-hand">
+          <span class="state"><span class="g" aria-hidden="true">◑</span> by hand</span>
+          <b>issue the link</b>
+          <span>An operator clicks it in <em>/admin</em>. Single use, 32 random bytes.</span>
+        </div>
+        <div class="chip st-off">
+          <span class="state"><span class="g" aria-hidden="true">◔</span> switched off</span>
+          <b>email the link</b>
+          <span>Written, and never sent. <em>Today the operator pastes the URL themselves, every time.</em></span>
+        </div>
+        <div class="chip st-hand">
+          <span class="state"><span class="g" aria-hidden="true">◑</span> by hand</span>
+          <b>clinic pastes one credential</b>
+          <span>By design, and this is their entire share of the work. Once, forever.</span>
+        </div>
+        <div class="chip st-none">
+          <span class="state"><span class="g" aria-hidden="true">○</span> not built</span>
+          <b>check it works</b>
+          <span>It says <em>“saved, not yet checked”</em> rather than a cheerful lie.</span>
+        </div>
+        <div class="chip st-off">
+          <span class="state"><span class="g" aria-hidden="true">◔</span> switched off</span>
+          <b>wrap it with KMS</b>
+          <span>The AWS SDK is not in the production build, so live wrapping refuses.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 05 -->
+    <div class="lane">
+      <div class="who">
+        <span class="num">LANE 05</span>
+        <h2>Run the desk</h2>
+        <span class="side">apps/app · PHI</span>
+        <p>Everything past the boundary writes an audit row, even a read that only counts.</p>
+      </div>
+      <div class="chips" style="--cols:5">
+        <div class="chip st-none">
+          <span class="state"><span class="g" aria-hidden="true">○</span> not built</span>
+          <b>answer the patient</b>
+          <span>Deliberately absent. <em>The day AVA takes a real call, that path is PHI.</em></span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>take the webhook</b>
+          <span>Store fast, return 200, queue it. The signature is the authentication.</span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>process off the queue</b>
+          <span>A separate plain-Node worker, so a backfill never fights a request.</span>
+        </div>
+        <div class="chip st-none">
+          <span class="state"><span class="g" aria-hidden="true">○</span> not built</span>
+          <b>pull from the platform</b>
+          <span>Only the fixture adapter is registered — <em>no real vendor account exists yet.</em></span>
+        </div>
+        <div class="chip st-off">
+          <span class="state"><span class="g" aria-hidden="true">◔</span> switched off</span>
+          <b>reconcile a period</b>
+          <span>The worker listens. <em>There is no timer, and nothing enqueues it.</em></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 06 -->
+    <div class="lane">
+      <div class="who">
+        <span class="num">LANE 06</span>
+        <h2>Prove it</h2>
+        <span class="side">apps/app · PHI</span>
+        <p>This is the product. The hard half is done; the plug is missing.</p>
+      </div>
+      <div class="chips" style="--cols:4">
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>match money to visits</b>
+          <span>A deposit is not attendance, and ambiguity is never a coin flip.</span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>queue what it can't place</b>
+          <span>With the amount attached. <em>Unmatched money is surfaced, never absorbed.</em></span>
+        </div>
+        <div class="chip st-off">
+          <span class="state"><span class="g" aria-hidden="true">◔</span> switched off</span>
+          <b>build the report</b>
+          <span>Aggregates only — no patient, no treatment, no day. <em>Nothing calls the job.</em></span>
+        </div>
+        <div class="chip st-none">
+          <span class="state"><span class="g" aria-hidden="true">○</span> not built</span>
+          <b>send the report</b>
+          <span>Waiting on SES and a verified sending domain.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 07 -->
+    <div class="lane">
+      <div class="who">
+        <span class="num">LANE 07</span>
+        <h2>Operate</h2>
+        <span class="side">apps/web → apps/app</span>
+        <p>The only console, and it is ours. Manual on purpose, not for want of a cron.</p>
+      </div>
+      <div class="chips" style="--cols:3">
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>sign in with TOTP</b>
+          <span>Five operations are answerable before a session — and only those five.</span>
+        </div>
+        <div class="chip st-hand">
+          <span class="state"><span class="g" aria-hidden="true">◑</span> by hand</span>
+          <b>run the seven ops</b>
+          <span>Clinics, jobs, links, agreements. The reply is a projection, <em>never a patient row</em>.</span>
+        </div>
+        <div class="chip st-hand">
+          <span class="state"><span class="g" aria-hidden="true">◑</span> by hand</span>
+          <b>switch a job on</b>
+          <span>Every job off by default. <em>“We'll remember to turn it off” is not a control.</em></span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- human touches -->
+  <section class="touches st-hand">
+    <span class="state"><span class="g" aria-hidden="true">◑</span> every human touch in the motion</span>
+    <h2>Six hands, and one of them isn't ours</h2>
+    <p>
+      Nothing between the cold email and the cleared payment needs a person. After it,
+      six things do — and the customer's share of all six is
+      <b>a single paste, once, that they never repeat.</b>
+    </p>
+
+    <div class="hands">
+      <section>
+        <h3>Us · five touches</h3>
+        <ol>
+          <li><div><b>Sweep a new metro</b>Run the leadgen pipeline per city; it hands back a scored CSV.</div></li>
+          <li><div><b>Read and publish a review</b>So the first person here to see a testimonial isn't seeing it on the homepage.</div></li>
+          <li><div><b>Issue the connect link</b>One click in /admin after a clinic pays.</div></li>
+          <li><div><b>Send that link</b>Only until a mail transport is configured — then it goes on its own.</div></li>
+          <li><div><b>Switch a job on</b>Deliberate, named, and recorded. This one stays manual.</div></li>
+        </ol>
+      </section>
+      <section class="once">
+        <h3>The clinic · one touch, ever</h3>
+        <ol>
+          <li><div><b>Paste one read-only credential</b>They click a link in an email, follow their platform's wizard, paste one key, and see a read-back of exactly what we can and cannot see. Then they are finished.</div></li>
+        </ol>
+        <p style="margin:12px 0 0;font-size:12px;line-height:1.45;color:var(--faint)">
+          No account, no password, no session, no console. A clinic-facing tool was
+          built once and deleted. <b style="color:var(--mute)">healdesk is a service,
+          not software a clinic operates</b> — so the link <em style="font-style:normal;color:var(--mute)">is</em> the credential.
+        </p>
+      </section>
+    </div>
+  </section>
+
+  <div class="foot">
+    <div class="legend">
+      <span class="state st-auto"><span class="g" aria-hidden="true">●</span> automatic</span>
+      <span class="state st-hand"><span class="g" aria-hidden="true">◑</span> by hand</span>
+      <span class="state st-off"><span class="g" aria-hidden="true">◔</span> built, switched off</span>
+      <span class="state st-none"><span class="g" aria-hidden="true">○</span> not built</span>
+    </div>
+    <span>33 steps · 4 ways in · 20 tables · 3 queues · 0 clinic logins · read from the code, Sept 2026</span>
+  </div>
+
 </div>
-<div class="cards three">

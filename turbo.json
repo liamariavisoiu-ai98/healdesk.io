@@ -58,7 +58,17 @@
         "SYNTHFLOW_API_KEY",
         "SYNTHFLOW_DEMO_AGENT_ID",
         "SYNTHFLOW_REGION",
-        "SYNTHFLOW_FROM_NUMBER"
+        "SYNTHFLOW_FROM_NUMBER",
+
+        // apps/app, Phases 6 and 8. The watchdog's digest address, the voice
+        // webhook's bearer, the Meta webhook's secret and verify token, Stripe
+        // Connect's platform id, and where the console lives for redirects.
+        "HEALDESK_OPS_EMAIL",
+        "HEALDESK_VOICE_WEBHOOK_SECRET",
+        "META_APP_SECRET",
+        "META_VERIFY_TOKEN",
+        "STRIPE_CONNECT_CLIENT_ID",
+        "HEALDESK_WEB_URL"
       ],
       "outputs": [".next/**", "!.next/cache/**", "dist/**"]
     },

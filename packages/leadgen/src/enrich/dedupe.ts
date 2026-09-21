@@ -42,6 +42,14 @@ export type Clinic = {
   contacts: Contact[];
   /** The category column from the source, where it had one. */
   sourceCategory: string;
+  /**
+   * Which input files this clinic appeared in, in the order they were given.
+   *
+   * More than one means the lists overlapped. That number is the first thing
+   * worth knowing about a second batch — a batch that is mostly clinics we
+   * already have is not 3,700 new prospects, whatever its row count says.
+   */
+  sources: string[];
 };
 
 export type Contact = {
@@ -52,6 +60,8 @@ export type Contact = {
   linkedIn: string;
   /** Higher is better. See rankContact(). */
   seniority: number;
+  /** The input file this person came from. Empty on rows that carried none. */
+  source: string;
 };
 
 /**
@@ -114,6 +124,13 @@ export type DedupeReport = {
   mergedBy: Record<Clinic["matchedOn"], number>;
   /** Rows dropped because they had no usable key at all. */
   unusable: number;
+  /**
+   * Per input file: rows read, and clinics that file was the FIRST to name.
+   * The second number is what a new batch actually adds.
+   */
+  bySource: Record<string, { rows: number; newClinics: number }>;
+  /** Clinics that appeared in more than one input file. */
+  overlap: number;
 };
 
 export function dedupe(rows: LeadRow[]): {
@@ -126,9 +143,15 @@ export function dedupe(rows: LeadRow[]): {
     clinics: 0,
     mergedBy: { domain: 0, phone: 0, "name+city": 0 },
     unusable: 0,
+    bySource: {},
+    overlap: 0,
   };
 
   for (const row of rows) {
+    const source = (row.source ?? "").trim();
+    const tally = (report.bySource[source] ??= { rows: 0, newClinics: 0 });
+    tally.rows += 1;
+
     const website = row.website ?? "";
     const domain = normaliseDomain(website);
     const phone = normalisePhone(row.phone ?? "");
@@ -161,6 +184,7 @@ export function dedupe(rows: LeadRow[]): {
       jobTitle: (row.jobTitle ?? "").trim(),
       linkedIn: (row.linkedIn ?? "").trim(),
       seniority: rankContact(row.jobTitle ?? ""),
+      source,
     };
 
     const existing = byKey.get(key);
@@ -172,11 +196,18 @@ export function dedupe(rows: LeadRow[]): {
       // Fill blanks from later rows — the first row for a clinic is not
       // necessarily the most complete one.
       existing.phone ||= row.phone?.trim() ?? "";
+      existing.city ||= (row.city ?? "").trim();
+      existing.state ||= (row.state ?? "").trim();
       existing.sourceCategory ||= (row.category ?? "").trim();
+      if (!existing.sources.includes(source)) {
+        existing.sources.push(source);
+        if (existing.sources.length === 2) report.overlap += 1;
+      }
       continue;
     }
 
     report.mergedBy[matchedOn] += 1;
+    tally.newClinics += 1;
     byKey.set(key, {
       id: createHash("sha256").update(key).digest("hex").slice(0, 16),
       matchedOn,
@@ -188,6 +219,7 @@ export function dedupe(rows: LeadRow[]): {
       phone: (row.phone ?? "").trim(),
       contacts: [contact],
       sourceCategory: (row.category ?? "").trim(),
+      sources: [source],
     });
   }
 

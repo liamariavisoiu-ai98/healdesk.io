@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync, rmSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { detectBooking, detectSocial, platformNameFor } from "./booking.ts";
@@ -15,7 +15,8 @@ import { buildUnreadableRow } from "./unreadable.ts";
 import { fetchPlaceHours, type PlaceHours } from "./places.ts";
 import { probeDomains, type DnsFinding } from "./dns-probe.ts";
 import { crawlSites, type CrawlResult } from "./crawl.ts";
-import { dedupe, type LeadRow } from "./dedupe.ts";
+import { dedupe, type Clinic, type DedupeReport, type LeadRow } from "./dedupe.ts";
+import { detectSourceFormat, normaliseRows } from "./sources.ts";
 import { labelClinics, labelClinicsBatched, type Label } from "./label.ts";
 import { buildReport, formatReport } from "./report.ts";
 import { isPlatformId } from "@healdesk/catalog";
@@ -61,6 +62,21 @@ function arg(name: string): string | undefined {
     process.exit(1);
   }
   return value;
+}
+
+/** Every value of a repeatable flag, in the order given. */
+function args(name: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < process.argv.length; i += 1) {
+    if (process.argv[i] !== `--${name}`) continue;
+    const value = process.argv[i + 1];
+    if (value === undefined || value.startsWith("--")) {
+      console.error(`--${name} was given without a value.`);
+      process.exit(1);
+    }
+    out.push(value);
+  }
+  return out;
 }
 
 /**
@@ -159,31 +175,41 @@ function toCsv(rows: Record<string, string>[]): string {
   ].join("\n");
 }
 
-async function checkpoint<T>(
-  name: string,
-  force: boolean,
-  produce: () => Promise<T>,
-): Promise<T> {
-  const path = join(DATA, `${name}.json`);
+/**
+ * Read one input file, work out which export it is, and bring it to the
+ * column set dedupe() reads. See sources.ts for why the format is detected
+ * rather than assumed.
+ */
+async function readSource(path: string): Promise<LeadRow[]> {
+  const raw = await readFile(path, "utf8");
+  const rows = parseCsv(raw);
+  const header = Object.keys(rows[0] ?? {});
+  const format = detectSourceFormat(header);
 
-  if (!force && existsSync(path)) {
-    console.log(`  ${name}: reusing ${path}`);
-    return JSON.parse(await readFile(path, "utf8")) as T;
+  if (!format) {
+    console.error(
+      `  ${basename(path)}: unrecognised columns. Expected either the original\n` +
+        `  list (website, Email, first_name, jobTitle …) or an Apollo export\n` +
+        `  (Website, Company Name, Email, Title …). Found:\n` +
+        `    ${header.slice(0, 12).join(", ")}${header.length > 12 ? ", …" : ""}`,
+    );
+    process.exit(1);
   }
 
-  const result = await produce();
-  await mkdir(DATA, { recursive: true });
-  await writeFile(path, JSON.stringify(result, null, 2));
-  console.log(`  ${name}: wrote ${path}`);
-  return result;
+  console.log(`  ${basename(path)}: ${rows.length} rows, ${format} format`);
+  return normaliseRows(rows, format, basename(path));
 }
 
 async function main(): Promise<void> {
-  const input = arg("input");
-  if (!input) {
+  const inputs = args("input").map((p) => p.replace(/^~/, process.env.HOME ?? "~"));
+  if (inputs.length === 0) {
     console.error(
       "Missing --input.\n" +
         "  npm run enrich -w @healdesk/leadgen -- --input ~/Downloads/healdesk_leads.csv\n\n" +
+        "Repeat --input to merge a second batch into the same clinic list:\n" +
+        "  --input ~/Downloads/healdesk_leads.csv --input ~/Downloads/leads_batch2.csv\n" +
+        "Clinics already crawled and labelled are kept; only the new ones are\n" +
+        "fetched and classified.\n\n" +
         "Stages: dedupe → crawl → label → report. Each checkpoints to\n" +
         "packages/leadgen/data/. Re-running is free; --force-crawl or\n" +
         "--force-label redoes one stage without redoing the earlier ones.\n\n" +
@@ -200,24 +226,90 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const inputPath = input.replace(/^~/, process.env.HOME ?? "~");
-
   // ---- 1. Dedupe -----------------------------------------------------------
+  //
+  // Not a plain checkpoint, because the checkpoint has to know what it was
+  // built from. A second --input against a cached 01-clinics.json used to be
+  // ignored outright: the file existed, so the stage was skipped, and the new
+  // batch never entered the pipeline at all.
+  //
+  // So the file records its inputs, and is reused only when the same set is
+  // given again. Any other set re-dedupes from every file — which is free,
+  // takes a second, and is safe for everything downstream: a clinic's id is a
+  // hash of its match key, so a clinic present in the old list keeps its id
+  // and therefore keeps its crawl, its label and its hours. Only the genuinely
+  // new clinics reach the paid stages.
   console.log("\n[1/4] dedupe");
-  const { clinics, report: dedupeReport } = await checkpoint(
-    "01-clinics",
-    flag("force-dedupe"),
-    async () => {
-      const raw = await readFile(inputPath, "utf8");
-      const rows = parseCsv(raw);
-      const result = dedupe(rows);
+  const clinicsPath = join(DATA, "01-clinics.json");
+  const sourceNames = inputs.map((p) => basename(p));
+
+  type ClinicsFile = {
+    clinics: Clinic[];
+    report: DedupeReport;
+    sources?: string[];
+  };
+
+  let cached: ClinicsFile | null =
+    !flag("force-dedupe") && existsSync(clinicsPath)
+      ? (JSON.parse(await readFile(clinicsPath, "utf8")) as ClinicsFile)
+      : null;
+
+  if (cached) {
+    // A file written before inputs were recorded was built from exactly one
+    // list. Assume it was the first one given, and say so, rather than
+    // re-deduping a list whose original file may no longer be at that path.
+    const builtFrom = cached.sources ?? [sourceNames[0]!];
+    const same =
+      builtFrom.length === sourceNames.length &&
+      [...builtFrom].sort().join("\n") === [...sourceNames].sort().join("\n");
+
+    if (!same) {
       console.log(
-        `  ${result.report.inputRows} rows → ${result.report.clinics} clinics ` +
-          `(${result.report.unusable} unusable)`,
+        `  01-clinics.json was built from ${builtFrom.join(", ")}; ` +
+          `re-deduping across ${sourceNames.join(", ")}`,
       );
-      return result;
-    },
+      cached = null;
+    } else {
+      console.log(`  01-clinics: reusing ${clinicsPath}`);
+      if (!cached.sources) {
+        // Backfill provenance so the export has a source for every row.
+        const only = builtFrom[0]!;
+        for (const clinic of cached.clinics) {
+          clinic.sources ??= [only];
+          for (const contact of clinic.contacts) contact.source ??= only;
+        }
+      }
+    }
+  }
+
+  if (!cached) {
+    const rows: LeadRow[] = [];
+    for (const path of inputs) rows.push(...(await readSource(path)));
+
+    const result = dedupe(rows);
+    cached = { ...result, sources: sourceNames };
+    await mkdir(DATA, { recursive: true });
+    await writeFile(clinicsPath, JSON.stringify(cached, null, 2));
+    console.log(`  01-clinics: wrote ${clinicsPath}`);
+  }
+
+  const { clinics, report: dedupeReport } = cached;
+  console.log(
+    `  ${dedupeReport.inputRows} rows → ${dedupeReport.clinics} clinics ` +
+      `(${dedupeReport.unusable} unusable)`,
   );
+  if (Object.keys(dedupeReport.bySource ?? {}).length > 1) {
+    for (const [name, n] of Object.entries(dedupeReport.bySource)) {
+      console.log(
+        `    ${name.padEnd(32)} ${String(n.rows).padStart(5)} rows  ` +
+          `${String(n.newClinics).padStart(5)} clinics not in an earlier file`,
+      );
+    }
+    console.log(
+      `    ${dedupeReport.overlap} clinics appear in more than one file — ` +
+        `their contacts were merged, not duplicated.`,
+    );
+  }
 
   // ---- 2. Crawl ------------------------------------------------------------
   console.log("\n[2/4] crawl");
@@ -448,26 +540,68 @@ async function main(): Promise<void> {
   // nothing to breach. Measured yield is modest — 14 of 311 on the sample, and
   // an adversarial review put the genuinely-new-and-in-segment share nearer
   // 1.5% — so it supplements the signature table rather than replacing it.
+  //
+  // Incremental, like the crawl and the labels. This was a plain checkpoint:
+  // if the file existed it was returned whole, so a second batch of clinics
+  // was never probed and no message said so. The findings file only records
+  // hits, which cannot distinguish "probed, nothing there" from "never
+  // probed" — so the domains probed are recorded alongside from now on.
+  //
+  // Clinics that were crawled before this run count as probed, whatever the
+  // file says: every earlier run swept the whole undetected set, so the only
+  // domains that can have been missed are the ones this run just crawled.
+  const crawledBefore = new Set(already.map((c) => c.clinicId));
   let dnsFindings: DnsFinding[] = [];
   if (!flag("no-dns")) {
-    const undetected = crawls
-      .filter((c) => !c.error && !detectBooking(c.links ?? []).hasOnlineBooking)
-      .map((c) => c.domain);
+    const undetected = crawls.filter(
+      (c) => !c.error && !detectBooking(c.links ?? []).hasOnlineBooking,
+    );
+
+    type DnsFile = { probed: string[]; findings: DnsFinding[] };
+    const dnsPath = join(DATA, "03b-dns.json");
+    let prior: DnsFile = { probed: [], findings: [] };
+    if (!flag("force-dns") && existsSync(dnsPath)) {
+      const parsed = JSON.parse(await readFile(dnsPath, "utf8")) as DnsFile | DnsFinding[];
+      prior = Array.isArray(parsed)
+        ? {
+            findings: parsed,
+            probed: undetected
+              .filter((c) => crawledBefore.has(c.clinicId))
+              .map((c) => c.domain),
+          }
+        : parsed;
+    }
+
+    const probed = new Set(prior.probed);
+    const toProbe = undetected.map((c) => c.domain).filter((d) => !probed.has(d));
 
     if (undetected.length) {
-      console.log(`\n[3b/4] dns sweep over ${undetected.length} undetected clinics`);
-      dnsFindings = await checkpoint<DnsFinding[]>(
-        "03b-dns",
-        flag("force-dns"),
-        () =>
-          probeDomains(undetected, {
-            concurrency: numericArg("dns-concurrency") ?? 12,
-            onProgress: (n, t) => process.stdout.write(`\r  probed ${n}/${t}`),
-          }).then((f) => {
-            process.stdout.write("\n");
-            return f;
-          }),
+      console.log(
+        `\n[3b/4] dns sweep: ${undetected.length} undetected clinics, ` +
+          `${probed.size} already probed, ${toProbe.length} to probe`,
       );
+    }
+
+    dnsFindings = prior.findings;
+    if (toProbe.length) {
+      const fresh = await probeDomains(toProbe, {
+        concurrency: numericArg("dns-concurrency") ?? 12,
+        onProgress: (n, t) => process.stdout.write(`\r  probed ${n}/${t}`),
+      });
+      process.stdout.write("\n");
+
+      dnsFindings = [...prior.findings, ...fresh];
+      await mkdir(DATA, { recursive: true });
+      await writeFile(
+        dnsPath,
+        JSON.stringify(
+          { probed: [...probed, ...toProbe], findings: dnsFindings } satisfies DnsFile,
+          null,
+          2,
+        ),
+      );
+      console.log(`  ${fresh.length} new platforms found in DNS, ${dnsFindings.length} total`);
+    } else if (undetected.length) {
       console.log(`  ${dnsFindings.length} platforms found in DNS`);
     }
   }
@@ -482,25 +616,70 @@ async function main(): Promise<void> {
   // Patient portals, login pages and competitor endpoints are excluded before
   // anything is requested. See booking-page.ts for why each of those is a rule
   // rather than a preference.
+  //
+  // Same shape as the DNS sweep above, and for the same reason: a paid fetch
+  // that was skipped wholesale for any clinic added after the first run.
   let pageFindings: BookingPageFinding[] = [];
   if (!flag("no-booking-pages")) {
     const pages = crawls.map(selectBookingPage).filter((t) => t !== null);
 
-    if (pages.length && apifyToken) {
-      console.log(`\n[3b2/4] fetching ${pages.length} booking pages`);
-      pageFindings = await checkpoint<BookingPageFinding[]>(
-        "03b2-pages",
-        flag("force-pages"),
-        () =>
-          fetchBookingPages(pages, {
-            token: apifyToken,
-            onProgress: (n, t) => process.stdout.write(`\r  fetched ${n}/${t}`),
-          }).then((r) => {
-            process.stdout.write("\n");
-            return r;
-          }),
+    type PagesFile = { attempted: string[]; findings: BookingPageFinding[] };
+    const pagesPath = join(DATA, "03b2-pages.json");
+    let prior: PagesFile = { attempted: [], findings: [] };
+    if (!flag("force-pages") && existsSync(pagesPath)) {
+      const parsed = JSON.parse(await readFile(pagesPath, "utf8")) as
+        | PagesFile
+        | BookingPageFinding[];
+      prior = Array.isArray(parsed)
+        ? {
+            findings: parsed,
+            attempted: pages
+              .filter((p) => crawledBefore.has(p.clinicId))
+              .map((p) => p.clinicId),
+          }
+        : parsed;
+    }
+
+    const attempted = new Set(prior.attempted);
+    const toFetch = pages.filter((p) => !attempted.has(p.clinicId));
+    pageFindings = prior.findings;
+
+    if (toFetch.length && !apifyToken) {
+      console.log(
+        `\n[3b2/4] ${toFetch.length} booking pages not yet fetched — ` +
+          `APIFY_TOKEN is not set, skipping`,
       );
-      console.log(`  ${pageFindings.length} platforms found behind a booking link`);
+    } else if (toFetch.length && apifyToken) {
+      console.log(
+        `\n[3b2/4] fetching ${toFetch.length} booking pages ` +
+          `(${attempted.size} already attempted)`,
+      );
+      const fresh = await fetchBookingPages(toFetch, {
+        token: apifyToken,
+        onProgress: (n, t) => process.stdout.write(`\r  fetched ${n}/${t}`),
+      });
+      process.stdout.write("\n");
+
+      pageFindings = [...prior.findings, ...fresh];
+      await mkdir(DATA, { recursive: true });
+      await writeFile(
+        pagesPath,
+        JSON.stringify(
+          {
+            attempted: [...attempted, ...toFetch.map((p) => p.clinicId)],
+            findings: pageFindings,
+          } satisfies PagesFile,
+          null,
+          2,
+        ),
+      );
+      console.log(
+        `  ${fresh.length} new platforms found behind a booking link, ${pageFindings.length} total`,
+      );
+    } else if (pages.length) {
+      console.log(
+        `\n[3b2/4] ${pageFindings.length} platforms found behind a booking link (cached)`,
+      );
     }
   }
 
@@ -806,6 +985,11 @@ async function main(): Promise<void> {
       website: clinic.website,
       booking_platform: book?.platformName ?? "",
       clinic_id: clinic.id,
+      // Which input file this person came from, and which files named the
+      // clinic. Once two lists are merged this is the only way to filter a
+      // campaign to one batch, or to see which batch a bad row came in on.
+      source: contact.source,
+      clinic_sources: clinic.sources.join("; "),
     });
 
     bySegment.set(key, bucket);
@@ -835,6 +1019,7 @@ async function main(): Promise<void> {
           assistant_term: alt.assistantTerm,
           contact_rank: String(i + 2),
           contact_title: extra.jobTitle ?? "",
+          source: extra.source,
         });
       }
     }
@@ -927,6 +1112,8 @@ async function main(): Promise<void> {
       why_unreadable: row.reason,
       website: clinic.website,
       clinic_id: clinic.id,
+      source: contact.source,
+      clinic_sources: clinic.sources.join("; "),
     });
   }
 

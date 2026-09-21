@@ -33,6 +33,27 @@ npm run discover -w @healdesk/leadgen -- --location "Phoenix, Arizona" --max-llm
 
 Output: `packages/leadgen/data/<location>.csv` — gitignored.
 
+## Enrich a contact list
+
+The other entry point, and the one that produced `all-leads.csv`. Full write-up
+in [docs/leadgen-enrichment.md](../../docs/leadgen-enrichment.md).
+
+```bash
+# First list
+npm run enrich -w @healdesk/leadgen -- --input ~/Downloads/healdesk_leads.csv --batch --hours
+
+# Add a second batch: give every list, every time. Clinics already crawled and
+# labelled are kept; only the new ones are fetched and classified.
+npm run enrich -w @healdesk/leadgen -- \
+  --input ~/Downloads/healdesk_leads.csv \
+  --input ~/Downloads/leads_batch2.csv \
+  --batch --hours
+```
+
+Accepts the original export's columns or a raw Apollo export; the format is
+detected from the header. Output: `packages/leadgen/data/all-leads.csv` plus
+per-segment files — gitignored.
+
 ---
 
 ## How it works

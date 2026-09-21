@@ -816,93 +816,247 @@ engagement" that you then ship to 200 clinics is a different deal.
 
 ## 9. Stripe — reuse the scalabid account, not its worst habits
 
+> **Rewritten 21 September 2026 against the code.** The August research described a
+> catalog that no longer exists (three plans, a 14-day trial, `setupFeeUsd: 0`) and a
+> webhook that had not been written yet. Both now exist, so this section documents what
+> the code does rather than what to build. Authoritative files, in the order you will
+> need them: [stripe-setup.ts](../apps/web/scripts/stripe-setup.ts),
+> [billing.ts](../apps/web/src/lib/billing.ts),
+> [webhooks/stripe/route.ts](../apps/web/src/app/api/webhooks/stripe/route.ts),
+> [billing/events.ts](../apps/app/src/lib/billing/events.ts). Where this file and the
+> code disagree, the code is right and this file is stale again.
+
 **Stay on the existing account.** Stripe's guidance is that separate accounts are for
 projects that "operate independently" — separate legal entity, payout bank account, public
-business info. The strongest argument for splitting (a med spa seeing `SCALABID` on their
-statement) is solvable with a per-**Product** statement descriptor, which Stripe says
-"overrides any account descriptor for recurring payments."
+business info. Neither the statement-descriptor problem nor the shared-event-stream problem
+needs a second account; both are solved below.
+
+### What one run of the setup script creates
+
+Five packages, from `packages/catalog/src/plans.ts`. Three prices each — monthly,
+annual, and a **one-time setup fee** billed on the first invoice only — plus two
+account-wide metered prices.
+
+| Package | `id` | Monthly | Annual (per mo) | Setup fee |
+|---|---|---|---|---|
+| Web OR Meta Chatbot | `chat-single` | $397 | $317 | $497 |
+| Web + Meta Chatbot | `chat-dual` | $597 | $477 | $997 |
+| AI Voice Agent Alone | `voice` | $797 | $637 | $997 |
+| Web OR Meta + Voice | `chat-voice` | $897 | $717 | $997 |
+| Complete FrontDesk AI | `complete` | $1,197 | $957 | $997 |
+
+**There is no trial.** Provisioning builds a voice agent, allocates a number and runs a QA
+pass before the clinic sees anything, and the setup fee is what pays for that. A trial and
+a setup fee do not compose — either nobody is provisioned for fourteen days, or the agent
+ships before a dollar clears. The catalog header records why the earlier free-setup-plus-
+trial pricing was abandoned; do not reintroduce either half.
+
+The annual invoice is `annualMonthlyUsd × 12`, computed by `annualTotalUsd()` so the site
+cannot quote $3,804 while Stripe charges $3,800.
+
+**Every price carries a `lookup_key`** of the form
+`healdesk_<planId>_<month|year|setup>_<amountInCents>` — e.g. `healdesk_chat-voice_month_89700`.
+This is the single most important deviation from scalabid, which hardcodes literal price
+IDs as fallbacks with a comment admitting the risk: *"if the live Stripe account is ever
+swapped, these fallbacks become stale and customers are charged against the wrong
+product."* Checkout resolves prices by lookup key at request time
+([billing.ts:320](../apps/web/src/lib/billing.ts)) and never stores an ID anywhere, so
+there is no second place for a price to live and no second place for it to be wrong.
+Because the key encodes the amount, a catalog price change cannot silently resolve to the
+old price — it fails loudly with `No active Stripe price with lookup_key "…"` until the
+script is re-run.
+
+The two metered overage prices (`healdesk_meter_voice_minutes`,
+`healdesk_meter_chat_conversations`) are created unconditionally but **not attached** to
+any subscription while `OVERAGE_RATES_PROVISIONAL` is true. The rates are placeholders
+nobody signed; attaching them would bill a number the buyer was never shown.
 
 ### Steps
 
-1. **Create three products in TEST mode** at https://dashboard.stripe.com/test/products —
-   `healdesk Core` $249, `healdesk Growth` $449, `healdesk Multi-location` $799, all Flat
-   rate / Recurring / Monthly, **statement descriptor `HEALDESK`**. Add product metadata
-   `app=healdesk` and `plan_id=core|growth|multi`. **No setup-fee product** — healdesk is
-   `setupFeeUsd: 0`, and that's the pricing wedge
-2. **Attach lookup keys** (the Dashboard doesn't reliably expose them):
+1. **Dry run first — no key, no network calls:**
    ```
-   curl https://api.stripe.com/v1/prices/<price_id> -u "<TEST_SECRET_KEY>:" \
-        -d lookup_key=healdesk_core_monthly
+   npm run stripe:setup --workspace @healdesk/web -- --dry-run
    ```
-   This is **the most important deviation from scalabid**, which hardcodes literal price IDs
-   as fallbacks with a comment admitting the risk: *"if the live Stripe account is ever
-   swapped, these fallbacks become stale and customers are charged against the wrong
-   product."*
-3. **Copy each product to live mode**, then **re-run the lookup-key calls against the live
-   price IDs** — copied prices get new IDs and lookup keys don't reliably carry over. Verify:
-   `curl -G https://api.stripe.com/v1/prices -u "<LIVE_KEY>:" -d "lookup_keys[]=healdesk_core_monthly"`
-   must return exactly one active price at `24900`
-4. **Two webhook endpoints** (test + live) at https://dashboard.stripe.com/webhooks →
-   `https://healdesk.io/api/webhooks/stripe`, subscribing to exactly six events:
-   `checkout.session.completed`, `customer.subscription.updated`,
-   `customer.subscription.deleted`, `customer.subscription.trial_will_end`, `invoice.paid`,
-   `invoice.payment_failed`. **Do not touch the scalabid endpoint.** Test and live signing
-   secrets are different values
-5. **Env vars on `apps/web` only** — `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`. Keep
-   Stripe keys off the PHI host, same reasoning that keeps the database off `apps/web`.
-   *(`.env.example` currently lists them twice; that needs resolving in favour of `apps/web`.)*
-6. **Local testing:**
+   It prints the exact products, prices and lookup keys a real run would create, computed
+   from the same code, so the preview cannot drift from the thing previewed.
+
+2. **Create everything in TEST mode:**
    ```
-   stripe login --project-name=healdesk
-   stripe listen --project-name=healdesk --events checkout.session.completed,… \
-          --forward-to localhost:3000/api/webhooks/stripe
+   STRIPE_SECRET_KEY=sk_test_... npm run stripe:setup --workspace @healdesk/web
+   ```
+   The script is idempotent by lookup key: re-running finds each existing price, checks it
+   still matches the catalog, and leaves it alone. Nothing is ever archived, updated or
+   deleted. A catalog price *change* produces a new key and therefore a new price; the old
+   one stays active for subscriptions already on it and is reported as **STALE** for a
+   human to archive once nobody is billing on it. Do not create products by hand in the
+   Dashboard — the amount would then live in two places that can disagree.
+
+3. **Statement descriptor.** Set it at Dashboard → Settings → Business → Public details.
+   Without it a med spa's bank statement reads `SCALABID`, which is a support ticket at
+   best and a chargeback at worst — the customer genuinely does not recognise the charge.
+   ⚠️ **Unresolved:** that setting is account-wide, and one account serves both products,
+   so it cannot read `HEALDESK` for us and `SCALABID` for them. Stripe's per-**Product**
+   `statement_descriptor` overrides the account value for subscription invoices and would
+   settle it, but `stripe-setup.ts` does not set one — products are created with `name` and
+   `description` only ([stripe-setup.ts:355](../apps/web/scripts/stripe-setup.ts)) and the
+   script merely prints a reminder to set the account value. Decide this before the first
+   live charge: either add `statement_descriptor` to the product create call, or accept one
+   shared descriptor for both businesses.
+
+4. **Webhook endpoint** at Dashboard → Developers → Webhooks → Add endpoint, URL
+   `https://<host>/api/webhooks/stripe`, subscribing to **exactly these nine**:
+
+   ```
+   checkout.session.completed               provisions the account
+   checkout.session.async_payment_succeeded same, delayed payment methods
+   checkout.session.expired                 buyer left; triggers the follow-up email
+   invoice.paid                             first payment and every renewal
+   invoice.payment_failed                   card declined
+   invoice.payment_action_required          3-D Secure / bank confirmation
+   customer.subscription.updated            plan change, pause, cancel-at-renewal
+   customer.subscription.deleted            cancellation took effect
+   charge.dispute.created                   chargeback
+   ```
+
+   The nine are a contract with the code, not a preference: the first two are
+   `PROVISIONING_EVENTS`, the third is `ABANDONMENT_EVENTS`, and the last six are
+   `LIFECYCLE_EVENTS`, which must match `HANDLED_EVENT_TYPES` in
+   [events.ts:111](../apps/app/src/lib/billing/events.ts).
+
+   **Do not subscribe `customer.subscription.paused` or `.resumed`.** They only fire when a
+   trial ends without a card on file, and there is no trial. A real pause arrives as the
+   `pause_collection` *field* on `customer.subscription.updated`, which is where the app
+   reads it. **Do not "select all"** either: anything extra is acknowledged and discarded,
+   which buries the deliveries that matter. **Do not override the API version** — leave the
+   endpoint on the account default. Nothing in the codebase pins one (`new Stripe(key)`,
+   [billing.ts:141](../apps/web/src/lib/billing.ts)), and the readers in `events.ts` are
+   written structurally so that a version bump moving `invoice.subscription` to
+   `invoice.parent.subscription_details` cannot silently turn every renewal into a no-op.
+
+   Two endpoints, test and live, with **different signing secrets**. Don't touch the
+   scalabid endpoint.
+
+5. **Env vars on `apps/web` only.** Keep Stripe keys off the PHI host, the same reasoning
+   that keeps the database off `apps/web`. The webhook's config gate
+   ([route.ts:126](../apps/web/src/app/api/webhooks/stripe/route.ts)) requires **all four**
+   of these and returns `500 Webhook not configured.` if any one is missing:
+
+   | Variable | Why the webhook needs it |
+   |---|---|
+   | `STRIPE_SECRET_KEY` | verifies the signature, expands a disputed charge |
+   | `STRIPE_WEBHOOK_SECRET` | the endpoint's own `whsec_…` |
+   | `HEALDESK_APP_URL` | where provisioning is relayed |
+   | `HEALDESK_PROVISION_SECRET` | signs that relay; must match `apps/app` |
+
+   So a correct signing secret alone is not enough: **an `apps/web` deployment with no
+   reachable `apps/app` 500s every sale.** That is deliberate (the events queue and replay),
+   but it means there is no point pointing a Dashboard endpoint at a web-only deployment —
+   test locally until `apps/app` has a home. Also set `NEXT_PUBLIC_SITE_URL` to the origin
+   the buyer is actually on: it is inlined at build time and feeds Stripe's `success_url`,
+   so a stale value charges the customer and redirects them somewhere dead.
+
+   **Never put a placeholder in `STRIPE_WEBHOOK_SECRET`.** Missing returns 500 before
+   verification and self-heals when set — Stripe replays the backlog. Wrong passes the
+   config gate and lands on the 400 "invalid signature" path meant for forgeries, silently
+   failing every real sale with no retry. A wrong value is worse than an empty one.
+
+6. **Dashboard settings the code depends on.** The script prints these; they are not
+   optional:
+   - **Customer Portal** (Settings → Billing → Customer portal): payment method and
+     invoice history ON; cancel subscription ON but **"at end of billing period" only**;
+     switch plan ON, limited to the five healdesk products, monthly and annual prices only
+     — never the setup or metered prices. Pause subscription OFF. Cancel immediately OFF.
+   - **Stripe Tax** (Settings → Tax): enable and set a default tax behavior. Prices are
+     created without `tax_behavior` and inherit it.
+   - **Failed payments** (Subscriptions → Manage failed payments): must **not** cancel the
+     subscription. healdesk owns the terminal transition — the billing sweep suspends the
+     clinic when its grace window closes, and `customer.subscription.updated` with
+     `status=unpaid` suspends it too — so a Stripe-side cancel would race it. That job
+     ships OFF; enable it from the ops console the same day you set this.
+
+7. **Local testing** — the only path that exercises provisioning end to end today:
+   ```
+   stripe login
+   stripe listen --forward-to localhost:3000/api/webhooks/stripe
    ```
    ⚠️ `stripe listen` prints a **third** `whsec_` that differs from both dashboard secrets.
-   Drive a real session rather than `stripe trigger` — a triggered session has no metadata,
-   so it exercises the ownership guard, not the provisioning path. Run it too, and assert
-   you get 200 with `skipped: "foreign"`
+   Drive a real checkout through the site rather than relying on `stripe trigger`: a
+   triggered session has `mode: "payment"` and empty metadata, so it exercises the
+   ownership guard, not the provisioning path. Run it anyway once and assert you get
+   `200` with `skipped: "not-healdesk"` — that is the signal that signature verification
+   works.
 
-### Two blockers to fix before pointing any webhook at us
-
-**1. `provisionClinic` is not idempotent.** [provisioning.ts:100-116](../apps/app/src/lib/provisioning.ts)
-reacts to a unique violation by minting a **new slug** and retrying. That's correct for two
-clinics genuinely named "Radiance Med Spa" and catastrophic for a Stripe retry of one
-payment — you get two organizations, two clinics, two BAA acceptances and two invitations.
-**Stripe retries for up to three days, so this will fire in production.** Fix: add
-`stripe_checkout_session_id` with a partial unique index, `ON CONFLICT DO NOTHING`, then
-select the existing row and return its ids. Scope the slug-collision retry so it only fires
-on the slug index.
-
-**2. Do not port scalabid's `if (session.payment_status !== "paid") return;` guard.** With a
-14-day trial and the default `payment_method_collection="always"`, Stripe processes a $0
-trial invoice and `payment_status` *is* `"paid"` — so it appears to work in testing. The
-moment anyone sets `payment_method_collection="if_required"` (a plausible growth
-experiment), that guard **silently drops every signup**: the customer sees a success page
-and no account is ever created. Guard on `session.status === "complete"` instead.
+8. **Going live** is three swaps and one command, because no price ID is stored anywhere:
+   re-run the script with `sk_live_…` (it prints a LIVE MODE banner and requires you to
+   read the output), create the live webhook endpoint, then set `STRIPE_SECRET_KEY`,
+   `STRIPE_WEBHOOK_SECRET` and `NEXT_PUBLIC_SITE_URL`. **Do not use the Dashboard's "copy
+   to live mode"** on products: copied prices get new IDs and the lookup keys do not
+   reliably come with them, and a lookup key is the only handle checkout has.
 
 ### The isolation that actually works
 
-The endpoint event-type filter does **not** isolate scalabid from healdesk — both products
-emit `checkout.session.completed`, `invoice.paid` and `customer.subscription.*` on the same
-account. Separate URLs work in the happy path, but a mistyped URL or a future consolidation
-makes each handler see the other's events. The durable isolation is an **ownership check
-inside each handler**: `metadata.app === "healdesk"`, or a price-ID allowlist for events
-whose metadata you don't control.
+The endpoint's event-type filter does **not** isolate scalabid from healdesk — both
+products emit `checkout.session.completed`, `invoice.paid` and `customer.subscription.*` on
+the same account. Separate URLs work in the happy path, but a mistyped URL or a future
+consolidation makes each handler see the other's events. The durable isolation is an
+ownership check inside the handler, and it is implemented:
 
-### What to reuse verbatim
+- Checkout stamps `metadata.app = "healdesk"` on **both** the Session and
+  `subscription_data`, so later invoice and subscription events carry it too.
+- Provisioning drops anything without that marker
+  ([route.ts:206](../apps/web/src/app/api/webhooks/stripe/route.ts)) — loudly, because a
+  healdesk sale arriving without metadata would be money taken with no account.
+- Lifecycle events differ on purpose: a marker naming *another* app is skipped, but an
+  **absent** marker is forwarded with a warning, because a renewal invoice must never be
+  dropped over a missing field. `apps/app` resolves the clinic by Stripe customer or
+  subscription id and ignores what it does not recognise.
 
-About 60% of scalabid's webhook is directly portable: the signature-verify-then-dispatch
-skeleton, the metadata-carried-through-to-webhook convention (put it on **both** the session
-and `subscription_data`, "so it persists for future webhook events"), the **return-500-so-Stripe-retries**
-contract, and the poll-a-status-endpoint success page — which already implements the rule
-healdesk's own docs state: *provisioning fires on the webhook, never on the browser success
-URL.*
+### The two blockers of August are closed
 
-**Don't** port: the hardcoded price-ID fallbacks, the `payment_status` guard, the
-check-then-insert idempotency (no unique index backs it), the onboarding-fee line item, or
-the `apiVersion` override — scalabid pins `2025-03-31.basil` while running an SDK whose
-types describe `2026-03-25.dahlia`, two majors apart. Set none of them and let the SDK's pin
-govern.
+Both are recorded here because the reasoning still governs anything new in this path.
+
+**1. Idempotency — fixed, and not by a check-then-insert.** The webhook stamps
+`idempotencyKey` from the verified **Session** id (every event about one purchase carries
+the same `cs_…`, so this dedupes the purchase, not the delivery), and `provisionClinic`
+claims that key by inserting into `provisioning_attempts` **inside the same transaction**
+as the rest of provisioning. A claim in its own transaction would leave a committed claim
+behind a failed provision, and every retry would then report success to a customer who has
+no account. Note the follow-on trap that fix created and closed: a duplicate delivery
+raises `23505` on the idempotency key, and the slug-collision retry used to match *any*
+`23505` — so the mechanism added to prevent duplicate provisioning would have become a
+five-deep retry storm. The constraint allowlist in `isSlugCollision()` is the safety
+property, not a tidy-up.
+
+**2. The `payment_status` guard — never introduced.** Gate on `session.status === "complete"`.
+`payment_status` depends on the payment method and on `payment_method_collection`: a card
+charged on the spot reports `paid`, a delayed bank debit completes the Session with the
+invoice still open and reports `unpaid`. A `payment_status !== "paid"` guard therefore looks
+correct, passes review, and silently drops every delayed-method signup. It is not even the
+right question — "has the first invoice been paid" is answered by `invoice.paid` in
+`apps/app`, which is what moves a clinic from `provisioning` to `active`.
+
+### Status codes: Stripe retries every non-2xx for three days
+
+There is no "4xx stops retries" rule for webhook *deliveries* — that rule belongs to custom
+actions, a different product surface. So a status code here is not a retry suppressor; it
+is a choice between "try me again" and "stop, this is handled". Any failure a later attempt
+could fix must be non-2xx; any failure no attempt will ever fix must be 2xx **plus a loud
+log line**, because three days of retries against a permanent error ends with the endpoint
+disabled and every subsequent sale lost. The one case that is neither is a provisioning
+rejection on a paid sale: acknowledged to save the endpoint, and logged as the loudest line
+in the file, because it is money taken with no account.
+
+`apps/app` applies the same logic one hop further in: a failed event is retried until
+`MAX_FAILURES`, then dead-lettered with a 200 rather than allowed to disable the endpoint.
+
+### What not to port from scalabid
+
+The webhook is written; the skeleton, the metadata-on-both-objects convention and the
+return-500-so-Stripe-retries contract are already in it. **Don't** port: the hardcoded
+price-ID fallbacks, the `payment_status` guard, the check-then-insert idempotency (no
+unique index backs it), the onboarding-fee line item, or the `apiVersion` override —
+scalabid pins `2025-03-31.basil` while running an SDK whose types describe a later version,
+majors apart. healdesk sets none of them and lets the SDK's own pin govern.
 
 > ⚠️ [hipaa-compliance.md](./hipaa-compliance.md) claims a Stripe BAA is "Available." No
 > primary source was found for that. It likely doesn't matter for healdesk's own
@@ -989,8 +1143,9 @@ flying the badge, while inoculating you at the same time.
 | **ISO 27001:2022** | $15K–30K + surveillance audits years 2–3 | 6–12 months | **Wrong credential for this market** |
 | **HITRUST e1 / i1** | $20K–70K / $60K–200K | Months | Not a close call |
 
-**The commercial answer is unflattering to the badge strip.** At $249–799/mo, ACV is
-$2,988–$9,588. A $20K SOC 2 program costs the entire annual revenue of **2–7 customers**.
+**The commercial answer is unflattering to the badge strip.** At $397–1,197/mo, recurring
+ACV is $4,764–$14,364 (year one adds a $497–997 setup fee). A $20K SOC 2 program costs the
+entire annual revenue of **1–4 customers**.
 The evidence is that small single-location med spas and dental practices do **not** run
 vendor security reviews — a signed BAA is widely treated as sufficient diligence at this
 tier, and the "83% of buyers require SOC 2" statistic compliance vendors quote is explicitly

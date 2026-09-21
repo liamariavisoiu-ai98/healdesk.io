@@ -1,0 +1,1 @@
+ALTER TABLE "conversations" DROP COLUMN "recording_uri";

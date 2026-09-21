@@ -11,6 +11,13 @@ they depend on each other. The first one decides the other five.
 
 ---
 
+
+> **Update, 21 September 2026.** The product is now inbound-only and keeps no
+> audio (docs/handover.md, decisions log, item 11). Sections 3 and 4 below
+> (reactivation consent, the missed-call text-back) describe features that
+> no longer exist and are kept only so the reasoning survives if the
+> decision is ever reversed.
+
 ## 1. Is this clinic a HIPAA covered entity, and what changes when it is not
 
 **The test, in one sentence.** A health care provider is a covered entity if it

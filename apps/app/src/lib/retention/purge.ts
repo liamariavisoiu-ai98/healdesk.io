@@ -24,11 +24,12 @@ import type { TenantTx } from "@/lib/tenant";
  *
  * ## Two clocks, per clinic
  *
- * `clinics.retention_media_days` (default 90) removes the transcript and
- * recording REFERENCES from a conversation. The audio itself lives with the
+ * `clinics.retention_media_days` (default 90) removes the transcript
+ * REFERENCE from a conversation. No audio is kept anywhere (decision of
+ * 21 September 2026; the vendor's recording storage is off in its console,
+ * docs/hipaa-risk-analysis.md T5). The transcript text itself lives with the
  * voice vendor under its own retention setting, which must be at most this
- * window and is verified in the vendor console (docs/hipaa-risk-analysis.md
- * T5). Nulling the reference here is what stops the product from ever
+ * window. Nulling the reference here is what stops the product from ever
  * pointing at it again; it is not, and does not claim to be, the deletion of
  * the bytes.
  *
@@ -117,12 +118,12 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
   // 1. Media references.
   const cleared = await tx.db
     .update(conversations)
-    .set({ transcriptUri: null, recordingUri: null })
+    .set({ transcriptUri: null })
     .where(
       and(
         eq(conversations.clinicId, tx.clinicId),
         lt(conversations.startedAt, mediaBefore),
-        or(sql`${conversations.transcriptUri} is not null`, sql`${conversations.recordingUri} is not null`),
+        sql`${conversations.transcriptUri} is not null`,
       ),
     )
     .returning({ id: conversations.id });

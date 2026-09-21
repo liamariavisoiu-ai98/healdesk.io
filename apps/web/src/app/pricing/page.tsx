@@ -34,7 +34,7 @@ const INCLUDED = [
   "Automatic callbacks to missed numbers",
   "Booking written into your existing system or calendar",
   "Deposit links to cut no-shows",
-  "Dormant-patient reactivation, with STOP on every message",
+  "Inbound only: the agent answers, and never calls or texts anyone on your behalf",
   "Closed-loop revenue reporting to your inbox",
   "A signed BAA, and read-only access to your systems",
 ] as const;

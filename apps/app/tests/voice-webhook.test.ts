@@ -48,7 +48,8 @@ describe("reading the vendor payload", () => {
     expect(event.rangAtClinicFirst).toBe(true);
     expect(event.booking?.scheduledFor.toISOString()).toBe("2026-09-10T15:00:00.000Z");
     expect(event.booking?.treatment).toBe("Botox");
-    expect(event.recordingUri).toContain("call_abc123");
+    // No audio reference, even when the vendor sends one (21 September 2026).
+    expect("recordingUri" in event).toBe(false);
   });
 
   test("accepts the nested and aliased shapes, and unix timestamps", () => {

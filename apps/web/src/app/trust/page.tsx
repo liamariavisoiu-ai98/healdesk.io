@@ -59,8 +59,9 @@ export default function TrustPage() {
           </li>
           <li>
             <strong>The AI says it is an AI, first.</strong> Every call opens with a disclosure that
-            the caller is speaking to an AI and that the call is recorded and transcribed. It is not
-            configurable by the clinic and it is captured inside the recording.
+            the caller is speaking to an AI and that the call is transcribed, and that no audio
+            recording is kept. It is not configurable by the clinic, and it is the first line of
+            every transcript.
           </li>
           <li>
             <strong>Encryption.</strong> At rest in the database and object store, in transit

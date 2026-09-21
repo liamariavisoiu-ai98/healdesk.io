@@ -42,7 +42,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   {
     name: "Amazon Web Services",
     purpose: "Hosting the product, its database, encryption keys, storage",
-    data: "All patient information the product holds: contacts, conversations, appointments, recordings, transcripts",
+    data: "All patient information the product holds: contacts, conversations, appointments, transcripts (no audio is kept)",
     region: "United States (single region)",
     handlesPhi: true,
     baa: { state: "pending" },

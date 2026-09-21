@@ -240,8 +240,8 @@ paper. Do not re-raise this unless the owner does.
 | **Covered-entity determination** | Cash-pay med spas often aren't covered entities, which removes five defences at once including Washington MHMDA's — and that has a private right of action. Needs a method and a different posture for non-covered clinics |
 | **CIPA positioning** | Party-extension or independent third party? Contracts, architecture and marketing copy must all say the same thing |
 | **Click-through BAA — approved and enforced, not open** | The mechanism is production-ready — versioned, hashed, append-only acceptance — and the text is no longer a placeholder: `packages/catalog/src/baa.ts` `BAA_TEMPLATES[0]` is version 1.0.0, published 2026-09-05, `approvedByCounsel: true`, and `apps/app/src/lib/provisioning.ts` refuses to provision a clinic against any template that isn't (`currentBaaTemplate().approvedByCounsel`). Listed here so nobody re-opens it. What still needs counsel is the **other five rows** of this table |
-| **Reactivation = HIPAA marketing?** | Determines whether a separate authorisation is needed on top of written TCPA consent |
-| **Missed-call callback consent** | Especially hangups where we hold only the number |
+| **Reactivation = HIPAA marketing?** — moot | Inbound-only since 21 September 2026 (decisions log, item 11): the product sends nothing, so no authorisation question arises. Reopens only if outbound is switched back on |
+| **Missed-call callback consent** — moot | Same decision: no callbacks are placed, and `ingestCall()` refuses a call the vendor flags as outbound |
 
 ---
 
@@ -631,6 +631,35 @@ re-asking.
    clinics that require a certificate of insurance are lost; every claim is
    paid from company cash; there is no retroactive date, so nothing that
    happens before a policy is ever bound can be covered later.
+11. **Inbound-only, and transcripts without audio.** The two design changes
+   that remove the exposures a contract cannot touch. Inbound-only:
+   `OUTBOUND_CONTACT_ENABLED = false` in `lib/compliance/contact-policy.ts`
+   refuses every contact before reading a row (nothing called the gate
+   anyway); `ingestCall()` refuses a call the vendor flags as outbound and
+   writes a security event; the BAA omits the outbound clause and the
+   clinic's consent warranty (`outboundMessaging: false`); the terms say
+   "inbound only" and the pricing page no longer lists reactivation. The two
+   counsel questions about reactivation and callbacks are moot. No audio:
+   `conversations.recording_uri` is dropped (0038), the payload parser
+   ignores `recording_url`, the disclosure says "transcribed; no audio
+   recording is kept", and the owner switches recording storage off in the
+   Synthflow console (launch guide, Synthflow card, Part 5). The vendor
+   still processes audio live to transcribe it, which is why the disclosure
+   still says "transcribed" and the recording-consent states still matter.
+12. **Why data is stored at all.** Asked by the owner on 21 September 2026.
+   Six things, each with a reason that is a law or a contract, not a habit:
+   the contact and conversation rows are what the monthly revenue report and
+   attribution are built from (the product's promise); the appointment and
+   transaction rows are read back from the clinic's own system to reconcile
+   it; the transcript reference (90 days) is the only way to answer "what
+   did the agent say" in a dispute or a patient-rights request; the audit
+   log is required by HIPAA §164.312(b) and is the accounting of disclosures;
+   consent records, suppressions and contact attempts are the TCPA defence
+   (four-year clock, kept even though nothing outbound runs, because "stop"
+   is honoured forever); billing and agreement records are tax and contract
+   evidence. Everything else is already not stored: no audio, nothing a
+   person wrote on a Meta channel, no ad-platform identifiers, no logs with
+   patient data, and the retention clocks purge the rest.
 9. **Home state — the Stripe facts.** The seller is Viixi FZC, a UAE free
    zone company trading as healdesk. Governing law is Delaware by counsel's
    (this agent's) recommendation: a UAE entity has no US home state, US

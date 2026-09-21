@@ -32,7 +32,12 @@ export type DisclosureContext = {
 /**
  * The voice opener.
  *
- * Says AI, says recorded, says transcribed, and offers a human — in one breath.
+ * Says AI, says transcribed, says no audio is kept, and offers a human — in
+ * one breath. "Transcribed" is the operative word for the statutes below; "no
+ * audio is kept" is true since 21 September 2026 (conversations carries no
+ * recording reference and the vendor's recording storage is off) and must
+ * stay true, because a disclosure that understates what happens is worse
+ * than none.
  * "Transcribed" is not decoration: the CIPA §631(a) exposure in *Ambriz v.
  * Google* is about a third party intercepting call CONTENTS, which is what
  * transcription is. Disclosing recording alone does not describe it.
@@ -40,7 +45,7 @@ export type DisclosureContext = {
 export function voiceDisclosure(context: DisclosureContext): string {
   return (
     `Hi, I'm an AI assistant for ${context.clinicName} — not a human. ` +
-    `This call is recorded and transcribed. ` +
+    `This call is transcribed by an automated system; no audio recording is kept. ` +
     `Say "representative" at any time to reach a person.`
   );
 }

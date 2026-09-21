@@ -186,7 +186,7 @@ export default function TermsPage() {
           When your subscription ends for any reason: the agent stops answering at the end of the
           paid period; we tell you how to remove call forwarding (if you do not, forwarded calls
           are lost — that is why we tell you twice); we revoke our access to your calendar and
-          booking system; and we deliver an export of your data — transcripts, recordings, notes
+          booking system; and we deliver an export of your data — transcripts, notes
           and the booking log — before destroying our copies on the schedule the Business Associate
           Agreement sets. Billing records are retained as tax law requires.
         </p>
@@ -195,11 +195,10 @@ export default function TermsPage() {
       <Section id="you" title="8. Your responsibilities">
         <ul className="list-disc space-y-2 pl-6">
           <li>
-            <strong>Consent for outbound contact.</strong> Where you ask the agent to call or text
-            people on your behalf — reminders, follow-ups, reactivation — you warrant that you hold
-            the consent the law requires for each number, in the form it requires (for marketing
-            messages, prior express written consent), and you will keep records of it. You will
-            not ask the agent to contact anyone who has asked not to be contacted.
+            <strong>Inbound only.</strong> The agent answers calls and messages that come to you. It
+            does not call or text anyone on your behalf: no reminders, no call-backs, no
+            reactivation campaigns. If you ask for outbound contact, we will decline; it is not
+            part of the Service.
           </li>
           <li>
             <strong>Accurate configuration.</strong> Services, prices, hours, escalation contacts

@@ -141,6 +141,15 @@ describeDb("phase 8, against the database", () => {
     await closePools();
   });
 
+  test("inbound-only: a call the vendor flags as placed by the agent is refused before any row is written", async () => {
+    const c = await seedClinic("inbound-only");
+    await expect(ingestCall(call(c.clinicId, { isCallback: true }), ACTOR)).rejects.toThrow(/inbound-only/);
+    const rows = await inTenant(c.clinicId, (client) => client.query(`select 1 from conversations`));
+    expect(rows.rows).toHaveLength(0);
+    const events = await getMigratorPool().query(`select 1 from security_events where event = 'outbound_call_refused'`);
+    expect(events.rows.length).toBeGreaterThanOrEqual(1);
+  });
+
   test("a test call inside the window stamps the step; the clinic's own number as caller ID reopens it later", async () => {
     const c = await seedClinic("fwd");
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>

@@ -2,9 +2,9 @@ import { isAfterHours, parseOpeningHours } from "@/lib/clinic/opening-hours";
 import { toE164 } from "@healdesk/connectors";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 
-import type { Transaction } from "@/db";
+import { unsafeDb, type Transaction } from "@/db";
 import { agentConfigs, appointments, clinics, contacts, conversations } from "@/db/schema";
-import type { ActorContext } from "@/lib/audit";
+import { recordSecurityEvent, type ActorContext } from "@/lib/audit";
 import { observeForwardingCall } from "@/lib/onboarding/forwarding-test";
 import { withTenant } from "@/lib/tenant";
 
@@ -60,7 +60,10 @@ export type VoiceCallEvent = {
    */
   rangAtClinicFirst?: boolean;
   clinicLineBusy?: boolean;
-  /** True when WE placed the call back to a number that rang out earlier. */
+  /**
+   * True when the vendor says the agent placed this call. healdesk is
+   * inbound-only, so `ingestCall()` refuses such a call outright.
+   */
   isCallback?: boolean;
   outcome?:
     | "booked"
@@ -74,8 +77,8 @@ export type VoiceCallEvent = {
   disclosurePlayedAt?: Date;
   recordingOptOut?: boolean;
   responseLatencySeconds?: number;
+  /** A transcript reference. Never audio: no recording is kept (21 September 2026). */
   transcriptUri?: string;
-  recordingUri?: string;
   /**
    * What the agent actually booked, when `outcome` is "booked".
    *
@@ -305,6 +308,21 @@ export async function ingestCall(
     throw new VoiceIngestError("A call id is required for idempotency.");
   }
 
+  // Inbound-only (21 September 2026). healdesk places no calls, so a call the
+  // vendor flags as placed by the agent is a misconfiguration on the vendor
+  // side, not a call to record: refused before any row is written, and
+  // visible as a security event so the operator switches the feature off.
+  if (event.isCallback) {
+    await recordSecurityEvent(unsafeDb, {
+      event: "outbound_call_refused",
+      actorLabel: "label" in actor ? actor.label : "serviceName" in actor ? actor.serviceName : actor.type,
+      metadata: { clinicId: event.clinicId, externalCallId: event.externalCallId.trim() },
+    });
+    throw new VoiceIngestError(
+      "Refused: healdesk is inbound-only and this call is flagged as placed by the agent. Disable callbacks in the voice vendor.",
+    );
+  }
+
   return withTenant({ clinicId: event.clinicId, actor }, async (tx) => {
     const [clinic] = await tx.db
       .select({
@@ -349,7 +367,6 @@ export async function ingestCall(
         outcome: event.outcome ?? null,
         treatmentInterest: event.treatmentInterest ?? null,
         transcriptUri: event.transcriptUri ?? null,
-        recordingUri: event.recordingUri ?? null,
         disclosurePlayedAt: event.disclosurePlayedAt ?? null,
         recordingOptOut: event.recordingOptOut ?? false,
         responseLatencySeconds: event.responseLatencySeconds ?? null,

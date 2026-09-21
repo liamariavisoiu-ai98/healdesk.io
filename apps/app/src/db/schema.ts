@@ -320,8 +320,8 @@ export const clinics = pgTable(
      * The retention clocks, in days, per clinic. Two, because the two kinds
      * of data have different value and different risk:
      *
-     *   media   — transcript and recording references. Pure liability after
-     *             the dispute window closes; 90 days by default.
+     *   media   — transcript references. Pure liability after the dispute
+     *             window closes; 90 days by default. (No audio is kept.)
      *   records — the conversation, appointment and transaction rows the
      *             revenue report is built from. Two years by default, so a
      *             year-over-year comparison is possible and no longer.
@@ -635,11 +635,15 @@ export const conversations = pgTable(
     treatmentInterest: text("treatment_interest"),
 
     /**
-     * ⚠️ PHI. A voice recording is an identifier on its own. Behind an
-     * S3-compatible URL, never a platform blob API — apps/app stays portable.
+     * ⚠️ PHI. Behind an S3-compatible URL, never a platform blob API —
+     * apps/app stays portable. Transcript only: by decision of 21 September
+     * 2026 no audio recording is kept anywhere the product can reach (the
+     * `recording_uri` column was dropped in 0038, and the vendor's own
+     * recording storage is switched off in its console — launch guide,
+     * Synthflow card). A voice is an identifier on its own; a transcript is
+     * smaller, searchable, and enough for a dispute.
      */
     transcriptUri: text("transcript_uri"),
-    recordingUri: text("recording_uri"),
 
     /**
      * Proof the required disclosure played before any audio reached
@@ -648,6 +652,7 @@ export const conversations = pgTable(
     disclosurePlayedAt: timestamp("disclosure_played_at", {
       withTimezone: true,
     }),
+    /** The caller asked not to be transcribed; the agent takes a message instead. */
     recordingOptOut: boolean("recording_opt_out").notNull().default(false),
 
     /** Seconds from inbound ring to agent answer. The speed-to-lead metric. */

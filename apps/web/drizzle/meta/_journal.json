@@ -15,6 +15,13 @@
       "when": 1789325754834,
       "tag": "0001_funnel_and_consent",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789982217115,
+      "tag": "0002_cohort_credit",
+      "breakpoints": true
     }
   ]
 }

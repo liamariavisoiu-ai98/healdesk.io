@@ -1,5 +1,7 @@
 import type { Lead } from "@/lib/db/schema";
 import { ENTITY, entityDisplayName } from "@/lib/legal";
+import { COHORT_SETUP_CREDIT, plans } from "@healdesk/catalog";
+
 import { site } from "@/lib/site";
 
 import { unsubscribeUrl } from "./index";
@@ -91,6 +93,7 @@ export const TOUCHES: readonly Touch[] = [
       `Hi ${firstName(lead)},\n\n` +
       `This is the last email in this sequence; I don't chase. If the timing is wrong, nothing happens and you won't hear from me again unless you come back.\n\n` +
       `If it was a specific doubt — price, the booking system, whether a cash-pay practice even needs the HIPAA paperwork — reply with it and I'll answer it straight, including "no, not yet" where that is the answer.\n\n` +
+      `One thing I can do for the founding cohort: waive the one-time setup fee in full ($${setupFeeRange()} depending on the package). It is applied automatically if you start from this link within ${COHORT_SETUP_CREDIT.validDays} days: ${site.url}/get-started?lead=${lead.id}\n\n` +
       `Thanks for trying it.` +
       footer(lead),
   },
@@ -123,4 +126,12 @@ export function abandonmentEmail(lead: Lead): { subject: string; text: string } 
       `${entityDisplayName()}${ENTITY.postalAddress ? `, ${ENTITY.postalAddress}` : ""}\n` +
       `Stop these emails: ${unsubscribeUrl(lead.id)}`,
   };
+}
+
+/** "497–997": the smallest and largest setup fee across the packages, so the copy tracks the catalog. */
+function setupFeeRange(): string {
+  const fees = plans.map((p) => p.setupFeeUsd);
+  const lo = Math.min(...fees);
+  const hi = Math.max(...fees);
+  return lo === hi ? String(lo) : `${lo}–${hi}`;
 }

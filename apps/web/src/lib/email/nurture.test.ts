@@ -30,6 +30,7 @@ function lead(over: Partial<Lead> = {}): Lead {
     bouncedAt: null,
     nurtureStep: 0,
     lastTouchAt: null,
+    cohortCreditOfferedAt: null,
     checkoutStartedAt: null,
     checkoutAbandonedAt: null,
     abandonmentSentAt: null,

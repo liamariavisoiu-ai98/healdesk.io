@@ -1,6 +1,7 @@
 import {
   type BillingInterval,
   METERS,
+  COHORT_SETUP_CREDIT,
   OVERAGE_RATES_PROVISIONAL,
   type Plan,
   type PriceKind,
@@ -48,17 +49,31 @@ import type { ChatChannelChoice } from "@/lib/pricing";
  * page says overage is not billed until the rates are published, and this is
  * the line that makes that true.
  *
- * The moment the flag flips, `meteredLookupKeysFor()` attaches both prices
- * (each only for a package that has the channel) with no `quantity`, which is
- * what the SDK's reference for `line_items` requires of a metered price. It
- * also REFUSES an annual Session: the metered prices bill monthly, the annual
- * package price bills yearly, and one subscription cannot carry both
- * intervals without a decision this module must not make on its own — a
- * yearly metered price would bill a year of overage in one line, a separate
- * monthly subscription doubles every event handler's idea of "the
- * subscription". Deciding that is the price of flipping the flag; until then
- * annual clinics' overage is not billed either way, and the throw is what
- * makes sure the flip cannot quietly leave it that way.
+ * The rates were confirmed on 21 September 2026 and the flag is off.
+ * `meteredLookupKeysFor()` attaches both prices to a MONTHLY Session (each
+ * only for a package that has the channel) with no `quantity`, which is what
+ * the SDK's reference for `line_items` requires of a metered price.
+ *
+ * An ANNUAL Session gets none, on purpose and not as an oversight: the
+ * metered prices bill monthly, the annual package price bills yearly, and one
+ * subscription cannot carry both intervals. The decision (21 September 2026)
+ * is that annual overage is invoiced separately, monthly in arrears, by hand
+ * from the usage the product records — docs/handover.md, "Decisions log",
+ * and the `annual-overage-invoicing` task. The terms say exactly that, so an
+ * annual buyer is not sold a package whose overage is secretly free; it is
+ * just not on the Stripe subscription. Until `usage-meter-events` is built
+ * the meters on a monthly subscription bill zero as well.
+ *
+ * ## The founding-cohort setup credit
+ *
+ * Day 7 of the nurture sequence offers the first cohort their setup fee
+ * back (packages/catalog `COHORT_SETUP_CREDIT`). It is honoured as a Stripe
+ * coupon per package — `amount_off` equal to that package's setup fee,
+ * `duration: "once"` — created by `stripe:setup`, and attached here as a
+ * `discounts` entry only when the checkout route established that the lead
+ * was actually offered it within the window. The line item for the setup
+ * fee stays on the Session, so the invoice shows the fee and the credit
+ * rather than a package that quietly cost less.
  *
  * ## Where the provisioning payload lives
  *
@@ -113,8 +128,18 @@ export type CheckoutIntent = {
    * the provisioning payload is built, and written back to the lead store as
    * the conversion. Null when organic.
    */
-  attribution?: { campaign: string | null; leadId: string | null };
+  attribution?: {
+    campaign: string | null;
+    leadId: string | null;
+    /** "cohort-setup" when the lead was offered the founding-cohort credit inside its window. */
+    offer?: "cohort-setup" | null;
+  };
 };
+
+/** The coupon `stripe:setup` creates for one package's setup credit. */
+export function cohortCouponIdFor(plan: Plan): string {
+  return `${COHORT_SETUP_CREDIT.couponId}-${plan.id}`;
+}
 
 export type CheckoutResult =
   /** Send the browser here to pay. */
@@ -243,10 +268,18 @@ export async function createCheckout(
      */
     payment_method_collection: "always",
 
+    // The founding-cohort credit, only when the route established the offer
+    // (see the header). Stripe rejects a Session naming a coupon that does
+    // not exist, which is the right failure: run `stripe:setup` first.
+    ...(intent.attribution?.offer === "cohort-setup"
+      ? { discounts: [{ coupon: cohortCouponIdFor(intent.plan) }] }
+      : {}),
+
     metadata: {
       ...metadata,
       ...(intent.attribution?.campaign ? { campaign: intent.attribution.campaign } : {}),
       ...(intent.attribution?.leadId ? { leadId: intent.attribution.leadId } : {}),
+      ...(intent.attribution?.offer ? { offer: intent.attribution.offer } : {}),
     },
     // Surfaces in the Dashboard next to the payment, so support can find a
     // clinic without opening metadata.
@@ -280,21 +313,15 @@ export function overageLookupKeys(plan: Plan): string[] {
 /**
  * The metered prices to put on a Session. None while the rates are
  * provisional; the package's meters for a monthly Session once they are not;
- * and a refusal for an annual one — see the header for all three.
+ * and none for an annual one, whose overage is invoiced separately — see the
+ * header for all three.
  */
 export function meteredLookupKeysFor(
   plan: Plan,
   interval: BillingInterval,
 ): string[] {
   if (OVERAGE_RATES_PROVISIONAL) return [];
-  if (interval === "year") {
-    throw new Error(
-      "Overage rates are live but annual overage billing is undecided: the " +
-        "metered prices bill monthly and cannot share a subscription with a " +
-        "yearly package price. Decide the annual path (see the header of " +
-        "apps/web/src/lib/billing.ts) before selling annual packages.",
-    );
-  }
+  if (interval === "year") return [];
   return overageLookupKeys(plan);
 }
 

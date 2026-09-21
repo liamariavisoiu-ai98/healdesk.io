@@ -2,6 +2,7 @@ import { describeError, log } from "@/lib/log";
 import { resolveMetaChannel, sendMetaReply, type MetaSender } from "@/lib/meta/channels";
 import { anthropicResponder, answerFrontDoor, type FrontDoorResponder } from "@/lib/meta/front-door";
 import { parseMetaEvents, verifyMetaSignature } from "@/lib/meta/webhook";
+import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +16,10 @@ export const runtime = "nodejs";
  * message is resolved to a clinic by the page / account / number id, and a
  * clinic whose front door is switched off is silently skipped. The reply is
  * produced by the narrow agent in lib/meta/front-door.ts and sent with the
- * clinic's sealed token, opened inside the tenant transaction.
+ * clinic's sealed token, opened inside the tenant transaction. A message
+ * that completes a booking request also emails the clinic's desk a
+ * single-use link (lib/meta/booking-requests.ts); the sender id travels
+ * into that flow so the desk's decision can be relayed back to the person.
  *
  * Always 200 once the signature is good: Meta retries on anything else, and
  * a message we could not answer is not one we want delivered twice.
@@ -24,10 +28,16 @@ const MAX_BODY_BYTES = 500_000;
 
 let responderForTests: FrontDoorResponder | null | undefined;
 let senderForTests: MetaSender | undefined;
-/** Test seam: swap the model and the Graph API. Undefined restores the real ones. */
-export function __setMetaRuntimeForTests(responder: FrontDoorResponder | null | undefined, sender: MetaSender | undefined): void {
+let transportForTests: EmailTransport | undefined;
+/** Test seam: swap the model, the Graph API and the desk's email transport. Undefined restores the real ones. */
+export function __setMetaRuntimeForTests(
+  responder: FrontDoorResponder | null | undefined,
+  sender: MetaSender | undefined,
+  transport?: EmailTransport,
+): void {
   responderForTests = responder;
   senderForTests = sender;
+  transportForTests = transport;
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -71,7 +81,13 @@ export async function POST(request: Request): Promise<Response> {
       }
       const actor = { type: "agent", serviceName: "meta-front-door" } as const;
       const sent = await withTenant({ clinicId: owner.clinicId, actor }, async (tx) => {
-        const answer = await answerFrontDoor(tx, { platform: message.platform, text: message.text, responder });
+        const answer = await answerFrontDoor(tx, {
+          platform: message.platform,
+          text: message.text,
+          responder,
+          thread: { platform: message.platform, externalId: message.externalId, senderId: message.senderId, connectionId: owner.connectionId },
+          transport: transportForTests,
+        });
         if (!answer) return false;
         await sendMetaReply(tx, owner, message.externalId, message.senderId, answer.text, send);
         return true;

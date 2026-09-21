@@ -1,6 +1,7 @@
 healdesk Business Associate Agreement — version 1.1.0 DRAFT, rendered 21 September 2026 for counsel review.
-Rendered for a sample practice (covered-entity status: not yet notified; outbound messaging: on). Square-bracketed
-items are the five facts the owner supplies. Source of truth: packages/catalog/src/baa.ts, template 1.1.0-draft.
+Rendered for a sample practice (covered-entity status: not yet notified; outbound messaging: on). The entity, its form and
+the governing law are now real (Viixi FZC, UAE free zone company, Delaware). Square-bracketed items are the two facts
+still missing: the registered address (from the Stripe account) and the liability floor. Source: packages/catalog/src/baa.ts.
 
 HEALDESK BUSINESS ASSOCIATE AGREEMENT
 Version 1.1.0 — DRAFT FOR COUNSEL REVIEW — NOT FOR EXECUTION
@@ -12,7 +13,7 @@ course of the Services defined in the Terms.
 
 BETWEEN
   Golden Clinic LLC ("Practice"), a med-spa practice
-  [HEALDESK LEGAL ENTITY NAME], [a Delaware limited liability company] ("healdesk"), of [NOTICE ADDRESS], legal@healdesk.io
+  Viixi FZC, a free zone company incorporated in the United Arab Emirates, trading as healdesk ("healdesk"), of [REGISTERED ADDRESS — from the Stripe account, Settings → Business details], legal@healdesk.io
 
 SIGNED FOR PRACTICE BY
   Alex Chen, Owner
@@ -26,14 +27,14 @@ EFFECTIVE 13 September 2026
 
 1. DEFINITIONS
 
-  "Practice" means Golden Clinic LLC. "healdesk" means [HEALDESK LEGAL ENTITY
-  NAME], [a Delaware limited liability company]. "Terms" means the healdesk
-  Terms of Service at healdesk.io/terms as in force on the effective date.
-  "Services" and "Fees" have the meanings the Terms give them. "Protected
-  health information" (PHI), "breach", "unsecured PHI", "security incident",
-  "subcontractor" and "designated record set" have the meanings given in 45
-  CFR Parts 160 and 164. "Business day" means a day other than a Saturday,
-  Sunday or United States federal holiday.
+  "Practice" means Golden Clinic LLC. "healdesk" means Viixi FZC, a free zone
+  company incorporated in the United Arab Emirates, trading as healdesk.
+  "Terms" means the healdesk Terms of Service at healdesk.io/terms as in force
+  on the effective date. "Services" and "Fees" have the meanings the Terms
+  give them. "Protected health information" (PHI), "breach", "unsecured PHI",
+  "security incident", "subcontractor" and "designated record set" have the
+  meanings given in 45 CFR Parts 160 and 164. "Business day" means a day other
+  than a Saturday, Sunday or United States federal holiday.
 
   This agreement governs PHI healdesk creates, receives, maintains or
   transmits for Practice in the course of the Services. Where this agreement
@@ -318,24 +319,23 @@ EFFECTIVE 13 September 2026
 
 19. NOTICES, GOVERNING LAW, AND INTERPRETATION
 
-  Notices under this agreement are in writing. To healdesk: [NOTICE ADDRESS],
+  Notices under this agreement are in writing. To healdesk: [REGISTERED
+  ADDRESS — from the Stripe account, Settings → Business details],
   legal@healdesk.io. To Practice: the email address of the signatory below,
   and any notice address Practice later gives healdesk in writing. Breach
   reports may additionally be given by telephone to Practice, but the written
   notice is the notice.
 
-  This agreement is governed by the laws of the State of [GOVERNING STATE] and
-  by HIPAA, without regard to conflict-of-laws rules, and the parties submit
-  to the courts of that State. Any ambiguity is resolved in favour of a
-  meaning that permits compliance with HIPAA. A reference to a section of
-  HIPAA or of a regulation means that section as amended, and if a change in
-  law requires a change to this agreement, the parties will agree it in good
-  faith within thirty days of either asking, failing which either may
-  terminate under the Term clause. If any provision is unenforceable the rest
-  stands.
+  This agreement is governed by the laws of the State of Delaware and by
+  HIPAA, without regard to conflict-of-laws rules, and the parties submit to
+  the courts of that State. Any ambiguity is resolved in favour of a meaning
+  that permits compliance with HIPAA. A reference to a section of HIPAA or of
+  a regulation means that section as amended, and if a change in law requires
+  a change to this agreement, the parties will agree it in good faith within
+  thirty days of either asking, failing which either may terminate under the
+  Term clause. If any provision is unenforceable the rest stands.
 
   This agreement, the Terms and the order Practice placed are the entire
-  agreement between Golden Clinic LLC and [HEALDESK LEGAL ENTITY NAME] about
-  PHI, and replace any earlier version of this agreement between them from the
-  effective date forward; PHI already held is governed by this version from
-  that date.
+  agreement between Golden Clinic LLC and Viixi FZC about PHI, and replace any
+  earlier version of this agreement between them from the effective date
+  forward; PHI already held is governed by this version from that date.

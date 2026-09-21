@@ -1712,7 +1712,12 @@ export type OnboardingView = {
     observed: { arrivedAt: string; callerIdPreserved: boolean; condition: string } | null;
   };
   stripeConnect: { accountId: string | null; connectedAt: string | null; authorizeUrl: string | null };
-  meta: { enabled: boolean; channels: { platform: MetaPlatform; externalId: string; label: string | null; status: string }[] };
+  meta: {
+    enabled: boolean;
+    channels: { platform: MetaPlatform; externalId: string; label: string | null; status: string }[];
+    /** Booking requests handed to the desk in the last 30 days. Counts only; the requests live behind the desk's link. */
+    bookingRequests: { waiting: number; accepted: number; declined: number };
+  };
   forwarding: {
     steps: { label: string; dial: string }[];
     undo: { label: string; dial: string }[];
@@ -1800,8 +1805,11 @@ function readOnboardingView(value: unknown): OnboardingView {
     })(),
     meta: (() => {
       const m = object(data.meta ?? {}, "getOnboarding.meta");
+      const br = object(m.bookingRequests ?? {}, "meta.bookingRequests");
+      const count = (v: unknown): number => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : 0);
       return {
         enabled: m.enabled === true,
+        bookingRequests: { waiting: count(br.waiting), accepted: count(br.accepted), declined: count(br.declined) },
         channels: list(m.channels ?? [], "meta.channels").map((entry) => {
           const ch = object(entry, "meta.channel");
           return {

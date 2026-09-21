@@ -11,6 +11,7 @@ import {
   numeric,
   pgEnum,
   pgTable,
+  primaryKey,
   smallint,
   text,
   timestamp,
@@ -979,6 +980,78 @@ export const clinicTouches = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("clinic_touches_clinic_idx").on(t.clinicId, t.touchedAt)],
+);
+
+/**
+ * A booking REQUEST from the Meta front door: not a booking. The person gave
+ * a first name, a callback number and a preferred day or time in a channel
+ * that cannot carry a confirmation, so the request is written here (the PHI
+ * side), the practice's desk is emailed a single-use link with no patient in
+ * it, and a human accepts or declines. Either way the person hears back on
+ * the channel they used — that the practice has their request, never a time.
+ *
+ * `sender_id` is the platform's opaque id for the person, kept only to
+ * address that one follow-up message. The token hash is the desk's
+ * credential, exactly like a connection link.
+ */
+export const bookingRequests = pgTable(
+  "booking_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    // Cascade: offboarding deletes contacts, and the app role has no DELETE
+    // here on purpose. Referential actions run as the table owner, so the
+    // request goes with the person it was about.
+    contactId: uuid("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    /** messenger | instagram | whatsapp */
+    platform: text("platform").$type<"messenger" | "instagram" | "whatsapp">().notNull(),
+    /** The page / account / number id the message arrived on. */
+    externalId: text("external_id").notNull(),
+    senderId: text("sender_id").notNull(),
+    connectionId: uuid("connection_id").references(() => providerConnections.id, { onDelete: "set null" }),
+    /** Free text as the person put it, PHI-scanned for clinical content. */
+    preferredWindow: text("preferred_window").notNull(),
+    status: text("status").$type<"requested" | "accepted" | "declined" | "expired">().notNull().default("requested"),
+    tokenHash: customType<{ data: Buffer }>({ dataType: () => "bytea" })("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    deskNotifiedAt: timestamp("desk_notified_at", { withTimezone: true }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decidedByLabel: text("decided_by_label"),
+    /** The practice's own note back to itself; never sent to the person. */
+    deskNote: text("desk_note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("booking_requests_token_idx").on(t.tokenHash),
+    index("booking_requests_clinic_idx").on(t.clinicId, t.createdAt),
+  ],
+);
+
+/**
+ * The half-collected request: what the person has said so far on one thread,
+ * so the assistant can ask for the missing piece across messages without
+ * remembering any of the conversation. Overwritten per message, deleted when
+ * the request is created, and swept after a day.
+ */
+export const metaBookingDrafts = pgTable(
+  "meta_booking_drafts",
+  {
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    platform: text("platform").notNull(),
+    senderId: text("sender_id").notNull(),
+    externalId: text("external_id").notNull(),
+    firstName: text("first_name"),
+    phone: text("phone"),
+    preferredWindow: text("preferred_window"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.clinicId, t.platform, t.senderId] })],
 );
 
 // -----------------------------------------------------------------------------
@@ -2143,4 +2216,6 @@ export const TENANT_SCOPED_TABLES = [
   "report_deliveries",
   "incidents",
   "clinic_touches",
+  "booking_requests",
+  "meta_booking_drafts",
 ] as const;

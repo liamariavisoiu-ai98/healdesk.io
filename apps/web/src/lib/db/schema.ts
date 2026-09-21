@@ -76,6 +76,13 @@ export const leads = pgTable(
     /** How many nurture touches have been sent; the next one is TOUCHES[nurtureStep]. */
     nurtureStep: integer("nurture_step").notNull().default(0),
     lastTouchAt: timestamp("last_touch_at", { withTimezone: true }),
+    /**
+     * When the Day 7 touch offered the founding-cohort setup credit
+     * (catalog COHORT_SETUP_CREDIT). The checkout honours the credit only
+     * within `validDays` of this, so the offer the email made and the
+     * discount the card sees cannot disagree.
+     */
+    cohortCreditOfferedAt: timestamp("cohort_credit_offered_at", { withTimezone: true }),
 
     // --- The purchase funnel, as timestamps the cron reads. ---
     checkoutStartedAt: timestamp("checkout_started_at", { withTimezone: true }),

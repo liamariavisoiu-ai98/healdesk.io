@@ -50,6 +50,7 @@ import { connectAuthorizeUrl } from "@/lib/billing/connect";
 import { markExportDelivered, startOffboarding } from "@/lib/offboarding/offboarding";
 import { startForwardingTest } from "@/lib/onboarding/forwarding-test";
 import { listConnections } from "@/lib/connections/store";
+import { bookingRequestCounts } from "@/lib/meta/booking-requests";
 import { attachMetaChannel, isMetaPlatform, META_PROVIDERS, setMetaFrontDoor } from "@/lib/meta/channels";
 import type { MetaPlatform } from "@/lib/meta/front-door";
 import { clinicHealth, recordTouch, type ClinicHealth } from "@/lib/ops/health";
@@ -2208,7 +2209,12 @@ export type OnboardingView = {
   /** Stripe Connect for deposits: linked, or the link to do it, or neither. */
   stripeConnect: { accountId: string | null; connectedAt: string | null; authorizeUrl: string | null };
   /** The Meta front door: the per-clinic switch and the channels attached. */
-  meta: { enabled: boolean; channels: { platform: MetaPlatform; externalId: string; label: string | null; status: string }[] };
+  meta: {
+    enabled: boolean;
+    channels: { platform: MetaPlatform; externalId: string; label: string | null; status: string }[];
+    /** Last 30 days, counts only; the requests live behind the desk's single-use link. */
+    bookingRequests: { waiting: number; accepted: number; declined: number };
+  };
   forwarding: ForwardingInstruction | null;
   agent: {
     version: number;
@@ -2246,13 +2252,14 @@ async function opGetOnboarding(
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return opsProblem("No such clinic.", 404, "invalid_args");
 
-  const { agent, metaChannels } = await withTenant(
+  const { agent, metaChannels, bookingRequests } = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
     async (tx) => {
       tx.audit.record({ action: "read", resourceType: "agent_config", resourceId: tx.clinicId });
       const connections = await listConnections(tx.db, tx.clinicId);
       return {
         agent: await getAgentConfig(tx),
+        bookingRequests: await bookingRequestCounts(tx),
         metaChannels: connections
           .filter((c) => c.provider.startsWith("meta-"))
           .map((c) => {
@@ -2307,7 +2314,8 @@ async function opGetOnboarding(
       connectedAt: clinic.stripeConnectConnectedAt?.toISOString() ?? null,
       authorizeUrl: clinic.stripeConnectAccountId ? null : connectAuthorizeUrl(clinic.id),
     },
-    meta: { enabled: clinic.metaFrontDoorEnabled, channels: metaChannels },
+    // Counts only. The requests themselves live behind the desk's link.
+    meta: { enabled: clinic.metaFrontDoorEnabled, channels: metaChannels, bookingRequests },
     forwarding: clinic.synthflowNumberE164
       ? forwardingInstructions({
           carrier: isCarrier(clinic.carrier) ? clinic.carrier : null,

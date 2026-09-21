@@ -8,7 +8,7 @@ import {
 
 import { createCheckout, isBillingConfigured } from "@/lib/billing";
 import { isCampaignCode } from "@/lib/attribution";
-import { findLeadById, markCheckoutStarted } from "@/lib/leads";
+import { cohortCreditLive, findLeadById, markCheckoutStarted } from "@/lib/leads";
 import { type ChatChannelChoice, isChatChannelChoice } from "@/lib/pricing";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 
@@ -137,7 +137,13 @@ export async function POST(request: Request): Promise<Response> {
   delete payload.campaign;
   delete payload.leadId;
   const contactEmail = String(payload.contactEmail ?? "");
-  const attribution = { campaign, leadId: claimedLead?.id ?? null };
+  // The founding-cohort credit is a fact about the lead row, never a claim
+  // from the browser: offered by the Day 7 email and still inside its window.
+  const attribution = {
+    campaign,
+    leadId: claimedLead?.id ?? null,
+    offer: claimedLead && cohortCreditLive(claimedLead) ? ("cohort-setup" as const) : null,
+  };
 
   // Paid path: hand off to Stripe and let the webhook provision after payment.
   if (isBillingConfigured()) {

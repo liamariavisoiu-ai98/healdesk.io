@@ -117,13 +117,14 @@ export default function TermsPage() {
           pricing page.{" "}
           {OVERAGE_RATES_PROVISIONAL
             ? "Until those rates are published, usage above the allowance is not billed."
-            : null}{" "}
+            : "On a monthly package, usage above the allowance appears on the next invoice at those rates. On an annual package it is invoiced separately, monthly in arrears, at the same rates."}{" "}
           Nothing else is charged for usage.
         </p>
         <p>
           <strong>The setup fee</strong> is charged once, on your first invoice, and pays for
-          building, configuring and testing your agent. It is not refundable once that work has
-          begun. Moving to a package with a higher setup fee charges only the difference.
+          building, configuring and testing your agent. It is not refundable. Moving to a package
+          with a higher setup fee charges only the difference. Where a founding-cohort credit was
+          offered to you by email, it is applied to the setup fee at checkout and to nothing else.
         </p>
       </Section>
 
@@ -160,8 +161,8 @@ export default function TermsPage() {
       <Section id="refunds" title="5. Refunds">
         <p>
           {POLICY.refundWindowDays > 0
-            ? `If you cancel within ${POLICY.refundWindowDays} days of your first payment we refund the first period's subscription fee in full. The setup fee is refundable only if provisioning has not begun.`
-            : "Subscription fees are not refundable except where these terms or the law say otherwise. The setup fee is refundable only if provisioning of your agent has not begun."}{" "}
+            ? `If you cancel within ${POLICY.refundWindowDays} days of your first payment we refund the first period's subscription fee in full. The setup fee is not refundable.`
+            : "Subscription fees are not refundable except where these terms or the law say otherwise. The setup fee is not refundable."}{" "}
           Where a refund is due to a Practice that is staying, it is applied as a credit to the next
           invoice; where the Practice is leaving, it is returned to the card.
         </p>

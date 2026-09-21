@@ -6,6 +6,7 @@ import {
   clinics,
   contacts,
   conversations,
+  metaBookingDrafts,
   providerConnections,
   reconciliationExceptions,
   transactions,
@@ -76,6 +77,10 @@ export async function destroyClinicData(tx: TenantTx, now: Date = new Date()): P
   await del("transactions", () => tx.db.delete(transactions).where(eq(transactions.clinicId, c)).returning({ id: transactions.id }));
   await del("appointments", () => tx.db.delete(appointments).where(eq(appointments.clinicId, c)).returning({ id: appointments.id }));
   await del("conversations", () => tx.db.delete(conversations).where(eq(conversations.clinicId, c)).returning({ id: conversations.id }));
+  // Booking requests carry no DELETE for the app role; they go with their
+  // contact by cascade (0037). The half-collected drafts hold a phone number
+  // and nothing the record needs, so they are deleted outright.
+  await del("meta_booking_drafts", () => tx.db.delete(metaBookingDrafts).where(eq(metaBookingDrafts.clinicId, c)).returning({ id: metaBookingDrafts.senderId }));
   await del("contacts", () => tx.db.delete(contacts).where(eq(contacts.clinicId, c)).returning({ id: contacts.id }));
   await del("webhook_events", () => tx.db.delete(webhookEvents).where(eq(webhookEvents.clinicId, c)).returning({ id: webhookEvents.id }));
   // sync_runs and connection_links are append-only by grant (0015, 0024):

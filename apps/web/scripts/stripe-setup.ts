@@ -69,6 +69,7 @@
 import {
   annualTotalUsd,
   channelList,
+  COHORT_SETUP_CREDIT,
   METERS,
   OVERAGE_RATES_PROVISIONAL,
   plans,
@@ -512,6 +513,52 @@ async function syncPackage(
   }
 }
 
+// ---------------------------------------------------------------------------
+// The founding-cohort setup credit: one coupon per package.
+//
+// Day 7 of the nurture sequence offers the first cohort their setup fee back
+// (catalog COHORT_SETUP_CREDIT). Checkout honours it by naming the coupon on
+// the Session (`discounts`, lib/billing.ts), and Stripe refuses a Session
+// that names a coupon it does not have — so this runs before any of those
+// emails are sent. `amount_off` is the package's own setup fee, so the credit
+// and the fee it cancels can never disagree; `duration: "once"` keeps it off
+// every renewal.
+// ---------------------------------------------------------------------------
+async function syncCohortCoupons(stripe: Stripe): Promise<void> {
+  console.log(`\n${COHORT_SETUP_CREDIT.name}`);
+  for (const plan of plans) {
+    const id = `${COHORT_SETUP_CREDIT.couponId}-${plan.id}`;
+    const amountOff = plan.setupFeeUsd * 100;
+    const label = `coupon   ${id.padEnd(40)} ${usd(amountOff)}`;
+    let existing: Stripe.Coupon | null = null;
+    try {
+      existing = await stripe.coupons.retrieve(id);
+    } catch (error) {
+      if (!(error instanceof Stripe.errors.StripeError && error.code === "resource_missing")) throw error;
+    }
+    if (existing) {
+      const problems: string[] = [];
+      if (existing.amount_off !== amountOff) problems.push(`amount_off is ${existing.amount_off}, want ${amountOff}`);
+      if (existing.currency !== "usd") problems.push(`currency is ${existing.currency}`);
+      if (existing.duration !== "once") problems.push(`duration is ${existing.duration}, want once`);
+      if (!existing.valid) problems.push("coupon is no longer valid");
+      if (problems.length === 0) verified(`${label}  ${existing.id}`);
+      // A coupon's amount cannot be changed in place: delete it and re-run.
+      else drift(`${label}  ${existing.id}: ${problems.join("; ")}`);
+      continue;
+    }
+    const coupon = await stripe.coupons.create({
+      id,
+      name: `${COHORT_SETUP_CREDIT.name} — ${plan.name}`,
+      amount_off: amountOff,
+      currency: "usd",
+      duration: "once",
+      metadata: { [PLAN_META]: plan.id, healdesk_offer: "cohort-setup" },
+    });
+    created(`${label}  ${coupon.id}`);
+  }
+}
+
 async function listActiveMeters(stripe: Stripe): Promise<Stripe.Billing.Meter[]> {
   const out: Stripe.Billing.Meter[] = [];
   for await (const meter of stripe.billing.meters.list({ status: "active", limit: 100 })) {
@@ -660,6 +707,13 @@ function printDryRun(desired: Desired): void {
       `price    ${m.lookupKey.padEnd(40)} ${usd(m.unitCents)}/${m.unitLabel}  recurring/month/metered per_unit`,
     );
   }
+  console.log(`\n${COHORT_SETUP_CREDIT.name}`);
+  for (const plan of plans) {
+    line(
+      "·",
+      `coupon   ${`${COHORT_SETUP_CREDIT.couponId}-${plan.id}`.padEnd(40)} ${usd(plan.setupFeeUsd * 100).padEnd(8)} amount_off/once`,
+    );
+  }
   console.log(
     `\nWould also list active ${KEY_PREFIX}* prices and flag any the catalog no longer names as STALE.`,
   );
@@ -778,6 +832,7 @@ async function main(): Promise<void> {
   for (const meter of desired.meters) {
     await syncMeter(stripe, products, meters, activePrices, meter);
   }
+  await syncCohortCoupons(stripe);
   reportStale(activePrices, desired);
 
   console.log(

@@ -255,10 +255,12 @@ describeDb("database audit (0031)", () => {
   test("the BAA gate trigger guards every table that carries a caller's number or payload", async () => {
     const expected = [
       "appointments",
+      "booking_requests",
       "consent_records",
       "contact_attempts",
       "contacts",
       "conversations",
+      "meta_booking_drafts",
       "suppressions",
       "transactions",
       "webhook_events",

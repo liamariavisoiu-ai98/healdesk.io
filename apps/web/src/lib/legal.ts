@@ -18,18 +18,26 @@ import { plans, type Plan } from "@healdesk/catalog";
  * changes; the footer of each page prints both.
  */
 
-export const LEGAL_VERSION = "2026-09-13.3";
-export const LEGAL_LAST_UPDATED = "13 September 2026";
+export const LEGAL_VERSION = "2026-09-21.1";
+export const LEGAL_LAST_UPDATED = "21 September 2026";
 
 export const ENTITY = {
   /** Full legal name, e.g. "Healdesk, Inc." Empty until the founder supplies it. */
-  legalName: "",
+  legalName: "Viixi FZC",
   /** "a Delaware corporation" / "a Texas limited liability company". */
-  formation: "",
-  /** Physical postal address for notices and the CAN-SPAM footer. */
+  formation: "a free zone company incorporated in the United Arab Emirates, trading as healdesk",
+  /**
+   * Physical postal address for notices and the CAN-SPAM footer. The
+   * registered address on the Stripe account (Settings → Business details);
+   * empty until the owner pastes it, and the draft banner stays up until then.
+   */
   postalAddress: "",
-  /** Governing law and venue, e.g. "Texas". */
-  governingLawState: "",
+  /**
+   * Governing law and venue. Delaware, by recommendation: the seller is a UAE
+   * entity with no home state, US clinics will not accept UAE law or venue,
+   * and Delaware is the neutral US default clinic counsel expects.
+   */
+  governingLawState: "Delaware",
   /** Email for legal notices. Exists on the catch-all; see the launch guide. */
   noticesEmail: "legal@healdesk.io",
   /** Email for privacy requests (access, deletion, do-not-sell). */
@@ -40,10 +48,10 @@ export const ENTITY = {
 export const POLICY = {
   /**
    * Days after purchase within which the first period is refundable in full.
-   * 0 = no refund window. The setup fee is never refundable once provisioning
-   * has begun, regardless of this value.
+   * 0 = no refund window. The setup fee is never refundable, regardless of
+   * this value (decision of 21 September 2026).
    */
-  refundWindowDays: 0,
+  refundWindowDays: 14,
   /** Whether an annual plan cancelled mid-term is refunded pro rata. */
   annualProRataRefund: false,
   /**

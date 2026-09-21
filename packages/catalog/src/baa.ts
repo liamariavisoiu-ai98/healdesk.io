@@ -725,10 +725,10 @@ const CLAUSES: readonly BaaClause[] = [
  *   boilerplate      NEW. Notices, governing law and venue, change in law,
  *                    interpretation, entire agreement as to PHI.
  */
-const ENTITY = "[HEALDESK LEGAL ENTITY NAME]";
-const ENTITY_FORM = "[a Delaware limited liability company]";
-const NOTICE_ADDRESS = "[NOTICE ADDRESS], legal@healdesk.io";
-const GOVERNING_STATE = "[GOVERNING STATE]";
+const ENTITY = "Viixi FZC";
+const ENTITY_FORM = "a free zone company incorporated in the United Arab Emirates, trading as healdesk";
+const NOTICE_ADDRESS = "[REGISTERED ADDRESS — from the Stripe account, Settings → Business details], legal@healdesk.io";
+const GOVERNING_STATE = "Delaware";
 const CAP_FLOOR = "[$X]";
 
 function byId(id: string): BaaClause {

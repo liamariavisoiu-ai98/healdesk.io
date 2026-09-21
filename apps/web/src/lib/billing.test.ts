@@ -1,7 +1,7 @@
 import { getPlan, METERS, OVERAGE_RATES_PROVISIONAL, plans } from "@healdesk/catalog";
 import { describe, expect, test } from "vitest";
 
-import { meteredLookupKeysFor, overageLookupKeys } from "./billing";
+import { cohortCouponIdFor, meteredLookupKeysFor, overageLookupKeys } from "./billing";
 
 /**
  * Which metered prices a Session carries. The Session itself needs a Stripe
@@ -36,19 +36,23 @@ describe("overage prices on a Session", () => {
     }
   });
 
-  test("nothing metered is attached while the rates are provisional", () => {
-    // The pricing page says overage is not billed until the rates are
-    // published; this is the line that makes that true. When the flag flips
-    // the monthly Session carries the package's meters and the annual one
-    // refuses until the annual path is decided (see billing.ts).
+  test("the monthly Session carries the package's meters; the annual one carries none", () => {
+    // Annual overage is invoiced separately, monthly in arrears (decision of
+    // 21 September 2026; billing.ts header). While the rates are provisional
+    // neither interval carries anything.
     for (const plan of plans) {
       if (OVERAGE_RATES_PROVISIONAL) {
         expect(meteredLookupKeysFor(plan, "month")).toEqual([]);
-        expect(meteredLookupKeysFor(plan, "year")).toEqual([]);
       } else {
         expect(meteredLookupKeysFor(plan, "month")).toEqual(overageLookupKeys(plan));
-        expect(() => meteredLookupKeysFor(plan, "year")).toThrow(/annual/);
       }
+      expect(meteredLookupKeysFor(plan, "year")).toEqual([]);
+    }
+  });
+
+  test("the cohort coupon id is stable per package", () => {
+    for (const plan of plans) {
+      expect(cohortCouponIdFor(plan)).toBe(`healdesk-cohort-setup-${plan.id}`);
     }
   });
 });

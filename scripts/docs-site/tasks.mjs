@@ -1288,6 +1288,43 @@ export const TASKS = [
     source: { doc: "research-conclusions", heading: "What we shipped instead" },
   },
   {
+    id: "usage-meter-events",
+    group: "foundations",
+    status: "ready",
+    title: "Send voice minutes and chat conversations to Stripe's meters, so overage actually bills",
+    effort: "1 day",
+    blockedBy: null,
+    plain:
+      "The overage rates are confirmed ($0.35 a voice minute, $0.25 a chat conversation past the allowance) and a monthly subscription now carries the metered prices. But nothing sends usage to Stripe yet, so every meter reads zero and overage bills zero. The product already records the usage (call minutes on conversations, chat threads on the web and Meta channels); what is missing is the nightly job that turns it into meter events.",
+    why:
+      "A package sold with an allowance and a rate above it is a promise in both directions: the clinic is told what overage costs, and healdesk is paid for it. Until the events flow, heavy users are free, and the first invoice that suddenly carries three months of caught-up overage is a support ticket and a chargeback risk. Better to bill it from the first month.",
+    steps: [
+      "Add a scheduled job in apps/app (lib/scheduler) that, once a day, sums the previous day's answered-call minutes and chat conversations per clinic and posts one `billing.meterEvents.create` per meter with the clinic's Stripe customer id, idempotent on (clinic, meter, day).",
+      "Read the customer id from the subscription metadata the checkout wrote; skip clinics on annual packages (their overage is invoiced by hand — see the next task).",
+      "Record each posted event as a security event so a missed day is visible, and add the job to the watchdog's expected list.",
+      "Test against Stripe test mode with a clinic over its allowance and confirm the next invoice carries the overage line.",
+    ],
+    source: { doc: "handover", heading: "Decisions log (21 September 2026)" },
+  },
+  {
+    id: "annual-overage-invoicing",
+    group: "foundations",
+    status: "ready",
+    title: "Invoice annual clinics' overage monthly in arrears — by hand at first, then from the meters",
+    effort: "2 hours a month, then 1 day to automate",
+    blockedBy: null,
+    plain:
+      "An annual subscription bills once a year, and Stripe cannot put a monthly metered price on it. The decision is that annual clinics' overage is invoiced separately, monthly in arrears, and the terms of service say exactly that. Until it is automated, that means a person creates the invoice.",
+    why:
+      "The alternative — quietly not billing annual clinics for overage — sells the annual package as unlimited without saying so, which is either lost revenue or, once noticed, a bad-faith change. Saying \"invoiced separately\" in the terms is honest only while someone actually does it.",
+    steps: [
+      "On the first business day of each month, list annual clinics over their allowance from the previous month (the usage is on the care view once the meter job above exists; until then, the monthly report's counts).",
+      "Create a one-off Stripe invoice per clinic for the overage at the catalog rates, with the month and the counts in the description, and send it with a 14-day due date.",
+      "Once the meter events flow, replace the manual step with a second Stripe subscription per annual clinic carrying only the metered prices, and change `meteredLookupKeysFor()` and the terms together.",
+    ],
+    source: { doc: "handover", heading: "Decisions log (21 September 2026)" },
+  },
+  {
     id: "revenue-gate-decision",
     group: "foundations",
     status: "decision",

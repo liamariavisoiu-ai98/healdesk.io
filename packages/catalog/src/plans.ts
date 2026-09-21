@@ -27,20 +27,20 @@
  * lives in one place and the site cannot quote $3,804 while Stripe charges
  * $3,800.
  *
- * ## Overage rates are PROVISIONAL
+ * ## Overage rates — confirmed 21 September 2026
  *
- * The pricing table set the packages and the included allowances but not the
- * per-unit overage. The rates below are placeholders chosen to sit above the
- * vendor cost with a margin, and they are marked so the pricing page can say
- * the rate is published before the first bill rather than print a number
- * nobody signed off. While the flag is true, checkout attaches NO metered
- * price to the subscription (apps/web/src/lib/billing.ts), so overage is not
- * merely unquoted, it is unbilled — the page says exactly that. Replace the
- * rates and flip `OVERAGE_RATES_PROVISIONAL` to false once the Synthflow
- * per-minute cost and the LLM cost per conversation are known; flipping it
- * also requires deciding how an ANNUAL subscription bills monthly overage
- * (the metered prices are monthly, the annual package price is yearly), and
- * annual checkout refuses until that decision is made.
+ * $0.35 per voice minute and $0.25 per chat conversation past the allowance,
+ * signed off by the owner (they sit above the vendor per-minute cost and
+ * below what a clinic notices). `OVERAGE_RATES_PROVISIONAL` is false, so the
+ * pricing page prints them, the terms name them, and a MONTHLY checkout
+ * attaches the two metered prices (apps/web/src/lib/billing.ts). Two things
+ * are still open and are recorded in the task list, not hidden here: nothing
+ * yet reports usage to Stripe's meters, so the metered lines bill zero until
+ * `usage-meter-events` is built; and an ANNUAL package attaches no metered
+ * price, because Stripe cannot mix a yearly and a monthly price on one
+ * subscription — annual overage is invoiced monthly by hand until
+ * `annual-overage-invoicing` is built, and the terms say "invoiced
+ * separately" for annual packages for exactly that reason.
  *
  * ## The setup-fee delta on an upgrade is owed, not yet invoiced
  *
@@ -95,11 +95,31 @@ export type Plan = {
   highlight?: string;
 };
 
-/** See the header. Flip to false when the rates below are signed off. */
-export const OVERAGE_RATES_PROVISIONAL = true;
+/** See the header. Signed off 21 September 2026. */
+export const OVERAGE_RATES_PROVISIONAL = false;
 
 const VOICE_OVERAGE = 0.35;
 const CHAT_OVERAGE = 0.25;
+
+/**
+ * The founding-cohort setup credit — kept, by decision of 21 September 2026.
+ *
+ * Offered in the Day 7 nurture email and honoured at checkout as one Stripe
+ * coupon per package whose `amount_off` is that package's own setup fee, so
+ * the credit IS the fee ($497 for the single-channel chat package, $997 for
+ * the rest) and the subscription is untouched. The copy therefore says "the
+ * setup fee in full" and quotes the range, never one round number that is
+ * right for one package and wrong for four. It is valid for the fourteen
+ * days after the email that offers it, tied to the lead it was sent to, and
+ * never applied from a URL parameter alone.
+ */
+export const COHORT_SETUP_CREDIT = {
+  /** Stripe coupon id; stripe:setup creates it. */
+  couponId: "healdesk-cohort-setup",
+  name: "Founding-cohort setup credit",
+  /** Days after the offer email during which checkout honours it. */
+  validDays: 14,
+} as const;
 
 export const plans: readonly Plan[] = [
   {

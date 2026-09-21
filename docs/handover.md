@@ -560,8 +560,63 @@ hand-off line. Nothing the person wrote is stored; the audit row says a
 message was answered and whether the guard fired. Off per clinic until an
 operator switches it on (`clinics.meta_front_door_enabled`, production only,
 published number required). Tokens are sealed on `provider_connections` as
-`meta-<platform>`. `npm run qa:meta -w @healdesk/app` runs the nine probes
+`meta-<platform>`. `npm run qa:meta -w @healdesk/app` runs the ten probes
 against the real model with `ANTHROPIC_API_KEY` (the patient org's key).
+
+**The booking hand-off (21 September 2026).** Option A stays, with one
+addition the owner asked for: the front door takes a booking *request* that
+a human at the practice accepts or declines. The model answers in JSON
+(`{reply, booking:{wants, first_name, phone, window}}`); the three fields are
+cleaned deterministically (letters, E.164, a window with no condition or
+treatment in it) and merged into `meta_booking_drafts`, keyed by the thread,
+so nothing about the conversation is remembered. When all three are present
+one `booking_requests` row is written against a contact upserted by phone,
+the draft is deleted, every report recipient is emailed a single-use link
+(`/booking/[token]`, SHA-256 stored, seven days, `phiClass: "none"` because
+the email names nobody), and the person gets fixed text: the practice has
+your request and will call. The desk page shows the three things and two
+buttons; the decision is one conditional UPDATE, the trigger in 0037 makes
+it final, and the person is told the practice will call — accepted or
+declined, never a time or a provider. The care view shows counts only. A
+practice with no report recipient still gets the row; it waits.
+
+### Decisions log (21 September 2026)
+
+The owner's answers to the six placeholders and three follow-ups, and what
+each became in code. Reopen any of these by changing the code, not by
+re-asking.
+
+1. **Overage rates — keep both figures.** $0.35 per voice minute, $0.25 per
+   chat conversation; `OVERAGE_RATES_PROVISIONAL` is `false`. A monthly
+   subscription carries the metered prices; an annual one carries none and
+   its overage is **invoiced separately, monthly in arrears, by hand** until
+   `annual-overage-invoicing` is built. Nothing bills against the meters
+   until `usage-meter-events` is built either way. The terms say so.
+2. **Refund window — 14 days**, full refund of the first month's fee; the
+   setup fee is never refundable. `POLICY.refundWindowDays`, terms § fees.
+3. **Annual cancelled mid-term — no refund**, access to term end, auto-renew
+   off. `POLICY.annualProRataRefund = false`.
+4. **Cohort setup credit — keep.** One Stripe coupon per package, created by
+   `stripe:setup`, `amount_off` = that package's setup fee, `duration: once`.
+   Stamped on the lead when the Day 7 email goes out
+   (`leads.cohort_credit_offered_at`), honoured at checkout only inside the
+   fourteen days, never from a URL parameter alone. The copy quotes the fee
+   range rather than "$500".
+5. **Demo expiry — 7 days.** Already what the code did.
+6. **Reviews — capture every rating, route internal follow-up by score,
+   never gate what is published.** Nothing gated exists in code; the
+   customer-success plan text is the only thing that said otherwise.
+7. **Meta — keep A everywhere, plus the booking hand-off** above.
+8. **The revenue gate** — explained to the owner in plain English; awaiting
+   their call. The `revenue-gate-decision` task is the record.
+9. **Home state — the Stripe facts.** The seller is Viixi FZC, a UAE free
+   zone company trading as healdesk. Governing law is Delaware by counsel's
+   (this agent's) recommendation: a UAE entity has no US home state, US
+   clinics will not accept UAE law or venue, and Delaware is the neutral
+   default clinic counsel expects. `ENTITY` in `apps/web/src/lib/legal.ts`
+   and the constants in `packages/catalog/src/baa.ts`. Still missing: the
+   registered address from the Stripe account, which keeps the legal pages'
+   draft banner up, and the liability floor.
 
 ### Incidents and patient rights
 

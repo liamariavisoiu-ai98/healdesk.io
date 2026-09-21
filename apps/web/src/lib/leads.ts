@@ -1,3 +1,4 @@
+import { COHORT_SETUP_CREDIT } from "@healdesk/catalog";
 import { and, eq, isNull, lt, sql } from "drizzle-orm";
 
 import { isMarketingDbConfigured, marketingDb } from "@/lib/db";
@@ -392,6 +393,19 @@ export async function leadsForAbandonment(olderThan: Date, limit = 200): Promise
     .limit(limit);
 }
 
+/** The nurture step whose email carries the founding-cohort setup credit (lib/email/nurture.ts, Day 7). */
+export const COHORT_CREDIT_TOUCH_STEP = 3;
+
+/**
+ * Whether this lead's cohort credit is live: offered, and still inside the
+ * window the email stated. Pure, so the checkout route's decision is testable.
+ */
+export function cohortCreditLive(lead: Pick<Lead, "cohortCreditOfferedAt">, now: Date = new Date()): boolean {
+  if (!lead.cohortCreditOfferedAt) return false;
+  const ageMs = now.getTime() - lead.cohortCreditOfferedAt.getTime();
+  return ageMs >= 0 && ageMs <= COHORT_SETUP_CREDIT.validDays * 24 * 60 * 60 * 1000;
+}
+
 export async function recordTouch(
   leadId: string,
   touch: { kind: "nurture"; step: number } | { kind: "abandonment" },
@@ -404,6 +418,15 @@ export async function recordTouch(
       .set({ nurtureStep: touch.step + 1, lastTouchAt: now, updatedAt: now })
       .where(eq(leads.id, leadId));
     await recordLeadEvent(leadId, "nurture_sent", { step: touch.step });
+    if (touch.step === COHORT_CREDIT_TOUCH_STEP) {
+      // Stamped once, when the offer was actually mailed; the checkout reads
+      // this, never the step counter, so a resent or skipped touch cannot
+      // grant or withhold the credit on its own.
+      await marketingDb()
+        .update(leads)
+        .set({ cohortCreditOfferedAt: sql`coalesce(${leads.cohortCreditOfferedAt}, ${now})` })
+        .where(eq(leads.id, leadId));
+    }
   } else {
     await marketingDb()
       .update(leads)

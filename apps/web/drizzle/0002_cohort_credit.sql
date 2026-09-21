@@ -1,0 +1,1 @@
+ALTER TABLE "leads" ADD COLUMN "cohort_credit_offered_at" timestamp with time zone;

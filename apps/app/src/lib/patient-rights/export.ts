@@ -3,6 +3,7 @@ import { and, eq, inArray, or, sql } from "drizzle-orm";
 import {
   appointments,
   auditLog,
+  bookingRequests,
   consentRecords,
   contactAttempts,
   contacts,
@@ -38,6 +39,8 @@ export type PatientBundle = {
   consentRecords: (typeof consentRecords.$inferSelect)[];
   suppressions: (typeof suppressions.$inferSelect)[];
   contactAttempts: (typeof contactAttempts.$inferSelect)[];
+  /** Requests made on a Meta channel and handed to the desk; the token digest is not included. */
+  bookingRequests: Omit<typeof bookingRequests.$inferSelect, "tokenHash">[];
   /** Every audit row that touched any of the ids above: the accounting of disclosures. */
   accountingOfDisclosures: (typeof auditLog.$inferSelect)[];
 };
@@ -82,6 +85,9 @@ export async function exportPatient(
   const attempts = phones.length
     ? await tx.db.select().from(contactAttempts).where(and(eq(contactAttempts.clinicId, tx.clinicId), inArray(contactAttempts.phone, phones)))
     : [];
+  const bookings = ids.length
+    ? (await tx.db.select().from(bookingRequests).where(and(eq(bookingRequests.clinicId, tx.clinicId), inArray(bookingRequests.contactId, ids)))).map(withoutDigest)
+    : [];
 
   const everyId = [
     ...ids,
@@ -89,6 +95,7 @@ export async function exportPatient(
     ...appts.map((a) => a.id),
     ...txns.map((t) => t.id),
     ...consents.map((c) => c.id),
+    ...bookings.map((b) => b.id),
   ];
   const accounting = everyId.length
     ? await tx.db
@@ -122,6 +129,7 @@ export async function exportPatient(
     consentRecords: consents,
     suppressions: supp,
     contactAttempts: attempts,
+    bookingRequests: bookings,
     accountingOfDisclosures: accounting,
   };
 }
@@ -184,6 +192,7 @@ export async function exportClinic(tx: TenantTx, requestedBy: string): Promise<P
   const consents = await tx.db.select().from(consentRecords).where(eq(consentRecords.clinicId, c));
   const supp = await tx.db.select().from(suppressions).where(eq(suppressions.clinicId, c));
   const attempts = await tx.db.select().from(contactAttempts).where(eq(contactAttempts.clinicId, c));
+  const bookings = (await tx.db.select().from(bookingRequests).where(eq(bookingRequests.clinicId, c))).map(withoutDigest);
   const accounting = await tx.db.select().from(auditLog).where(eq(auditLog.clinicId, c));
 
   const rows = found.length + convos.length + appts.length + txns.length + consents.length;
@@ -204,6 +213,13 @@ export async function exportClinic(tx: TenantTx, requestedBy: string): Promise<P
     consentRecords: consents,
     suppressions: supp,
     contactAttempts: attempts,
+    bookingRequests: bookings,
     accountingOfDisclosures: accounting,
   };
+}
+
+/** The desk's credential digest never leaves the row, even in a bundle the clinic asked for. */
+function withoutDigest(row: typeof bookingRequests.$inferSelect): Omit<typeof bookingRequests.$inferSelect, "tokenHash"> {
+  const { tokenHash: _digest, ...rest } = row;
+  return rest;
 }

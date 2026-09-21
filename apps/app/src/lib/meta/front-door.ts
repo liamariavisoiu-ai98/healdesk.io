@@ -280,8 +280,8 @@ export async function answerFrontDoor(
     const thread: BookingThread = { platform: input.platform, externalId: input.thread.externalId, senderId: input.thread.senderId };
     const merged = await mergeDraft(tx, thread, extracted);
     if (isComplete(merged)) {
-      const created = await createBookingRequest(tx, { thread, fields: merged, connectionId: input.thread.connectionId });
-      await notifyDesk(tx, created, input.platform, { transport: input.transport });
+      const created = await createBookingRequest(tx, { channel: "meta", thread, fields: merged, connectionId: input.thread.connectionId });
+      await notifyDesk(tx, created, { channel: "meta", platform: input.platform }, { transport: input.transport });
       answer = { text: requestReceivedLine(facts.clinicName, merged.firstName), source: "booking", guard: answer.guard, booking: "requested" };
     } else {
       answer = {

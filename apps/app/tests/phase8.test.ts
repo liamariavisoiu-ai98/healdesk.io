@@ -200,7 +200,7 @@ describeDb("phase 8, against the database", () => {
     expect((started.body as { data: { status: string } }).data.status).toBe("started");
   });
 
-  test("a required deposit flags the booking for the desk, and the booked alert says so", async () => {
+  test("a booked call becomes a request; the desk's confirmation creates the appointment with the deposit flagged", async () => {
     const c = await seedClinic("deposit");
     await makeProduction(c.clinicId, new Date(Date.now() - 10 * DAY));
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
@@ -214,15 +214,35 @@ describeDb("phase 8, against the database", () => {
       });
       await addRecipient(tx, { email: "desk@example-clinic.test", addedBy: "test" });
     });
+    // The agent semi-confirms only (21 September 2026): no appointment row
+    // from the call, a request for the desk instead, and the desk is emailed
+    // a link that names nobody.
+    const deskMail = new FakeTransport();
     const booked = await ingestCall(
       call(c.clinicId, { outcome: "booked", booking: { scheduledFor: new Date(Date.now() + 3 * DAY), treatment: "Consultation" } }),
       ACTOR,
+      { transport: deskMail },
     );
-    expect(booked.appointmentId).not.toBeNull();
+    expect(booked.bookingRequestId).not.toBeNull();
+    expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from appointments`))).rows).toHaveLength(0);
+    expect(deskMail.sent).toHaveLength(1);
+    expect(deskMail.sent[0]!.message.subject).toMatch(/via a phone call/);
+    expect(deskMail.sent[0]!.message.text).not.toMatch(/\+1555|Consultation/);
+    const token = deskMail.sent[0]!.message.text.match(/\/booking\/([A-Za-z0-9_-]{43})/)![1]!;
+
+    // The desk confirms a slot: now, and only now, the appointment exists,
+    // carrying the clinic's deposit rule.
+    const { decideBookingRequest } = await import("@/lib/meta/booking-requests");
+    const when = new Date(Date.now() + 4 * DAY);
+    const decided = await decideBookingRequest(token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: when });
+    expect(decided).toMatchObject({ outcome: "decided", followUp: null });
+    expect(decided.appointmentId).not.toBeNull();
     const rows = await inTenant(c.clinicId, (client) =>
-      client.query<{ deposit_status: string; deposit_usd: string | null }>(`select deposit_status, deposit_usd from appointments`),
+      client.query<{ deposit_status: string; deposit_usd: string | null; treatment: string; conversation_id: string }>(
+        `select deposit_status, deposit_usd, treatment, conversation_id from appointments`,
+      ),
     );
-    expect(rows.rows).toEqual([{ deposit_status: "pending_front_desk", deposit_usd: "50.00" }]);
+    expect(rows.rows).toEqual([{ deposit_status: "pending_front_desk", deposit_usd: "50.00", treatment: "Consultation", conversation_id: booked.conversationId }]);
 
     const transport = new FakeTransport();
     expect(await sendLiveAlert(c.clinicId, "booked", booked.conversationId, transport)).toBe("sent");

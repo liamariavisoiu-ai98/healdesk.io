@@ -1012,15 +1012,25 @@ export const bookingRequests = pgTable(
     contactId: uuid("contact_id")
       .notNull()
       .references(() => contacts.id, { onDelete: "cascade" }),
-    /** messenger | instagram | whatsapp */
-    platform: text("platform").$type<"messenger" | "instagram" | "whatsapp">().notNull(),
-    /** The page / account / number id the message arrived on. */
-    externalId: text("external_id").notNull(),
-    senderId: text("sender_id").notNull(),
+    /**
+     * Where the request came from. Every channel semi-confirms only
+     * (decision of 21 September 2026): the agent takes the request, the
+     * desk has the final say.
+     */
+    channel: text("channel").$type<"voice" | "meta">().notNull().default("meta"),
+    /** The call the request was taken on, for voice. */
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    /** messenger | instagram | whatsapp; null for a voice request. */
+    platform: text("platform").$type<"messenger" | "instagram" | "whatsapp">(),
+    /** The page / account / number id the message arrived on (meta only). */
+    externalId: text("external_id"),
+    senderId: text("sender_id"),
     connectionId: uuid("connection_id").references(() => providerConnections.id, { onDelete: "set null" }),
     /** Free text as the person put it, PHI-scanned for clinical content. */
     preferredWindow: text("preferred_window").notNull(),
-    status: text("status").$type<"requested" | "accepted" | "declined" | "expired">().notNull().default("requested"),
+    /** The service asked for, on a voice call only: the phone is inside the boundary, a Meta thread is not. */
+    treatment: text("treatment"),
+    status: text("status").$type<"requested" | "accepted" | "confirmed" | "declined" | "expired">().notNull().default("requested"),
     tokenHash: customType<{ data: Buffer }>({ dataType: () => "bytea" })("token_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     deskNotifiedAt: timestamp("desk_notified_at", { withTimezone: true }),
@@ -1028,6 +1038,9 @@ export const bookingRequests = pgTable(
     decidedByLabel: text("decided_by_label"),
     /** The practice's own note back to itself; never sent to the person. */
     deskNote: text("desk_note"),
+    /** Set when the desk confirmed a slot; the appointment row is the booking. */
+    confirmedFor: timestamp("confirmed_for", { withTimezone: true }),
+    appointmentId: uuid("appointment_id").references(() => appointments.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

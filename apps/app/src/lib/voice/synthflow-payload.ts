@@ -138,6 +138,9 @@ export function readSynthflowPayload(raw: unknown, clinicId: string): VoiceCallE
       outcome === "booked" && bookedFor
         ? {
             scheduledFor: bookedFor,
+            // The window in the caller's own words, when the agent captured
+            // it; the desk reads this before the extracted time.
+            preferredWindow: str(vars.preferred_window, vars.preferred_time),
             treatment: str(vars.booked_treatment, vars.treatment_interest),
             externalId: str(vars.booking_id),
             externalSource: str(vars.booking_source),

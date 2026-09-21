@@ -53,8 +53,9 @@ export default function TermsPage() {
         <p>
           {site.name} is an AI front desk: {site.agent} answers calls, web chat and, where
           purchased, Instagram, Messenger and WhatsApp for your Practice; qualifies enquiries;
-          books appointments into your calendar or booking system; sends the follow-ups you
-          configure; and reports which recovered contacts became revenue.
+          takes booking requests and hands each one to your front desk, who confirm a time, call
+          the person back, or decline; and reports which recovered contacts became revenue. The
+          agent never confirms an appointment itself.
         </p>
         <ul className="list-disc space-y-2 pl-6">
           <li>

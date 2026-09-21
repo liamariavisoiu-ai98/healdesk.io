@@ -1716,7 +1716,7 @@ export type OnboardingView = {
     enabled: boolean;
     channels: { platform: MetaPlatform; externalId: string; label: string | null; status: string }[];
     /** Booking requests handed to the desk in the last 30 days. Counts only; the requests live behind the desk's link. */
-    bookingRequests: { waiting: number; accepted: number; declined: number };
+    bookingRequests: { waiting: number; accepted: number; confirmed: number; declined: number };
   };
   forwarding: {
     steps: { label: string; dial: string }[];
@@ -1809,7 +1809,7 @@ function readOnboardingView(value: unknown): OnboardingView {
       const count = (v: unknown): number => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : 0);
       return {
         enabled: m.enabled === true,
-        bookingRequests: { waiting: count(br.waiting), accepted: count(br.accepted), declined: count(br.declined) },
+        bookingRequests: { waiting: count(br.waiting), accepted: count(br.accepted), confirmed: count(br.confirmed), declined: count(br.declined) },
         channels: list(m.channels ?? [], "meta.channels").map((entry) => {
           const ch = object(entry, "meta.channel");
           return {

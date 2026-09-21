@@ -570,8 +570,9 @@ published number required). Tokens are sealed on `provider_connections` as
 against the real model with `ANTHROPIC_API_KEY` (the patient org's key).
 
 **The booking hand-off (21 September 2026).** Option A stays, with one
-addition the owner asked for: the front door takes a booking *request* that
-a human at the practice accepts or declines. The model answers in JSON
+addition the owner asked for, later extended to every channel (decisions
+log, item 13): each agent takes a booking *request* that a human at the
+practice confirms, calls back on, or declines. The model answers in JSON
 (`{reply, booking:{wants, first_name, phone, window}}`); the three fields are
 cleaned deterministically (letters, E.164, a window with no condition or
 treatment in it) and merged into `meta_booking_drafts`, keyed by the thread,
@@ -660,6 +661,28 @@ re-asking.
    evidence. Everything else is already not stored: no audio, nothing a
    person wrote on a Meta channel, no ad-platform identifiers, no logs with
    patient data, and the retention clocks purge the rest.
+13. **Every agent semi-confirms; the desk has the final say.** Asked
+   alongside "would disappearing messages make Meta option B safe?" — no,
+   and the reasoning is in the launch guide's Meta card: disappearing
+   messages shorten Meta's retention, but the disclosure to a vendor with no
+   BAA happens on transit and processing, Meta's terms ban health data
+   regardless of retention, the person's own device keeps the thread, and
+   Instagram and Messenger business inboxes have no such setting anyway.
+   Option A stays. What changed instead is product-wide: no agent — phone,
+   web or Meta — confirms a booking. The phone agent's "booked" outcome is
+   now a `booking_requests` row (channel `voice`, with the call and the
+   service asked for), the desk is emailed the same single-use link the Meta
+   flow uses, and `/booking/[token]` offers three answers: **confirm a time**
+   (the only place an appointment row is created from an agent's
+   conversation, carrying the deposit rule), **accept with a call-back**
+   (which can be confirmed to a slot later from the same page), or
+   **decline**. On a Meta thread the person gets a fixed line naming no
+   time; on the phone the desk calls. `ingestCall()` no longer writes
+   appointments, the "booked" live alert is gone (the request email replaces
+   it), the terms and pricing say "booking requests handed to your desk",
+   and the Synthflow script says the desk will call to confirm and never
+   "you're booked". Migration 0039; trigger permits requested → any decision
+   and accepted → confirmed, nothing else.
 9. **Home state — the Stripe facts.** The seller is Viixi FZC, a UAE free
    zone company trading as healdesk. Governing law is Delaware by counsel's
    (this agent's) recommendation: a UAE entity has no US home state, US

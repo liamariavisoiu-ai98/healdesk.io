@@ -31,9 +31,8 @@ export const metadata: Metadata = {
  */
 const INCLUDED = [
   "Channels per package: voice, web chat, Instagram DM and WhatsApp",
-  "Automatic callbacks to missed numbers",
-  "Booking written into your existing system or calendar",
-  "Deposit links to cut no-shows",
+  "Booking requests handed to your desk with one click to confirm, call back or decline",
+  "Your deposit rule stated on the call; the desk collects it",
   "Inbound only: the agent answers, and never calls or texts anyone on your behalf",
   "Closed-loop revenue reporting to your inbox",
   "A signed BAA, and read-only access to your systems",
@@ -117,7 +116,7 @@ export default function PricingPage() {
             <Compare
               label={voiceEntry.name}
               value={usd.format(voiceEntry.monthlyUsd)}
-              note="Answers the calls the desk missed, books them, follows up what was missed, and reports what collected."
+              note="Answers the calls the desk missed, takes the booking request for the desk to confirm, and reports what collected."
               featured
             />
           </div>

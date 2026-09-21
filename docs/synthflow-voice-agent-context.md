@@ -603,7 +603,9 @@ Runtime validation is weaker than the type. The only checks are: `externalCallId
 
 From `docs/architecture.md`, marked **Locked**:
 
-> The agent **collects only** four things: name, callback number, requested service, preferred time. That is the irreducible minimum to place a booking.
+> The agent **collects only** four things: name, callback number, requested service, preferred time. That is the irreducible minimum to place a booking request.
+>
+> **Since 21 September 2026 the agent never confirms.** It takes the request and says the front desk will call to confirm. It must never say "you're booked", "I've booked you", "see you Tuesday at two" or name a provider. The line to use: *"I'll pass that to the front desk and they'll call you on this number to confirm the time. Nothing is booked until you hear from them."* The same rule applies to the web chat and the Meta assistant: every channel semi-confirms; only a human at the practice confirms.
 >
 > Everything clinical is **pushed off the phone** to a secure link or a clinician callback: medical history, intake, consent, date of birth, insurance details, photos. Contraindication screening is explicitly out of v1 voice scope.
 
@@ -639,7 +641,7 @@ So the enum is a label for future analytics, not an input to any number a clinic
 |---|---|---|
 | 1 | `spam` | Not a patient call: wrong business named, a vendor selling something, a recording, or no human on the line. **This is evaluated before escalation** because a robocall menu says "operator" too. |
 | 2 | `escalated_to_human` | The caller said "representative" or any equivalent, pressed 0, asked for a named staff member, described a possible emergency, asked for a refill or test results, or the conversation went somewhere the agent could not follow. Set this even though the transfer itself may not have been possible. |
-| 3 | `booked` | The caller gave both a preferred time and a callback number. Under v1 the agent cannot write the booking (see 8.4), so this means *intent confirmed and handed to the clinic*, not *slot held*. |
+| 3 | `booked` | The caller gave both a preferred time and a callback number. This is a **booking request**, never a booking: the agent semi-confirms only (decision of 21 September 2026), says the front desk will call to confirm, and never says "you're booked". The ingest writes a `booking_requests` row and emails the desk a single-use link; the desk confirms a slot, calls back or declines. The appointment row exists only when the desk confirms. Also emit `preferred_window` (the caller's own words for when) alongside `booked_for`. |
 | 4 | `qualified_no_booking` | A real patient with a real need who gave a callback number but did not commit to a time. The "we caught the call, it just didn't convert" bucket. |
 | 5 | `price_shopper` | The caller asked about price, gave no number and no time, and price was the whole conversation. |
 | 6 | `abandoned` | Everything else: hung up before anything useful was captured, went silent through the timeout sequence, or the facts do not classify. |

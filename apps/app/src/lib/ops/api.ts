@@ -2213,7 +2213,7 @@ export type OnboardingView = {
     enabled: boolean;
     channels: { platform: MetaPlatform; externalId: string; label: string | null; status: string }[];
     /** Last 30 days, counts only; the requests live behind the desk's single-use link. */
-    bookingRequests: { waiting: number; accepted: number; declined: number };
+    bookingRequests: { waiting: number; accepted: number; confirmed: number; declined: number };
   };
   forwarding: ForwardingInstruction | null;
   agent: {

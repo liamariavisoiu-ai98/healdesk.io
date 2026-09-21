@@ -2,10 +2,10 @@ import { createHash, randomBytes } from "node:crypto";
 
 import { findClinicalContent } from "@healdesk/catalog";
 import { toE164 } from "@healdesk/connectors";
-import { and, eq, gt, lt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, lt, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
-import { bookingRequests, clinics, contacts, metaBookingDrafts, reportRecipients } from "@/db/schema";
+import { agentConfigs, appointments, bookingRequests, clinics, contacts, metaBookingDrafts, reportRecipients } from "@/db/schema";
 import type { ActorContext, RequestContext } from "@/lib/audit";
 import { env } from "@/lib/env";
 import { describeError, log } from "@/lib/log";
@@ -16,41 +16,45 @@ import { sendMetaReply, type MetaChannelOwner, type MetaSender } from "./channel
 import type { MetaPlatform } from "./front-door";
 
 /**
- * The booking hand-off from a Meta channel.
+ * The booking hand-off, for every channel.
  *
- * Decision of 21 September 2026: the front door stays a front door ("keep A
- * everywhere"), but it must hand the practice a booking that a human accepts
- * or declines, so that both sides get some confirmation — even half of one.
+ * Decision of 21 September 2026: no agent — phone, web or Meta — confirms a
+ * booking. Each one takes a REQUEST (a name, a number, a preferred day or
+ * time, and on the phone the service asked for), hands it to the practice
+ * through a single-use link, and tells the person the practice will confirm.
+ * The desk has the final say from that page: confirm a slot, which is the
+ * moment the appointment row comes into existence; accept with "we'll call
+ * back"; or decline. The only confirmation a patient ever hears comes from a
+ * human at the practice, by phone, or as a fixed line on the Meta thread that
+ * names no time.
  *
- * So the assistant books nothing and promises nothing. Across a thread it
- * collects three things — a first name, a phone number, a preferred day or
- * time — and when it has all three this module writes ONE row, emails the
- * practice a single-use link, and tells the person the practice has their
- * request. The desk opens the link, sees the three things, and accepts or
- * declines; the person is then told, on the channel they used, that the
- * practice will call them. A time is never stated on the channel, in either
- * direction, because Meta's terms and the absence of a BAA make the channel
- * the wrong place for it (docs/launch-plan.md, "a front door, not a hallway").
+ * Why the exposure is lower this way: an agent that states a time on a
+ * channel is making a promise the clinic's calendar may not keep, and on a
+ * Meta thread it is also writing an appointment into a platform with no BAA.
+ * A request is neither. The appointment row, which the revenue report counts,
+ * is created by the desk's click and nothing else.
  *
  * ## What is stored, and where
  *
- * `meta_booking_drafts` is the half-collected request keyed by the thread, so
- * the next message can ask for the missing piece without this code
- * remembering any of the conversation. It is overwritten per message,
- * deleted when the request is created, and swept after a day.
+ * `meta_booking_drafts` is the half-collected Meta request keyed by the
+ * thread, so the next message can ask for the missing piece without this code
+ * remembering any of the conversation. Overwritten per message, deleted when
+ * the request is created, swept after a day. A phone call has no draft: the
+ * agent collects everything on the call and the webhook delivers it at once.
  *
- * `booking_requests` is the request. Its contact row is upserted by phone
- * like a caller's (lib/voice/ingest.ts), so the person the desk rings is the
- * same contact the phone agent would create. The desk's credential is
- * SHA-256(token), never the token — the same discipline, and the same
- * bootstrap RLS policy, as connection_links (drizzle/0024, 0037).
+ * `booking_requests` is the request. Its contact row is the caller's (voice)
+ * or upserted by phone (Meta), so the person the desk rings is one contact
+ * either way. The desk's credential is SHA-256(token), never the token — the
+ * same discipline, and the same bootstrap RLS policy, as connection_links
+ * (drizzle/0024, 0037, 0039).
  *
  * ## What never leaves the tenant
  *
- * The email to the desk names the clinic and the platform and carries a link.
- * No name, no number, no window: it may travel over a transport with no BAA
- * behind it (`phiClass: "none"`), and the details are on the page the link
- * opens. The audit rows say a request was made and decided, never for whom.
+ * The email to the desk names the clinic and the channel and carries a link.
+ * No name, no number, no window, no service: it may travel over a transport
+ * with no BAA behind it (`phiClass: "none"`), and the details are on the page
+ * the link opens. The audit rows say a request was made and decided, never
+ * for whom.
  */
 
 /** How long the desk's link stays good. A weekend plus a slow Monday. */
@@ -63,6 +67,7 @@ const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 const LINK_ACTOR: ActorContext = { type: "service", serviceName: "booking-link" };
 
+export type BookingChannel = "voice" | "meta";
 export type BookingThread = { platform: MetaPlatform; externalId: string; senderId: string };
 
 export type BookingFields = {
@@ -90,15 +95,19 @@ export function cleanBookingFields(raw: { first_name?: unknown; phone?: unknown;
   const phoneRaw = text(raw?.phone, 32);
   const phone = phoneRaw ? (toE164(phoneRaw) ?? null) : null;
   const window = text(raw?.window, 120);
-  const preferredWindow =
-    window && findClinicalContent({ window }).length === 0 && !WINDOW_REFUSED.test(window) && !/\d{7,}/.test(window) ? window : null;
+  const preferredWindow = window && windowIsClean(window) ? window : null;
   return { firstName, phone, preferredWindow };
 }
 
+/** A preferred window is a day or a time, not a reason. True when nothing clinical slipped in. */
+export function windowIsClean(window: string): boolean {
+  return findClinicalContent({ window }).length === 0 && !WINDOW_REFUSED.test(window) && !/\d{7,}/.test(window);
+}
+
 /**
- * A preferred window is a day or a time, not a reason. The catalog matcher
- * catches clinical CLAIMS; this catches a condition, a treatment or a "for
- * my …" slipping into the one free-text field this table has.
+ * The catalog matcher catches clinical CLAIMS; this catches a condition, a
+ * treatment or a "for my …" slipping into the one free-text field a Meta
+ * request has. A voice request carries the service in its own column.
  */
 const WINDOW_REFUSED =
   /\b(for my|because|due to|acne|rosacea|melasma|eczema|psoriasis|wrinkles?|scars?|pain|anxiety|depress\w*|botox|fillers?|laser|ivf|fertility|surgery|lipo\w*|implants?|hair loss|treatment|consult\w*|procedure|injection|skin|teeth|tooth|dental)\b/i;
@@ -143,27 +152,47 @@ export async function mergeDraft(tx: TenantTx, thread: BookingThread, fields: Bo
 
 export type CreatedBookingRequest = { id: string; token: string; expiresAt: Date };
 
+export type CreateBookingRequestInput =
+  | {
+      channel: "meta";
+      thread: BookingThread;
+      connectionId: string | null;
+      fields: CompleteBookingFields;
+    }
+  | {
+      channel: "voice";
+      /** The caller, already upserted by the ingest. */
+      contactId: string;
+      conversationId: string;
+      preferredWindow: string;
+      treatment: string | null;
+    };
+
 /**
- * The request row, its contact, and the desk's token — returned once, to be
- * put into exactly one email. The draft is deleted in the same transaction.
+ * The request row and the desk's token — returned once, to be put into
+ * exactly one email. A Meta request also upserts its contact by phone and
+ * deletes its draft, in the same transaction.
  */
-export async function createBookingRequest(
-  tx: TenantTx,
-  input: { thread: BookingThread; fields: CompleteBookingFields; connectionId: string | null },
-): Promise<CreatedBookingRequest> {
-  const [clinic] = await tx.db.select({ timezone: clinics.timezone }).from(clinics).where(eq(clinics.id, tx.clinicId)).limit(1);
-  const [existing] = await tx.db
-    .select({ id: contacts.id })
-    .from(contacts)
-    .where(and(eq(contacts.clinicId, tx.clinicId), eq(contacts.phone, input.fields.phone)))
-    .limit(1);
-  let contactId = existing?.id;
-  if (!contactId) {
-    const [created] = await tx.db
-      .insert(contacts)
-      .values({ clinicId: tx.clinicId, phone: input.fields.phone, fullName: input.fields.firstName, timezone: clinic?.timezone ?? null, updatedAt: new Date() })
-      .returning({ id: contacts.id });
-    contactId = created!.id;
+export async function createBookingRequest(tx: TenantTx, input: CreateBookingRequestInput): Promise<CreatedBookingRequest> {
+  let contactId: string;
+  if (input.channel === "voice") {
+    contactId = input.contactId;
+  } else {
+    const [clinic] = await tx.db.select({ timezone: clinics.timezone }).from(clinics).where(eq(clinics.id, tx.clinicId)).limit(1);
+    const [existing] = await tx.db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(and(eq(contacts.clinicId, tx.clinicId), eq(contacts.phone, input.fields.phone)))
+      .limit(1);
+    if (existing) {
+      contactId = existing.id;
+    } else {
+      const [created] = await tx.db
+        .insert(contacts)
+        .values({ clinicId: tx.clinicId, phone: input.fields.phone, fullName: input.fields.firstName, timezone: clinic?.timezone ?? null, updatedAt: new Date() })
+        .returning({ id: contacts.id });
+      contactId = created!.id;
+    }
   }
 
   const raw = randomBytes(TOKEN_BYTES);
@@ -174,32 +203,42 @@ export async function createBookingRequest(
     .values({
       clinicId: tx.clinicId,
       contactId,
-      platform: input.thread.platform,
-      externalId: input.thread.externalId,
-      senderId: input.thread.senderId,
-      connectionId: input.connectionId,
-      preferredWindow: input.fields.preferredWindow,
+      channel: input.channel,
+      conversationId: input.channel === "voice" ? input.conversationId : null,
+      platform: input.channel === "meta" ? input.thread.platform : null,
+      externalId: input.channel === "meta" ? input.thread.externalId : null,
+      senderId: input.channel === "meta" ? input.thread.senderId : null,
+      connectionId: input.channel === "meta" ? input.connectionId : null,
+      preferredWindow: input.channel === "meta" ? input.fields.preferredWindow : input.preferredWindow,
+      treatment: input.channel === "voice" ? input.treatment : null,
       tokenHash: hashToken(token),
       expiresAt: sql`now() + make_interval(days => ${BOOKING_REQUEST_TTL_DAYS})`,
     })
     .returning({ id: bookingRequests.id, expiresAt: bookingRequests.expiresAt });
   if (!row) throw new Error("Failed to create a booking request: no row returned.");
 
-  await tx.db
-    .delete(metaBookingDrafts)
-    .where(and(eq(metaBookingDrafts.clinicId, tx.clinicId), eq(metaBookingDrafts.platform, input.thread.platform), eq(metaBookingDrafts.senderId, input.thread.senderId)));
+  if (input.channel === "meta") {
+    await tx.db
+      .delete(metaBookingDrafts)
+      .where(and(eq(metaBookingDrafts.clinicId, tx.clinicId), eq(metaBookingDrafts.platform, input.thread.platform), eq(metaBookingDrafts.senderId, input.thread.senderId)));
+  }
 
   tx.audit.record({
     action: "create",
     resourceType: "booking_request",
     resourceId: row.id,
     resourceIds: [contactId],
-    metadata: { platform: input.thread.platform, expiresInDays: BOOKING_REQUEST_TTL_DAYS },
+    metadata: { channel: input.channel, platform: input.channel === "meta" ? input.thread.platform : undefined, expiresInDays: BOOKING_REQUEST_TTL_DAYS },
   });
   return { id: row.id, token, expiresAt: row.expiresAt };
 }
 
 export const PLATFORM_LABEL: Record<MetaPlatform, string> = { messenger: "Messenger", instagram: "Instagram", whatsapp: "WhatsApp" };
+
+/** "Messenger", "WhatsApp", or "a phone call": for the desk's email and page. */
+export function channelLabel(channel: BookingChannel, platform: MetaPlatform | null): string {
+  return channel === "voice" ? "a phone call" : platform ? PLATFORM_LABEL[platform] : "a message";
+}
 
 export function bookingRequestUrl(token: string): string {
   return `${env.betterAuthUrl().replace(/\/$/, "")}/booking/${token}`;
@@ -214,7 +253,7 @@ export function bookingRequestUrl(token: string): string {
 export async function notifyDesk(
   tx: TenantTx,
   created: { id: string; token: string },
-  platform: MetaPlatform,
+  via: { channel: BookingChannel; platform: MetaPlatform | null },
   deps: { transport?: EmailTransport } = {},
 ): Promise<{ status: "sent" | "no-recipients" | "failed"; recipients: number }> {
   const [clinic] = await tx.db.select({ name: clinics.name }).from(clinics).where(eq(clinics.id, tx.clinicId)).limit(1);
@@ -229,18 +268,18 @@ export async function notifyDesk(
   }
   const transport = deps.transport ?? getTransport("none");
   const url = bookingRequestUrl(created.token);
-  const via = PLATFORM_LABEL[platform];
-  const subject = `New booking request via ${via} — ${clinicName}`;
+  const label = channelLabel(via.channel, via.platform);
+  const subject = `New booking request via ${label} — ${clinicName}`;
   const text = [
-    `Someone messaged ${clinicName} on ${via} asking to book.`,
+    `Someone contacted ${clinicName} through ${label} asking to book.`,
     "",
-    "Open the request to see who, their number and when they'd like to come in, then accept or decline it:",
+    "Open the request to see who, their number and when they'd like to come in, then confirm a time, call them back, or decline:",
     "",
     url,
     "",
-    `The link works for ${BOOKING_REQUEST_TTL_DAYS} days and is for your front desk only. This email carries no patient details on purpose. Nothing is booked until you accept, and the person has only been told that you have their request.`,
+    `The link works for ${BOOKING_REQUEST_TTL_DAYS} days and is for your front desk only. This email carries no patient details on purpose. Nothing is booked until you confirm it, and the person has only been told that you will call to confirm.`,
   ].join("\n");
-  const html = `<p>Someone messaged <strong>${escapeHtml(clinicName)}</strong> on ${via} asking to book.</p><p>Open the request to see who, their number and when they'd like to come in, then accept or decline it:</p><p><a href="${url}">${url}</a></p><p>The link works for ${BOOKING_REQUEST_TTL_DAYS} days and is for your front desk only. This email carries no patient details on purpose. Nothing is booked until you accept, and the person has only been told that you have their request.</p>`;
+  const html = `<p>Someone contacted <strong>${escapeHtml(clinicName)}</strong> through ${label} asking to book.</p><p>Open the request to see who, their number and when they'd like to come in, then confirm a time, call them back, or decline:</p><p><a href="${url}">${url}</a></p><p>The link works for ${BOOKING_REQUEST_TTL_DAYS} days and is for your front desk only. This email carries no patient details on purpose. Nothing is booked until you confirm it, and the person has only been told that you will call to confirm.</p>`;
 
   let sent = 0;
   for (const r of recipients) {
@@ -263,35 +302,43 @@ export function requestReceivedLine(clinicName: string, firstName: string): stri
   return `Thanks, ${firstName}! ${clinicName} has your request and will call you on the number you gave to confirm. Nothing is booked until you hear from them — or call the practice directly if you'd rather not wait.`;
 }
 
-export type BookingDecision = "accepted" | "declined";
+export type BookingDecision = "accepted" | "declined" | "confirmed";
 
-/** What the person is told after the desk decides. Never a time, never a provider. */
+/** What the person is told on a Meta thread after the desk decides. Never a time, never a provider. */
 export function followUpLine(clinicName: string, decision: BookingDecision): string {
-  return decision === "accepted"
-    ? `Good news — ${clinicName} has accepted your request and will call you to confirm the details. Nothing further is needed from you here.`
-    : `${clinicName} has looked at your request and can't offer that window, but they'll call you to find a time that works.`;
+  switch (decision) {
+    case "confirmed":
+      return `Good news — ${clinicName} has confirmed your request. They'll call or message you with the details, so keep an eye on your phone.`;
+    case "accepted":
+      return `Good news — ${clinicName} has accepted your request and will call you to confirm the details. Nothing further is needed from you here.`;
+    case "declined":
+      return `${clinicName} has looked at your request and can't offer that window, but they'll call you to find a time that works.`;
+  }
 }
 
 export type ResolvedBookingRequest = {
   id: string;
   clinicId: string;
   clinicName: string;
-  platform: MetaPlatform;
+  channel: BookingChannel;
+  platform: MetaPlatform | null;
   firstName: string | null;
   phone: string | null;
   preferredWindow: string;
-  status: "requested" | "accepted" | "declined" | "expired";
+  treatment: string | null;
+  status: "requested" | "accepted" | "confirmed" | "declined" | "expired";
   createdAt: Date;
   decidedAt: Date | null;
   decidedByLabel: string | null;
   deskNote: string | null;
+  confirmedFor: Date | null;
 };
 
 /**
  * What the holder of the link may see, or null. Expired, unknown and
  * malformed are one null, and the open is recorded either way — a decided
- * request still renders (read-only) so a second click on the same email
- * shows the outcome rather than a dead end.
+ * request still renders (read-only, with its outcome) so a second click on
+ * the same email shows the outcome rather than a dead end.
  */
 export async function resolveBookingRequest(token: string, request?: RequestContext): Promise<ResolvedBookingRequest | null> {
   const hash = hashIfWellFormed(token);
@@ -303,13 +350,16 @@ export async function resolveBookingRequest(token: string, request?: RequestCont
     const [row] = await tx.db
       .select({
         id: bookingRequests.id,
+        channel: bookingRequests.channel,
         platform: bookingRequests.platform,
         preferredWindow: bookingRequests.preferredWindow,
+        treatment: bookingRequests.treatment,
         status: bookingRequests.status,
         createdAt: bookingRequests.createdAt,
         decidedAt: bookingRequests.decidedAt,
         decidedByLabel: bookingRequests.decidedByLabel,
         deskNote: bookingRequests.deskNote,
+        confirmedFor: bookingRequests.confirmedFor,
         expired: sql<boolean>`${bookingRequests.expiresAt} <= now()`,
         clinicName: clinics.name,
         firstName: contacts.fullName,
@@ -330,42 +380,101 @@ export async function resolveBookingRequest(token: string, request?: RequestCont
       id: row.id,
       clinicId,
       clinicName: row.clinicName,
+      channel: row.channel,
       platform: row.platform,
       firstName: row.firstName,
       phone: row.phone,
       preferredWindow: row.preferredWindow,
+      treatment: row.treatment,
       status: row.status,
       createdAt: row.createdAt,
       decidedAt: row.decidedAt,
       decidedByLabel: row.decidedByLabel,
       deskNote: row.deskNote,
+      confirmedFor: row.confirmedFor,
     };
   });
 }
 
 export type DecisionOutcome = {
   outcome: "decided" | "already-decided" | "invalid";
+  /** null when the channel has nothing to say on (a phone request: the desk calls). */
   followUp: "sent" | "failed" | "no-channel" | null;
+  appointmentId: string | null;
 };
 
 /**
  * The desk's answer. One conditional UPDATE decides who wins a double
- * click; the trigger in 0037 makes a decided row immovable after that. Then
- * the person is told, through the clinic's sealed token, that the practice
- * will call — the fixed line above, never the desk's note.
+ * click; the trigger in 0039 makes the decision final, with one permitted
+ * second step (accepted → confirmed). Confirming a slot is the one place in
+ * the product an appointment row is created from an agent's conversation:
+ * the desk's click, not the agent's word, is the booking. Then, on a Meta
+ * thread, the person is told through the clinic's sealed token — the fixed
+ * line above, never the desk's note and never the time.
  */
 export async function decideBookingRequest(
   token: string,
   decision: BookingDecision,
-  input: { decidedByLabel: string | null; deskNote: string | null; request?: RequestContext },
+  input: { decidedByLabel: string | null; deskNote: string | null; confirmedFor?: Date | null; treatment?: string | null; request?: RequestContext },
   send?: MetaSender,
 ): Promise<DecisionOutcome> {
+  const none: DecisionOutcome = { outcome: "invalid", followUp: null, appointmentId: null };
   const hash = hashIfWellFormed(token);
-  if (!hash) return { outcome: "invalid", followUp: null };
+  if (!hash) return none;
+  if (decision === "confirmed" && !(input.confirmedFor instanceof Date && Number.isFinite(input.confirmedFor.getTime()))) return none;
   const clinicId = await clinicForTokenHash(hash);
-  if (!clinicId) return { outcome: "invalid", followUp: null };
+  if (!clinicId) return none;
 
   return withTenant({ clinicId, actor: LINK_ACTOR, request: input.request }, async (tx) => {
+    const from: ("requested" | "accepted")[] = decision === "confirmed" ? ["requested", "accepted"] : ["requested"];
+    const [candidate] = await tx.db
+      .select({
+        id: bookingRequests.id,
+        status: bookingRequests.status,
+        contactId: bookingRequests.contactId,
+        conversationId: bookingRequests.conversationId,
+        treatment: bookingRequests.treatment,
+        expired: sql<boolean>`${bookingRequests.expiresAt} <= now()`,
+      })
+      .from(bookingRequests)
+      .where(eq(bookingRequests.tokenHash, hash))
+      .limit(1);
+    const decidable = candidate && !candidate.expired && from.includes(candidate.status as "requested");
+    if (!decidable) {
+      const outcome = candidate && !candidate.expired ? "already-decided" : "invalid";
+      tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: candidate?.id, metadata: { outcome: "rejected", reason: outcome } });
+      return { outcome, followUp: null, appointmentId: null };
+    }
+
+    // Confirming creates the appointment FIRST, so the status and the
+    // appointment id land in one statement: the table's shape check says a
+    // confirmed row always has both, and a check is judged per statement.
+    let appointmentId: string | null = null;
+    if (decision === "confirmed") {
+      // The agent's script carries the clinic's deposit rule; with no payment
+      // link path, a required deposit is owed to the front desk.
+      const [agent] = await tx.db.select({ depositPolicy: agentConfigs.depositPolicy }).from(agentConfigs).where(eq(agentConfigs.clinicId, tx.clinicId)).limit(1);
+      const depositPolicy = agent?.depositPolicy ?? null;
+      const treatment = input.treatment?.trim().slice(0, 120) || candidate.treatment;
+      const [appointment] = await tx.db
+        .insert(appointments)
+        .values({
+          clinicId: tx.clinicId,
+          contactId: candidate.contactId,
+          conversationId: candidate.conversationId,
+          scheduledFor: input.confirmedFor!,
+          treatment,
+          depositUsd: depositPolicy?.required && depositPolicy.amountUsd !== null ? String(depositPolicy.amountUsd) : null,
+          depositStatus: depositPolicy?.required ? "pending_front_desk" : "none",
+          // The desk confirmed it; the clinic's own system has not reported it
+          // back to us, and may never. See schema.ts.
+          externalConfirmedAt: null,
+        })
+        .returning({ id: appointments.id });
+      appointmentId = appointment!.id;
+    }
+
+    // One conditional UPDATE decides who wins a double click.
     const [row] = await tx.db
       .update(bookingRequests)
       .set({
@@ -373,50 +482,57 @@ export async function decideBookingRequest(
         decidedAt: sql`now()`,
         decidedByLabel: input.decidedByLabel?.trim().slice(0, 80) || null,
         deskNote: input.deskNote?.trim().slice(0, 500) || null,
+        ...(decision === "confirmed" ? { confirmedFor: input.confirmedFor!, appointmentId } : {}),
       })
-      .where(and(eq(bookingRequests.tokenHash, hash), eq(bookingRequests.status, "requested"), gt(bookingRequests.expiresAt, sql`now()`)))
+      .where(and(eq(bookingRequests.id, candidate.id), inArray(bookingRequests.status, from), gt(bookingRequests.expiresAt, sql`now()`)))
       .returning({
         id: bookingRequests.id,
+        channel: bookingRequests.channel,
         platform: bookingRequests.platform,
         externalId: bookingRequests.externalId,
         senderId: bookingRequests.senderId,
         connectionId: bookingRequests.connectionId,
       });
     if (!row) {
-      const [existing] = await tx.db
-        .select({ id: bookingRequests.id, status: bookingRequests.status, expired: sql<boolean>`${bookingRequests.expiresAt} <= now()` })
-        .from(bookingRequests)
-        .where(eq(bookingRequests.tokenHash, hash))
-        .limit(1);
-      const outcome = existing && !existing.expired && existing.status !== "requested" ? "already-decided" : "invalid";
-      tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: existing?.id, metadata: { outcome: "rejected", reason: outcome } });
-      return { outcome, followUp: null };
+      // Lost the race to a colleague's click between the read and the write.
+      if (appointmentId) await tx.db.delete(appointments).where(and(eq(appointments.id, appointmentId), eq(appointments.clinicId, tx.clinicId)));
+      tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: candidate.id, metadata: { outcome: "rejected", reason: "already-decided" } });
+      return { outcome: "already-decided", followUp: null, appointmentId: null };
     }
-    tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: row.id, metadata: { outcome: "decided", decision } });
+    if (appointmentId) {
+      tx.audit.record({
+        action: "create",
+        resourceType: "appointment",
+        resourceId: appointmentId,
+        metadata: { conversationId: candidate.conversationId ?? undefined, bookingRequestId: row.id, confirmedByDesk: true, confirmedByClinicSystem: false },
+      });
+    }
+    tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: row.id, metadata: { outcome: "decided", decision, channel: row.channel } });
 
-    if (!row.connectionId) return { outcome: "decided", followUp: "no-channel" };
+    if (row.channel !== "meta") return { outcome: "decided", followUp: null, appointmentId };
+    if (!row.connectionId || !row.platform || !row.externalId || !row.senderId) return { outcome: "decided", followUp: "no-channel", appointmentId };
     const [clinic] = await tx.db.select({ name: clinics.name }).from(clinics).where(eq(clinics.id, tx.clinicId)).limit(1);
     const owner: MetaChannelOwner = { clinicId: tx.clinicId, connectionId: row.connectionId, platform: row.platform, enabled: true };
     try {
       await sendMetaReply(tx, owner, row.externalId, row.senderId, followUpLine(clinic?.name ?? "The practice", decision), send);
       tx.audit.record({ action: "create", resourceType: "meta_front_door_reply", resourceId: tx.clinicId, metadata: { platform: row.platform, source: "booking_follow_up" } });
-      return { outcome: "decided", followUp: "sent" };
+      return { outcome: "decided", followUp: "sent", appointmentId };
     } catch (error) {
       log.error("booking follow-up not sent", { clinicId: tx.clinicId, requestId: row.id, error: describeError(error) });
-      return { outcome: "decided", followUp: "failed" };
+      return { outcome: "decided", followUp: "failed", appointmentId };
     }
   });
 }
 
 /** Counts only, for the care view. */
-export async function bookingRequestCounts(tx: TenantTx): Promise<{ waiting: number; accepted: number; declined: number }> {
+export async function bookingRequestCounts(tx: TenantTx): Promise<{ waiting: number; accepted: number; confirmed: number; declined: number }> {
   const rows = await tx.db
     .select({ status: bookingRequests.status, n: sql<number>`count(*)::int` })
     .from(bookingRequests)
     .where(and(eq(bookingRequests.clinicId, tx.clinicId), gt(bookingRequests.expiresAt, sql`now() - interval '30 days'`)))
     .groupBy(bookingRequests.status);
   const by = Object.fromEntries(rows.map((r) => [r.status, r.n])) as Partial<Record<string, number>>;
-  return { waiting: by.requested ?? 0, accepted: by.accepted ?? 0, declined: by.declined ?? 0 };
+  return { waiting: by.requested ?? 0, accepted: by.accepted ?? 0, confirmed: by.confirmed ?? 0, declined: by.declined ?? 0 };
 }
 
 // -----------------------------------------------------------------------------

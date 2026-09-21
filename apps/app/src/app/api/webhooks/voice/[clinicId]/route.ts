@@ -130,10 +130,11 @@ export async function POST(
         outcome: result.recoveryReason ?? "not_recovered",
         deferred: result.duplicate,
       });
-      // The two live alerts, after the row exists and outside its transaction.
-      if (!result.duplicate) {
-        if (result.appointmentId) void sendLiveAlert(clinicId, "booked", result.conversationId);
-        else if (event.outcome === "escalated_to_human") void sendLiveAlert(clinicId, "escalated", result.conversationId);
+      // The escalation alert, after the row exists and outside its transaction.
+      // A booked call no longer alerts here: it produced a booking request,
+      // and the desk was emailed its link inside the ingest.
+      if (!result.duplicate && event.outcome === "escalated_to_human") {
+        void sendLiveAlert(clinicId, "escalated", result.conversationId);
       }
       return Response.json({ received: true, conversationId: result.conversationId }, { status: 202 });
     } catch (error) {

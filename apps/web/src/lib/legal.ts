@@ -56,7 +56,9 @@ export const POLICY = {
   annualProRataRefund: false,
   /**
    * Liability cap: the greater of 12 months' fees or this floor, in USD.
-   * 0 = no floor (cap is 12 months' fees). The founder sets the floor.
+   * 0 = no floor (cap is 12 months' fees). Decided 21 September 2026: no
+   * floor, and no insurance behind the cap — see docs/handover.md, "Decisions
+   * log". Raising this number without cover to pay it is a promise on paper.
    */
   liabilityFloorUsd: 0,
   /** Months a demo lead that never becomes a customer is kept. */

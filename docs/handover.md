@@ -219,10 +219,16 @@ already have working wizards.
 Boulevard: build against API version **2026-06** (OAuth2 app install), not the
 legacy 2020-01. Sandbox provisioning is manual — ask early.
 
-### Cyber / tech E&O insurance
+### Cyber / tech E&O insurance — declined
 
-With **explicit TCPA and statutory-privacy endorsements**. Standard policies
-exclude exactly these, which is the point. Earlier than feels necessary.
+Decided 21 September 2026 by the owner, against this file's recommendation
+and with the consequences stated: healdesk carries no liability insurance.
+Clinics whose procurement requires a certificate of insurance will be lost,
+and any claim, defence cost or breach-notification cost is paid from the
+company's own cash. What that decision can and cannot do is written up in the
+"Decisions log" below, item 10; the short version is that the contracts now
+limit liability to the legal minimum, and nothing further is available on
+paper. Do not re-raise this unless the owner does.
 
 ---
 
@@ -609,6 +615,22 @@ re-asking.
 7. **Meta — keep A everywhere, plus the booking hand-off** above.
 8. **The revenue gate** — explained to the owner in plain English; awaiting
    their call. The `revenue-gate-decision` task is the record.
+10. **Insurance — declined; "healdesk does not assume any responsibility".**
+   Recorded as the owner's decision, with what it means in practice. What the
+   paperwork can do, and now does: the terms and the BAA cap liability at
+   twelve months' fees with **no floor** (`POLICY.liabilityFloorUsd = 0`; the
+   BAA's `[$X]` is gone), exclude consequential damages, and say plainly that
+   healdesk carries no liability insurance so a practice can size its own
+   cover. The earlier draft line "backed by healdesk and by its insurance" was
+   removed because it would have been false. What no paperwork can do: HIPAA
+   makes a business associate responsible by statute, TCPA and CIPA claims
+   come from patients who signed nothing, and no US court enforces "we accept
+   no responsibility" against those. The code keeps doing the things that
+   reduce the odds (no outbound AI calls, recording disclosure, no
+   voiceprints, no clinical advice). Consequences accepted in writing:
+   clinics that require a certificate of insurance are lost; every claim is
+   paid from company cash; there is no retroactive date, so nothing that
+   happens before a policy is ever bound can be covered later.
 9. **Home state — the Stripe facts.** The seller is Viixi FZC, a UAE free
    zone company trading as healdesk. Governing law is Delaware by counsel's
    (this agent's) recommendation: a UAE entity has no US home state, US
@@ -616,7 +638,7 @@ re-asking.
    default clinic counsel expects. `ENTITY` in `apps/web/src/lib/legal.ts`
    and the constants in `packages/catalog/src/baa.ts`. Still missing: the
    registered address from the Stripe account, which keeps the legal pages'
-   draft banner up, and the liability floor.
+   draft banner up. The liability floor is decided: none (item 10).
 
 ### Incidents and patient rights
 

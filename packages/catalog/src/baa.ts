@@ -729,7 +729,9 @@ const ENTITY = "Viixi FZC";
 const ENTITY_FORM = "a free zone company incorporated in the United Arab Emirates, trading as healdesk";
 const NOTICE_ADDRESS = "[REGISTERED ADDRESS — from the Stripe account, Settings → Business details], legal@healdesk.io";
 const GOVERNING_STATE = "Delaware";
-const CAP_FLOOR = "[$X]";
+// No floor, by decision of 21 September 2026: the cap is twelve months' fees
+// and nothing more. healdesk carries no insurance, and a floor above the fees
+// would be a promise with nothing behind it.
 
 function byId(id: string): BaaClause {
   const clause = CLAUSES.find((c) => c.id === id);
@@ -1038,9 +1040,8 @@ const CLAUSES_1_1: readonly BaaClause[] = [
         `Neither party is liable to the other for lost profits or for indirect, ` +
           `incidental, special or consequential damages, however arising. Each party's ` +
           `total aggregate liability to the other under this agreement, across all ` +
-          `claims, is limited to the greater of twelve months' Fees paid or payable by ` +
-          `Practice in the twelve months before the event giving rise to the claim, or ` +
-          `${CAP_FLOOR}.`,
+          `claims, is limited to the Fees paid or payable by Practice in the twelve ` +
+          `months before the event giving rise to the claim.`,
       ) +
       "\n\n" +
       wrap(
@@ -1053,8 +1054,8 @@ const CLAUSES_1_1: readonly BaaClause[] = [
       wrap(
         `Practice should know that healdesk's own suppliers cap their liability to ` +
           `healdesk at figures far below this one. healdesk is not passing those caps ` +
-          `through — the commitment above is healdesk's own, backed by healdesk and by ` +
-          `its insurance.`,
+          `through — the commitment above is healdesk's own. healdesk does not carry ` +
+          `liability insurance; Practice should size its own cover accordingly.`,
       ),
   },
 

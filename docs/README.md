@@ -18,6 +18,8 @@ elective healthcare.
 | [onboarding-runbook.md](./onboarding-runbook.md) | Payment to first answered call: the ordered steps, who does each, how long, and what to automate first. |
 | [incident-response.md](./incident-response.md) | The BAA's two notification clocks as a procedure: classes, deadlines, who decides, what to preserve, the tabletop. |
 | [on-call.md](./on-call.md) | One page: the three signals, what to check first, how to restart the worker. |
+| [counsel-audit.md](./counsel-audit.md) | The six legal questions answered with the statute behind each: covered-entity status, CIPA recording, HIPAA marketing, the text-back's consent, sender identity, the public claims. |
+| [baa-v1.1.0-draft.txt](./baa-v1.1.0-draft.txt) | The BAA revision rendered for counsel review. Source of truth is `packages/catalog/src/baa.ts`, template `1.1.0-draft`; not offered to anyone until approved. |
 | [policies/](./policies/) | The administrative safeguards a business associate must have on paper: the named Security Official, access control, sanctions, and the training/access/review log. |
 | [archive/](./archive/) | The original working doc, preserved verbatim as the source these were split from. |
 

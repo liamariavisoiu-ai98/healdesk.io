@@ -57,6 +57,13 @@ const GOLDEN: Record<string, Record<string, string>> = {
     covered_outbound: "2237de75745e9d321cb40dd94d78a953c2aefb8b0f11250b746921a1cb459de2",
     covered_verified_boulevard: "a5ed2a49f75fe51738faa1b034478744d4c4be507568b4ef0abe804d9628514f",
   },
+  "1.1.0-draft": {
+    covered_estimated: "f4ebd68f8c5229102d0716acb68f510fb8c26cdc5365b4db87ce38674361987e",
+    notcovered_estimated: "e47178a8d270ba45c1c8a7619c246d4eb04b2c1d54121c0dc4d55101cb3e4056",
+    unknown_estimated: "cfabcf528cc2739e36d890a1225106a40349a28665a17131548f1c4fcdff8a08",
+    covered_outbound: "e9352f89977e5112ec095fac352e055663986f455407656f02153aca429c0411",
+    covered_verified_boulevard: "d150b907d63fac2c243736bf9c3fca1fe76f4f5bfe1b90f9ccd29182c910d515",
+  },
   "0.1.0-draft": {
     covered_estimated: "c3b3dd686657413921e674bed4a1bc3a38f14a5dfd1322c1f53657a2123c0e6b",
     notcovered_estimated: "36272d6588e9223a41b5ad4b390d4136172d4adb8569f87c29ba43b563b5bb97",

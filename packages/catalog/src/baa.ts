@@ -680,6 +680,447 @@ const CLAUSES: readonly BaaClause[] = [
 ];
 
 // -----------------------------------------------------------------------------
+// Version 1.1.0 — DRAFT. Not offered, not signable, not counsel-approved.
+// -----------------------------------------------------------------------------
+
+/**
+ * ⚖️ The revision the September 2026 review asked for, drafted so counsel
+ * reviews a document rather than a list. It is registered at BAA_TEMPLATES[1],
+ * BELOW 1.0.0, so nothing offers it: currentBaaTemplate() reads [0] and
+ * provisioning refuses an unapproved template anyway. When counsel signs off,
+ * the placeholders in square brackets are replaced with the five facts the
+ * owner supplies (entity, notice address, governing law, cap floor, refund
+ * window), approvedByCounsel flips, and the entry moves to [0] with new golden
+ * hashes. Until then the golden test freezes this draft too, so a stray edit
+ * is a failing test rather than a silent change to a document under review.
+ *
+ * What changed against 1.0.0, clause by clause, and why:
+ *
+ *   definitions      NEW. "Services", "Fees" and "Terms" by reference to the
+ *                    terms of service; 1.0.0 used words no document defined.
+ *   parties          The preamble names a legal entity, its form and state,
+ *                    and a notice address; "healdesk" alone was not a party.
+ *   practice status  The clinic is "Practice" throughout and NOTIFIES its
+ *                    covered-entity status; healdesk no longer "determines" it.
+ *   safeguards       Carves a patient's own chosen channel (a text or call
+ *                    they asked for) out of the encryption promise, narrowly.
+ *   reporting        One discovery standard (164.404(a)(2)), one five-calendar-
+ *                    day clock, and the report content 164.410(c) requires.
+ *   subcontractors   The covenant triggers on the regulation's four verbs
+ *                    (create, receive, maintain, transmit), not on healdesk
+ *                    "sending"; the model-retention sentence is a covenant
+ *                    healdesk can keep — no retention beyond the session
+ *                    except as the vendor's BAA permits, and never training.
+ *   own use          NEW. The standard grant for healdesk's management and
+ *                    administration and for data aggregation, drawn narrowly.
+ *   practice duties  NEW. Tell healdesk about restrictions, revocations and
+ *                    notice-of-privacy-practices limits (164.504(e)(2)(i)(A)).
+ *   minimum          NEW. Minimum necessary, both directions.
+ *   term             NEW. Term, termination for material breach with cure,
+ *                    and the 30-day return-or-destroy timeline with six-year
+ *                    retention of the disclosure record.
+ *   liability        Mutual indemnity, exclusion of consequential damages, an
+ *                    AGGREGATE cap of the greater of twelve months' Fees or
+ *                    [$X], and the carve-outs kept.
+ *   boilerplate      NEW. Notices, governing law and venue, change in law,
+ *                    interpretation, entire agreement as to PHI.
+ */
+const ENTITY = "[HEALDESK LEGAL ENTITY NAME]";
+const ENTITY_FORM = "[a Delaware limited liability company]";
+const NOTICE_ADDRESS = "[NOTICE ADDRESS], legal@healdesk.io";
+const GOVERNING_STATE = "[GOVERNING STATE]";
+const CAP_FLOOR = "[$X]";
+
+function byId(id: string): BaaClause {
+  const clause = CLAUSES.find((c) => c.id === id);
+  if (!clause) throw new Error(`No 1.0.0 clause ${id}`);
+  return clause;
+}
+
+const CLAUSES_1_1: readonly BaaClause[] = [
+  {
+    id: "definitions",
+    heading: "Definitions",
+    appliesWhen: ALWAYS,
+    body: (v) =>
+      wrap(
+        `"Practice" means ${v.clinicLegalName}. "healdesk" means ${ENTITY}, ${ENTITY_FORM}. ` +
+          `"Terms" means the healdesk Terms of Service at healdesk.io/terms as in force on ` +
+          `the effective date. "Services" and "Fees" have the meanings the Terms give ` +
+          `them. "Protected health information" (PHI), "breach", "unsecured PHI", ` +
+          `"security incident", "subcontractor" and "designated record set" have the ` +
+          `meanings given in 45 CFR Parts 160 and 164. "Business day" means a day other ` +
+          `than a Saturday, Sunday or United States federal holiday.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `This agreement governs PHI healdesk creates, receives, maintains or transmits ` +
+          `for Practice in the course of the Services. Where this agreement and the Terms ` +
+          `conflict about PHI, this agreement governs.`,
+      ),
+  },
+
+  {
+    id: "practice-status",
+    heading: "Practice's status",
+    appliesWhen: ALWAYS,
+    body: (v) => {
+      const notified =
+        v.isCoveredEntity === true
+          ? `Practice has notified healdesk that it transmits health information electronically in ` +
+            `connection with a transaction covered by HIPAA and is therefore a covered entity.`
+          : v.isCoveredEntity === false
+            ? `Practice has notified healdesk that it does NOT transmit health information ` +
+              `electronically in connection with a HIPAA-covered transaction, and may therefore not ` +
+              `be a covered entity.`
+            : `Practice has not yet notified healdesk whether it is a covered entity, and will do so ` +
+              `before any real patient information is processed.`;
+      return (
+        wrap(notified) +
+        "\n\n" +
+        wrap(
+          `Practice's status is Practice's determination, not healdesk's. Whatever it is, ` +
+            `healdesk applies the safeguards in this agreement, and this agreement is a ` +
+            `business associate agreement under 45 CFR 164.502(e) and 164.504(e) where Practice ` +
+            `is a covered entity, and a data-protection agreement on the same terms where it is ` +
+            `not. Practice will tell healdesk promptly if its status changes. Where Practice is ` +
+            `not a covered entity, state consumer-health-privacy law may apply to both parties ` +
+            `and in some states carries a private right of action; the FTC Health Breach ` +
+            `Notification Rule may apply to Practice.`,
+        )
+      );
+    },
+  },
+
+  byId("permitted-uses"),
+  byId("data-sources-verified"),
+  byId("data-sources-none"),
+
+  {
+    id: "own-use",
+    heading: "healdesk's own use, and data aggregation",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `healdesk may use PHI for its own proper management and administration and to ` +
+          `carry out its legal responsibilities, and may disclose it for those purposes ` +
+          `only where the law requires the disclosure, or where healdesk has obtained ` +
+          `reasonable assurances from the recipient that the PHI will be held ` +
+          `confidentially, used or further disclosed only as required by law or for the ` +
+          `purpose it was disclosed for, and that the recipient will notify healdesk of ` +
+          `any breach of its confidentiality. 45 CFR 164.504(e)(4).`,
+      ) +
+      "\n\n" +
+      wrap(
+        `healdesk may combine Practice's PHI with that of other practices only to ` +
+          `produce de-identified, aggregate statistics about the Services (for example, ` +
+          `what fraction of after-hours calls are answered). It will not use PHI to ` +
+          `train, fine-tune or evaluate any model, and nothing in this clause permits ` +
+          `it to.`,
+      ),
+  },
+
+  {
+    id: "practice-duties",
+    heading: "What Practice will tell healdesk",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(`Practice will tell healdesk, promptly and in writing:`) +
+      "\n\n" +
+      wrap(
+        `a. of any limitation in its notice of privacy practices that affects how ` +
+          `healdesk may use or disclose PHI;`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `b. of any change to, or revocation of, a patient's permission to use or ` +
+          `disclose PHI, where it affects healdesk;`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `c. of any restriction on the use or disclosure of PHI that Practice has agreed ` +
+          `to under 45 CFR 164.522, where it affects healdesk.`,
+        "    ",
+        "       ",
+      ) +
+      "\n\n" +
+      wrap(
+        `Practice will not ask healdesk to use or disclose PHI in a way that would not be ` +
+          `permissible under the HIPAA Privacy Rule if done by Practice.`,
+      ),
+  },
+
+  {
+    id: "safeguards",
+    heading: "Safeguards",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `healdesk will use appropriate administrative, physical and technical ` +
+          `safeguards to prevent any use or disclosure of PHI this agreement does not ` +
+          `permit, and will comply with Subpart C of 45 CFR Part 164 — the HIPAA ` +
+          `Security Rule — in respect of electronic PHI.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `PHI is held on United States infrastructure and encrypted at rest. In transit ` +
+          `it is encrypted wherever healdesk controls both ends, and healdesk will not ` +
+          `transmit PHI over a channel that cannot negotiate encryption — email included. ` +
+          `Where a message cannot be delivered securely healdesk will fail the delivery ` +
+          `and tell Practice, rather than send it in the clear.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `One narrow exception: a patient who telephones, or who asks to be reached by ` +
+          `text message at a number they gave, has chosen that channel, and a telephone ` +
+          `call or an SMS is not end-to-end encrypted. healdesk may answer a call and may ` +
+          `send an appointment confirmation, reminder or missed-call follow-up by SMS to ` +
+          `a number the patient supplied for that purpose, limited to the minimum ` +
+          `necessary and never including clinical detail, test results or payment ` +
+          `information. This exception does not extend to any other channel or content.`,
+      ),
+  },
+
+  {
+    id: "minimum-necessary",
+    heading: "Minimum necessary",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `Each party will limit its use, disclosure and requests of PHI to the minimum ` +
+          `necessary to accomplish the purpose, consistent with 45 CFR 164.502(b). ` +
+          `healdesk's agent asks a caller for no more than is needed to book, message or ` +
+          `route them; it does not ask for a diagnosis, a history or a reason beyond the ` +
+          `service requested.`,
+      ),
+  },
+
+  {
+    id: "reporting",
+    heading: "Reporting breaches and security incidents",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(`healdesk will report to Practice, in writing to the address in the Notices clause:`) +
+      "\n\n" +
+      wrap(
+        `a. any use or disclosure of PHI not permitted by this agreement, within five ` +
+          `business days of healdesk becoming aware of it;`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `b. any breach of unsecured PHI, without unreasonable delay and in no case later ` +
+          `than five calendar days after discovery. A breach is treated as discovered on ` +
+          `the first day it is known, or by exercising reasonable diligence would have ` +
+          `been known, to healdesk or to any person other than the one committing it who ` +
+          `is healdesk's workforce member or agent, as 45 CFR 164.410(a)(2) provides. ` +
+          `Five days is deliberately far inside the sixty the regulation allows, because ` +
+          `Practice's own sixty-day clock to notify patients may run from healdesk's ` +
+          `discovery, not from healdesk's report;`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `c. any security incident, within five business days of becoming aware of it — ` +
+          `except routine unsuccessful attempts that compromised nothing, such as blocked ` +
+          `sign-ins, port scans and filtered traffic, which the parties agree this clause ` +
+          `reports once, here, and which healdesk will summarise on request.`,
+        "    ",
+        "       ",
+      ) +
+      "\n\n" +
+      wrap(
+        `A breach report will include, to the extent known and supplemented as learned: ` +
+          `the identification of each individual whose unsecured PHI was or is reasonably ` +
+          `believed to have been accessed, acquired, used or disclosed; a description of ` +
+          `what happened, including the dates of the breach and of its discovery; the ` +
+          `types of PHI involved; what healdesk is doing to investigate, mitigate and ` +
+          `prevent recurrence; and a contact. 45 CFR 164.410(c). healdesk will bear the ` +
+          `reasonable cost of notifying patients and regulators about a breach it caused.`,
+      ),
+  },
+
+  {
+    id: "subcontractors",
+    heading: "Subcontractors",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `healdesk uses subcontractors to deliver the Services — telephony, speech ` +
+          `recognition, language models, hosting and email among them. healdesk will ` +
+          `ensure that any subcontractor that creates, receives, maintains or transmits ` +
+          `PHI on healdesk's behalf agrees in writing, before it does so, to the same ` +
+          `restrictions and conditions this agreement places on healdesk, and to comply ` +
+          `with the HIPAA Security Rule, under a contract meeting 45 CFR 164.314(a) and ` +
+          `164.504(e)(5). healdesk remains answerable to Practice for its ` +
+          `subcontractors' acts and omissions with that PHI.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Language models are used to understand a caller and answer them during a ` +
+          `conversation, under a business associate agreement with the model provider. ` +
+          `healdesk does not permit, and its provider agreements prohibit, the use of PHI ` +
+          `to train or improve any model, and healdesk configures each provider to retain ` +
+          `conversation content no longer than that provider's agreement with healdesk ` +
+          `requires for abuse detection and security, and never for any other purpose.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `healdesk keeps a current list of these subcontractors at ` +
+          `healdesk.io/subprocessors and will give Practice at least fifteen days' notice ` +
+          `by email before adding one that will handle PHI. If Practice objects on ` +
+          `reasonable grounds before the change takes effect, Practice may terminate ` +
+          `under the Term clause without penalty.`,
+      ),
+  },
+
+  byId("patient-rights"),
+  byId("acting-in-your-place"),
+  byId("outbound-consent"),
+  byId("reactivation-gate"),
+  byId("prohibited"),
+
+  {
+    id: "term",
+    heading: "Term, termination, and what happens to the information",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `This agreement takes effect on the effective date and continues for as long as ` +
+          `healdesk holds any PHI for Practice. Either party may terminate it on written ` +
+          `notice if the other materially breaches it and does not cure the breach within ` +
+          `thirty days of being told of it in writing; where cure is not possible, on ` +
+          `notice. Practice may also terminate under the subcontractor-objection right ` +
+          `above. Ending the Services ends this agreement, subject to the rest of this ` +
+          `clause.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Within thirty days of termination healdesk will return or destroy all PHI it ` +
+          `holds for Practice and retain no copies, and will give Practice, on request ` +
+          `before that date, an export of the PHI it holds in a usable electronic form. ` +
+          `Where return or destruction is not feasible, healdesk will say why in writing, ` +
+          `extend the protections of this agreement to that PHI for as long as it is ` +
+          `held, and limit further use to what makes return or destruction infeasible.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Two records survive termination: the signed copy of this agreement, and the ` +
+          `record of disclosures needed to answer an accounting request, each kept for ` +
+          `six years from termination as 45 CFR 164.530(j) and 164.528 require. Neither ` +
+          `contains more PHI than the record itself needs.`,
+      ),
+  },
+
+  {
+    id: "liability",
+    heading: "Liability, and who indemnifies whom",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `healdesk will defend and indemnify Practice against third-party claims, ` +
+          `regulatory penalties and reasonable notification costs to the extent they ` +
+          `arise from healdesk's, or its subcontractors', breach of this agreement or ` +
+          `violation of HIPAA. Practice will defend and indemnify healdesk against ` +
+          `third-party claims and regulatory penalties to the extent they arise from ` +
+          `Practice's breach of its warranties in the Outbound contact clause, from ` +
+          `instructions Practice gave that healdesk followed, or from Practice's own ` +
+          `violation of HIPAA or of state consumer-health-privacy law.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Neither party is liable to the other for lost profits or for indirect, ` +
+          `incidental, special or consequential damages, however arising. Each party's ` +
+          `total aggregate liability to the other under this agreement, across all ` +
+          `claims, is limited to the greater of twelve months' Fees paid or payable by ` +
+          `Practice in the twelve months before the event giving rise to the claim, or ` +
+          `${CAP_FLOOR}.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Those limits do NOT apply to a party's wilful misconduct or gross negligence, ` +
+          `to healdesk's obligation to bear the cost of notifying patients and regulators ` +
+          `about a breach it caused, or to either party's indemnity obligations for ` +
+          `third-party claims above.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Practice should know that healdesk's own suppliers cap their liability to ` +
+          `healdesk at figures far below this one. healdesk is not passing those caps ` +
+          `through — the commitment above is healdesk's own, backed by healdesk and by ` +
+          `its insurance.`,
+      ),
+  },
+
+  byId("records-to-hhs"),
+
+  {
+    id: "notices-and-law",
+    heading: "Notices, governing law, and interpretation",
+    appliesWhen: ALWAYS,
+    body: (v) =>
+      wrap(
+        `Notices under this agreement are in writing. To healdesk: ${NOTICE_ADDRESS}. ` +
+          `To Practice: the email address of the signatory below, and any notice address ` +
+          `Practice later gives healdesk in writing. Breach reports may additionally be ` +
+          `given by telephone to Practice, but the written notice is the notice.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `This agreement is governed by the laws of the State of ${GOVERNING_STATE} and by ` +
+          `HIPAA, without regard to conflict-of-laws rules, and the parties submit to the ` +
+          `courts of that State. Any ambiguity is resolved in favour of a meaning that ` +
+          `permits compliance with HIPAA. A reference to a section of HIPAA or of a ` +
+          `regulation means that section as amended, and if a change in law requires a ` +
+          `change to this agreement, the parties will agree it in good faith within ` +
+          `thirty days of either asking, failing which either may terminate under the ` +
+          `Term clause. If any provision is unenforceable the rest stands.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `This agreement, the Terms and the order Practice placed are the entire ` +
+          `agreement between ${v.clinicLegalName} and ${ENTITY} about PHI, and replace ` +
+          `any earlier version of this agreement between them from the effective date ` +
+          `forward; PHI already held is governed by this version from that date.`,
+      ),
+  },
+];
+
+/** The 1.1.0 preamble: names a legal party, and says it is a draft while it is one. */
+function draftPreamble110(v: BaaVariables): string {
+  const title = v.signatoryTitle?.trim() ? `, ${v.signatoryTitle.trim()}` : "";
+  return [
+    `HEALDESK BUSINESS ASSOCIATE AGREEMENT`,
+    `Version 1.1.0 — DRAFT FOR COUNSEL REVIEW — NOT FOR EXECUTION`,
+    ``,
+    `This Agreement is entered into under 45 CFR 164.502(e) and 164.504(e) and`,
+    `takes effect on the date below. It governs Protected Health Information`,
+    `that healdesk creates, receives, maintains or transmits for Practice in the`,
+    `course of the Services defined in the Terms.`,
+    ``,
+    `BETWEEN`,
+    `  ${v.clinicLegalName} ("Practice"), a ${v.specialty.toLowerCase()} practice`,
+    `  ${ENTITY}, ${ENTITY_FORM} ("healdesk"), of ${NOTICE_ADDRESS}`,
+    ``,
+    `SIGNED FOR PRACTICE BY`,
+    `  ${v.signatoryName}${title}`,
+    `  ${v.signatoryEmail}`,
+    ``,
+    `ACCEPTED FOR HEALDESK BY`,
+    `  [NAME, TITLE] — healdesk's acceptance is given by its countersignature`,
+    `  record, sent to the signatory's email with the executed copy.`,
+    ``,
+    `EFFECTIVE ${formatDate(v.effectiveDate)}`,
+  ].join("\n");
+}
+
+// -----------------------------------------------------------------------------
 // Templates
 // -----------------------------------------------------------------------------
 
@@ -740,13 +1181,26 @@ function preamble(v: BaaVariables): string {
 }
 
 export const BAA_TEMPLATES: readonly BaaTemplate[] = [
-  // Newest first — CURRENT_BAA_VERSION and currentBaaTemplate() both read [0].
+  // Newest APPROVED first — CURRENT_BAA_VERSION and currentBaaTemplate() both
+  // read [0], so the counsel-approved version stays at [0] until its
+  // successor is approved too.
   {
     version: "1.0.0",
     publishedOn: "2026-09-05",
     approvedByCounsel: true,
     preamble: approvedPreamble,
     clauses: CLAUSES,
+  },
+  // ⚖️ The revision under review. Registered so it is frozen by the golden
+  // test and renderable for counsel (`renderBaa(getBaaTemplate("1.1.0-draft"),
+  // …)`), never offered: it is not at [0] and approvedByCounsel is false, and
+  // provisioning refuses an unapproved template regardless.
+  {
+    version: "1.1.0-draft",
+    publishedOn: "2026-09-21",
+    approvedByCounsel: false,
+    preamble: draftPreamble110,
+    clauses: CLAUSES_1_1,
   },
   // Retained, not deleted. Accounts that signed this signed THIS text, and
   // their stored hash must keep reproducing from it — that reproducibility is

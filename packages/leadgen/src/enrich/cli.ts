@@ -900,6 +900,10 @@ async function main(): Promise<void> {
   // buildHook asserts something observed, and for these we observed nothing.
   // See unreadable.ts. One touch, not four.
   const unreadable: Record<string, string>[] = [];
+  // Readable but not yet classified. They are not sendable and they are not
+  // unreadable; they are waiting, and the run says so rather than quietly
+  // dropping them from every output.
+  let pendingClassification = 0;
   for (const label of labels) {
     if (label.segment !== "unknown") continue;
     const clinic = byId.get(label.clinicId);
@@ -907,6 +911,22 @@ async function main(): Promise<void> {
     if (!clinic || !contact?.email) continue;
 
     const crawl = crawlById.get(clinic.id);
+
+    // "unknown" covers two states that have nothing to do with each other: a
+    // site we could not read, and a site we read fine but have not classified
+    // yet. Only the first belongs here.
+    //
+    // Batch 2 made the difference concrete. 2,771 clinics crawled at 94% and
+    // were then deferred by --max-llm 0, and every one landed in this file
+    // being told "I went to look at your site but couldn't find much on it" —
+    // of a page we had just read 33 links off. A recipient checks that in one
+    // click, and it is the single claim in the whole corpus they are most
+    // certain to check.
+    const readable = !crawl?.error && (crawl?.text?.length ?? 0) >= 200;
+    if (readable) {
+      pendingClassification += 1;
+      continue;
+    }
     const reason = crawl?.error ? "no pages fetched" : "too little text";
     const row = buildUnreadableRow(clinic, contact, reason as never);
 
@@ -928,6 +948,13 @@ async function main(): Promise<void> {
       website: clinic.website,
       clinic_id: clinic.id,
     });
+  }
+
+  if (pendingClassification) {
+    console.log(
+      `\n  ${pendingClassification} clinics crawled fine but are not classified yet, ` +
+        `so they are in no list. Classify them, then re-run.`,
+    );
   }
 
   if (unreadable.length) {

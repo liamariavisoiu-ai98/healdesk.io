@@ -1,7 +1,7 @@
 healdesk Business Associate Agreement — version 1.1.0 DRAFT, rendered 21 September 2026 for counsel review.
-Rendered for a sample practice (covered-entity status: not yet notified; outbound messaging: on). The entity, its form and
-the governing law are now real (Viixi FZC, UAE free zone company, Delaware). Square-bracketed items are the two facts
-still missing: the registered address (from the Stripe account) and the liability floor. Source: packages/catalog/src/baa.ts.
+Rendered for a sample practice (covered-entity status: not yet notified; outbound messaging: on). The entity, its form,
+the governing law and the liability cap (twelve months' fees, no floor, no insurance) are real. The one square-bracketed
+item left is the registered address, from the Stripe account. Source: packages/catalog/src/baa.ts, template 1.1.0-draft.
 
 HEALDESK BUSINESS ASSOCIATE AGREEMENT
 Version 1.1.0 — DRAFT FOR COUNSEL REVIEW — NOT FOR EXECUTION
@@ -296,9 +296,8 @@ EFFECTIVE 13 September 2026
   Neither party is liable to the other for lost profits or for indirect,
   incidental, special or consequential damages, however arising. Each party's
   total aggregate liability to the other under this agreement, across all
-  claims, is limited to the greater of twelve months' Fees paid or payable by
-  Practice in the twelve months before the event giving rise to the claim, or
-  [$X].
+  claims, is limited to the Fees paid or payable by Practice in the twelve
+  months before the event giving rise to the claim.
 
   Those limits do NOT apply to a party's wilful misconduct or gross
   negligence, to healdesk's obligation to bear the cost of notifying patients
@@ -307,8 +306,8 @@ EFFECTIVE 13 September 2026
 
   Practice should know that healdesk's own suppliers cap their liability to
   healdesk at figures far below this one. healdesk is not passing those caps
-  through — the commitment above is healdesk's own, backed by healdesk and by
-  its insurance.
+  through — the commitment above is healdesk's own. healdesk does not carry
+  liability insurance; Practice should size its own cover accordingly.
 
 18. AVAILABILITY OF RECORDS
 

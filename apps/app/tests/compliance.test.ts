@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import {
   HEALTHCARE_EXEMPTION,
+  OUTBOUND_CONTACT_ENABLED,
   canContact,
   isStopRequest,
   recordAttempt,
@@ -72,11 +73,14 @@ describe("stop request detection", () => {
 });
 
 describe("disclosure", () => {
-  test("the voice opener states AI, recording AND transcription", () => {
+  test("the voice opener states AI, transcription, and that no audio is kept", () => {
     const text = voiceDisclosure({ clinicName: "Radiance", channel: "voice" });
 
     expect(text).toMatch(/not a human/i);
-    expect(text).toMatch(/recorded/i);
+    // No audio is kept (21 September 2026): the opener must say so and must
+    // not claim the call is recorded.
+    expect(text).toMatch(/no audio recording is kept/i);
+    expect(text).not.toMatch(/is recorded/i);
     // Transcription specifically: the CIPA exposure in Ambriz is about a third
     // party intercepting call CONTENTS, which disclosing "recording" alone
     // does not describe.
@@ -135,6 +139,7 @@ describeDb("contact policy", () => {
 
     const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
       canContact(tx.db, {
+        policyOnly: true,
         clinicId: clinic.clinicId,
         phone: PHONE,
         channel: "voice",
@@ -154,6 +159,7 @@ describeDb("contact policy", () => {
 
     const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
       canContact(tx.db, {
+        policyOnly: true,
         clinicId: clinic.clinicId,
         phone: PHONE,
         channel: "voice",
@@ -174,6 +180,7 @@ describeDb("contact policy", () => {
 
     const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
       canContact(tx.db, {
+        policyOnly: true,
         clinicId: clinic.clinicId,
         phone: PHONE,
         channel: "voice",
@@ -195,6 +202,7 @@ describeDb("contact policy", () => {
 
     const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
       canContact(tx.db, {
+        policyOnly: true,
         clinicId: clinic.clinicId,
         phone: PHONE,
         channel: "voice",
@@ -221,6 +229,7 @@ describeDb("contact policy", () => {
 
     const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
       canContact(tx.db, {
+        policyOnly: true,
         clinicId: clinic.clinicId,
         phone: PHONE,
         channel: "voice",
@@ -259,6 +268,7 @@ describeDb("contact policy", () => {
         { clinicId: clinic.clinicId, actor },
         (tx) =>
           canContact(tx.db, {
+        policyOnly: true,
             clinicId: clinic.clinicId,
             phone: PHONE,
             channel,
@@ -288,6 +298,7 @@ describeDb("contact policy", () => {
 
     const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
       canContact(tx.db, {
+        policyOnly: true,
         clinicId: clinic.clinicId,
         phone: PHONE,
         channel: "voice",
@@ -319,6 +330,7 @@ describeDb("contact policy", () => {
 
     const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
       canContact(tx.db, {
+        policyOnly: true,
         clinicId: clinic.clinicId,
         phone: PHONE,
         channel: "voice",
@@ -337,6 +349,7 @@ describeDb("contact policy", () => {
 
     const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
       canContact(tx.db, {
+        policyOnly: true,
         clinicId: clinic.clinicId,
         phone: PHONE,
         channel: "voice",
@@ -354,6 +367,7 @@ describeDb("contact policy", () => {
 
     const westCoast = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
       canContact(tx.db, {
+        policyOnly: true,
         clinicId: clinic.clinicId,
         phone: PHONE,
         channel: "voice",
@@ -372,6 +386,7 @@ describeDb("contact policy", () => {
     for (const timezone of [null, "Not/AZone"]) {
       const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
         canContact(tx.db, {
+        policyOnly: true,
           clinicId: clinic.clinicId,
           phone: PHONE,
           channel: "voice",
@@ -399,6 +414,7 @@ describeDb("contact policy", () => {
 
     const decision = await withTenant({ clinicId: b.clinicId, actor }, (tx) =>
       canContact(tx.db, {
+        policyOnly: true,
         clinicId: b.clinicId,
         phone: PHONE,
         channel: "voice",
@@ -435,5 +451,19 @@ describeDb("contact policy", () => {
     } finally {
       await app.end();
     }
+  });
+});
+
+describe("inbound-only", () => {
+  test("the product-wide switch is off, and the gate refuses before reading anything", async () => {
+    expect(OUTBOUND_CONTACT_ENABLED).toBe(false);
+    const decision = await canContact(null as never, {
+      clinicId: "00000000-0000-0000-0000-000000000000",
+      phone: "+14155550100",
+      channel: "sms",
+      purpose: "transactional",
+      recipientTimezone: "America/Los_Angeles",
+    });
+    expect(decision).toMatchObject({ allowed: false, code: "outbound_disabled" });
   });
 });

@@ -57,7 +57,7 @@ describeDb("retention purge", () => {
     const fresh = await seedConversation(a.clinicId, { startedAt: new Date(now.getTime() - 10 * DAY) });
     await inTenant(a.clinicId, async (client) => {
       await client.query(
-        `update conversations set transcript_uri = 's3://t/' || id, recording_uri = 's3://r/' || id`,
+        `update conversations set transcript_uri = 's3://t/' || id`,
       );
       // The factory stamps contacts with now(); an 800-day-old booking's
       // contact was last touched 800 days ago.

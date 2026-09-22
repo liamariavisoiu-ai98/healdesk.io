@@ -175,7 +175,8 @@ export function AgreementStep({
       isCoveredEntity: coveredEntity,
       attributionMode,
       connectedPlatform: platformName,
-      outboundMessaging: true,
+      // Inbound-only (21 September 2026): no consent warranty is asked of the clinic.
+      outboundMessaging: false,
     });
   }, [
     clinicName,

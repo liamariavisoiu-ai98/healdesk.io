@@ -35,7 +35,20 @@ export type ContactDecision =
   | { allowed: true; basis: string }
   | { allowed: false; reason: string; code: ContactRefusalCode };
 
+/**
+ * Inbound-only, by decision of 21 September 2026.
+ *
+ * healdesk places no calls and sends no texts to patients: no reminders, no
+ * missed-call callbacks, no reactivation. The gate below is kept because it
+ * is correct and because a future owner may reverse the decision; while this
+ * is false it refuses every request before reading a single row, so no code
+ * path can contact a patient by forgetting to check. Nothing in the product
+ * calls `canContact()` today — this is the guard for the day something does.
+ */
+export const OUTBOUND_CONTACT_ENABLED = false;
+
 export type ContactRefusalCode =
+  | "outbound_disabled"
   | "suppressed"
   | "no_consent"
   | "needs_written_consent"
@@ -141,9 +154,23 @@ export async function canContact(
      */
     recipientTimezone: string | null;
     now?: Date;
+    /**
+     * Evaluate the consent, cap and quiet-hours rules without authorising a
+     * contact. For tests of those rules only; a caller that intends to send
+     * never sets it, and the product-wide switch above still answers first.
+     */
+    policyOnly?: boolean;
   },
 ): Promise<ContactDecision> {
   const now = input.now ?? new Date();
+
+  if (!OUTBOUND_CONTACT_ENABLED && !input.policyOnly) {
+    return {
+      allowed: false,
+      code: "outbound_disabled",
+      reason: "healdesk is inbound-only: it places no calls and sends no texts to patients.",
+    };
+  }
 
   // 1. Suppression. Unconditional, and checked first — it outranks everything,
   //    including a consent record signed five minutes ago.

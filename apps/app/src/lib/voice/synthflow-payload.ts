@@ -6,7 +6,7 @@ import type { VoiceCallEvent } from "./ingest";
  * ## What this trusts, and what it does not
  *
  * The payload supplies OBSERVABLE facts: the call id, the caller's number,
- * when it started and ended, the recording and transcript links, and the
+ * when it started and ended, the transcript link, and the
  * variables the agent extracted during the call. It does not supply a verdict
  * on whether the call was "missed": the vendor knows the agent answered, not
  * whether a human would have. `ingestCall()` decides that from the clinic's
@@ -131,11 +131,16 @@ export function readSynthflowPayload(raw: unknown, clinicId: string): VoiceCallE
     disclosurePlayedAt: when(vars.disclosure_played_at, call.disclosure_played_at) ?? startedAt,
     recordingOptOut: bool(vars.recording_opt_out) ?? false,
     transcriptUri: str(call.transcript_url, call.transcript_uri),
-    recordingUri: str(call.recording_url, call.recording_uri),
+    // `recording_url` is deliberately not read: no audio reference is kept
+    // (decision of 21 September 2026). The vendor's recording storage is
+    // switched off in its console; if a URL still arrives, it is ignored.
     booking:
       outcome === "booked" && bookedFor
         ? {
             scheduledFor: bookedFor,
+            // The window in the caller's own words, when the agent captured
+            // it; the desk reads this before the extracted time.
+            preferredWindow: str(vars.preferred_window, vars.preferred_time),
             treatment: str(vars.booked_treatment, vars.treatment_interest),
             externalId: str(vars.booking_id),
             externalSource: str(vars.booking_source),

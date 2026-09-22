@@ -245,11 +245,11 @@ export async function signAgreement(
       request.platform === NO_PLATFORM_ID
         ? null
         : (getPlatform(request.platform)?.name ?? null),
-    // Always on today: reminders and missed-call follow-ups are the product.
-    // Modelled as a selection anyway so that a clinic which later declines
-    // outbound messaging gets an agreement without the consent warranty,
-    // rather than one that warrants something they never agreed to do.
-    outboundMessaging: true,
+    // Off, by decision of 21 September 2026: healdesk is inbound-only and
+    // places no calls and sends no texts to patients. The clinic therefore
+    // gives no consent warranty, and the outbound clause is omitted. Kept as a
+    // selection so the agreement can carry it again if the decision changes.
+    outboundMessaging: false,
   };
 
   /**

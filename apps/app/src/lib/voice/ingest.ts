@@ -1,11 +1,13 @@
 import { isAfterHours, parseOpeningHours } from "@/lib/clinic/opening-hours";
 import { toE164 } from "@healdesk/connectors";
-import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 
-import type { Transaction } from "@/db";
-import { agentConfigs, appointments, clinics, contacts, conversations } from "@/db/schema";
-import type { ActorContext } from "@/lib/audit";
+import { unsafeDb, type Transaction } from "@/db";
+import { bookingRequests, clinics, contacts, conversations } from "@/db/schema";
+import { recordSecurityEvent, type ActorContext } from "@/lib/audit";
+import { createBookingRequest, notifyDesk } from "@/lib/meta/booking-requests";
 import { observeForwardingCall } from "@/lib/onboarding/forwarding-test";
+import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
 /**
@@ -60,7 +62,10 @@ export type VoiceCallEvent = {
    */
   rangAtClinicFirst?: boolean;
   clinicLineBusy?: boolean;
-  /** True when WE placed the call back to a number that rang out earlier. */
+  /**
+   * True when the vendor says the agent placed this call. healdesk is
+   * inbound-only, so `ingestCall()` refuses such a call outright.
+   */
   isCallback?: boolean;
   outcome?:
     | "booked"
@@ -74,8 +79,8 @@ export type VoiceCallEvent = {
   disclosurePlayedAt?: Date;
   recordingOptOut?: boolean;
   responseLatencySeconds?: number;
+  /** A transcript reference. Never audio: no recording is kept (21 September 2026). */
   transcriptUri?: string;
-  recordingUri?: string;
   /**
    * What the agent actually booked, when `outcome` is "booked".
    *
@@ -90,7 +95,10 @@ export type VoiceCallEvent = {
    * index instead of creating a duplicate beside it.
    */
   booking?: {
+    /** The time the agent extracted. The desk confirms; this is a request. */
     scheduledFor: Date;
+    /** The window in the caller's own words, when the agent captured it. */
+    preferredWindow?: string;
     treatment?: string;
     providerName?: string;
     /** The booking platform's id for the appointment we created. */
@@ -112,8 +120,12 @@ export type IngestResult = {
   conversationId: string;
   recoveryReason: RecoveryReason | null;
   duplicate: boolean;
-  /** The appointment this call produced, where it produced one. */
-  appointmentId: string | null;
+  /**
+   * The booking request this call produced, where it produced one. Never an
+   * appointment: the agent semi-confirms only, and the appointment row is
+   * created when the desk confirms a slot (lib/meta/booking-requests.ts).
+   */
+  bookingRequestId: string | null;
 };
 
 type RecoveryReason =
@@ -231,54 +243,39 @@ function isOutsideOpeningHours(
  * are the whole point: every one of them is a case where writing a row would
  * put a booking into the clinic's monthly figure that we cannot stand behind.
  */
-export function bookingRowFrom(
+export function bookingRequestFrom(
   event: VoiceCallEvent,
-  conversationId: string,
   contactId: string | null,
-): {
-  conversationId: string;
-  contactId: string;
-  scheduledFor: Date;
-  treatment: string | null;
-  providerName: string | null;
-  depositUsd: string | null;
-  externalAppointmentId: string | null;
-  externalSource: string | null;
-} | null {
+  clinicTimezone: string,
+): { preferredWindow: string; treatment: string | null } | null {
   // Refusal 1: the call did not book. An agent that qualified someone without
   // booking them has done useful work, and it is not a booking.
   if (event.outcome !== "booked") return null;
 
-  // Refusal 2: it booked, but we were told nothing about what. An appointment
-  // row with no time is not evidence; report.ts counts rows, so a hollow one
-  // inflates the figure exactly as much as a real one.
+  // Refusal 2: it "booked", but we were told nothing about when. A request
+  // with no window gives the desk nothing to confirm.
   if (!event.booking) return null;
 
-  // Refusal 3: we do not know who. appointments.contact_id is NOT NULL, and
-  // inventing a contact to satisfy it would put a stranger in the clinic's
-  // records. A caller who withheld their number gets no row.
+  // Refusal 3: we do not know who. booking_requests.contact_id is NOT NULL,
+  // and inventing a contact to satisfy it would put a stranger in the
+  // clinic's records. A caller who withheld their number gets no request.
   if (!contactId) return null;
 
-  const external = event.booking.externalId?.trim() || null;
-  const source = event.booking.externalSource?.trim() || null;
-
-  return {
-    conversationId,
-    contactId,
-    scheduledFor: event.booking.scheduledFor,
-    treatment: event.booking.treatment ?? null,
-    providerName: event.booking.providerName ?? null,
-    depositUsd: event.booking.depositUsd ?? null,
-    // Both or neither, enforced in both directions. An id with no source is
-    // the worse half: it satisfies the partial index predicate but, because
-    // NULLs never conflict, no sync can ever land on it — upsertAppointments
-    // filters on external_source = <provider>. The row would then sit there
-    // permanently unconfirmed while the next sync inserted a second row for the
-    // same real visit, and the report would tell the clinic we authored a
-    // booking their own system had in fact reported back.
-    externalAppointmentId: source ? external : null,
-    externalSource: external ? source : null,
-  };
+  // The window as the caller said it, when the agent captured it; otherwise
+  // the time the agent extracted, written in the clinic's own clock so the
+  // desk reads "Tue 24 Sep, 2:00 PM" and not a UTC instant.
+  const said = event.booking.preferredWindow?.trim().replace(/\s+/g, " ").slice(0, 120);
+  const preferredWindow =
+    said ||
+    event.booking.scheduledFor.toLocaleString("en-US", {
+      timeZone: clinicTimezone,
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  return { preferredWindow, treatment: event.booking.treatment?.trim().slice(0, 120) || null };
 }
 
 export function classifyBooking(
@@ -300,9 +297,25 @@ export function classifyBooking(
 export async function ingestCall(
   event: VoiceCallEvent,
   actor: ActorContext = { type: "agent", serviceName: "voice-ingest" },
+  deps: { transport?: EmailTransport } = {},
 ): Promise<IngestResult> {
   if (!event.externalCallId?.trim()) {
     throw new VoiceIngestError("A call id is required for idempotency.");
+  }
+
+  // Inbound-only (21 September 2026). healdesk places no calls, so a call the
+  // vendor flags as placed by the agent is a misconfiguration on the vendor
+  // side, not a call to record: refused before any row is written, and
+  // visible as a security event so the operator switches the feature off.
+  if (event.isCallback) {
+    await recordSecurityEvent(unsafeDb, {
+      event: "outbound_call_refused",
+      actorLabel: "label" in actor ? actor.label : "serviceName" in actor ? actor.serviceName : actor.type,
+      metadata: { clinicId: event.clinicId, externalCallId: event.externalCallId.trim() },
+    });
+    throw new VoiceIngestError(
+      "Refused: healdesk is inbound-only and this call is flagged as placed by the agent. Disable callbacks in the voice vendor.",
+    );
   }
 
   return withTenant({ clinicId: event.clinicId, actor }, async (tx) => {
@@ -320,14 +333,6 @@ export async function ingestCall(
 
     if (!clinic) throw new VoiceIngestError("Unknown clinic.");
 
-    // The clinic's deposit rule, as the agent stated it on the call. With no
-    // payment link path yet, a required deposit is owed to the front desk.
-    const [agent] = await tx.db
-      .select({ depositPolicy: agentConfigs.depositPolicy })
-      .from(agentConfigs)
-      .where(eq(agentConfigs.clinicId, event.clinicId))
-      .limit(1);
-    const depositPolicy = agent?.depositPolicy ?? null;
 
     const recoveryReason = classifyRecovery(event, {
       callRouting: clinic.callRouting,
@@ -349,7 +354,6 @@ export async function ingestCall(
         outcome: event.outcome ?? null,
         treatmentInterest: event.treatmentInterest ?? null,
         transcriptUri: event.transcriptUri ?? null,
-        recordingUri: event.recordingUri ?? null,
         disclosurePlayedAt: event.disclosurePlayedAt ?? null,
         recordingOptOut: event.recordingOptOut ?? false,
         responseLatencySeconds: event.responseLatencySeconds ?? null,
@@ -389,25 +393,19 @@ export async function ingestCall(
         .limit(1);
 
       // A retrying vendor must get the same answer, including the same
-      // appointment. Looking it up rather than returning null keeps the reply
-      // truthful, and re-inserting would double-count the one figure the
-      // clinic judges us on.
-      const [priorAppointment] = await tx.db
-        .select({ id: appointments.id })
-        .from(appointments)
-        .where(
-          and(
-            eq(appointments.clinicId, event.clinicId),
-            eq(appointments.conversationId, existing!.id),
-          ),
-        )
+      // request. Looking it up rather than returning null keeps the reply
+      // truthful, and re-inserting would ask the desk twice.
+      const [priorRequest] = await tx.db
+        .select({ id: bookingRequests.id })
+        .from(bookingRequests)
+        .where(and(eq(bookingRequests.clinicId, event.clinicId), eq(bookingRequests.conversationId, existing!.id)))
         .limit(1);
 
       return {
         conversationId: existing!.id,
         recoveryReason: existing!.recoveryReason,
         duplicate: true,
-        appointmentId: priorAppointment?.id ?? null,
+        bookingRequestId: priorRequest?.id ?? null,
       };
     }
 
@@ -425,59 +423,18 @@ export async function ingestCall(
      * know who, because contact_id is NOT NULL and inventing a contact to
      * satisfy it would be worse than recording no booking at all.
      */
-    let appointmentId: string | null = null;
-    const bookingRow = bookingRowFrom(event, row.id, contactId);
-    if (bookingRow) {
-      const [booked] = await tx.db
-        .insert(appointments)
-        .values({
-          clinicId: event.clinicId,
-          ...bookingRow,
-          depositUsd:
-            bookingRow.depositUsd ??
-            (depositPolicy?.required && depositPolicy.amountUsd !== null ? String(depositPolicy.amountUsd) : null),
-          depositStatus: depositPolicy?.required ? "pending_front_desk" : "none",
-          // Deliberately NOT set. We booked it; the clinic's own system has not
-          // confirmed it back to us, and may never. See schema.ts.
-          externalConfirmedAt: null,
-        })
-        // The booking platform's own webhook can import this appointment
-        // before the call-ended webhook reaches us, and the pair we were handed
-        // is the same pair the sync used. Without a conflict clause that is a
-        // 23505 which aborts the whole ingest transaction — losing the
-        // conversation, the contact and both audit rows, permanently, because
-        // the vendor's retry re-runs the identical path. So it repairs instead.
-        .onConflictDoUpdate({
-          target: [
-            appointments.clinicId,
-            appointments.externalSource,
-            appointments.externalAppointmentId,
-          ],
-          targetWhere: isNotNull(appointments.externalAppointmentId),
-          set: {
-            // First writer wins. A link already recorded is a link we already
-            // proved; this only fills a null one, and it deliberately leaves
-            // external_confirmed_at alone so corroboration stays the sync's to
-            // grant.
-            conversationId: sql`coalesce(${appointments.conversationId}, excluded.conversation_id)`,
-            updatedAt: new Date(),
-          },
-        })
-        .returning({ id: appointments.id });
-
-      appointmentId = booked?.id ?? null;
-
-      tx.audit.record({
-        action: "create",
-        resourceType: "appointment",
-        resourceId: booked!.id,
-        metadata: {
-          conversationId: row.id,
-          bookedByAgent: true,
-          externalSource: bookingRow.externalSource ?? "none",
-          confirmedByClinicSystem: false,
-        },
+    let bookingRequestId: string | null = null;
+    const request = bookingRequestFrom(event, contactId, clinic.timezone);
+    if (request) {
+      const created = await createBookingRequest(tx, {
+        channel: "voice",
+        contactId: contactId!,
+        conversationId: row.id,
+        preferredWindow: request.preferredWindow,
+        treatment: request.treatment,
       });
+      bookingRequestId = created.id;
+      await notifyDesk(tx, created, { channel: "voice", platform: null }, { transport: deps.transport });
     }
 
     tx.audit.record({
@@ -500,7 +457,7 @@ export async function ingestCall(
     // conversation it stamped it from commit or roll back together.
     await observeForwardingCall(tx, clinic, event, row.id);
 
-    return { conversationId: row.id, recoveryReason, duplicate: false, appointmentId };
+    return { conversationId: row.id, recoveryReason, duplicate: false, bookingRequestId };
   });
 }
 

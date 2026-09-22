@@ -219,10 +219,16 @@ already have working wizards.
 Boulevard: build against API version **2026-06** (OAuth2 app install), not the
 legacy 2020-01. Sandbox provisioning is manual — ask early.
 
-### Cyber / tech E&O insurance
+### Cyber / tech E&O insurance — declined
 
-With **explicit TCPA and statutory-privacy endorsements**. Standard policies
-exclude exactly these, which is the point. Earlier than feels necessary.
+Decided 21 September 2026 by the owner, against this file's recommendation
+and with the consequences stated: healdesk carries no liability insurance.
+Clinics whose procurement requires a certificate of insurance will be lost,
+and any claim, defence cost or breach-notification cost is paid from the
+company's own cash. What that decision can and cannot do is written up in the
+"Decisions log" below, item 10; the short version is that the contracts now
+limit liability to the legal minimum, and nothing further is available on
+paper. Do not re-raise this unless the owner does.
 
 ---
 
@@ -234,8 +240,8 @@ exclude exactly these, which is the point. Earlier than feels necessary.
 | **Covered-entity determination** | Cash-pay med spas often aren't covered entities, which removes five defences at once including Washington MHMDA's — and that has a private right of action. Needs a method and a different posture for non-covered clinics |
 | **CIPA positioning** | Party-extension or independent third party? Contracts, architecture and marketing copy must all say the same thing |
 | **Click-through BAA — approved and enforced, not open** | The mechanism is production-ready — versioned, hashed, append-only acceptance — and the text is no longer a placeholder: `packages/catalog/src/baa.ts` `BAA_TEMPLATES[0]` is version 1.0.0, published 2026-09-05, `approvedByCounsel: true`, and `apps/app/src/lib/provisioning.ts` refuses to provision a clinic against any template that isn't (`currentBaaTemplate().approvedByCounsel`). Listed here so nobody re-opens it. What still needs counsel is the **other five rows** of this table |
-| **Reactivation = HIPAA marketing?** | Determines whether a separate authorisation is needed on top of written TCPA consent |
-| **Missed-call callback consent** | Especially hangups where we hold only the number |
+| **Reactivation = HIPAA marketing?** — moot | Inbound-only since 21 September 2026 (decisions log, item 11): the product sends nothing, so no authorisation question arises. Reopens only if outbound is switched back on |
+| **Missed-call callback consent** — moot | Same decision: no callbacks are placed, and `ingestCall()` refuses a call the vendor flags as outbound |
 
 ---
 
@@ -564,8 +570,9 @@ published number required). Tokens are sealed on `provider_connections` as
 against the real model with `ANTHROPIC_API_KEY` (the patient org's key).
 
 **The booking hand-off (21 September 2026).** Option A stays, with one
-addition the owner asked for: the front door takes a booking *request* that
-a human at the practice accepts or declines. The model answers in JSON
+addition the owner asked for, later extended to every channel (decisions
+log, item 13): each agent takes a booking *request* that a human at the
+practice confirms, calls back on, or declines. The model answers in JSON
 (`{reply, booking:{wants, first_name, phone, window}}`); the three fields are
 cleaned deterministically (letters, E.164, a window with no condition or
 treatment in it) and merged into `meta_booking_drafts`, keyed by the thread,
@@ -609,6 +616,73 @@ re-asking.
 7. **Meta — keep A everywhere, plus the booking hand-off** above.
 8. **The revenue gate** — explained to the owner in plain English; awaiting
    their call. The `revenue-gate-decision` task is the record.
+10. **Insurance — declined; "healdesk does not assume any responsibility".**
+   Recorded as the owner's decision, with what it means in practice. What the
+   paperwork can do, and now does: the terms and the BAA cap liability at
+   twelve months' fees with **no floor** (`POLICY.liabilityFloorUsd = 0`; the
+   BAA's `[$X]` is gone), exclude consequential damages, and say plainly that
+   healdesk carries no liability insurance so a practice can size its own
+   cover. The earlier draft line "backed by healdesk and by its insurance" was
+   removed because it would have been false. What no paperwork can do: HIPAA
+   makes a business associate responsible by statute, TCPA and CIPA claims
+   come from patients who signed nothing, and no US court enforces "we accept
+   no responsibility" against those. The code keeps doing the things that
+   reduce the odds (no outbound AI calls, recording disclosure, no
+   voiceprints, no clinical advice). Consequences accepted in writing:
+   clinics that require a certificate of insurance are lost; every claim is
+   paid from company cash; there is no retroactive date, so nothing that
+   happens before a policy is ever bound can be covered later.
+11. **Inbound-only, and transcripts without audio.** The two design changes
+   that remove the exposures a contract cannot touch. Inbound-only:
+   `OUTBOUND_CONTACT_ENABLED = false` in `lib/compliance/contact-policy.ts`
+   refuses every contact before reading a row (nothing called the gate
+   anyway); `ingestCall()` refuses a call the vendor flags as outbound and
+   writes a security event; the BAA omits the outbound clause and the
+   clinic's consent warranty (`outboundMessaging: false`); the terms say
+   "inbound only" and the pricing page no longer lists reactivation. The two
+   counsel questions about reactivation and callbacks are moot. No audio:
+   `conversations.recording_uri` is dropped (0038), the payload parser
+   ignores `recording_url`, the disclosure says "transcribed; no audio
+   recording is kept", and the owner switches recording storage off in the
+   Synthflow console (launch guide, Synthflow card, Part 5). The vendor
+   still processes audio live to transcribe it, which is why the disclosure
+   still says "transcribed" and the recording-consent states still matter.
+12. **Why data is stored at all.** Asked by the owner on 21 September 2026.
+   Six things, each with a reason that is a law or a contract, not a habit:
+   the contact and conversation rows are what the monthly revenue report and
+   attribution are built from (the product's promise); the appointment and
+   transaction rows are read back from the clinic's own system to reconcile
+   it; the transcript reference (90 days) is the only way to answer "what
+   did the agent say" in a dispute or a patient-rights request; the audit
+   log is required by HIPAA §164.312(b) and is the accounting of disclosures;
+   consent records, suppressions and contact attempts are the TCPA defence
+   (four-year clock, kept even though nothing outbound runs, because "stop"
+   is honoured forever); billing and agreement records are tax and contract
+   evidence. Everything else is already not stored: no audio, nothing a
+   person wrote on a Meta channel, no ad-platform identifiers, no logs with
+   patient data, and the retention clocks purge the rest.
+13. **Every agent semi-confirms; the desk has the final say.** Asked
+   alongside "would disappearing messages make Meta option B safe?" — no,
+   and the reasoning is in the launch guide's Meta card: disappearing
+   messages shorten Meta's retention, but the disclosure to a vendor with no
+   BAA happens on transit and processing, Meta's terms ban health data
+   regardless of retention, the person's own device keeps the thread, and
+   Instagram and Messenger business inboxes have no such setting anyway.
+   Option A stays. What changed instead is product-wide: no agent — phone,
+   web or Meta — confirms a booking. The phone agent's "booked" outcome is
+   now a `booking_requests` row (channel `voice`, with the call and the
+   service asked for), the desk is emailed the same single-use link the Meta
+   flow uses, and `/booking/[token]` offers three answers: **confirm a time**
+   (the only place an appointment row is created from an agent's
+   conversation, carrying the deposit rule), **accept with a call-back**
+   (which can be confirmed to a slot later from the same page), or
+   **decline**. On a Meta thread the person gets a fixed line naming no
+   time; on the phone the desk calls. `ingestCall()` no longer writes
+   appointments, the "booked" live alert is gone (the request email replaces
+   it), the terms and pricing say "booking requests handed to your desk",
+   and the Synthflow script says the desk will call to confirm and never
+   "you're booked". Migration 0039; trigger permits requested → any decision
+   and accepted → confirmed, nothing else.
 9. **Home state — the Stripe facts.** The seller is Viixi FZC, a UAE free
    zone company trading as healdesk. Governing law is Delaware by counsel's
    (this agent's) recommendation: a UAE entity has no US home state, US
@@ -616,7 +690,7 @@ re-asking.
    default clinic counsel expects. `ENTITY` in `apps/web/src/lib/legal.ts`
    and the constants in `packages/catalog/src/baa.ts`. Still missing: the
    registered address from the Stripe account, which keeps the legal pages'
-   draft banner up, and the liability floor.
+   draft banner up. The liability floor is decided: none (item 10).
 
 ### Incidents and patient rights
 

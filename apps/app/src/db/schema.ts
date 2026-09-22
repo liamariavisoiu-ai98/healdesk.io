@@ -320,8 +320,8 @@ export const clinics = pgTable(
      * The retention clocks, in days, per clinic. Two, because the two kinds
      * of data have different value and different risk:
      *
-     *   media   — transcript and recording references. Pure liability after
-     *             the dispute window closes; 90 days by default.
+     *   media   — transcript references. Pure liability after the dispute
+     *             window closes; 90 days by default. (No audio is kept.)
      *   records — the conversation, appointment and transaction rows the
      *             revenue report is built from. Two years by default, so a
      *             year-over-year comparison is possible and no longer.
@@ -635,11 +635,15 @@ export const conversations = pgTable(
     treatmentInterest: text("treatment_interest"),
 
     /**
-     * ⚠️ PHI. A voice recording is an identifier on its own. Behind an
-     * S3-compatible URL, never a platform blob API — apps/app stays portable.
+     * ⚠️ PHI. Behind an S3-compatible URL, never a platform blob API —
+     * apps/app stays portable. Transcript only: by decision of 21 September
+     * 2026 no audio recording is kept anywhere the product can reach (the
+     * `recording_uri` column was dropped in 0038, and the vendor's own
+     * recording storage is switched off in its console — launch guide,
+     * Synthflow card). A voice is an identifier on its own; a transcript is
+     * smaller, searchable, and enough for a dispute.
      */
     transcriptUri: text("transcript_uri"),
-    recordingUri: text("recording_uri"),
 
     /**
      * Proof the required disclosure played before any audio reached
@@ -648,6 +652,7 @@ export const conversations = pgTable(
     disclosurePlayedAt: timestamp("disclosure_played_at", {
       withTimezone: true,
     }),
+    /** The caller asked not to be transcribed; the agent takes a message instead. */
     recordingOptOut: boolean("recording_opt_out").notNull().default(false),
 
     /** Seconds from inbound ring to agent answer. The speed-to-lead metric. */
@@ -1007,15 +1012,25 @@ export const bookingRequests = pgTable(
     contactId: uuid("contact_id")
       .notNull()
       .references(() => contacts.id, { onDelete: "cascade" }),
-    /** messenger | instagram | whatsapp */
-    platform: text("platform").$type<"messenger" | "instagram" | "whatsapp">().notNull(),
-    /** The page / account / number id the message arrived on. */
-    externalId: text("external_id").notNull(),
-    senderId: text("sender_id").notNull(),
+    /**
+     * Where the request came from. Every channel semi-confirms only
+     * (decision of 21 September 2026): the agent takes the request, the
+     * desk has the final say.
+     */
+    channel: text("channel").$type<"voice" | "meta">().notNull().default("meta"),
+    /** The call the request was taken on, for voice. */
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    /** messenger | instagram | whatsapp; null for a voice request. */
+    platform: text("platform").$type<"messenger" | "instagram" | "whatsapp">(),
+    /** The page / account / number id the message arrived on (meta only). */
+    externalId: text("external_id"),
+    senderId: text("sender_id"),
     connectionId: uuid("connection_id").references(() => providerConnections.id, { onDelete: "set null" }),
     /** Free text as the person put it, PHI-scanned for clinical content. */
     preferredWindow: text("preferred_window").notNull(),
-    status: text("status").$type<"requested" | "accepted" | "declined" | "expired">().notNull().default("requested"),
+    /** The service asked for, on a voice call only: the phone is inside the boundary, a Meta thread is not. */
+    treatment: text("treatment"),
+    status: text("status").$type<"requested" | "accepted" | "confirmed" | "declined" | "expired">().notNull().default("requested"),
     tokenHash: customType<{ data: Buffer }>({ dataType: () => "bytea" })("token_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     deskNotifiedAt: timestamp("desk_notified_at", { withTimezone: true }),
@@ -1023,6 +1038,9 @@ export const bookingRequests = pgTable(
     decidedByLabel: text("decided_by_label"),
     /** The practice's own note back to itself; never sent to the person. */
     deskNote: text("desk_note"),
+    /** Set when the desk confirmed a slot; the appointment row is the booking. */
+    confirmedFor: timestamp("confirmed_for", { withTimezone: true }),
+    appointmentId: uuid("appointment_id").references(() => appointments.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

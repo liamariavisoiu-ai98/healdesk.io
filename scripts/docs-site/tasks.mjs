@@ -160,27 +160,6 @@ export const TASKS = [
   },
 
   // -------------------------------------------------------------- waiting
-  {
-    id: "insurance",
-    group: "send-today",
-    status: "vendor",
-    blockedBy: null,
-    title: "Bind a small tech E&O + cyber policy",
-    effort: "start now, bind cheap",
-    plain:
-      "One combined Technology E&O + Cyber + Media policy. Buy a modest one now rather " +
-      "than the right one later.",
-    why:
-      "These are claims-made policies: they only cover incidents after the retroactive " +
-      "date. Every day you are unbound is a day no future policy will ever cover.",
-    steps: [
-      "Contact two or three brokers who write combined tech E&O + cyber for AI software.",
-      "Demand the full endorsement schedule by form number before comparing on price. The exclusion that denies your claim arrives by endorsement with a reassuring name, not in the base policy.",
-      "Ask specifically about TCPA, wiretapping/CIPA and biometric exclusions — the two statutes most likely to be used against an AI phone product are the two standard policies exclude.",
-      "Answer the application truthfully. It becomes a warranty, and an optimistic yes on MFA or backups is their argument to void the policy exactly when you need it.",
-    ],
-    source: { doc: "handover", heading: "Cyber / tech E&O insurance" },
-  },
 
   {
     id: "privacy-policy",
@@ -563,7 +542,7 @@ export const TASKS = [
     plain:
       "The demo bot's knowledge is entirely hand-written static config: `apps/web/src/lib/specialties.ts` plus the three-layer tree in `apps/web/src/lib/knowledge/` (persona, practice, niche), all keyed by a fixed enum. Nothing anywhere converts a scraped clinic site into a per-clinic profile. This is the missing middle of the whole offer.",
     why:
-      "Without this the 'personalised' bot is the same generic six-specialty demo already on the homepage, and the prospect will notice in one question. The stripping half is not optional: clinic websites are full of safety, candidacy, recovery and aftercare copy, and pasting scraped text into the demo's system prompt reintroduces exactly the clinical-advice behaviour that `apps/web/src/app/api/chat/route.ts` was carefully written to prevent — with bodily-injury claims excluded from both the tech E&O and cyber policies.",
+      "Without this the 'personalised' bot is the same generic six-specialty demo already on the homepage, and the prospect will notice in one question. The stripping half is not optional: clinic websites are full of safety, candidacy, recovery and aftercare copy, and pasting scraped text into the demo's system prompt reintroduces exactly the clinical-advice behaviour that `apps/web/src/app/api/chat/route.ts` was carefully written to prevent — and, with no insurance behind the company, a bodily-injury claim is paid from its own cash.",
     steps: [
       "Add `apps/web/src/lib/claim/profile.ts` with a `ClinicProfile` type: clinic name, city, treatments offered, price ranges, opening hours, parking/directions, booking link, phone.",
       "Extract it with a Claude call using structured output and a system prompt that says: take only scheduling-relevant facts, take price as a range, and discard anything about safety, side effects, recovery, candidacy, pregnancy, interactions or conditions.",
@@ -1360,7 +1339,7 @@ export const TASKS = [
       "Put the renewal dates and the card expiry in a calendar you will actually see, and use a card that does not expire before the domains do.",
       "Write the account inventory into docs/handover.md: registrar, Cloudflare, AWS, Stripe, Anthropic, the voice vendor, telephony, InboxKit, Instantly — with the login email and who pays.",
       "Turn on hardware or app-based MFA on every one of them, starting with the email address that can reset the others, and move the credentials into a password manager rather than a notes file.",
-      "Answer the insurance proposal form from that inventory, not from memory, and keep the completed form with the policy.",
+      "Keep the inventory with the company records; it is also what a clinic's security questionnaire is answered from, and an optimistic answer there is a contract problem later.",
     ],
     source: { doc: "outreach-step-by-step", heading: "Phase 1 — Domains at Cloudflare" },
   },

@@ -510,10 +510,11 @@ function MetaFrontDoor({ view, onAttach, onSwitch }: { view: OnboardingView; onA
         {m.channels.length === 0 ? <li className="text-muted">No channel attached yet.</li> : null}
       </ul>
       <p className="text-muted mt-3">
-        Booking requests handed to the desk, last 30 days: <strong>{m.bookingRequests.waiting}</strong> waiting ·{" "}
-        {m.bookingRequests.accepted} accepted · {m.bookingRequests.declined} declined. The assistant collects a first name, a
-        number and a preferred window, emails the desk a single-use link, and the desk accepts or declines there; the person
-        is only ever told the practice will call. The requests themselves are not shown here.
+        Booking requests handed to the desk, last 30 days (phone and Meta): <strong>{m.bookingRequests.waiting}</strong>{" "}
+        waiting · {m.bookingRequests.confirmed} confirmed · {m.bookingRequests.accepted} call-back · {m.bookingRequests.declined}{" "}
+        declined. Every agent semi-confirms only: it takes a name, a number and a preferred window, emails the desk a
+        single-use link, and the desk confirms a slot, calls back or declines there. The person is only ever told the practice
+        will call. The requests themselves are not shown here.
       </p>
       <form
         onSubmit={(event) => {

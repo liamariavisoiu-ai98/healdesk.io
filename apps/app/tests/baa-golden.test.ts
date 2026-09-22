@@ -58,11 +58,11 @@ const GOLDEN: Record<string, Record<string, string>> = {
     covered_verified_boulevard: "a5ed2a49f75fe51738faa1b034478744d4c4be507568b4ef0abe804d9628514f",
   },
   "1.1.0-draft": {
-    covered_estimated: "b6ce18cef1bb1dce73485460c4fe956c52968159f2e57860587f00ce1a8031e4",
-    notcovered_estimated: "8b6f21ae26a6168fca899e2f2cfec909dc437dc011c240656995738f0bbf54dc",
-    unknown_estimated: "a2a67be40cb971e834d619a834455b48c8137205a7913baed9325a3bfa8ce6c5",
-    covered_outbound: "363e715f791445a561c2e5aec9f65727b85770ad19536e78a721fd0cb243ab6a",
-    covered_verified_boulevard: "4cf4f3b3edbbb85cef145aa6f87e6fe7480ca732a7f531fdc5b4b0bfe591c43a",
+    covered_estimated: "8d8a745a561846da22bfd483666d55a0182c66fb896c688dfc2570129057027b",
+    notcovered_estimated: "697c500ca9b73146384ae99b697517dd9ce63bc3bb249db419cfcba314f75fdd",
+    unknown_estimated: "6315d952f404bc2a13d788e7e1b531b8b9d702b3793539199e4d73c29d926c2e",
+    covered_outbound: "abe7d8bde1076801d75705c3f44a92a98310cd140b5a22fe1c792f7ac71f3e45",
+    covered_verified_boulevard: "ad2862230c72a25dca2e06fa19495a4a5d277969258f8e14fe334ef1229f0d1f",
   },
   "0.1.0-draft": {
     covered_estimated: "c3b3dd686657413921e674bed4a1bc3a38f14a5dfd1322c1f53657a2123c0e6b",

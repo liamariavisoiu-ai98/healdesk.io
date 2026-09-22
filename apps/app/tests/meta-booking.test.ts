@@ -205,13 +205,13 @@ describeDb("the booking hand-off, end to end", () => {
 
     // Accept: one decision, relayed as the fixed line through the sealed token.
     const decided = await decideBookingRequest(token, "accepted", { decidedByLabel: "Jo at the desk", deskNote: "Thursday 10am works" }, sender);
-    expect(decided).toEqual({ outcome: "decided", followUp: "sent" });
+    expect(decided).toEqual({ outcome: "decided", followUp: "sent", appointmentId: null });
     expect(sent[3]).toMatchObject({ platform: "messenger", externalId: PAGE_ID, recipientId: "user-77", accessToken: "EAAB-page-token-0123456789" });
     expect(sent[3]!.text).toBe(followUpLine("booking Clinic", "accepted"));
     expect(sent[3]!.text).not.toMatch(/Thursday|10am/);
 
     // A second decision, either way, changes nothing and sends nothing.
-    expect(await decideBookingRequest(token, "declined", { decidedByLabel: null, deskNote: null }, sender)).toEqual({ outcome: "already-decided", followUp: null });
+    expect(await decideBookingRequest(token, "declined", { decidedByLabel: null, deskNote: null }, sender)).toEqual({ outcome: "already-decided", followUp: null, appointmentId: null });
     expect(sent).toHaveLength(4);
     const after = await resolveBookingRequest(token);
     expect(after).toMatchObject({ status: "accepted", decidedByLabel: "Jo at the desk", deskNote: "Thursday 10am works" });
@@ -219,7 +219,7 @@ describeDb("the booking hand-off, end to end", () => {
     // The row cannot be re-decided even by a direct write.
     await expect(
       inTenant(c.clinicId, (client) => client.query(`update booking_requests set status = 'declined', decided_at = now()`)),
-    ).rejects.toThrow(/already decided/);
+    ).rejects.toThrow(/not a permitted transition/);
 
     // Expired: the link is dead, and the decision refuses. The row's expiry
     // is frozen by the trigger and the table is FORCE RLS, so the clock is
@@ -228,7 +228,7 @@ describeDb("the booking hand-off, end to end", () => {
     await inTenant(c.clinicId, (client) => client.query(`update booking_requests set expires_at = now() - interval '1 minute'`));
     await getMigratorPool().query(`alter table booking_requests enable trigger booking_requests_no_rewrite`);
     expect(await resolveBookingRequest(token)).toBeNull();
-    expect(await decideBookingRequest(token, "accepted", { decidedByLabel: null, deskNote: null }, sender)).toEqual({ outcome: "invalid", followUp: null });
+    expect(await decideBookingRequest(token, "accepted", { decidedByLabel: null, deskNote: null }, sender)).toEqual({ outcome: "invalid", followUp: null, appointmentId: null });
   });
 
   test("a public question leaves no draft; a decline is relayed without a time", async () => {
@@ -241,13 +241,41 @@ describeDb("the booking hand-off, end to end", () => {
     await post(inbound("Sam, +1 415 555 0177, Saturday afternoon please", "user-88", "323456789012345"));
     const token = mailed[0]!.message.text.match(/\/booking\/([A-Za-z0-9_-]{43})/)![1]!;
     const decided = await decideBookingRequest(token, "declined", { decidedByLabel: null, deskNote: null }, sender);
-    expect(decided).toEqual({ outcome: "decided", followUp: "sent" });
+    expect(decided).toEqual({ outcome: "decided", followUp: "sent", appointmentId: null });
     expect(sent.at(-1)!.text).toBe(followUpLine("booking-decline Clinic", "declined"));
     expect(guardReply(sent.at(-1)!.text)).toEqual({ ok: true });
 
     const { runOperation } = await import("@/lib/ops/api");
     const view = await runOperation("getOnboarding", { clinicId: c.clinicId }, { email: "ops@healdesk.test", request: {} });
-    expect((view.body as { data: { meta: { bookingRequests: unknown } } }).data.meta.bookingRequests).toEqual({ waiting: 0, accepted: 0, declined: 1 });
+    expect((view.body as { data: { meta: { bookingRequests: unknown } } }).data.meta.bookingRequests).toEqual({ waiting: 0, accepted: 0, confirmed: 0, declined: 1 });
+  });
+
+  test("a call-back acceptance can later be confirmed to a slot from the same link; the appointment appears then", async () => {
+    const c = await liveClinic("booking-confirm", "523456789012345");
+    __setMetaRuntimeForTests(async () => json("The practice will call you.", { wants: true, first_name: "Ana", phone: "+14155550155", window: "Friday morning" }), sender, transport);
+    await post(inbound("Ana, 415 555 0155, Friday morning", "user-55", "523456789012345"));
+    const token = mailed[0]!.message.text.match(/\/booking\/([A-Za-z0-9_-]{43})/)![1]!;
+
+    const accepted = await decideBookingRequest(token, "accepted", { decidedByLabel: "Sam", deskNote: null }, sender);
+    expect(accepted).toEqual({ outcome: "decided", followUp: "sent", appointmentId: null });
+    expect(sent.at(-1)!.text).toBe(followUpLine("booking-confirm Clinic", "accepted"));
+
+    const when = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
+    const confirmed = await decideBookingRequest(token, "confirmed", { decidedByLabel: "Sam", deskNote: "Room 2", confirmedFor: when, treatment: "Consultation" }, sender);
+    expect(confirmed.outcome).toBe("decided");
+    expect(confirmed.followUp).toBe("sent");
+    expect(confirmed.appointmentId).not.toBeNull();
+    expect(sent.at(-1)!.text).toBe(followUpLine("booking-confirm Clinic", "confirmed"));
+    expect(sent.at(-1)!.text).not.toMatch(/Room 2|Consultation|\d{1,2}:\d{2}/);
+    const appt = await inTenant(c.clinicId, (client) => client.query<{ treatment: string; scheduled_for: Date }>(`select treatment, scheduled_for from appointments`));
+    expect(appt.rows).toHaveLength(1);
+    expect(appt.rows[0]!.treatment).toBe("Consultation");
+    expect(new Date(appt.rows[0]!.scheduled_for).getTime()).toBe(Math.floor(when.getTime() / 1000) * 1000 + (when.getTime() % 1000));
+    const after = await resolveBookingRequest(token);
+    expect(after).toMatchObject({ status: "confirmed", channel: "meta", deskNote: "Room 2" });
+
+    // Confirmed is final.
+    expect((await decideBookingRequest(token, "declined", { decidedByLabel: null, deskNote: null }, sender)).outcome).toBe("already-decided");
   });
 
   test("a clinic with no desk address still gets the request, and it waits in the care view", async () => {

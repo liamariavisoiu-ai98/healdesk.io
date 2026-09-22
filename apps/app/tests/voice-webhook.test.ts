@@ -48,7 +48,8 @@ describe("reading the vendor payload", () => {
     expect(event.rangAtClinicFirst).toBe(true);
     expect(event.booking?.scheduledFor.toISOString()).toBe("2026-09-10T15:00:00.000Z");
     expect(event.booking?.treatment).toBe("Botox");
-    expect(event.recordingUri).toContain("call_abc123");
+    // No audio reference, even when the vendor sends one (21 September 2026).
+    expect("recordingUri" in event).toBe(false);
   });
 
   test("accepts the nested and aliased shapes, and unix timestamps", () => {
@@ -145,7 +146,8 @@ describeDb("POST /api/webhooks/voice/[clinicId]", () => {
       );
       const contacts = await client.query<{ phone: string; timezone: string | null }>(`select phone, timezone from contacts`);
       const appts = await client.query<{ scheduled_for: Date }>(`select scheduled_for from appointments`);
-      return { events: events.rows, convos: convos.rows, contacts: contacts.rows, appts: appts.rows };
+      const requests = await client.query<{ channel: string; status: string }>(`select channel, status from booking_requests`);
+      return { events: events.rows, convos: convos.rows, contacts: contacts.rows, appts: appts.rows, requests: requests.rows };
     });
     expect(rows.events).toHaveLength(1);
     expect(rows.events[0]!.delivery_id).toBe("call_abc123");
@@ -159,7 +161,10 @@ describeDb("POST /api/webhooks/voice/[clinicId]", () => {
     expect(rows.convos[0]!.recovery_reason).toBe("rang_unanswered");
     expect(rows.convos[0]!.outcome).toBe("booked");
     expect(rows.contacts).toEqual([{ phone: "+15550100123", timezone: "America/New_York" }]);
-    expect(rows.appts).toHaveLength(1);
+    // The agent semi-confirms only: a request for the desk, no appointment
+    // row until the desk confirms a slot (21 September 2026).
+    expect(rows.appts).toHaveLength(0);
+    expect(rows.requests).toEqual([{ channel: "voice", status: "requested" }]);
 
     const again = await post(c.clinicId, FIXTURE);
     expect(again.status).toBe(200);

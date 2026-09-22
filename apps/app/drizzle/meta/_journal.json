@@ -267,6 +267,20 @@
       "when": 1789981800495,
       "tag": "0037_booking_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1789988764696,
+      "tag": "0038_drop_recording_uri",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1789989456231,
+      "tag": "0039_booking_requests_every_channel",
+      "breakpoints": true
     }
   ]
 }

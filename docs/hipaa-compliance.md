@@ -41,7 +41,7 @@ concretely:
 
 - Caller phone number + the treatment they asked about
 - Name, DOB, or email on an intake form
-- Call recordings and transcripts (a voice recording is an identifier on its own)
+- Call transcripts (no audio recording is kept, by decision of 21 September 2026; a transcript tied to a number is still PHI)
 - Contraindication screening answers — Fitzpatrick, Accutane, pregnancy status
 - Appointment records tied to a named person
 - Anything read back out of the clinic's EMR/POS during attribution reconciliation

@@ -81,16 +81,23 @@ While you're on the call, get these in writing too:
 **Then, before creating anything:** the workspace region choice is **permanent**
 and defaults to **EU**. Create a **US** workspace or you rebuild.
 
-### AWS account + BAA
+### AWS account + BAA — accepted 22 September 2026
 
-Free, click-through, five minutes, and it covers RDS, KMS, SES, S3 and Fargate
-in one agreement — every other vendor gives you a BAA for the database only.
+Done by the owner in AWS Artifact, as an account agreement. It covers RDS,
+KMS, SES, S3 and Fargate in one agreement; every other vendor gives you a BAA
+for the database only. The click-through form carries no account id, region
+or date (the "executed" download is byte-identical to the blank form), so the
+record AWS does not keep is ours: `docs/policies/aws-hipaa-account.md`, the
+HIPAA Account memo. It still needs the twelve-digit account id written in and
+the region confirmed (the code assumes `us-east-1`; `AWS_REGION` overrides),
+and the Artifact "Active" screenshot filed beside the PDF. The obligations it
+lists — PHI only in eligible services, the highest audit logging, maximum log
+retention, encryption at rest and in transit — become infrastructure tasks
+the moment the account holds anything: see "Once AWS lands" in section 3.
 
-Do it now even though no infrastructure is needed yet. Development runs on local
-Docker Postgres; provision RDS when the first clinic signs (~$25/mo at
-`db.t4g.small`).
-
-*Note: App Runner is not HIPAA-eligible. Use ECS on Fargate.*
+Development still runs on local Docker Postgres; provision RDS when the first
+clinic signs (~$25/mo at `db.t4g.small`). *App Runner is not HIPAA-eligible
+and is closed to new customers. Use ECS on Fargate.*
 
 ### Telephony — decided: Synthflow-issued numbers, clinics forward their existing number
 
@@ -276,6 +283,39 @@ Ordered by what unblocks the most.
 
 ### Once AWS lands
 
+- **The HIPAA Account build list**, from the AWS addendum (§4.2–4.3) and the
+  service table in `docs/policies/aws-hipaa-account.md`. Nothing enforces any
+  of it until the account has infrastructure; build it with the first RDS
+  instance, not after, because the first item cannot be added later.
+  - *RDS:* storage encryption with our KMS key at creation; `rds.force_ssl=1`;
+    the `healdesk_app` (NOBYPASSRLS) and `healdesk_migrator` roles; 35-day
+    automated backups; the RDS CA trusted in the container (production sets
+    `rejectUnauthorized: true` and fails without it); Config rule
+    `rds-storage-encrypted`; a restore drill.
+  - *KMS:* one customer-managed key; a task-role policy limited to
+    `GenerateDataKey`, `Decrypt` and `Encrypt` on it; `HEALDESK_KMS_PROVIDER`,
+    `HEALDESK_KMS_KEY_ID` and `AWS_REGION` in every task definition (the KMS
+    client has no region fallback); `@aws-sdk/client-kms` in the image once the
+    bundler inlining above is fixed; a rotation runbook.
+  - *S3:* a bucket in the designated region; SSE-KMS with our key; a policy
+    denying non-TLS requests; Block Public Access; versioning; lifecycle expiry
+    matched to `clinics.retention_media_days` (the purge nulls the reference
+    and deletes no object); Config rule `s3-bucket-ssl-requests-only`; no
+    patient identifier in any key.
+  - *ECS on Fargate:* two task definitions from one image; a task role carrying
+    only the KMS, SES and S3 permissions; secrets from the host's secret store,
+    never the image; a one-off migration task as `healdesk_migrator`; a
+    registry (ECR is on the list); no PHI in names or tags; a `stopTimeout`
+    above the worker's drain. pg-boss stops with its 30 s default because
+    `lib/queue/boss.ts:110` passes no `timeout`; a two-minute drain needs
+    `timeout: 120_000` there and a `stopTimeout` above it, and Fargate's
+    maximum is 120 s.
+  - *Load balancer:* an HTTPS listener with an ACM certificate, HTTP redirected,
+    the health check on `GET /api/health` status only, rate limiting on the host.
+  - *CloudTrail:* on and kept, encrypted with our key, log-file validation, S3
+    data events on for the PHI bucket, Config rule `cloud-trail-encryption-enabled`.
+  - *CloudWatch Logs:* both log groups encrypted with our key and set to "Never
+    expire" (§4.2(c)), Config rule `cloudwatch-log-group-encrypted`.
 - **SES sending.** `SesTransport` throws with instructions. Needs a verified
   domain, DKIM, and a configuration set with `TlsPolicy: Require` — opportunistic
   TLS is a hope, not a safeguard. Wire bounces and complaints to suppression.
@@ -743,11 +783,14 @@ inside `withTenant()` if you need the thing.
 
 Three rules that live outside the code:
 
-- **Retention on the host, not "never expire".** Whatever collects stdout
-  (CloudWatch on ECS, the Fly log shipper, journald on a box) gets an explicit
-  retention — 30 days is enough for debugging and short enough to bound a
-  breach — and, on AWS, a customer-managed KMS key on every log group plus
-  the `cloudwatch-log-group-encrypted` Config rule.
+- **Retention on the host, explicit — and on AWS, the maximum.** Whatever
+  collects stdout (CloudWatch on ECS, the Fly log shipper, journald on a box)
+  gets an explicit retention. On AWS the addendum's §4.2(c) requires the
+  maximum retention the service offers, so the log groups are set to "Never
+  expire", with a customer-managed KMS key on every group and the
+  `cloudwatch-log-group-encrypted` Config rule; what bounds a breach there is
+  the allowlisted logger, not the retention. Anywhere else, 30 days is enough
+  for debugging and short enough to bound a breach.
 - **No error tracker.** There is none on purpose. Sentry, Datadog and the
   like capture request bodies and local variables by default, and the only
   ones that sign a BAA cost more than the product earns this year. The

@@ -447,7 +447,8 @@ counsel with the BAA work.
    CIPA posture. This gates the product's ability to exist. Send them this review.
 9. **Ask Synthflow Condition 0** and check your cluster. If it is Global your data is
    in the EU permanently and you need a new workspace before anything else.
-10. **Accept the AWS BAA.** 15 minutes, free.
+10. **Accept the AWS BAA.** Done 22 September 2026, as an account agreement in
+    Artifact; the record AWS does not keep is `policies/aws-hipaa-account.md`.
 11. **Register the outreach domains** and start warmup — the clock is 3 weeks and it
     runs in parallel with everything above.
 12. **Run the niche decision procedure** against the 4,900.

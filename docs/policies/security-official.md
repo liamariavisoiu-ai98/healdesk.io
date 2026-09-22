@@ -22,6 +22,9 @@ Responsibilities, in order of importance:
 4. Grant and revoke production access under [access-control.md](./access-control.md),
    and apply [sanctions.md](./sanctions.md) — to themselves as to anyone.
 5. Keep the [training log](./training-log.md).
+6. Keep the [AWS HIPAA Account record](./aws-hipaa-account.md) true: re-read the
+   HIPAA Eligible Services Reference before any service is added and every quarter,
+   and fill in what the account still lacks.
 
 This designation is amended by editing this file; the git history is the record of
 who held the role and when.

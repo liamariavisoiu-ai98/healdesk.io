@@ -45,7 +45,11 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     data: "All patient information the product holds: contacts, conversations, appointments, transcripts (no audio is kept)",
     region: "United States (single region)",
     handlesPhi: true,
-    baa: { state: "pending" },
+    // The AWS Business Associate Addendum, accepted click-through in AWS
+    // Artifact. There is no countersigned copy: the executed download is the
+    // generic form, and the Artifact "Active" row is the record. The account
+    // memo is docs/policies/aws-hipaa-account.md.
+    baa: { state: "signed", on: "2026-09-22" },
     scope: "product",
   },
   {

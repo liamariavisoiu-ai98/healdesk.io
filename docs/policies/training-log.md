@@ -19,6 +19,7 @@ Append-only. One line per event, newest last.
 | Date | Document | Outcome |
 | --- | --- | --- |
 | 2026-09-13 | hipaa-risk-analysis.md | Written. Next review by 2027-09-13 or on any vendor/host change |
+| 2026-09-22 | policies/aws-hipaa-account.md | Written; account id, region and the Artifact screenshot still to fill in. Next review by 2026-12-22 or on any change to the account, region or service list |
 
 ## Sanctions
 

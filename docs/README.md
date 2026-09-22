@@ -20,7 +20,7 @@ elective healthcare.
 | [on-call.md](./on-call.md) | One page: the three signals, what to check first, how to restart the worker. |
 | [counsel-audit.md](./counsel-audit.md) | The six legal questions answered with the statute behind each: covered-entity status, CIPA recording, HIPAA marketing, the text-back's consent, sender identity, the public claims. |
 | [baa-v1.1.0-draft.txt](./baa-v1.1.0-draft.txt) | The BAA revision rendered for counsel review. Source of truth is `packages/catalog/src/baa.ts`, template `1.1.0-draft`; not offered to anyone until approved. |
-| [policies/](./policies/) | The administrative safeguards a business associate must have on paper: the named Security Official, access control, sanctions, and the training/access/review log. |
+| [policies/](./policies/) | The administrative safeguards a business associate must have on paper: the named Security Official, access control, sanctions, the training/access/review log, and the AWS HIPAA Account record (the account, region, services and configuration behind the AWS BAA, which AWS does not keep for us). |
 | [archive/](./archive/) | The original working doc, preserved verbatim as the source these were split from. |
 
 ## How these relate

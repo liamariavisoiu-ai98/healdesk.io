@@ -94,28 +94,6 @@ export const TASKS = [
     source: { doc: "handover", heading: "Stripe account — built, three steps from working" },
   },
   {
-    id: "aws-baa",
-    group: "send-today",
-    status: "ready",
-    blockedBy: null,
-    title: "Accept the AWS Business Associate Addendum",
-    effort: "15 minutes, free",
-    plain:
-      "AWS will sign a BAA with you instantly, from a page in the console. No sales " +
-      "call, no cost, no root user needed.",
-    why:
-      "It is the cheapest compliance win available and it unblocks storing anything " +
-      "real. It also designates the whole account, so nothing enforces which services " +
-      "you use — that is why step 4 exists.",
-    steps: [
-      "Sign in to the AWS console as a normal admin.",
-      "Search for Artifact, open it, go to Agreements → Organization agreements.",
-      "Find AWS Business Associate Addendum, download and read it, then Accept. Have your legal entity name ready.",
-      "Write a one-page memo listing which services will hold patient data (RDS, KMS, SES, S3, ECS, Fargate). AWS keeps no record of your intended scope, so this memo is your only evidence you stayed inside the eligible list.",
-    ],
-    source: { doc: "handover", heading: "AWS account + BAA" },
-  },
-  {
     id: "assent-label",
     group: "website",
     status: "ready",

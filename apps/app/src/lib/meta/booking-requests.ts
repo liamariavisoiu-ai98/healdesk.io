@@ -299,7 +299,7 @@ export async function notifyDesk(
 
 /** What the person is told once the request exists. Fixed text; a name, never a number or a time. */
 export function requestReceivedLine(clinicName: string, firstName: string): string {
-  return `Thanks, ${firstName}! ${clinicName} has your request and will call you on the number you gave to confirm. Nothing is booked until you hear from them — or call the practice directly if you'd rather not wait.`;
+  return `Thanks, ${firstName}! I've passed that along to ${clinicName}, and they'll give you a call on the number you gave to settle on a time. If you'd rather not wait, you're always welcome to call the practice directly.`;
 }
 
 export type BookingDecision = "accepted" | "declined" | "confirmed";

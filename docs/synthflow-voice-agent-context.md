@@ -605,7 +605,7 @@ From `docs/architecture.md`, marked **Locked**:
 
 > The agent **collects only** four things: name, callback number, requested service, preferred time. That is the irreducible minimum to place a booking request.
 >
-> **Since 21 September 2026 the agent never confirms.** It takes the request and says the front desk will call to confirm. It must never say "you're booked", "I've booked you", "see you Tuesday at two" or name a provider. The line to use: *"I'll pass that to the front desk and they'll call you on this number to confirm the time. Nothing is booked until you hear from them."* The same rule applies to the web chat and the Meta assistant: every channel semi-confirms; only a human at the practice confirms.
+> **Since 21 September 2026 the agent never confirms.** It takes the request and says the front desk will call to confirm. It must never say "you're booked", "I've booked you", "see you Tuesday at two" or name a provider. The line to use: *"I'll pass that along to the front desk, and they'll give you a call on this number to settle on a time. Keep an eye out for their call!"* Softer by design (owner, 22 September 2026): "settle on a time" says the time is still open without saying "nothing is booked", and the guard still refuses any variant that says booked, confirmed, see you then, or names a slot. The same rule applies to the web chat and the Meta assistant: every channel semi-confirms; only a human at the practice confirms.
 >
 > Everything clinical is **pushed off the phone** to a secure link or a clinician callback: medical history, intake, consent, date of birth, insurance details, photos. Contraindication screening is explicitly out of v1 voice scope.
 

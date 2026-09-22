@@ -110,9 +110,10 @@ export default function TrustPage() {
           We tell the clinic within five calendar days of discovering a breach of unsecured
           patient information — well inside the sixty days the rule allows, on purpose, so the
           clinic's own clock to notify its patients is not consumed by ours — and within five
-          business days of any security incident, whether or not it turns out to be a breach. We
-          bear the cost of notifying patients and regulators for a breach we caused; that
-          obligation is outside the liability cap in our terms.
+          business days of any security incident, whether or not it turns out to be a breach. Who
+          pays for what follows is in the agreement, not in small print: the cost of notifying
+          patients and regulators sits with the clinic, and we carry no liability insurance. We say
+          both plainly so a clinic can size its own cover.
         </p>
       </Section>
 

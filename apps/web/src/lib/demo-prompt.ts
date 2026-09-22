@@ -14,8 +14,9 @@
  * First, prospects poke demos with patient-sounding questions, "can I get
  * Botox while pregnant?" is the canonical one. An agent that answers is doing
  * exactly the advice-giving the shipped product is deliberately designed never
- * to do, and bodily-injury claims are excluded from the insurance on both the
- * tech E&O and the cyber side, with no endorsement available to fix it.
+ * to do, and nothing stands behind a bodily-injury claim: healdesk carries no
+ * insurance (docs/handover.md, decisions log, item 10), and no endorsement
+ * would have covered it anyway.
  *
  * Second, it sets an expectation the compliant product cannot meet. The voice
  * agent is PHI-light by design: it collects a name, a callback number, the

@@ -719,9 +719,12 @@ const CLAUSES: readonly BaaClause[] = [
  *   term             NEW. Term, termination for material breach with cure,
  *                    and the 30-day return-or-destroy timeline with six-year
  *                    retention of the disclosure record.
- *   liability        Mutual indemnity, exclusion of consequential damages, an
- *                    AGGREGATE cap of the greater of twelve months' Fees or
- *                    [$X], and the carve-outs kept.
+ *   liability        One-way indemnity from Practice (claims, penalties,
+ *                    defence and notification costs, reaching claims that
+ *                    allege healdesk's negligence); healdesk's liability
+ *                    excluded to the fullest extent the law allows, with
+ *                    twelve months' Fees as the fallback cap; no indemnity
+ *                    from healdesk. Decision of 22 September 2026.
  *   boilerplate      NEW. Notices, governing law and venue, change in law,
  *                    interpretation, entire agreement as to PHI.
  */
@@ -729,9 +732,11 @@ const ENTITY = "Viixi FZC";
 const ENTITY_FORM = "a free zone company incorporated in the United Arab Emirates, trading as healdesk";
 const NOTICE_ADDRESS = "[REGISTERED ADDRESS — from the Stripe account, Settings → Business details], legal@healdesk.io";
 const GOVERNING_STATE = "Delaware";
-// No floor, by decision of 21 September 2026: the cap is twelve months' fees
-// and nothing more. healdesk carries no insurance, and a floor above the fees
-// would be a promise with nothing behind it.
+// No floor, by decision of 21 September 2026, and since 22 September 2026 the
+// cap is only the fallback: healdesk's liability is excluded outright where the
+// law allows, and every claim, defence and notification cost is Practice's by
+// indemnity. healdesk carries no insurance, and a floor above the fees would be
+// a promise with nothing behind it.
 
 function byId(id: string): BaaClause {
   const clause = CLAUSES.find((c) => c.id === id);
@@ -943,8 +948,9 @@ const CLAUSES_1_1: readonly BaaClause[] = [
           `believed to have been accessed, acquired, used or disclosed; a description of ` +
           `what happened, including the dates of the breach and of its discovery; the ` +
           `types of PHI involved; what healdesk is doing to investigate, mitigate and ` +
-          `prevent recurrence; and a contact. 45 CFR 164.410(c). healdesk will bear the ` +
-          `reasonable cost of notifying patients and regulators about a breach it caused.`,
+          `prevent recurrence; and a contact. 45 CFR 164.410(c). The cost of notifying ` +
+          `patients, regulators and anyone else about a breach is Practice's, as the ` +
+          `Liability clause provides.`,
       ),
   },
 
@@ -1026,36 +1032,41 @@ const CLAUSES_1_1: readonly BaaClause[] = [
     appliesWhen: ALWAYS,
     body: () =>
       wrap(
-        `healdesk will defend and indemnify Practice against third-party claims, ` +
-          `regulatory penalties and reasonable notification costs to the extent they ` +
-          `arise from healdesk's, or its subcontractors', breach of this agreement or ` +
-          `violation of HIPAA. Practice will defend and indemnify healdesk against ` +
-          `third-party claims and regulatory penalties to the extent they arise from ` +
-          `Practice's breach of its warranties in the Outbound contact clause, from ` +
-          `instructions Practice gave that healdesk followed, or from Practice's own ` +
-          `violation of HIPAA or of state consumer-health-privacy law.`,
+        `Practice will defend, indemnify and hold harmless healdesk and its ` +
+          `subcontractors against every claim, loss, liability, regulatory penalty, ` +
+          `fine, cost and expense — including reasonable legal fees, the cost of ` +
+          `defending a claim, and the cost of investigating a security incident and of ` +
+          `notifying patients, regulators, the media and anyone else about a breach — ` +
+          `to the extent it arises from or relates to the Services, PHI that Practice or ` +
+          `its patients give the Services, Practice's covered-entity status, ` +
+          `instructions Practice gave, Practice's own breach of this agreement or ` +
+          `violation of HIPAA or of state consumer-health-privacy law, or a claim by a ` +
+          `patient, a regulator or any other third party. This indemnity applies to the ` +
+          `fullest extent the law allows, including where the claim alleges negligence ` +
+          `on healdesk's part, and the limits below do not apply to it.`,
       ) +
       "\n\n" +
       wrap(
-        `Neither party is liable to the other for lost profits or for indirect, ` +
-          `incidental, special or consequential damages, however arising. Each party's ` +
-          `total aggregate liability to the other under this agreement, across all ` +
-          `claims, is limited to the Fees paid or payable by Practice in the twelve ` +
-          `months before the event giving rise to the claim.`,
+        `healdesk gives Practice no indemnity. To the fullest extent the law allows, ` +
+          `healdesk is not liable to Practice for any loss arising out of or relating to ` +
+          `this agreement or the Services, in contract, tort or otherwise, including ` +
+          `lost profits and indirect, incidental, special or consequential damages. ` +
+          `Where the law does not permit that exclusion, healdesk's total aggregate ` +
+          `liability to Practice, across all claims, is limited to the Fees paid or ` +
+          `payable by Practice in the twelve months before the event giving rise to the ` +
+          `claim.`,
       ) +
       "\n\n" +
       wrap(
-        `Those limits do NOT apply to a party's wilful misconduct or gross negligence, ` +
-          `to healdesk's obligation to bear the cost of notifying patients and regulators ` +
-          `about a breach it caused, or to either party's indemnity obligations for ` +
-          `third-party claims above.`,
+        `This clause allocates cost between the parties. It does not change what each ` +
+          `party owes a regulator directly under HIPAA, and Practice's own duty under ` +
+          `45 CFR 164.404 to notify its patients remains Practice's.`,
       ) +
       "\n\n" +
       wrap(
-        `Practice should know that healdesk's own suppliers cap their liability to ` +
-          `healdesk at figures far below this one. healdesk is not passing those caps ` +
-          `through — the commitment above is healdesk's own. healdesk does not carry ` +
-          `liability insurance; Practice should size its own cover accordingly.`,
+        `healdesk does not carry liability insurance, and its own suppliers cap their ` +
+          `liability to healdesk at figures far below what a breach can cost. Practice ` +
+          `should size its own cover accordingly.`,
       ),
   },
 
@@ -1198,7 +1209,7 @@ export const BAA_TEMPLATES: readonly BaaTemplate[] = [
   // provisioning refuses an unapproved template regardless.
   {
     version: "1.1.0-draft",
-    publishedOn: "2026-09-21",
+    publishedOn: "2026-09-22",
     approvedByCounsel: false,
     preamble: draftPreamble110,
     clauses: CLAUSES_1_1,

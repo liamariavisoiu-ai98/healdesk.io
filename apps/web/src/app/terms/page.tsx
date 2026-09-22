@@ -273,42 +273,47 @@ export default function TermsPage() {
 
       <Section id="liability" title="13. Limitation of liability">
         <p>
-          NEITHER OF US IS LIABLE TO THE OTHER FOR INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL OR
-          PUNITIVE DAMAGES, OR FOR LOST PROFITS OR REVENUE, HOWEVER CAUSED.
+          TO THE FULLEST EXTENT THE LAW ALLOWS, WE ARE NOT LIABLE TO YOU FOR ANY LOSS ARISING OUT
+          OF OR RELATING TO THESE TERMS OR THE SERVICE, IN CONTRACT, TORT OR OTHERWISE, INCLUDING
+          LOST PROFITS OR REVENUE AND INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL OR PUNITIVE
+          DAMAGES, HOWEVER CAUSED.
         </p>
         <p>
-          OUR TOTAL AGGREGATE LIABILITY ARISING OUT OF OR RELATING TO THESE TERMS AND THE SERVICE,
-          IN CONTRACT, TORT OR OTHERWISE, WILL NOT EXCEED{" "}
+          WHERE THE LAW DOES NOT PERMIT THAT EXCLUSION, OUR TOTAL AGGREGATE LIABILITY ARISING OUT
+          OF OR RELATING TO THESE TERMS AND THE SERVICE WILL NOT EXCEED{" "}
           {POLICY.liabilityFloorUsd > 0
             ? `THE GREATER OF (A) THE FEES YOU PAID US IN THE TWELVE MONTHS BEFORE THE EVENT GIVING RISE TO THE CLAIM AND (B) ${usd.format(POLICY.liabilityFloorUsd)}`
             : "THE FEES YOU PAID US IN THE TWELVE MONTHS BEFORE THE EVENT GIVING RISE TO THE CLAIM"}
           .
         </p>
         <p>
-          These limits do not apply to: our gross negligence or wilful misconduct; our obligation
-          under the Business Associate Agreement to bear the cost of notifying patients and
-          regulators of a breach we caused; either party's indemnity obligations in section 14; or
-          any liability that cannot be limited by law.
+          These limits do not apply to your indemnity obligations in section 14, or to any
+          liability that cannot be excluded or limited by law. We carry no liability insurance; you
+          should size your own cover accordingly.
         </p>
       </Section>
 
-      <Section id="indemnity" title="14. Indemnities">
+      <Section id="indemnity" title="14. Indemnity">
         <p>
-          <strong>You</strong> will defend and indemnify us against third-party claims, including
-          claims under the Telephone Consumer Protection Act and state laws like it, arising from
-          messages or calls the agent placed in reliance on your consent warranty in section 8, or
-          from instructions you gave us.
+          <strong>You</strong> will defend, indemnify and hold harmless us and our officers,
+          contractors and subprocessors against every claim, loss, liability, penalty, fine, cost
+          and expense, including reasonable legal fees, the cost of defending a claim, and the cost
+          of investigating a security incident and of notifying patients, regulators and anyone
+          else about a breach, to the extent it arises from or relates to the service, your use of
+          it, the patient information you or your patients give it, the calls and messages the agent
+          handles for you, instructions you gave us, your responsibilities in sections 8 and 9, or a
+          claim by a patient, a regulator or any other third party. This indemnity applies to the
+          fullest extent the law allows, including where the claim alleges negligence on our part.
         </p>
         <p>
-          <strong>We</strong> will defend and indemnify you against third-party claims arising from
-          our breach of these terms or the Business Associate Agreement, or from a claim that the
-          service, used as permitted, infringes a third party's intellectual property. This indemnity
-          is subject to section 13 except where section 13 says otherwise.
+          <strong>We</strong> give you no indemnity. The Business Associate Agreement allocates
+          liability for patient information the same way.
         </p>
         <p>
-          The indemnified party must notify the other promptly, let it control the defence, and
-          cooperate; it may not settle a claim in a way that admits fault for the other without
-          consent.
+          We will tell you promptly of a claim and cooperate at your expense. You will conduct the
+          defence with counsel we approve; we may take part with our own counsel at your cost; and
+          you may not settle a claim in a way that admits fault on our part or imposes an obligation
+          on us without our written consent.
         </p>
       </Section>
 

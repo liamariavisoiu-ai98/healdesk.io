@@ -221,14 +221,16 @@ legacy 2020-01. Sandbox provisioning is manual — ask early.
 
 ### Cyber / tech E&O insurance — declined
 
-Decided 21 September 2026 by the owner, against this file's recommendation
-and with the consequences stated: healdesk carries no liability insurance.
-Clinics whose procurement requires a certificate of insurance will be lost,
-and any claim, defence cost or breach-notification cost is paid from the
-company's own cash. What that decision can and cannot do is written up in the
-"Decisions log" below, item 10; the short version is that the contracts now
-limit liability to the legal minimum, and nothing further is available on
-paper. Do not re-raise this unless the owner does.
+Decided 21 September 2026 by the owner, against this file's recommendation:
+healdesk carries no liability insurance, and clinics whose procurement
+requires a certificate of insurance will be lost. Revised 22 September 2026:
+the owner does not accept that a claim, a defence or a breach notification is
+paid from company cash either. The terms and the BAA now put every one of
+those costs on the practice, by its acceptance of the terms. What that
+paperwork can and cannot do is written up in the "Decisions log" below, item
+10; the short version is that the contracts shift as much as a contract can,
+and the part a contract cannot shift is listed there for counsel. Do not
+re-raise this unless the owner does.
 
 ---
 
@@ -242,6 +244,7 @@ paper. Do not re-raise this unless the owner does.
 | **Click-through BAA — approved and enforced, not open** | The mechanism is production-ready — versioned, hashed, append-only acceptance — and the text is no longer a placeholder: `packages/catalog/src/baa.ts` `BAA_TEMPLATES[0]` is version 1.0.0, published 2026-09-05, `approvedByCounsel: true`, and `apps/app/src/lib/provisioning.ts` refuses to provision a clinic against any template that isn't (`currentBaaTemplate().approvedByCounsel`). Listed here so nobody re-opens it. What still needs counsel is the **other five rows** of this table |
 | **Reactivation = HIPAA marketing?** — moot | Inbound-only since 21 September 2026 (decisions log, item 11): the product sends nothing, so no authorisation question arises. Reopens only if outbound is switched back on |
 | **Missed-call callback consent** — moot | Same decision: no callbacks are placed, and `ingestCall()` refuses a call the vendor flags as outbound |
+| **One-way indemnity and outright exclusion — terms § 13–14, BAA Liability clause** | Decided 22 September 2026 (decisions log, item 10): every claim, defence cost and breach-notification cost sits with the practice, and the indemnity reaches claims that allege our own negligence. Enforceable under Delaware law against a clinic? Which sentences get struck, and does striking them take the fallback cap with it? Must be answered before the 1.1.0 BAA is offered |
 
 ---
 
@@ -632,6 +635,33 @@ re-asking.
    clinics that require a certificate of insurance are lost; every claim is
    paid from company cash; there is no retroactive date, so nothing that
    happens before a policy is ever bound can be covered later.
+
+   **Revised 22 September 2026.** The owner does not accept the "paid from
+   company cash" consequence: every claim, defence cost and
+   breach-notification cost is to sit with the practice, by its acceptance
+   of the terms. The paperwork now says exactly that. Terms § 13 excludes
+   our liability outright to the fullest extent the law allows, and keeps the
+   twelve-months'-fees cap only as the fallback where a court refuses the
+   exclusion; § 14 is a one-way indemnity from the clinic covering claims,
+   penalties, defence costs and the cost of investigating and notifying a
+   breach, expressly including claims that allege our own negligence, and we
+   give no indemnity back (the IP indemnity is gone). The BAA's Liability
+   clause and the last sentence of its breach-report clause say the same,
+   the trust page no longer says we bear notification costs, `LEGAL_VERSION`
+   is `2026-09-22.1`, and the 1.1.0-draft golden hashes are regenerated.
+   What it still cannot do, and what counsel must be asked before the BAA is
+   offered (section 2): a HIPAA penalty OCR assesses against a business
+   associate is owed by healdesk whatever the clinic promised, and a promise
+   to reimburse a regulatory fine is unenforceable as against public policy
+   in some states; most states refuse to enforce an indemnity or an
+   exclusion for a party's own gross negligence or wilful misconduct, and
+   some strike the whole clause when it reaches too far, which is why the
+   wording says "to the fullest extent the law allows" rather than naming
+   that conduct; and TCPA and CIPA plaintiffs signed nothing, so the clause
+   only decides who reimburses whom afterwards, and only while the clinic is
+   solvent. A clinic's counsel will strike the negligence sentence first.
+   That is the trade the owner has chosen, and the contracts state it
+   plainly rather than hide it.
 11. **Inbound-only, and transcripts without audio.** The two design changes
    that remove the exposures a contract cannot touch. Inbound-only:
    `OUTBOUND_CONTACT_ENABLED = false` in `lib/compliance/contact-policy.ts`

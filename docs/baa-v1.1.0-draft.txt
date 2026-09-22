@@ -1,7 +1,9 @@
-healdesk Business Associate Agreement — version 1.1.0 DRAFT, rendered 21 September 2026 for counsel review.
+healdesk Business Associate Agreement — version 1.1.0 DRAFT, rendered 22 September 2026 for counsel review.
 Rendered for a sample practice (covered-entity status: not yet notified; outbound messaging: on). The entity, its form,
-the governing law and the liability cap (twelve months' fees, no floor, no insurance) are real. The one square-bracketed
-item left is the registered address, from the Stripe account. Source: packages/catalog/src/baa.ts, template 1.1.0-draft.
+the governing law and the liability allocation (every claim, defence and notification cost on the practice; healdesk's
+liability excluded where the law allows, with twelve months' fees as the fallback cap; no insurance) are real. The one
+square-bracketed item left is the registered address, from the Stripe account. Source: packages/catalog/src/baa.ts,
+template 1.1.0-draft.
 
 HEALDESK BUSINESS ASSOCIATE AGREEMENT
 Version 1.1.0 — DRAFT FOR COUNSEL REVIEW — NOT FOR EXECUTION
@@ -157,9 +159,9 @@ EFFECTIVE 13 September 2026
   reasonably believed to have been accessed, acquired, used or disclosed; a
   description of what happened, including the dates of the breach and of its
   discovery; the types of PHI involved; what healdesk is doing to investigate,
-  mitigate and prevent recurrence; and a contact. 45 CFR 164.410(c). healdesk
-  will bear the reasonable cost of notifying patients and regulators about a
-  breach it caused.
+  mitigate and prevent recurrence; and a contact. 45 CFR 164.410(c). The cost
+  of notifying patients, regulators and anyone else about a breach is
+  Practice's, as the Liability clause provides.
 
 10. SUBCONTRACTORS
 
@@ -284,30 +286,35 @@ EFFECTIVE 13 September 2026
 
 17. LIABILITY, AND WHO INDEMNIFIES WHOM
 
-  healdesk will defend and indemnify Practice against third-party claims,
-  regulatory penalties and reasonable notification costs to the extent they
-  arise from healdesk's, or its subcontractors', breach of this agreement or
-  violation of HIPAA. Practice will defend and indemnify healdesk against
-  third-party claims and regulatory penalties to the extent they arise from
-  Practice's breach of its warranties in the Outbound contact clause, from
-  instructions Practice gave that healdesk followed, or from Practice's own
-  violation of HIPAA or of state consumer-health-privacy law.
+  Practice will defend, indemnify and hold harmless healdesk and its
+  subcontractors against every claim, loss, liability, regulatory penalty,
+  fine, cost and expense — including reasonable legal fees, the cost of
+  defending a claim, and the cost of investigating a security incident and of
+  notifying patients, regulators, the media and anyone else about a breach —
+  to the extent it arises from or relates to the Services, PHI that Practice
+  or its patients give the Services, Practice's covered-entity status,
+  instructions Practice gave, Practice's own breach of this agreement or
+  violation of HIPAA or of state consumer-health-privacy law, or a claim by a
+  patient, a regulator or any other third party. This indemnity applies to the
+  fullest extent the law allows, including where the claim alleges negligence
+  on healdesk's part, and the limits below do not apply to it.
 
-  Neither party is liable to the other for lost profits or for indirect,
-  incidental, special or consequential damages, however arising. Each party's
-  total aggregate liability to the other under this agreement, across all
-  claims, is limited to the Fees paid or payable by Practice in the twelve
-  months before the event giving rise to the claim.
+  healdesk gives Practice no indemnity. To the fullest extent the law allows,
+  healdesk is not liable to Practice for any loss arising out of or relating
+  to this agreement or the Services, in contract, tort or otherwise, including
+  lost profits and indirect, incidental, special or consequential damages.
+  Where the law does not permit that exclusion, healdesk's total aggregate
+  liability to Practice, across all claims, is limited to the Fees paid or
+  payable by Practice in the twelve months before the event giving rise to the
+  claim.
 
-  Those limits do NOT apply to a party's wilful misconduct or gross
-  negligence, to healdesk's obligation to bear the cost of notifying patients
-  and regulators about a breach it caused, or to either party's indemnity
-  obligations for third-party claims above.
+  This clause allocates cost between the parties. It does not change what each
+  party owes a regulator directly under HIPAA, and Practice's own duty under
+  45 CFR 164.404 to notify its patients remains Practice's.
 
-  Practice should know that healdesk's own suppliers cap their liability to
-  healdesk at figures far below this one. healdesk is not passing those caps
-  through — the commitment above is healdesk's own. healdesk does not carry
-  liability insurance; Practice should size its own cover accordingly.
+  healdesk does not carry liability insurance, and its own suppliers cap their
+  liability to healdesk at figures far below what a breach can cost. Practice
+  should size its own cover accordingly.
 
 18. AVAILABILITY OF RECORDS
 

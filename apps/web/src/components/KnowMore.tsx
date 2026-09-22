@@ -15,8 +15,9 @@ import { site } from "@/lib/site";
  *
  * - "Does she give medical advice" must keep saying no. The product is
  *   deliberately PHI-light and deflects anything clinical, the chat demo's
- *   system prompt enforces the same boundary, and bodily-injury claims are
- *   excluded from our insurance on both the tech E&O and cyber sides.
+ *   system prompt enforces the same boundary, and nothing stands behind a
+ *   bodily-injury claim: healdesk carries no insurance (docs/handover.md,
+ *   decisions log, item 10), and no policy would have covered it anyway.
  * - "How do you handle patient data" must never assert that anyone has
  *   certified or audited us. There is no HIPAA certification, and displaying a
  *   compliance seal was charged as a standalone deception count in *In re

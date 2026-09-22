@@ -52,8 +52,10 @@ categories; never paste patient data into it.
    and by phone to the owner, with: what happened, which patients (by count,
    with ids in a secure attachment if they ask), what we did, what we
    recommend they do, and a contact. Record `notified_at` and how.
-6. **Help the clinic notify** its patients and HHS if it decides it must; we
-   bear the cost of that notification where we caused the breach (terms §13).
+6. **Help the clinic notify** its patients and HHS if it decides it must. The
+   cost of that notification is the clinic's, whoever caused the breach
+   (terms §14, BAA Liability clause), and there is no insurance on our side to
+   offer against it; help means people and information, not money.
 7. **Resolve** with what changed so it cannot recur, and re-read
    [hipaa-risk-analysis.md](./hipaa-risk-analysis.md); a real incident almost
    always moves a row in its threat table.

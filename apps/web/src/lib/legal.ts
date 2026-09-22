@@ -18,8 +18,8 @@ import { plans, type Plan } from "@healdesk/catalog";
  * changes; the footer of each page prints both.
  */
 
-export const LEGAL_VERSION = "2026-09-21.1";
-export const LEGAL_LAST_UPDATED = "21 September 2026";
+export const LEGAL_VERSION = "2026-09-22.1";
+export const LEGAL_LAST_UPDATED = "22 September 2026";
 
 export const ENTITY = {
   /** Full legal name, e.g. "Healdesk, Inc." Empty until the founder supplies it. */
@@ -55,10 +55,13 @@ export const POLICY = {
   /** Whether an annual plan cancelled mid-term is refunded pro rata. */
   annualProRataRefund: false,
   /**
-   * Liability cap: the greater of 12 months' fees or this floor, in USD.
-   * 0 = no floor (cap is 12 months' fees). Decided 21 September 2026: no
-   * floor, and no insurance behind the cap — see docs/handover.md, "Decisions
-   * log". Raising this number without cover to pay it is a promise on paper.
+   * Fallback liability cap, reached only where the law refuses the outright
+   * exclusion in terms § 13: the greater of 12 months' fees or this floor, in
+   * USD. 0 = no floor. Decided 21 September 2026: no floor, and no insurance
+   * behind it. Revised 22 September 2026: liability is excluded where the law
+   * allows and every claim, defence and notification cost is shifted to the
+   * practice by the § 14 indemnity — see docs/handover.md, "Decisions log",
+   * item 10. Raising this number without cover to pay it is a promise on paper.
    */
   liabilityFloorUsd: 0,
   /** Months a demo lead that never becomes a customer is kept. */

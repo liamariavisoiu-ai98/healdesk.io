@@ -9,6 +9,7 @@ import {
   fetchBookingPages,
   selectBookingPage,
   type BookingPageFinding,
+  type BookingPageTarget,
 } from "./booking-page.ts";
 import { buildOutreachRow, excludeReason, hookDiversity } from "./outreach.ts";
 import { buildUnreadableRow } from "./unreadable.ts";
@@ -487,19 +488,41 @@ async function main(): Promise<void> {
     const pages = crawls.map(selectBookingPage).filter((t) => t !== null);
 
     if (pages.length && apifyToken) {
-      console.log(`\n[3b2/4] fetching ${pages.length} booking pages`);
-      pageFindings = await checkpoint<BookingPageFinding[]>(
-        "03b2-pages",
-        flag("force-pages"),
-        () =>
-          fetchBookingPages(pages, {
-            token: apifyToken,
-            onProgress: (n, t) => process.stdout.write(`\r  fetched ${n}/${t}`),
-          }).then((r) => {
-            process.stdout.write("\n");
-            return r;
-          }),
+      // Resumed the same way the crawl and hours stages are, rather than
+      // through checkpoint(), which is all-or-nothing: 618 pages is seven
+      // batches and an interrupt at batch two used to discard both.
+      const pagesPath = join(DATA, "03b2-pages.json");
+      const alreadyPages: BookingPageFinding[] =
+        !flag("force-pages") && existsSync(pagesPath)
+          ? (JSON.parse(await readFile(pagesPath, "utf8")) as BookingPageFinding[])
+          : [];
+      const havePages = new Set(alreadyPages.map((f) => f.clinicId));
+      const toFetch = pages.filter((t) => !havePages.has(t!.clinicId));
+
+      console.log(
+        `\n[3b2/4] fetching ${toFetch.length} booking pages` +
+          (alreadyPages.length ? ` (${alreadyPages.length} already found)` : ""),
       );
+
+      if (toFetch.length) {
+        const writePages = async (partial: BookingPageFinding[]) => {
+          await mkdir(DATA, { recursive: true });
+          const tmp = `${pagesPath}.tmp`;
+          await writeFile(tmp, JSON.stringify([...alreadyPages, ...partial], null, 2));
+          await rename(tmp, pagesPath);
+        };
+        const fresh = await fetchBookingPages(toFetch as BookingPageTarget[], {
+          token: apifyToken,
+          concurrency: numericArg("concurrency") ?? 1,
+          onBatch: writePages,
+          onProgress: (n, t) => process.stdout.write(`\r  fetched ${n}/${t}`),
+        });
+        process.stdout.write("\n");
+        pageFindings = [...alreadyPages, ...fresh];
+        await writePages(fresh);
+      } else {
+        pageFindings = alreadyPages;
+      }
       console.log(`  ${pageFindings.length} platforms found behind a booking link`);
     }
   }
@@ -980,11 +1003,46 @@ async function main(): Promise<void> {
   // one practice, which reads as a blast and burns the sending domain rather
   // than just the lead. An unreadable row has no personalisation to sustain
   // four touches. Filter on `list` before loading a campaign.
-  const merged = [
-    ...sendable,
-    ...unreadable,
-    ...secondContacts,
-  ];
+  /**
+   * One row per ADDRESS, not per clinic.
+   *
+   * Dedupe keys on the domain, which is right: two domains are two websites we
+   * crawled and two sets of facts. But a practice can run two domains with one
+   * person behind both — Pitner Orthodontics at drcarrollorthodontics.com and
+   * drpitner.com, same leslie@. Batch 2 brought 13 such pairs, and one of them
+   * had the two records classified differently (other-medical against
+   * plastic-surgery), so they would have arrived as two emails contradicting
+   * each other.
+   *
+   * The clinic records stay as they are. Only the send list collapses.
+   *
+   * Which row wins: a primary beats a second contact beats an unreadable, and
+   * among equals the one carrying more evidence, since the duplicate pair
+   * usually has one rich record and one thin one.
+   */
+  const RANK: Record<string, number> = { primary: 3, "second-contact": 2, unreadable: 1 };
+  const evidence = (r: Record<string, string>) =>
+    (r.gap_hours ? 4 : 0) + (r.top_service ? 2 : 0) + (r.booking_platform ? 1 : 0);
+
+  const byEmail = new Map<string, Record<string, string>>();
+  let collapsed = 0;
+  for (const row of [...sendable, ...unreadable, ...secondContacts]) {
+    const key = (row.email ?? "").toLowerCase();
+    const held = byEmail.get(key);
+    if (!held) { byEmail.set(key, row); continue; }
+    collapsed += 1;
+    const better =
+      (RANK[row.list ?? ""] ?? 0) - (RANK[held.list ?? ""] ?? 0) ||
+      evidence(row) - evidence(held);
+    if (better > 0) byEmail.set(key, row);
+  }
+  const merged = [...byEmail.values()];
+  if (collapsed) {
+    console.log(
+      `\n  ${collapsed} rows share an address with another row and were collapsed. ` +
+        `A practice on two domains is two clinics and one inbox.`,
+    );
+  }
 
   const allPath = join(DATA, "all-leads.csv");
   await writeFile(allPath, toCsv(merged));

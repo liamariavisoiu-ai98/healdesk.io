@@ -114,6 +114,25 @@ export type FetchOptions = {
   token: string;
   batchSize?: number;
   onProgress?: (done: number, total: number) => void;
+  /**
+   * How many Apify runs to have in flight at once. Default 1.
+   *
+   * This was the last stage still strictly sequential. On the batch-2 run it
+   * had 618 pages to fetch, which at ~25 minutes per batch of 100 is close to
+   * three hours with seven other CPUs idle and a plan allowing 32 concurrent
+   * runs.
+   */
+  concurrency?: number;
+  /**
+   * Called after every batch with everything found so far.
+   *
+   * Without it nothing reached disk until all seven batches finished, so
+   * stopping the run at batch two discarded both batches of paid fetches. That
+   * is not hypothetical: it happened, and it is what prompted this rewrite.
+   */
+  onBatch?: (partial: BookingPageFinding[]) => Promise<void> | void;
+  /** Test seam, as in crawl.ts and places.ts. Replaces the Apify call. */
+  runBatch?: (batch: BookingPageTarget[]) => Promise<BookingPageFinding[]>;
 };
 
 /**
@@ -131,11 +150,31 @@ export async function fetchBookingPages(
 
   const client = new ApifyClient({ token: options.token });
   const batchSize = options.batchSize ?? 100;
-  const out: BookingPageFinding[] = [];
+  const concurrency = Math.max(1, options.concurrency ?? 1);
 
+  const batches: BookingPageTarget[][] = [];
   for (let i = 0; i < targets.length; i += batchSize) {
-    const batch = targets.slice(i, i + batchSize);
+    batches.push(targets.slice(i, i + batchSize));
+  }
 
+  /** Indexed, so output order follows input rather than who finishes first. */
+  const slots: BookingPageFinding[][] = batches.map(() => []);
+  const flatten = (): BookingPageFinding[] => slots.flat();
+  let completed = 0;
+
+  /** Serialised, because two writers into one file leave a truncated document. */
+  let writeChain: Promise<void> = Promise.resolve();
+  const persist = (): Promise<void> => {
+    writeChain = writeChain
+      .then(() => options.onBatch?.(flatten()))
+      .then(() => undefined)
+      .catch((error) => {
+        console.error(`\n  checkpoint write failed: ${String(error)}`);
+      });
+    return writeChain;
+  };
+
+  const fetchOne = async (batch: BookingPageTarget[]): Promise<BookingPageFinding[]> => {
     const run = await client.actor("apify/website-content-crawler").call({
       startUrls: batch.map((t) => ({ url: t.url })),
       crawlerType: "playwright:adaptive",
@@ -147,6 +186,13 @@ export async function fetchBookingPages(
       proxyConfiguration: { useApifyProxy: true },
     });
 
+    // .call() resolves for FAILED and ABORTED exactly as for SUCCEEDED, so a
+    // broken run would otherwise read back as "no booking platform found" for
+    // every clinic in the batch and be checkpointed as fact.
+    if (run.status !== "SUCCEEDED") {
+      throw new Error(`booking-page batch ended ${run.status} (run ${run.id})`);
+    }
+
     const { items } = await client
       .dataset(run.defaultDatasetId)
       .listItems({ clean: true });
@@ -156,6 +202,7 @@ export async function fetchBookingPages(
       if (item.url && item.html) byUrl.set(item.url.toLowerCase(), item.html);
     }
 
+    const found: BookingPageFinding[] = [];
     for (const target of batch) {
       const html = byUrl.get(target.url.toLowerCase());
       if (!html) continue;
@@ -168,12 +215,57 @@ export async function fetchBookingPages(
 
       const detection = detectBooking(links);
       if (detection.platform) {
-        out.push({ clinicId: target.clinicId, url: target.url, detection });
+        found.push({ clinicId: target.clinicId, url: target.url, detection });
       }
     }
+    return found;
+  };
 
-    options.onProgress?.(Math.min(i + batchSize, targets.length), targets.length);
+  const runBatch = async (index: number): Promise<void> => {
+    const batch = batches[index]!;
+    slots[index] = await (options.runBatch ?? fetchOne)(batch);
+    completed += batch.length;
+    options.onProgress?.(completed, targets.length);
+    await persist();
+  };
+
+  // Probe batch alone before fan-out, as in crawl.ts: eight batches launched
+  // together are all billed before the first result can be inspected.
+  await runBatch(0);
+
+  let cursor = 1;
+  const failures: unknown[] = [];
+
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const index = cursor++;
+      if (index >= batches.length) return;
+      try {
+        await runBatch(index);
+      } catch (error) {
+        // One batch failing must not abandon the rest; they are separate Apify
+        // runs and already paid for or in flight. A failed batch contributes no
+        // findings, which is the same as finding nothing — acceptable here,
+        // because a missed booking page only weakens a clinic's angle rather
+        // than putting a false claim in an email.
+        failures.push(error);
+        completed += batches[index]!.length;
+        options.onProgress?.(completed, targets.length);
+        await persist();
+      }
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, Math.max(batches.length - 1, 1)) }, worker),
+  );
+  await writeChain;
+
+  if (failures.length) {
+    console.error(
+      `\n  ${failures.length} of ${batches.length} booking-page batches failed.`,
+    );
   }
 
-  return out;
+  return flatten();
 }

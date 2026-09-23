@@ -20,7 +20,7 @@ Two systems, one boundary (see [hipaa-compliance.md](./hipaa-compliance.md)):
 
 | System | Holds PHI? | Where it runs |
 | --- | --- | --- |
-| `apps/web` — the marketing site, demo and checkout | **No.** Business contact data only; schema tested against a patient-shaped-column denylist | Vercel |
+| `apps/web` — the marketing site, demo and checkout | **No.** Business contact data only, in a Google Sheet (the lead register) whose column headers are tested against a patient-shaped denylist | Vercel; the lead register in the company Google account's Drive |
 | `apps/app` — the product, its database and its worker | **Yes.** Everything below | The BAA host (AWS, single US region) |
 
 This analysis covers `apps/app` and every vendor in its PHI path. It does not cover
@@ -44,8 +44,10 @@ the clinic's own systems, which the clinic controls.
 Things that deliberately hold **no** PHI, and the control that keeps it that way:
 the queue (`pgboss` payloads are ids only, enforced by `assertNoPhiInPayload()`),
 email (the product refuses to send patient information over email; reports are
-aggregates and are scanned), the marketing database, analytics (none in the
-product; consent-gated and content-free on the site), and every ad platform (no
+aggregates and are scanned), the marketing lead register (a Google Sheet of
+business contact data, its headers tested against the patient-shaped denylist;
+`apps/web` has no database client), analytics (none in the product; on the site,
+PostHog's US cloud, consent-gated and content-free), and every ad platform (no
 integration exists and the site's browser policy blocks the connections).
 
 ## 3. Threats, likelihood, impact, and what stands in the way

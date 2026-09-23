@@ -44,8 +44,8 @@ export default function ErrorPage({
   reset?: () => void;
 }) {
   useEffect(() => {
-    // Console for now. When the analytics vendor is wired (PostHog EU), this
-    // is the one place to capture the digest.
+    // Console for now. When the analytics vendor is wired (PostHog, US
+    // cloud), this is the one place to capture the digest.
     console.error(error);
   }, [error]);
 

@@ -1,32 +1,56 @@
-import { isMarketingDbConfigured, marketingPool } from "@/lib/db";
+import { isMarketingStoreConfigured, sheetsClient, type SheetsClient } from "@/lib/sheets/client";
+import { COUNTERS, dataRange, ensureSheetSchema, recordToRow, rowRange, rowToRecord, type Counter } from "@/lib/sheets/schema";
 
 /**
- * Fixed-window rate limiter, shared across instances.
+ * Fixed-window rate limiter: per-instance memory, plus a shared row for the
+ * two site-wide daily spend caps.
  *
- * ## Why it is no longer a Map
+ * ## What is shared and what is not, and why
  *
- * The previous limiter kept its counters in module memory. On a serverless
- * host each instance has its own memory, so the effective limit was the
- * configured limit multiplied by however many instances were warm — and the
- * instances multiply exactly when traffic spikes, which is when the limit
- * matters. The counters now live in the marketing database (src/lib/db), one
- * row per key, updated by a single atomic upsert so two instances racing at
- * the boundary cannot both be told "you are the last one allowed".
+ * Sixteen routes call this, from the chat demo to the admin sign-in
+ * throttle. Every per-IP, per-number and per-document counter lives in this
+ * process's memory, which on a serverless host means the real ceiling is the
+ * configured limit times however many instances are warm. That was the
+ * design before the counters moved to Postgres (commit 8546574), and it is
+ * the design again: the marketing site's store is now a Google Sheet, and a
+ * Sheet cannot do an atomic increment. Every write is a whole row, every
+ * call costs 300–800 ms, and the quota is about sixty requests a minute.
+ * Routing sixteen counters through that would turn the sign-in throttle into
+ * a sign-in outage.
  *
- * ## Fail closed in production, open in development
+ * The two counters that bound the BILL rather than a visitor are different:
+ * `chat:global:day` (api/chat) and `callback:global:day` (api/callback) cap
+ * model turns and dialled calls per UTC day across the whole site, and a cap
+ * that resets on every cold start is not a cap. Those two, and only those two
+ * (`GLOBAL_CAP_KEYS`), are backed by the `counters` tab of the marketing
+ * Sheet.
  *
- * With no MARKETING_DATABASE_URL in production the limiter throws at first
- * use. A limiter that silently degrades to per-instance memory on a
- * multi-instance host is not a limiter, and the routes it protects front a
- * paid model and a paid dialler. In development the in-memory path is used
- * so nobody needs Postgres to run the site locally, and it says so once.
+ * ## How the shared path works, and what it gets wrong on purpose
  *
- * A database that is configured but momentarily unreachable is different from
- * one that was never configured: that request falls back to memory with a
- * loud error, because a Postgres blip should not take the whole site down.
+ * Each instance keeps a cached copy of the row and re-reads it at most every
+ * `REFRESH_MS` (30 s). An increment bumps the cached count and writes the
+ * whole row back, best-effort. Two instances holding the same window can
+ * each write a count the other has not seen, so the last write wins and the
+ * loser's increments since its last refresh are lost. On refresh the larger
+ * of the Sheet's count and the local count is kept, so an instance never
+ * undercounts its own requests, only the others' for up to thirty seconds.
  *
- * The call signature is unchanged except for being async; every route awaits
- * it, and the RateLimitResult shape is the same as before.
+ * The accepted imprecision, therefore: each warm instance may admit a few
+ * requests beyond the cap per window — bounded by what it served in the
+ * refresh interval — and never more than that. For caps of 2,000 turns and
+ * 40 calls a day, on a site with a handful of warm instances, that is the
+ * right trade against a quota-limited store; exactness would need a store
+ * with an atomic increment, which the owner has declined.
+ *
+ * ## Without the Sheet
+ *
+ * When the store is not configured, or a call to it fails, the same
+ * per-instance memory serves the global caps too, and the limiter says so
+ * once (a warning in production, a note in development). It never throws:
+ * the site must not go down because a Sheet is missing.
+ *
+ * The call signature is unchanged and still async; every route awaits it,
+ * and the RateLimitResult shape is the same as before.
  */
 
 export type RateLimitResult = {
@@ -36,8 +60,18 @@ export type RateLimitResult = {
   retryAfter: number;
 };
 
+/** The only keys that go through the Sheet. Anything else is per-instance memory. */
+export const GLOBAL_CAP_KEYS: ReadonlySet<string> = new Set(["chat:global:day", "callback:global:day"]);
+
+export function isGlobalCapKey(key: string): boolean {
+  return GLOBAL_CAP_KEYS.has(key);
+}
+
+/** How stale a cached global-cap row may be before it is re-read. */
+export const REFRESH_MS = 30_000;
+
 // ---------------------------------------------------------------------------
-// In-memory path (development, and the fallback for a transient outage)
+// In-memory path (everything but the global caps; the fallback for those)
 // ---------------------------------------------------------------------------
 
 type Window = { count: number; resetAt: number };
@@ -75,69 +109,141 @@ function isOverLimitInMemory(key: string, limit: number): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Shared path
+// Shared path: the counters tab
 // ---------------------------------------------------------------------------
 
-let warnedInMemory = false;
+type Shared = {
+  count: number;
+  windowStart: number;
+  windowMs: number;
+  /** The sheet row holding this key, once known. */
+  row: number | null;
+  /** When the row was last read from the Sheet. */
+  readAt: number;
+};
+
+const shared = new Map<string, Shared>();
+
+let warnedNoStore = false;
+let lastErrorLogAt = 0;
 
 function useSharedStore(): boolean {
-  if (isMarketingDbConfigured()) return true;
-  if (process.env.NODE_ENV === "production") {
-    throw new Error(
-      "MARKETING_DATABASE_URL is not set: the rate limiter refuses to run on per-instance memory in production. See src/lib/rate-limit.ts.",
-    );
-  }
-  if (!warnedInMemory) {
-    warnedInMemory = true;
-    console.info("[healdesk] rate limiter using in-memory counters (no MARKETING_DATABASE_URL)");
+  if (isMarketingStoreConfigured()) return true;
+  if (!warnedNoStore) {
+    warnedNoStore = true;
+    if (process.env.NODE_ENV === "production") {
+      console.warn(
+        "[healdesk] rate limiter: MARKETING_SHEET_ID / GOOGLE_SERVICE_ACCOUNT_JSON unset; the daily spend caps are per instance until the Sheet is configured",
+      );
+    } else {
+      console.info("[healdesk] rate limiter using in-memory counters (no marketing Sheet configured)");
+    }
   }
   return false;
 }
 
-/**
- * One statement, so the read-modify-write cannot interleave with another
- * instance's. The window either has expired (start over at 1) or has not
- * (increment); Postgres evaluates both CASEs against the row it locks.
- * `now()` comes from the database so every instance agrees on the clock.
- */
-const UPSERT = `
-  insert into rate_limits (key, count, window_start, window_ms)
-  values ($1, 1, now(), $2)
-  on conflict (key) do update set
-    count = case
-      when rate_limits.window_start + (rate_limits.window_ms * interval '1 millisecond') <= now() then 1
-      else rate_limits.count + 1
-    end,
-    window_start = case
-      when rate_limits.window_start + (rate_limits.window_ms * interval '1 millisecond') <= now() then now()
-      else rate_limits.window_start
-    end,
-    window_ms = excluded.window_ms
-  returning count, window_start, window_ms, now() as db_now
-`;
-
-type Row = { count: number; window_start: Date; window_ms: number; db_now: Date };
-
-function resultFromRow(row: Row, limit: number): RateLimitResult {
-  const resetAt = row.window_start.getTime() + row.window_ms;
-  const retryAfter = Math.max(0, Math.ceil((resetAt - row.db_now.getTime()) / 1000));
-  if (row.count > limit) return { ok: false, remaining: 0, retryAfter };
-  return { ok: true, remaining: limit - row.count, retryAfter };
+/** At most one line a minute: a quota outage must not become a log outage. */
+function logStoreError(where: string, error: unknown): void {
+  const now = Date.now();
+  if (now - lastErrorLogAt < 60_000) return;
+  lastErrorLogAt = now;
+  console.error(`[healdesk] rate limiter store ${where}; using in-memory for this request`, {
+    error: error instanceof Error ? error.message : String(error),
+  });
 }
 
-let sweepCounter = 0;
+async function counters(): Promise<SheetsClient> {
+  const client = sheetsClient();
+  await ensureSheetSchema(client);
+  return client;
+}
 
-/** Occasionally drop rows whose window closed over a day ago. Cheap, best-effort. */
-async function maybeSweepShared(): Promise<void> {
-  sweepCounter = (sweepCounter + 1) % 200;
-  if (sweepCounter !== 0) return;
-  try {
-    await marketingPool().query(
-      `delete from rate_limits where window_start + (window_ms * interval '1 millisecond') < now() - interval '1 day'`,
-    );
-  } catch {
-    // Sweeping is housekeeping; a failure here changes nothing about limits.
+/** The row for `key`, or an empty window if there is none yet. First matching row wins. */
+async function readShared(client: SheetsClient, key: string, windowMs: number, now: number): Promise<Shared> {
+  const rows = await client.getValues(dataRange(COUNTERS));
+  for (let i = 0; i < rows.length; i += 1) {
+    const record = rowToRecord(COUNTERS, rows[i]!) as Partial<Counter>;
+    if (record.key !== key) continue;
+    return {
+      count: record.count ?? 0,
+      windowStart: record.windowStart?.getTime() ?? now,
+      windowMs: record.windowMs ?? windowMs,
+      row: i + 2,
+      readAt: now,
+    };
   }
+  return { count: 0, windowStart: now, windowMs, row: null, readAt: now };
+}
+
+/**
+ * Reconcile what this instance believes with what the Sheet says. The later
+ * window wins outright; two starts within a refresh interval of each other are
+ * the same window seen from two instances, and the larger count is kept.
+ */
+function merge(local: Shared | undefined, remote: Shared): Shared {
+  if (!local) return remote;
+  const tolerance = 2 * REFRESH_MS;
+  if (remote.windowStart > local.windowStart + tolerance) return remote;
+  if (local.windowStart > remote.windowStart + tolerance) return { ...local, row: remote.row ?? local.row, readAt: remote.readAt };
+  return {
+    count: Math.max(local.count, remote.count),
+    windowStart: Math.min(local.windowStart, remote.windowStart),
+    windowMs: remote.windowMs,
+    row: remote.row ?? local.row,
+    readAt: remote.readAt,
+  };
+}
+
+async function writeShared(client: SheetsClient, key: string, state: Shared): Promise<void> {
+  const row = recordToRow(COUNTERS, {
+    key,
+    count: state.count,
+    windowStart: new Date(state.windowStart),
+    windowMs: state.windowMs,
+  } satisfies Counter);
+  if (state.row !== null) {
+    await client.updateRange(rowRange(COUNTERS, state.row), [row]);
+    return;
+  }
+  const { firstRow } = await client.appendRows(COUNTERS.title, [row]);
+  state.row = firstRow;
+}
+
+async function currentShared(client: SheetsClient, key: string, windowMs: number, now: number): Promise<Shared> {
+  let state = shared.get(key);
+  if (!state || now - state.readAt > REFRESH_MS) {
+    state = merge(state, await readShared(client, key, windowMs, now));
+    shared.set(key, state);
+  }
+  return state;
+}
+
+function resultFrom(state: Shared, limit: number, now: number): RateLimitResult {
+  const retryAfter = Math.max(0, Math.ceil((state.windowStart + state.windowMs - now) / 1000));
+  if (state.count > limit) return { ok: false, remaining: 0, retryAfter };
+  return { ok: true, remaining: limit - state.count, retryAfter };
+}
+
+async function rateLimitShared(key: string, limit: number, windowMs: number): Promise<RateLimitResult> {
+  const client = await counters();
+  const now = Date.now();
+  const state = await currentShared(client, key, windowMs, now);
+  if (state.windowStart + state.windowMs <= now) {
+    state.count = 1;
+    state.windowStart = now;
+    state.windowMs = windowMs;
+  } else {
+    state.count += 1;
+  }
+  // Mirror into memory so a later Sheet failure degrades from the last known
+  // count rather than from zero.
+  windows.set(key, { count: state.count, resetAt: state.windowStart + state.windowMs });
+  try {
+    await writeShared(client, key, state);
+  } catch (error) {
+    logStoreError("write failed", error);
+  }
+  return resultFrom(state, limit, now);
 }
 
 export async function rateLimit(
@@ -145,17 +251,11 @@ export async function rateLimit(
   limit: number,
   windowMs: number,
 ): Promise<RateLimitResult> {
-  if (!useSharedStore()) return rateLimitInMemory(key, limit, windowMs);
+  if (!isGlobalCapKey(key) || !useSharedStore()) return rateLimitInMemory(key, limit, windowMs);
   try {
-    const { rows } = await marketingPool().query<Row>(UPSERT, [key, windowMs]);
-    const row = rows[0];
-    if (!row) throw new Error("rate limit upsert returned no row");
-    void maybeSweepShared();
-    return resultFromRow(row, limit);
+    return await rateLimitShared(key, limit, windowMs);
   } catch (error) {
-    console.error("[healdesk] rate limiter store unreachable; using in-memory for this request", {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    logStoreError("unreachable", error);
     return rateLimitInMemory(key, limit, windowMs);
   }
 }
@@ -174,21 +274,15 @@ export async function rateLimit(
  * lock would be the wrong trade for a counter whose charge is deferred.
  */
 export async function isOverLimit(key: string, limit: number): Promise<boolean> {
-  if (!useSharedStore()) return isOverLimitInMemory(key, limit);
+  if (!isGlobalCapKey(key) || !useSharedStore()) return isOverLimitInMemory(key, limit);
   try {
-    const { rows } = await marketingPool().query<Omit<Row, "count"> & { count: number }>(
-      `select count, window_start, window_ms, now() as db_now from rate_limits where key = $1`,
-      [key],
-    );
-    const row = rows[0];
-    if (!row) return false;
-    const resetAt = row.window_start.getTime() + row.window_ms;
-    if (resetAt <= row.db_now.getTime()) return false;
-    return row.count >= limit;
+    const client = await counters();
+    const now = Date.now();
+    const state = await currentShared(client, key, 0, now);
+    if (state.windowStart + state.windowMs <= now) return false;
+    return state.count >= limit;
   } catch (error) {
-    console.error("[healdesk] rate limiter store unreachable on peek; using in-memory", {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    logStoreError("unreachable on peek", error);
     return isOverLimitInMemory(key, limit);
   }
 }
@@ -205,4 +299,12 @@ export function clientKey(headers: Headers): string {
     if (first) return first;
   }
   return headers.get("x-real-ip") ?? "unknown";
+}
+
+/** A fresh instance: no windows, no cached rows, the one-time notices unsaid. */
+export function __resetRateLimiterForTests(): void {
+  windows.clear();
+  shared.clear();
+  warnedNoStore = false;
+  lastErrorLogAt = 0;
 }

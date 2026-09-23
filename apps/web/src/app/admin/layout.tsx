@@ -12,7 +12,7 @@ import {
 } from "@/lib/admin/operator";
 
 /**
- * The chrome around the admin area: one header, three sections, one sign-out.
+ * The chrome around the admin area: one header, four sections, one sign-out.
  *
  * ## Why this is not the marketing `Nav`
  *
@@ -75,6 +75,13 @@ import {
  * here rather than on each page means a future route under /admin is private by
  * default instead of private if somebody remembers.
  *
+ * `manifest` and `appleWebApp` make /admin installable on a phone's home
+ * screen: public/admin.webmanifest scopes the app to /admin, opens it
+ * standalone (no browser chrome) and reuses the site's icons. A layout-level
+ * manifest applies to every route beneath it, which is exactly the set of
+ * pages the installed app may show; the marketing site has no manifest and
+ * gains none from this.
+ *
  * The title is deliberately NOT here. A plain string `title` in a layout clears
  * the closest parent's `title.template` for everything beneath it, so
  * `title: "Admin"` on this file quietly turned the sign-in page's tab from
@@ -84,15 +91,18 @@ import {
  */
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
+  manifest: "/admin.webmanifest",
+  appleWebApp: { capable: true, title: "healdesk ops", statusBarStyle: "default" },
 };
 
 /**
- * The three surfaces this console has, in the order somebody uses them: what
- * changed, what is running, and what has been signed.
+ * The four surfaces this console has, in the order somebody uses them: what
+ * changed, what is running, who is in the funnel, and what has been signed.
  */
 const SECTIONS = [
   { href: "/admin", label: "Changes" },
   { href: "/admin/ops", label: "Ops" },
+  { href: "/admin/crm", label: "CRM" },
   { href: "/admin/agreements", label: "Agreements" },
 ] as const;
 
@@ -145,28 +155,33 @@ export default async function AdminLayout({
   const operator = await requireOperator();
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-dvh flex-col">
       <AdminChrome>
         <header className="border-line/60 bg-paper/85 sticky top-0 z-50 border-b backdrop-blur-md">
-          <div className="mx-auto flex w-full max-w-[1240px] flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4 sm:px-8 lg:px-14">
+          {/* Wraps on a phone: brand and sign-out on the first line, the
+              section links on the next. Every control is at least 44px tall,
+              the size a thumb can hit; the nav is deliberately not a menu
+              behind a button, because four links fit and a menu hides the
+              one you want. */}
+          <div className="mx-auto flex w-full max-w-[1240px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-8 sm:py-4 lg:px-14">
             {/* The gradient utility rather than the marketing `Brand`'s two
                 coloured spans: `Brand` links to `#top`, which is an anchor on
                 the landing page and a no-op here. */}
             <a
               href="/admin"
               aria-label="healdesk admin"
-              className="font-display shrink-0 text-[31.2px] leading-none font-semibold tracking-[-0.02em] sm:text-[33.6px]"
+              className="font-display flex min-h-11 shrink-0 items-center text-[27px] leading-none font-semibold tracking-[-0.02em] sm:text-[33.6px]"
             >
               <span className="text-brand-gradient">healdesk</span>
               <span className="text-muted text-[0.6em] font-medium">.io</span>
             </a>
 
-            <nav aria-label="Admin sections" className="flex flex-wrap gap-1">
+            <nav aria-label="Admin sections" className="order-last flex w-full flex-wrap gap-1 sm:order-none sm:w-auto">
               {SECTIONS.map((section) => (
                 <a
                   key={section.href}
                   href={section.href}
-                  className="text-muted hover:text-ink hover:bg-paper-2 rounded-full px-3 py-1.5 text-[15.6px] font-semibold transition-colors"
+                  className="text-muted hover:text-ink hover:bg-paper-2 inline-flex min-h-11 items-center rounded-full px-3.5 py-2 text-[15.6px] font-semibold transition-colors"
                 >
                   {section.label}
                 </a>
@@ -186,7 +201,7 @@ export default async function AdminLayout({
               <form action={signOut}>
                 <button
                   type="submit"
-                  className="border-line hover:border-line-strong text-muted hover:text-ink shrink-0 rounded-full border px-4 py-2 text-[15.6px] font-semibold transition-colors"
+                  className="border-line hover:border-line-strong text-muted hover:text-ink inline-flex min-h-11 shrink-0 items-center rounded-full border px-4 py-2 text-[15.6px] font-semibold transition-colors"
                 >
                   Sign out
                 </button>

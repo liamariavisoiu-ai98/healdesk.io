@@ -1,8 +1,26 @@
-import { COHORT_SETUP_CREDIT } from "@healdesk/catalog";
-import { and, eq, isNull, lt, sql } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 
-import { isMarketingDbConfigured, marketingDb } from "@/lib/db";
-import { callConsents, leadEvents, leads, type Lead } from "@/lib/db/schema";
+import { COHORT_SETUP_CREDIT } from "@healdesk/catalog";
+
+import { isMarketingStoreConfigured, sheetsClient, type Cell, type SheetsClient } from "@/lib/sheets/client";
+import {
+  CALL_CONSENTS,
+  LEADS,
+  LEAD_EVENTS,
+  cellRange,
+  dataRange,
+  ensureSheetSchema,
+  leadFromRow,
+  recordToRow,
+  rowRange,
+  rowToRecord,
+  type CallConsent,
+  type Lead,
+  type LeadEvent,
+  type Tab,
+} from "@/lib/sheets/schema";
+
+export type { Lead } from "@/lib/sheets/schema";
 
 /**
  * The lead store.
@@ -12,13 +30,34 @@ import { callConsents, leadEvents, leads, type Lead } from "@/lib/db/schema";
  * than creating a second. Before this existed the gate route wrote one line to
  * the server log and the address was gone when the log rotated.
  *
+ * ## It is a Google Sheet
+ *
+ * Since 23 September 2026 the rows live in the `leads`, `lead_events` and
+ * `call_consents` tabs of the marketing Sheet (src/lib/sheets). The exported
+ * API is the one the Postgres version had, signature for signature, so the
+ * eight route handlers and the nurture cron that call it did not change. What
+ * changed is underneath:
+ *
+ *   - A Sheet has no unique index. Identity is still `email_normalized`, but
+ *     it is enforced by reading before writing, and two unlocks racing for the
+ *     same new address can produce two rows. So every read deduplicates on
+ *     the earliest row, and the purge treats a duplicate like any other row,
+ *     which is how it eventually goes away.
+ *   - A row is addressed by its 1-based sheet row number, read together with
+ *     the data and never kept: it is only valid until the next delete.
+ *   - A delete is a `deleteDimension` request, issued in descending row
+ *     order so earlier deletes do not shift the rows of later ones.
+ *   - `leadsForNurture` and `leadsForAbandonment` filter in memory. The tab
+ *     is a few hundred rows at most; the limit of 200 is kept.
+ *
  * ## Fail open
  *
- * `recordDemoUnlock()` never throws. If the database is unreachable the lead
- * is logged (address only, no content) and the caller carries on: losing a
- * lead is bad, refusing a demo to a prospect who just typed their email is
- * worse. The rate limiter in src/lib/rate-limit.ts makes the opposite choice,
- * because its job is to refuse.
+ * `recordDemoUnlock()` never throws. If the Sheet is unreachable the lead is
+ * logged (business/consumer only, no address) and the caller carries on:
+ * losing a lead is bad, refusing a demo to a prospect who just typed their
+ * email is worse. Which functions catch and which propagate is exactly as
+ * before: the write-on-a-page-path functions catch; the cron and webhook
+ * functions let a failure reach the caller so the provider retries.
  *
  * ## Consent is a separate fact from the unlock
  *
@@ -64,8 +103,136 @@ export type RecordResult =
   | { ok: true; leadId: string; created: boolean }
   | { ok: false; reason: "unconfigured" | "unavailable" };
 
+// -----------------------------------------------------------------------------
+// Reading and writing rows
+// -----------------------------------------------------------------------------
+
+/** A decoded row and where it sits, for the update or delete that follows. */
+type Located<T> = { row: number; value: T };
+
+async function store(): Promise<SheetsClient> {
+  const client = sheetsClient();
+  await ensureSheetSchema(client);
+  return client;
+}
+
+function blank(cells: readonly Cell[]): boolean {
+  return cells.every((cell) => cell === "" || cell === undefined);
+}
+
+async function readRows<T>(client: SheetsClient, tab: Tab, decode: (cells: readonly Cell[]) => T): Promise<Located<T>[]> {
+  const rows = await client.getValues(dataRange(tab));
+  const out: Located<T>[] = [];
+  rows.forEach((cells, i) => {
+    if (blank(cells)) return;
+    out.push({ row: i + 2, value: decode(cells) });
+  });
+  return out;
+}
+
+/** Every `leads` row that has an id and an address, duplicates included. */
+async function readLeadRows(client: SheetsClient): Promise<Located<Lead>[]> {
+  const rows = await readRows(client, LEADS, leadFromRow);
+  return rows.filter((r) => r.value.id && r.value.emailNormalized);
+}
+
+/** The rows a caller may act on: one per normalised address, the earliest row winning. */
+function dedupe(rows: Located<Lead>[]): Located<Lead>[] {
+  const seen = new Set<string>();
+  return rows.filter((r) => {
+    if (seen.has(r.value.emailNormalized)) return false;
+    seen.add(r.value.emailNormalized);
+    return true;
+  });
+}
+
+async function locateByEmail(client: SheetsClient, normalized: string): Promise<Located<Lead> | null> {
+  return dedupe(await readLeadRows(client)).find((r) => r.value.emailNormalized === normalized) ?? null;
+}
+
+async function locateById(client: SheetsClient, id: string): Promise<Located<Lead> | null> {
+  return dedupe(await readLeadRows(client)).find((r) => r.value.id === id) ?? null;
+}
+
+async function writeLead(client: SheetsClient, row: number, lead: Lead): Promise<void> {
+  await client.updateRange(rowRange(LEADS, row), [recordToRow(LEADS, lead)]);
+}
+
+async function appendLead(client: SheetsClient, lead: Lead): Promise<void> {
+  await client.appendRows(LEADS.title, [recordToRow(LEADS, lead)]);
+}
+
+async function appendEvent(
+  client: SheetsClient,
+  leadId: string,
+  name: string,
+  payload?: Record<string, string | number | boolean>,
+): Promise<void> {
+  const event: LeadEvent = { id: randomUUID(), leadId, name, at: new Date(), payload: payload ?? null };
+  await client.appendRows(LEAD_EVENTS.title, [recordToRow(LEAD_EVENTS, event)]);
+}
+
+/** Delete rows by sheet row number, highest first so nothing shifts under a later delete. */
+async function deleteRows(client: SheetsClient, tab: Tab, rows: number[]): Promise<void> {
+  if (rows.length === 0) return;
+  const sheetId = await client.getSheetId(tab.title);
+  if (sheetId === null) throw new Error(`The "${tab.title}" tab is missing from the marketing Sheet.`);
+  const descending = [...new Set(rows)].sort((a, b) => b - a);
+  await client.batchUpdate(
+    descending.map((row) => ({
+      deleteDimension: { range: { sheetId, dimension: "ROWS" as const, startIndex: row - 1, endIndex: row } },
+    })),
+  );
+}
+
+/** The columns a database would have defaulted. */
+function newLead(now: Date, over: Partial<Lead> & Pick<Lead, "email" | "emailNormalized">): Lead {
+  return {
+    id: randomUUID(),
+    phone: null,
+    clinicName: null,
+    website: null,
+    specialty: null,
+    segment: null,
+    sourceCampaign: null,
+    leadScore: null,
+    isBusinessEmail: null,
+    marketingConsent: false,
+    consentNoticeVersion: null,
+    consentText: null,
+    consentAt: null,
+    claimToken: null,
+    unsubscribedAt: null,
+    bouncedAt: null,
+    nurtureStep: 0,
+    lastTouchAt: null,
+    cohortCreditOfferedAt: null,
+    checkoutStartedAt: null,
+    checkoutAbandonedAt: null,
+    abandonmentSentAt: null,
+    convertedAt: null,
+    convertedPlan: null,
+    convertedMrrUsd: null,
+    referrerHost: null,
+    unlockCount: 1,
+    firstSeenAt: now,
+    lastSeenAt: now,
+    createdAt: now,
+    updatedAt: now,
+    ...over,
+  };
+}
+
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+// -----------------------------------------------------------------------------
+// The demo unlock
+// -----------------------------------------------------------------------------
+
 export async function recordDemoUnlock(input: DemoUnlock): Promise<RecordResult> {
-  if (!isMarketingDbConfigured()) {
+  if (!isMarketingStoreConfigured()) {
     console.info("[healdesk] demo unlocked (no lead store configured)", {
       business: input.isBusinessEmail,
       at: new Date().toISOString(),
@@ -78,56 +245,50 @@ export async function recordDemoUnlock(input: DemoUnlock): Promise<RecordResult>
   const now = new Date();
 
   try {
-    const db = marketingDb();
-    const [row] = await db
-      .insert(leads)
-      .values({
-        email: input.email.trim(),
-        emailNormalized: normalized,
-        specialty: input.specialty ?? null,
-        sourceCampaign: input.campaign ?? null,
-        leadScore: input.isBusinessEmail ? "business" : "consumer",
-        isBusinessEmail: input.isBusinessEmail,
-        marketingConsent: consented,
-        consentNoticeVersion: consented ? (input.noticeVersion ?? null) : null,
-        consentText: consented ? (input.consentText ?? null) : null,
-        consentAt: consented ? now : null,
-        referrerHost: referrerHost(input.referrer),
-      })
-      .onConflictDoUpdate({
-        target: leads.emailNormalized,
-        set: {
-          lastSeenAt: now,
-          updatedAt: now,
-          unlockCount: sql`${leads.unlockCount} + 1`,
-          // Fill gaps, never overwrite what a previous visit told us.
-          specialty: sql`coalesce(${leads.specialty}, ${input.specialty ?? null})`,
-          sourceCampaign: sql`coalesce(${leads.sourceCampaign}, ${input.campaign ?? null})`,
-          // Consent only ever moves from false to true here; withdrawal is a
-          // separate, explicit action with its own record.
-          marketingConsent: sql`${leads.marketingConsent} or ${consented}`,
-          consentNoticeVersion: sql`coalesce(${leads.consentNoticeVersion}, ${consented ? (input.noticeVersion ?? null) : null})`,
-          consentText: sql`coalesce(${leads.consentText}, ${consented ? (input.consentText ?? null) : null})`,
-          consentAt: sql`coalesce(${leads.consentAt}, ${consented ? now : null})`,
-        },
-      })
-      .returning({ id: leads.id, unlockCount: leads.unlockCount });
+    const client = await store();
+    const existing = await locateByEmail(client, normalized);
 
-    if (!row) return { ok: false, reason: "unavailable" };
+    if (existing) {
+      const lead = existing.value;
+      await writeLead(client, existing.row, {
+        ...lead,
+        lastSeenAt: now,
+        updatedAt: now,
+        unlockCount: lead.unlockCount + 1,
+        // Fill gaps, never overwrite what a previous visit told us.
+        specialty: lead.specialty ?? input.specialty ?? null,
+        sourceCampaign: lead.sourceCampaign ?? input.campaign ?? null,
+        // Consent only ever moves from false to true here; withdrawal is a
+        // separate, explicit action with its own record.
+        marketingConsent: lead.marketingConsent || consented,
+        consentNoticeVersion: lead.consentNoticeVersion ?? (consented ? (input.noticeVersion ?? null) : null),
+        consentText: lead.consentText ?? (consented ? (input.consentText ?? null) : null),
+        consentAt: lead.consentAt ?? (consented ? now : null),
+      });
+      await appendEvent(client, lead.id, "demo_unlocked", { business: input.isBusinessEmail, consent: consented });
+      return { ok: true, leadId: lead.id, created: false };
+    }
 
-    await db.insert(leadEvents).values({
-      leadId: row.id,
-      name: "demo_unlocked",
-      payload: { business: input.isBusinessEmail, consent: consented },
+    const lead = newLead(now, {
+      email: input.email.trim(),
+      emailNormalized: normalized,
+      specialty: input.specialty ?? null,
+      sourceCampaign: input.campaign ?? null,
+      leadScore: input.isBusinessEmail ? "business" : "consumer",
+      isBusinessEmail: input.isBusinessEmail,
+      marketingConsent: consented,
+      consentNoticeVersion: consented ? (input.noticeVersion ?? null) : null,
+      consentText: consented ? (input.consentText ?? null) : null,
+      consentAt: consented ? now : null,
+      referrerHost: referrerHost(input.referrer),
     });
-
-    return { ok: true, leadId: row.id, created: row.unlockCount === 1 };
+    await appendLead(client, lead);
+    await appendEvent(client, lead.id, "demo_unlocked", { business: input.isBusinessEmail, consent: consented });
+    return { ok: true, leadId: lead.id, created: true };
   } catch (error) {
     // Address deliberately not logged: the log is the one place this data
     // would live with no retention policy.
-    console.error("[healdesk] lead store unavailable; demo continues", {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    console.error("[healdesk] lead store unavailable; demo continues", { error: describe(error) });
     return { ok: false, reason: "unavailable" };
   }
 }
@@ -138,33 +299,55 @@ export async function recordLeadEvent(
   name: string,
   payload?: Record<string, string | number | boolean>,
 ): Promise<void> {
-  if (!isMarketingDbConfigured()) return;
+  if (!isMarketingStoreConfigured()) return;
   try {
-    await marketingDb().insert(leadEvents).values({ leadId, name, payload });
+    await appendEvent(await store(), leadId, name, payload);
   } catch (error) {
-    console.error("[healdesk] lead event dropped", {
-      name,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    console.error("[healdesk] lead event dropped", { name, error: describe(error) });
   }
 }
 
+// -----------------------------------------------------------------------------
+// Retention
+// -----------------------------------------------------------------------------
+
 /**
- * Delete leads that never became customers and have not been seen for
- * `months`. This is what makes the retention line in the privacy policy true:
- * the policy quotes POLICY.leadRetentionMonths and a Vercel cron calls this
- * daily (app/api/cron/purge-leads). Events cascade with the lead.
+ * Delete leads that have not been seen for `months`. This is what makes the
+ * retention line in the privacy policy true: the policy quotes
+ * POLICY.leadRetentionMonths and a Vercel cron calls this daily
+ * (app/api/cron/purge-leads). Events go with the lead; a call-consent row
+ * that named the lead keeps its evidence and loses only the link.
  *
  * A lead with a claim token is a prospect who was sent a personalised bot;
  * the same clock applies — the token expires long before this does.
  */
 export async function purgeStaleLeads(months: number): Promise<number> {
-  if (!isMarketingDbConfigured()) return 0;
-  const result = await marketingDb()
-    .delete(leads)
-    .where(sql`${leads.lastSeenAt} < now() - make_interval(months => ${months})`)
-    .returning({ id: leads.id });
-  return result.length;
+  if (!isMarketingStoreConfigured()) return 0;
+  const client = await store();
+  const cutoff = new Date();
+  cutoff.setUTCMonth(cutoff.getUTCMonth() - months);
+
+  const stale = (await readLeadRows(client)).filter((r) => r.value.lastSeenAt.getTime() < cutoff.getTime());
+  if (stale.length === 0) return 0;
+  const ids = new Set(stale.map((r) => r.value.id));
+
+  // ON DELETE SET NULL, by hand: blank the link, keep the row.
+  const consents = await readRows(client, CALL_CONSENTS, (cells) => rowToRecord(CALL_CONSENTS, cells) as CallConsent);
+  for (const consent of consents) {
+    if (consent.value.leadId && ids.has(consent.value.leadId)) {
+      await client.updateRange(cellRange(CALL_CONSENTS, consent.row, "lead_id"), [[""]]);
+    }
+  }
+
+  // ON DELETE CASCADE, by hand.
+  const events = await readRows(client, LEAD_EVENTS, (cells) => rowToRecord(LEAD_EVENTS, cells) as LeadEvent);
+  await deleteRows(
+    client,
+    LEAD_EVENTS,
+    events.filter((e) => ids.has(e.value.leadId)).map((e) => e.row),
+  );
+  await deleteRows(client, LEADS, stale.map((r) => r.row));
+  return stale.length;
 }
 
 /**
@@ -173,29 +356,29 @@ export async function purgeStaleLeads(months: number): Promise<number> {
  * call was lawful stays for the four years a claim could be brought.
  */
 export async function purgeStaleCallConsents(years: number): Promise<number> {
-  if (!isMarketingDbConfigured()) return 0;
-  const result = await marketingDb()
-    .delete(callConsents)
-    .where(sql`${callConsents.at} < now() - make_interval(years => ${years})`)
-    .returning({ id: callConsents.id });
-  return result.length;
+  if (!isMarketingStoreConfigured()) return 0;
+  const client = await store();
+  const cutoff = new Date();
+  cutoff.setUTCFullYear(cutoff.getUTCFullYear() - years);
+  const consents = await readRows(client, CALL_CONSENTS, (cells) => rowToRecord(CALL_CONSENTS, cells) as CallConsent);
+  const stale = consents.filter((c) => c.value.at instanceof Date && c.value.at.getTime() < cutoff.getTime());
+  await deleteRows(client, CALL_CONSENTS, stale.map((c) => c.row));
+  return stale.length;
 }
 
+// -----------------------------------------------------------------------------
+// Lookups
+// -----------------------------------------------------------------------------
+
 export async function findLeadByEmail(email: string): Promise<Lead | null> {
-  if (!isMarketingDbConfigured()) return null;
-  const [row] = await marketingDb()
-    .select()
-    .from(leads)
-    .where(eq(leads.emailNormalized, normalizeEmail(email)))
-    .limit(1);
-  return row ?? null;
+  if (!isMarketingStoreConfigured()) return null;
+  return (await locateByEmail(await store(), normalizeEmail(email)))?.value ?? null;
 }
 
 export async function findLeadById(id: string): Promise<Lead | null> {
-  if (!isMarketingDbConfigured()) return null;
+  if (!isMarketingStoreConfigured()) return null;
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
-  const [row] = await marketingDb().select().from(leads).where(eq(leads.id, id)).limit(1);
-  return row ?? null;
+  return (await locateById(await store(), id))?.value ?? null;
 }
 
 // -----------------------------------------------------------------------------
@@ -226,15 +409,14 @@ export function canEmail(lead: Lead, kind: EmailKind): { ok: true } | { ok: fals
 
 /** The one-click unsubscribe, or a provider complaint. Never undone by code. */
 export async function markUnsubscribed(leadId: string, source: "link" | "complaint"): Promise<boolean> {
-  if (!isMarketingDbConfigured()) return false;
+  if (!isMarketingStoreConfigured()) return false;
+  const client = await store();
+  const located = await locateById(client, leadId);
+  if (!located || located.value.unsubscribedAt) return false;
   const now = new Date();
-  const rows = await marketingDb()
-    .update(leads)
-    .set({ unsubscribedAt: now, updatedAt: now })
-    .where(and(eq(leads.id, leadId), isNull(leads.unsubscribedAt)))
-    .returning({ id: leads.id });
-  if (rows.length) await recordLeadEvent(leadId, "unsubscribed", { source });
-  return rows.length > 0;
+  await writeLead(client, located.row, { ...located.value, unsubscribedAt: now, updatedAt: now });
+  await recordLeadEvent(leadId, "unsubscribed", { source });
+  return true;
 }
 
 /** Provider webhook: a hard bounce or a complaint, keyed on the address. */
@@ -242,16 +424,16 @@ export async function markDeliveryFailure(
   email: string,
   kind: "bounce" | "complaint",
 ): Promise<boolean> {
-  if (!isMarketingDbConfigured()) return false;
-  const lead = await findLeadByEmail(email);
-  if (!lead) return false;
-  if (kind === "complaint") return markUnsubscribed(lead.id, "complaint");
+  if (!isMarketingStoreConfigured()) return false;
+  const client = await store();
+  const located = await locateByEmail(client, normalizeEmail(email));
+  if (!located) return false;
+  if (kind === "complaint") return markUnsubscribed(located.value.id, "complaint");
   const now = new Date();
-  await marketingDb()
-    .update(leads)
-    .set({ bouncedAt: now, updatedAt: now })
-    .where(and(eq(leads.id, lead.id), isNull(leads.bouncedAt)));
-  await recordLeadEvent(lead.id, "bounced");
+  if (!located.value.bouncedAt) {
+    await writeLead(client, located.row, { ...located.value, bouncedAt: now, updatedAt: now });
+  }
+  await recordLeadEvent(located.value.id, "bounced");
   return true;
 }
 
@@ -273,13 +455,29 @@ export async function markCheckoutStarted(input: {
   campaign?: string | null;
   leadId?: string | null;
 }): Promise<string | null> {
-  if (!isMarketingDbConfigured()) return null;
+  if (!isMarketingStoreConfigured()) return null;
   const now = new Date();
   const normalized = normalizeEmail(input.email);
   try {
-    const [row] = await marketingDb()
-      .insert(leads)
-      .values({
+    const client = await store();
+    const existing = await locateByEmail(client, normalized);
+    let id: string;
+    if (existing) {
+      const lead = existing.value;
+      id = lead.id;
+      await writeLead(client, existing.row, {
+        ...lead,
+        lastSeenAt: now,
+        updatedAt: now,
+        clinicName: lead.clinicName ?? input.clinicName ?? null,
+        specialty: lead.specialty ?? input.specialty ?? null,
+        sourceCampaign: lead.sourceCampaign ?? input.campaign ?? null,
+        checkoutStartedAt: now,
+        // A new attempt reopens the abandonment question.
+        checkoutAbandonedAt: null,
+      });
+    } else {
+      const lead = newLead(now, {
         email: input.email.trim(),
         emailNormalized: normalized,
         clinicName: input.clinicName ?? null,
@@ -289,43 +487,27 @@ export async function markCheckoutStarted(input: {
         isBusinessEmail: true,
         checkoutStartedAt: now,
         checkoutAbandonedAt: null,
-      })
-      .onConflictDoUpdate({
-        target: leads.emailNormalized,
-        set: {
-          lastSeenAt: now,
-          updatedAt: now,
-          clinicName: sql`coalesce(${leads.clinicName}, ${input.clinicName ?? null})`,
-          specialty: sql`coalesce(${leads.specialty}, ${input.specialty ?? null})`,
-          sourceCampaign: sql`coalesce(${leads.sourceCampaign}, ${input.campaign ?? null})`,
-          checkoutStartedAt: now,
-          // A new attempt reopens the abandonment question.
-          checkoutAbandonedAt: null,
-        },
-      })
-      .returning({ id: leads.id });
-    if (!row) return null;
-    await recordLeadEvent(row.id, "checkout_started", { plan: input.plan, interval: input.interval });
-    return row.id;
+      });
+      id = lead.id;
+      await appendLead(client, lead);
+    }
+    await recordLeadEvent(id, "checkout_started", { plan: input.plan, interval: input.interval });
+    return id;
   } catch (error) {
-    console.error("[healdesk] could not record checkout start", {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    console.error("[healdesk] could not record checkout start", { error: describe(error) });
     return null;
   }
 }
 
 /** Stripe said the session expired, or the cron decided an hour was enough. */
 export async function markCheckoutAbandoned(email: string): Promise<void> {
-  if (!isMarketingDbConfigured()) return;
-  const lead = await findLeadByEmail(email);
-  if (!lead || lead.convertedAt || lead.checkoutAbandonedAt) return;
+  if (!isMarketingStoreConfigured()) return;
+  const client = await store();
+  const located = await locateByEmail(client, normalizeEmail(email));
+  if (!located || located.value.convertedAt || located.value.checkoutAbandonedAt) return;
   const now = new Date();
-  await marketingDb()
-    .update(leads)
-    .set({ checkoutAbandonedAt: now, updatedAt: now })
-    .where(eq(leads.id, lead.id));
-  await recordLeadEvent(lead.id, "checkout_abandoned");
+  await writeLead(client, located.row, { ...located.value, checkoutAbandonedAt: now, updatedAt: now });
+  await recordLeadEvent(located.value.id, "checkout_abandoned");
 }
 
 /** The webhook saw a completed session: the lead is a customer. Ends the nurture. */
@@ -334,20 +516,20 @@ export async function markConverted(input: {
   plan: string;
   mrrUsd: number;
 }): Promise<void> {
-  if (!isMarketingDbConfigured()) return;
-  const lead = await findLeadByEmail(input.email);
-  if (!lead) return;
+  if (!isMarketingStoreConfigured()) return;
+  const client = await store();
+  const located = await locateByEmail(client, normalizeEmail(input.email));
+  if (!located) return;
+  const lead = located.value;
   const now = new Date();
-  await marketingDb()
-    .update(leads)
-    .set({
-      convertedAt: sql`coalesce(${leads.convertedAt}, ${now})`,
-      convertedPlan: input.plan,
-      convertedMrrUsd: Math.round(input.mrrUsd),
-      checkoutAbandonedAt: null,
-      updatedAt: now,
-    })
-    .where(eq(leads.id, lead.id));
+  await writeLead(client, located.row, {
+    ...lead,
+    convertedAt: lead.convertedAt ?? now,
+    convertedPlan: input.plan,
+    convertedMrrUsd: Math.round(input.mrrUsd),
+    checkoutAbandonedAt: null,
+    updatedAt: now,
+  });
   if (!lead.convertedAt) {
     await recordLeadEvent(lead.id, "payment_completed", { plan: input.plan, mrr: Math.round(input.mrrUsd) });
   }
@@ -359,38 +541,37 @@ export async function markConverted(input: {
 
 /** Consented, not yet a customer, not stopped, and with touches left. */
 export async function leadsForNurture(maxStep: number, limit = 200): Promise<Lead[]> {
-  if (!isMarketingDbConfigured()) return [];
-  return marketingDb()
-    .select()
-    .from(leads)
-    .where(
-      and(
-        eq(leads.marketingConsent, true),
-        isNull(leads.unsubscribedAt),
-        isNull(leads.bouncedAt),
-        isNull(leads.convertedAt),
-        lt(leads.nurtureStep, maxStep),
-      ),
+  if (!isMarketingStoreConfigured()) return [];
+  const rows = dedupe(await readLeadRows(await store()));
+  return rows
+    .map((r) => r.value)
+    .filter(
+      (l) =>
+        l.marketingConsent === true &&
+        !l.unsubscribedAt &&
+        !l.bouncedAt &&
+        !l.convertedAt &&
+        l.nurtureStep < maxStep,
     )
-    .limit(limit);
+    .slice(0, limit);
 }
 
 /** Started checkout, did not finish, not yet nudged. */
 export async function leadsForAbandonment(olderThan: Date, limit = 200): Promise<Lead[]> {
-  if (!isMarketingDbConfigured()) return [];
-  return marketingDb()
-    .select()
-    .from(leads)
-    .where(
-      and(
-        isNull(leads.convertedAt),
-        isNull(leads.abandonmentSentAt),
-        isNull(leads.unsubscribedAt),
-        isNull(leads.bouncedAt),
-        lt(leads.checkoutStartedAt, olderThan),
-      ),
+  if (!isMarketingStoreConfigured()) return [];
+  const rows = dedupe(await readLeadRows(await store()));
+  return rows
+    .map((r) => r.value)
+    .filter(
+      (l) =>
+        !l.convertedAt &&
+        !l.abandonmentSentAt &&
+        !l.unsubscribedAt &&
+        !l.bouncedAt &&
+        l.checkoutStartedAt !== null &&
+        l.checkoutStartedAt.getTime() < olderThan.getTime(),
     )
-    .limit(limit);
+    .slice(0, limit);
 }
 
 /** The nurture step whose email carries the founding-cohort setup credit (lib/email/nurture.ts, Day 7). */
@@ -410,28 +591,33 @@ export async function recordTouch(
   leadId: string,
   touch: { kind: "nurture"; step: number } | { kind: "abandonment" },
 ): Promise<void> {
-  if (!isMarketingDbConfigured()) return;
+  if (!isMarketingStoreConfigured()) return;
+  const client = await store();
+  const located = await locateById(client, leadId);
+  if (!located) return;
+  const lead = located.value;
   const now = new Date();
   if (touch.kind === "nurture") {
-    await marketingDb()
-      .update(leads)
-      .set({ nurtureStep: touch.step + 1, lastTouchAt: now, updatedAt: now })
-      .where(eq(leads.id, leadId));
-    await recordLeadEvent(leadId, "nurture_sent", { step: touch.step });
-    if (touch.step === COHORT_CREDIT_TOUCH_STEP) {
+    await writeLead(client, located.row, {
+      ...lead,
+      nurtureStep: touch.step + 1,
+      lastTouchAt: now,
+      updatedAt: now,
       // Stamped once, when the offer was actually mailed; the checkout reads
       // this, never the step counter, so a resent or skipped touch cannot
       // grant or withhold the credit on its own.
-      await marketingDb()
-        .update(leads)
-        .set({ cohortCreditOfferedAt: sql`coalesce(${leads.cohortCreditOfferedAt}, ${now})` })
-        .where(eq(leads.id, leadId));
-    }
+      cohortCreditOfferedAt:
+        touch.step === COHORT_CREDIT_TOUCH_STEP ? (lead.cohortCreditOfferedAt ?? now) : lead.cohortCreditOfferedAt,
+    });
+    await recordLeadEvent(leadId, "nurture_sent", { step: touch.step });
   } else {
-    await marketingDb()
-      .update(leads)
-      .set({ abandonmentSentAt: now, checkoutAbandonedAt: sql`coalesce(${leads.checkoutAbandonedAt}, ${now})`, lastTouchAt: now, updatedAt: now })
-      .where(eq(leads.id, leadId));
+    await writeLead(client, located.row, {
+      ...lead,
+      abandonmentSentAt: now,
+      checkoutAbandonedAt: lead.checkoutAbandonedAt ?? now,
+      lastTouchAt: now,
+      updatedAt: now,
+    });
     await recordLeadEvent(leadId, "abandonment_sent");
   }
 }
@@ -455,42 +641,43 @@ export async function recordCallConsent(input: {
   userAgent?: string | null;
   leadEmail?: string | null;
 }): Promise<string | null> {
-  if (!isMarketingDbConfigured()) {
+  if (!isMarketingStoreConfigured()) {
     console.error("[healdesk] call consent NOT persisted: no lead store configured", {
       version: input.consentVersion,
     });
     return null;
   }
   try {
-    const lead = input.leadEmail ? await findLeadByEmail(input.leadEmail) : null;
-    const [row] = await marketingDb()
-      .insert(callConsents)
-      .values({
-        leadId: lead?.id ?? null,
-        phoneE164: input.phoneE164,
-        consentVersion: input.consentVersion,
-        consentText: input.consentText,
-        ipAddress: input.ipAddress ?? null,
-        userAgent: input.userAgent?.slice(0, 300) ?? null,
-      })
-      .returning({ id: callConsents.id });
-    if (lead) await recordLeadEvent(lead.id, "call_requested");
-    return row?.id ?? null;
+    const client = await store();
+    const lead = input.leadEmail ? await locateByEmail(client, normalizeEmail(input.leadEmail)) : null;
+    const consent: CallConsent = {
+      id: randomUUID(),
+      leadId: lead?.value.id ?? null,
+      phoneE164: input.phoneE164,
+      consentVersion: input.consentVersion,
+      consentText: input.consentText,
+      ipAddress: input.ipAddress ?? null,
+      userAgent: input.userAgent?.slice(0, 300) ?? null,
+      callPlacedAt: null,
+      at: new Date(),
+    };
+    await client.appendRows(CALL_CONSENTS.title, [recordToRow(CALL_CONSENTS, consent)]);
+    if (lead) await recordLeadEvent(lead.value.id, "call_requested");
+    return consent.id;
   } catch (error) {
-    console.error("[healdesk] call consent NOT persisted", {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    console.error("[healdesk] call consent NOT persisted", { error: describe(error) });
     return null;
   }
 }
 
 export async function markCallPlaced(consentId: string | null): Promise<void> {
-  if (!consentId || !isMarketingDbConfigured()) return;
+  if (!consentId || !isMarketingStoreConfigured()) return;
   try {
-    await marketingDb()
-      .update(callConsents)
-      .set({ callPlacedAt: new Date() })
-      .where(eq(callConsents.id, consentId));
+    const client = await store();
+    const consents = await readRows(client, CALL_CONSENTS, (cells) => rowToRecord(CALL_CONSENTS, cells) as CallConsent);
+    const located = consents.find((c) => c.value.id === consentId);
+    if (!located) return;
+    await client.updateRange(cellRange(CALL_CONSENTS, located.row, "call_placed_at"), [[new Date().toISOString()]]);
   } catch {
     // The consent row already exists; the placed stamp is a nicety.
   }

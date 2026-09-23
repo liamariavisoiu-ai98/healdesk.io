@@ -11,17 +11,14 @@
     "clean": "rm -rf .next .turbo node_modules",
     "stripe:setup": "tsx --env-file-if-exists=.env.local scripts/stripe-setup.ts",
     "test": "vitest run",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "qa:gate": "tsx --env-file-if-exists=.env.local scripts/qa-gate.ts"
+    "qa:gate": "tsx --env-file-if-exists=.env.local scripts/qa-gate.ts",
+    "sheets:init": "tsx --env-file-if-exists=.env.local scripts/sheets-init.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
     "@healdesk/catalog": "*",
-    "drizzle-orm": "^0.45.2",
     "motion": "^13.0.0",
     "next": "^16.3.0",
-    "pg": "^8.13.1",
     "posthog-js": "^1.430.3",
     "qrcode": "^1.5.4",
     "react": "^19.2.0",
@@ -32,12 +29,10 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^22.10.2",
-    "@types/pg": "^8.11.10",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@types/three": "^0.185.4",
-    "drizzle-kit": "^0.31.1",
     "postcss": "^8.5.1",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.7.2",

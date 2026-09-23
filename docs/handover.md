@@ -506,6 +506,12 @@ anywhere near it. `send()` picks Resend when `RESEND_API_KEY` and
 throws. The From must be a real person at a subdomain that is not one of the
 cold-outreach domains.
 
+- **Where the leads live.** A Google Sheet in the company Google account's
+  Drive, with tabs `leads`, `lead_events`, `call_consents` and `counters`
+  (`apps/web/src/lib/sheets/`), read and written by the site through a
+  service account. It is not a database and `apps/web` has no database
+  client; the same rows are the CRM at `/admin/crm`. Setup is under "The
+  marketing lead register" below.
 - **Who may be emailed** is one function, `canEmail()` in `lib/leads.ts`:
   marketing mail needs the ticked box and stops on unsubscribe, bounce or
   purchase; relationship mail (the abandoned-checkout note) needs no box but
@@ -536,7 +542,49 @@ cold-outreach domains.
   `no-outbound-voice.test.ts` fails if `placeCall()` gains a second caller.
 - **Spend ceilings.** `DEMO_DAILY_CHAT_CAP` (2,000 turns) and
   `DEMO_DAILY_CALL_CAP` (40 calls) per UTC day, site-wide, on top of the
-  per-visitor limits. Zero switches a demo off.
+  per-visitor limits. Zero switches a demo off. The two daily caps are the
+  only rate-limit counters shared across instances, through the Sheet's
+  `counters` tab on a cached read; every per-IP and per-number limit is per
+  instance (`apps/web/src/lib/rate-limit.ts` says why).
+
+### The marketing lead register
+
+The marketing site keeps its data in one Google Sheet: demo leads, funnel
+events, the demo-call consent record and the two daily spend counters. Four
+tabs, each headed with the old Postgres column names in the old order
+(`apps/web/src/lib/sheets/schema.ts`), ISO timestamps as text, TRUE/FALSE
+booleans, blanks for null. The site provisions the tabs itself on first use;
+`npm run sheets:init -w @healdesk/web` does the same by hand, which is the
+quickest way to prove the sharing and the key work before a deploy.
+
+The Sheet must be owned by the **company** Google account (the owner wrote
+`headesk.io@gmail.com`; confirm the exact address, it may be a typo for
+`healdesk.io@gmail.com`), never a personal Drive: it is the lead register,
+and whoever owns it owns the leads. The Google Cloud project that holds the
+service account can stay where it is; the Sheet's owner is what matters.
+
+Service account: `healdesk-sheets@healdesk-marketing-2026.iam.gserviceaccount.com`
+(project `healdesk-marketing-2026`, Sheets scope only). To set it up:
+
+1. In the company Google account, create a blank Sheet in Drive. Name it
+   anything; leave it empty.
+2. Share it as **Editor** with the service account address above.
+3. Copy the id from the URL: the long token between `/d/` and `/edit`.
+4. Create the key, once, and keep the file out of the repo:
+   `gcloud iam service-accounts keys create healdesk-sheets-key.json --iam-account=healdesk-sheets@healdesk-marketing-2026.iam.gserviceaccount.com --project=healdesk-marketing-2026`
+5. On Vercel (apps/web project, all environments), set `MARKETING_SHEET_ID`
+   to the id and `GOOGLE_SERVICE_ACCOUNT_JSON` to the whole contents of the
+   key file (base64 of it is accepted if the paste mangles newlines).
+6. Run `npm run sheets:init -w @healdesk/web` with the same two variables
+   in `apps/web/.env.local`, or let the site do it lazily on the first lead.
+   Then open `/admin/crm` on a phone, signed in to the company account, and
+   the register is there.
+
+With either variable missing nothing goes down: the demo runs and the lead
+is lost (logged as a count, never an address), `/admin/crm` shows an empty
+state, and the daily caps fall back to per-instance memory with one warning.
+Rotating the key is `gcloud iam service-accounts keys create` again, paste,
+redeploy, then delete the old key id.
 
 ### Retention
 
@@ -794,6 +842,37 @@ re-asking.
    address" item in 9: `ENTITY.postalAddress` is filled,
    `legalFactsComplete()` is true, the legal pages' draft banner is down,
    and `LEGAL_VERSION` is 2026-09-23.1.
+15. **The marketing store is a Google Sheet, not Neon (23 September 2026).**
+   The marketing site's data — demo leads, funnel events, the demo-call
+   consent record — lives in a Google Sheet in the company Google account's
+   Drive, read and written by the site through a service account
+   (`apps/web/src/lib/sheets/`; setup under "The marketing lead register").
+   `apps/web` has no database client of any kind again, which is the rule
+   the root CLAUDE.md states and the one checkable fact behind "the
+   marketing site cannot reach patient data"; `drizzle-orm`, `pg` and the
+   marketing migrations are gone. The owner also asked for the rate-limit
+   counters in the Sheet, and that was taken only in part, with the reason
+   recorded here: a Sheet cannot increment atomically, a call costs
+   300–800 ms, the quota is about sixty requests a minute per user, and the
+   limiter sits on sixteen routes including the admin sign-in throttle.
+   Routing all of that through the Sheet would make sign-in an outage. So
+   every per-IP, per-number and per-document limit is per-instance memory
+   (the design before commit 8546574), and only the two site-wide daily
+   spend caps — `chat:global:day` and `callback:global:day`, the counters
+   that bound the bill rather than a visitor — are backed by the Sheet's
+   `counters` tab, on a per-instance read refreshed at most every thirty
+   seconds with a best-effort read-modify-write increment. The accepted
+   imprecision is a few requests over the cap per warm instance per window
+   (`apps/web/src/lib/rate-limit.ts`). The subprocessor register lists
+   Google in Neon's place, no BAA needed: business contact data only.
+16. **PostHog on the US cloud (23 September 2026).** The client base is US,
+   so analytics moved from PostHog's EU cloud to its US cloud: the hosts in
+   `PostHogProvider.tsx`, the two origins in the CSP, the register entry and
+   `.env.example`. Nothing about what is sent changed — still consent-gated,
+   still page views and named funnel steps only, still no ad integration —
+   and `NEXT_PUBLIC_POSTHOG_KEY` is now declared in `turbo.json`'s
+   `build.env`, which it had been missing from: inlined at build time, it
+   was invisible to the build under Turborepo's strict env mode.
 
 ### Incidents and patient rights
 
@@ -888,6 +967,9 @@ clinic-owner invitations 14.
 | `apps/app/src/lib/sync/reconcile.ts` | The money rules, pure and testable. Read this one before disputing a figure |
 | `apps/app/src/lib/sync/run.ts` | One sync run: cursors, paging, per-page transactions |
 | `apps/web/src/lib/billing.ts` | Checkout session creation; why the payload rides in metadata per-field |
+| `apps/web/src/lib/sheets/` | The marketing Sheet: the client (and its in-memory fake), the four tabs, the cell codec, the provisioner |
+| `apps/web/src/lib/leads.ts` | The lead store over the Sheet; `canEmail()`; the nurture and abandonment queries |
+| `apps/web/src/lib/rate-limit.ts` | Per-instance limits, and why only the two daily spend caps are shared |
 | `apps/web/src/app/api/webhooks/stripe/route.ts` | Where accounts are actually created. Read the status-code reasoning before changing one |
 | `apps/app/drizzle/0021_provisioning_idempotency.sql` | Why a Stripe retry can't create a second account |
 | `apps/app/src/lib/clinic/opening-hours.ts` | After-hours recovery. Returns `null` for "not collected" — never coerce it |

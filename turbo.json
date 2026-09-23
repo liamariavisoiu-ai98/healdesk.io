@@ -24,6 +24,9 @@
         "STRIPE_SECRET_KEY",
         "STRIPE_WEBHOOK_SECRET",
         "HEALDESK_EMAIL_TRANSPORT",
+        // The PostHog project key is inlined into the client bundle at build
+        // time; missing here, the site builds with analytics silently off.
+        "NEXT_PUBLIC_POSTHOG_KEY",
 
         // Everything below is read at RUNTIME only — no NEXT_PUBLIC_ prefix, so
         // none of it is inlined into a bundle and none of it changes build
@@ -44,6 +47,11 @@
         // local checkout with git log, which a deployed instance does not have.
         "GITHUB_TOKEN",
         "HEALDESK_REPO",
+
+        // The marketing Sheet: leads, funnel events, call consents and the two
+        // daily spend counters. Required together; either missing fails open.
+        "MARKETING_SHEET_ID",
+        "GOOGLE_SERVICE_ACCOUNT_JSON",
 
         // Mail. RESEND_API_KEY and HEALDESK_EMAIL_FROM are checked as one
         // condition, so either missing takes out both the contact form and the

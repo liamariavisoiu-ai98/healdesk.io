@@ -7,7 +7,7 @@
  * oversight: it is the reason the marketing site can deploy anywhere and the
  * reason the audit of this codebase can say, in one sentence, that this app
  * cannot reach patient data. Moving the ops console here would be the obvious
- * moment to add `drizzle` and a connection string "just for the console", and
+ * moment to add an ORM and a connection string "just for the console", and
  * doing so would quietly end that property for every route in the app, forever.
  *
  * So every read and every action crosses the network to apps/app over the same

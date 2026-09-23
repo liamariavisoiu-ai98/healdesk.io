@@ -1,4 +1,4 @@
-import type { Lead } from "@/lib/db/schema";
+import type { Lead } from "@/lib/leads";
 import { ENTITY } from "@/lib/legal";
 import { COHORT_SETUP_CREDIT, plans } from "@healdesk/catalog";
 

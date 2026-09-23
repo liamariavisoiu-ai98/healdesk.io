@@ -62,7 +62,7 @@ boundary is about where data flows and who signed a BAA, not where code lives.
 
 1. The split is built now — two projects, one repo.
 2. `apps/app` stays free of Vercel-specific APIs (`output: "standalone"`, plain `pg` over
-   `DATABASE_URL`, no edge runtime) so it can move to AWS / Fly / Render + Supabase or Neon
+   `DATABASE_URL`, no edge runtime) so it can move to AWS (or any BAA-covered host)
    without a rewrite.
 3. **No real PHI touches `apps/app` until coverage is in place.** Synthetic data only.
 
@@ -79,7 +79,9 @@ med-spa or fertility front desk anything.
 It is email-gated: submit an email, the server sets a signed HTTP-only cookie, and only
 then does [`/api/chat`](./apps/web/src/app/api/chat/route.ts) answer. Every demo becomes a
 lead, and the gate is the first line of abuse control alongside a per-IP rate limit and
-hard caps on conversation length and `max_tokens`.
+hard caps on conversation length and `max_tokens`. Leads live in a Google Sheet in the
+company Google account's Drive ([`apps/web/src/lib/sheets`](./apps/web/src/lib/sheets/client.ts)),
+business contact data only: `apps/web` has no database client.
 
 `ANTHROPIC_API_KEY` is read **only inside the Route Handler** and has no `NEXT_PUBLIC_`
 prefix, so Next will never inline it into a client bundle. The original prototype called

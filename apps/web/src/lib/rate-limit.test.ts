@@ -1,82 +1,39 @@
-import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { FakeSheets, __setSheetsClientForTests } from "./sheets/client";
+import { __resetSheetSchemaForTests } from "./sheets/schema";
+import {
+  GLOBAL_CAP_KEYS,
+  __resetRateLimiterForTests,
+  clientKey,
+  isOverLimit,
+  rateLimit,
+} from "./rate-limit";
 
 /**
- * Two suites: the in-memory path that development uses, and the shared
- * Postgres path production uses. The second runs only when
- * TEST_MARKETING_URL points at a scratch database, and skips otherwise —
- * the same convention apps/app's database suites follow.
+ * Two kinds of key. Everything per-visitor lives in this process's memory
+ * and never touches the Sheet; the two site-wide daily caps go through the
+ * `counters` tab, on a cached read, and survive a fresh instance.
  */
 
 const key = () => `test:${Math.random()}`;
+const DAY = 24 * 60 * 60 * 1000;
 
-describe("rateLimit (in-memory path)", () => {
-  it("allows up to the limit then refuses", async () => {
-    delete process.env.MARKETING_DATABASE_URL;
-    const { rateLimit } = await import("./rate-limit");
-    const k = key();
-    expect((await rateLimit(k, 2, 60_000)).ok).toBe(true);
-    expect((await rateLimit(k, 2, 60_000)).ok).toBe(true);
-    const third = await rateLimit(k, 2, 60_000);
-    expect(third.ok).toBe(false);
-    expect(third.retryAfter).toBeGreaterThan(0);
-  });
-
-  it("isOverLimit does not spend from the budget", async () => {
-    delete process.env.MARKETING_DATABASE_URL;
-    const { isOverLimit, rateLimit } = await import("./rate-limit");
-    const k = key();
-    for (let i = 0; i < 100; i += 1) expect(await isOverLimit(k, 2)).toBe(false);
-    expect((await rateLimit(k, 2, 60_000)).ok).toBe(true);
-    expect((await rateLimit(k, 2, 60_000)).ok).toBe(true);
-    expect(await isOverLimit(k, 2)).toBe(true);
-  });
-
-  it("clientKey takes the first x-forwarded-for entry, which is what Vercel sets", async () => {
-    const { clientKey } = await import("./rate-limit");
-    expect(clientKey(new Headers({ "x-forwarded-for": "203.0.113.9, 10.0.0.1" }))).toBe("203.0.113.9");
-    expect(clientKey(new Headers({ "x-real-ip": "198.51.100.2" }))).toBe("198.51.100.2");
-    expect(clientKey(new Headers())).toBe("unknown");
-  });
+beforeEach(() => {
+  __resetRateLimiterForTests();
+  __resetSheetSchemaForTests();
+  __setSheetsClientForTests(null);
+  delete process.env.MARKETING_SHEET_ID;
+  delete process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
 });
 
-const url = process.env.TEST_MARKETING_URL;
-const describeDb = url ? describe : describe.skip;
+afterEach(() => {
+  __setSheetsClientForTests(null);
+  __resetSheetSchemaForTests();
+});
 
-describeDb("rateLimit (shared Postgres path)", () => {
-  let pool: Pool;
-
-  beforeAll(async () => {
-    process.env.MARKETING_DATABASE_URL = url;
-    pool = new Pool({ connectionString: url, max: 8 });
-    // Test files run in parallel workers against one scratch database; the
-    // lock serialises the migration so two workers cannot both CREATE TABLE.
-    const lock = await pool.connect();
-    try {
-      await lock.query("select pg_advisory_lock(424242)");
-      await migrate(drizzle(lock), { migrationsFolder: "./drizzle" });
-    } finally {
-      await lock.query("select pg_advisory_unlock(424242)");
-      lock.release();
-    }
-    const db = await import("./db");
-    db.__setMarketingPoolForTests(pool);
-  }, 60_000);
-
-  beforeEach(async () => {
-    await pool.query("delete from rate_limits");
-  });
-
-  afterAll(async () => {
-    const db = await import("./db");
-    db.__setMarketingPoolForTests(undefined);
-    await pool.end();
-  });
-
-  it("refuses the eleventh call in a ten-call window and says when to retry", async () => {
-    const { rateLimit } = await import("./rate-limit");
+describe("rateLimit (per-instance keys)", () => {
+  it("allows up to the limit then refuses, and says when to retry", async () => {
     const k = key();
     for (let i = 0; i < 10; i += 1) {
       const r = await rateLimit(k, 10, 60_000);
@@ -90,35 +47,154 @@ describeDb("rateLimit (shared Postgres path)", () => {
     expect(eleventh.retryAfter).toBeLessThanOrEqual(60);
   });
 
+  it("isOverLimit does not spend from the budget", async () => {
+    const k = key();
+    for (let i = 0; i < 100; i += 1) expect(await isOverLimit(k, 2)).toBe(false);
+    expect((await rateLimit(k, 2, 60_000)).ok).toBe(true);
+    expect((await rateLimit(k, 2, 60_000)).ok).toBe(true);
+    expect(await isOverLimit(k, 2)).toBe(true);
+  });
+
   it("starts a fresh window once the old one has closed", async () => {
-    const { rateLimit } = await import("./rate-limit");
     const k = key();
     // A 1ms window closes before the second call arrives.
     expect((await rateLimit(k, 1, 1)).ok).toBe(true);
     await new Promise((r) => setTimeout(r, 15));
     expect((await rateLimit(k, 1, 1)).ok).toBe(true);
+    expect(await isOverLimit(k, 1)).toBe(true);
+    await new Promise((r) => setTimeout(r, 15));
+    expect(await isOverLimit(k, 1)).toBe(false);
   });
 
-  it("lets exactly the limit through when twenty requests race", async () => {
-    // This is the property the in-memory limiter could not offer across
-    // instances, and the reason the counters moved to one atomic upsert.
-    const { rateLimit } = await import("./rate-limit");
-    const k = key();
-    const results = await Promise.all(
-      Array.from({ length: 20 }, () => rateLimit(k, 10, 60_000)),
-    );
-    expect(results.filter((r) => r.ok)).toHaveLength(10);
-    expect(results.filter((r) => !r.ok)).toHaveLength(10);
+  it("clientKey takes the first x-forwarded-for entry, which is what Vercel sets", () => {
+    expect(clientKey(new Headers({ "x-forwarded-for": "203.0.113.9, 10.0.0.1" }))).toBe("203.0.113.9");
+    expect(clientKey(new Headers({ "x-real-ip": "198.51.100.2" }))).toBe("198.51.100.2");
+    expect(clientKey(new Headers())).toBe("unknown");
   });
 
-  it("isOverLimit peeks without spending", async () => {
-    const { isOverLimit, rateLimit } = await import("./rate-limit");
-    const k = key();
-    expect(await isOverLimit(k, 2)).toBe(false);
-    await rateLimit(k, 2, 60_000);
-    await rateLimit(k, 2, 60_000);
-    expect(await isOverLimit(k, 2)).toBe(true);
-    const { rows } = await pool.query("select count from rate_limits where key = $1", [k]);
-    expect(rows[0].count).toBe(2);
+  it("never touches the Sheet, even when one is configured", async () => {
+    const sheets = new FakeSheets();
+    __setSheetsClientForTests(sheets);
+    for (const k of ["chat:203.0.113.9", "gate:203.0.113.9", "admin-session:203.0.113.9", "callback:num:+14155550100"]) {
+      await rateLimit(k, 5, 60_000);
+      await isOverLimit(k, 5);
+    }
+    expect(sheets.calls).toEqual([]);
+  });
+});
+
+describe("rateLimit (the global daily caps)", () => {
+  it("names exactly the two spend caps the routes use", () => {
+    expect([...GLOBAL_CAP_KEYS].sort()).toEqual(["callback:global:day", "chat:global:day"]);
+  });
+
+  it("goes through the counters tab and survives a fresh instance", async () => {
+    const sheets = new FakeSheets();
+    __setSheetsClientForTests(sheets);
+
+    expect((await rateLimit("chat:global:day", 3, DAY)).remaining).toBe(2);
+    expect((await rateLimit("chat:global:day", 3, DAY)).remaining).toBe(1);
+    const rows = sheets.records("counters");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.key).toBe("chat:global:day");
+    expect(rows[0]!.count).toBe(2);
+    expect(rows[0]!.window_ms).toBe(DAY);
+    expect(rows[0]!.window_start).toMatch(/Z$/);
+
+    // A cold start: memory gone, the Sheet still there.
+    __resetRateLimiterForTests();
+    const third = await rateLimit("chat:global:day", 3, DAY);
+    expect(third.ok).toBe(true);
+    expect(third.remaining).toBe(0);
+    const fourth = await rateLimit("chat:global:day", 3, DAY);
+    expect(fourth.ok).toBe(false);
+    expect(fourth.retryAfter).toBeGreaterThan(0);
+    expect(fourth.retryAfter).toBeLessThanOrEqual(DAY / 1000);
+    expect(sheets.records("counters")[0]!.count).toBe(4);
+    // Still one row per key: updates in place, never a new row per request.
+    expect(sheets.records("counters")).toHaveLength(1);
+  });
+
+  it("keeps the two caps on separate rows", async () => {
+    const sheets = new FakeSheets();
+    __setSheetsClientForTests(sheets);
+    await rateLimit("chat:global:day", 100, DAY);
+    await rateLimit("callback:global:day", 100, DAY);
+    await rateLimit("callback:global:day", 100, DAY);
+    const byKey = Object.fromEntries(sheets.records("counters").map((r) => [r.key, r.count]));
+    expect(byKey).toEqual({ "chat:global:day": 1, "callback:global:day": 2 });
+  });
+
+  it("reads the row at most once per refresh interval", async () => {
+    const sheets = new FakeSheets();
+    __setSheetsClientForTests(sheets);
+    for (let i = 0; i < 5; i += 1) await rateLimit("chat:global:day", 100, DAY);
+    const reads = sheets.calls.filter((c) => c === "getValues counters!A2:D");
+    expect(reads).toHaveLength(1);
+    // The header row write from provisioning is not a counter write.
+    const writes = sheets.calls.filter((c) => c === "updateRange counters!A2:D2" || c === "appendRows counters");
+    expect(writes).toHaveLength(5);
+  });
+
+  it("peeks without spending", async () => {
+    const sheets = new FakeSheets();
+    __setSheetsClientForTests(sheets);
+    expect(await isOverLimit("callback:global:day", 2)).toBe(false);
+    await rateLimit("callback:global:day", 2, DAY);
+    await rateLimit("callback:global:day", 2, DAY);
+    expect(await isOverLimit("callback:global:day", 2)).toBe(true);
+    expect(sheets.records("counters")[0]!.count).toBe(2);
+  });
+
+  it("starts a fresh window once the shared one has closed", async () => {
+    const sheets = new FakeSheets();
+    __setSheetsClientForTests(sheets);
+    expect((await rateLimit("chat:global:day", 1, 1)).ok).toBe(true);
+    await new Promise((r) => setTimeout(r, 15));
+    expect((await rateLimit("chat:global:day", 1, 1)).ok).toBe(true);
+    expect(sheets.records("counters")[0]!.count).toBe(1);
+  });
+
+  it("falls back to per-instance memory when the Sheet is unconfigured, with one warning in production and no throw", async () => {
+    const nodeEnv = process.env.NODE_ENV;
+    const warnings: unknown[] = [];
+    const original = console.warn;
+    console.warn = (...args: unknown[]) => warnings.push(args);
+    try {
+      (process.env as { NODE_ENV?: string }).NODE_ENV = "production";
+      expect((await rateLimit("chat:global:day", 2, DAY)).ok).toBe(true);
+      expect((await rateLimit("chat:global:day", 2, DAY)).ok).toBe(true);
+      expect((await rateLimit("chat:global:day", 2, DAY)).ok).toBe(false);
+      expect(await isOverLimit("callback:global:day", 1)).toBe(false);
+      expect(warnings).toHaveLength(1);
+      expect(JSON.stringify(warnings)).toContain("MARKETING_SHEET_ID");
+    } finally {
+      console.warn = original;
+      (process.env as { NODE_ENV?: string }).NODE_ENV = nodeEnv;
+    }
+  });
+
+  it("falls back to memory for the request when the Sheet fails, and never throws", async () => {
+    const sheets = new FakeSheets();
+    __setSheetsClientForTests(sheets);
+    await rateLimit("chat:global:day", 3, DAY);
+    sheets.updateRange = async () => {
+      throw new Error("quota");
+    };
+    const errors: unknown[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => errors.push(args);
+    try {
+      expect((await rateLimit("chat:global:day", 3, DAY)).remaining).toBe(1);
+      sheets.getValues = async () => {
+        throw new Error("down");
+      };
+      __resetRateLimiterForTests();
+      // Fresh instance, Sheet down: memory from zero, request served.
+      expect((await rateLimit("chat:global:day", 3, DAY)).ok).toBe(true);
+      expect(errors.length).toBeGreaterThan(0);
+    } finally {
+      console.error = original;
+    }
   });
 });

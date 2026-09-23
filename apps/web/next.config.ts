@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 // A relative import on purpose: next.config.ts is transpiled by Next's own
 // loader outside the app bundle, where the "@/…" alias does not exist.
-import { readSecurityHeadersEnv, securityHeaders } from "./src/lib/security-headers";
+import { GOOGLE_DOCS_ORIGIN, readSecurityHeadersEnv, securityHeaders } from "./src/lib/security-headers";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -30,12 +30,25 @@ const nextConfig: NextConfig = {
    * route handler. Routes that set their own headers (the chat stream's
    * no-store) keep them: nothing in this list carries Cache-Control or
    * Content-Type, and the one shared key, X-Content-Type-Options, agrees.
+   *
+   * The second entry is the one per-route variation: /admin/crm frames the
+   * marketing Sheet, so `/admin/:path*` (which also matches `/admin` itself)
+   * gets a CSP whose frame-src allows docs.google.com and nothing else. It
+   * MUST come after the generic entry. Next's documented rule (headers.md,
+   * "Header Overriding Behavior") is that when two entries match the same
+   * path and set the same key, the last one wins; put this first and the
+   * generic `frame-src 'none'` would override it on every admin page.
    */
   async headers() {
+    const env = readSecurityHeadersEnv(process.env);
     return [
       {
         source: "/:path*",
-        headers: securityHeaders(readSecurityHeadersEnv(process.env)),
+        headers: securityHeaders(env),
+      },
+      {
+        source: "/admin/:path*",
+        headers: securityHeaders(env, { frameSources: [GOOGLE_DOCS_ORIGIN] }),
       },
     ];
   },

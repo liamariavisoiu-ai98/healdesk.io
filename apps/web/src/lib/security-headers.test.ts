@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CSP_DIRECTIVES,
+  GOOGLE_DOCS_ORIGIN,
   POSTHOG_ASSETS_ORIGIN,
   POSTHOG_INGEST_ORIGIN,
   STRIPE_CHECKOUT_ORIGIN,
@@ -56,7 +57,10 @@ describe("contentSecurityPolicy", () => {
     expect(csp.get("font-src")).toEqual(["'self'"]);
   });
 
-  it("allows PostHog EU and nothing else third-party for scripts and connections", () => {
+  it("allows PostHog US and nothing else third-party for scripts and connections", () => {
+    expect(POSTHOG_ASSETS_ORIGIN).toBe("https://us-assets.i.posthog.com");
+    expect(POSTHOG_INGEST_ORIGIN).toBe("https://us.i.posthog.com");
+    expect(contentSecurityPolicy(production)).not.toMatch(/eu[.-]/);
     expect(csp.get("script-src")).toContain(POSTHOG_ASSETS_ORIGIN);
     expect(csp.get("connect-src")).toEqual(
       expect.arrayContaining([POSTHOG_INGEST_ORIGIN, POSTHOG_ASSETS_ORIGIN]),
@@ -74,6 +78,32 @@ describe("contentSecurityPolicy", () => {
     expect(csp.get("form-action")).toEqual(["'self'", STRIPE_CHECKOUT_ORIGIN]);
     expect(contentSecurityPolicy(production)).not.toContain("js.stripe.com");
     expect(csp.get("frame-src")).toEqual(["'none'"]);
+  });
+
+  // /admin/crm frames the marketing Sheet. That is the only route family that
+  // may frame anything, and docs.google.com is the only origin it may frame;
+  // next.config.ts applies the variant to `/admin/:path*` after the generic
+  // entry, which is what makes it win under Next's last-match-wins rule.
+  it("frames nothing by default, and only docs.google.com on the admin variant", () => {
+    expect(csp.get("frame-src")).toEqual(["'none'"]);
+    const admin = parse(contentSecurityPolicy(production, { frameSources: [GOOGLE_DOCS_ORIGIN] }));
+    expect(admin.get("frame-src")).toEqual([GOOGLE_DOCS_ORIGIN]);
+    for (const name of CSP_DIRECTIVES) {
+      if (name !== "frame-src") expect(admin.get(name), name).toEqual(csp.get(name));
+    }
+    // The headers list carries the variant, and only the CSP differs.
+    const base = securityHeaders(production);
+    const variant = securityHeaders(production, { frameSources: [GOOGLE_DOCS_ORIGIN] });
+    expect(variant.map((h) => h.key)).toEqual(base.map((h) => h.key));
+    expect(variant.filter((h, i) => h.value !== base[i]!.value).map((h) => h.key)).toEqual(["Content-Security-Policy"]);
+    // Being framed is still refused everywhere, including on /admin.
+    expect(admin.get("frame-ancestors")).toEqual(["'none'"]);
+    expect(variant.find((h) => h.key === "X-Frame-Options")?.value).toBe("DENY");
+    // An empty option is the default policy, not an empty directive.
+    expect(contentSecurityPolicy(production, { frameSources: [] })).toBe(contentSecurityPolicy(production));
+    // On preview the toolbar host is kept alongside.
+    const preview = parse(contentSecurityPolicy({ ...production, vercelEnv: "preview" }, { frameSources: [GOOGLE_DOCS_ORIGIN] }));
+    expect(preview.get("frame-src")).toEqual(["https://vercel.live", GOOGLE_DOCS_ORIGIN]);
   });
 
   it("lets the hero video and the glTF decoder run", () => {

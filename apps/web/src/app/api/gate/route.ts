@@ -21,7 +21,7 @@ export const runtime = "nodejs";
  * POST /api/gate, unlock the chat demo with an email.
  *
  * Every unlock is a lead, and now it is a row: `recordDemoUnlock()` upserts
- * on the normalised address in the marketing database (src/lib/db — not
+ * on the normalised address in the marketing Sheet (src/lib/sheets — not
  * apps/app's; this is a clinic operator's business email, not patient data).
  *
  * Two things arrive with the email and are recorded as separate facts:

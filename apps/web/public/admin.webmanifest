@@ -1,0 +1,13 @@
+{
+  "name": "healdesk ops",
+  "short_name": "ops",
+  "start_url": "/admin",
+  "scope": "/admin",
+  "display": "standalone",
+  "background_color": "#FDFDFD",
+  "theme_color": "#FDFDFD",
+  "icons": [
+    { "src": "/icon.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/apple-icon.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}

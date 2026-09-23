@@ -15,7 +15,9 @@ import { getConsent, onConsentChange, type ConsentState } from "@/lib/consent-st
  * even downloads it.
  *
  * Settings, and why each one:
- *   - api_host on the EU cloud: data stays in the EU region.
+ *   - api_host on the US cloud: the client base is US, so the data stays
+ *     in the region the customers are in (moved from the EU cloud on
+ *     23 September 2026).
  *   - persistence "localStorage+cookie" only once consent exists; before that
  *     no client is created at all, so there is no pre-consent cookie.
  *   - autocapture off: clicks and form fields are never harvested; only the
@@ -50,8 +52,8 @@ export function PostHogProvider() {
         if (cancelled) return;
         instance = mod.default;
         instance.init(key as string, {
-          api_host: "https://eu.i.posthog.com",
-          ui_host: "https://eu.posthog.com",
+          api_host: "https://us.i.posthog.com",
+          ui_host: "https://us.posthog.com",
           persistence: "localStorage+cookie",
           autocapture: false,
           capture_pageview: "history_change",

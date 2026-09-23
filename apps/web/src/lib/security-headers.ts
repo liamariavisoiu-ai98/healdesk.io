@@ -41,8 +41,9 @@
  *     frame-src for it either. checkout.stripe.com appears only in
  *     form-action, which is harmless today (the hop is a script navigation,
  *     not a form submit) and correct the day a plain <form> posts there.
- *   - Analytics: PostHog EU, per the owner's decision. The snippet loads from
- *     eu-assets.i.posthog.com and sends events to eu.i.posthog.com (also
+ *   - Analytics: PostHog on its US cloud, per the owner's decision of
+ *     23 September 2026 (the client base is US). The snippet loads from
+ *     us-assets.i.posthog.com and sends events to us.i.posthog.com (also
  *     lazily fetching modules such as the recorder from the assets host, hence
  *     both in connect-src). Nothing else; docs/architecture.md's "No conversion
  *     attribution to ad platforms" is enforced here as much as in layout.tsx:
@@ -144,10 +145,16 @@ export function readSecurityHeadersEnv(
   };
 }
 
-/** PostHog EU: the snippet and its lazily-loaded modules. */
-export const POSTHOG_ASSETS_ORIGIN = "https://eu-assets.i.posthog.com";
-/** PostHog EU: where events go. */
-export const POSTHOG_INGEST_ORIGIN = "https://eu.i.posthog.com";
+/** PostHog US: the snippet and its lazily-loaded modules. */
+export const POSTHOG_ASSETS_ORIGIN = "https://us-assets.i.posthog.com";
+/** PostHog US: where events go. */
+export const POSTHOG_INGEST_ORIGIN = "https://us.i.posthog.com";
+/**
+ * Google Sheets, framed by /admin/crm and by nothing else. The public site
+ * keeps `frame-src 'none'`; next.config.ts applies this to `/admin/:path*`
+ * only, through the `frameSources` option below.
+ */
+export const GOOGLE_DOCS_ORIGIN = "https://docs.google.com";
 /** Stripe-hosted Checkout, the only place a form on this site may ever post besides itself. */
 export const STRIPE_CHECKOUT_ORIGIN = "https://checkout.stripe.com";
 
@@ -196,14 +203,28 @@ export const CSP_DIRECTIVES = [
 export type CspDirective = (typeof CSP_DIRECTIVES)[number];
 
 /**
+ * Per-route variations of the policy. Only one exists: the operator console
+ * frames the marketing Sheet at /admin/crm, so that route family may frame
+ * docs.google.com. Everything else on the site embeds nothing.
+ */
+export type CspOptions = {
+  /** Extra `frame-src` origins. Empty or absent keeps `frame-src 'none'`. */
+  frameSources?: readonly string[];
+};
+
+/**
  * The policy as a map from directive to its source list, before it is joined
  * into a header value. `upgrade-insecure-requests` and `report-uri` are added
  * at serialisation time because the first has no value and the second is
  * conditional.
  */
-export function cspDirectives(env: SecurityHeadersEnv): Record<CspDirective, readonly string[]> {
+export function cspDirectives(
+  env: SecurityHeadersEnv,
+  options: CspOptions = {},
+): Record<CspDirective, readonly string[]> {
   const dev = env.nodeEnv === "development";
   const preview = env.vercelEnv === "preview";
+  const frames = [...(preview ? VERCEL_TOOLBAR.frame : []), ...(options.frameSources ?? [])];
 
   const self = "'self'";
 
@@ -235,7 +256,8 @@ export function cspDirectives(env: SecurityHeadersEnv): Record<CspDirective, rea
       ...(preview ? VERCEL_TOOLBAR.connect : []),
     ],
     // The site embeds nothing. Stripe Checkout is a redirect, not an iframe.
-    "frame-src": preview ? [...VERCEL_TOOLBAR.frame] : ["'none'"],
+    // The one exception is opt-in per route (`frameSources`): /admin/crm.
+    "frame-src": frames.length > 0 ? frames : ["'none'"],
     "object-src": ["'none'"],
     "base-uri": [self],
     "form-action": [self, STRIPE_CHECKOUT_ORIGIN],
@@ -245,8 +267,8 @@ export function cspDirectives(env: SecurityHeadersEnv): Record<CspDirective, rea
 }
 
 /** Serialise the policy into a single header value. */
-export function contentSecurityPolicy(env: SecurityHeadersEnv): string {
-  const directives = cspDirectives(env);
+export function contentSecurityPolicy(env: SecurityHeadersEnv, options: CspOptions = {}): string {
+  const directives = cspDirectives(env, options);
   const parts = CSP_DIRECTIVES.map((name) => `${name} ${directives[name].join(" ")}`);
   if (env.nodeEnv !== "development") parts.push("upgrade-insecure-requests");
   if (env.cspReportUri) parts.push(`report-uri ${env.cspReportUri}`);
@@ -292,11 +314,11 @@ export const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), pay
  * The one key shared with /api/chat, X-Content-Type-Options, has the same
  * value in both places, so whichever wins nothing is weakened.
  */
-export function securityHeaders(env: SecurityHeadersEnv): SecurityHeader[] {
+export function securityHeaders(env: SecurityHeadersEnv, options: CspOptions = {}): SecurityHeader[] {
   return [
     {
       key: isReportOnly(env) ? "Content-Security-Policy-Report-Only" : "Content-Security-Policy",
-      value: contentSecurityPolicy(env),
+      value: contentSecurityPolicy(env, options),
     },
     { key: "Strict-Transport-Security", value: STRICT_TRANSPORT_SECURITY },
     { key: "X-Content-Type-Options", value: "nosniff" },

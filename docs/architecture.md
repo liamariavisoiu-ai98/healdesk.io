@@ -81,6 +81,14 @@ no token duplication.
 animation work, and Motion handles `prefers-reduced-motion` natively — which the
 prototype already respected and we shouldn't regress.
 
+**Where its data lives.** In a Google Sheet in the company Google account's Drive — demo
+leads, funnel events, the demo-call consent record and the two daily spend counters,
+one tab each (`src/lib/sheets/`), written through a service account. Not a database:
+`apps/web` has no database client, which is what makes "the marketing site cannot reach
+patient data" a fact you can check rather than a policy. The same Sheet is the CRM at
+`/admin/crm`. Analytics is PostHog on its US cloud, consent-gated, and blocked by the
+CSP from talking to anything else.
+
 ### Design tokens
 
 Carried over verbatim from the prototype rather than re-invented:
@@ -109,7 +117,10 @@ elective, cash-pay, experience-driven medicine.
 - **Email-gated.** The chat unlocks after an email is submitted; every demo becomes a
   lead. Gate state is a signed HTTP-only cookie.
 - **Rate-limited** per IP, with a hard cap on `max_tokens` and conversation length, so a
-  scraper can't run up the bill.
+  scraper can't run up the bill. The per-IP limit is per instance; the site-wide daily
+  caps (`chat:global:day`, `callback:global:day`) are the only counters shared across
+  instances, through the Sheet's `counters` tab on a cached read (`src/lib/rate-limit.ts`
+  explains the trade).
 - **Model:** `claude-opus-5` with adaptive thinking at `low` effort — the fast, cheap end
   of the ladder, which is right for short pricing Q&A. Raise effort if answers get shallow.
 

@@ -63,8 +63,9 @@ uncovered hop breaks the chain.
 | Hosting (product) | Vercel | **Enterprise plan only** ⚠️ |
 | Hosting (product, alt) | AWS / GCP / Azure | Standard, self-serve |
 | Hosting (product, alt) | Fly.io / Render | Available on paid tiers — confirm current terms |
-| Database | Supabase | Team plan and above |
-| Database | Neon | Business plan and above |
+| Database (product) | Amazon RDS for PostgreSQL | Covered by the AWS account BAA accepted 22 September 2026 |
+| Lead register (marketing) | Google Sheets | Not needed — business contact data only, no PHI |
+| Analytics (marketing) | PostHog (US cloud) | Not needed — consent-gated, content-free, marketing site only |
 | Telephony | Twilio | Available |
 | Speech-to-text | Deepgram | Available |
 | LLM | Anthropic | Commercial terms — confirm before PHI |
@@ -104,7 +105,8 @@ compliance coverage** for the PHI side on Hobby or Pro.
 
 1. Build the split now — two projects, one repo.
 2. Keep `apps/app` free of Vercel-specific APIs so it can move to BAA-covered infra
-   (AWS / Fly / Render + Supabase or Neon with a BAA) without a rewrite.
+   (AWS, where the account BAA is now accepted, or any other BAA-covered host)
+   without a rewrite.
 3. **Do not let real PHI touch `apps/app` until coverage is in place.** Synthetic and
    seed data only.
 

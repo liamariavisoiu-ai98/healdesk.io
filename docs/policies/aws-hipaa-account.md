@@ -18,8 +18,8 @@ checklist the first build and every quarterly review are measured against.
 | Item | Record |
 | --- | --- |
 | Entity bound | Viixi FZC, a UAE free zone company, trading as healdesk |
-| Account id | **[twelve-digit account id — fill in]**. Not in the PDF. Console: account menu → Security credentials → Account details; or `aws sts get-caller-identity --query Account --output text` |
-| Region | `us-east-1`, **confirm against the first resource created**. The addendum is account-scoped and silent on regions; the code assumes this one (`apps/app/src/lib/reporting/deliver.ts:479`), `AWS_REGION` overrides it |
+| Account | `865780386982`, account name `healdesk.io`, supplied by the owner on 23 September 2026. Not in the PDF; readable in the console under Security credentials → Account details, or with `aws sts get-caller-identity --query Account --output text` |
+| Region | `us-east-1`, confirmed by the owner on 23 September 2026. The addendum is account-scoped and silent on regions; the code assumes this one (`apps/app/src/lib/reporting/deliver.ts:479`) and `AWS_REGION` overrides it |
 | Addendum | AWS Business Associate Addendum (Online), Doc #3256920v3, form dated 20 January 2023, four pages; an addendum to the AWS Customer Agreement |
 | Agreement type | Account agreement in AWS Artifact. If the account ever joins an Organization, that Organization's BAA controls instead (§8) |
 | Effective date | 22 September 2026, the day the accept button was clicked, per the owner. The PDF prints no acceptance date; confirm against the `effectiveStart` timestamp |
@@ -54,7 +54,7 @@ resource name, key or tag: those land in CloudTrail and billing outside our key.
 
 | Addendum | Obligation | Status |
 | --- | --- | --- |
-| §4.1 | Identify the account by accepting from inside it | Done 22 September 2026; account id and screenshot outstanding |
+| §4.1 | Identify the account by accepting from inside it | Done 22 September 2026; account `865780386982`; the Active screenshot is outstanding |
 | §4.2(a) | PHI only in eligible services | The table above is the whole list; `apps/app` is the only PHI side |
 | §4.2(b) | The highest level of audit logging | Outstanding: CloudTrail, with the first RDS instance |
 | §4.2(c) | Maximum retention of logs | Outstanding: trail kept indefinitely, log groups never expire; on AWS this supersedes the handover's 30-day rule |
@@ -93,7 +93,7 @@ date, the Active screenshot and this record, never the PDF or its clauses.
    Reference that day and records its date and the required configuration here.
 2. **Every quarter,** with the access review in
    [access-control.md](./access-control.md) rule 6: re-check the list, the
-   account id, the region and the AWS Config findings; log a Reviews row in
+   account, the region and the AWS Config findings; log a Reviews row in
    [training-log.md](./training-log.md).
 3. **Leaving a service or AWS:** a removal notice starts the move inside the
    notice period; replacing AWS is a new subprocessor with the clinic BAA's

@@ -88,9 +88,9 @@ KMS, SES, S3 and Fargate in one agreement; every other vendor gives you a BAA
 for the database only. The click-through form carries no account id, region
 or date (the "executed" download is byte-identical to the blank form), so the
 record AWS does not keep is ours: `docs/policies/aws-hipaa-account.md`, the
-HIPAA Account memo. It still needs the twelve-digit account id written in and
-the region confirmed (the code assumes `us-east-1`; `AWS_REGION` overrides),
-and the Artifact "Active" screenshot filed beside the PDF. The obligations it
+HIPAA Account memo: account `865780386982` (named `healdesk.io`), region
+`us-east-1`, both supplied by the owner on 23 September 2026. It still needs
+the Artifact "Active" screenshot filed beside the PDF. The obligations it
 lists — PHI only in eligible services, the highest audit logging, maximum log
 retention, encryption at rest and in transit — become infrastructure tasks
 the moment the account holds anything: see "Once AWS lands" in section 3.

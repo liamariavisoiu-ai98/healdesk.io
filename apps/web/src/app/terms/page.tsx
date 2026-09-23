@@ -22,6 +22,14 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * floor, refund window) come from src/lib/legal.ts and drive the wording
  * below: a zero refund window renders as "no refund window", not as a blank.
  *
+ * The contracting party on the page is the trade name, "healdesk". The legal
+ * entity behind it is named exactly once, in section 20 ("Operating entity
+ * and company information"), the way the Scalabid site does it: the Delaware
+ * mailbox printed there is correspondence-only, no UAE street address is
+ * published, and formal notices (section 18) go by email. Decision of
+ * 23 September 2026, docs/handover.md "Decisions log", item 14. Do not name
+ * the entity anywhere else on this page.
+ *
  * Order of precedence is stated in section 9 and matters: the Business
  * Associate Agreement signed at checkout controls for patient information,
  * these terms for everything else. The two must not be read as conflicting.
@@ -36,11 +44,11 @@ export default function TermsPage() {
     >
       <Section id="parties" title="1. The agreement">
         <p>
-          These terms are between {entityDisplayName()}
-          {ENTITY.formation ? `, ${ENTITY.formation}` : ""} ("{site.name}", "we") and the business
-          that subscribes ("you", the "Practice"). By clicking the button at checkout you accept
-          them on the Practice's behalf and confirm you are authorised to. They are a business
-          contract; the service is not offered to consumers.
+          These terms are between {site.name} ("we", "us"; the professional services brand
+          described in section 20) and the business that subscribes ("you", the "Practice"). By
+          clicking the button at checkout you accept them on the Practice's behalf and confirm
+          you are authorised to. They are a business contract; the service is not offered to
+          consumers.
         </p>
         <p>
           Patient information is governed by the separate <strong>Business Associate Agreement</strong>{" "}
@@ -126,6 +134,10 @@ export default function TermsPage() {
           building, configuring and testing your agent. It is not refundable. Moving to a package
           with a higher setup fee charges only the difference. Where a founding-cohort credit was
           offered to you by email, it is applied to the setup fee at checkout and to nothing else.
+        </p>
+        <p>
+          Payments are processed through our Stripe account, which is linked to our operating
+          entity (section 20).
         </p>
       </Section>
 
@@ -295,11 +307,11 @@ export default function TermsPage() {
 
       <Section id="indemnity" title="14. Indemnity">
         <p>
-          <strong>You</strong> will defend, indemnify and hold harmless us and our officers,
-          contractors and subprocessors against every claim, loss, liability, penalty, fine, cost
-          and expense, including reasonable legal fees, the cost of defending a claim, and the cost
-          of investigating a security incident and of notifying patients, regulators and anyone
-          else about a breach, to the extent it arises from or relates to the service, your use of
+          <strong>You</strong> will defend, indemnify and hold harmless us, our operating entity,
+          and our and its officers, contractors and subprocessors against every claim, loss,
+          liability, penalty, fine, cost and expense, including reasonable legal fees, the cost
+          of defending a claim, and the cost of investigating a security incident and of
+          notifying patients, regulators and anyone else about a breach, to the extent it arises from or relates to the service, your use of
           it, the patient information you or your patients give it, the calls and messages the agent
           handles for you, instructions you gave us, your responsibilities in sections 8 and 9, or a
           claim by a patient, a regulator or any other third party. This indemnity applies to the
@@ -323,7 +335,7 @@ export default function TermsPage() {
           may suspend the service for non-payment as section 6 describes, or immediately if your use
           creates a legal or security risk, telling you why. Either party may terminate for a
           material breach the other does not cure within 30 days of written notice. Sections 7 and
-          9 to 19 survive termination.
+          9 to 20 survive termination.
         </p>
       </Section>
 
@@ -352,8 +364,7 @@ export default function TermsPage() {
           <a href={`mailto:${ENTITY.noticesEmail}`} className="underline underline-offset-2">
             {ENTITY.noticesEmail}
           </a>
-          {ENTITY.postalAddress ? ` or by post to ${entityDisplayName()}, ${ENTITY.postalAddress}` : ""}.
-          Notices to you go to the billing email on your account. A notice is effective when
+          . Notices to you go to the billing email on your account. A notice is effective when
           delivered.
         </p>
       </Section>
@@ -368,6 +379,39 @@ export default function TermsPage() {
           successor of our business. Nothing creates a partnership or agency beyond the agent acting
           on your instructions as section 2 describes.
         </p>
+      </Section>
+
+      <Section id="entity" title="20. Operating entity and company information">
+        <p>
+          {site.name} is a professional services brand operated by {entityDisplayName()},{" "}
+          {ENTITY.formation}. Notwithstanding the place of incorporation of the operating entity,
+          these terms are governed exclusively by the laws of the State of {state}, United States,
+          as section 17 provides.
+        </p>
+        <ul className="list-disc space-y-2 pl-6">
+          <li>
+            <strong>Operating brand:</strong> {site.name}
+          </li>
+          <li>
+            <strong>Website:</strong> {site.domain}
+          </li>
+          <li>
+            <strong>General contact:</strong>{" "}
+            <a href={`mailto:${ENTITY.supportEmail}`} className="underline underline-offset-2">
+              {ENTITY.supportEmail}
+            </a>
+          </li>
+          <li>
+            <strong>Legal contact:</strong>{" "}
+            <a href={`mailto:${ENTITY.noticesEmail}`} className="underline underline-offset-2">
+              {ENTITY.noticesEmail}
+            </a>
+          </li>
+          <li>
+            <strong>{ENTITY.postalAddressLabel}:</strong> {ENTITY.postalAddress}
+          </li>
+        </ul>
+        <p>{ENTITY.postalAddressDisclaimer}</p>
       </Section>
     </LegalPage>
   );

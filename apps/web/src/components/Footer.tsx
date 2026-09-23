@@ -1,4 +1,5 @@
 import { WordmarkSlogan } from "@/components/Wordmark";
+import { ENTITY } from "@/lib/legal";
 import { site } from "@/lib/site";
 
 /**
@@ -51,25 +52,32 @@ export function Footer() {
           </p>
         </div>
 
-        {/* The only navigation on the site. The navbar carries one CTA and no
-            links, so this is where pricing and contact actually live. */}
-        <nav className="flex flex-wrap gap-x-10 gap-y-3" aria-label="Footer">
-          {site.footerLinks.map((item) => (
+        <div className="flex flex-col gap-4">
+          {/* The only navigation on the site. The navbar carries one CTA and no
+              links, so this is where pricing and contact actually live. */}
+          <nav className="flex flex-wrap gap-x-10 gap-y-3" aria-label="Footer">
+            {site.footerLinks.map((item) => (
+              <a
+                key={item.href}
+                href={item.href}
+                className="text-muted hover:text-ink text-sm font-semibold transition-colors"
+              >
+                {item.label}
+              </a>
+            ))}
             <a
-              key={item.href}
-              href={item.href}
+              href={`mailto:${site.email}`}
               className="text-muted hover:text-ink text-sm font-semibold transition-colors"
             >
-              {item.label}
+              {site.email}
             </a>
-          ))}
-          <a
-            href={`mailto:${site.email}`}
-            className="text-muted hover:text-ink text-sm font-semibold transition-colors"
-          >
-            {site.email}
-          </a>
-        </nav>
+          </nav>
+          {/* The mailbox the marketing emails and the legal pages print, in the
+              trade name's context only: no entity name here, and none in the
+              layout metadata either. It is a registered-agent box for
+              correspondence, not an office; the legal pages say so. */}
+          <address className="text-muted text-xs not-italic">{ENTITY.postalAddress}</address>
+        </div>
       </div>
 
       <div className="border-line mx-auto max-w-[1240px] border-t px-5 py-10 sm:px-8 lg:px-14">

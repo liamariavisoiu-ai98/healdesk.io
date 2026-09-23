@@ -729,8 +729,13 @@ const CLAUSES: readonly BaaClause[] = [
  *                    interpretation, entire agreement as to PHI.
  */
 const ENTITY = "Viixi FZC";
-const ENTITY_FORM = "a free zone company incorporated in the United Arab Emirates, trading as healdesk";
-const NOTICE_ADDRESS = "[REGISTERED ADDRESS — from the Stripe account, Settings → Business details], legal@healdesk.io";
+const ENTITY_FORM = "a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates";
+// The Delaware registered-agent mailbox the legal pages and the CAN-SPAM
+// footer print, plus email. Unlike the website, the BAA names the entity
+// plainly — a BAA needs an identifiable party — and carries no
+// "correspondence only" disclaimer; counsel should confirm a mailbox is
+// adequate as a notice address (docs/handover.md "Decisions log", item 14).
+const NOTICE_ADDRESS = "800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States, and by email to legal@healdesk.io";
 const GOVERNING_STATE = "Delaware";
 // No floor, by decision of 21 September 2026, and since 22 September 2026 the
 // cap is only the fallback: healdesk's liability is excluded outright where the

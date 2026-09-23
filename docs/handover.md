@@ -758,9 +758,42 @@ re-asking.
    (this agent's) recommendation: a UAE entity has no US home state, US
    clinics will not accept UAE law or venue, and Delaware is the neutral
    default clinic counsel expects. `ENTITY` in `apps/web/src/lib/legal.ts`
-   and the constants in `packages/catalog/src/baa.ts`. Still missing: the
-   registered address from the Stripe account, which keeps the legal pages'
-   draft banner up. The liability floor is decided: none (item 10).
+   and the constants in `packages/catalog/src/baa.ts`. The address gap that
+   kept the legal pages' draft banner up is closed by item 14 (23 September
+   2026): the pages print the Delaware correspondence mailbox, not a Stripe
+   registered address. The liability floor is decided: none (item 10).
+
+14. **The entity on the legal pages — disclosed once, the Scalabid way.**
+   Decided 23 September 2026. On /terms and /privacy the contracting party
+   is the trade name, healdesk; the legal entity (Viixi FZC, a company
+   registered under the Sharjah Publishing City Free Zone, United Arab
+   Emirates) is named exactly once per document, in a late "Operating
+   entity" clause — terms § 20, privacy § 10 — exactly as the Scalabid site
+   does it. No UAE street address is published anywhere. The only postal
+   address is the Delaware registered-agent mailbox (800 N King Street,
+   Suite 304-1426, Wilmington, DE 19801, United States — the one Scalabid and
+   `packages/leadgen/src/enrich/footer.ts` already use), labelled "US mailing
+   address (correspondence only)", and terms § 20 says under it that it is
+   not a place of business, registered office or service-of-process address.
+   Formal notices go by email: terms § 18 lost its postal branch. The
+   CAN-SPAM footer in the nurture and abandonment emails and the site footer
+   print the trade name and the mailbox, never the entity, and nothing names
+   the entity in layout metadata (there is no Organization JSON-LD, and none
+   should be added). The BAA still names the entity plainly — a BAA needs an
+   identifiable party — with the same mailbox plus legal@healdesk.io as its
+   notice address and no correspondence-only disclaimer; counsel should
+   confirm a mailbox is adequate there (`docs/baa-v1.1.0-draft.txt`
+   re-rendered, the 1.1.0-draft golden hashes regenerated, 1.0.0 untouched).
+   Stripe prints the entity on receipts and card statements regardless, so
+   terms § 3 now says payments run through a Stripe account linked to the
+   operating entity, and the owner must check that the Stripe
+   Business-details address matches the mailbox. Unchanged, and verified
+   rather than re-decided: the 14-day refund window, 12-month demo-lead
+   retention and Delaware governing law; Scalabid's New York law and
+   arbitration clauses were not adopted. This closes the "registered
+   address" item in 9: `ENTITY.postalAddress` is filled,
+   `legalFactsComplete()` is true, the legal pages' draft banner is down,
+   and `LEGAL_VERSION` is 2026-09-23.1.
 
 ### Incidents and patient rights
 

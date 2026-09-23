@@ -1,5 +1,5 @@
 import type { Lead } from "@/lib/db/schema";
-import { ENTITY, entityDisplayName } from "@/lib/legal";
+import { ENTITY } from "@/lib/legal";
 import { COHORT_SETUP_CREDIT, plans } from "@healdesk/catalog";
 
 import { site } from "@/lib/site";
@@ -37,8 +37,14 @@ function firstName(lead: Lead): string {
   return /^[a-z]{2,}$/i.test(guess) ? guess[0]!.toUpperCase() + guess.slice(1).toLowerCase() : "there";
 }
 
+/**
+ * The CAN-SPAM line: the sender's name and a valid physical postal address.
+ * The name is the trade name and the address is the Delaware correspondence
+ * mailbox; the legal entity is never printed in mail (decision of
+ * 23 September 2026, docs/handover.md "Decisions log", item 14).
+ */
 function footer(lead: Lead): string {
-  const address = ENTITY.postalAddress ? `\n${entityDisplayName()}, ${ENTITY.postalAddress}` : `\n${entityDisplayName()}`;
+  const address = `\n${site.name}, ${ENTITY.postalAddress}`;
   return (
     `\n\n—\nYou're getting this because you ticked "email me about ${site.agent}" on ${site.domain}. ` +
     `One click stops it: ${unsubscribeUrl(lead.id)}${address}`
@@ -123,7 +129,7 @@ export function abandonmentEmail(lead: Lead): { subject: string; text: string } 
       `Nothing has been charged. If you signed the Business Associate Agreement, it is on file and unbound: it attaches to your account only if you finish, and if you'd rather we voided it, reply and say so.\n\n` +
       `To pick up where you left off: ${site.url}/get-started\n\n` +
       `If the question was about price, the booking system, or whether a cash-pay practice needs this at all, reply and I'll answer it directly.\n\n` +
-      `${entityDisplayName()}${ENTITY.postalAddress ? `, ${ENTITY.postalAddress}` : ""}\n` +
+      `${site.name}, ${ENTITY.postalAddress}\n` +
       `Stop these emails: ${unsubscribeUrl(lead.id)}`,
   };
 }

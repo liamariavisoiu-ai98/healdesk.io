@@ -41,8 +41,9 @@ export default function PrivacyPage() {
       <Section id="scope" title="1. What this policy covers">
         <p>
           This policy covers <strong>{site.domain}</strong> and the people who use it: clinic
-          owners and staff considering {site.name}, and anyone who tries the demo. It is
-          operated by {entityDisplayName()} ("we"). It does not cover patients of our customers.
+          owners and staff considering {site.name}, and anyone who tries the demo. {site.name}{" "}
+          ("we", "us") operates it; the operating entity is named in section 10. It does not
+          cover patients of our customers.
         </p>
         <p>
           <strong>Patient information is not handled on this website.</strong> When a clinic
@@ -270,23 +271,33 @@ export default function PrivacyPage() {
         </p>
       </Section>
 
-      <Section id="changes" title="10. Changes and contact">
+      <Section id="entity" title="10. Operating entity, changes and contact">
+        <p>
+          {site.name} is a professional services brand operated by {entityDisplayName()},{" "}
+          {ENTITY.formation}. Everything on this page applies regardless of the operating
+          entity's place of incorporation.
+        </p>
+        <ul className="list-disc space-y-2 pl-6">
+          <li>
+            <strong>Privacy requests:</strong>{" "}
+            <a href={`mailto:${ENTITY.privacyEmail}`} className="underline underline-offset-2">
+              {ENTITY.privacyEmail}
+            </a>
+          </li>
+          <li>
+            <strong>Everything else:</strong>{" "}
+            <a href={`mailto:${ENTITY.supportEmail}`} className="underline underline-offset-2">
+              {ENTITY.supportEmail}
+            </a>
+          </li>
+          <li>
+            <strong>{ENTITY.postalAddressLabel}:</strong> {ENTITY.postalAddress}
+          </li>
+        </ul>
         <p>
           When this policy changes we update the version and date at the foot of the page. A
           change that reduces your rights or widens what we collect is announced on this page for
           30 days before it takes effect and, for customers, by email.
-        </p>
-        <p>
-          {entityDisplayName()}
-          {ENTITY.postalAddress ? `, ${ENTITY.postalAddress}` : ""}. Privacy requests:{" "}
-          <a href={`mailto:${ENTITY.privacyEmail}`} className="underline underline-offset-2">
-            {ENTITY.privacyEmail}
-          </a>
-          . Everything else:{" "}
-          <a href={`mailto:${ENTITY.supportEmail}`} className="underline underline-offset-2">
-            {ENTITY.supportEmail}
-          </a>
-          .
         </p>
       </Section>
     </LegalPage>

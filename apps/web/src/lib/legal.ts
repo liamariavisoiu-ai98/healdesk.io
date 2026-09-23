@@ -18,20 +18,37 @@ import { plans, type Plan } from "@healdesk/catalog";
  * changes; the footer of each page prints both.
  */
 
-export const LEGAL_VERSION = "2026-09-22.1";
-export const LEGAL_LAST_UPDATED = "22 September 2026";
+export const LEGAL_VERSION = "2026-09-23.1";
+export const LEGAL_LAST_UPDATED = "23 September 2026";
 
 export const ENTITY = {
   /** Full legal name, e.g. "Healdesk, Inc." Empty until the founder supplies it. */
   legalName: "Viixi FZC",
-  /** "a Delaware corporation" / "a Texas limited liability company". */
-  formation: "a free zone company incorporated in the United Arab Emirates, trading as healdesk",
   /**
-   * Physical postal address for notices and the CAN-SPAM footer. The
-   * registered address on the Stripe account (Settings → Business details);
-   * empty until the owner pastes it, and the draft banner stays up until then.
+   * The entity's form, as it follows the name in the one "Operating entity"
+   * clause of each legal page (terms § 20, privacy § 10). Not "trading as
+   * healdesk": on the page the trade name is the contracting party and the
+   * entity is disclosed, once, as its operator — decision of 23 September
+   * 2026, docs/handover.md "Decisions log", item 14.
    */
-  postalAddress: "",
+  formation: "a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates",
+  /**
+   * A registered-agent mailbox in Delaware — the same one as
+   * packages/leadgen/src/enrich/footer.ts POSTAL_ADDRESS and the Scalabid
+   * site. It is for correspondence and the CAN-SPAM footer only: never
+   * present it as a place of business, a registered office or a
+   * service-of-process address (terms § 20 prints postalAddressDisclaimer
+   * under it, and every legal page labels it with postalAddressLabel). No
+   * UAE street address is published anywhere. The owner must confirm the
+   * Stripe Business-details address matches this one, because Stripe prints
+   * its own on receipts and invoices and the two must not disagree.
+   */
+  postalAddress: "800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States",
+  /** How the mailbox is labelled wherever a legal page prints it. */
+  postalAddressLabel: "US mailing address (correspondence only)",
+  /** Printed under the mailbox in terms § 20 so nobody reads it as an office. */
+  postalAddressDisclaimer:
+    "The US mailing address is provided for convenience of US-based correspondence only and does not constitute a place of business, registered office, or service-of-process address for the operating entity.",
   /**
    * Governing law and venue. Delaware, by recommendation: the seller is a UAE
    * entity with no home state, US clinics will not accept UAE law or venue,
@@ -85,7 +102,12 @@ export function legalFactsComplete(): boolean {
   );
 }
 
-/** The entity as it should read in a contract, or the trading name while draft. */
+/**
+ * The entity as it should read in a contract, or the trading name while draft.
+ * Called only from the two "Operating entity" clauses (terms § 20, privacy
+ * § 10); everywhere else the trade name is the party and the entity is not
+ * named. Keep it that way.
+ */
 export function entityDisplayName(): string {
   return ENTITY.legalName || "healdesk";
 }

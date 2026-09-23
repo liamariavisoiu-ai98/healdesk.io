@@ -1,9 +1,9 @@
-healdesk Business Associate Agreement — version 1.1.0 DRAFT, rendered 22 September 2026 for counsel review.
+healdesk Business Associate Agreement — version 1.1.0 DRAFT, rendered 23 September 2026 for counsel review.
 Rendered for a sample practice (covered-entity status: not yet notified; outbound messaging: on). The entity, its form,
 the governing law and the liability allocation (every claim, defence and notification cost on the practice; healdesk's
-liability excluded where the law allows, with twelve months' fees as the fallback cap; no insurance) are real. The one
-square-bracketed item left is the registered address, from the Stripe account. Source: packages/catalog/src/baa.ts,
-template 1.1.0-draft.
+liability excluded where the law allows, with twelve months' fees as the fallback cap; no insurance) are real. The
+notice address is the Delaware correspondence mailbox (a registered-agent box, not an office); counsel should confirm
+it is adequate as a notice address. Source: packages/catalog/src/baa.ts, template 1.1.0-draft.
 
 HEALDESK BUSINESS ASSOCIATE AGREEMENT
 Version 1.1.0 — DRAFT FOR COUNSEL REVIEW — NOT FOR EXECUTION
@@ -15,7 +15,7 @@ course of the Services defined in the Terms.
 
 BETWEEN
   Golden Clinic LLC ("Practice"), a med-spa practice
-  Viixi FZC, a free zone company incorporated in the United Arab Emirates, trading as healdesk ("healdesk"), of [REGISTERED ADDRESS — from the Stripe account, Settings → Business details], legal@healdesk.io
+  Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates ("healdesk"), of 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States, and by email to legal@healdesk.io
 
 SIGNED FOR PRACTICE BY
   Alex Chen, Owner
@@ -29,14 +29,14 @@ EFFECTIVE 13 September 2026
 
 1. DEFINITIONS
 
-  "Practice" means Golden Clinic LLC. "healdesk" means Viixi FZC, a free zone
-  company incorporated in the United Arab Emirates, trading as healdesk.
-  "Terms" means the healdesk Terms of Service at healdesk.io/terms as in force
-  on the effective date. "Services" and "Fees" have the meanings the Terms
-  give them. "Protected health information" (PHI), "breach", "unsecured PHI",
-  "security incident", "subcontractor" and "designated record set" have the
-  meanings given in 45 CFR Parts 160 and 164. "Business day" means a day other
-  than a Saturday, Sunday or United States federal holiday.
+  "Practice" means Golden Clinic LLC. "healdesk" means Viixi FZC, a company
+  registered under the Sharjah Publishing City Free Zone, United Arab
+  Emirates. "Terms" means the healdesk Terms of Service at healdesk.io/terms
+  as in force on the effective date. "Services" and "Fees" have the meanings
+  the Terms give them. "Protected health information" (PHI), "breach",
+  "unsecured PHI", "security incident", "subcontractor" and "designated record
+  set" have the meanings given in 45 CFR Parts 160 and 164. "Business day"
+  means a day other than a Saturday, Sunday or United States federal holiday.
 
   This agreement governs PHI healdesk creates, receives, maintains or
   transmits for Practice in the course of the Services. Where this agreement
@@ -325,8 +325,8 @@ EFFECTIVE 13 September 2026
 
 19. NOTICES, GOVERNING LAW, AND INTERPRETATION
 
-  Notices under this agreement are in writing. To healdesk: [REGISTERED
-  ADDRESS — from the Stripe account, Settings → Business details],
+  Notices under this agreement are in writing. To healdesk: 800 N King Street,
+  Suite 304-1426, Wilmington, DE 19801, United States, and by email to
   legal@healdesk.io. To Practice: the email address of the signatory below,
   and any notice address Practice later gives healdesk in writing. Breach
   reports may additionally be given by telephone to Practice, but the written

@@ -2,14 +2,8 @@
 
 import { useState, useTransition } from "react";
 
-import {
-  INCIDENT_CLASSES,
-  type CareOutcome,
-  type CareView,
-  type IncidentClass,
-  type OpenIncidentOutcome,
-  type OpsResult,
-} from "@/lib/admin/ops-client";
+import { INCIDENT_CLASSES, type IncidentClass } from "@/lib/admin/incident-classes";
+import type { CareOutcome, CareView, OpenIncidentOutcome, OpsResult } from "@/lib/admin/ops-client";
 
 type Actions = {
   addRecipient: (email: string, label?: string) => Promise<OpsResult<CareOutcome>>;

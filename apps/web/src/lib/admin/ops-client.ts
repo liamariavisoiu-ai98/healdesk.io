@@ -77,6 +77,7 @@ import { SIGNATURE_HEADER, TIMESTAMP_HEADER, sign } from "@healdesk/catalog";
 import { headers } from "next/headers";
 
 import { requireOperator } from "@/lib/admin/operator";
+import { INCIDENT_CLASSES, type IncidentClass } from "@/lib/admin/incident-classes";
 import { clientKey } from "@/lib/rate-limit";
 
 /**
@@ -1990,13 +1991,9 @@ export type CareView = {
   }[];
 };
 
-export type IncidentClass = "security_incident" | "improper_use_or_disclosure" | "breach" | "service_complaint";
-export const INCIDENT_CLASSES: readonly IncidentClass[] = [
-  "security_incident",
-  "improper_use_or_disclosure",
-  "breach",
-  "service_complaint",
-];
+// Defined in lib/admin/incident-classes.ts so client components never import
+// a value from this server-only module; re-exported here for server callers.
+export { INCIDENT_CLASSES, type IncidentClass } from "@/lib/admin/incident-classes";
 
 function readCareView(value: unknown): CareView {
   const data = object(value, "getClinicCare");

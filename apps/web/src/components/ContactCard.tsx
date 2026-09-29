@@ -59,7 +59,7 @@ export function ContactCard() {
       {/* The mailbox sits above the form on purpose. It is the route that
           always works, including when the transport is misconfigured and the
           form refuses, see the note in api/contact/route.ts. */}
-      <p className="text-muted text-xs font-bold tracking-[0.14em] uppercase">
+      <p className="eyebrow-tag">
         Talk to a person
       </p>
       <a

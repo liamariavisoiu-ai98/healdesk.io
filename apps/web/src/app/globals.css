@@ -85,6 +85,18 @@
   --color-sun: #fac748; /* Tuscan Sun, highlight, "most picked" */
   --color-mint: #87d68d; /* Light Green, success, completed, verified */
 
+  /*
+   * Surfaces and tints, added 23 September 2026 with the jasper.ai and
+   * reception.ai references. `panel` is the warm off-white a visual sits in
+   * (reception's hero card); the tints are the pastel fields jasper puts
+   * behind a feature card or an eyebrow, one per hue, never a gradient.
+   */
+  --color-panel: #f4f4f2;
+  --color-tint-peach: #ffe9de;
+  --color-tint-mint: #e5f6dc;
+  --color-tint-sky: #dcefff;
+  --color-tint-butter: #fff3bf;
+
   /* --- Type scale ---------------------------------------------------------- */
   /*
    * Every step 20% up from Tailwind's defaults.
@@ -446,12 +458,13 @@
 
    ## Three stacked elements, because one cannot hold two transforms
 
-   The heartbeat is a scale and the rotation is a rotate, and an element gets
-   one `transform` animation. So `__beat` scales, `__orb` rotates inside it,
-   and `__sheen` sits over the top doing neither. That last one is not
-   decoration: a rotating picture reads as a spinner, and a rotating picture
-   under a highlight that stays put reads as a sphere turning under a lamp. It
-   is the difference between "loading" and "alive".
+   The heartbeat is a scale and the interior motion is a shader, so `__beat`
+   scales and `__orb`, the canvas inside it, draws. The orb used to be a video
+   clip under a third element, `__sheen`, a fixed highlight that made the
+   rotating picture read as a sphere turning under a lamp. The highlight, the
+   rim light and the edge are drawn by the shader now (lib/soul-shader.ts),
+   at any size, so the overlay is gone, and so is the radial mask that faded
+   the clip out before its own rim: the canvas carries alpha of its own.
 
    ## Two knobs, one keyframe
 
@@ -619,109 +632,29 @@
   }
 }
 
-/*
- * The soft edge.
- *
- * ⚠️ This rule was deleted by accident once and nothing noticed for several
- * changes, because the artwork it masks was a PNG with its own alpha: the
- * corners were already transparent, so a missing mask looked identical to a
- * working one. The clip that replaced it has no alpha, and the same missing
- * rule immediately painted a hard white square. If the sphere ever grows
- * corners again, look here first.
- *
- * The mask lives on the beat wrapper rather than on the orb inside it, so the
- * sheen above can be given the identical falloff. Opaque through the middle,
- * then alpha down to nothing before the nominal radius. There is no boundary
- * anywhere in it, which is what makes the edge read as soft: an edge is only
- * ever the place where something stops abruptly.
- */
-.soul__edge {
-  --soul-fade: radial-gradient(
-    closest-side,
-    #000 54%,
-    rgb(0 0 0 / 0.86) 72%,
-    rgb(0 0 0 / 0.45) 87%,
-    transparent 99%
-  );
-  -webkit-mask-image: var(--soul-fade);
-  mask-image: var(--soul-fade);
-}
-
 .soul__beat {
   display: block;
   width: 100%;
   height: 100%;
   animation: soul-heartbeat var(--soul-beat) cubic-bezier(0.45, 0, 0.55, 1) infinite;
   /*
-   * The white the clip arrives on is removed here, not on the video itself,
-   * and the distinction cost an hour. A mask makes an element an isolated
-   * blending group, so `mix-blend-mode` on the video inside this one had
-   * nothing to blend against and multiplied against emptiness: the white
-   * survived and painted a rounded white square over the aura. Moved up one
-   * level it blends against the real backdrop, white multiplies away, and the
-   * warm mass keeps its colour.
+   * No mask and no `mix-blend-mode: multiply` here any more. Both existed to
+   * remove the white the video clip arrived on; the canvas and the poster
+   * both carry alpha, so there is nothing to remove. The mask in particular
+   * was also fading the sphere out from 54% of its radius, which is exactly
+   * where the shader now puts the rim light it worked for.
    */
-  mix-blend-mode: multiply;
 }
 
 /*
- * No blur on the orb.
- *
- * It existed to take the crispness off the still's rim. The clip has no rim to
- * soften: its own edges are already diffuse, and blurring them again only cost
- * the artwork its detail, which is the hot spot and the grain in the mass.
+ * The canvas, or the poster where the canvas cannot run. Fills the box at
+ * 1:1: the shader leaves its own margin for the halo and the beat, so there
+ * is no overscale and nothing to clip.
  */
-
 .soul__orb {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  /*
-   * The clip's orb sits inside a white margin, so at 1:1 it reads small and
-   * pale once the mask has taken the outer fifth off as well. Overscaling puts
-   * the mass back in the box; the mask clips whatever leaves it.
-   */
-  transform: scale(1.35);
-}
-
-/*
- * The fixed light, and the rim under it.
- *
- * A specular highlight up and to the left, a warm bounce at the lower right,
- * and an inset rim to round the edge off. None of it turns with the orb, which
- * is the whole trick.
- */
-.soul__sheen {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  /*
-   * The radius is back, and it is not decorative.
-   *
-   * Without it this square box painted a faint lighter rectangle over the
-   * aura at its lower right, visible against the flowing layers behind. Both
-   * gradients are also pulled well inside the box now, so nothing of the sheen
-   * survives as far as the edge, where the sphere is meant to be dissolving.
-   */
-  border-radius: 999px;
-  background-image:
-    radial-gradient(
-      52% 46% at 33% 27%,
-      rgb(255 255 255 / 0.5) 0%,
-      rgb(255 255 255 / 0.1) 40%,
-      rgb(255 255 255 / 0) 62%
-    ),
-    radial-gradient(
-      54% 50% at 66% 72%,
-      rgb(255 180 90 / 0.26) 0%,
-      rgb(255 180 90 / 0) 58%
-    );
-  /*
-   * No inset rim any more. It drew a crisp hairline right where the orb is now
-   * fading out, which is the one place a hard line is most obvious: a sharp
-   * ring hanging in the air a pixel outside a soft sphere.
-   */
 }
 
 /* The ring the voice state emits. Always mounted, normally invisible. */
@@ -1135,4 +1068,68 @@
   .review-flip__inner {
     transition: none;
   }
+}
+
+/* =============================================================================
+   Identity utilities (jasper.ai reference)
+   =============================================================================
+   The eyebrow is a small monospaced label on a tinted field rather than the
+   tracked small-caps the sections used to carry: it reads as a tag on the
+   content, not as a heading competing with the one beneath it. The outline
+   button is the secondary action beside a flat solid one; both are
+   rectangles with a small radius, not pills.
+   ============================================================================= */
+
+@utility eyebrow-tag {
+  display: inline-block;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  padding: 7px 9px;
+  border-radius: 3px;
+  color: var(--color-ink);
+  background: var(--color-tint-peach);
+}
+
+@utility btn-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 6px;
+  border: 1.5px solid var(--color-ink);
+  color: var(--color-ink);
+  font-weight: 600;
+  transition:
+    background-color 200ms var(--ease-panel),
+    color 200ms var(--ease-panel);
+
+  &:hover {
+    background: var(--color-ink);
+    color: #fff;
+  }
+}
+
+/*
+ * The fields behind the two demo panels. Overlapping radial gradients on the
+ * panel grey, no blur filter: a filter would repaint the whole field every
+ * time the chat streamed a token into the panel above it, and gradients are
+ * already soft. Warm behind the chat, cool behind the call.
+ */
+@utility demo-field-warm {
+  background:
+    radial-gradient(70% 60% at 12% 10%, var(--color-tint-butter) 0%, transparent 70%),
+    radial-gradient(60% 70% at 90% 18%, var(--color-tint-peach) 0%, transparent 72%),
+    radial-gradient(80% 60% at 50% 105%, rgb(255 118 30 / 0.22) 0%, transparent 70%),
+    var(--color-panel);
+}
+
+@utility demo-field-cool {
+  background:
+    radial-gradient(70% 60% at 10% 12%, var(--color-tint-sky) 0%, transparent 70%),
+    radial-gradient(60% 70% at 92% 20%, var(--color-tint-mint) 0%, transparent 72%),
+    radial-gradient(80% 60% at 50% 105%, rgb(135 214 141 / 0.28) 0%, transparent 70%),
+    var(--color-panel);
 }

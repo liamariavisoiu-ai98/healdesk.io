@@ -55,7 +55,7 @@ export default function ContactPage() {
 
       <main className="mx-auto max-w-[1240px] px-5 pt-16 pb-24 sm:px-8 sm:pt-20 lg:px-14">
         <div className="max-w-[52ch]">
-          <p className="text-muted text-xs font-bold tracking-[0.14em] uppercase">
+          <p className="eyebrow-tag">
             Contact us
           </p>
           <h1 className="font-display mt-3 text-[clamp(40.8px,6vw,69.6px)] leading-[1.03] font-medium tracking-[-0.028em]">

@@ -228,13 +228,16 @@ export function BuyButton({
 }) {
   const buy = useBuy();
 
+  // Flat and rectangular, after jasper.ai: a solid red block and an outlined
+  // quiet one, no gradient and no pill. The gradient pill it replaced was the
+  // one element on the page still saying 2023.
   const styles =
     variant === "solid"
-      ? "bg-brand-gradient shadow-brand text-white hover:-translate-y-0.5"
-      : "border-line text-ink hover:border-orange border bg-white hover:-translate-y-px";
+      ? "bg-red text-white hover:bg-red-deep"
+      : "border-line-strong text-ink hover:border-ink border-[1.5px] bg-white";
 
   const classes = [
-    "inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-bold transition-transform duration-200",
+    "inline-flex items-center justify-center gap-2 rounded-[6px] px-5 py-2.5 text-sm font-semibold transition-colors duration-200",
     styles,
     className,
   ].join(" ");

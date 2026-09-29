@@ -4,6 +4,7 @@ import { useEffect } from "react";
 
 import { Footer } from "@/components/Footer";
 import { Nav } from "@/components/Nav";
+import { track } from "@/lib/analytics";
 import { site } from "@/lib/site";
 
 /**
@@ -44,9 +45,12 @@ export default function ErrorPage({
   reset?: () => void;
 }) {
   useEffect(() => {
-    // Console for now. When the analytics vendor is wired (PostHog, US
-    // cloud), this is the one place to capture the digest.
     console.error(error);
+    // The digest is the only thing worth sending: it is what support matches
+    // against the server log, and it carries nothing a visitor typed. `track`
+    // is a no-op until the visitor has accepted analytics, which is the same
+    // rule every other event on the site follows.
+    track("client_error", { digest: error.digest ?? "none" });
   }, [error]);
 
   return (
@@ -55,7 +59,7 @@ export default function ErrorPage({
 
       <main className="mx-auto max-w-[1240px] px-5 pt-16 pb-24 sm:px-8 sm:pt-24 lg:px-14">
         <div className="max-w-[52ch]">
-          <p className="text-muted text-xs font-bold tracking-[0.14em] uppercase">
+          <p className="eyebrow-tag">
             Something went wrong
           </p>
           <h1 className="font-display mt-3 text-[clamp(40.8px,6vw,69.6px)] leading-[1.03] font-medium tracking-[-0.028em]">

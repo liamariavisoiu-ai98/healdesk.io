@@ -38,6 +38,8 @@ export const EVENTS = {
   claim_started: ["campaign", "has_website"],
   claim_completed: ["branch"],
   pricing_viewed: ["interval"],
+  why_wait_viewed: [],
+  client_error: ["digest"],
   checkout_started: ["plan", "interval"],
   checkout_step: ["step", "plan", "interval"],
   contact_submitted: [],

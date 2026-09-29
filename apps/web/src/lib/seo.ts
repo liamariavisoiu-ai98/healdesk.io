@@ -11,12 +11,11 @@ import { site } from "@/lib/site";
  *
  * ## What is listed
  *
- * The public pages a stranger should be able to find: the homepage, pricing,
- * contact, and the two legal pages. /privacy and /terms are listed before
- * they exist on disk because the sitemap is a promise to crawlers about the
- * site at deploy time, and both ship in the pass after this one; a sitemap
- * that omitted them would have to be remembered and edited later, which is
- * how legal pages end up unindexed for a year.
+ * The public pages a stranger should be able to find: the homepage, the
+ * calculator, pricing, contact, and the legal and trust pages. Every path here
+ * exists on disk; a path is added in the same commit as its page so the
+ * sitemap never has to be remembered later, which is how legal pages end up
+ * unindexed for a year.
  *
  * ## What is kept out
  *
@@ -36,6 +35,7 @@ export const PUBLIC_ROUTES = [
   { path: "/terms", changeFrequency: "yearly", priority: 0.3 },
   { path: "/subprocessors", changeFrequency: "monthly", priority: 0.3 },
   { path: "/trust", changeFrequency: "monthly", priority: 0.5 },
+  { path: "/why-wait", changeFrequency: "monthly", priority: 0.8 },
 ] as const satisfies ReadonlyArray<{
   path: `/${string}`;
   changeFrequency: "weekly" | "monthly" | "yearly";

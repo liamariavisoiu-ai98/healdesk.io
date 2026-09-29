@@ -95,15 +95,20 @@ export function PricingCards({
         })}
       </div>
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {plans.map((plan) => {
+      {/* Six tracks of which each card spans two, so three fit a row and the
+          fourth card can start on the second track: the second row of two is
+          centred under the first row of three instead of leaving a hole at
+          the right. A five-column row would squeeze every price. */}
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+        {plans.map((plan, i) => {
           const featured = Boolean(plan.highlight);
           const overage = overageLine(plan);
           return (
             <div
               key={plan.id}
               className={[
-                "flex flex-col rounded-[22px] border p-7 sm:p-8",
+                "flex flex-col rounded-[22px] border p-7 sm:p-8 lg:col-span-2",
+                i === 3 ? "lg:col-start-2" : "",
                 featured ? "border-sun bg-sun/[0.16]" : "border-line bg-white",
               ].join(" ")}
             >
@@ -169,9 +174,11 @@ export function PricingCards({
               <a
                 href={`/get-started?plan=${encodeURIComponent(plan.id)}&interval=${interval}`}
                 className={[
-                  "mt-7 rounded-full px-6 py-3.5 text-center text-[18px] font-bold transition-transform duration-200 hover:-translate-y-px",
+                  // Flat rectangles, matching BuyButton: solid red on the
+                  // featured card, outlined ink on the rest.
+                  "mt-7 rounded-[6px] px-6 py-3.5 text-center text-[17px] font-semibold transition-colors duration-200",
                   featured
-                    ? "bg-brand-gradient shadow-brand text-white"
+                    ? "bg-red hover:bg-red-deep text-white"
                     : "border-line-strong text-ink hover:border-ink border-[1.5px]",
                 ].join(" ")}
               >

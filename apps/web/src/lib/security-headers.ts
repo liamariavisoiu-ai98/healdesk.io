@@ -249,8 +249,16 @@ export function cspDirectives(
     "media-src": [self, "blob:"],
     // Our own /api routes (the chat stream, the gate, checkout, the callback)
     // plus PostHog. 'self' also covers the dev server's HMR websocket.
+    //
+    // blob: because three's GLTFLoader unpacks the hero model's embedded JPEG
+    // skin into a blob: URL and then FETCHES it to build the texture. Without
+    // this the fetch is refused, the load logs "Couldn't load texture", and
+    // she renders as an untextured white bust, which is what production
+    // showed for eleven days before anyone read the console. A blob: URL can
+    // only ever name data this page created, so it exfiltrates nothing.
     "connect-src": [
       self,
+      "blob:",
       POSTHOG_INGEST_ORIGIN,
       POSTHOG_ASSETS_ORIGIN,
       ...(preview ? VERCEL_TOOLBAR.connect : []),

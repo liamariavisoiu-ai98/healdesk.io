@@ -525,7 +525,7 @@ export function Reviews() {
   return (
     <section id="reviews" className="scroll-mt-24 py-20 sm:py-24">
       <div className="text-center">
-        <p className="text-muted text-xs font-bold tracking-[0.14em] uppercase">
+        <p className="eyebrow-tag">
           What clinics say
         </p>
         <span

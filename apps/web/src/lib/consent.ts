@@ -60,13 +60,28 @@ export const CALL_CONSENT = {
  *
  *   1. The email unlocks the demo. That is the service the visitor asked for,
  *      and the notice says what it is used for and which cookie it sets
- *      (`hd_demo`, HTTP-only, 30 days — src/lib/gate.ts). It is not consent to
+ *      (`hd_demo`, HTTP-only, DEMO_ACCESS_DAYS — src/lib/gate.ts). It is not
+ *      consent to
  *      anything else. CAN-SPAM lets a business email a customer about the
  *      thing they asked for; it does not make a demo unlock a marketing opt-in.
  *   2. The checkbox, UNTICKED by default, is the marketing opt-in. Its exact
  *      wording is the consent record.
  */
-export const CONSENT_NOTICE_VERSION = "2026-09-13.2";
+export const CONSENT_NOTICE_VERSION = "2026-09-29.1";
+
+/**
+ * How long an unlocked demo stays unlocked, in days.
+ *
+ * The owner's decision, recorded in docs/handover.md ("Demo expiry — 7
+ * days"). The gate cookie's lifetime (lib/gate.ts), the privacy policy, the
+ * notice under the email field and the /why-wait copy all read this one
+ * constant, because until 29 September 2026 the cookie said 30, the policy
+ * said 30 and the decision said 7, and a page nearly shipped promising a
+ * week the cookie did not keep. It lives here rather than in gate.ts so that
+ * client components can import it without pulling node:crypto into the
+ * bundle.
+ */
+export const DEMO_ACCESS_DAYS = 7;
 
 /**
  * Under the email input. Links to /privacy from the component.
@@ -78,7 +93,7 @@ export const CONSENT_NOTICE_VERSION = "2026-09-13.2";
  */
 export const GATE_NOTICE =
   "Your email unlocks the demo and tells us who tried it. It sets one cookie " +
-  "(hd_demo, 30 days) so you don't have to re-enter it. We don't sell it and " +
+  `(hd_demo, ${DEMO_ACCESS_DAYS} days) so you don't have to re-enter it. We don't sell it and ` +
   "we don't share it with ad platforms.";
 
 /** The marketing checkbox. Must be rendered verbatim; the server stores this string. */

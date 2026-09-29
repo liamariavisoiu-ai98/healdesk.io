@@ -54,7 +54,7 @@ export default function GlobalError({
           </a>
 
           <div className="mt-16 max-w-[52ch] sm:mt-24">
-            <p className="text-muted text-xs font-bold tracking-[0.14em] uppercase">
+            <p className="eyebrow-tag">
               Something went wrong
             </p>
             <h1 className="mt-3 text-[clamp(36px,5.5vw,60px)] leading-[1.05] font-semibold tracking-[-0.025em]">

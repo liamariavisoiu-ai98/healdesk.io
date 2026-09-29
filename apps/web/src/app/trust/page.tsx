@@ -25,6 +25,11 @@ export const metadata: Metadata = {
  * publishes; the counts below are computed from it so the two pages cannot
  * disagree.
  */
+/** Small counts read better as words in prose. Past ten, the digit is fine. */
+const WORDS: Record<number, string> = {
+  2: "Two", 3: "Three", 4: "Four", 5: "Five", 6: "Six", 7: "Seven", 8: "Eight", 9: "Nine", 10: "Ten",
+};
+
 export default function TrustPage() {
   const signed = PHI_SUBPROCESSORS.filter((s) => s.baa.state === "signed").length;
   const pending = PHI_SUBPROCESSORS.length - signed;
@@ -128,11 +133,21 @@ export default function TrustPage() {
             <strong>No third-party audit yet.</strong> No SOC 2 report exists. The controls above
             are our own and we will walk any reviewer through them.
           </li>
-          <li>
-            <strong>Two of the agreements above are not yet countersigned.</strong> Until every
-            vendor in the patient-information path has signed, no clinic is moved to production.
-            The register says which.
-          </li>
+          {/* Counted from the register, like the paragraph in section 3, so
+              the two can never disagree: this line once said "Two" while the
+              register said three. */}
+          {pending > 0 ? (
+            <li>
+              <strong>
+                {pending === 1
+                  ? "One of the agreements above is"
+                  : `${WORDS[pending] ?? String(pending)} of the agreements above are`}{" "}
+                not yet countersigned.
+              </strong>{" "}
+              Until every vendor in the patient-information path has signed, no clinic is moved to
+              production. The register says which.
+            </li>
+          ) : null}
         </ul>
       </Section>
 

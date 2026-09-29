@@ -2,7 +2,6 @@ import { plans } from "@healdesk/catalog";
 
 import { BuyModalProvider } from "@/components/BuyModal";
 import { Footer } from "@/components/Footer";
-import { HeroMarkProvider } from "@/components/HeroMark";
 import { HeroStage } from "@/components/HeroStage";
 import { HomeExperience } from "@/components/HomeExperience";
 import { KnowMore } from "@/components/KnowMore";
@@ -12,26 +11,21 @@ import { Reviews } from "@/components/Reviews";
 /**
  * The homepage, and the whole site's argument.
  *
- * Six things in order: AYA's face, AYA working, the specialties we know, what
- * that is worth, who already pays for it, and a way to ask. Pricing and contact
+ * Six things in order: the claim with AYA beside it, AYA working, the
+ * specialties we know, what that is worth, who already pays for it, and a way
+ * to ask. Pricing and contact
  * are their own pages but are reachable only from the footer, so nothing
  * competes with the demo for a visitor's first click.
  *
  * ⚠️ The reviews are placeholder content and must not ship as written. See the
  * note at the top of src/lib/reviews.ts.
  *
- * ## Parked components
+ * ## Nothing is parked any more
  *
- * `Attribution`, `HowItWorks`, `LeakCalculator` and `SpecialtyStrip` are still
- * in src/components but are no longer rendered anywhere. They are kept on disk
- * rather than deleted because this structure is a first pass, the
- * booked → showed → collected chain in particular is the strongest thing the
- * site has ever said, and it will likely come back somewhere. Delete them once
- * that call is made; do not re-import them without deciding where they go.
- *
- * `CTA` is NOT parked: it closes /pricing. Keep this list accurate, an audit
- * of the funnel read a stale version of it and concluded the checkout button
- * existed nowhere, which sent it looking for a break that was not there.
+ * `Attribution`, `HowItWorks`, `LeakCalculator` and `SpecialtyStrip` sat
+ * unrendered in src/components for two weeks and were deleted on 23 September
+ * 2026; the booked → showed → collected chain they carried is in git history
+ * if it comes back. `WhyGoSmart` moved to /why-wait. `CTA` closes /pricing.
  */
 export default function HomePage() {
   return (
@@ -40,18 +34,12 @@ export default function HomePage() {
        HeroMarkProvider rather than inside it: that one must not reach the
        Footer, this one has no such constraint. */
     <BuyModalProvider initialPlan={plans[0]!.id}>
-      {/* Wraps ONLY these two. The giant healdesk.io behind AYA and the navbar
-          logo are two halves of one hand-off and share a motion value; the
-          Footer imports the same Brand, so a provider that reached it would
-          fade the footer wordmark out along with the hero one. */}
-      <HeroMarkProvider>
-        <Nav />
+      <Nav />
 
-        {/* Full-bleed, and a sibling of <main> rather than a child: breaking
-            out of main would mean overflow-x on it, which silently turns it
-            into a scroll container and strands the sticky stage. */}
-        <HeroStage />
-      </HeroMarkProvider>
+      {/* A sibling of <main> so the demo section keeps `scroll-mt` maths
+          simple; it carries its own container. The sticky stage and the
+          wordmark hand-off that used to live here are gone, see HeroStage. */}
+      <HeroStage />
 
       <main className="mx-auto max-w-[1240px] px-5 sm:px-8 lg:px-14">
         {/* Demos (#aya), the niche reel, and "Why go smart?", all driven by

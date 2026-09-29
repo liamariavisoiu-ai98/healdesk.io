@@ -28,7 +28,7 @@ export function NicheCarousel({
     <section id="specialties" className="scroll-mt-24 py-20 sm:py-24">
       {/* Centred to sit over the deck, which is centred too. */}
       <div className="mx-auto max-w-[52ch] text-center">
-        <p className="text-muted text-xs font-bold tracking-[0.14em] uppercase">
+        <p className="eyebrow-tag">
           Where you can trust us
         </p>
         {/* Hairline divider. Solid at the middle, gone at both ends, so it

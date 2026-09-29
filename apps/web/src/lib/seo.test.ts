@@ -34,6 +34,7 @@ describe("sitemap()", () => {
       "https://healdesk.io/terms",
       "https://healdesk.io/subprocessors",
       "https://healdesk.io/trust",
+      "https://healdesk.io/why-wait",
     ]);
   });
 

@@ -75,10 +75,10 @@ describe("clinical content guard", () => {
 
 describe("open required steps", () => {
   test("platform_connected is required only for verified attribution", () => {
-    const all = Object.fromEntries(["hours_confirmed","phone_type_confirmed","call_routing_chosen","covered_entity_confirmed","agent_script_approved","forwarding_configured","test_call_passed"].map((s) => [s, "2026-09-13T00:00:00Z"]));
+    const all = Object.fromEntries(["hours_confirmed","phone_type_confirmed","call_routing_chosen","covered_entity_confirmed","agent_script_approved","forwarding_configured","test_call_passed","booking_requirements_confirmed"].map((s) => [s, "2026-09-13T00:00:00Z"]));
     expect(openRequiredSteps(all)).toEqual([]);
     expect(openRequiredSteps(all, { requirePlatform: true })).toEqual(["platform_connected"]);
-    expect(openRequiredSteps({})).toHaveLength(7);
+    expect(openRequiredSteps({})).toHaveLength(8);
   });
 });
 
@@ -163,6 +163,18 @@ describeDb("onboarding", () => {
       await completeStep(tx, "forwarding_configured");
       await completeStep(tx, "test_call_passed");
     });
+
+    // 0040: the booking requirement set must be confirmed too, and the
+    // database refuses on its own while it is open — whichever of the two
+    // checks (goLivePreconditions or app_mark_clinic_production) says no
+    // first, the refusal names the step.
+    const stillOpen = await goLive(clinicId, { label: "ops@healdesk.test" });
+    expect(stillOpen.status).toBe("refused");
+    expect(JSON.stringify(stillOpen)).toMatch(/booking.requirements.confirmed/);
+    await getMigratorPool().query(
+      `update clinics set onboarding = onboarding || jsonb_build_object('booking_requirements_confirmed', now()::text) where id = $1`,
+      [clinicId],
+    );
 
     const live = await goLive(clinicId, { label: "ops@healdesk.test" });
     expect(live.status, JSON.stringify(live)).toBe("live");

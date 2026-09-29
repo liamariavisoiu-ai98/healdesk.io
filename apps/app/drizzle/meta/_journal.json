@@ -281,6 +281,13 @@
       "when": 1789989456231,
       "tag": "0039_booking_requests_every_channel",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1790667255588,
+      "tag": "0040_booking_modes_callbacks",
+      "breakpoints": true
     }
   ]
 }

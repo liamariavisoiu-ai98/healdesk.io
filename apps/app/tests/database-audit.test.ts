@@ -138,7 +138,7 @@ describeDb("database audit (0031)", () => {
                 'hours_confirmed', now()::text, 'phone_type_confirmed', now()::text,
                 'call_routing_chosen', now()::text, 'covered_entity_confirmed', now()::text,
                 'agent_script_approved', now()::text, 'forwarding_configured', now()::text,
-                'test_call_passed', now()::text)
+                'test_call_passed', now()::text, 'booking_requirements_confirmed', now()::text)
         where id = $1`,
       [clinicId],
     );
@@ -261,6 +261,7 @@ describeDb("database audit (0031)", () => {
       "contacts",
       "conversations",
       "meta_booking_drafts",
+      "outbound_calls",
       "suppressions",
       "transactions",
       "webhook_events",

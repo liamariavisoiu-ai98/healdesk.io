@@ -326,7 +326,7 @@ export type ResolvedBookingRequest = {
   phone: string | null;
   preferredWindow: string;
   treatment: string | null;
-  status: "requested" | "accepted" | "confirmed" | "declined" | "expired";
+  status: "requested" | "accepted" | "rescheduling" | "confirmed" | "declined" | "expired";
   createdAt: Date;
   decidedAt: Date | null;
   decidedByLabel: string | null;

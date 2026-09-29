@@ -1,14 +1,16 @@
 import { isAfterHours, parseOpeningHours } from "@/lib/clinic/opening-hours";
+import { resolveBookingRequirements, type BookingField } from "@healdesk/catalog";
 import { toE164 } from "@healdesk/connectors";
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 
 import { unsafeDb, type Transaction } from "@/db";
-import { bookingRequests, clinics, contacts, conversations } from "@/db/schema";
+import { bookingRequests, clinics, contacts, conversations, outboundCalls } from "@/db/schema";
 import { recordSecurityEvent, type ActorContext } from "@/lib/audit";
-import { createBookingRequest, notifyDesk } from "@/lib/meta/booking-requests";
+import { honourStopRequest, scheduleCallback } from "@/lib/callbacks/schedule";
+import { cleanAlternatives, cleanCollectedFields, createBookingRequest, notifyDesk, type ConsentAnswer } from "@/lib/meta/booking-requests";
 import { observeForwardingCall } from "@/lib/onboarding/forwarding-test";
 import type { EmailTransport } from "@/lib/reporting/deliver";
-import { withTenant } from "@/lib/tenant";
+import { withTenant, type TenantTx } from "@/lib/tenant";
 
 /**
  * Turning a finished call into the one row the whole product depends on.
@@ -63,10 +65,19 @@ export type VoiceCallEvent = {
   rangAtClinicFirst?: boolean;
   clinicLineBusy?: boolean;
   /**
-   * True when the vendor says the agent placed this call. healdesk is
-   * inbound-only, so `ingestCall()` refuses such a call outright.
+   * True when the vendor says the agent placed this call. The only calls
+   * healdesk places are consented callbacks it wrote to `outbound_calls`
+   * first, so `ingestCall()` matches the call id against that ledger and
+   * refuses a call flagged outbound that it has no row for (§F.6).
    */
   isCallback?: boolean;
+  /**
+   * The vendor's disposition, folded to what the dialer acts on (§F.4): a
+   * callback that positively went unanswered, hit a busy line or failed at
+   * the vendor earns a second attempt; a completed one, or one with no
+   * disposition at all, does not.
+   */
+  callStatus?: "completed" | "no_answer" | "busy" | "failed";
   outcome?:
     | "booked"
     | "qualified_no_booking"
@@ -99,6 +110,8 @@ export type VoiceCallEvent = {
     scheduledFor: Date;
     /** The window in the caller's own words, when the agent captured it. */
     preferredWindow?: string;
+    /** Up to two other times, verbatim (§D.1). Cleaned like the primary; a dirty one is dropped. */
+    alternativeWindows?: string[];
     treatment?: string;
     providerName?: string;
     /** The booking platform's id for the appointment we created. */
@@ -107,6 +120,21 @@ export type VoiceCallEvent = {
     externalSource?: string;
     depositUsd?: string;
   };
+  /**
+   * The answer to the fixed callback question (§F.2), and the person's own
+   * words. A consent row is written only for `answer: "yes"` with a
+   * non-empty quote; "no" and "unclear" write nothing, and so does a bare
+   * yes the extractor could not quote.
+   */
+  callbackConsent?: { answer: "yes" | "no" | "unclear"; quote?: string };
+  /**
+   * The callback agent's stop action fired (§F.7). A redundant second record
+   * — the mid-call action already suppressed the number — and never derived
+   * from transcript text.
+   */
+  stopRequested?: boolean;
+  /** `field_<id>` extractor values, keyed by catalogue id; validated against the clinic's set before anything is stored (§H.6). */
+  collectedFields?: Record<string, string>;
 };
 
 export class VoiceIngestError extends Error {
@@ -170,7 +198,17 @@ export function classifyRecovery(
     openingHours: unknown;
     timezone: string;
   },
+  opts: {
+    /**
+     * The call id matched a row in `outbound_calls`: this is a consented
+     * callback the product placed about a request that already exists. The
+     * inbound contact it follows up was counted when it arrived, so counting
+     * the callback again would claim one recovery twice (§F.6).
+     */
+    placedByUs?: boolean;
+  } = {},
 ): RecoveryReason | null {
+  if (opts.placedByUs) return null;
   // Ordered most-specific first, because several can be true at once: a
   // callback placed at 9pm is both a callback and after hours, and "we rang
   // them back" is the stronger and more defensible claim.
@@ -243,11 +281,25 @@ function isOutsideOpeningHours(
  * are the whole point: every one of them is a case where writing a row would
  * put a booking into the clinic's monthly figure that we cannot stand behind.
  */
+export type VoiceBookingRequest = {
+  preferredWindow: string;
+  treatment: string | null;
+  /** Each through the same cleaning as the primary (`windowIsClean`), deduplicated, at most two. */
+  alternativeWindows: string[];
+  /** Only ids in the clinic's requirement set, screened; the rest are in `refusedFields`. */
+  collectedFields: Record<string, string>;
+  refusedFields: { field: string; reason: string }[];
+  /** Shaped for `createBookingRequest`: a row only for a usable yes. `null` when the question went unanswered. */
+  callbackConsent: ConsentAnswer | null;
+};
+
 export function bookingRequestFrom(
   event: VoiceCallEvent,
   contactId: string | null,
   clinicTimezone: string,
-): { preferredWindow: string; treatment: string | null } | null {
+  /** The clinic's requirement set (§H.6). Omitted, every `field_<id>` is refused as `not_required`. */
+  requirements: readonly BookingField[] = [],
+): VoiceBookingRequest | null {
   // Refusal 1: the call did not book. An agent that qualified someone without
   // booking them has done useful work, and it is not a booking.
   if (event.outcome !== "booked") return null;
@@ -275,7 +327,36 @@ export function bookingRequestFrom(
       hour: "numeric",
       minute: "2-digit",
     });
-  return { preferredWindow, treatment: event.booking.treatment?.trim().slice(0, 120) || null };
+  const { accepted, refused } = cleanCollectedFields(requirements, event.collectedFields);
+  const consent = event.callbackConsent;
+  return {
+    preferredWindow,
+    treatment: event.booking.treatment?.trim().slice(0, 120) || null,
+    alternativeWindows: cleanAlternatives(event.booking.alternativeWindows ?? [], [preferredWindow]),
+    collectedFields: accepted,
+    refusedFields: refused,
+    callbackConsent: consent
+      ? { granted: consent.answer === "yes", quote: consent.quote?.trim() || null, evidenceUri: event.transcriptUri ?? null }
+      : null,
+  };
+}
+
+/**
+ * The practice's requirement fields the request still lacks, and which a
+ * callback may ask for (§F.3, §H.6): the non-locked ones — the locked four
+ * live in their own columns and are complete by construction — that are
+ * neither in `collected_fields` nor, for `service`, in `treatment`. Labels
+ * are what the callback agent reads out; ids are what the tool validates.
+ */
+export function missingRequirementFields(
+  requirements: readonly BookingField[],
+  request: { treatment: string | null; collectedFields: Record<string, string> },
+): BookingField[] {
+  return requirements.filter((field) => {
+    if (field.locked || !field.channels.includes("callback")) return false;
+    if (field.id === "service" && request.treatment) return false;
+    return !request.collectedFields[field.id];
+  });
 }
 
 export function classifyBooking(
@@ -302,21 +383,7 @@ export async function ingestCall(
   if (!event.externalCallId?.trim()) {
     throw new VoiceIngestError("A call id is required for idempotency.");
   }
-
-  // Inbound-only (21 September 2026). healdesk places no calls, so a call the
-  // vendor flags as placed by the agent is a misconfiguration on the vendor
-  // side, not a call to record: refused before any row is written, and
-  // visible as a security event so the operator switches the feature off.
-  if (event.isCallback) {
-    await recordSecurityEvent(unsafeDb, {
-      event: "outbound_call_refused",
-      actorLabel: "label" in actor ? actor.label : "serviceName" in actor ? actor.serviceName : actor.type,
-      metadata: { clinicId: event.clinicId, externalCallId: event.externalCallId.trim() },
-    });
-    throw new VoiceIngestError(
-      "Refused: healdesk is inbound-only and this call is flagged as placed by the agent. Disable callbacks in the voice vendor.",
-    );
-  }
+  const externalCallId = event.externalCallId.trim();
 
   return withTenant({ clinicId: event.clinicId, actor }, async (tx) => {
     const [clinic] = await tx.db
@@ -326,6 +393,8 @@ export async function ingestCall(
         callRouting: clinics.callRouting,
         forwardingTestUntil: clinics.forwardingTestUntil,
         publishedPhoneE164: clinics.publishedPhoneE164,
+        specialty: clinics.specialty,
+        bookingRequirements: clinics.bookingRequirements,
       })
       .from(clinics)
       .where(eq(clinics.id, event.clinicId))
@@ -333,15 +402,38 @@ export async function ingestCall(
 
     if (!clinic) throw new VoiceIngestError("Unknown clinic.");
 
+    // §F.6: the only calls healdesk places are the ones it wrote to the
+    // ledger first, so a placed call is recognised by its vendor id, not by
+    // a flag. Matched → it is a callback about a request that already
+    // exists. Not matched and flagged outbound → the decision of
+    // 21 September still applies: refused before any row is written, and
+    // visible as a security event so the operator looks at the vendor.
+    const [placed] = await tx.db
+      .select({ id: outboundCalls.id, bookingRequestId: outboundCalls.bookingRequestId, phone: outboundCalls.phone, status: outboundCalls.status })
+      .from(outboundCalls)
+      .where(and(eq(outboundCalls.clinicId, tx.clinicId), eq(outboundCalls.vendorCallId, externalCallId), inArray(outboundCalls.status, ["placed", "completed", "unknown"])))
+      .limit(1);
+    if (!placed && event.isCallback) {
+      // The identity plane, not the tenant transaction: this row must survive
+      // the rollback the throw below causes.
+      await recordSecurityEvent(unsafeDb, {
+        event: "outbound_call_refused",
+        actorLabel: "label" in actor ? actor.label : "serviceName" in actor ? actor.serviceName : actor.type,
+        metadata: { clinicId: event.clinicId, externalCallId },
+      });
+      throw new VoiceIngestError(
+        "Refused: healdesk is inbound-only apart from the callbacks it places itself, and this call is flagged as placed by the agent but matches no callback in the ledger. Check the vendor's outbound configuration.",
+      );
+    }
 
-    const recoveryReason = classifyRecovery(event, {
-      callRouting: clinic.callRouting,
-      openingHours: clinic.openingHours,
-      timezone: clinic.timezone,
-    });
+    const recoveryReason = classifyRecovery(
+      event,
+      { callRouting: clinic.callRouting, openingHours: clinic.openingHours, timezone: clinic.timezone },
+      { placedByUs: Boolean(placed) },
+    );
 
     const contactId = event.callerPhone
-      ? await upsertCaller(tx.db, event, clinic.timezone)
+      ? await upsertCallerContact(tx.db, { clinicId: event.clinicId, phone: event.callerPhone, name: event.callerName, clinicTimezone: clinic.timezone })
       : null;
 
     const [row] = await tx.db
@@ -359,7 +451,7 @@ export async function ingestCall(
         responseLatencySeconds: event.responseLatencySeconds ?? null,
         startedAt: event.startedAt,
         endedAt: event.endedAt ?? null,
-        externalCallId: event.externalCallId.trim(),
+        externalCallId,
       })
       .onConflictDoNothing({
         target: [conversations.clinicId, conversations.externalCallId],
@@ -387,25 +479,27 @@ export async function ingestCall(
         .where(
           and(
             eq(conversations.clinicId, event.clinicId),
-            eq(conversations.externalCallId, event.externalCallId.trim()),
+            eq(conversations.externalCallId, externalCallId),
           ),
         )
         .limit(1);
 
       // A retrying vendor must get the same answer, including the same
       // request. Looking it up rather than returning null keeps the reply
-      // truthful, and re-inserting would ask the desk twice.
+      // truthful, and re-inserting would ask the desk twice. A callback's
+      // request is the ledger row's (its conversation_id is the inbound
+      // call's), and a direct booking's carries the vendor's call id.
       const [priorRequest] = await tx.db
         .select({ id: bookingRequests.id })
         .from(bookingRequests)
-        .where(and(eq(bookingRequests.clinicId, event.clinicId), eq(bookingRequests.conversationId, existing!.id)))
+        .where(and(eq(bookingRequests.clinicId, event.clinicId), or(eq(bookingRequests.conversationId, existing!.id), eq(bookingRequests.vendorCallId, externalCallId))))
         .limit(1);
 
       return {
         conversationId: existing!.id,
         recoveryReason: existing!.recoveryReason,
         duplicate: true,
-        bookingRequestId: priorRequest?.id ?? null,
+        bookingRequestId: placed?.bookingRequestId ?? priorRequest?.id ?? null,
       };
     }
 
@@ -424,17 +518,69 @@ export async function ingestCall(
      * satisfy it would be worse than recording no booking at all.
      */
     let bookingRequestId: string | null = null;
-    const request = bookingRequestFrom(event, contactId, clinic.timezone);
-    if (request) {
-      const created = await createBookingRequest(tx, {
-        channel: "voice",
-        contactId: contactId!,
-        conversationId: row.id,
-        preferredWindow: request.preferredWindow,
-        treatment: request.treatment,
+    if (placed) {
+      // §F.6: a callback about an existing request. Link the call to the
+      // ledger row and to the request (set-once), close the row, and take
+      // the stop if the agent's action fired. Never a second request, even
+      // when the callback agent set `outcome: booked` on its way out.
+      bookingRequestId = placed.bookingRequestId;
+      // §F.4: only a disposition that positively says nobody answered earns
+      // the dialer's second attempt; a completed call, or one the vendor
+      // reported nothing about, is final.
+      const unanswered = event.callStatus === "no_answer" || event.callStatus === "busy" || event.callStatus === "failed";
+      await tx.db
+        .update(outboundCalls)
+        .set({ status: unanswered ? "failed" : "completed", completedAt: event.endedAt ?? new Date(), conversationId: row.id })
+        .where(and(eq(outboundCalls.id, placed.id), eq(outboundCalls.clinicId, tx.clinicId)));
+      await linkConversationOnce(tx, placed.bookingRequestId, row.id);
+      tx.audit.record({
+        action: "update",
+        resourceType: "outbound_call",
+        resourceId: placed.id,
+        resourceIds: [placed.bookingRequestId],
+        metadata: { outcome: unanswered ? "failed" : "completed", previous: placed.status, disposition: event.callStatus ?? "unknown", stopRequested: event.stopRequested || undefined },
       });
-      bookingRequestId = created.id;
-      await notifyDesk(tx, created, { channel: "voice", platform: null }, { transport: deps.transport });
+      if (event.stopRequested) await honourStopRequest(tx, placed.phone, "stop_request");
+    } else {
+      // §E.4: the assistant booked directly on this call through the tool
+      // route, which inserted the request with the vendor's call id. Link
+      // the conversation (set-once) and do not create a second request.
+      const [direct] = await tx.db
+        .select({ id: bookingRequests.id })
+        .from(bookingRequests)
+        .where(and(eq(bookingRequests.clinicId, tx.clinicId), eq(bookingRequests.vendorCallId, externalCallId)))
+        .limit(1);
+      if (direct) {
+        bookingRequestId = direct.id;
+        await linkConversationOnce(tx, direct.id, row.id);
+        tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: direct.id, metadata: { outcome: "conversation_linked", via: "agent_direct" } });
+      } else {
+        const requirements = resolveBookingRequirements(clinic.specialty, clinic.bookingRequirements ?? null);
+        const request = bookingRequestFrom(event, contactId, clinic.timezone, requirements);
+        if (request) {
+          for (const r of request.refusedFields) {
+            tx.audit.record({ action: "create", resourceType: "booking_request", metadata: { outcome: "field_refused", field: r.field, reason: r.reason } });
+          }
+          const created = await createBookingRequest(tx, {
+            channel: "voice",
+            contactId: contactId!,
+            conversationId: row.id,
+            preferredWindow: request.preferredWindow,
+            treatment: request.treatment,
+            alternativeWindows: request.alternativeWindows,
+            collectedFields: request.collectedFields,
+            callbackConsent: request.callbackConsent,
+          });
+          bookingRequestId = created.id;
+          await notifyDesk(tx, created, { channel: "voice", platform: null }, { transport: deps.transport });
+          // §F.3 collect_fields: the person said yes, and the practice asks
+          // for something the call did not capture. scheduleCallback
+          // re-checks every switch and refuses quietly when one is off.
+          if (created.consentRecordId && missingRequirementFields(requirements, request).length > 0) {
+            await scheduleCallback(tx, created.id, "collect_fields");
+          }
+        }
+      }
     }
 
     tx.audit.record({
@@ -462,26 +608,37 @@ export async function ingestCall(
 }
 
 /**
+ * `booking_requests.conversation_id` is set-once (0040 trigger): null → uuid
+ * is permitted exactly once, so the guard here keeps a replayed webhook from
+ * tripping the trigger on a row that is already linked.
+ */
+async function linkConversationOnce(tx: TenantTx, requestId: string, conversationId: string): Promise<void> {
+  await tx.db
+    .update(bookingRequests)
+    .set({ conversationId })
+    .where(and(eq(bookingRequests.id, requestId), eq(bookingRequests.clinicId, tx.clinicId), isNull(bookingRequests.conversationId)));
+}
+
+/**
  * Find or create the caller.
  *
  * Keyed on the phone number within the clinic, because that is the only stable
  * identifier a phone call supplies. Deliberately does NOT overwrite a name that
  * already exists: a name read out of the clinic's own booking system is better
- * evidence than one a caller mumbled to a voice agent.
+ * evidence than one a caller mumbled to a voice agent. Shared with the
+ * direct-booking tool (lib/voice/tools.ts), which books the same caller on
+ * the same call, so one number is one contact whichever path wrote it first.
  */
-async function upsertCaller(
+export async function upsertCallerContact(
   db: Transaction,
-  event: VoiceCallEvent,
-  clinicTimezone: string,
+  input: { clinicId: string; phone: string; name?: string | null; clinicTimezone: string },
 ): Promise<string> {
-  const phone = toE164(event.callerPhone) ?? event.callerPhone!.trim();
+  const phone = toE164(input.phone) ?? input.phone.trim();
 
   const [existing] = await db
     .select({ id: contacts.id })
     .from(contacts)
-    .where(
-      and(eq(contacts.clinicId, event.clinicId), eq(contacts.phone, phone)),
-    )
+    .where(and(eq(contacts.clinicId, input.clinicId), eq(contacts.phone, phone)))
     .limit(1);
 
   if (existing) return existing.id;
@@ -489,12 +646,12 @@ async function upsertCaller(
   const [created] = await db
     .insert(contacts)
     .values({
-      clinicId: event.clinicId,
+      clinicId: input.clinicId,
       phone,
-      fullName: event.callerName?.trim() || null,
+      fullName: input.name?.trim() || null,
       // The caller rang a local clinic: its timezone is the best evidence we
       // have, recorded now so the quiet-hours check can run later at all.
-      timezone: clinicTimezone,
+      timezone: input.clinicTimezone,
       updatedAt: new Date(),
     })
     .returning({ id: contacts.id });

@@ -27,6 +27,8 @@ export const JOB_ANNUAL_RENEWAL_REMINDER = "annual-renewal-reminder";
 export const JOB_WEEKLY_RECAP = "weekly-recap";
 export const JOB_NIGHTLY_SYNC = "nightly-sync";
 export const JOB_OFFBOARDING_DESTROY = "offboarding-destroy";
+/** See callback-dialer.ts. Seeded by drizzle/0040, switched off. */
+export const JOB_CALLBACK_DIALER = "callback-dialer";
 
 /** How long before a `runningSince` lock is assumed to be a crashed run. */
 const STALE_LOCK_MS = 60 * 60 * 1000;

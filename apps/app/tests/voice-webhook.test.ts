@@ -18,20 +18,33 @@ const describeDb = hasTestDatabase ? describe : describe.skip;
 const SECRET = "voice-webhook-secret-for-tests";
 const CLINIC_ID = "11111111-1111-4111-8111-111111111111";
 
-/** A post-call payload in the shape Synthflow's dashboard shows today. */
+/**
+ * A post-call payload in the documented shape (https://docs.synthflow.ai/
+ * post-call-webhook, read 23 September 2026): top-level `call_id`, `status`,
+ * `lead { name, phone_number }` and the extractors' `collected_variables`.
+ */
 const FIXTURE = {
   call_id: "call_abc123",
-  phone_number: "(555) 010-0123",
+  model_id: "agent_inbound_1",
   start_time: "2026-09-02T18:00:00Z",
   end_time: "2026-09-02T18:04:30Z",
+  duration: 270,
+  status: "completed",
+  lead: { name: "Test Caller", phone_number: "(555) 010-0123" },
   recording_url: "https://recordings.example.test/call_abc123.mp3",
   transcript_url: "https://transcripts.example.test/call_abc123.txt",
-  custom_variables: {
+  executed_actions: [],
+  collected_variables: {
     outcome: "booked",
     treatment_interest: "Botox",
     caller_name: "Test Caller",
     booked_for: "2026-09-10T15:00:00Z",
+    preferred_window: "next Thursday afternoon",
+    preferred_alt_1: "Friday morning",
+    preferred_alt_2: "",
     booked_treatment: "Botox",
+    callback_consent: "yes",
+    callback_consent_quote: "yes that's fine",
     rang_at_clinic_first: "true",
   },
 };
@@ -48,8 +61,20 @@ describe("reading the vendor payload", () => {
     expect(event.rangAtClinicFirst).toBe(true);
     expect(event.booking?.scheduledFor.toISOString()).toBe("2026-09-10T15:00:00.000Z");
     expect(event.booking?.treatment).toBe("Botox");
+    expect(event.booking?.alternativeWindows).toEqual(["Friday morning"]);
+    expect(event.callbackConsent).toEqual({ answer: "yes", quote: "yes that's fine" });
+    expect(event.callStatus).toBe("completed");
     // No audio reference, even when the vendor sends one (21 September 2026).
     expect("recordingUri" in event).toBe(false);
+  });
+
+  test("the earlier aliases still land a payload from an agent configured under the previous draft", () => {
+    const event = readSynthflowPayload(
+      { call_id: "old_1", phone_number: "(555) 010-0123", start_time: "2026-09-02T18:00:00Z", custom_variables: { outcome: "booked", booked_for: "2026-09-10T15:00:00Z", preferred_time: "Tuesday" } },
+      CLINIC_ID,
+    );
+    expect(event.callerPhone).toBe("+15550100123");
+    expect(event.booking).toMatchObject({ preferredWindow: "Tuesday" });
   });
 
   test("accepts the nested and aliased shapes, and unix timestamps", () => {
@@ -165,6 +190,15 @@ describeDb("POST /api/webhooks/voice/[clinicId]", () => {
     // row until the desk confirms a slot (21 September 2026).
     expect(rows.appts).toHaveLength(0);
     expect(rows.requests).toEqual([{ channel: "voice", status: "requested" }]);
+    // §D.1/§F.2: the alternative and the consent row, quoting the caller's own words with the transcript as evidence.
+    const detail = await inTenant(c.clinicId, async (client) => ({
+      request: (await client.query<{ preferred_window: string; alternative_windows: string[]; collected_fields: Record<string, string> }>(`select preferred_window, alternative_windows, collected_fields from booking_requests`)).rows[0],
+      consent: (await client.query<{ source: string; exact_wording: string; wording_version: string; evidence_uri: string }>(`select source, exact_wording, wording_version, evidence_uri from consent_records`)).rows,
+    }));
+    expect(detail.request).toEqual({ preferred_window: "next Thursday afternoon", alternative_windows: ["Friday morning"], collected_fields: {} });
+    expect(detail.consent).toEqual([
+      { source: "inbound_call", exact_wording: expect.stringMatching(/automated assistant calls you back.* — answered: "yes that's fine"$/), wording_version: "callback-v2", evidence_uri: "https://transcripts.example.test/call_abc123.txt" },
+    ]);
 
     const again = await post(c.clinicId, FIXTURE);
     expect(again.status).toBe(200);

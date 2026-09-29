@@ -2,6 +2,7 @@ import { and, count, eq, gte, isNull, or, sql } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
 import { consentRecords, contactAttempts, suppressions } from "@/db/schema";
+import { env } from "@/lib/env";
 
 /**
  * The gate every outbound call and text must pass.
@@ -29,23 +30,40 @@ export type ContactPurpose =
   /** Winning back a lapsed patient. Almost certainly marketing. */
   | "reactivation"
   /** Responding inside an active conversation the patient started. */
-  | "transactional";
+  | "transactional"
+  /**
+   * The consented callback about a booking request the person made (design
+   * of 23 September 2026, §F). Transactional in nature — the person asked,
+   * in so many words, to be rung back about their own request — so it is
+   * patient-initiated for the frequency caps here; the dialer applies its
+   * own two-per-request and four-per-number caps on top (§F.4, §F.5).
+   * `outbound_calls.purpose` is the sub-purpose.
+   */
+  | "callback";
 
 export type ContactDecision =
   | { allowed: true; basis: string }
   | { allowed: false; reason: string; code: ContactRefusalCode };
 
 /**
- * Inbound-only, by decision of 21 September 2026.
+ * The product-wide outbound switch.
  *
- * healdesk places no calls and sends no texts to patients: no reminders, no
- * missed-call callbacks, no reactivation. The gate below is kept because it
- * is correct and because a future owner may reverse the decision; while this
- * is false it refuses every request before reading a single row, so no code
- * path can contact a patient by forgetting to check. Nothing in the product
- * calls `canContact()` today — this is the guard for the day something does.
+ * The decision of 21 September 2026 made healdesk inbound-only, and this was
+ * a constant `false` that refused every request before reading a row. The
+ * decision of 23 September 2026 supersedes half of it: healdesk still sends
+ * no texts, no reminders and no reactivation, but it may place ONE kind of
+ * call — a callback about a booking request the person made, after they
+ * agreed to it in so many words on their own call or message. So the switch
+ * is now an environment variable, `HEALDESK_OUTBOUND_CALLBACKS_ENABLED`,
+ * read at use and never cached, and it is only the first of the gates: the
+ * clinic's own switch (`clinicEnabled` below), a consent row the table
+ * shape insists on, the calling window and the caps all still apply. Unset,
+ * this refuses every request exactly as the constant did, so an environment
+ * that has not been switched on places nothing.
  */
-export const OUTBOUND_CONTACT_ENABLED = false;
+export function outboundContactEnabled(): boolean {
+  return env.outboundCallbacksEnabled();
+}
 
 export type ContactRefusalCode =
   | "outbound_disabled"
@@ -66,9 +84,22 @@ export type ContactRefusalCode =
 export const DAILY_CAP = 1;
 export const WEEKLY_CAP = 3;
 
-/** Local-time window for outbound contact. Federal floor is 8am–9pm. */
-export const QUIET_HOURS_START = 21;
+/**
+ * Local-time window for outbound contact. The federal floor is 8am–9pm; the
+ * decision of 23 September 2026 (§F.1) stops an hour earlier, at 8pm, and
+ * never calls on a Sunday. Both are in the RECIPIENT's local time.
+ */
+export const QUIET_HOURS_START = 20;
 export const QUIET_HOURS_END = 8;
+
+/**
+ * A callback is not dialled in the last thirty minutes before quiet hours
+ * (§F.5 step 2). The vendor queues outbound calls — its reply carries an
+ * `eta`, so "placed" is not "ringing" — and a call handed over at 19:55 may
+ * ring at 20:05. The margin absorbs the queue; the window the person hears
+ * from is 08:00–19:30.
+ */
+export const CALLBACK_DIAL_MARGIN_MINUTES = 30;
 
 /**
  * Conditions of the TCPA healthcare exemption (47 CFR 64.1200(a)(9)) that the
@@ -105,21 +136,37 @@ export const HEALTHCARE_EXEMPTION = {
  * lib/clinic/opening-hours.ts — as "we do not know", never as "it's fine".
  */
 export function localHourIn(timezone: string | null | undefined, at: Date): number | null {
+  const clock = localClockIn(timezone, at);
+  return clock ? clock.hour : null;
+}
+
+/**
+ * The recipient's local wall clock — hour, minute and weekday (0 = Sunday)
+ * — or null when the timezone is missing or not one Intl knows.
+ */
+export function localClockIn(timezone: string | null | undefined, at: Date): { hour: number; minute: number; weekday: number } | null {
   if (!timezone) return null;
   try {
-    const hour = new Intl.DateTimeFormat("en-US", {
+    const parts = new Intl.DateTimeFormat("en-US", {
       timeZone: timezone,
       hour: "numeric",
+      minute: "numeric",
+      weekday: "short",
       hour12: false,
-    })
-      .formatToParts(at)
-      .find((p) => p.type === "hour")?.value;
-    const n = Number(hour);
-    return Number.isInteger(n) ? n % 24 : null;
+    }).formatToParts(at);
+    const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value;
+    const hour = Number(get("hour"));
+    const minute = Number(get("minute"));
+    const weekday = WEEKDAYS.indexOf((get("weekday") ?? "").toLowerCase());
+    if (!Number.isInteger(hour) || !Number.isInteger(minute) || weekday < 0) return null;
+    return { hour: hour % 24, minute, weekday };
   } catch {
     return null;
   }
 }
+
+const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+export const SUNDAY = 0;
 
 /**
  * Purposes that are promotional, and therefore need prior express WRITTEN
@@ -137,6 +184,7 @@ const PROMOTIONAL: ReadonlySet<ContactPurpose> = new Set(["reactivation"]);
  */
 const PATIENT_INITIATED: ReadonlySet<ContactPurpose> = new Set([
   "transactional",
+  "callback",
 ]);
 
 export async function canContact(
@@ -153,23 +201,39 @@ export async function canContact(
      * fills from the clinic's own timezone.
      */
     recipientTimezone: string | null;
+    /**
+     * The clinic's own outbound switch (`clinics.outbound_callbacks_enabled`),
+     * read by the caller inside its tenant transaction. Required, not
+     * defaulted: the environment switch and this one are two keys, and
+     * neither turns alone (§F.1).
+     */
+    clinicEnabled: boolean;
     now?: Date;
     /**
      * Evaluate the consent, cap and quiet-hours rules without authorising a
      * contact. For tests of those rules only; a caller that intends to send
-     * never sets it, and the product-wide switch above still answers first.
+     * never sets it, and both switches above still answer first.
      */
     policyOnly?: boolean;
   },
 ): Promise<ContactDecision> {
   const now = input.now ?? new Date();
 
-  if (!OUTBOUND_CONTACT_ENABLED && !input.policyOnly) {
-    return {
-      allowed: false,
-      code: "outbound_disabled",
-      reason: "healdesk is inbound-only: it places no calls and sends no texts to patients.",
-    };
+  if (!input.policyOnly) {
+    if (!outboundContactEnabled()) {
+      return {
+        allowed: false,
+        code: "outbound_disabled",
+        reason: "Outbound contact is switched off for this environment (HEALDESK_OUTBOUND_CALLBACKS_ENABLED is not \"true\").",
+      };
+    }
+    if (!input.clinicEnabled) {
+      return {
+        allowed: false,
+        code: "outbound_disabled",
+        reason: "Outbound contact is switched off for this clinic.",
+      };
+    }
   }
 
   // 1. Suppression. Unconditional, and checked first — it outranks everything,
@@ -203,8 +267,10 @@ export async function canContact(
   //    California is an 11pm call in New York. Computed HERE from the
   //    timezone so no caller can leave it out, and an unknown timezone is a
   //    refusal: the only control in this file that could fail open, closed.
-  const localHour = localHourIn(input.recipientTimezone, now);
-  if (localHour === null) {
+  //    Never on a Sunday, and a callback stops thirty minutes early because
+  //    the vendor queues it (§F.1, §F.5).
+  const clock = localClockIn(input.recipientTimezone, now);
+  if (clock === null) {
     return {
       allowed: false,
       code: "quiet_hours",
@@ -212,11 +278,20 @@ export async function canContact(
         "The recipient's timezone is unknown, so the quiet-hours window cannot be checked. Record contacts.timezone before contacting this number.",
     };
   }
-  if (localHour >= QUIET_HOURS_START || localHour < QUIET_HOURS_END) {
+  if (clock.weekday === SUNDAY) {
     return {
       allowed: false,
       code: "quiet_hours",
-      reason: `Outside the permitted window (${QUIET_HOURS_END}:00–${QUIET_HOURS_START}:00 recipient local time).`,
+      reason: "Never on a Sunday (recipient local time).",
+    };
+  }
+  const margin = input.purpose === "callback" ? CALLBACK_DIAL_MARGIN_MINUTES : 0;
+  const minutes = clock.hour * 60 + clock.minute;
+  if (minutes >= QUIET_HOURS_START * 60 - margin || minutes < QUIET_HOURS_END * 60) {
+    return {
+      allowed: false,
+      code: "quiet_hours",
+      reason: `Outside the permitted window (${QUIET_HOURS_END}:00–${QUIET_HOURS_START}:00 recipient local time${margin ? `, less a ${margin}-minute dialling margin` : ""}).`,
     };
   }
 

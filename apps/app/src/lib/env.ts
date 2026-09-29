@@ -77,6 +77,40 @@ export const env = {
    */
   voiceWebhookSecret: () => optional("HEALDESK_VOICE_WEBHOOK_SECRET"),
 
+  /**
+   * Bearer secret the voice agent's mid-call tools send to
+   * /api/voice/tools/[clinicId]/* (design of 23 September 2026, §E.2).
+   * Deliberately a DIFFERENT secret from the post-call webhook's: the tools
+   * can book and can revoke a consent, the webhook can only report, and a
+   * leaked reporting header must not become a booking header. Unset means
+   * every tool route answers 503.
+   */
+  voiceToolsSecret: () => optional("HEALDESK_VOICE_TOOLS_SECRET"),
+
+  /**
+   * The callback kill switch (§F.1). One of the gates every placed call
+   * passes — the clinic's own switch, a matching consent row and the calling
+   * window are the others — and the only one an operator can flip without a
+   * database write. Read at use, never cached. Anything but "true" is off.
+   */
+  outboundCallbacksEnabled: (): boolean => process.env.HEALDESK_OUTBOUND_CALLBACKS_ENABLED === "true",
+
+  /**
+   * Synthflow, for the calls the PRODUCT places (§F.8). Separate from the
+   * marketing site's SYNTHFLOW_* variables, which place the owner's demo call
+   * from a different workspace. No key → the dialer refuses every row with
+   * gate_basis "no vendor".
+   */
+  synthflowApiKey: () => optional("HEALDESK_SYNTHFLOW_API_KEY"),
+
+  /**
+   * The API origin, which MUST start with https://api.us.synthflow.ai: the
+   * workspace that hears patient information sits on the US cluster under the
+   * executed BAA, and the dialer refuses (gate_basis "non-US vendor base")
+   * when this is unset or points anywhere else (§F.5 step 1).
+   */
+  synthflowApiBase: () => optional("HEALDESK_SYNTHFLOW_API_BASE"),
+
   kmsKeyId: () => optional("HEALDESK_KMS_KEY_ID"),
 
   /** Base64, 32 bytes. Development only. */

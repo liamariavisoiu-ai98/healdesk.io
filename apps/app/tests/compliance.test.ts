@@ -1,16 +1,21 @@
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 
 import {
+  CALLBACK_DIAL_MARGIN_MINUTES,
   HEALTHCARE_EXEMPTION,
-  OUTBOUND_CONTACT_ENABLED,
+  QUIET_HOURS_START,
   canContact,
+  isCallbackStopRequest,
   isStopRequest,
+  outboundContactEnabled,
   recordAttempt,
   suppress,
 } from "@/lib/compliance/contact-policy";
 import {
+  callbackDisclosure,
   channelMayCarryPhi,
   disclosureFor,
+  metaChannelGreeting,
   voiceDisclosure,
 } from "@/lib/compliance/disclosure";
 import { consentRecords } from "@/db/schema";
@@ -88,13 +93,31 @@ describe("disclosure", () => {
     expect(text).toMatch(/representative/i);
   });
 
-  test("Meta channels get a warning, not a welcome", () => {
+  test("Meta channels get a warning, not a welcome — and it promises phone, never text", () => {
     const text = disclosureFor({
       clinicName: "Radiance",
       channel: "instagram_dm",
     });
     expect(text).toMatch(/isn't secure/i);
     expect(text).toMatch(/don't share medical details/i);
+    // §G.4: healdesk sends no texts, so the greeting may not offer one.
+    expect(metaChannelGreeting({ clinicName: "Radiance", channel: "whatsapp" })).toMatch(/continue by phone\.$/);
+    expect(metaChannelGreeting({ clinicName: "Radiance", channel: "whatsapp" })).not.toMatch(/\btext\b/i);
+  });
+
+  test("the callback greeting says AI, why we are calling, the practice's number, and how to stop — first and verbatim (§F.7)", () => {
+    const text = callbackDisclosure({ clinicName: "Radiance", clinicPhoneSpoken: "four one five — five five five — oh one nine nine" });
+    expect(text).toBe(
+      "Hi, this is the automated AI assistant for Radiance — not a human — calling back about the booking request you made with us. " +
+        "This call is transcribed by an automated system; no audio recording is kept. " +
+        "If you'd rather we didn't call, say 'stop' or press 1 at any time and we won't call again; you can also tell the practice on four one five — five five five — oh one nine nine. " +
+        "Say 'representative' or press 0 to reach a person. Is now an okay time?",
+    );
+    // §64.1200(b): the number is spoken, never the E.164 string, and the
+    // opt-out is stated at the outset; no time, service or practitioner.
+    expect(text).not.toMatch(/\+1|\d{3}/);
+    expect(text).not.toMatch(/\b\d{1,2}(:\d{2})?\s?(am|pm)\b|botox|consult|dr\b/i);
+    expect(text.split(/\s+/).length).toBeLessThan(90);
   });
 
   test("Meta channels are marked as unable to carry PHI", () => {
@@ -140,6 +163,7 @@ describeDb("contact policy", () => {
     const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
       canContact(tx.db, {
         policyOnly: true,
+        clinicEnabled: true,
         clinicId: clinic.clinicId,
         phone: PHONE,
         channel: "voice",
@@ -160,6 +184,7 @@ describeDb("contact policy", () => {
     const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
       canContact(tx.db, {
         policyOnly: true,
+        clinicEnabled: true,
         clinicId: clinic.clinicId,
         phone: PHONE,
         channel: "voice",
@@ -181,6 +206,7 @@ describeDb("contact policy", () => {
     const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
       canContact(tx.db, {
         policyOnly: true,
+        clinicEnabled: true,
         clinicId: clinic.clinicId,
         phone: PHONE,
         channel: "voice",
@@ -203,6 +229,7 @@ describeDb("contact policy", () => {
     const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
       canContact(tx.db, {
         policyOnly: true,
+        clinicEnabled: true,
         clinicId: clinic.clinicId,
         phone: PHONE,
         channel: "voice",
@@ -230,6 +257,7 @@ describeDb("contact policy", () => {
     const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
       canContact(tx.db, {
         policyOnly: true,
+        clinicEnabled: true,
         clinicId: clinic.clinicId,
         phone: PHONE,
         channel: "voice",
@@ -269,6 +297,7 @@ describeDb("contact policy", () => {
         (tx) =>
           canContact(tx.db, {
         policyOnly: true,
+        clinicEnabled: true,
             clinicId: clinic.clinicId,
             phone: PHONE,
             channel,
@@ -299,6 +328,7 @@ describeDb("contact policy", () => {
     const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
       canContact(tx.db, {
         policyOnly: true,
+        clinicEnabled: true,
         clinicId: clinic.clinicId,
         phone: PHONE,
         channel: "voice",
@@ -331,6 +361,7 @@ describeDb("contact policy", () => {
     const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
       canContact(tx.db, {
         policyOnly: true,
+        clinicEnabled: true,
         clinicId: clinic.clinicId,
         phone: PHONE,
         channel: "voice",
@@ -350,15 +381,16 @@ describeDb("contact policy", () => {
     const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
       canContact(tx.db, {
         policyOnly: true,
+        clinicEnabled: true,
         clinicId: clinic.clinicId,
         phone: PHONE,
         channel: "voice",
         purpose: "reminder",
-        // 05:00Z is 01:00 in New York and 22:00 in Los Angeles: the same
-        // instant is refused on one coast and refused on the other too, for
-        // different reasons; 03:00Z is 23:00 New York, 20:00 Los Angeles.
+        // 02:30Z on Tuesday 15 September is 22:30 Monday in New York —
+        // refused — and 19:30 Monday in Los Angeles, inside the window
+        // that now closes at 20:00 (a reminder has no dialling margin).
         recipientTimezone: "America/New_York",
-        now: new Date("2026-09-14T03:00:00Z"),
+        now: new Date("2026-09-15T02:30:00Z"),
       }),
     );
 
@@ -368,12 +400,13 @@ describeDb("contact policy", () => {
     const westCoast = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
       canContact(tx.db, {
         policyOnly: true,
+        clinicEnabled: true,
         clinicId: clinic.clinicId,
         phone: PHONE,
         channel: "voice",
         purpose: "reminder",
         recipientTimezone: "America/Los_Angeles",
-        now: new Date("2026-09-14T03:00:00Z"),
+        now: new Date("2026-09-15T02:30:00Z"),
       }),
     );
     expect(westCoast.allowed).toBe(true);
@@ -387,6 +420,7 @@ describeDb("contact policy", () => {
       const decision = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
         canContact(tx.db, {
         policyOnly: true,
+        clinicEnabled: true,
           clinicId: clinic.clinicId,
           phone: PHONE,
           channel: "voice",
@@ -415,6 +449,7 @@ describeDb("contact policy", () => {
     const decision = await withTenant({ clinicId: b.clinicId, actor }, (tx) =>
       canContact(tx.db, {
         policyOnly: true,
+        clinicEnabled: true,
         clinicId: b.clinicId,
         phone: PHONE,
         channel: "voice",
@@ -454,16 +489,144 @@ describeDb("contact policy", () => {
   });
 });
 
-describe("inbound-only", () => {
-  test("the product-wide switch is off, and the gate refuses before reading anything", async () => {
-    expect(OUTBOUND_CONTACT_ENABLED).toBe(false);
-    const decision = await canContact(null as never, {
-      clinicId: "00000000-0000-0000-0000-000000000000",
-      phone: "+14155550100",
-      channel: "sms",
-      purpose: "transactional",
-      recipientTimezone: "America/Los_Angeles",
+/**
+ * The two switches (design of 23 September 2026, §F.1 and §J). The
+ * environment variable and the clinic's own flag are two keys, and neither
+ * turns alone: both refusals happen before a single row is read, which is
+ * why the database handle can be null here.
+ */
+describe("the outbound switches", () => {
+  const base = {
+    clinicId: "00000000-0000-0000-0000-000000000000",
+    phone: "+14155550100",
+    channel: "voice" as const,
+    purpose: "callback" as const,
+    recipientTimezone: "America/Los_Angeles",
+  };
+
+  afterEach(() => {
+    delete process.env.HEALDESK_OUTBOUND_CALLBACKS_ENABLED;
+  });
+
+  test("env unset: outbound_disabled, before reading anything", async () => {
+    delete process.env.HEALDESK_OUTBOUND_CALLBACKS_ENABLED;
+    expect(outboundContactEnabled()).toBe(false);
+    expect(await canContact(null as never, { ...base, clinicEnabled: true })).toMatchObject({ allowed: false, code: "outbound_disabled" });
+    // Anything but the literal "true" is off.
+    process.env.HEALDESK_OUTBOUND_CALLBACKS_ENABLED = "1";
+    expect(outboundContactEnabled()).toBe(false);
+  });
+
+  test("env on, clinic off: outbound_disabled, before reading anything", async () => {
+    process.env.HEALDESK_OUTBOUND_CALLBACKS_ENABLED = "true";
+    expect(outboundContactEnabled()).toBe(true);
+    expect(await canContact(null as never, { ...base, clinicEnabled: false })).toMatchObject({ allowed: false, code: "outbound_disabled" });
+  });
+
+  test("the window ends at 20:00 and a callback stops thirty minutes before it", () => {
+    expect(QUIET_HOURS_START).toBe(20);
+    expect(CALLBACK_DIAL_MARGIN_MINUTES).toBe(30);
+  });
+});
+
+describeDb("the callback gate, both switches on (§J)", () => {
+  beforeAll(async () => {
+    await runMigrations();
+    await truncateAll();
+    process.env.HEALDESK_OUTBOUND_CALLBACKS_ENABLED = "true";
+  }, 60_000);
+
+  afterAll(async () => {
+    delete process.env.HEALDESK_OUTBOUND_CALLBACKS_ENABLED;
+    await closePools();
+  });
+
+  const gate = (clinicId: string, over: Partial<Parameters<typeof canContact>[1]> = {}) =>
+    withTenant({ clinicId, actor }, (tx) =>
+      canContact(tx.db, {
+        clinicId,
+        phone: PHONE,
+        channel: "voice",
+        purpose: "callback",
+        recipientTimezone: "America/New_York",
+        clinicEnabled: true,
+        now: NOON_NEW_YORK,
+        ...over,
+      }),
+    );
+
+  async function consent(clinicId: string) {
+    await withTenant({ clinicId, actor }, (tx) =>
+      tx.db.insert(consentRecords).values({
+        clinicId,
+        phone: PHONE,
+        channel: "voice",
+        consentType: "express",
+        source: "inbound_call",
+        exactWording: "Is it alright if the practice's automated assistant calls you back on this number about this booking request? — answered: \"yes\"",
+        wordingVersion: "callback-v2",
+      }),
+    );
+  }
+
+  test("both on, no consent → no_consent; with consent → allowed, and a callback is exempt from the reminder caps", async () => {
+    const clinic = await seedClinic("cb-consent");
+    expect(await gate(clinic.clinicId)).toMatchObject({ allowed: false, code: "no_consent" });
+    await consent(clinic.clinicId);
+    expect((await gate(clinic.clinicId)).allowed).toBe(true);
+    await withTenant({ clinicId: clinic.clinicId, actor }, async (tx) => {
+      for (let i = 0; i < 3; i += 1) await recordAttempt(tx.db, { clinicId: clinic.clinicId, phone: PHONE, channel: "voice", purpose: "callback" });
     });
-    expect(decision).toMatchObject({ allowed: false, code: "outbound_disabled" });
+    // The dialer's own two-per-request and four-per-number caps apply on top (§F.5).
+    expect((await gate(clinic.clinicId)).allowed).toBe(true);
+  });
+
+  test("19:45 recipient-local → quiet_hours for a callback; 19:29 is inside; a reminder still has until 20:00", async () => {
+    const clinic = await seedClinic("cb-1945");
+    await consent(clinic.clinicId);
+    // 2026-09-14 is a Monday. 23:45Z is 19:45 in New York (EDT).
+    expect(await gate(clinic.clinicId, { now: new Date("2026-09-14T23:45:00Z") })).toMatchObject({ allowed: false, code: "quiet_hours" });
+    expect(await gate(clinic.clinicId, { now: new Date("2026-09-14T23:30:00Z") })).toMatchObject({ allowed: false, code: "quiet_hours" });
+    expect((await gate(clinic.clinicId, { now: new Date("2026-09-14T23:29:00Z") })).allowed).toBe(true);
+    expect((await gate(clinic.clinicId, { now: new Date("2026-09-14T23:45:00Z"), purpose: "reminder" })).allowed).toBe(true);
+    expect(await gate(clinic.clinicId, { now: new Date("2026-09-15T00:00:00Z"), purpose: "reminder" })).toMatchObject({ allowed: false, code: "quiet_hours" });
+    // Before eight in the morning, whatever the purpose.
+    expect(await gate(clinic.clinicId, { now: new Date("2026-09-14T11:59:00Z") })).toMatchObject({ allowed: false, code: "quiet_hours" });
+    expect((await gate(clinic.clinicId, { now: new Date("2026-09-14T12:00:00Z") })).allowed).toBe(true);
+  });
+
+  test("Sunday 11:00 → quiet_hours, in the recipient's clock", async () => {
+    const clinic = await seedClinic("cb-sunday");
+    await consent(clinic.clinicId);
+    // 2026-09-13 is a Sunday. 15:00Z is 11:00 in New York.
+    const sunday = await gate(clinic.clinicId, { now: new Date("2026-09-13T15:00:00Z") });
+    expect(sunday).toMatchObject({ allowed: false, code: "quiet_hours" });
+    expect(sunday.allowed === false && sunday.reason).toMatch(/Sunday/);
+    // The same instant is still Saturday evening in Honolulu — and inside the window there.
+    expect((await gate(clinic.clinicId, { now: new Date("2026-09-13T05:00:00Z"), recipientTimezone: "Pacific/Honolulu" })).allowed).toBe(true);
+  });
+
+  test("an unknown timezone is refused", async () => {
+    const clinic = await seedClinic("cb-tz");
+    await consent(clinic.clinicId);
+    for (const timezone of [null, "Mars/Olympus"]) {
+      expect(await gate(clinic.clinicId, { recipientTimezone: timezone }), String(timezone)).toMatchObject({ allowed: false, code: "quiet_hours" });
+    }
+  });
+
+  test("suppression outranks consent", async () => {
+    const clinic = await seedClinic("cb-suppressed");
+    await consent(clinic.clinicId);
+    expect((await gate(clinic.clinicId)).allowed).toBe(true);
+    await withTenant({ clinicId: clinic.clinicId, actor }, (tx) => suppress(tx.db, { clinicId: clinic.clinicId, phone: PHONE, reason: "stop_request" }));
+    expect(await gate(clinic.clinicId)).toMatchObject({ allowed: false, code: "suppressed" });
+  });
+});
+
+describe("the two stop matchers", () => {
+  test("the inbound-message matcher never treats a cancellation as a stop; the reply matcher still does", () => {
+    expect(isCallbackStopRequest("I need to cancel my appointment")).toBe(false);
+    expect(isCallbackStopRequest("please stop calling me")).toBe(true);
+    expect(isStopRequest("I need to cancel my appointment")).toBe(true);
   });
 });

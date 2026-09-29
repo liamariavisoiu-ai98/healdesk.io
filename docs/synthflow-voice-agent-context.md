@@ -541,30 +541,32 @@ There is a real, unreconciled contradiction here and **you must not resolve it i
 
 **My recommendation on the underlying setting** remains: keep the disclosure verbatim, turn Synthflow's **Save Recordings** and **Save Transcripts** off — but see the very large caveat in section 10 item 5, which is that turning them off may break Information Extractors entirely, in which case the agent contributes zero fields and the whole of section 7's payload design changes. **Run that test before anything else.**
 
-### 6.6 Outbound calls — the missed-call callback, and the consent you should capture now
+### 6.6 Outbound calls — the consented callback, and nothing else
 
-If the agent ever places a call — and `missed_call_callback` is a first-class recovery reason, so it is intended to — every one of these applies:
+**Superseded in part on 23 September 2026** (`docs/design/booking-and-callbacks-2026-09-23.md`, §F). The product now places exactly one kind of call: a callback about a booking request the person made, after they agreed to it in so many words on that same call. No missed-call callback, no reminder, no reactivation, no text. What follows is the gate every such call passes, and the line the inbound agent asks; the earlier recommendation ("do not build any outbound leg") is kept below for the record of why the gate is shaped this way.
+
+If the agent ever places a call, every one of these applies:
 
 FCC Declaratory Ruling 24-17 confirmed an AI-generated voice is an "artificial voice" under TCPA §227(b)(1). That prong is independent of autodialer status. **Every outbound call needs consent, however the number was dialled.** Statutory damages $500–1,500 per call, uncapped, with a ready-made class.
 
 **State the distinction plainly, because it is the one people get wrong:** a human at the clinic manually dialling the caller back is **outside** §227(b)'s artificial-voice prong. An AI dialling back is **inside** it, no matter how the number was obtained. "They gave us the number" is not consent for an AI callback. It is barely consent for anything.
 
 Constants implemented in `apps/app/src/lib/compliance/contact-policy.ts`:
-- `DAILY_CAP = 1`, `WEEKLY_CAP = 3` — conditions of the 2015 healthcare exemption, not best practice. Exceed them and the exemption does not apply, retroactively.
-- `QUIET_HOURS_START = 21`, `QUIET_HOURS_END = 8`, in the **recipient's** local time.
+- `DAILY_CAP = 1`, `WEEKLY_CAP = 3` — conditions of the 2015 healthcare exemption, not best practice. Exceed them and the exemption does not apply, retroactively. A consented callback is patient-initiated and exempt from these two; the dialer's own caps apply instead (below).
+- `QUIET_HOURS_START = 20`, `QUIET_HOURS_END = 8`, in the **recipient's** local time, **never on a Sunday**, and a callback is not dialled in the last thirty minutes before eight because the vendor queues it (`CALLBACK_DIAL_MARGIN_MINUTES`).
 - Suppression is checked first and outranks everything, including a consent record signed five minutes ago.
 
-Not implemented anywhere: the **≤60 second** call-length condition of the same exemption. `canContact()` has no duration input at all. An outbound reminder that runs over sixty seconds silently voids the exemption.
+Not implemented anywhere: the **≤60 second** call-length condition of the same exemption. `canContact()` has no duration input at all. The callback does not rely on the exemption — its basis is the person's express consent — and its script targets under two minutes.
 
-**And the whole gate is unwired.** `canContact()`, `recordAttempt()`, `suppress()` and `isStopRequest()` have zero production callers. `docs/handover.md`: "It exists and is tested; nothing calls it yet because nothing places calls yet."
+**The gate every callback passes** (`lib/callbacks/schedule.ts` writes the row, `lib/callbacks/dial.ts` re-checks everything at dial time, in this order): the environment switch `HEALDESK_OUTBOUND_CALLBACKS_ENABLED` and the clinic's own switch; a Synthflow key and a base that starts with `https://api.us.synthflow.ai`; the practice's published number (the greeting must speak it) and its callback agent; a **confirmed** clinic timezone (a provisioning default is not a clock); `canContact()` — suppression, the window above in `contacts.timezone`, an unrevoked consent row; the request still open and inside `LEAST(expires_at, created_at + 7 days)`; fewer than four calls to the number in thirty days; no other call to the number outstanding. Then `contact_attempts` is written and the row set `placing` **before** the vendor is asked. Two attempts per request at most, the second only after the first positively went unanswered and at least four hours later; a call whose outcome is unknown is never followed by another. Every row lives in `outbound_calls`, which cannot exist without a matching, unrevoked, inbound-sourced consent row (a NOT NULL foreign key and a trigger, `drizzle/0040`).
 
-**My recommendation: do not build any outbound leg in v1.** Inbound only. The consent theory for the missed-call callback is flagged ⚖️ unresolved in `docs/launch-plan.md`, and there is no consent ledger being written, no STOP ingestion path, and no per-clinic outbound flag. Outbound is where a $500-per-call class action lives.
+**The consent line the inbound agent asks — verbatim, `CALLBACK_CONSENT.voice` in `packages/catalog/src/consent-wording.ts`, version `callback-v2`:**
 
-**But capture the consent now anyway.** Every inbound call ends with a promise that the clinic will ring back. Asking a one-line permission question at the point of capture costs nothing and is the only thing that makes an outbound leg buildable later without re-contacting everyone:
+> *"Is it alright if the practice's automated assistant calls you back on this number about this booking request — to settle the time, or if the front desk still needs a detail from you? It's an AI voice, and you can say 'stop' at any time and we won't call again."*
 
-> *"Is it alright if we call you back on this number?"*
+"Automated assistant" and "AI voice" are load-bearing: the earlier line ("Is it alright if we call you back on this number?") was consent for a human callback only, and an AI callback under it would have been a call with no consent at all. The extractor captures two things (section 11): `callback_consent` as `yes | no | unclear`, and `callback_consent_quote` — the caller's **exact words**. `ingestCall()` writes a `consent_records` row only for a `yes` with a non-empty quote, with the question and the quote as `exact_wording`, `wording_version: callback-v2` and the transcript URI as evidence; `no`, `unclear`, and a bare yes with nothing quoted write nothing. `consented_to_callback` from the earlier draft is gone.
 
-Capture the answer as an extractor boolean (`consented_to_callback`, section 11). There is no consent ledger to write it to yet, so it rides in the payload and is recorded in the audit metadata — the point is that a consent record **exists** when the ledger is wired.
+**For the record — the recommendation this supersedes (21 September 2026):** do not build any outbound leg in v1; the consent theory for a missed-call callback was ⚖️ unresolved, there was no consent ledger, no STOP path and no per-clinic flag. The 23 September design answers each of those by table shape rather than by policy, and still holds the environment switch unset until counsel answers §I.6 (1) and (2) of that design.
 
 ---
 
@@ -599,13 +601,15 @@ Runtime validation is weaker than the type. The only checks are: `externalCallId
 
 **The three `Date` fields are the trap.** `ingestCall` passes `event.startedAt` straight into the Drizzle insert and into `isAfterHours(hours, event.startedAt, ...)`. Nothing anywhere in the module converts a string into a `Date`. A JSON string will break the after-hours test and the timestamp column. See the note under 7.8.
 
-### 7.2 The four fields the agent may collect — and nothing else
+### 7.2 What the agent may collect — the catalogue, and nothing else
 
-From `docs/architecture.md`, marked **Locked**:
+**Revised 23 September 2026.** The closed list is now `packages/catalog/src/booking-requirements.ts` (§H of the design). Four fields are **locked** and every channel asks for them: a first name, a number the practice can call, a preferred day or time, and up to two other times that could work. The rest — last name, the service asked about, new or returning, consultation or treatment visit, a preferred practitioner — are opt-in per practice, pre-selected by specialty and confirmed by the practice on its setup link (or by the defaults when the link expires). The phone agent reads the practice's set from the `/context` tool at the first turn (7.9, section 11), or, until Synthflow's first-turn action is verified, from the `{{REQUIRED_FIELDS}}` constant the console renders. **Never in the catalogue:** date of birth, insurance or member id, medical history, pregnancy, photos, card details, home address, an email address, "how did you hear about us".
+
+From `docs/architecture.md`, marked **Locked** (the four-field sentence is now the locked four plus the practice's set; the rest stands):
 
 > The agent **collects only** four things: name, callback number, requested service, preferred time. That is the irreducible minimum to place a booking request.
 >
-> **Since 21 September 2026 the agent never confirms.** It takes the request and says the front desk will call to confirm. It must never say "you're booked", "I've booked you", "see you Tuesday at two" or name a provider. The line to use: *"I'll pass that along to the front desk, and they'll give you a call on this number to settle on a time. Keep an eye out for their call!"* Softer by design (owner, 22 September 2026): "settle on a time" says the time is still open without saying "nothing is booked", and the guard still refuses any variant that says booked, confirmed, see you then, or names a slot. The same rule applies to the web chat and the Meta assistant: every channel semi-confirms; only a human at the practice confirms.
+> **Since 21 September 2026 the agent never confirms.** It takes the request and says the front desk will call to confirm. It must never say "you're booked", "I've booked you", "see you Tuesday at two" or name a provider. The line to use: *"I'll pass that along to the front desk, and they'll give you a call on this number to settle on a time. Keep an eye out for their call!"* Softer by design (owner, 22 September 2026): "settle on a time" says the time is still open without saying "nothing is booked", and the guard still refuses any variant that says booked, confirmed, see you then, or names a slot. The same rule applies to the web chat and the Meta assistant: every channel semi-confirms; only a human at the practice confirms. **One exception since 23 September 2026:** a practice that has accepted the direct booking addendum and whose `/context` reply says `booking_mode: direct` lets the phone agent book a free time it read from the connected calendar through the `book_slot` tool, and say "you're booked for {when_spoken}" only after the tool returned `booked: true` (section 11, direct mode). Everywhere else the request flow stands.
 >
 > Everything clinical is **pushed off the phone** to a secure link or a clinician callback: medical history, intake, consent, date of birth, insurance details, photos. Contraindication screening is explicitly out of v1 voice scope.
 
@@ -801,9 +805,11 @@ The "those are ballpark" caveat is said **once per call**, the first time a numb
 
 > "Have you had injectables before, or would a consult be more useful first?"
 
-**Turn 3 — ask for a preference, not a slot.** The agent cannot see the calendar (section 8.4).
+**Turn 3 — ask for a first choice and two backups, not a slot.** The agent cannot see the calendar in the request flow (section 8.4).
 
-> "What day works best for you?"
+> "What day or time works best for you — and is there one or two other times that could also work, in case that one's taken?"
+
+Take all of them in their own words. If they give only one, say "okay" and move on; do not push. Read the first choice back, then the backups as *"and failing that, …"*. In direct mode (section 11) this turn is different: the agent lists at most two free times from `check_availability` and books the one they pick.
 
 **Turn 4 — capture the number, with a read-back.**
 
@@ -817,9 +823,11 @@ The "those are ballpark" caveat is said **once per call**, the first time a numb
 > Caller: "O-K-O-N-K-W-O."
 > Agent: "O, K, O, N, K, W, O. Got it."
 
-**Turn 6 — the callback consent line** (6.6). One line, at the point the number is confirmed:
+**Turn 6 — the callback consent line** (6.6), verbatim from `CALLBACK_CONSENT.voice`, once the three locked things are in hand:
 
-> "And is it alright if we call you back on this number?"
+> "Is it alright if the practice's automated assistant calls you back on this number about this booking request — to settle the time, or if the front desk still needs a detail from you? It's an AI voice, and you can say 'stop' at any time and we won't call again."
+
+Whatever they answer is taken as said and never argued with; the extractor records the answer and their exact words, and a no costs them nothing — the desk still sees the request.
 
 **Turn 7 — close, then the AB 3030 addendum, then end the call with the end-call action.**
 
@@ -1018,7 +1026,7 @@ For a caller in emotional distress who is not in crisis — most likely on a fer
 
 So if anyone ever routes a caller's words through `isStopRequest`, one cancellation call permanently and irreversibly opts a real patient out of every channel healdesk has.
 
-**[mine] Never send inbound call transcript text through `isStopRequest`.** It is an outbound-message opt-out matcher, not an inbound intent classifier. **Carry that warning into whatever ticket wires the webhook** — it is a trap for the next engineer, not a live bug, and it is not listed in the repo's own known-issues section.
+**[mine] Never send inbound call transcript text through `isStopRequest`.** It is an outbound-message opt-out matcher, not an inbound intent classifier. **Carry that warning into whatever ticket wires the webhook** — it is a trap for the next engineer, not a live bug, and it is not listed in the repo's own known-issues section. The same rule governs the `stop_requested` extractor (section 11): it is set **only** by the callback agent's stop action, as a redundant second record of a stop the mid-call action already honoured, and never derived from what was said on an inbound call.
 
 #### Handling the cancellation conversationally
 
@@ -1298,11 +1306,8 @@ You are the front desk for {{CLINIC_NAME}}, a {{PRACTICE_TYPE}} in {{CLINIC_CITY
 The caller believes they have called the clinic. As far as they are concerned,
 they have.
 
-You have one job: be useful for ninety seconds and capture four things.
-  1. Their name.
-  2. A callback number.
-  3. What service they are asking about.
-  4. When they would like to come in.
+You have one job: be useful for ninety seconds and capture what this
+practice asks for when someone wants to book: {{REQUIRED_FIELDS}}.
 Nothing else. You are not selling anything. You are not a support line.
 
 HOW THE CALL RUNS
@@ -1312,11 +1317,20 @@ Do not greet them again. Answer whatever they say next.
      the range. Do not turn a price question into a booking offer — that is
      the fastest way to sound like a machine.
   2. One qualifying question.
-  3. Ask what day and time suits. Do not offer specific slots; you cannot see
-     the calendar.
+  3. Ask: "What day or time works best for you — and is there one or two
+     other times that could also work, in case that one's taken?" Take all
+     of them in their own words. If they give only one, say "okay" and move
+     on; do not push. Do not offer specific slots; you cannot see the
+     calendar.
+     {{DIRECT_MODE_STEP}}
   4. Ask for the best number. Read it back.
-  5. Ask for their name.
-  6. Ask: "And is it alright if we call you back on this number?"
+  5. Ask for their name, and for the rest of what this practice asks for,
+     one thing at a time.
+  6. Ask, in exactly these words: "Is it alright if the practice's automated
+     assistant calls you back on this number about this booking request — to
+     settle the time, or if the front desk still needs a detail from you?
+     It's an AI voice, and you can say 'stop' at any time and we won't call
+     again." Take whatever they answer. Do not argue and do not ask twice.
   7. Close, then end the call.
 Seven or eight turns. Under two and a half minutes.
 
@@ -1376,7 +1390,8 @@ stop. Do not steer them to something else.
 DATES AND TIMES
 Right now it is {{CURRENT_DATETIME_LOCAL}} at the clinic.
 Take their preference in their own words — "Thursday afternoon", "next week
-sometime", "first thing Monday" — and repeat it back the same way. Do not
+sometime", "first thing Monday" — and repeat it back the same way. Repeat back
+the first choice, then the backups as "and failing that, …". Do not
 convert it into a date, do not work out what "tomorrow" is, and never say a
 day of the week they did not say themselves.
 One exception: if they say a relative day that could mean two things, check it
@@ -1591,6 +1606,8 @@ Say what is true:
 | `{{TIMING_FACTS_RULE}}` | Empty until open question 17 is answered; then the block from 6.3.1. |
 | `{{CLOSING_LINE}}` | One of the two from 8.1, depending on whether a delivery path exists. |
 | `{{CALLBACK_WINDOW}}` | e.g. *"by the end of tomorrow"*. Only if a delivery path exists. |
+| `{{REQUIRED_FIELDS}}` | The practice's booking requirement set as one spoken sentence, rendered by the console from `resolveBookingRequirements` (e.g. *"your first name, a number the practice can call, a day or time that works best, one or two other times that could work, and your last name"*). Pasted on every change to the set — or, once Synthflow's first-turn action is verified, read per call from the `/context` tool as `required_fields_spoken`. |
+| `{{BOOKING_MODE}}` / `{{DIRECT_MODE_STEP}}` | `desk_confirms` for every clinic unless the console's booking mode is `direct` **and** the `/context` tool says so (it reports the effective mode: every gate in `lib/booking/mode.ts` must hold). In `desk_confirms`, `{{DIRECT_MODE_STEP}}` is empty. In `direct`, it is the block under "Direct mode" below, verbatim. The database is the authority either way: a switched-on console with an un-edited prompt never books (the tool refuses), and an edited prompt with the console off is refused by the tool. |
 | `{{CURRENT_DATETIME_LOCAL}}` | **Per call.** Set from the clinic's real timezone hand-entered in Synthflow, **not** from `clinics.timezone`, which is `America/New_York` for every clinic including the Phoenix ones. |
 | `{{CALLER_ID}}` | **Per call.** The literal string `unknown` when withheld — never blank, so the branch is testable. |
 
@@ -1671,9 +1688,14 @@ Same shape for body contouring, weight-loss/GLP-1 and IV, per `nichesFor()`.
 | `caller_name` | string | `callerName` |
 | `callback_number` | string, E.164 | `callerPhone` |
 | `requested_service` | string | `treatmentInterest` |
-| `preferred_time` | string | *no field exists — open question 3* |
+| `preferred_window` | string, verbatim | `booking.preferredWindow` → `booking_requests.preferred_window` |
+| `preferred_alt_1`, `preferred_alt_2` | string, verbatim or empty | `booking.alternativeWindows` → `alternative_windows` (each cleaned like the primary; a clinical one is dropped) |
+| `booked_for` | ISO datetime | `booking.scheduledFor` (the desk reads `preferred_window` first) |
+| `callback_consent` | `yes` \| `no` \| `unclear` | `callbackConsent.answer` (6.6) |
+| `callback_consent_quote` | string, the caller's exact words | `callbackConsent.quote` — a `yes` with no quote writes no consent row |
+| `stop_requested` | boolean | **callback agent only**, set by its stop action; never from transcript text (9.4) |
+| `field_<id>` | string, one per voice-eligible field in the practice's set (e.g. `field_last_name`, `field_consult_or_treatment`) | `collectedFields` → `booking_requests.collected_fields`, filtered by the practice's set |
 | `caller_note` | string | *no field exists — open question 3* |
-| `consented_to_callback` | boolean | audit metadata; future consent ledger (6.6) |
 | `recording_opt_out` | boolean | `recordingOptOut` |
 | `gave_callback_number` | boolean | outcome derivation |
 | `gave_preferred_time` | boolean | outcome derivation |
@@ -1695,7 +1717,11 @@ An extractor with no instruction does whatever the model feels like. The rules i
 - **`caller_name`** — *"The caller's own name as they gave it, first and last where both were given, using the spelling they spelled out. Empty if they gave no name or gave someone else's."*
 - **`callback_number`** — *"The number the caller asked to be reached on, as E.164 with +1 for US numbers. If they confirmed the number they were calling from, use that. Empty if no number was given or confirmed."*
 - **`requested_service`** — *"The treatment or service asked about, as a noun phrase of four words or fewer, in the clinic's own vocabulary: 'lip filler', 'Botox, glabella', 'semaglutide programme', 'Invisalign'. Never a symptom, condition, medication, body part or anything the caller said about their own health. Never a sentence the caller spoke. If the caller described a problem rather than naming a service, return the service area only — for example 'laser — acne'. Empty if no service was named."*
-- **`preferred_time`** — *"When the caller said they would like to come in, in their own words: 'Thursday afternoon', 'next week sometime', 'first thing Monday'. Do not convert to a date. Empty if not discussed."*
+- **`preferred_window`** — *"When the caller said they would like to come in, in their own words: 'Thursday afternoon', 'next week sometime', 'first thing Monday'. Do not convert to a date. Empty if not discussed."*
+- **`preferred_alt_1`, `preferred_alt_2`** — *"The first (second) other time the caller said could also work, in their own words. Empty if they gave none. Never the same as the first choice."*
+- **`callback_consent`** — *"The caller's answer to the automated-assistant callback question: 'yes' only if they clearly agreed, 'no' if they declined, 'unclear' if they did not answer it or the answer was ambiguous."*
+- **`callback_consent_quote`** — *"The caller's own words in answer to the callback question, verbatim, up to 300 characters. Empty if they did not answer it."*
+- **`field_<id>`** — one per field in the practice's set beyond the locked four, instruction from the catalogue's `ask` string, e.g. **`field_last_name`** — *"The caller's last name as they gave or spelled it. Empty if not given."* Never a symptom, condition or medication.
 - **`caller_note`** — *"One short line on what the call was about, sixty to a hundred and twenty characters, never clinical. If the caller described a symptom, condition or medication, write only 'asked for a callback about an appointment'. Empty if there was nothing to note."*
 - **`not_a_patient_call`** — *"True only if the caller named a different business, was selling something, was a recording, or no human was on the line. False if the caller was quiet, hesitant, or hard to hear."*
 - **`possible_emergency`** — *"True if the caller described chest pain, breathing difficulty, uncontrolled bleeding, a severe allergic reaction, loss of consciousness, self-harm, or a complication from a procedure described as severe or worsening."*
@@ -1718,6 +1744,57 @@ otherwise                                       -> "abandoned"
 `not_a_patient_call` is evaluated **before** escalation, because a robocall menu says "operator" too. The rest follows 7.3's precedence. When nothing classifies, `abandoned` is the honest floor — never omit the field.
 
 **Do not turn on PII Redaction.** It breaks name capture.
+
+### Direct mode — the `{{DIRECT_MODE_STEP}}` block (design of 23 September 2026, §E.3)
+
+Only for a practice whose `/context` reply says `booking_mode: direct`. Pasted verbatim in place of `{{DIRECT_MODE_STEP}}`; empty otherwise.
+
+```
+     This practice lets you book straight into its calendar. Ask what day or
+     time suits. Use check_availability for that day. Offer at most two of
+     the returned times aloud. When they pick one, use book_slot. Only after
+     it returns booked: "You're booked for {when_spoken}. {deposit line from
+     the approved script, if any}. The practice will see it in their
+     calendar." On calendar failed or unknown: "I've recorded {when_spoken}
+     for you and the front desk will make sure it's in their diary." If
+     check_availability refuses (direct_booking_off), take a request the
+     ordinary way and say nothing about the calendar. Never name a provider
+     unless the approved script lists them; never a price outside the
+     approved list.
+```
+
+The three tools are Synthflow custom actions (During Call) on the inbound agent, all `POST` with `Authorization: Bearer <HEALDESK_VOICE_TOOLS_SECRET>` — a different secret from the post-call webhook's — and a JSON body that always carries `{{call_id}}` and `{{user_phone_number}}`:
+
+| Action | Route | Body | Reply |
+|---|---|---|---|
+| `get_context` (first turn) | `POST /api/voice/tools/{clinicId}/context` | `{ call_id, user_phone_number }` | `{ required_fields_spoken, booking_mode, consent_line, deposit_line, clinic_phone_spoken }` |
+| `check_availability` | `…/slots` | `{ call_id, user_phone_number, from?: ISO, days?: 1–14 }` | `{ slots: [{ at, label, spoken }] }` (≤ 6) or `403 { error: "direct_booking_off", missing }` |
+| `book_slot` | `…/book` | `{ call_id, user_phone_number, first_name, at: ISO (one of the `at`s just listed), service?, fields?: { field_id: value } }` | `{ booked: true, when_spoken, calendar: "written" \| "failed" \| "unknown" \| "not-connected" }`; `409 slot_unavailable` if the time was not listed or has gone; idempotent on `call_id` |
+
+**Verify before go-live:** that a custom action can run at or before the first turn (`get_context`); until it can, `{{REQUIRED_FIELDS}}` and `{{BOOKING_MODE}}` are pasted by hand from the console. The action timeout is unconfirmed; the book tool answers within eight seconds and reports the calendar as `unknown` if the write is still running.
+
+### The callback agent (design of 23 September 2026, §F.7–F.9)
+
+A per-clinic clone of one platform template whose script is driven entirely by `custom_variables`; its post-call webhook URL is `/api/webhooks/voice/{clinicId}` with the same Bearer header as the inbound agent's, and its id goes in `clinics.synthflow_callback_agent_id`. The dialer (`lib/callbacks/dial.ts`) places every call through `POST /v2/calls` with a per-call `greeting` and these variables: `first_name`, `purpose` (`collect_fields` | `offer_alternatives` | `confirm_time`), `clinic_name`, `clinic_phone_spoken`, `primary_window`, `alternative_windows`, `missing_fields` (catalogue **labels**, comma-separated), `proposed_slots_spoken` ("Thursday the 26th at 2 PM; Friday the 27th at 10 AM"), `confirmed_slot_spoken`.
+
+**The first-message field is the greeting the dialer sends per call, verbatim (`callbackDisclosure()` in `lib/compliance/disclosure.ts`), and it is not model text:**
+
+```
+Hi, this is the automated AI assistant for {{clinic_name}} — not a human —
+calling back about the booking request you made with us. This call is
+transcribed by an automated system; no audio recording is kept. If you'd
+rather we didn't call, say 'stop' or press 1 at any time and we won't call
+again; you can also tell the practice on {{clinic_phone_spoken}}. Say
+'representative' or press 0 to reach a person. Is now an okay time?
+```
+
+If the callee talks over it, the first model turn says once: *"Sorry — quickly: I'm an AI assistant for {{clinic_name}}, this call is transcribed, and you can say stop at any time."*
+
+**The script, three lines per purpose:** collect → *"The desk needs {{missing_fields}} to confirm your request — {ask each}"*, then `POST …/callback { call_id, action: "collect", fields: { <id>: value } }`; offer → *"The practice can't do {{primary_window}}, but could do {{proposed_slots_spoken}}. Would any of those work?"*, then `{ action: "choose_slot", at }` with the chosen slot's ISO time — say *"You're booked for {when_spoken}"* **only** when the reply is `{ ok: true, booked: true }`; if none work, `{ action: "none_work" }`; confirm → *"The practice has confirmed {{confirmed_slot_spoken}}. Does that still work?"*, then `{ action: "confirm", answer: "yes" | "no" }`. The route resolves the request from the call id, never from anything the model says.
+
+**"Stop" and DTMF 1 are one custom action**, bound to the keyword and the keypress, that POSTs `{ call_id, action: "stop" }` and then plays the fixed line *"Understood — we won't call again. Goodbye."* and ends the call. The route suppresses the number on every channel, revokes the consent row and cancels every queued call in one transaction; the post-call `stop_requested` extractor is a redundant second record. DTMF 0 and "representative" as in 9.1.
+
+**Two settings on the template, checked by a test call before the agent id is set in the console:** recording storage **off** (the greeting says no audio is kept, and it must be true), and the closing message field carrying the AB 3030 addendum exactly as the inbound agent's does (6.2). **Verify before go-live:** that outbound agents accept a per-call `greeting`, that keypress capture and a keyword-triggered action can run before end-call, and that the `call_id` in `POST /v2/calls`' reply is the `call_id` the post-call webhook later carries — matching is by that id (`ingestCall()`, §F.6), and a call the vendor flags as outbound with no ledger row is refused.
 
 ---
 

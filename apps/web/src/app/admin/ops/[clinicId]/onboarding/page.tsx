@@ -10,13 +10,22 @@ import {
   completeOnboardingStep as completeUpstream,
   fetchOnboarding,
   goLive as goLiveUpstream,
+  issueSetupLink as setupLinkUpstream,
   reopenOnboardingStep as reopenUpstream,
+  retryCalendarWrite as retryWriteUpstream,
+  setBookingMode as bookingModeUpstream,
+  setBookingRequirements as requirementsUpstream,
+  setClinicTimezone as timezoneUpstream,
+  setConnectionPhiBasis as phiBasisUpstream,
+  setOutboundCallbacks as callbacksUpstream,
   setPhoneSettings as phoneUpstream,
+  setWhatsAppTemplate as whatsappTemplateUpstream,
   startForwardingTest as forwardingTestUpstream,
   updateAgentConfig as agentUpstream,
   type AgentService,
   type DepositPolicy,
   type MetaPlatform,
+  type PhiBasis,
 } from "@/lib/admin/ops-client";
 
 import { OnboardingPanel } from "./OnboardingPanel";
@@ -113,11 +122,63 @@ export default async function OnboardingPage({
     revalidatePath(path);
     return result;
   }
+  // Booking hand-off, callbacks and direct booking (design of 23 September 2026).
+  async function saveRequirements(fields: string[]) {
+    "use server";
+    const result = await requirementsUpstream(clinicId, fields);
+    revalidatePath(path);
+    return result;
+  }
+  async function resendSetupLink(to: string | null) {
+    "use server";
+    const result = await setupLinkUpstream(clinicId, to);
+    revalidatePath(path);
+    return result;
+  }
+  async function setBookingMode(mode: "desk_confirms" | "direct") {
+    "use server";
+    const result = await bookingModeUpstream(clinicId, mode);
+    revalidatePath(path);
+    return result;
+  }
+  async function confirmTimezone(timezone: string) {
+    "use server";
+    const result = await timezoneUpstream(clinicId, timezone);
+    revalidatePath(path);
+    return result;
+  }
+  async function setCallbacks(enabled: boolean) {
+    "use server";
+    const result = await callbacksUpstream(clinicId, enabled);
+    revalidatePath(path);
+    return result;
+  }
+  async function setPhiBasis(input: { connectionId: string; basis: PhiBasis | null; note?: string }) {
+    "use server";
+    const result = await phiBasisUpstream(clinicId, input);
+    revalidatePath(path);
+    return result;
+  }
+  async function retryCalendarWrite(appointmentId: string) {
+    "use server";
+    const result = await retryWriteUpstream(clinicId, appointmentId);
+    revalidatePath(path);
+    return result;
+  }
+  async function setWhatsAppTemplate(templateName: string | null) {
+    "use server";
+    const result = await whatsappTemplateUpstream(clinicId, templateName);
+    revalidatePath(path);
+    return result;
+  }
 
   return (
     <OnboardingPanel
       view={view}
-      actions={{ completeStep, reopenStep, savePhone, saveAgent, approveAgent, goLive, startForwardingTest, attachMeta, setMeta }}
+      actions={{
+        completeStep, reopenStep, savePhone, saveAgent, approveAgent, goLive, startForwardingTest, attachMeta, setMeta,
+        saveRequirements, resendSetupLink, setBookingMode, confirmTimezone, setCallbacks, setPhiBasis, retryCalendarWrite, setWhatsAppTemplate,
+      }}
     />
   );
 }

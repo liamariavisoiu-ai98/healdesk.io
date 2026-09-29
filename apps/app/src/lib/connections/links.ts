@@ -76,8 +76,18 @@ import { withTenant, type TenantTx } from "@/lib/tenant";
  * definer function returns NULL for a perfectly good token — a broken feature
  * that reports itself as "link not found". 0024 has the long version.
  *
+ * ## 5. One table, two pages, and a purpose column between them
+ *
+ * The setup link (design of 23 September 2026, §H) reuses this table, token
+ * discipline and bootstrap policy, with `purpose = 'setup'`. Resolution and
+ * consumption both filter on purpose, so a token issued for one page is
+ * inert on the other, and the refusal is the same null as an unknown token.
+ * No new RLS bootstrap: `app_connection_link_clinic()` answers with the
+ * clinic for any purpose, and the purpose is checked inside the tenant
+ * transaction that follows.
+ *
  * ⚠️ No PHI on this surface, ever. The most it yields is a clinic's own name,
- * slug and booking platform. See docs/hipaa-compliance.md.
+ * slug, specialty and booking platform. See docs/hipaa-compliance.md.
  */
 
 /**
@@ -126,7 +136,21 @@ const LINK_ACTOR: ActorContext = {
   serviceName: "connection-link",
 };
 
-/** What the wizard needs to render, and nothing else. */
+/**
+ * What a link is for.
+ *
+ * `connect` hands us a booking credential; `setup` confirms the booking
+ * requirement set (design of 23 September 2026, §A.9 and §H). Same table,
+ * same token, same bootstrap policy — the purpose is a column checked inside
+ * the tenant transaction by resolution and by consumption, so a setup token
+ * cannot be spent on /connect and a connect token cannot be spent on /setup.
+ * A mismatch resolves to nothing, indistinguishable from an unknown token
+ * (property 3), because "this is a real link for a different page" is exactly
+ * the kind of confirmation a stranger holding a URL should not get.
+ */
+export type LinkPurpose = "connect" | "setup";
+
+/** What the wizard (or the setup page) needs to render, and nothing else. */
 export type ResolvedLink = {
   clinicId: string;
   /** Shown so the clinic can see the link is genuinely theirs. */
@@ -141,11 +165,21 @@ export type ResolvedLink = {
   /** Catalog platform id. `NO_PLATFORM_ID` when there is nothing to connect. */
   platformId: string;
   attributionMode: "estimated" | "verified";
+  /**
+   * The clinic's specialty id. The setup page pre-selects the specialty's
+   * booking-field defaults from it; the connect wizard ignores it. A
+   * `purpose: "setup"` resolve returns this superset rather than its own
+   * shape so there is one resolver, one projection and one anti-oracle rule.
+   */
+  specialty: string;
+  purpose: LinkPurpose;
 };
 
 export type IssueLinkOptions = {
   /** Defaults to CONNECTION_LINK_TTL_DAYS. Clamped to [1, MAX]. */
   expiresInDays?: number;
+  /** Defaults to "connect". Set at issue and never changed. */
+  purpose?: LinkPurpose;
 };
 
 export type IssueLinkContext = {
@@ -192,6 +226,7 @@ export async function issueConnectionLink(
   ctx: IssueLinkContext,
 ): Promise<{ token: string; expiresAt: Date }> {
   const days = clampTtlDays(opts.expiresInDays);
+  const purpose: LinkPurpose = opts.purpose ?? "connect";
   const { token, hash } = generateLinkToken();
 
   // Attribution is taken from the audit actor rather than accepted as its own
@@ -211,6 +246,7 @@ export async function issueConnectionLink(
           // process and the database silently shorten or extend the window.
           expiresAt: sql`now() + make_interval(days => ${days})`,
           issuedBy,
+          purpose,
         })
         .returning({
           id: connectionLinks.id,
@@ -226,7 +262,7 @@ export async function issueConnectionLink(
         resourceType: "connection_link",
         resourceId: row.id,
         // No token, no digest, no clinic name. Only the shape of the grant.
-        metadata: { expiresInDays: days },
+        metadata: { expiresInDays: days, purpose },
       });
 
       return row.expiresAt;
@@ -258,6 +294,7 @@ export async function issueConnectionLink(
 export async function resolveConnectionLink(
   token: string,
   request?: RequestContext,
+  purpose: LinkPurpose = "connect",
 ): Promise<ResolvedLink | null> {
   const hash = hashIfWellFormed(token);
   if (!hash) return null;
@@ -270,6 +307,7 @@ export async function resolveConnectionLink(
       .select({
         linkId: connectionLinks.id,
         usedAt: connectionLinks.usedAt,
+        purpose: connectionLinks.purpose,
         // Evaluated by Postgres so expiry is judged by one clock — the same one
         // that stamped expires_at and that the consuming UPDATE will use.
         expired: sql<boolean>`${connectionLinks.expiresAt} <= now()`,
@@ -277,6 +315,7 @@ export async function resolveConnectionLink(
         clinicSlug: clinics.slug,
         bookingProvider: clinics.bookingProvider,
         attributionMode: clinics.attributionMode,
+        specialty: clinics.specialty,
       })
       .from(connectionLinks)
       .innerJoin(clinics, eq(clinics.id, connectionLinks.clinicId))
@@ -287,14 +326,19 @@ export async function resolveConnectionLink(
     // the join hid it. Fail closed and say nothing, as with any other miss.
     if (!row) return null;
 
-    if (row.usedAt !== null || row.expired) {
+    if (row.usedAt !== null || row.expired || row.purpose !== purpose) {
+      // A purpose mismatch is recorded with its own reason — a setup token
+      // presented to /connect is worth knowing about — and answered with the
+      // same null as every other miss.
       tx.audit.record({
         action: "read",
         resourceType: "connection_link",
         resourceId: row.linkId,
         metadata: {
           outcome: "rejected",
-          reason: row.usedAt !== null ? "already_used" : "expired",
+          reason:
+            row.usedAt !== null ? "already_used" : row.expired ? "expired" : "wrong_purpose",
+          purpose,
         },
       });
       return null;
@@ -306,7 +350,7 @@ export async function resolveConnectionLink(
       action: "read",
       resourceType: "connection_link",
       resourceId: row.linkId,
-      metadata: { outcome: "opened", platformId },
+      metadata: { outcome: "opened", platformId, purpose },
     });
 
     return {
@@ -315,6 +359,8 @@ export async function resolveConnectionLink(
       clinicSlug: row.clinicSlug,
       platformId,
       attributionMode: row.attributionMode,
+      specialty: row.specialty,
+      purpose,
     };
   });
 }
@@ -340,6 +386,7 @@ export async function resolveConnectionLink(
 export async function consumeConnectionLink(
   token: string,
   ip: string | null,
+  purpose: LinkPurpose = "connect",
 ): Promise<boolean> {
   const hash = hashIfWellFormed(token);
   if (!hash) return false;
@@ -355,7 +402,7 @@ export async function consumeConnectionLink(
       actor: LINK_ACTOR,
       request: consumedIp ? { ipAddress: consumedIp } : undefined,
     },
-    (tx) => consumeConnectionLinkWithin(tx, token, ip),
+    (tx) => consumeConnectionLinkWithin(tx, token, ip, purpose),
   );
 }
 
@@ -377,18 +424,23 @@ export async function consumeConnectionLinkWithin(
   tx: TenantTx,
   token: string,
   ip: string | null,
+  purpose: LinkPurpose = "connect",
 ): Promise<boolean> {
   const hash = hashIfWellFormed(token);
   if (!hash) return false;
 
   // Property 2. One statement: the predicate and the write cannot be separated
   // by another transaction, so exactly one caller ever sees a row come back.
+  // The purpose is in the predicate too: the burn a route performs is the
+  // burn for ITS purpose, so a setup token handed to the credential wizard
+  // matches nothing here even if something upstream forgot to resolve it.
   const [row] = await tx.db
     .update(connectionLinks)
     .set({ usedAt: sql`now()`, consumedIp: normaliseIp(ip) })
     .where(
       and(
         eq(connectionLinks.tokenHash, hash),
+        eq(connectionLinks.purpose, purpose),
         isNull(connectionLinks.usedAt),
         gt(connectionLinks.expiresAt, sql`now()`),
       ),
@@ -396,13 +448,14 @@ export async function consumeConnectionLinkWithin(
     .returning({ id: connectionLinks.id });
 
   if (!row) {
-    // Already used, expired between the open and the submit, or belonging to
-    // another clinic. Worth a row either way: a second submission against a
-    // spent link is exactly what we would want to see afterwards.
+    // Already used, expired between the open and the submit, issued for the
+    // other page, or belonging to another clinic. Worth a row either way: a
+    // second submission against a spent link is exactly what we would want to
+    // see afterwards.
     tx.audit.record({
       action: "update",
       resourceType: "connection_link",
-      metadata: { outcome: "rejected", reason: "not_consumable" },
+      metadata: { outcome: "rejected", reason: "not_consumable", purpose },
     });
     return false;
   }
@@ -414,7 +467,7 @@ export async function consumeConnectionLinkWithin(
     // The IP travels in the recorder's request context, never in metadata:
     // assertNoPhi reads a dotted quad as a phone number and would refuse the
     // write, taking the audit row down with it.
-    metadata: { outcome: "consumed" },
+    metadata: { outcome: "consumed", purpose },
   });
 
   return true;

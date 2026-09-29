@@ -4,12 +4,17 @@ import { useState, useTransition } from "react";
 
 import type {
   AgentService,
+  BookingModeOutcome,
   DepositPolicy,
+  DirectBookingGate,
   ForwardingTestOutcome,
   GoLiveOutcome,
+  IssueLinkOutcome,
   MetaPlatform,
   OnboardingView,
   OpsResult,
+  PhiBasis,
+  RetryCalendarWriteOutcome,
   SimpleOutcome,
 } from "@/lib/admin/ops-client";
 
@@ -36,6 +41,25 @@ type Actions = {
   startForwardingTest: () => Promise<OpsResult<ForwardingTestOutcome>>;
   attachMeta: (input: { platform: MetaPlatform; externalId: string; accessToken: string; label?: string }) => Promise<OpsResult<SimpleOutcome>>;
   setMeta: (enabled: boolean) => Promise<OpsResult<SimpleOutcome>>;
+  // Booking hand-off, callbacks and direct booking (design of 23 September 2026).
+  saveRequirements: (fields: string[]) => Promise<OpsResult<SimpleOutcome>>;
+  resendSetupLink: (to: string | null) => Promise<OpsResult<IssueLinkOutcome>>;
+  setBookingMode: (mode: "desk_confirms" | "direct") => Promise<OpsResult<BookingModeOutcome>>;
+  confirmTimezone: (timezone: string) => Promise<OpsResult<SimpleOutcome>>;
+  setCallbacks: (enabled: boolean) => Promise<OpsResult<SimpleOutcome>>;
+  setPhiBasis: (input: { connectionId: string; basis: PhiBasis | null; note?: string }) => Promise<OpsResult<SimpleOutcome>>;
+  retryCalendarWrite: (appointmentId: string) => Promise<OpsResult<RetryCalendarWriteOutcome>>;
+  setWhatsAppTemplate: (templateName: string | null) => Promise<OpsResult<SimpleOutcome>>;
+};
+
+/** The six gates behind the direct-booking switch (§E.1), in the console's words. */
+const GATE_LABELS: Record<DirectBookingGate, string> = {
+  env: "HEALDESK_DIRECT_BOOKING_ENABLED is \"true\" in this environment",
+  addendum: "The direct-booking addendum is approved by counsel",
+  election: "The practice accepted the addendum on its setup link (unwithdrawn)",
+  calendar: "Writable calendar: Cal.com only, BAA basis recorded on the connection",
+  production: "The clinic is live (production)",
+  agent: "The agent script is approved",
 };
 
 const CARRIERS = [
@@ -139,6 +163,26 @@ export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingV
 
       <Section title={`Meta front door — ${v.meta.enabled ? "on" : "off"}`}>
         <MetaFrontDoor view={v} onAttach={actions.attachMeta} onSwitch={actions.setMeta} />
+      </Section>
+
+      <Section title="Booking request fields">
+        <RequirementsCard view={v} onSave={actions.saveRequirements} onResend={actions.resendSetupLink} />
+      </Section>
+
+      <Section title={`Booking mode — ${v.bookingMode === "direct" ? "the assistant books directly" : "the desk confirms"}`}>
+        <BookingModeCard view={v} onSwitch={actions.setBookingMode} />
+      </Section>
+
+      <Section title={`Call-backs — ${v.outboundCallbacksEnabled ? "on" : "off"}`}>
+        <CallbacksCard view={v} onConfirmTimezone={actions.confirmTimezone} onSwitch={actions.setCallbacks} />
+      </Section>
+
+      <Section title="Calendar">
+        <CalendarCard view={v} onBasis={actions.setPhiBasis} onRetry={actions.retryCalendarWrite} />
+      </Section>
+
+      <Section title="WhatsApp template">
+        <WhatsAppTemplateCard view={v} onSave={actions.setWhatsAppTemplate} />
       </Section>
 
       <Section title="Go live">
@@ -575,6 +619,321 @@ function MetaFrontDoor({ view, onAttach, onSwitch }: { view: OnboardingView; onA
         <span className="text-muted text-xs">Webhook: <code>/api/webhooks/meta</code> on the product host, subscribed in the Meta app to messages for each product.</span>
       </div>
       {problem ? <p className="mt-2 text-xs">{problem}</p> : null}
+    </div>
+  );
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* Booking hand-off, callbacks and direct booking                              */
+/* -------------------------------------------------------------------------- */
+
+function whenLabel(iso: string | null): string {
+  return iso ? iso.slice(0, 10) : "—";
+}
+
+function RequirementsCard({ view, onSave, onResend }: { view: OnboardingView; onSave: Actions["saveRequirements"]; onResend: Actions["resendSetupLink"] }) {
+  const [pending, start] = useTransition();
+  const [problem, setProblem] = useState<string | null>(null);
+  const [link, setLink] = useState<string | null>(null);
+  const r = view.requirements;
+  const chosen = new Set(r.fields);
+  const status =
+    r.source === "practice"
+      ? `Confirmed by the practice on ${whenLabel(r.confirmedAt)}.`
+      : r.source === "operator"
+        ? `Confirmed by the operator on ${whenLabel(r.confirmedAt)}.`
+        : r.source === "defaults"
+          ? `Defaults in effect since ${whenLabel(r.confirmedAt)}: nobody opened the setup link before it expired.`
+          : r.setupLinkOutstanding
+            ? "Not yet confirmed. A setup link is outstanding; the specialty defaults apply when it expires."
+            : "Not yet confirmed, and no setup link is outstanding. Resend one, or confirm the set on the call below.";
+  return (
+    <div className="text-sm">
+      <p className="text-muted">
+        What the assistant asks for when someone wants to book, and nothing more. The first four are locked: they are what a
+        booking request is. Saving here records the set as confirmed by you on the call (source: operator).
+      </p>
+      <p className="mt-2 font-semibold">{status}</p>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          const f = new FormData(event.currentTarget);
+          const fields = f.getAll("fields").map(String);
+          start(async () => {
+            setProblem(null);
+            setProblem(describe(await onSave(fields)) ?? "Saved. The step is stamped.");
+          });
+        }}
+        className="mt-3"
+      >
+        <ul className="grid gap-2 sm:grid-cols-2">
+          {r.catalogue.map((field) => (
+            <li key={field.id}>
+              <label className="flex items-start gap-2">
+                <input type="checkbox" name="fields" value={field.id} defaultChecked={field.locked || chosen.has(field.id)} disabled={field.locked || pending} className="mt-1" />
+                <span>
+                  {field.label}
+                  {field.locked ? <span className="text-muted ml-1 text-xs">(always)</span> : null}
+                  {field.phoneOnly ? <span className="text-muted ml-1 text-xs">(phone only)</span> : null}
+                </span>
+              </label>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <button type="submit" disabled={pending} className="bg-ink rounded-full px-4 py-2 text-sm font-bold text-white">Confirm on the call</button>
+          {problem ? <span className="text-sm">{problem}</span> : null}
+        </div>
+      </form>
+      <p className="text-muted mt-3 text-xs">Never asked, and cannot be added: {r.neverAsked.join(" · ")}.</p>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          const to = String(new FormData(event.currentTarget).get("to") ?? "").trim() || null;
+          start(async () => {
+            setLink(null);
+            const result = await onResend(to);
+            if (!result.ok) return setProblem(result.message);
+            if (result.data.status === "refused") return setProblem(result.data.message);
+            setLink(result.data.url);
+            setProblem(
+              result.data.delivery.attempted
+                ? result.data.delivery.status === "sent"
+                  ? `Sent. Expires ${result.data.expiresAt}.`
+                  : `Not sent (${result.data.delivery.status}): ${"reason" in result.data.delivery ? result.data.delivery.reason : ""}. Send the link yourself.`
+                : `Issued, not mailed. Expires ${result.data.expiresAt}.`,
+            );
+          });
+        }}
+        className="border-line mt-4 flex flex-wrap items-end gap-3 border-t pt-4"
+      >
+        <label className="min-w-[220px] flex-1">
+          <span className="text-muted block text-xs font-bold uppercase">Resend the setup link to (optional)</span>
+          <input name="to" type="email" placeholder="frontdesk@practice.example" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+        </label>
+        <button type="submit" disabled={pending} className="border-line-strong rounded-full border px-4 py-2 text-xs font-bold">Resend setup link</button>
+        {link ? <code className="w-full break-all rounded bg-black/5 px-2 py-1 text-xs">{link}</code> : null}
+      </form>
+    </div>
+  );
+}
+
+function BookingModeCard({ view, onSwitch }: { view: OnboardingView; onSwitch: Actions["setBookingMode"] }) {
+  const [pending, start] = useTransition();
+  const [message, setMessage] = useState<string | null>(null);
+  const [missing, setMissing] = useState<string[]>([]);
+  const d = view.directBooking;
+  const direct = view.bookingMode === "direct";
+  return (
+    <div className="text-sm">
+      <p className="text-muted">
+        Desk confirms: every request goes to the front desk's single-use link. Direct: on phone calls only, the assistant books
+        a caller straight into the connected calendar at a time it read as free. The database is the authority either way: a
+        switch here with an un-edited prompt never books, and an edited prompt with the switch off is refused by the tool.
+      </p>
+      <p className="mt-2">
+        Election: {view.directBookingElectedAt ? `accepted ${whenLabel(view.directBookingElectedAt)}` : "none"}
+        {view.directBookingWithdrawnAt ? `, withdrawn ${whenLabel(view.directBookingWithdrawnAt)}` : ""}. Addendum {d.addendumVersion}
+        {d.addendumApproved ? ", approved by counsel." : " is not yet approved by counsel; the setup link does not offer it."}
+      </p>
+      <ul className="mt-3 grid gap-1">
+        {d.gates.map((g) => (
+          <li key={g.id} className={g.ok ? "text-done" : "text-muted"}>
+            <span aria-hidden>{g.ok ? "✓" : "○"}</span> {GATE_LABELS[g.id]}
+          </li>
+        ))}
+      </ul>
+      {d.missing.length && !direct ? (
+        <ul className="text-muted mt-2 list-disc pl-5 text-xs">
+          {d.missing.filter((m) => !/booking mode is desk_confirms/.test(m)).map((m, i) => (
+            <li key={i}>{m}</li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => {
+            const next = direct ? "desk_confirms" : "direct";
+            if (next === "desk_confirms" && !window.confirm("Switch back to desk confirms? This records the election as withdrawn; a new setup link is needed to elect again.")) return;
+            start(async () => {
+              setMessage(null);
+              setMissing([]);
+              const result = await onSwitch(next);
+              if (!result.ok) return setMessage(result.message);
+              if (result.data.status === "refused") {
+                setMessage(result.data.message);
+                setMissing(result.data.missing);
+                return;
+              }
+              setMessage(result.data.mode === "direct" ? "Direct booking is on." : "Back to desk confirms; the election is recorded as withdrawn.");
+            });
+          }}
+          className={`rounded-full px-4 py-2 text-xs font-bold ${direct ? "border-line-strong border" : "bg-black text-white"}`}
+        >
+          {direct ? "Switch back to desk confirms" : "Switch to direct booking"}
+        </button>
+        {message ? <span className="text-xs">{message}</span> : null}
+      </div>
+      {missing.length ? (
+        <ul className="text-red-deep mt-2 list-disc pl-5 text-xs">
+          {missing.map((m, i) => (
+            <li key={i}>{m}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function CallbacksCard({ view, onConfirmTimezone, onSwitch }: { view: OnboardingView; onConfirmTimezone: Actions["confirmTimezone"]; onSwitch: Actions["setCallbacks"] }) {
+  const [pending, start] = useTransition();
+  const [message, setMessage] = useState<string | null>(null);
+  const on = view.outboundCallbacksEnabled;
+  return (
+    <div className="text-sm">
+      <p className="text-muted">
+        The only call the product places: a call-back to someone who agreed to one on their own call or message, about their
+        own request. 8am–8pm in the clinic's time zone, never Sunday, two attempts per request. The zone must be confirmed
+        before the switch goes on, because quiet hours are judged in it and a provisioning default is never dialled against.
+        The environment kill switch (HEALDESK_OUTBOUND_CALLBACKS_ENABLED) is separate and outranks this.
+      </p>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          const tz = String(new FormData(event.currentTarget).get("timezone") ?? "").trim();
+          start(async () => setMessage(describe(await onConfirmTimezone(tz)) ?? `Time zone confirmed: ${tz}.`));
+        }}
+        className="mt-3 flex flex-wrap items-end gap-3"
+      >
+        <label className="min-w-[220px]">
+          <span className="text-muted block text-xs font-bold uppercase">Time zone (IANA)</span>
+          <input name="timezone" defaultValue={view.timezone} placeholder="America/New_York" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          <span className="text-muted block text-xs">
+            {view.timezoneConfirmedAt ? `Confirmed ${whenLabel(view.timezoneConfirmedAt)}.` : "Not yet confirmed with the clinic — the provisioning default."}
+          </span>
+        </label>
+        <button type="submit" disabled={pending} className="border-line-strong rounded-full border px-4 py-2 text-xs font-bold">Confirm time zone</button>
+      </form>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => start(async () => setMessage(describe(await onSwitch(!on)) ?? (on ? "Call-backs switched off." : "Call-backs switched on.")))}
+          className={`rounded-full px-4 py-2 text-xs font-bold ${on ? "border-line-strong border" : "bg-black text-white"}`}
+        >
+          {on ? "Switch call-backs off" : "Switch call-backs on"}
+        </button>
+        <span className="text-muted text-xs">Due now: {view.pendingCallbacks}.</span>
+      </div>
+      {message ? <p className="mt-2 text-xs">{message}</p> : null}
+    </div>
+  );
+}
+
+function CalendarCard({ view, onBasis, onRetry }: { view: OnboardingView; onBasis: Actions["setPhiBasis"]; onRetry: Actions["retryCalendarWrite"] }) {
+  const [pending, start] = useTransition();
+  const [message, setMessage] = useState<string | null>(null);
+  const c = view.calendarConnection;
+  const attention = view.calendarWrites.filter((w) => w.status === "failed" || w.status === "unknown");
+  return (
+    <div className="text-sm">
+      <p className="text-muted">
+        Cal.com is the one calendar healdesk can write into. A connection is written to only once the lawful basis for the
+        vendor to hold a first name, a service and a time is recorded on it: Cal.com's own BAA with us, or the practice's own
+        account under the practice's agreement. NULL means none, and none means read-only.
+      </p>
+      {c ? (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            const f = new FormData(event.currentTarget);
+            const raw = String(f.get("basis") ?? "");
+            const basis = raw === "vendor_baa" || raw === "practice_account" ? raw : null;
+            const note = String(f.get("note") ?? "").trim() || undefined;
+            start(async () => setMessage(describe(await onBasis({ connectionId: c.connectionId, basis, note })) ?? "Recorded."));
+          }}
+          className="mt-3 grid gap-3 sm:grid-cols-[200px_1fr_auto] sm:items-end"
+        >
+          <label>
+            <span className="text-muted block text-xs font-bold uppercase">{c.platform} — basis</span>
+            <select name="basis" defaultValue={c.phiBasis ?? ""} className="border-line mt-1 w-full rounded-lg border px-3 py-2">
+              <option value="">None (read-only)</option>
+              <option value="vendor_baa">Vendor BAA with healdesk</option>
+              <option value="practice_account">Practice's own account</option>
+            </select>
+          </label>
+          <label>
+            <span className="text-muted block text-xs font-bold uppercase">Note (who signed what, when; no patient details)</span>
+            <input name="note" maxLength={500} className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          </label>
+          <button type="submit" disabled={pending} className="border-line-strong rounded-full border px-4 py-2 text-xs font-bold">Record basis</button>
+          <p className="text-muted text-xs sm:col-span-3">{c.writable ? "Writable." : "Not writable until a basis is recorded."}</p>
+        </form>
+      ) : (
+        <p className="text-muted mt-2">No Cal.com connection on this clinic.</p>
+      )}
+      <p className="mt-4 font-semibold">Calendar writes needing attention: {attention.length}</p>
+      <ul className="mt-2 grid gap-2">
+        {view.calendarWrites.map((w) => (
+          <li key={w.appointmentId} className="border-line flex flex-wrap items-center gap-3 rounded-xl border px-3 py-2 text-xs">
+            <span className={w.status === "written" ? "text-done" : w.status === "failed" ? "text-red-deep" : "text-muted"}>{w.status}</span>
+            <span>{w.slotAt.slice(0, 16).replace("T", " ")} UTC</span>
+            <span className="text-muted">{w.requestChannel}</span>
+            {w.error ? <span className="text-muted">{w.error}</span> : null}
+            {w.status === "failed" || w.status === "unknown" ? (
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() =>
+                  start(async () => {
+                    const result = await onRetry(w.appointmentId);
+                    if (!result.ok) return setMessage(result.message);
+                    setMessage(result.data.status === "retried" ? `Retry: ${result.data.outcome}.` : result.data.message);
+                  })
+                }
+                className="border-line-strong ml-auto rounded-full border px-3 py-1 font-bold"
+              >
+                Retry
+              </button>
+            ) : null}
+          </li>
+        ))}
+        {view.calendarWrites.length === 0 ? <li className="text-muted text-xs">No calendar write attempted yet.</li> : null}
+      </ul>
+      {message ? <p className="mt-2 text-xs">{message}</p> : null}
+    </div>
+  );
+}
+
+function WhatsAppTemplateCard({ view, onSave }: { view: OnboardingView; onSave: Actions["setWhatsAppTemplate"] }) {
+  const [pending, start] = useTransition();
+  const [message, setMessage] = useState<string | null>(null);
+  const flag = view.whatsappTemplatesFlag;
+  return (
+    <div className="text-sm">
+      <p className="text-muted">
+        The one fixed status message a WhatsApp thread may carry outside the 24-hour window, as a Meta-approved UTILITY
+        template, and only for a person who opted in on that thread. Record the approved name here once Meta says APPROVED.
+        {flag ? "" : " Disabled until HEALDESK_WHATSAPP_TEMPLATES_ENABLED is \"true\" — counsel has not yet answered."}
+      </p>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          const name = String(new FormData(event.currentTarget).get("templateName") ?? "").trim() || null;
+          start(async () => setMessage(describe(await onSave(name)) ?? "Recorded."));
+        }}
+        className="mt-3 flex flex-wrap items-end gap-3"
+      >
+        <label className="min-w-[260px]">
+          <span className="text-muted block text-xs font-bold uppercase">Template name</span>
+          <input name="templateName" defaultValue={view.whatsappTemplateName ?? ""} placeholder="healdesk_request_update_v1" disabled={!flag || pending} className="border-line mt-1 w-full rounded-lg border px-3 py-2 disabled:opacity-50" />
+        </label>
+        <button type="submit" disabled={!flag || pending} className="border-line-strong rounded-full border px-4 py-2 text-xs font-bold disabled:opacity-50">Save template name</button>
+        {message ? <span className="text-xs">{message}</span> : null}
+      </form>
     </div>
   );
 }

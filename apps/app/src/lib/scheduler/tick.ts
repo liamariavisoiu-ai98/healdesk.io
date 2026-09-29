@@ -1,4 +1,5 @@
 import { sweepMetaBookingDrafts } from "@/lib/meta/front-door";
+import { applyBookingRequirementDefaults } from "@/lib/onboarding/requirements";
 
 import { runAnnualRenewalReminderJob } from "./annual-renewal-reminder";
 import { runBillingSweepJob } from "./billing-sweep";
@@ -50,6 +51,10 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // quiet is not lost. Not a switched job: it is a pure function of the
   // clock over drafts that already exist, like the other sweeps here.
   await record("meta-draft-sweep", async () => ({ status: "ok", note: `${await sweepMetaBookingDrafts(now)} created` }));
+  // §H.5: a clinic whose setup link expired unspent gets the specialty
+  // defaults stamped as its booking requirement set. Same shape as the sweep
+  // above: a pure function of the clock over rows that already exist.
+  await record("booking-requirements-defaults", async () => ({ status: "ok", note: `${await applyBookingRequirementDefaults(now)} defaulted` }));
   if (hour === 2) await record("nightly-sync", () => runNightlySyncJob({ now }));
   if (hour === 3) await record("retention-purge", () => runRetentionPurgeJob({ now }));
   if (hour === 4) await record("offboarding-destroy", () => runOffboardingDestroyJob({ now }));

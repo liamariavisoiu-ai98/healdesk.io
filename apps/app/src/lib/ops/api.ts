@@ -1,14 +1,19 @@
 import { randomUUID } from "node:crypto";
 
-import { and, desc, eq, gt, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, isNull, ne, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import {
+  appointments,
   baaAcceptances,
+  bookingRequests,
+  clinics,
   connectionLinks,
+  outboundCalls,
   providerConnections,
   reportDeliveries,
   scheduledJobs,
+  type PhiBasis,
 } from "@/db/schema";
 import {
   deliverSignedCopy,
@@ -23,11 +28,16 @@ import {
   type AgreementStatus,
 } from "@/lib/agreements/search";
 import {
+  BOOKING_FIELDS,
+  currentDirectBookingAddendum,
+  EXCLUDED_FIELDS,
   forwardingInstructions,
+  getConnectionGuide,
   isCarrier,
   isOnboardingStep,
   ONBOARDING_LABELS,
   ONBOARDING_STEPS,
+  resolveBookingRequirements,
   type ForwardingInstruction,
   type OnboardingState,
 } from "@healdesk/catalog";
@@ -57,7 +67,11 @@ import { clinicHealth, recordTouch, type ClinicHealth } from "@/lib/ops/health";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
 import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
+import { sendSetupLink } from "@/lib/email/setup-link";
 import { env } from "@/lib/env";
+import { writableConnection, writeToCalendar, type CalendarWriteOutcome } from "@/lib/booking/calendar";
+import { directBookingAllowed } from "@/lib/booking/mode";
+import { applyBookingRequirementDefaultsFor, setBookingRequirementsWithin } from "@/lib/onboarding/requirements";
 import {
   burnRecoveryCode,
   enrolAdminTotp,
@@ -87,7 +101,7 @@ import { goLive, goLivePreconditions } from "@/lib/onboarding/go-live";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { completeStep, reopenStep } from "@/lib/onboarding/steps";
 import { getJob, listJobs as listJobRecords } from "@/lib/scheduler/jobs";
-import { withTenant } from "@/lib/tenant";
+import { withTenant, type TenantTx } from "@/lib/tenant";
 import { log } from "@/lib/log";
 
 /**
@@ -239,6 +253,17 @@ const OPERATIONS = [
   // The Meta front door: a sealed token per platform, and the per-clinic switch.
   "attachMetaChannel",
   "setMetaFrontDoor",
+  // Booking hand-off, callbacks and direct booking (design of 23 September
+  // 2026, §B.4, §E.6, §H.5). Configuration and write ledgers; never a patient.
+  "setBookingRequirements",
+  "setOutboundCallbacks",
+  "setClinicTimezone",
+  "setConnectionPhiBasis",
+  "setWhatsAppTemplate",
+  "setBookingMode",
+  "issueSetupLink",
+  "retryCalendarWrite",
+  "listCalendarWrites",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -275,6 +300,16 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "recordClinicTouch",
   "attachMetaChannel",
   "setMetaFrontDoor",
+  "setBookingRequirements",
+  "setOutboundCallbacks",
+  "setClinicTimezone",
+  "setConnectionPhiBasis",
+  "setWhatsAppTemplate",
+  "setBookingMode",
+  "issueSetupLink",
+  // Mutating because it moves the appointment's calendar columns and may
+  // create a booking in the clinic's calendar.
+  "retryCalendarWrite",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -750,6 +785,24 @@ export async function runOperation(
       return opAttachMetaChannel(args, operator);
     case "setMetaFrontDoor":
       return opSetMetaFrontDoor(args, operator);
+    case "setBookingRequirements":
+      return opSetBookingRequirements(args, operator);
+    case "setOutboundCallbacks":
+      return opSetOutboundCallbacks(args, operator);
+    case "setClinicTimezone":
+      return opSetClinicTimezone(args, operator);
+    case "setConnectionPhiBasis":
+      return opSetConnectionPhiBasis(args, operator);
+    case "setWhatsAppTemplate":
+      return opSetWhatsAppTemplate(args, operator);
+    case "setBookingMode":
+      return opSetBookingMode(args, operator);
+    case "issueSetupLink":
+      return opIssueSetupLink(args, operator);
+    case "retryCalendarWrite":
+      return opRetryCalendarWrite(args, operator);
+    case "listCalendarWrites":
+      return opListCalendarWrites(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The
@@ -1039,7 +1092,7 @@ export type IssueConnectLinkState =
       delivery: ConnectLinkDelivery;
       auditRecorded: boolean;
     }
-  | { status: "error"; message: string };
+  | { status: "error"; message: string; reason?: "baa_lacks_calendar_write" };
 
 /**
  * Mint a single-use connection link for one clinic.
@@ -1091,6 +1144,12 @@ async function opIssueConnectLink(
       message: "No such clinic.",
     } satisfies IssueConnectLinkState);
   }
+
+  // §B.5: a link to a guide that WRITES into the clinic's calendar is only
+  // issued when the agreement in effect says healdesk may. See
+  // agreementCarriesCalendarWrite() for what "says" can mean today.
+  const writeGuard = await refuseCalendarWriteLinkWithout(clinic.id, actorFor(operator), operator.request);
+  if (writeGuard) return ok(writeGuard);
 
   const { token, expiresAt } = await issueConnectionLink(
     clinic.id,
@@ -1146,6 +1205,79 @@ async function opIssueConnectLink(
     delivery,
     auditRecorded,
   } satisfies IssueConnectLinkState);
+}
+
+/**
+ * Whether a signed, bound, unterminated agreement for this organisation
+ * carries the calendar-write clause (design of 23 September 2026, §B.5, §I.2).
+ *
+ * What "carries" can honestly mean today. `signAgreement` records, on every
+ * acceptance row, `variables.appliedClauses` — the clause ids the rendered
+ * document actually contained — and `variables.calendarWrite`, the selection
+ * that switches the `calendar-write` clause on. So the test is a fact about
+ * the document the practice signed, not about which template is current:
+ * the row's applied clauses include `calendar-write`, or (belt to those
+ * braces, for a row whose clause list was not recorded) the selection is
+ * non-null. The 1.0.0 template has no such clause and `calendarWrite` is
+ * only set for Cal.com under 1.1.0-draft, which is not offered, so no
+ * organisation passes this today — which is the design's stated intent: no
+ * Cal.com clinic stores a calendar credential until counsel approves a
+ * template with the clause and the practice signs it. A row from before the
+ * `appliedClauses` field existed carries neither and is refused.
+ *
+ * The in-effect agreement is the most recently bound row with no
+ * `terminated_at`; an unbound acceptance (signed, never paid) counts for
+ * nothing, and a terminated one counts for nothing.
+ */
+export async function agreementCarriesCalendarWrite(organizationId: string): Promise<boolean> {
+  const [row] = await unsafeDb
+    .select({ variables: baaAcceptances.variables })
+    .from(baaAcceptances)
+    .where(
+      and(
+        eq(baaAcceptances.organizationId, organizationId),
+        isNotNull(baaAcceptances.boundAt),
+        isNull(baaAcceptances.terminatedAt),
+      ),
+    )
+    .orderBy(desc(baaAcceptances.boundAt))
+    .limit(1);
+  if (!row) return false;
+  const variables = (row.variables ?? {}) as { appliedClauses?: unknown; calendarWrite?: unknown };
+  const applied = Array.isArray(variables.appliedClauses) ? variables.appliedClauses : [];
+  if (applied.includes("calendar-write")) return true;
+  return typeof variables.calendarWrite === "object" && variables.calendarWrite !== null;
+}
+
+/**
+ * The refusal opIssueConnectLink returns for a read-write guide with no
+ * calendar-write agreement behind it, or null when the link may be issued.
+ * The clinic's platform and organisation live on the clinic row, which the
+ * overview does not project, so they are read under the tenant policy.
+ */
+async function refuseCalendarWriteLinkWithout(
+  clinicId: string,
+  actor: ActorContext,
+  request: RequestContext,
+): Promise<IssueConnectLinkState | null> {
+  const clinic = await withTenant({ clinicId, actor, request }, async (tx) => {
+    const [row] = await tx.db
+      .select({ bookingProvider: clinics.bookingProvider, organizationId: clinics.organizationId })
+      .from(clinics)
+      .where(eq(clinics.id, tx.clinicId))
+      .limit(1);
+    return row ?? null;
+  });
+  if (!clinic?.bookingProvider) return null;
+  const guide = getConnectionGuide(clinic.bookingProvider);
+  if (!guide || guide.scope !== "read_write") return null;
+  if (await agreementCarriesCalendarWrite(clinic.organizationId)) return null;
+  return {
+    status: "error",
+    reason: "baa_lacks_calendar_write",
+    message:
+      "This platform writes into the clinic's calendar, and the agreement in effect does not carry the calendar-write clause. The practice signs a template that includes it first; no connect link is issued until then.",
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -2228,6 +2360,51 @@ export type OnboardingView = {
     approvedByLabel: string | null;
   } | null;
   goLive: { ok: true } | { ok: false; missing: string[] };
+  /** §H.5: the booking requirement set — resolved ids (locked ones included), who settled it, when. */
+  requirements: {
+    fields: string[];
+    confirmedAt: string | null;
+    source: "practice" | "operator" | "defaults" | null;
+    /** True while an unspent, unexpired setup link exists. */
+    setupLinkOutstanding: boolean;
+    /** The closed catalogue, so the console renders the same checkboxes the practice saw. */
+    catalogue: { id: string; label: string; locked: boolean; phoneOnly: boolean }[];
+    neverAsked: string[];
+  };
+  /** §E.6: the mode, the election, and the six gates behind the switch. */
+  bookingMode: "desk_confirms" | "direct";
+  directBookingElectedAt: string | null;
+  directBookingWithdrawnAt: string | null;
+  directBooking: {
+    addendumVersion: string;
+    addendumApproved: boolean;
+    gates: { id: DirectBookingGate; ok: boolean }[];
+    /** The sentences directBookingAllowed() refuses on, verbatim. */
+    missing: string[];
+  };
+  /** §F: the per-clinic switch and what it waits on. */
+  outboundCallbacksEnabled: boolean;
+  timezoneConfirmedAt: string | null;
+  timezone: string;
+  /** Count of outbound_calls rows still `due`. A number, never a row. */
+  pendingCallbacks: number;
+  /** §G.3: the approved UTILITY template name on the WhatsApp channel, if any. */
+  whatsappTemplateName: string | null;
+  whatsappTemplatesFlag: boolean;
+  /** §B.3: the one connection healdesk may write into, and the basis recorded on it. */
+  calendarConnection: { connectionId: string; platform: string; phiBasis: PhiBasis | null; writable: boolean } | null;
+  /** §B.4: every appointment with a calendar write attempted. No name, phone or service. */
+  calendarWrites: CalendarWriteRow[];
+};
+
+export type DirectBookingGate = "env" | "addendum" | "election" | "calendar" | "production" | "agent";
+
+export type CalendarWriteRow = {
+  appointmentId: string;
+  slotAt: string;
+  status: "writing" | "written" | "failed" | "unknown";
+  error: string | null;
+  requestChannel: "voice" | "meta";
 };
 
 function stepsView(state: OnboardingState) {
@@ -2252,7 +2429,7 @@ async function opGetOnboarding(
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return opsProblem("No such clinic.", 404, "invalid_args");
 
-  const { agent, metaChannels, bookingRequests } = await withTenant(
+  const { agent, metaChannels, bookingRequests, booking } = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
     async (tx) => {
       tx.audit.record({ action: "read", resourceType: "agent_config", resourceId: tx.clinicId });
@@ -2260,6 +2437,7 @@ async function opGetOnboarding(
       return {
         agent: await getAgentConfig(tx),
         bookingRequests: await bookingRequestCounts(tx),
+        booking: await readBookingState(tx, clinic, connections),
         metaChannels: connections
           .filter((c) => c.provider.startsWith("meta-"))
           .map((c) => {
@@ -2338,8 +2516,127 @@ async function opGetOnboarding(
         }
       : null,
     goLive: goLivePreconditions(clinic),
+    requirements: {
+      fields: resolveBookingRequirements(clinic.specialty, clinic.bookingRequirements).map((f) => f.id),
+      confirmedAt: clinic.bookingRequirementsConfirmedAt?.toISOString() ?? null,
+      source: clinic.bookingRequirementsSource,
+      setupLinkOutstanding: booking.setupLinkOutstanding,
+      catalogue: BOOKING_FIELDS.map((f) => ({ id: f.id, label: f.label, locked: f.locked, phoneOnly: !f.metaEligible })),
+      neverAsked: [...EXCLUDED_FIELDS],
+    },
+    bookingMode: clinic.bookingMode,
+    directBookingElectedAt: clinic.directBookingElectedAt?.toISOString() ?? null,
+    directBookingWithdrawnAt: clinic.directBookingWithdrawnAt?.toISOString() ?? null,
+    directBooking: booking.directBooking,
+    outboundCallbacksEnabled: clinic.outboundCallbacksEnabled,
+    timezoneConfirmedAt: clinic.timezoneConfirmedAt?.toISOString() ?? null,
+    timezone: clinic.timezone,
+    pendingCallbacks: booking.pendingCallbacks,
+    whatsappTemplateName: booking.whatsappTemplateName,
+    whatsappTemplatesFlag: env.whatsappTemplatesEnabled(),
+    calendarConnection: booking.calendarConnection,
+    calendarWrites: booking.calendarWrites,
   };
   return ok(view);
+}
+
+/**
+ * The booking-side state of one clinic, read inside the tenant transaction
+ * opGetOnboarding already opens (§A.14): the connection healdesk may write
+ * into and its basis, the WhatsApp template name, the calendar-write ledger,
+ * the count of due callbacks, and the six direct-booking gates.
+ *
+ * Nothing here is a patient. The calendar rows carry an appointment id, a
+ * slot, a status and a short vendor status; tests/ops.test.ts asserts that
+ * no `firstName` or `phone` key ever appears in this reply.
+ */
+async function readBookingState(
+  tx: TenantTx,
+  clinic: Awaited<ReturnType<typeof listClinicOverviews>>[number],
+  connections: Awaited<ReturnType<typeof listConnections>>,
+) {
+  const writable = await writableConnection(tx);
+  // The connection healdesk COULD write into once a basis is recorded: the
+  // active, non-Meta connection whose adapter has the write side. Reported
+  // even when not yet writable, so the console can offer the basis select.
+  const [candidate] = await tx.db
+    .select({ id: providerConnections.id, provider: providerConnections.provider, phiBasis: providerConnections.phiBasis })
+    .from(providerConnections)
+    .where(and(eq(providerConnections.clinicId, tx.clinicId), eq(providerConnections.status, "active"), eq(providerConnections.provider, "calcom")))
+    .orderBy(providerConnections.createdAt)
+    .limit(1);
+  const calendarConnection = writable
+    ? { connectionId: writable.connectionId, platform: writable.provider, phiBasis: writable.phiBasis, writable: true }
+    : candidate
+      ? { connectionId: candidate.id, platform: candidate.provider, phiBasis: candidate.phiBasis, writable: false }
+      : null;
+
+  const whatsapp = connections.find((c) => c.provider === META_PROVIDERS.whatsapp);
+  const meta = (whatsapp?.metadata ?? null) as { templateName?: unknown } | null;
+  const whatsappTemplateName = typeof meta?.templateName === "string" && meta.templateName.trim() ? meta.templateName.trim() : null;
+
+  const [due] = await tx.db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(outboundCalls)
+    .where(and(eq(outboundCalls.clinicId, tx.clinicId), eq(outboundCalls.status, "due")));
+
+  const [outstanding] = await tx.db
+    .select({ id: connectionLinks.id })
+    .from(connectionLinks)
+    .where(and(eq(connectionLinks.purpose, "setup"), isNull(connectionLinks.usedAt), gt(connectionLinks.expiresAt, sql`now()`)))
+    .limit(1);
+
+  const check = await directBookingAllowed(tx);
+  const addendum = currentDirectBookingAddendum();
+  const elected = clinic.directBookingElectedAt !== null && clinic.directBookingWithdrawnAt === null;
+  const gates: { id: DirectBookingGate; ok: boolean }[] = [
+    { id: "env", ok: env.directBookingEnabled() },
+    { id: "addendum", ok: addendum.approvedByCounsel },
+    { id: "election", ok: elected },
+    { id: "calendar", ok: writable !== null },
+    { id: "production", ok: clinic.dataClassification === "production" },
+    { id: "agent", ok: clinic.agentApprovedAt !== null },
+  ];
+
+  return {
+    calendarConnection,
+    whatsappTemplateName,
+    pendingCallbacks: due?.n ?? 0,
+    setupLinkOutstanding: Boolean(outstanding),
+    calendarWrites: await listCalendarWritesWithin(tx),
+    directBooking: {
+      addendumVersion: addendum.version,
+      addendumApproved: addendum.approvedByCounsel,
+      gates,
+      missing: check.ok ? [] : check.missing,
+    },
+  };
+}
+
+const CALENDAR_WRITE_ROWS = 40;
+
+/** §B.4's console projection: appointment id, slot, status, short error, channel. Never a name, phone or service. */
+async function listCalendarWritesWithin(tx: TenantTx): Promise<CalendarWriteRow[]> {
+  const rows = await tx.db
+    .select({
+      appointmentId: appointments.id,
+      slotAt: appointments.scheduledFor,
+      status: appointments.calendarWriteStatus,
+      error: appointments.calendarWriteError,
+      requestChannel: bookingRequests.channel,
+    })
+    .from(appointments)
+    .innerJoin(bookingRequests, eq(bookingRequests.appointmentId, appointments.id))
+    .where(and(eq(appointments.clinicId, tx.clinicId), ne(appointments.calendarWriteStatus, "none")))
+    .orderBy(desc(appointments.scheduledFor))
+    .limit(CALENDAR_WRITE_ROWS);
+  return rows.map((row) => ({
+    appointmentId: row.appointmentId,
+    slotAt: row.slotAt.toISOString(),
+    status: row.status as CalendarWriteRow["status"],
+    error: row.error ? row.error.slice(0, 200) : null,
+    requestChannel: row.requestChannel,
+  }));
 }
 
 export type OnboardingMutationState =
@@ -2547,6 +2844,20 @@ async function opGoLive(
   const clinicId = stringArg(args, "clinicId");
   if (!clinicId || !UUID_SHAPED.test(clinicId)) {
     return ok({ status: "error", message: "That is not a clinic id." } satisfies GoLiveState);
+  }
+  // §H.5, "whichever comes first": a setup link that expired unspent has the
+  // specialty defaults stamped now rather than at the next hourly tick, so
+  // the operator on the call is not blocked by a step nobody can answer. The
+  // same rule as the tick — an outstanding link, or a clinic with no link
+  // inside its fourteen-day grace, still leaves the step open and go-live
+  // refuses as before. Never fatal: go-live judges the row as it finds it.
+  try {
+    await applyBookingRequirementDefaultsFor(clinicId);
+  } catch (error) {
+    log.warn("ops api: could not apply booking requirement defaults before go-live", {
+      clinicId,
+      error: error instanceof Error ? error.name : "unknown error",
+    });
   }
   const result = await goLive(clinicId, {
     label: operator.email,
@@ -2975,4 +3286,351 @@ async function opSetMetaFrontDoor(
   );
   await audit(operator, enabled ? "meta_front_door_enabled" : "meta_front_door_disabled", { clinicSlug: clinic.slug });
   return care.updated();
+}
+
+
+// -----------------------------------------------------------------------------
+// Booking hand-off, callbacks and direct booking (design of 23 September 2026)
+// -----------------------------------------------------------------------------
+
+export type BookingRequirementsState =
+  | { status: "updated"; fields: string[]; auditRecorded: boolean }
+  | { status: "error"; message: string };
+
+/** §H.5: the operator's override, `source = 'operator'`. Locked ids are kept whatever was sent. */
+async function opSetBookingRequirements(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies BookingRequirementsState);
+  const raw = args.fields;
+  if (!Array.isArray(raw) || raw.length > 40 || raw.some((v) => typeof v !== "string")) {
+    return ok({ status: "error", message: "fields is a list of catalogue ids." } satisfies BookingRequirementsState);
+  }
+  let fields: string[];
+  try {
+    fields = await withTenant(
+      { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+      (tx) => setBookingRequirementsWithin(tx, raw),
+    );
+  } catch (error) {
+    return ok({ status: "error", message: error instanceof Error ? error.message : "Could not save." } satisfies BookingRequirementsState);
+  }
+  const auditRecorded = await audit(operator, "booking_requirements_set", { clinicSlug: clinic.slug, count: fields.length, source: "operator" });
+  return ok({ status: "updated", fields, auditRecorded } satisfies BookingRequirementsState);
+}
+
+export type SwitchState = { status: "updated"; auditRecorded: boolean } | { status: "error"; message: string };
+
+/**
+ * §F.1: the per-clinic callbacks switch. On is refused until the time zone
+ * has been confirmed (quiet hours are judged in it) and the published number
+ * is on file (every callback states it). Off always succeeds; the env kill
+ * switch is separate and outranks this.
+ */
+async function opSetOutboundCallbacks(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies SwitchState);
+  const enabled = booleanArg(args, "enabled");
+  if (enabled === undefined) return ok({ status: "error", message: "On or off?" } satisfies SwitchState);
+  if (enabled && !clinic.timezoneConfirmedAt) {
+    return ok({ status: "error", message: "Confirm the clinic's time zone first: quiet hours are judged in it, and a default zone is never dialled against." } satisfies SwitchState);
+  }
+  if (enabled && !clinic.publishedPhoneE164) {
+    return ok({ status: "error", message: "Enter the clinic's published number first: every callback gives it." } satisfies SwitchState);
+  }
+  await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    async (tx) => {
+      await tx.db.update(clinics).set({ outboundCallbacksEnabled: enabled, updatedAt: new Date() }).where(eq(clinics.id, tx.clinicId));
+      tx.audit.record({ action: "update", resourceType: "clinic_outbound_callbacks", resourceId: tx.clinicId, metadata: { enabled } });
+    },
+  );
+  const auditRecorded = await audit(operator, enabled ? "outbound_callbacks_enabled" : "outbound_callbacks_disabled", { clinicSlug: clinic.slug });
+  return ok({ status: "updated", auditRecorded } satisfies SwitchState);
+}
+
+export type TimezoneState = { status: "updated"; timezone: string; auditRecorded: boolean } | { status: "error"; message: string };
+
+/** An IANA zone the runtime's Intl data knows. "EST" and "UTC+5" are refused. */
+export function isIanaTimeZone(value: string): boolean {
+  if (!/^[A-Za-z_]+(?:\/[A-Za-z0-9_+-]+){1,3}$|^UTC$/.test(value)) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** §A.5: confirm the clinic's zone. Until stamped, `timezone` is the provisioning default and no callback is dialled. */
+async function opSetClinicTimezone(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies TimezoneState);
+  const timezone = stringArg(args, "timezone", 64);
+  if (!timezone || !isIanaTimeZone(timezone)) {
+    return ok({ status: "error", message: "That is not an IANA time zone (for example America/New_York)." } satisfies TimezoneState);
+  }
+  await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    async (tx) => {
+      const now = new Date();
+      await tx.db.update(clinics).set({ timezone, timezoneConfirmedAt: now, updatedAt: now }).where(eq(clinics.id, tx.clinicId));
+      tx.audit.record({ action: "update", resourceType: "clinic_timezone", resourceId: tx.clinicId, metadata: { timezone, confirmed: true } });
+    },
+  );
+  const auditRecorded = await audit(operator, "clinic_timezone_confirmed", { clinicSlug: clinic.slug, timezone });
+  return ok({ status: "updated", timezone, auditRecorded } satisfies TimezoneState);
+}
+
+const PHI_BASES: readonly PhiBasis[] = ["vendor_baa", "practice_account"];
+
+/**
+ * §B.3: record the lawful basis on which a name, a service and a time may
+ * reach a calendar vendor — its own BAA with us, or the practice's own
+ * account under the practice's own agreement. NULL clears it, and a
+ * connection with none is never written to. The note is PHI-scanned like an
+ * incident summary: it is prose an operator typed.
+ */
+async function opSetConnectionPhiBasis(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies SwitchState);
+  const connectionId = stringArg(args, "connectionId");
+  if (!connectionId || !UUID_SHAPED.test(connectionId)) return ok({ status: "error", message: "That is not a connection id." } satisfies SwitchState);
+  const basisRaw = args.basis === null ? null : stringArg(args, "basis", 32);
+  if (basisRaw !== null && !PHI_BASES.includes(basisRaw as PhiBasis)) {
+    return ok({ status: "error", message: "The basis is vendor_baa, practice_account, or null to clear it." } satisfies SwitchState);
+  }
+  const basis = basisRaw as PhiBasis | null;
+  const noteRaw = stringArg(args, "note", 500);
+  const note = noteRaw ? incidentText(noteRaw, "note") : null;
+  if (note && typeof note !== "string") return ok({ status: "error", message: note.error } satisfies SwitchState);
+  const found = await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    async (tx) => {
+      const [row] = await tx.db
+        .update(providerConnections)
+        .set({ phiBasis: basis, updatedAt: new Date() })
+        .where(and(eq(providerConnections.id, connectionId), eq(providerConnections.clinicId, tx.clinicId)))
+        .returning({ id: providerConnections.id, provider: providerConnections.provider });
+      if (!row) return null;
+      tx.audit.record({
+        action: "update",
+        resourceType: "provider_connection",
+        resourceId: row.id,
+        metadata: { provider: row.provider, phiBasis: basis, note: note as string | null },
+      });
+      return row;
+    },
+  );
+  if (!found) return ok({ status: "error", message: "No such connection on this clinic." } satisfies SwitchState);
+  const auditRecorded = await audit(operator, "connection_phi_basis_set", { clinicSlug: clinic.slug, provider: found.provider, phiBasis: basis });
+  return ok({ status: "updated", auditRecorded } satisfies SwitchState);
+}
+
+/**
+ * §G.3: the approved UTILITY template's name, stored on the WhatsApp
+ * channel's metadata. Refused while HEALDESK_WHATSAPP_TEMPLATES_ENABLED is
+ * not "true" — the flag waits on counsel, and a name recorded before then
+ * would be a template a code path could send.
+ */
+async function opSetWhatsAppTemplate(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies SwitchState);
+  if (!env.whatsappTemplatesEnabled()) {
+    return ok({ status: "error", message: "WhatsApp templates are switched off in this environment (HEALDESK_WHATSAPP_TEMPLATES_ENABLED). Nothing was recorded." } satisfies SwitchState);
+  }
+  const templateName = args.templateName === null ? null : stringArg(args, "templateName", 120);
+  if (templateName !== null && (!templateName || !/^[a-z0-9_]{1,120}$/.test(templateName))) {
+    return ok({ status: "error", message: "A template name is lower-case letters, digits and underscores, as Meta approved it." } satisfies SwitchState);
+  }
+  const found = await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    async (tx) => {
+      const [row] = await tx.db
+        .update(providerConnections)
+        .set({
+          metadata: sql`coalesce(${providerConnections.metadata}, '{}'::jsonb) || ${JSON.stringify({ templateName })}::jsonb`,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(providerConnections.clinicId, tx.clinicId), eq(providerConnections.provider, META_PROVIDERS.whatsapp)))
+        .returning({ id: providerConnections.id });
+      if (!row) return null;
+      tx.audit.record({ action: "update", resourceType: "provider_connection", resourceId: row.id, metadata: { platform: "whatsapp", templateSet: templateName !== null } });
+      return row;
+    },
+  );
+  if (!found) return ok({ status: "error", message: "Attach the WhatsApp channel first; the template name lives on it." } satisfies SwitchState);
+  const auditRecorded = await audit(operator, "whatsapp_template_set", { clinicSlug: clinic.slug, templateSet: templateName !== null });
+  return ok({ status: "updated", auditRecorded } satisfies SwitchState);
+}
+
+export type BookingModeState =
+  | { status: "updated"; mode: "desk_confirms" | "direct"; auditRecorded: boolean }
+  | { status: "refused"; reason: string; missing: string[] }
+  | { status: "error"; message: string };
+
+class DirectBookingRefused extends Error {
+  constructor(readonly reason: string, readonly missing: string[]) {
+    super(reason);
+    this.name = "DirectBookingRefused";
+  }
+}
+
+/**
+ * §E.6: the switch. "direct" is written and then judged by the same
+ * directBookingAllowed() the voice tools call, inside the same transaction,
+ * so a refusal rolls the write back and the operator reads the exact
+ * sentences the route would refuse on. The election is checked first in
+ * code because the row's CHECK would otherwise refuse with a constraint name.
+ * "desk_confirms" also stamps the withdrawal, which is what "withdraw by
+ * notice" means in the database: the election stays on the row as evidence,
+ * and the CHECK makes "direct" unrepresentable again until a new one.
+ */
+async function opSetBookingMode(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies BookingModeState);
+  const mode = stringArg(args, "mode", 16);
+  if (mode !== "direct" && mode !== "desk_confirms") {
+    return ok({ status: "error", message: "The mode is desk_confirms or direct." } satisfies BookingModeState);
+  }
+  const context = { clinicId: clinic.id, actor: actorFor(operator), request: operator.request };
+  if (mode === "desk_confirms") {
+    await withTenant(context, async (tx) => {
+      const now = new Date();
+      const withdraw = clinic.directBookingElectedAt !== null && clinic.directBookingWithdrawnAt === null;
+      await tx.db
+        .update(clinics)
+        .set({ bookingMode: "desk_confirms", ...(withdraw ? { directBookingWithdrawnAt: now } : {}), updatedAt: now })
+        .where(eq(clinics.id, tx.clinicId));
+      tx.audit.record({ action: "update", resourceType: "clinic_booking_mode", resourceId: tx.clinicId, metadata: { mode, withdrawn: withdraw } });
+    });
+    const auditRecorded = await audit(operator, "booking_mode_set", { clinicSlug: clinic.slug, mode });
+    return ok({ status: "updated", mode, auditRecorded } satisfies BookingModeState);
+  }
+
+  if (!currentDirectBookingAddendum().approvedByCounsel) {
+    return ok({
+      status: "refused",
+      reason: "addendum_not_approved",
+      missing: ["The direct-booking addendum has not been approved by counsel."],
+    } satisfies BookingModeState);
+  }
+  if (clinic.directBookingElectedAt === null || clinic.directBookingWithdrawnAt !== null) {
+    return ok({
+      status: "refused",
+      reason: "no_election",
+      missing: ["The practice has not accepted the direct-booking addendum on its setup link, or has withdrawn it. Issue a new setup link."],
+    } satisfies BookingModeState);
+  }
+  try {
+    await withTenant(context, async (tx) => {
+      const now = new Date();
+      await tx.db.update(clinics).set({ bookingMode: "direct", updatedAt: now }).where(eq(clinics.id, tx.clinicId));
+      const check = await directBookingAllowed(tx);
+      if (!check.ok) throw new DirectBookingRefused(check.reason, check.missing);
+      tx.audit.record({ action: "update", resourceType: "clinic_booking_mode", resourceId: tx.clinicId, metadata: { mode } });
+    });
+  } catch (error) {
+    if (error instanceof DirectBookingRefused) {
+      return ok({ status: "refused", reason: error.reason, missing: error.missing } satisfies BookingModeState);
+    }
+    throw error;
+  }
+  const auditRecorded = await audit(operator, "booking_mode_set", { clinicSlug: clinic.slug, mode });
+  return ok({ status: "updated", mode, auditRecorded } satisfies BookingModeState);
+}
+
+/** §H.2: resend (or issue for the first time) the setup link. Same shape and same care as the connect link. */
+async function opIssueSetupLink(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies IssueConnectLinkState);
+  const to = stringArg(args, "to", MAX_EMAIL_LENGTH)?.toLowerCase();
+  if (to !== undefined && !EMAIL_SHAPED.test(to)) {
+    return ok({ status: "error", message: "That doesn't look like an email address." } satisfies IssueConnectLinkState);
+  }
+  const { token, expiresAt } = await issueConnectionLink(
+    clinic.id,
+    { purpose: "setup" },
+    { actor: actorFor(operator), request: operator.request },
+  );
+  const url = `${env.betterAuthUrl().replace(/\/$/, "")}/setup/${token}`;
+  let delivery: ConnectLinkDelivery = { attempted: false };
+  if (to) {
+    const result = await sendSetupLink({ to, clinicId: clinic.id, clinicName: clinic.name, specialty: clinic.specialty, url, expiresAt });
+    delivery = result.status === "sent" ? { attempted: true, status: "sent" } : { attempted: true, status: result.status, reason: result.reason };
+  }
+  const auditRecorded = await audit(operator, "setup_link_issued", {
+    clinicId: clinic.id,
+    expiresInHours: Math.round((expiresAt.getTime() - Date.now()) / 3_600_000),
+    delivery: delivery.attempted ? delivery.status : "not_attempted",
+  });
+  return ok({
+    status: "issued",
+    url,
+    expiresAt: `${expiresAt.toISOString().replace("T", " ").slice(0, 16)} UTC`,
+    delivery,
+    auditRecorded,
+  } satisfies IssueConnectLinkState);
+}
+
+export type RetryCalendarWriteState =
+  | { status: "retried"; outcome: CalendarWriteOutcome; auditRecorded: boolean }
+  | { status: "error"; message: string };
+
+/** §B.4: re-run a calendar write from `failed` or `unknown`, read-back first (writeToCalendar does that). */
+async function opRetryCalendarWrite(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies RetryCalendarWriteState);
+  const appointmentId = stringArg(args, "appointmentId");
+  if (!appointmentId || !UUID_SHAPED.test(appointmentId)) {
+    return ok({ status: "error", message: "That is not an appointment id." } satisfies RetryCalendarWriteState);
+  }
+  let outcome: CalendarWriteOutcome;
+  try {
+    outcome = await writeToCalendar(clinic.id, appointmentId, { fromFailed: true, actor: actorFor(operator) });
+  } catch (error) {
+    return ok({ status: "error", message: error instanceof Error ? error.message.slice(0, 200) : "Could not retry." } satisfies RetryCalendarWriteState);
+  }
+  const auditRecorded = await audit(operator, "calendar_write_retried", { clinicSlug: clinic.slug, appointmentId, outcome });
+  return ok({ status: "retried", outcome, auditRecorded } satisfies RetryCalendarWriteState);
+}
+
+/** §B.4: the calendar-write ledger on its own, for a refresh after a retry. */
+async function opListCalendarWrites(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return opsProblem("No such clinic.", 404, "invalid_args");
+  const writes = await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    async (tx) => {
+      tx.audit.record({ action: "read", resourceType: "appointment_calendar_write", resourceId: tx.clinicId });
+      return listCalendarWritesWithin(tx);
+    },
+  );
+  return ok({ writes });
 }

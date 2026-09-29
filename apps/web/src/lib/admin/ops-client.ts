@@ -177,7 +177,16 @@ type OperatorOp =
   | "listClinicHealth"
   | "recordClinicTouch"
   | "attachMetaChannel"
-  | "setMetaFrontDoor";
+  | "setMetaFrontDoor"
+  | "setBookingRequirements"
+  | "setOutboundCallbacks"
+  | "setClinicTimezone"
+  | "setConnectionPhiBasis"
+  | "setWhatsAppTemplate"
+  | "setBookingMode"
+  | "issueSetupLink"
+  | "retryCalendarWrite"
+  | "listCalendarWrites";
 
 /**
  * The operations that happen BEFORE there is a session, and there are exactly
@@ -1737,6 +1746,43 @@ export type OnboardingView = {
     approvedByLabel: string | null;
   } | null;
   goLive: { ok: true } | { ok: false; missing: string[] };
+  /** The booking requirement set: resolved ids, who settled it, and the catalogue to edit it with. */
+  requirements: {
+    fields: string[];
+    confirmedAt: string | null;
+    source: "practice" | "operator" | "defaults" | null;
+    setupLinkOutstanding: boolean;
+    catalogue: { id: string; label: string; locked: boolean; phoneOnly: boolean }[];
+    neverAsked: string[];
+  };
+  bookingMode: "desk_confirms" | "direct";
+  directBookingElectedAt: string | null;
+  directBookingWithdrawnAt: string | null;
+  directBooking: {
+    addendumVersion: string;
+    addendumApproved: boolean;
+    gates: { id: DirectBookingGate; ok: boolean }[];
+    missing: string[];
+  };
+  outboundCallbacksEnabled: boolean;
+  timezoneConfirmedAt: string | null;
+  timezone: string;
+  pendingCallbacks: number;
+  whatsappTemplateName: string | null;
+  whatsappTemplatesFlag: boolean;
+  calendarConnection: { connectionId: string; platform: string; phiBasis: PhiBasis | null; writable: boolean } | null;
+  calendarWrites: CalendarWriteRow[];
+};
+
+export type DirectBookingGate = "env" | "addendum" | "election" | "calendar" | "production" | "agent";
+export const DIRECT_BOOKING_GATES: readonly DirectBookingGate[] = ["env", "addendum", "election", "calendar", "production", "agent"];
+export type PhiBasis = "vendor_baa" | "practice_account";
+export type CalendarWriteRow = {
+  appointmentId: string;
+  slotAt: string;
+  status: "writing" | "written" | "failed" | "unknown";
+  error: string | null;
+  requestChannel: "voice" | "meta";
 };
 
 export type DepositPolicy = { required: boolean; amountUsd: number | null; collection: "front_desk" | "stripe_connect" };
@@ -1873,6 +1919,66 @@ function readOnboardingView(value: unknown): OnboardingView {
     goLive: goLiveRaw.ok === true
       ? { ok: true }
       : { ok: false, missing: list(goLiveRaw.missing, "goLive.missing").map((m) => text(m, "goLive.missing")) },
+    requirements: (() => {
+      const r = object(data.requirements ?? {}, "getOnboarding.requirements");
+      const src = optionalString(r.source);
+      return {
+        fields: list(r.fields ?? [], "requirements.fields").map((f) => text(f, "requirements.field")),
+        confirmedAt: optionalString(r.confirmedAt),
+        source: src === "practice" || src === "operator" || src === "defaults" ? src : null,
+        setupLinkOutstanding: r.setupLinkOutstanding === true,
+        catalogue: list(r.catalogue ?? [], "requirements.catalogue").map((entry) => {
+          const f = object(entry, "requirements.catalogue.field");
+          return { id: text(f.id, "field.id"), label: text(f.label, "field.label"), locked: f.locked === true, phoneOnly: f.phoneOnly === true };
+        }),
+        neverAsked: list(r.neverAsked ?? [], "requirements.neverAsked").map((n) => text(n, "requirements.neverAsked")),
+      };
+    })(),
+    bookingMode: data.bookingMode === "direct" ? "direct" : "desk_confirms",
+    directBookingElectedAt: optionalString(data.directBookingElectedAt),
+    directBookingWithdrawnAt: optionalString(data.directBookingWithdrawnAt),
+    directBooking: (() => {
+      const d = object(data.directBooking ?? {}, "getOnboarding.directBooking");
+      return {
+        addendumVersion: optionalString(d.addendumVersion) ?? "",
+        addendumApproved: d.addendumApproved === true,
+        gates: list(d.gates ?? [], "directBooking.gates").flatMap((entry) => {
+          const g = object(entry, "directBooking.gate");
+          const id = DIRECT_BOOKING_GATES.find((x) => x === g.id);
+          return id ? [{ id, ok: g.ok === true }] : [];
+        }),
+        missing: list(d.missing ?? [], "directBooking.missing").map((m) => text(m, "directBooking.missing")),
+      };
+    })(),
+    outboundCallbacksEnabled: data.outboundCallbacksEnabled === true,
+    timezoneConfirmedAt: optionalString(data.timezoneConfirmedAt),
+    timezone: optionalString(data.timezone) ?? text(clinic.timezone, "clinic.timezone"),
+    pendingCallbacks: typeof data.pendingCallbacks === "number" && Number.isInteger(data.pendingCallbacks) && data.pendingCallbacks >= 0 ? data.pendingCallbacks : 0,
+    whatsappTemplateName: optionalString(data.whatsappTemplateName),
+    whatsappTemplatesFlag: data.whatsappTemplatesFlag === true,
+    calendarConnection: (() => {
+      if (!data.calendarConnection) return null;
+      const c = object(data.calendarConnection, "getOnboarding.calendarConnection");
+      const basis = optionalString(c.phiBasis);
+      return {
+        connectionId: id(c.connectionId, "calendarConnection.connectionId"),
+        platform: text(c.platform, "calendarConnection.platform"),
+        phiBasis: basis === "vendor_baa" || basis === "practice_account" ? basis : null,
+        writable: c.writable === true,
+      };
+    })(),
+    calendarWrites: list(data.calendarWrites ?? [], "getOnboarding.calendarWrites").map(readCalendarWrite),
+  };
+}
+
+function readCalendarWrite(entry: unknown): CalendarWriteRow {
+  const w = object(entry, "calendarWrite");
+  return {
+    appointmentId: id(w.appointmentId, "calendarWrite.appointmentId"),
+    slotAt: text(w.slotAt, "calendarWrite.slotAt"),
+    status: literal(w.status, ["writing", "written", "failed", "unknown"], "calendarWrite.status"),
+    error: optionalText(w.error, "calendarWrite.error"),
+    requestChannel: literal(w.requestChannel, ["voice", "meta"], "calendarWrite.requestChannel"),
   };
 }
 
@@ -2210,4 +2316,84 @@ export function attachMetaChannel(
 
 export function setMetaFrontDoor(clinicId: string, enabled: boolean) {
   return careWrite("setMetaFrontDoor", { clinicId, enabled });
+}
+
+
+// -----------------------------------------------------------------------------
+// Booking hand-off, callbacks and direct booking (design of 23 September 2026)
+// -----------------------------------------------------------------------------
+
+export function setBookingRequirements(clinicId: string, fields: string[]) {
+  return simple("setBookingRequirements", { clinicId, fields });
+}
+
+export function setOutboundCallbacks(clinicId: string, enabled: boolean) {
+  return simple("setOutboundCallbacks", { clinicId, enabled });
+}
+
+export function setClinicTimezone(clinicId: string, timezone: string) {
+  return simple("setClinicTimezone", { clinicId, timezone });
+}
+
+export function setConnectionPhiBasis(clinicId: string, input: { connectionId: string; basis: PhiBasis | null; note?: string }) {
+  return simple("setConnectionPhiBasis", { clinicId, connectionId: input.connectionId, basis: input.basis, ...(input.note ? { note: input.note } : {}) });
+}
+
+export function setWhatsAppTemplate(clinicId: string, templateName: string | null) {
+  return simple("setWhatsAppTemplate", { clinicId, templateName });
+}
+
+export type BookingModeOutcome =
+  | { status: "updated"; mode: "desk_confirms" | "direct" }
+  | { status: "refused"; message: string; missing: string[] };
+
+export function setBookingMode(clinicId: string, mode: "desk_confirms" | "direct"): Promise<OpsResult<BookingModeOutcome>> {
+  return callOps("setBookingMode", "write", { clinicId, mode }, (value) => {
+    const data = object(value, "setBookingMode");
+    const s = state(data, "setBookingMode");
+    if (s === "updated") return { status: "updated", mode: data.mode === "direct" ? "direct" : "desk_confirms" };
+    const missing = list(data.missing ?? [], "setBookingMode.missing").map((m) => text(m, "setBookingMode.missing"));
+    const reason = optionalText(data.reason, "setBookingMode.reason");
+    return {
+      status: "refused",
+      message: optionalText(data.message, "setBookingMode.message") ?? (reason ? `Refused: ${reason.replace(/_/g, " ")}.` : "Refused."),
+      missing,
+    };
+  });
+}
+
+/** Same shape as the connect link: the URL comes back once, composed upstream. */
+export function issueSetupLink(clinicId: string, to: string | null): Promise<OpsResult<IssueLinkOutcome>> {
+  const args: Record<string, unknown> = { clinicId };
+  if (to) args.to = to;
+  return callOps("issueSetupLink", "write", args, (value) => {
+    const data = object(value, "issueSetupLink");
+    if (state(data, "issueSetupLink") !== "issued") return refusal(data, "issueSetupLink");
+    return {
+      status: "issued",
+      url: url(data.url, "issueSetupLink.url"),
+      expiresAt: text(data.expiresAt, "issueSetupLink.expiresAt"),
+      delivery: readDelivery(data.delivery),
+      auditRecorded: bool(data.auditRecorded, "issueSetupLink.auditRecorded"),
+    };
+  });
+}
+
+export type RetryCalendarWriteOutcome =
+  | { status: "retried"; outcome: "written" | "failed" | "unknown" | "not-connected" }
+  | { status: "refused"; message: string };
+
+export function retryCalendarWrite(clinicId: string, appointmentId: string): Promise<OpsResult<RetryCalendarWriteOutcome>> {
+  return callOps("retryCalendarWrite", "write", { clinicId, appointmentId }, (value) => {
+    const data = object(value, "retryCalendarWrite");
+    if (state(data, "retryCalendarWrite") !== "retried") return refusal(data, "retryCalendarWrite");
+    return { status: "retried", outcome: literal(data.outcome, ["written", "failed", "unknown", "not-connected"], "retryCalendarWrite.outcome") };
+  });
+}
+
+export function fetchCalendarWrites(clinicId: string): Promise<OpsResult<CalendarWriteRow[]>> {
+  return callOps("listCalendarWrites", "read", { clinicId }, (value) => {
+    const data = object(value, "listCalendarWrites");
+    return list(data.writes ?? [], "listCalendarWrites.writes").map(readCalendarWrite);
+  });
 }

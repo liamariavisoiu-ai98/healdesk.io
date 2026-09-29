@@ -10,14 +10,16 @@ import {
   updateAgentConfig,
   validateAgentConfig,
 } from "@/lib/onboarding/agent-config";
+import { issueConnectionLink } from "@/lib/connections/links";
 import { goLive, goLivePreconditions } from "@/lib/onboarding/go-live";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
+import { applyBookingRequirementDefaults, applyBookingRequirementDefaultsFor } from "@/lib/onboarding/requirements";
 import { completeStep, readOnboarding, reopenStep } from "@/lib/onboarding/steps";
 import { listClinics } from "@/lib/ops/clinics";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { seedClinic } from "./setup/factories";
+import { inTenant, seedClinic } from "./setup/factories";
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const ACTOR = { type: "service", serviceName: "test" } as const;
@@ -185,5 +187,47 @@ describeDb("onboarding", () => {
     expect(events.rows[0].n).toBe(1);
 
     expect((await goLive(clinicId, { label: "ops@healdesk.test" })).status).toBe("refused");
+  });
+
+  test("the expiry fallback stamps source 'defaults' once the setup link has expired unspent", async () => {
+    const { clinicId } = await seedClinic("defaults");
+    const source = async () =>
+      (await getMigratorPool().query<{ s: string | null; r: unknown }>(`select booking_requirements_source as s, booking_requirements as r from clinics where id = $1`, [clinicId])).rows[0]!;
+
+    // Fresh clinic, no link: inside its grace, left alone.
+    expect(await applyBookingRequirementDefaultsFor(clinicId)).toBe("not_yet");
+
+    // An outstanding link: the practice may still answer.
+    const { token } = await issueConnectionLink(clinicId, { purpose: "setup" }, { actor: ACTOR, request: {} });
+    expect(await applyBookingRequirementDefaultsFor(clinicId)).toBe("link_outstanding");
+    expect((await source()).s).toBeNull();
+
+    // The link expires unspent (born expired, as connect-links.test.ts does it).
+    await inTenant(clinicId, async (client) => {
+      await client.query(`delete from connection_links where clinic_id = $1`, [clinicId]);
+      await client.query(
+        `insert into connection_links (clinic_id, token_hash, purpose, created_at, expires_at)
+         values ($1, $2, 'setup', now() - interval '15 days', now() - interval '1 day')`,
+        [clinicId, Buffer.from(token.padEnd(43, "x").slice(0, 32))],
+      );
+    });
+    const applied = await applyBookingRequirementDefaults(new Date());
+    expect(applied).toBeGreaterThanOrEqual(1);
+    const row = await source();
+    expect(row.s).toBe("defaults");
+    expect(row.r).toBeNull();
+    const state = await withTenant({ clinicId, actor: ACTOR }, readOnboarding);
+    expect(state.booking_requirements_confirmed).not.toBeNull();
+
+    // Idempotent: the next sweep stamps nothing again.
+    expect(await applyBookingRequirementDefaultsFor(clinicId)).toBe("already_confirmed");
+  });
+
+  test("a clinic with no setup link at all gets the defaults after fourteen days", async () => {
+    const { clinicId } = await seedClinic("defaults-nolink");
+    await getMigratorPool().query(`update clinics set created_at = now() - interval '15 days' where id = $1`, [clinicId]);
+    expect(await applyBookingRequirementDefaultsFor(clinicId)).toBe("applied");
+    const { rows } = await getMigratorPool().query<{ s: string | null }>(`select booking_requirements_source as s from clinics where id = $1`, [clinicId]);
+    expect(rows[0]!.s).toBe("defaults");
   });
 });

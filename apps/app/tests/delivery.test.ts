@@ -334,11 +334,12 @@ describeDb("delivery", () => {
       const jobs = Object.fromEntries(out.map((o) => [o.job, o.status]));
       // Hour 2 gates the nightly sync in; nothing else night-time is due.
       expect(Object.keys(jobs).sort()).toEqual(
-        ["billing-sweep", "connection-health", "meta-draft-sweep", "monthly-report", "nightly-sync", "weekly-recap"].sort(),
+        ["billing-sweep", "booking-requirements-defaults", "connection-health", "meta-draft-sweep", "monthly-report", "nightly-sync", "weekly-recap"].sort(),
       );
       // Every job that has not been switched on says so rather than working.
       for (const [job, status] of Object.entries(jobs)) {
         if (job === "connection-health") continue; // enabled by the test above
+        if (job === "booking-requirements-defaults") continue; // §H.5 sweep, not a switched job
         if (job === "meta-draft-sweep") continue; // a sweep, not a switched job: pure function of the clock, reports a count
         expect(status, job).toBe("disabled");
       }

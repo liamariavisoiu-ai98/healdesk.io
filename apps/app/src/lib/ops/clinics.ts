@@ -51,6 +51,18 @@ export type ClinicOverview = {
   stripeConnectAccountId: string | null;
   stripeConnectConnectedAt: Date | null;
   metaFrontDoorEnabled: boolean;
+  // 0040 (§A.14): booking mode, the direct-booking election, callbacks, the
+  // confirmed time zone and the booking requirement set. Configuration.
+  bookingMode: "desk_confirms" | "direct";
+  directBookingElectedAt: Date | null;
+  directBookingWithdrawnAt: Date | null;
+  outboundCallbacksEnabled: boolean;
+  timezoneConfirmedAt: Date | null;
+  /** Catalogue ids, or null when the specialty defaults apply. */
+  bookingRequirements: string[] | null;
+  bookingRequirementsConfirmedAt: Date | null;
+  bookingRequirementsSource: "practice" | "operator" | "defaults" | null;
+  synthflowCallbackAgentId: string | null;
 };
 
 /** Something an operator has to act on before this clinic can go live. */
@@ -66,7 +78,11 @@ export async function listClinics(): Promise<ClinicOverview[]> {
                onboarding, agent_approved_at, went_live_at,
                offboarding_started_at, export_delivered_at, destroy_after, destroyed_at,
                published_phone_e164, forwarding_test_until, forwarding_test_observed,
-               stripe_connect_account_id, stripe_connect_connected_at, meta_front_door_enabled
+               stripe_connect_account_id, stripe_connect_connected_at, meta_front_door_enabled,
+               booking_mode, direct_booking_elected_at, direct_booking_withdrawn_at,
+               outbound_callbacks_enabled, timezone_confirmed_at,
+               booking_requirements, booking_requirements_confirmed_at, booking_requirements_source,
+               synthflow_callback_agent_id
           from app_clinics_overview()`,
   );
 
@@ -109,6 +125,19 @@ export async function listClinics(): Promise<ClinicOverview[]> {
     stripeConnectAccountId: (row.stripe_connect_account_id as string | null) ?? null,
     stripeConnectConnectedAt: row.stripe_connect_connected_at ? new Date(row.stripe_connect_connected_at as string) : null,
     metaFrontDoorEnabled: Boolean(row.meta_front_door_enabled),
+    bookingMode: row.booking_mode === "direct" ? "direct" : "desk_confirms",
+    directBookingElectedAt: row.direct_booking_elected_at ? new Date(row.direct_booking_elected_at as string) : null,
+    directBookingWithdrawnAt: row.direct_booking_withdrawn_at ? new Date(row.direct_booking_withdrawn_at as string) : null,
+    outboundCallbacksEnabled: Boolean(row.outbound_callbacks_enabled),
+    timezoneConfirmedAt: row.timezone_confirmed_at ? new Date(row.timezone_confirmed_at as string) : null,
+    bookingRequirements: Array.isArray(row.booking_requirements)
+      ? (row.booking_requirements as unknown[]).filter((v): v is string => typeof v === "string")
+      : null,
+    bookingRequirementsConfirmedAt: row.booking_requirements_confirmed_at
+      ? new Date(row.booking_requirements_confirmed_at as string)
+      : null,
+    bookingRequirementsSource: (["practice", "operator", "defaults"] as const).find((s) => s === row.booking_requirements_source) ?? null,
+    synthflowCallbackAgentId: (row.synthflow_callback_agent_id as string | null) ?? null,
   }));
 }
 

@@ -109,6 +109,9 @@ describe("contentSecurityPolicy", () => {
   it("lets the hero video and the glTF decoder run", () => {
     expect(csp.get("media-src")).toEqual(["'self'", "blob:"]);
     expect(csp.get("img-src")).toEqual(["'self'", "data:", "blob:"]);
+    // GLTFLoader fetches the hero model's embedded texture via a blob: URL.
+    // Dropping this renders her as a white clay bust, silently.
+    expect(csp.get("connect-src")).toContain("blob:");
     // MeshoptDecoder instantiates embedded WebAssembly; this is not 'unsafe-eval'.
     expect(csp.get("script-src")).toContain("'wasm-unsafe-eval'");
   });

@@ -1,11 +1,11 @@
 healdesk Business Associate Agreement — version 1.1.0 DRAFT, rendered 29 September 2026 for counsel review.
-Rendered for a sample practice (covered-entity status: not yet notified; outbound messaging: on; no calendar connected; booking
-mode: desk confirms). The entity, its form, the governing law, the notice address (a Delaware registered-agent mailbox — confirm
-it is adequate) and the liability allocation are unchanged since the 23 September render. NEW AND UNREVIEWED: the Callbacks clause
-(it replaces the outbound-consent warranty, and Safeguards no longer carves out SMS), and the calendar-write and direct-booking
-clauses. Those two render only when a calendar is connected for writing or direct booking is elected — neither is true of this
-sample — so read them in packages/catalog/src/baa.ts (ids calendar-write, direct-booking) and direct-booking-addendum.ts. Outbound
-messaging "on" now keys only the reactivation-gate clause (both signing paths pass it off). Source: baa.ts, template 1.1.0-draft.
+Rendered for a sample practice in the shape a clinic actually signs (covered-entity status: not yet notified;
+outbound messaging: OFF on every signing path, so the reactivation clause never appears). The entity, its form,
+the governing law and the liability allocation are real. The notice address is the Delaware correspondence mailbox
+(a registered-agent box, not an office); counsel should confirm it is adequate as a notice address. NEW AND
+UNREVIEWED since 23 September: the callbacks clause (in the sample), and the calendar-write and direct-booking
+clauses, which render only for some practices and are shown in the appendix. Source: packages/catalog/src/baa.ts,
+template 1.1.0-draft.
 
 HEALDESK BUSINESS ASSOCIATE AGREEMENT
 Version 1.1.0 — DRAFT FOR COUNSEL REVIEW — NOT FOR EXECUTION
@@ -243,15 +243,7 @@ EFFECTIVE 13 September 2026
   messages, reminders or marketing of any kind. Practice will tell healdesk
   promptly of any withdrawal it receives directly.
 
-14. REACTIVATION MESSAGING IS NOT SWITCHED ON
-
-  The healthcare exemption relied on above is available only to a HIPAA
-  covered entity or its business associate. Because the covered-entity
-  determination for Golden Clinic LLC is "not yet determined", healdesk will
-  NOT switch on reactivation or win-back messaging until that question is
-  settled. Appointment reminders and missed-call follow-ups are unaffected.
-
-15. WHAT HEALDESK IS NOT AUTHORISED TO DO
+14. WHAT HEALDESK IS NOT AUTHORISED TO DO
 
   · Use protected health information to train, fine-tune, or evaluate any
     artificial intelligence model, its own or a third party's.
@@ -261,7 +253,7 @@ EFFECTIVE 13 September 2026
     through the agent.
   · Sell, license, or otherwise monetise patient information.
 
-16. TERM, TERMINATION, AND WHAT HAPPENS TO THE INFORMATION
+15. TERM, TERMINATION, AND WHAT HAPPENS TO THE INFORMATION
 
   This agreement takes effect on the effective date and continues for as long
   as healdesk holds any PHI for Practice. Either party may terminate it on
@@ -284,7 +276,7 @@ EFFECTIVE 13 September 2026
   six years from termination as 45 CFR 164.530(j) and 164.528 require. Neither
   contains more PHI than the record itself needs.
 
-17. LIABILITY, AND WHO INDEMNIFIES WHOM
+16. LIABILITY, AND WHO INDEMNIFIES WHOM
 
   Practice will defend, indemnify and hold harmless healdesk and its
   subcontractors against every claim, loss, liability, regulatory penalty,
@@ -316,14 +308,14 @@ EFFECTIVE 13 September 2026
   liability to healdesk at figures far below what a breach can cost. Practice
   should size its own cover accordingly.
 
-18. AVAILABILITY OF RECORDS
+17. AVAILABILITY OF RECORDS
 
   healdesk will make its internal practices, books and records relating to the
   use and disclosure of protected health information available to the
   Secretary of Health and Human Services for the purpose of determining
   compliance.
 
-19. NOTICES, GOVERNING LAW, AND INTERPRETATION
+18. NOTICES, GOVERNING LAW, AND INTERPRETATION
 
   Notices under this agreement are in writing. To healdesk: 800 N King Street,
   Suite 304-1426, Wilmington, DE 19801, United States, and by email to
@@ -345,3 +337,49 @@ EFFECTIVE 13 September 2026
   agreement between Golden Clinic LLC and Viixi FZC about PHI, and replace any
   earlier version of this agreement between them from the effective date
   forward; PHI already held is governed by this version from that date.
+
+APPENDIX — CLAUSES THAT RENDER ONLY FOR SOME PRACTICES (not part of the sample above)
+
+A. Rendered when the practice has connected a calendar (calendarWrite set); it also
+   replaces the "reads nothing from it" data-sources clause with the calendar-only one:
+
+5. WHAT HEALDESK WRITES TO YOUR CALENDAR
+
+  Practice has connected Cal.com so that healdesk may read that calendar's
+  free and busy times for one event type Practice chooses, and may add an
+  appointment to that event type only when Practice's front desk confirms a
+  time on a booking request, or, where Practice has accepted the direct
+  booking addendum, when the assistant books a caller by telephone. healdesk
+  holds an API key for that purpose, sends Cal.com a first name, the service
+  asked about and the time, never a telephone number or a patient's email
+  address, and reads bookings back only to count them. It moves, edits or
+  cancels nothing it did not create.
+
+4. WHAT HEALDESK READS FROM YOUR SYSTEMS
+
+  Golden Clinic LLC has chosen estimated reporting. Apart from the calendar
+  access described in the calendar clause, healdesk holds no credentials to
+  any practice system and reads nothing from it. The only patient information
+  healdesk receives is what patients themselves give it during a call or chat.
+  Revenue figures are calculated from the average appointment value Golden
+  Clinic LLC supplied, and are labelled as estimates wherever they appear.
+
+B. Rendered when the practice has accepted the direct booking addendum (bookingMode
+   "direct"); the addendum itself is a standalone document, packages/catalog/src/
+   direct-booking-addendum.ts, with its own counsel approval and golden hash:
+
+14. DIRECT BOOKING, BY PRACTICE'S ELECTION
+
+  Practice has elected that healdesk's telephone assistant may, on telephone
+  calls only, read availability from and create appointments in the calendar
+  Practice connected for that purpose, at a time the assistant read as free
+  from that calendar, and may state the booked time to the caller. Practice is
+  responsible for those appointments as for any booked by its own staff,
+  including the availability it publishes to that calendar and any deposit it
+  requires; healdesk's responsibility is limited to booking only into that
+  calendar, only at a time it showed as free, and only the details permitted
+  by this agreement's minimum-necessary clause, and healdesk remains
+  responsible for safeguarding the PHI involved under this agreement. Practice
+  may withdraw the election at any time by notice, after which the assistant
+  reverts to handing requests to Practice's front desk.
+

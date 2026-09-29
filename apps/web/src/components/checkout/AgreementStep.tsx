@@ -1,12 +1,16 @@
 "use client";
 
 import {
+  applicableClauses,
   assentSentence,
   BAA_ACTION_LABEL,
   BAA_ASSENT_LABEL,
+  BAA_CLAUSE_EXPLAINERS,
   BAA_EXPLAINER,
+  type BaaVariables,
   currentBaaTemplate,
   CURRENT_BAA_VERSION,
+  type ExplainedClauseId,
   renderBaa,
 } from "@healdesk/catalog";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -57,6 +61,10 @@ import { ChoiceCard, PrimaryButton, StepShell } from "./StepShell";
 export type CopyDelivery =
   | { status: "sent" }
   | { status: "not_sent"; reason: string };
+
+function isExplainedClauseId(id: string): id is ExplainedClauseId {
+  return id in BAA_CLAUSE_EXPLAINERS;
+}
 
 export type AgreementResult = {
   agreementId: string;
@@ -160,9 +168,9 @@ export function AgreementStep({
    * Placeholders stand in for fields still empty, so the document is readable
    * before it is complete without ever rendering a blank party name.
    */
-  const documentText = useMemo(() => {
+  const variables = useMemo<BaaVariables | null>(() => {
     if (coveredEntity === undefined) return null;
-    return renderBaa(currentBaaTemplate(), {
+    return {
       clinicLegalName: clinicName.trim() || "[your practice]",
       signatoryName: signature.trim() || "[your name]",
       signatoryTitle: title.trim() || undefined,
@@ -175,9 +183,19 @@ export function AgreementStep({
       isCoveredEntity: coveredEntity,
       attributionMode,
       connectedPlatform: platformName,
-      // Inbound-only (21 September 2026): no consent warranty is asked of the clinic.
+      // Reactivation is not offered; stays false. No consent warranty is
+      // asked of the clinic: healdesk captures callback consent itself.
       outboundMessaging: false,
-    });
+      // Checkout does not ask. The direct-booking election is a separate,
+      // counsel-gated addendum accepted on the setup link, evidenced by its
+      // own hash — never by this field (design of 23 September 2026, §E.6).
+      bookingMode: "desk_confirms",
+      // Cal.com is the one calendar healdesk can write into, so choosing it
+      // at step 2 is what puts the calendar-write clause in the agreement.
+      // The literal display name must match what apps/app's signing path
+      // derives from the same platform id, or the two renders hash apart.
+      calendarWrite: platformId === "calcom" ? { platform: "Cal.com" } : null,
+    };
   }, [
     clinicName,
     signature,
@@ -186,8 +204,30 @@ export function AgreementStep({
     specialty,
     coveredEntity,
     attributionMode,
+    platformId,
     platformName,
   ]);
+
+  const documentText = useMemo(
+    () => (variables ? renderBaa(currentBaaTemplate(), variables) : null),
+    [variables],
+  );
+
+  /**
+   * Plain-English notes for the clauses this version adds beyond the
+   * regulation's own list (callbacks, the calendar write, direct booking),
+   * shown only for a clause that actually renders in THIS clinic's variant.
+   * Empty on 1.0.0, which has none of them; fills in on its own the day
+   * 1.1.0 is approved and promoted, with no change here.
+   */
+  const clauseNotes = useMemo(() => {
+    if (!variables) return [];
+    return applicableClauses(currentBaaTemplate(), variables).flatMap((clause) =>
+      isExplainedClauseId(clause.id)
+        ? [{ id: clause.id, heading: clause.heading, ...BAA_CLAUSE_EXPLAINERS[clause.id] }]
+        : [],
+    );
+  }, [variables]);
 
   /**
    * What the document panel shows: the preview until it is signed, the text the
@@ -342,6 +382,25 @@ export function AgreementStep({
           ))}
         </ul>
 
+        {clauseNotes.length > 0 ? (
+          <ul className="mt-4 grid gap-2.5">
+            {clauseNotes.map((note) => (
+              <li key={note.id} className="flex gap-2.5 text-sm">
+                <span aria-hidden className="text-red-deep mt-px shrink-0 font-bold">
+                  ·
+                </span>
+                <span>
+                  <span className="font-medium">{note.heading}: </span>
+                  <span className="font-medium">{note.plain}</span>{" "}
+                  <span className="text-muted text-xs whitespace-nowrap">
+                    {note.citation}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
         <p className="text-muted mt-4 text-xs leading-relaxed">
           {BAA_EXPLAINER.disclaimer}
         </p>
@@ -486,31 +545,32 @@ export function AgreementStep({
           </label>
         </div>
 
-        {/* ---------------- The consent warranty, restated ----------------
-            This is in the agreement they just scrolled through, and it is
-            repeated here on purpose. It is the one clause that imposes an
-            obligation on THEM rather than on us, and the assent label names it
-            so burying it in a scroll box and relying on "they saw it" is
-            exactly the reading that fails. Conspicuous beside the button is
-            what makes it stick.
-
-            It also matters commercially: the outbound loop is the product's
-            differentiator, and under the TCPA consent to receive those messages
-            has to come from the patient. The clinic is the only party that can
-            have obtained it. Without this warranty there is no consent basis
-            for the feature and the liability lands on us. */}
+        {/* ---------------- Call-backs, stated plainly ----------------
+            This box used to restate a consent warranty: the clinic confirming
+            it held TCPA consent for reminders and win-backs, because the
+            clinic was the only party that could have obtained it. That
+            warranty is gone, and not because the product stopped calling.
+            Since 23 September 2026 the only call the product places is a
+            call-back the person agreed to in so many words on their own
+            inbound call or message, and healdesk captures that consent
+            itself, verbatim, with its wording version and channel
+            (packages/catalog/src/consent-wording.ts). Nothing is asked of
+            the clinic, so there is nothing for it to warrant; what it needs
+            to know instead is the upper bound on what will ever be placed in
+            its name, which is what this says. Conspicuous beside the button
+            for the same reason the warranty was: a scroll box and "they saw
+            it" is the reading that fails. */}
         <div className="border-line bg-paper-2/50 mt-6 rounded-xl border p-4">
-          <p className="text-[15.6px] font-bold">
-            About reminders and follow-ups
-          </p>
+          <p className="text-[15.6px] font-bold">About call-backs</p>
           <p className="text-muted mt-1.5 text-[15.6px] leading-relaxed">
-            healdesk texts and calls your patients in your name, reminders,
-            missed-call follow-ups, and win-back messages. The law requires that
-            consent come from the patient, and you are the one who collected it
-            at intake. So the agreement asks you to confirm you hold it, and to
-            authorise us to send on your behalf. We honour STOP, respect quiet
-            hours in the patient&apos;s own timezone, and keep to the frequency
-            limits on every message.
+            healdesk never texts your patients and sends no reminders or
+            win-backs. The only call it ever places is a call-back to someone
+            who, on their own call or message, agreed to one &mdash; to settle a
+            time or collect the details you choose at setup. It says it is an
+            AI first, gives your number, honours &apos;stop&apos; for good, and
+            keeps to 8am&ndash;8pm in your practice&apos;s time zone and never
+            Sunday. You give no consent warranty; we obtain and record the
+            consent ourselves.
           </p>
         </div>
 

@@ -20,14 +20,28 @@
  *
  * Second, it sets an expectation the compliant product cannot meet. The voice
  * agent is PHI-light by design: it collects a name, a callback number, the
- * service asked for and a preferred time, and pushes everything clinical off
- * the phone. If the demo triages and the real thing deflects, the first
- * onboarding call is a complaint about a downgrade.
+ * service asked for, a preferred time and two back-ups, and pushes everything
+ * clinical off the phone. If the demo triages and the real thing deflects, the
+ * first onboarding call is a complaint about a downgrade.
  *
  * So the demo is scoped to scheduling logistics and deflection. Deflection is
  * not a limitation to hide. It IS the product, and demonstrating it well is
  * the most honest thing this page does.
+ *
+ * ## The demo must not describe features that are not live
+ *
+ * Call-backs and direct booking exist in the design (23 September 2026) and
+ * behind runtime switches on the PHI side that stay off until counsel answers.
+ * The demo may only claim them once they are on in production, so the two
+ * sentences below are gated by build-time flags that are unset everywhere
+ * today. `process.env.NEXT_PUBLIC_*` is read at module scope, as a literal,
+ * so Next inlines it at build time and the site cannot say one thing on one
+ * render and another on the next; src/lib/demo-copy.test.ts asserts the
+ * sentences are absent while the flags are unset.
  */
+const CALLBACKS_LIVE = process.env.NEXT_PUBLIC_CALLBACKS_LIVE === "true";
+const DIRECT_BOOKING_LIVE = process.env.NEXT_PUBLIC_DIRECT_BOOKING_LIVE === "true";
+
 export function buildSystemPrompt(specialtyName: string | null, context: string): string {
   // With no specialty named the agent is at the root of the knowledge tree,
   // which is where a real conversation starts, nobody rings a clinic having
@@ -44,9 +58,17 @@ export function buildSystemPrompt(specialtyName: string | null, context: string)
     `1) Demonstrate how healdesk handles the FRONT-DESK half of ${half}: what a treatment costs, how long it takes, what the clinic offers, availability, booking, rescheduling, cancellations, deposits, directions, parking and opening hours. Answer like a warm, sharp receptionist.`,
     '2) You are also speaking with a clinic owner or operator evaluating healdesk. When they ask about the product, answer clearly and win them over, then point them to the "Make It Yours" button to get their own.',
     "",
+    "Booking behaviour:",
+    "- When taking a booking, ask for a preferred day or time and one or two backups.",
+    "",
     "About healdesk, for product questions:",
-    "- It answers calls, SMS, web chat, Instagram DM, and WhatsApp 24/7, qualifies the caller, books directly into the clinic's calendar or booking system, and follows up on missed calls and lapsed patients.",
-    "- It calls back missed numbers automatically, so an unanswered phone stops being a lost patient.",
+    "- It answers calls 24/7 and, where the clinic buys them, Instagram, Messenger and WhatsApp. It takes booking requests — a name, a number, a preferred time and two back-ups — and hands each to the clinic's front desk to confirm; clinics that connect a calendar confirm into it from the same page. It never texts patients.",
+    CALLBACKS_LIVE
+      ? "- With the caller's spoken permission it can ring back to settle a time."
+      : null,
+    DIRECT_BOOKING_LIVE
+      ? "- Clinics that accept the direct booking addendum let the phone assistant book straight in."
+      : null,
     "- What actually sets it apart: it closes the loop on revenue. Other AI receptionists write a booking into the calendar and stop there. healdesk also reads the money event back out of the clinic's point-of-sale, so the clinic can see which recovered call became booked, showed up, and collected revenue. That reporting goes to the clinic and stays inside the clinic's own systems.",
     "- It is deliberately built to keep medical detail OFF the phone, and hands clinical questions to the clinic's staff. That is a design decision, not a gap, describe it with confidence.",
     "- HIPAA is handled with a signed BAA, encrypted US storage, and audit-ready consent records. Never claim healdesk is 'HIPAA certified' or that any third party has audited or verified it, no such certification exists, and claiming one is itself a violation. Say what we actually do instead.",
@@ -65,6 +87,8 @@ export function buildSystemPrompt(specialtyName: string | null, context: string)
     context,
     "",
     "Style: two to four sentences, warm and direct, no bullet lists, no emoji, no markdown headers. Sound like a great receptionist, not a chatbot. Move toward a booked appointment when you're talking to a patient, and toward a demo when you're talking to an operator.",
-  ].join("\n");
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
 }
 

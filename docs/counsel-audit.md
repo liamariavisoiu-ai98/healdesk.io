@@ -17,6 +17,16 @@ they depend on each other. The first one decides the other five.
 > (reactivation consent, the missed-call text-back) describe features that
 > no longer exist and are kept only so the reasoning survives if the
 > decision is ever reversed.
+>
+> **Update, 23–29 September 2026.** Half of that reversed, narrowly. The
+> product still sends no texts and no reactivation, so sections 3 and 4
+> stay historical — but it will place one kind of call: an AI callback
+> about a booking request the person made, after they agreed to it in so
+> many words on their own inbound call or message (handover, decisions
+> log, item 17). That reopens six questions, listed in the new section 7
+> with the exact wording each turns on. None of the three switches that
+> would let a call, a direct booking or a WhatsApp template go out is set
+> anywhere until they are answered.
 
 ## 1. Is this clinic a HIPAA covered entity, and what changes when it is not
 
@@ -319,6 +329,156 @@ question in question 1 decides.
 **Recommendation.** Keep the site's current wording; correct the outreach
 copy to match; never publish a recovery percentage the product did not
 measure.
+
+---
+
+## 7. Questions reopened by the 23 September decisions
+
+_29 September 2026. The design is `docs/design/booking-and-callbacks-2026-09-23.md`,
+§I.6; the decisions it records are handover item 17. These are questions
+for a licensed attorney, not answers: each names the statute it turns on,
+the wording the product will use, and what is switched off until the answer
+is on file. The wording is quoted from the catalogue and the design so
+counsel reviews the string the code ships, not a paraphrase; the file
+paths are where those strings live._
+
+**(1) Consent captured by the AI itself, as prior express consent for an
+artificial-voice callback.** An AI voice is an "artificial voice" under
+47 U.S.C. §227(b)(1)(A) (FCC 24-17, February 2024), so a callback the
+assistant places needs the person's prior express consent, and "they gave
+us their number" is not it. The product's answer is to ask one fixed
+question on the inbound contact and keep the person's own reply verbatim —
+on the phone the extractor's quote of what they said, on a Meta thread the
+raw message they typed, never the model's summary — with the wording
+version, channel and time, in a `consent_records` row the `outbound_calls`
+ledger cannot exist without. The question, wording version `callback-v2`
+(`packages/catalog/src/consent-wording.ts`):
+
+> *Voice:* "Is it alright if the practice's automated assistant calls you
+> back on this number about this booking request — to settle the time, or
+> if the front desk still needs a detail from you? It's an AI voice, and
+> you can say 'stop' at any time and we won't call again."
+>
+> *Meta thread (fixed text the code appends, never model text):* "Is it OK
+> for {clinic}'s automated assistant to call you back on that number about
+> this request — to settle a time, or if the front desk needs one more
+> detail? It's an AI voice, and it stops the moment you tell it to. It's
+> also fine to say no — the practice will still see your request."
+
+Is consent so captured — spoken to an AI on an inbound call, or typed on a
+Meta thread, transcribed and stored verbatim beside that question — prior
+express consent for an informational artificial-voice call about that
+request? Does the purpose limitation in the question ("to settle the time,
+or if the front desk still needs a detail") hold as the scope of the
+consent, so that a call for any other reason is outside it by the text?
+Until answered, `HEALDESK_OUTBOUND_CALLBACKS_ENABLED` stays unset and every
+due callback row is refused.
+
+**(2) 47 CFR 64.1200(b)(2)-(3): the opening disclosure and automated
+opt-out.** The regulation requires an artificial-voice call to state the
+business's telephone number and, where it is a telemarketing call, to offer
+an automated interactive opt-out. The product treats both as required on
+every callback whatever its character, and puts them in the fixed first
+message the vendor plays before any model turn (the design's §F.7,
+`callbackDisclosure()` in `apps/app/src/lib/compliance/disclosure.ts` once
+built):
+
+> "Hi, this is the automated AI assistant for {clinic} — not a human —
+> calling back about the booking request you made with us. This call is
+> transcribed by an automated system; no audio recording is kept. If you'd
+> rather we didn't call, say 'stop' or press 1 at any time and we won't call
+> again; you can also tell the practice on {clinic_phone_spoken}. Say
+> 'representative' or press 0 to reach a person. Is now an okay time?"
+
+Is a spoken business number and an automated opt-out at the outset
+required for an informational, consented callback of this kind, and does
+"say 'stop' or press 1" — honoured mid-call by suppressing the number
+across every channel for good and revoking the consent row, before
+anything else happens — satisfy (b)(3)? Is "no audio recording is kept"
+the right sentence where the vendor processes audio live to transcribe it?
+The wording is not frozen until this is answered.
+
+**(3) Meta: the separate WhatsApp opt-in, the utility template, and
+whether "the request you sent us" is health information.** Outside Meta's
+24-hour customer-service window a business may send only a pre-approved
+template to a person who opted in. The product asks for that opt-in as its
+own fixed question, separately from the callback question and only on
+WhatsApp threads (`CALLBACK_CONSENT.whatsappOptIn`):
+
+> "One more thing — is it OK for {clinic} to send you a message here on
+> WhatsApp if there's an update about your request? Reply yes or no; either
+> is fine."
+
+and would submit one template, category UTILITY, language `en_US`, name
+`healdesk_request_update_v1`, parameters first name / clinic name / clinic
+published phone (the design's §G.3):
+
+> "Hi {{1}}, this is the automated assistant for {{2}}. There's an update on
+> the request you sent us here. Please look out for a call on the number you
+> gave, or call the practice on {{3}}."
+
+Three sub-questions. Is a yes to that question adequate opt-in under
+Meta's WhatsApp Business Messaging Policy? May a message of that shape be a
+UTILITY template (transactional, about a request the person initiated)
+rather than MARKETING? And is "the request you sent us", on the WhatsApp
+account of a named healthcare practice, "health information" under Meta's
+Business Tools Terms §1.h, given that the line names no time, service,
+provider or condition? If the answer to all three is yes, what sentence
+should terms § 9 and the clinic-facing notice carry describing the
+template? Until answered, `HEALDESK_WHATSAPP_TEMPLATES_ENABLED` stays unset:
+inside the window the fixed PHI-free line still goes; outside it nothing is
+sent and the desk calls.
+
+**(4) Cal.com as a business associate.** A Cal.com clinic's connection lets
+healdesk write an appointment — a first name, the service asked about and
+the time; never a phone number or a patient's email — into the clinic's
+Cal.com calendar, so Cal.com holds PHI downstream of healdesk. Two bases
+are modelled on the connection (`provider_connections.phi_basis`):
+`vendor_baa`, Cal.com signs a BAA with healdesk as its subcontractor; or
+`practice_account`, the clinic uses its own Cal.com account under its own
+agreement with Cal.com and healdesk merely writes into it with the clinic's
+key. Whose BAA is needed, and does the `practice_account` basis remove
+healdesk's subcontractor duty under 45 CFR 164.502(e)(1)(ii) and
+164.504(e)(5), or only shift who holds the paper? The 15-day subcontractor
+notice in the signed BAA is sent before the first write either way.
+
+**(5) The direct-booking addendum: what it binds, and whether a web
+acceptance amends the signed BAA.** The election that lets the phone
+assistant book straight into the clinic's calendar is a standalone,
+versioned document (`packages/catalog/src/direct-booking-addendum.ts`),
+accepted by a named person on the single-use setup link and evidenced by
+its own hash. Its operative allocation:
+
+> "Practice is responsible for those appointments as for any booked by its
+> own staff, including the availability it publishes to that calendar and
+> any deposit it requires; healdesk's responsibility is limited to booking
+> only into that calendar, only at a time it showed as free, and only the
+> details permitted by this agreement's minimum-necessary clause, and
+> healdesk remains responsible for safeguarding the PHI involved under this
+> agreement. Practice may withdraw the election at any time by notice, after
+> which the assistant reverts to handing requests to Practice's front desk."
+
+Our reading is that it binds only between the parties and allocates
+nothing as against patients — confirm. And is a named-signatory click
+acceptance on a web page an amendment of the BAA signed at checkout, or a
+separate agreement that leaves the BAA untouched; if the former, does the
+BAA's amendment clause permit it? The addendum's `approvedByCounsel` flag
+gates the whole feature: the section does not appear on the setup page and
+the console cannot set `booking_mode = 'direct'` until it is true.
+
+**(6) The practice's time zone as the recipient's.** 47 CFR 64.1200(c)(1)
+fixes calling hours in the *called party's* local time. The product holds
+no time zone for the person — every contact carries the clinic's, and every
+clinic provisioned through checkout is `America/New_York` unless an
+operator sets it — so the callback window (8am–8pm, dialling stopped at
+7:30pm, never Sunday) is computed in the practice's zone, the contract says
+so in those words, and the dialer refuses until an operator has confirmed
+the clinic's zone in the console. For a phone caller who rang a local
+practice that is a strong proxy; for a person who wrote on Instagram,
+Messenger or WhatsApp it may not be. Is the practice's zone an acceptable
+proxy for a Meta writer, and if not, what — an area-code inference from the
+number they gave, a question the bot asks, or no callback to Meta writers
+at all — is the defensible alternative?
 
 ---
 

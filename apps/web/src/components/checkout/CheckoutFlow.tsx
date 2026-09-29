@@ -459,6 +459,16 @@ export function CheckoutFlow({
               selected={state.platform === p.id}
               onSelect={() => {
                 set("platform", p.id);
+                // A calendar we write into (Cal.com) holds no revenue and no
+                // arrival, so verified reporting is impossible through it.
+                // Step 3 hides the Verified card for it, but hiding a card
+                // does not change state: a buyer who chose Verified for
+                // Boulevard and then came back here would carry "verified"
+                // into a request provisioning rejects. Force it, the same way
+                // "No booking software" below does.
+                if (!supportsVerifiedAttribution(p)) {
+                  set("attributionMode", "estimated");
+                }
                 next();
               }}
               title={p.name}

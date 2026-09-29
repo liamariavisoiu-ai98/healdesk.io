@@ -59,11 +59,13 @@ export default function TermsPage() {
 
       <Section id="service" title="2. What the service is, and is not">
         <p>
-          {site.name} is an AI front desk: {site.agent} answers calls, web chat and, where
-          purchased, Instagram, Messenger and WhatsApp for your Practice; qualifies enquiries;
-          takes booking requests and hands each one to your front desk, who confirm a time, call
-          the person back, or decline; and reports which recovered contacts became revenue. The
-          agent never confirms an appointment itself.
+          {site.name} is an AI front desk: {site.agent} answers calls and, where purchased,
+          Instagram, Messenger and WhatsApp for your Practice; qualifies enquiries; takes booking
+          requests — a name, a number, a preferred time and two alternatives, and the details you
+          choose at setup — and hands each to your front desk, who confirm a time (into your
+          calendar, where you connect one), propose other times, call the person back, or decline;
+          and reports which recovered contacts became revenue. The agent confirms an appointment
+          itself only where you have accepted the direct booking addendum (section 8).
         </p>
         <ul className="list-disc space-y-2 pl-6">
           <li>
@@ -208,10 +210,25 @@ export default function TermsPage() {
       <Section id="you" title="8. Your responsibilities">
         <ul className="list-disc space-y-2 pl-6">
           <li>
-            <strong>Inbound only.</strong> The agent answers calls and messages that come to you. It
-            does not call or text anyone on your behalf: no reminders, no call-backs, no
-            reactivation campaigns. If you ask for outbound contact, we will decline; it is not
-            part of the Service.
+            <strong>Calls we place.</strong> The agent places a call to a person only when that
+            person, during their own call or message to you, agreed in so many words to an
+            automated call-back, and only about the booking request they made: to ask for details
+            your front desk needs, to offer the alternative times your desk proposed, or to confirm
+            a time your desk chose. Every such call says at the outset that it is an AI, is
+            transcribed, gives your practice's number, and how to stop it; a request to stop is
+            honoured for good; calls are placed only between 8am and 8pm in the local time of the
+            practice you contacted, which we treat as your own, and never on a Sunday, at most
+            twice about one request and at most four times to one number in thirty days. We send
+            no reminders, no reactivation or win-back messages and no marketing by any channel, and
+            we do not text patients. If you ask for any of those, we will decline.
+          </li>
+          <li>
+            <strong>Direct booking.</strong> If you accept the direct booking addendum, the agent
+            may book a caller straight into the calendar you connected, at a free time it read from
+            that calendar, and will say so to the caller. You accept responsibility for those
+            bookings as if your own staff had made them, including keeping that calendar's
+            availability true and any deposit you require, and you may withdraw the election at any
+            time by notice. Direct booking is available by phone only.
           </li>
           <li>
             <strong>Accurate configuration.</strong> Services, prices, hours, escalation contacts
@@ -246,10 +263,13 @@ export default function TermsPage() {
         <p>
           <strong>Meta channels.</strong> Instagram, Messenger and WhatsApp are operated by Meta,
           which does not sign Business Associate Agreements. On those channels the agent answers
-          public questions and moves the conversation to phone, text or the web to book; it does not
-          collect or confirm health information there. You may switch those channels off at any
-          time, and you accept this documented limitation when you purchase a package that includes
-          them.
+          public questions and takes a booking request (a first name, a number, preferred times)
+          and moves anything further to the phone; it never states a time, service or practitioner
+          there, and after your decision it sends a fixed line naming none of those. On a WhatsApp
+          thread the assistant sends only replies inside the conversation the person opened, and
+          never states a time, service or practitioner. It does not collect or confirm health
+          information there. You may switch those channels off at any time, and you accept this
+          documented limitation when you purchase a package that includes them.
         </p>
       </Section>
 

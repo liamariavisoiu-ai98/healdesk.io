@@ -72,8 +72,8 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   },
   {
     name: "Cal.com",
-    purpose: "Scheduling for clinics that have no booking system of their own",
-    data: "Booking name, contact number, appointment time",
+    purpose: "Scheduling for clinics that connect it: receives a first name, the service and the time of appointments the desk confirms or the assistant books",
+    data: "First name (and last name where the practice collects it), the service asked about, and the appointment time. Never a phone number or a patient email.",
     region: "United States",
     handlesPhi: true,
     baa: { state: "pending" },

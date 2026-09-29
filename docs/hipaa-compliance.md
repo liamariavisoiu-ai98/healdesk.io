@@ -72,8 +72,21 @@ uncovered hop breaks the chain.
 | Payments | Stripe | Available |
 | Transactional email | Resend | **Signs none** — see below |
 | Voice agent (demo) | Synthflow | Not signed; `apps/web` only, no PHI path |
+| Voice agent (product: inbound calls and consented callbacks) | Synthflow | **Pending.** PHI subprocessor (caller audio in flight, transcript, number). Must be a workspace whose Customer Region is **US**, under the executed Synthflow BAA — the demo workspace is on the EU "Global" cluster and is not reused. Workspace id: _to be recorded here at go-live_; `HEALDESK_SYNTHFLOW_API_BASE` must start with `https://api.us.synthflow.ai` or the dialer refuses every call |
+| Calendar write (product) | Cal.com | **Pending.** PHI subprocessor: receives a first name (and surname where the practice collects it), the service asked about and the appointment time; never a phone number or a patient email. No production clinic gets a calendar write or `booking_mode = 'direct'` until an operator records the connection's `phi_basis` — `vendor_baa` (Cal.com signed ours) or `practice_account` (the clinic's own Cal.com account under its own agreement) — and the clinic has signed a BAA carrying the calendar-write clause (1.1.0). The 15-day subcontractor notice goes to every signed clinic before the first write |
 | Auth | ~~Clerk~~ | **Not used.** Auth is a scrypt hash + TOTP, no vendor |
 | Error tracking | ~~Sentry~~ | **Not used.** No error tracker is installed |
+
+**Synthflow's two rows are two workspaces, not one.** The demo workspace
+places the one call a clinic owner asks for from the marketing site and never
+hears a patient. The product workspace answers forwarded calls and, once
+`HEALDESK_OUTBOUND_CALLBACKS_ENABLED` is set, places the consented callbacks
+of the 23 September 2026 design — every one of those carries PHI. That
+workspace must be created with Customer Region **US** (a permanent, one-time
+choice at Admin → Workspace Settings → Preferences) under the executed
+Synthflow BAA, its callback agent created with recording storage off and
+verified by a test call, and its id written into the row above at go-live.
+`docs/blockers-runbook.md` has the click path.
 
 The last two rows are kept struck through rather than deleted because a BAA
 table is a checklist of who is in the path, and "we evaluated this and did not

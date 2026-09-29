@@ -70,6 +70,24 @@ export type { PracticeKnowledge } from "./practice";
 const entryPlan = cheapestPlan();
 const entryVoicePlan = cheapestVoicePlan();
 
+/**
+ * Call-backs and direct booking are designed (23 September 2026) but sit
+ * behind runtime switches on the PHI side that stay off until counsel
+ * answers. The tree may claim them only once they are on in production, so
+ * each sentence is gated by a build-time flag, read at module scope as a
+ * literal so Next inlines it. Both unset everywhere today;
+ * src/lib/demo-copy.test.ts asserts the sentences are absent while they are.
+ */
+const CALLBACKS_LIVE = process.env.NEXT_PUBLIC_CALLBACKS_LIVE === "true";
+const DIRECT_BOOKING_LIVE = process.env.NEXT_PUBLIC_DIRECT_BOOKING_LIVE === "true";
+
+const CALLBACKS_LINE = CALLBACKS_LIVE
+  ? " With the caller's spoken permission it can ring back to settle a time."
+  : "";
+const DIRECT_BOOKING_LINE = DIRECT_BOOKING_LIVE
+  ? " Clinics that accept the direct booking addendum let the phone assistant book straight in."
+  : "";
+
 export const ROOT_KNOWLEDGE = `
 HOW A CLINIC FRONT DESK LOSES MONEY
   A front desk cannot answer while it is checking someone in, on another line,
@@ -83,7 +101,9 @@ WHAT HEALDESK ACTUALLY DOES
   Their published number keeps ringing at the clinic. Only when nobody picks up,
   or the line is engaged, does it forward to the agent, so the agent answers
   exactly the calls the front desk missed, never instead of a human who was free.
-  It books into the clinic's own calendar and texts a confirmation.
+  It takes the booking request, with a preferred time and two back-ups, and
+  hands it to the clinic's own front desk, who confirm it — into the clinic's
+  calendar where one is connected. It sends no texts.${CALLBACKS_LINE}${DIRECT_BOOKING_LINE}
 
   Setup is a call-forwarding setting the clinic can undo in one step. No number
   to port, no phone system to replace, no hardware, nothing installed.
@@ -99,8 +119,7 @@ WHAT MAKES THE REPORTING DIFFERENT
 WHAT IT DELIBERATELY DOES NOT DO
   · It does not answer clinical questions. That is a design decision, not a gap.
   · It does not replace anyone. It picks up what the desk could not reach.
-  · It does not cold-call, and it will not text anyone the clinic has not already
-    got consent for.
+  · It does not cold-call, and it does not text patients.
 
 HANDLING THE OBJECTIONS THAT ACTUALLY COME UP
   "We never miss calls."

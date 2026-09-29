@@ -249,8 +249,8 @@ re-raise this unless the owner does.
 | **Covered-entity determination** | Cash-pay med spas often aren't covered entities, which removes five defences at once including Washington MHMDA's — and that has a private right of action. Needs a method and a different posture for non-covered clinics |
 | **CIPA positioning** | Party-extension or independent third party? Contracts, architecture and marketing copy must all say the same thing |
 | **Click-through BAA — approved and enforced, not open** | The mechanism is production-ready — versioned, hashed, append-only acceptance — and the text is no longer a placeholder: `packages/catalog/src/baa.ts` `BAA_TEMPLATES[0]` is version 1.0.0, published 2026-09-05, `approvedByCounsel: true`, and `apps/app/src/lib/provisioning.ts` refuses to provision a clinic against any template that isn't (`currentBaaTemplate().approvedByCounsel`). Listed here so nobody re-opens it. What still needs counsel is the **other five rows** of this table |
-| **Reactivation = HIPAA marketing?** — moot | Inbound-only since 21 September 2026 (decisions log, item 11): the product sends nothing, so no authorisation question arises. Reopens only if outbound is switched back on |
-| **Missed-call callback consent** — moot | Same decision: no callbacks are placed, and `ingestCall()` refuses a call the vendor flags as outbound |
+| **Reactivation = HIPAA marketing?** — still moot; the callback question is not | Reactivation, reminders and win-backs stay off (decisions log, items 11 and 17): the product sends no promotional contact by any channel, so the marketing-authorisation question does not arise and `reactivation-gate` never renders. What reopened on 23 September 2026 is narrower and is the next row |
+| **Consented callbacks — reopened 23 September 2026** | The product will place one kind of call: an AI callback about a booking request the person made, after they agreed to it in so many words on their own inbound call or Meta thread (decisions log, item 17). Nothing is dialled until counsel answers the six questions in `docs/counsel-audit.md` section 7 (the design's I.6): (1) whether consent the AI itself captured and stored verbatim is prior express consent for an artificial-voice call, wording `callback-v2`; (2) whether 47 CFR 64.1200(b)(2)-(3) requires the spoken business number and automated opt-out at the outset, and whether "say stop or press 1" satisfies it; (3) the WhatsApp template and its separate opt-in under Meta's terms; (4) Cal.com as a business associate and the clinic's-own-account basis; (5) whether the direct-booking addendum binds only between the parties and whether web acceptance amends the signed BAA; (6) the practice's time zone as a proxy for a Meta writer's. The three platform switches (`HEALDESK_OUTBOUND_CALLBACKS_ENABLED`, `HEALDESK_DIRECT_BOOKING_ENABLED`, `HEALDESK_WHATSAPP_TEMPLATES_ENABLED`) stay unset in every environment until then |
 | **One-way indemnity and outright exclusion — terms § 13–14, BAA Liability clause** | Decided 22 September 2026 (decisions log, item 10): every claim, defence cost and breach-notification cost sits with the practice, and the indemnity reaches claims that allege our own negligence. Enforceable under Delaware law against a clinic? Which sentences get struck, and does striking them take the fallback cap with it? Must be answered before the 1.1.0 BAA is offered |
 
 ---
@@ -678,6 +678,92 @@ it final, and the person is told the practice will call — accepted or
 declined, never a time or a provider. The care view shows counts only. A
 practice with no report recipient still gets the row; it waits.
 
+### Booking, callbacks and the setup link
+
+The 23 September 2026 design (`docs/design/booking-and-callbacks-2026-09-23.md`;
+decisions log, item 17). Migration 0040, the catalogue and the Cal.com
+adapter are in; the hand-off page, the callback dialer, the voice tools, the
+setup link and the console ops follow on the same branch. Nothing here
+reaches a real patient until `apps/app` is deployable and BAA coverage is in
+place (section 3), and nothing below is switched on until counsel has
+answered (`docs/counsel-audit.md`, section 7).
+
+**The switches, and what each waits on.** Three platform-wide, all off unless
+the value is exactly `"true"`, each paired with a per-clinic switch in the
+console so neither turns alone:
+
+- `HEALDESK_OUTBOUND_CALLBACKS_ENABLED` — whether the dialer may place any
+  call. Waits on counsel questions (1) and (2): AI-captured consent as prior
+  express consent, and the opening disclosure under 47 CFR 64.1200(b)(2)-(3).
+  Per clinic: `clinics.outbound_callbacks_enabled`, which the console refuses
+  to set until the clinic's time zone is confirmed.
+- `HEALDESK_DIRECT_BOOKING_ENABLED` — whether the phone assistant may book
+  straight into a connected calendar. Waits on (4) and (5): Cal.com as a
+  business associate, and whether a web-accepted addendum amends the BAA. Per
+  clinic: `booking_mode = 'direct'`, which a CHECK makes unrepresentable
+  without an unwithdrawn election, and the counsel-approved addendum.
+- `HEALDESK_WHATSAPP_TEMPLATES_ENABLED` — whether the utility template may go
+  outside Meta's 24-hour window. Waits on (3). Per clinic: the approved
+  template name recorded in the console.
+
+Beside them: `HEALDESK_VOICE_TOOLS_SECRET` (the mid-call tool routes' own
+bearer, separate from the post-call webhook secret; unset, the tool routes
+answer 503), `HEALDESK_SYNTHFLOW_API_KEY` and `HEALDESK_SYNTHFLOW_API_BASE`
+(must start with `https://api.us.synthflow.ai`; anything else and the dialer
+refuses every row with "non-US vendor base"). On the marketing site,
+`NEXT_PUBLIC_CALLBACKS_LIVE` and `NEXT_PUBLIC_DIRECT_BOOKING_LIVE` let the
+demo describe the two features — set each only after the matching runtime
+switch is on in production, then rebuild; they are build-time and declared in
+`turbo.json`. All eight are in `.env.example` with what breaks when missing.
+
+**What changes for you operationally.** Console actions (nine): resend setup
+link, edit requirements, set booking mode, switch callbacks on, confirm the
+clinic's time zone, record a Cal.com connection's BAA basis, set the WhatsApp
+template name, retry a calendar write, view failed calendar writes. Per
+clinic, by hand until the runtime-context action is verified with Synthflow:
+paste the rendered required-fields line and extractor list into the inbound
+agent on every change to the field set or the booking mode (the console
+switch alone does not change what the phone says); create the clinic's
+callback agent by cloning the platform template, recording storage off,
+verified by a test call before its id is set; one Cal.com event type with
+emails and workflows off; one Meta template submission per WhatsApp clinic,
+and wait for APPROVED before setting the name. Platform-wide, once: a
+Synthflow workspace on the US cluster (the existing workspace is on the EU
+"Global" cluster, `docs/blockers-runbook.md`) with its id recorded in
+`docs/hipaa-compliance.md`; a discard mailbox for the Cal.com attendee
+address (`bookings+{requestId}@sink.healdesk.io`); the 15-day subcontractor
+notice to every signed clinic before the first Cal.com write; the counsel
+questions before any callback is placed.
+
+**Go-live checklist** (the design's §K, item 5, in order):
+
+1. `npm test -w @healdesk/app` with `TEST_APP_URL` set — the callback,
+   calendar-write, direct-booking and setup-link suites skip silently
+   without it.
+2. `npm run queue:install -w @healdesk/app` per environment: the
+   `callback-dialer` queue is new and the runtime role cannot create it.
+3. The vendor verification checklist in the design's "Vendor endpoints relied
+   on" table, against each vendor's current docs — including whether
+   Cal.com's event-type API exposes email/workflow settings and whether
+   Synthflow's per-call webhook carries custom headers (if it does, the
+   per-clinic callback agent collapses to one shared `model_id`).
+4. The six counsel questions sent and answered **before**
+   `HEALDESK_OUTBOUND_CALLBACKS_ENABLED`, `HEALDESK_DIRECT_BOOKING_ENABLED` or
+   `HEALDESK_WHATSAPP_TEMPLATES_ENABLED` is set in any environment.
+5. A Synthflow workspace whose Customer Region is US under the executed
+   Synthflow BAA, its id recorded in `docs/hipaa-compliance.md`; the callback
+   agent template with recording storage off.
+6. The `sink.healdesk.io` discard mailbox.
+7. The 15-day subcontractor notice (BAA `subcontractors` clause) to every
+   signed clinic before the first Cal.com write.
+8. The Meta template submitted, per WhatsApp clinic.
+9. The Cal.com coverage decision — (a) in item 17 — recorded as `phi_basis`
+   on each connection.
+10. Standing blocker: `apps/app` is portable but not yet deployable (the
+    build needs a live `DATABASE_URL`; the worker sits outside the
+    artifact) — none of this reaches real patients until that is fixed and
+    BAA coverage is in place.
+
 ### Decisions log (21 September 2026)
 
 The owner's answers to the six placeholders and three follow-ups, and what
@@ -758,7 +844,11 @@ re-asking.
    writes a security event; the BAA omits the outbound clause and the
    clinic's consent warranty (`outboundMessaging: false`); the terms say
    "inbound only" and the pricing page no longer lists reactivation. The two
-   counsel questions about reactivation and callbacks are moot. No audio:
+   counsel questions about reactivation and callbacks are moot. **The "no
+   callbacks" half is superseded by item 17 (23 September 2026):** the
+   product will place a callback the person agreed to on their own inbound
+   contact, and nothing else; "no texts, no audio" stands in full, and the
+   reactivation question stays moot. No audio:
    `conversations.recording_uri` is dropped (0038), the payload parser
    ignores `recording_url`, the disclosure says "transcribed; no audio
    recording is kept", and the owner switches recording storage off in the
@@ -774,9 +864,11 @@ re-asking.
    did the agent say" in a dispute or a patient-rights request; the audit
    log is required by HIPAA §164.312(b) and is the accounting of disclosures;
    consent records, suppressions and contact attempts are the TCPA defence
-   (four-year clock, kept even though nothing outbound runs, because "stop"
-   is honoured forever); billing and agreement records are tax and contract
-   evidence. Everything else is already not stored: no audio, nothing a
+   (five years for suppressions — 47 CFR 64.1200(d)(6) requires a
+   do-not-call request to be honoured for five years — and four, the TCPA's
+   limitation period, for the rest; kept because "stop" is honoured forever
+   and, since item 17, because a callback is placed only against a consent
+   row); billing and agreement records are tax and contract evidence. Everything else is already not stored: no audio, nothing a
    person wrote on a Meta channel, no ad-platform identifiers, no logs with
    patient data, and the retention clocks purge the rest.
 13. **Every agent semi-confirms; the desk has the final say.** Asked
@@ -801,6 +893,24 @@ re-asking.
    and the Synthflow script says the desk will call to confirm and never
    "you're booked". Migration 0039; trigger permits requested → any decision
    and accepted → confirmed, nothing else.
+
+   **Annotated 23 September 2026 (item 17).** The desk page has a fourth
+   answer, **"Can't do that — propose other times"**: up to three
+   alternatives (read from the calendar where one is connected, typed
+   otherwise), a `rescheduling` status that is not final, and the same link
+   confirmed once later; alternatives lapse after 72 hours, when the first
+   proposed slot passes, or when the request expires. How the person hears
+   them follows the channel: by the assistant's callback where they
+   consented, by the desk's own call otherwise, and on a Meta thread only a
+   fixed line saying the practice has alternatives and will call. Migration
+   0040 extends the trigger (requested → accepted | rescheduling | confirmed
+   | declined | expired; accepted → rescheduling | confirmed; rescheduling →
+   confirmed | declined | expired). **The one exception to "no agent
+   confirms":** a practice that has accepted the standalone direct booking
+   addendum, connected Cal.com with its BAA basis recorded, been switched to
+   `booking_mode = 'direct'` in the console and sits behind the platform
+   switch lets the *phone* assistant book straight into that calendar and
+   say so; the desk gets the same email as an FYI. Meta channels never book.
 9. **Home state — the Stripe facts.** The seller is Viixi FZC, a UAE free
    zone company trading as healdesk. Governing law is Delaware by counsel's
    (this agent's) recommendation: a UAE entity has no US home state, US
@@ -873,6 +983,125 @@ re-asking.
    and `NEXT_PUBLIC_POSTHOG_KEY` is now declared in `turbo.json`'s
    `build.env`, which it had been missing from: inlined at build time, it
    was invisible to the build under Turborepo's strict env mode.
+17. **Booking hand-off, direct booking, callbacks and the setup link
+   (23–29 September 2026).** The owner's seven asks and the decisions that
+   came out of them; the design is
+   `docs/design/booking-and-callbacks-2026-09-23.md` and this entry is the
+   record of what was decided, not a second copy of it. It supersedes the
+   "no callbacks" half of item 11 and leaves "no texts, no audio" exactly
+   as it was; item 13's "no agent confirms" gains the one exception below.
+
+   Decisions (a)–(g), each recommended and accepted:
+   **(a) Cal.com is the first — and in this release the only — calendar
+   healdesk writes into.** The connector port gains one narrow write
+   (`createAppointment`, plus `listSlots`, `findAppointmentByKey`,
+   `cancelAppointment`; never move, edit or cancel anything we did not
+   create). Cal.com then holds a first name, the service and a time, so it
+   is a PHI subprocessor: `baa: pending` on `/subprocessors`, and no
+   production clinic gets a calendar write or `booking_mode = 'direct'`
+   until an operator records the connection's `phi_basis` — `vendor_baa`
+   (Cal.com signed ours) or `practice_account` (the clinic's own Cal.com
+   account under its own agreement) — and the clinic has signed a BAA
+   carrying the calendar-write clause (1.1.0, still a draft). Checkout
+   passes `calendarWrite: { platform: "Cal.com" }` for a Cal.com clinic and
+   `null` otherwise, on both signing paths, so a Cal.com clinic cannot sign
+   at all until 1.1.0 is approved and promoted. Cal.com's own confirmation
+   emails and workflows are off on the event type.
+   **(b) The callback consent wording, `callback-v2`**
+   (`packages/catalog/src/consent-wording.ts`), goes to counsel as drafted:
+   it names the AI voice, the two purposes a call may have and the stop
+   option. Both front doors ask it verbatim; the person's own words are
+   stored beside it (the extractor's quote on the phone, the raw inbound
+   message on Meta, never a summary); a consent row whose version is not
+   the current one is not consent, and the `outbound_calls` ledger's
+   trigger refuses a row whose consent is another clinic's, another
+   number's, revoked, or not captured on an inbound contact.
+   **(c) The WhatsApp template** (`healdesk_request_update_v1`, utility,
+   naming no time, service, provider or "appointment") and its separate
+   opt-in question are accepted for Meta submission; nothing is sent until
+   counsel answers the Meta question and
+   `HEALDESK_WHATSAPP_TEMPLATES_ENABLED` is set.
+   **(d) The callback window is 8am–8pm in the practice's local time,
+   treated as the person's, never on a Sunday, with dialling stopped 30
+   minutes before the edge** — the narrowest of the state variants, so no
+   state matrix. At most two attempts per request, four calls to one number
+   in thirty days, four hours apart, never after the request expires, never
+   again when the first attempt's outcome is unknown. Every call opens by
+   saying it is an AI, that it is transcribed, the practice's number and
+   how to stop; "stop" or DTMF 1 suppresses the number across all channels
+   for good and revokes the consent row.
+   **(e) Cal.com's attendee email is a healdesk-controlled discard
+   address**, `bookings+{requestId}@sink.healdesk.io`; no patient or clinic
+   mailbox is ever given to Cal.com, because its emails would carry a first
+   name, service and time in cleartext.
+   **(f) The `confirm_time` callback** — the assistant rings a consented
+   person, on any channel, to say the desk's confirmed time — ships as
+   informational only: a "no" re-notifies the desk rather than reopening a
+   decided request.
+   **(g) The direct-booking election is a standalone, versioned,
+   counsel-gated addendum** (`packages/catalog/src/direct-booking-addendum.ts`)
+   with its own golden hash, accepted by a named person on the setup link —
+   never a clause hashed out of the unapproved 1.1.0 draft. Direct booking
+   is voice-only and needs six things true at once: Cal.com connected with
+   its basis recorded, the addendum accepted, the addendum's text approved
+   by counsel, the clinic live with an approved script, the console switch
+   set to "direct", and `HEALDESK_DIRECT_BOOKING_ENABLED`.
+
+   Also decided: every agent — phone and Meta, and the website demo so
+   prospects see it — asks for a preferred time and up to two alternatives;
+   the minimum information a request collects is a closed catalogue
+   (`packages/catalog/src/booking-requirements.ts`: nine fields, four locked,
+   the rest optional and voice-only, with date of birth, insurance, anything
+   medical, an email address and "how did you hear" listed as never asked),
+   fixed per clinic on a single-use `/setup/<token>` link mailed the moment
+   a purchase provisions, with the specialty defaults applying automatically
+   after 14 days; and the 1.1.0 BAA draft replaces the clinic's outbound
+   consent warranty with a callbacks clause that holds for every clinic
+   whether callbacks are on or off (healdesk captures the consent itself, so
+   the clinic warrants nothing), drops SMS from the safeguards exception,
+   and gains the calendar-write and direct-booking clauses. Terms § 2, § 8
+   ("Calls we place", "Direct booking") and § 9 say the same in the clinic's
+   contract; `LEGAL_VERSION` is `2026-09-29.1`. The checkout's "About
+   reminders and follow-ups" box, which restated a warranty that no longer
+   exists, became "About call-backs".
+
+   **What cannot be done as the owner stated it, and the lawful version
+   built instead:** the bot does not book on Meta (Meta signs no BAA and its
+   Business Tools Terms ban health data; a booked time on a Meta thread
+   identifies a patient of a named provider) — Meta stays a front door and
+   direct booking is voice-only. People are not called back because they
+   left a number (FCC 24-17: an AI voice is an artificial voice, and
+   §227(b) needs prior express consent) — consent is captured verbatim on
+   the inbound contact and the product dials only against a matching
+   consent row; otherwise the desk calls. No reminders or win-backs by
+   callback (promotional calls need prior express *written* consent, §227(c)
+   exposure, and the healthcare exemption is unavailable while covered-entity
+   status is unsettled) — only the three transactional purposes exist:
+   collect the fields the desk still needs, offer the desk's alternative
+   times, confirm the desk's time. A phone caller is never WhatsApped (no
+   thread means a business-initiated message, a template, an opt-in and a
+   number we would have to ask for) — WhatsApp only on WhatsApp threads. No
+   time goes into a WhatsApp update (PHI on a no-BAA vendor) — the fixed
+   PHI-free line or the PHI-free template; times only by phone. One link
+   cannot do several things as "single-use" (the 0039 trigger made it
+   single-*decision*) — the trigger is extended so "propose other times" is
+   a non-final step and the same link is confirmed once later. Calls are
+   not placed "in the person's own time" (we do not hold it; every contact
+   carries the clinic's zone, and every clinic provisioned through checkout
+   is `America/New_York` unless someone set it) — the contract says the
+   practice's zone, and the dialer refuses until an operator has confirmed
+   the clinic's zone in the console.
+
+   Deliberately not done: no text messages, no reminders or reactivation,
+   no Meta thread carrying a time, provider, service or condition, no
+   clinic login, no third notification channel, no patient email. The
+   marketing demo says nothing about callbacks or direct booking until the
+   matching runtime switch is on in production
+   (`NEXT_PUBLIC_CALLBACKS_LIVE`, `NEXT_PUBLIC_DIRECT_BOOKING_LIVE`,
+   asserted by `apps/web/src/lib/demo-copy.test.ts`). The six counsel
+   questions this reopens are in `docs/counsel-audit.md` section 7 and the
+   table in section 2 above; the operator steps and the go-live checklist
+   are under "Booking, callbacks and the setup link" in section 5.
 
 ### Incidents and patient rights
 

@@ -1,14 +1,19 @@
+import { metaEligible, resolveBookingRequirements } from "@healdesk/catalog";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 
 import { __setMetaRuntimeForTests, GET, POST } from "@/app/api/webhooks/meta/route";
+import { isCallbackStopRequest, isStopRequest } from "@/lib/compliance/contact-policy";
 import { attachMetaChannel, resolveMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta/channels";
 import {
   answerFrontDoor,
   buildFrontDoorPrompt,
+  callbackConsentQuestion,
   FRONT_DOOR_PROBES,
   guardReply,
   handoffLine,
   probeVerdict,
+  stopAcknowledgedLine,
+  whatsappOptInQuestion,
 } from "@/lib/meta/front-door";
 import { parseMetaEvents, signMetaBody, verifyMetaSignature } from "@/lib/meta/webhook";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
@@ -43,6 +48,8 @@ describe("the guard", () => {
       ["You should avoid filler while pregnant.", "guidance"],
       ["Side effects include bruising for a day or two.", "clinical"],
       ["Yes, I'm a real person at the front desk.", "human"],
+      ["Great — we'll text you a link to book.", "a text promise"],
+      ["I will message you a link shortly.", "a text promise"],
       ["", "empty"],
     ];
     for (const [reply, why] of cases) {
@@ -59,6 +66,9 @@ describe("the guard", () => {
   });
 
   test("the prompt forbids the four things and lists only approved public facts", () => {
+    // A plastic-surgery practice collects a surname, the service and the visit
+    // type on the phone; none of those may be asked on this channel.
+    const resolved = resolveBookingRequirements("plastic-surgery", null);
     const prompt = buildFrontDoorPrompt({
       clinicName: "Radiance",
       phone: "+1 415 555 0199",
@@ -66,6 +76,8 @@ describe("the guard", () => {
       services: [{ name: "Consultation", priceFromUsd: 0, priceToUsd: 0 }],
       notes: "Free parking.",
       escalationHours: null,
+      requirements: metaEligible(resolved),
+      deferredRequirements: resolved.filter((f) => !f.metaEligible),
     });
     expect(prompt).toMatch(/NEVER/);
     expect(prompt).toMatch(/Acknowledge, repeat, or respond to any health condition/);
@@ -73,7 +85,42 @@ describe("the guard", () => {
     expect(prompt).toMatch(/insurance, payment status/);
     expect(prompt).toMatch(/Consultation \(from \$0\)/);
     expect(prompt).toMatch(/Free parking/);
-    expect(FRONT_DOOR_PROBES.length).toBeGreaterThanOrEqual(9);
+    // §D.2 rule 4 and the new answer format.
+    expect(prompt).toMatch(/up to two other times that could also work/);
+    expect(prompt).toMatch(/You never ask about call-backs or WhatsApp messages; the system asks those itself/);
+    expect(prompt).toMatch(/"alt_windows"/);
+    expect(prompt).toMatch(/"callback_ok"/);
+    expect(prompt).toMatch(/"whatsapp_ok"/);
+    expect(prompt).toMatch(/your first name; a number the practice can call; a day or time that works best; one or two other times that could work; nothing else may be asked/);
+    // A metaEligible: false field never appears, however the practice's set is configured.
+    for (const field of resolved.filter((f) => !f.metaEligible)) {
+      expect(prompt).not.toContain(field.ask);
+      expect(prompt.toLowerCase()).not.toContain(field.label.toLowerCase());
+    }
+    expect(FRONT_DOOR_PROBES.length).toBeGreaterThanOrEqual(12);
+    expect(FRONT_DOOR_PROBES.map((p) => p.id)).toEqual(expect.arrayContaining(["alts", "surname", "consent-yes"]));
+  });
+
+  test("the two fixed questions and the stop acknowledgement pass the guard, so the code can always send them", () => {
+    for (const line of [callbackConsentQuestion("Radiance Med Spa"), whatsappOptInQuestion("Radiance Med Spa"), stopAcknowledgedLine({ clinicName: "Radiance", phone: "+1 415 555 0199" })]) {
+      expect(guardReply(line)).toEqual({ ok: true });
+      expect(line).not.toMatch(/\b\d{1,2}(:\d{2})?\s?(am|pm)\b/i);
+    }
+    expect(callbackConsentQuestion("Radiance")).toMatch(/^Thanks — I've got what the practice needs\. Is it OK for Radiance's automated assistant/);
+    expect(whatsappOptInQuestion("Radiance")).toMatch(/^One more thing — is it OK for Radiance to send you a message here on WhatsApp/);
+  });
+});
+
+describe("the stop matcher for inbound Meta text (§F.2)", () => {
+  test("matches the unmistakable phrasings and never cancel or quit", () => {
+    for (const text of ["please stop calling me", "STOP", "unsubscribe me", "opt out", "remove me from this", "don't contact me", "do not call me again", "take me off your list", "no more calls please", "stop contacting me"]) {
+      expect(isCallbackStopRequest(text), text).toBe(true);
+    }
+    for (const text of ["I need to cancel my appointment", "can I quit the waiting list?", "cancel", "quit", "what are your hours?", "yes, Thursday works"]) {
+      expect(isCallbackStopRequest(text), text).toBe(false);
+    }
+    // The reply-to-our-message matcher is untouched and stays broader.
+    expect(isStopRequest("I need to cancel my appointment")).toBe(true);
   });
 });
 

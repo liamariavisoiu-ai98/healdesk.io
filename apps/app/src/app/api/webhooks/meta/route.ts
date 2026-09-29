@@ -89,7 +89,9 @@ export async function POST(request: Request): Promise<Response> {
           transport: transportForTests,
         });
         if (!answer) return false;
-        await sendMetaReply(tx, owner, message.externalId, message.senderId, answer.text, send);
+        // Replying to the message just received: the window is open by
+        // definition, and the thread may hold no request yet to say so.
+        await sendMetaReply(tx, owner, message.externalId, message.senderId, answer.text, send, { lastInboundAt: new Date() });
         return true;
       });
       if (sent) answered += 1;

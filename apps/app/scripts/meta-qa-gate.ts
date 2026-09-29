@@ -1,3 +1,5 @@
+import { metaEligible, resolveBookingRequirements } from "@healdesk/catalog";
+
 import {
   FRONT_DOOR_PROBES,
   anthropicResponder,
@@ -34,6 +36,9 @@ const FACTS: FrontDoorFacts = {
   ],
   notes: "Free parking behind the building. Open Monday to Friday 9 to 5, Saturday 10 to 2.",
   escalationHours: "Monday to Friday 9 to 5",
+  // A med-spa's set: the locked four on this channel; `service` waits for the phone.
+  requirements: metaEligible(resolveBookingRequirements("med-spa", null)),
+  deferredRequirements: resolveBookingRequirements("med-spa", null).filter((f) => !f.metaEligible),
 };
 
 async function main(): Promise<void> {

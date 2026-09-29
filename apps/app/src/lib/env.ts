@@ -109,6 +109,22 @@ export const env = {
     return value ? value : null;
   },
 
+  /**
+   * The direct-booking kill switch (design of 23 September 2026, §E.1). One
+   * of six independent gates, and the only one an operator can flip without
+   * a database write; it is read on every tool call and never cached, so
+   * unsetting it in an environment stops the assistant booking on the next
+   * call. Anything but the literal string "true" is off.
+   */
+  directBookingEnabled: (): boolean => process.env.HEALDESK_DIRECT_BOOKING_ENABLED === "true",
+
+  /**
+   * WhatsApp template sends outside the 24-hour window (§G.3). Set only after
+   * counsel answers I.6 (3) and Meta has approved the template; until then
+   * `sendMetaTemplate` refuses and the desk calls.
+   */
+  whatsappTemplatesEnabled: (): boolean => process.env.HEALDESK_WHATSAPP_TEMPLATES_ENABLED === "true",
+
   isProduction: () => process.env.NODE_ENV === "production",
   isTest: () => process.env.NODE_ENV === "test",
 } as const;

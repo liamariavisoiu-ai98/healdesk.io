@@ -373,5 +373,34 @@ export function isStopRequest(message: string): boolean {
   return STOP_PATTERNS.some((pattern) => pattern.test(message));
 }
 
+/**
+ * The narrower matcher for an inbound MESSAGE on a thread that holds a
+ * phone number (design of 23 September 2026, §F.2).
+ *
+ * `isStopRequest` above is for a reply to something we sent, where "cancel"
+ * and "quit" can only mean one thing. On a Meta thread the person is
+ * talking to the practice about a booking, and "I need to cancel my
+ * appointment" or "can I quit the waiting list" are requests for the desk,
+ * not revocations of consent — treating them as a stop would suppress the
+ * one number the desk has to ring back. So this list is the carrier
+ * keywords plus the unmistakable phrasings, and deliberately NOT `cancel`
+ * or `quit`. A match suppresses every channel and revokes the consent rows
+ * for the number; tests/meta-front-door.test.ts locks the two examples.
+ */
+const CALLBACK_STOP_PATTERNS = [
+  /\bstop\b/i,
+  /\bunsubscribe\b/i,
+  /\bopt\s?out\b/i,
+  /\bremove me\b/i,
+  /\bdo ?n[o']?t (call|contact|message) me\b/i,
+  /\bstop (calling|contacting)\b/i,
+  /\btake me off\b/i,
+  /\bno more (calls|messages)\b/i,
+];
+
+export function isCallbackStopRequest(message: string): boolean {
+  return CALLBACK_STOP_PATTERNS.some((pattern) => pattern.test(message));
+}
+
 /** Never-expiring marker for a number we hold no consent for. */
 export const NEVER_CONTACTED = sql`null`;

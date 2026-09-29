@@ -21,5 +21,14 @@ export * from "./registry";
 export * from "./result";
 export * from "./throttle";
 export * from "./types";
-export { FixtureAdapter, fixtureAdapter } from "./fixture/adapter";
+export {
+  CALCOM_API_VERSIONS,
+  CALCOM_TIMEOUT_MS,
+  CalcomAdapter,
+  calcomAdapter,
+  HEALDESK_REQUEST_ID_KEY,
+  type CalcomAdapterOptions,
+} from "./calcom/adapter";
+export { FixtureAdapter, fixtureAdapter, type RecordedWrite } from "./fixture/adapter";
+export { weekdaySlots, type SlotSchedule } from "./fixture/slots";
 export { generate, type FixtureOptions } from "./fixture/generator";

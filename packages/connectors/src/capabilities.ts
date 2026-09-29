@@ -38,8 +38,20 @@ export type CapabilitySet = {
   listSales: Capability;
   /** Can we read sales from BEFORE the connection was made? */
   backfillSales: Capability;
+  /** Can we read free slots for the event type we write into? */
+  listSlots: Capability;
   /** Can we write a booking in? Table stakes, not the differentiator. */
   createAppointment: Capability;
+  /**
+   * Can we find a booking we created, by the key we stamped on it?
+   *
+   * Declared rather than implied because the write path depends on it. The
+   * platforms we write to have no idempotency key, so a create whose reply
+   * never arrived is only made safe by reading back before retrying. A
+   * platform that cannot be read back by key is one we cannot safely write
+   * into, and `canWriteBookings` says so.
+   */
+  findAppointmentByKey: Capability;
   /** Can we annotate their records with attribution results? Channel B. */
   writeBack: Capability;
 };
@@ -77,4 +89,20 @@ export function limitationsOf(capabilities: CapabilitySet): string[] {
  */
 export function canMeasureRevenue(capabilities: CapabilitySet): boolean {
   return capabilities.listSales.support !== "unsupported";
+}
+
+/**
+ * Whether the app may write a confirmed appointment through this connection.
+ *
+ * All three, not just `createAppointment`: without slots we would offer times
+ * that do not exist, and without read-back a timeout followed by a retry
+ * would book the slot twice. A platform missing either is read-only to us,
+ * whatever its API can technically do.
+ */
+export function canWriteBookings(capabilities: CapabilitySet): boolean {
+  return (
+    isUsable(capabilities.createAppointment) &&
+    isUsable(capabilities.listSlots) &&
+    isUsable(capabilities.findAppointmentByKey)
+  );
 }

@@ -116,3 +116,37 @@ export type VerifiedInfo = {
   /** Earliest data this connection can reach. Null means no known limit. */
   coverageStartedAt?: Date | null;
 };
+
+/** A bookable interval the platform offered. Half-open, like every window here. */
+export type CanonicalSlot = { startsAt: Date; endsAt: Date };
+
+/**
+ * The one write the port allows: add an appointment the practice confirmed on
+ * the request page, or elected the assistant to book on the phone.
+ *
+ * There is deliberately no phone field on this type. The attendee's email is
+ * a healdesk-controlled sink address, never a patient's, and there is no slot
+ * through which an adapter could be handed a number to forward. A platform
+ * that "requires" one for SMS reminders gets none — which is why the event
+ * type we write into must have reminders and workflows off (design B.2). Do
+ * not add a phone field here; if a platform cannot book without one, that
+ * platform does not get a write adapter.
+ */
+export type CreateAppointmentInput = {
+  startsAt: Date;
+  /** Null means the platform's default for the event type. */
+  durationMinutes: number | null;
+  attendee: { name: string; email: string; timeZone: string };
+  /**
+   * What the person asked for, for platforms that cannot book without a
+   * service. Null where the event type already says what it is.
+   */
+  service: string | null;
+  /**
+   * The booking request's id. Stamped on the platform's record as metadata so
+   * a create whose reply never arrived can be found again before anyone
+   * retries it — the platforms we write to offer no idempotency key of their
+   * own, and a blind retry after a timeout books the slot twice.
+   */
+  idempotencyKey: string;
+};

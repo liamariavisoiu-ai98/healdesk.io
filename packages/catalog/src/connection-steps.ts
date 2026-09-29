@@ -8,6 +8,12 @@ import { NO_PLATFORM_ID, type ConnectionMethod } from "./platforms";
  * someone who has never seen an API key, one action per step, in the platform's
  * own words — "Manage Users", not "the user management interface".
  *
+ * One guide is not read-only. Cal.com (`scope: "read_write"`) is the calendar
+ * healdesk adds confirmed appointments to, and its guide says exactly what
+ * that write is and is not — one event type, one action, never a phone number
+ * or patient email — because "we can change things in your calendar" is the
+ * sentence a careful clinic needs answered before it pastes anything.
+ *
  * Two rules that matter more than the wording:
  *
  *   1. **Never ask for the owner's own login.** It violates essentially every
@@ -45,6 +51,13 @@ export type CredentialField = {
 export type ConnectionGuide = {
   platformId: string;
   method: ConnectionMethod;
+  /**
+   * "read" — the credential lets us read; nothing in the clinic's system
+   * changes. "read_write" — it also lets us add an appointment, and the
+   * connect link for such a guide is refused unless the organisation's
+   * in-effect agreement carries the calendar-write clause.
+   */
+  scope: "read" | "read_write";
   /** Realistic, and honest when it isn't instant. */
   estimatedMinutes: number;
   /** Set when the clinic must ask the vendor for something first. */
@@ -65,6 +78,11 @@ export function connectEmailFor(clinicSlug: string): string {
   return CONNECT_EMAIL_TEMPLATE.replace("{slug}", clinicSlug);
 }
 
+/**
+ * Shared by every read-only guide, unchanged. The Cal.com guide cannot use it:
+ * "the ability to change anything" is not true of a credential that adds
+ * appointments, so it spells out its own list instead.
+ */
 const COMMON_DOES_NOT_GRANT = [
   "Clinical notes or charts",
   "The ability to change anything in your system",
@@ -75,6 +93,7 @@ export const CONNECTION_GUIDES: Record<string, ConnectionGuide> = {
   acuity: {
     platformId: "acuity",
     method: "readonly_user",
+    scope: "read",
     estimatedMinutes: 3,
     verified: true,
     steps: [
@@ -135,6 +154,7 @@ export const CONNECTION_GUIDES: Record<string, ConnectionGuide> = {
   mindbody: {
     platformId: "mindbody",
     method: "readonly_user",
+    scope: "read",
     estimatedMinutes: 6,
     verified: true,
     steps: [
@@ -178,6 +198,7 @@ export const CONNECTION_GUIDES: Record<string, ConnectionGuide> = {
   zenoti: {
     platformId: "zenoti",
     method: "readonly_user",
+    scope: "read",
     estimatedMinutes: 5,
     vendorRequestNeeded:
       "Zenoti requires an API package on your subscription. Ask your Zenoti account manager to enable it — it usually takes a day or two.",
@@ -228,6 +249,7 @@ export const CONNECTION_GUIDES: Record<string, ConnectionGuide> = {
   vagaro: {
     platformId: "vagaro",
     method: "readonly_user",
+    scope: "read",
     estimatedMinutes: 5,
     vendorRequestNeeded:
       "Vagaro reviews API requests manually and it can take up to seven business days. Start this first — the rest of your setup doesn't wait on it.",
@@ -273,6 +295,7 @@ export const CONNECTION_GUIDES: Record<string, ConnectionGuide> = {
   patientnow: {
     platformId: "patientnow",
     method: "readonly_user",
+    scope: "read",
     estimatedMinutes: 5,
     vendorRequestNeeded:
       "PatientNow issues API keys on request. Email their support asking for API access for a reporting integration.",
@@ -303,6 +326,80 @@ export const CONNECTION_GUIDES: Record<string, ConnectionGuide> = {
       "Orders with line items and payments",
     ],
     doesNotGrant: COMMON_DOES_NOT_GRANT,
+  },
+
+  /**
+   * The read-write guide. Every sentence is checked against what the adapter
+   * can actually send: the connector's CreateAppointmentInput has no phone
+   * field, the attendee address is a healdesk mailbox, and the practice
+   * switches off Cal.com's own emails so Cal.com sends nothing to anyone.
+   * Unverified against Cal.com's screens until go-live (design §B.2/B.5).
+   */
+  calcom: {
+    platformId: "calcom",
+    method: "api_key",
+    scope: "read_write",
+    estimatedMinutes: 5,
+    verified: false,
+    steps: [
+      {
+        title: "Open Settings → Developer → API keys in Cal.com",
+        link: {
+          label: "Cal.com → API keys",
+          url: "https://app.cal.com/settings/developer/api-keys",
+        },
+      },
+      {
+        title: "Click Add and create a key",
+        detail:
+          "Name it something you'll recognise, such as \"healdesk\", so you can revoke this key on its own later. Copy it now — Cal.com shows it once.",
+      },
+      {
+        title: "Pick or create a dedicated event type for healdesk bookings",
+        detail:
+          "One event type, used for nothing else. Everything healdesk adds lands there and nowhere else.",
+      },
+      {
+        title: "Switch off that event type's confirmation emails and workflows",
+        detail:
+          "Your desk is told by healdesk's own notice, which carries no patient details. With these on, Cal.com would email the appointment to an address nobody reads.",
+      },
+      {
+        title: "Copy the number in the event type's URL",
+        detail:
+          "With the event type open, it's the digits at the end of the address — for example /event-types/123456.",
+      },
+      {
+        title: "Paste the API key and that number below",
+      },
+    ],
+    fields: [
+      {
+        name: "apiKey",
+        label: "Cal.com API key",
+        placeholder: "cal_live_…",
+        secret: true,
+      },
+      {
+        name: "eventTypeId",
+        label: "Event type ID",
+        placeholder: "123456",
+        help: "The number at the end of the event type's URL.",
+        secret: false,
+      },
+    ],
+    grants: [
+      "Your free and busy times for the event type you choose",
+      "Adding an appointment to that event type — only when your front desk confirms a time on the request page, or, if you have accepted the direct booking addendum, when the assistant books a caller on the phone",
+      "Reading bookings back so the report can count them",
+    ],
+    doesNotGrant: [
+      "Clinical notes or charts",
+      "Any calendar or event type other than the one you choose",
+      "Moving, editing or cancelling appointments you or your staff created",
+      "Sending anything to your patients or to you — we never pass a patient's phone number or email to Cal.com, the attendee address on every booking is a healdesk mailbox that nobody reads, and you will switch off this event type's confirmation emails and workflows so Cal.com sends nothing",
+      "Payment card details",
+    ],
   },
 };
 

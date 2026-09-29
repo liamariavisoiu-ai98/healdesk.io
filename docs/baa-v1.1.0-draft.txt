@@ -1,9 +1,11 @@
-healdesk Business Associate Agreement — version 1.1.0 DRAFT, rendered 23 September 2026 for counsel review.
-Rendered for a sample practice (covered-entity status: not yet notified; outbound messaging: on). The entity, its form,
-the governing law and the liability allocation (every claim, defence and notification cost on the practice; healdesk's
-liability excluded where the law allows, with twelve months' fees as the fallback cap; no insurance) are real. The
-notice address is the Delaware correspondence mailbox (a registered-agent box, not an office); counsel should confirm
-it is adequate as a notice address. Source: packages/catalog/src/baa.ts, template 1.1.0-draft.
+healdesk Business Associate Agreement — version 1.1.0 DRAFT, rendered 29 September 2026 for counsel review.
+Rendered for a sample practice (covered-entity status: not yet notified; outbound messaging: on; no calendar connected; booking
+mode: desk confirms). The entity, its form, the governing law, the notice address (a Delaware registered-agent mailbox — confirm
+it is adequate) and the liability allocation are unchanged since the 23 September render. NEW AND UNREVIEWED: the Callbacks clause
+(it replaces the outbound-consent warranty, and Safeguards no longer carves out SMS), and the calendar-write and direct-booking
+clauses. Those two render only when a calendar is connected for writing or direct booking is elected — neither is true of this
+sample — so read them in packages/catalog/src/baa.ts (ids calendar-write, direct-booking) and direct-booking-addendum.ts. Outbound
+messaging "on" now keys only the reactivation-gate clause (both signing paths pass it off). Source: baa.ts, template 1.1.0-draft.
 
 HEALDESK BUSINESS ASSOCIATE AGREEMENT
 Version 1.1.0 — DRAFT FOR COUNSEL REVIEW — NOT FOR EXECUTION
@@ -115,14 +117,13 @@ EFFECTIVE 13 September 2026
   email included. Where a message cannot be delivered securely healdesk will
   fail the delivery and tell Practice, rather than send it in the clear.
 
-  One narrow exception: a patient who telephones, or who asks to be reached by
-  text message at a number they gave, has chosen that channel, and a telephone
-  call or an SMS is not end-to-end encrypted. healdesk may answer a call and
-  may send an appointment confirmation, reminder or missed-call follow-up by
-  SMS to a number the patient supplied for that purpose, limited to the
-  minimum necessary and never including clinical detail, test results or
-  payment information. This exception does not extend to any other channel or
-  content.
+  One narrow exception: a patient who telephones, or who asked on their own
+  call or message to be called back, has chosen the telephone, and a telephone
+  call is not end-to-end encrypted. healdesk may answer such a call and may
+  place the callback described in the Callbacks clause, limited to the minimum
+  necessary and never including clinical detail, test results or payment
+  information. healdesk sends no SMS. This exception does not extend to any
+  other channel or content.
 
 8. MINIMUM NECESSARY
 
@@ -221,27 +222,26 @@ EFFECTIVE 13 September 2026
   only the lighter ones it places on a business associate. 45 CFR
   164.504(e)(2)(ii)(H).
 
-13. OUTBOUND CONTACT, AND WHO HOLDS THE PATIENTS' CONSENT
+13. CALLBACKS, AND WHOSE CONSENT THEY REST ON
 
-  healdesk sends appointment reminders, confirmations, missed-call follow-ups
-  and reactivation messages to Golden Clinic LLC's patients, by call and by
-  text, on Golden Clinic LLC's behalf and in its name.
-
-  By signing, Golden Clinic LLC warrants that:
-
-    a. It holds the consents required to contact those patients for the
-       purposes above, obtained from the patients themselves.
-    b. Its consent for promotional or reactivation messaging is prior express
-       WRITTEN consent, which is the standard the law applies to marketing
-       regardless of how the message is worded.
-    c. It authorises healdesk to send those messages as its agent.
-    d. It will tell healdesk promptly when a patient withdraws consent by any
-       route — in the clinic, by phone, or in writing.
-
-  healdesk will, on every message and every call: honour STOP and any other
-  plainly worded withdrawal, suppress the number across all channels, respect
-  quiet hours in the patient's own local time, and hold to the frequency
-  limits the healthcare exemption requires.
+  healdesk places no calls to a patient except a callback about a booking
+  request that patient made, and only after the patient agreed, on that same
+  call or message thread, to be called back by an automated assistant. The
+  only messages healdesk sends a patient are replies on a message thread the
+  patient opened and, where the patient wrote on WhatsApp and agreed to it
+  there, at most one fixed status message; none of those messages states an
+  appointment time, service, practitioner or condition. healdesk captures and
+  keeps that consent itself, verbatim, with its time, channel and wording
+  version, and will produce the record on request; Practice gives no warranty
+  about it. On every such call healdesk will state at the outset that the
+  caller is an artificial voice, give Practice's telephone number, and say how
+  to stop; honour "stop" and any plainly worded withdrawal at once by
+  suppressing the number across all channels for good; call only between 8am
+  and 8pm in Practice's local time, which healdesk treats as the patient's,
+  and never on a Sunday; place no more than two attempts about one request and
+  no more than four calls to one number in any thirty days; and send no text
+  messages, reminders or marketing of any kind. Practice will tell healdesk
+  promptly of any withdrawal it receives directly.
 
 14. REACTIVATION MESSAGING IS NOT SWITCHED ON
 

@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
 
+import { DIRECT_BOOKING_CLAUSE_BODY, DIRECT_BOOKING_CLAUSE_HEADING } from "./direct-booking-addendum";
+import { wrap } from "./wrap";
+
 /**
  * The click-through business associate agreement.
  *
@@ -98,11 +101,37 @@ export type BaaSelections = {
   /**
    * Whether outbound reminders and follow-ups are switched on.
    *
-   * Carries the consent warranty, which is the only clause imposing an
-   * obligation on the CLINIC. Under the TCPA that consent has to come from the
-   * patient, and the clinic is the only party who could have obtained it.
+   * Reactivation is not offered; stays false. Both signing paths pass false
+   * (apps/app agreements.ts, apps/web AgreementStep.tsx). In 1.0.0 the field
+   * keys `outbound-consent`, the consent warranty — the only clause imposing
+   * an obligation on the CLINIC, kept because signed 1.0.0 agreements contain
+   * it. In 1.1.0-draft that clause is gone: healdesk captures callback consent
+   * itself (`consented-callbacks`, always present), and the field keys only
+   * `reactivation-gate`, which therefore never renders.
    */
   outboundMessaging: boolean;
+  /**
+   * Whether the assistant may book a caller straight into the connected
+   * calendar ("direct") or hands every request to the front desk
+   * ("desk_confirms"). Keys the 1.1.0 `direct-booking` clause; no 1.0.0
+   * clause reads it, so a 1.0.0 document is byte-identical whatever it holds.
+   *
+   * Optional, defaulting to "desk_confirms", so the callers that predate it
+   * keep compiling in this wave; both signing paths are expected to pass it
+   * explicitly (checkout does not ask, so both pass "desk_confirms"). The
+   * election itself is evidenced by the standalone addendum's hash
+   * (direct-booking-addendum.ts), never by this field.
+   */
+  bookingMode?: "desk_confirms" | "direct";
+  /**
+   * The calendar healdesk may write appointments into — its display name,
+   * e.g. "Cal.com" — or null when no calendar is connected for writing. Keys
+   * the 1.1.0 `calendar-write` clause and, for an estimated clinic, picks
+   * `data-sources-calendar-only` over `data-sources-none`. Optional,
+   * defaulting to null, for the same reason as `bookingMode`; checkout passes
+   * { platform: "Cal.com" } when the chosen platform is `calcom`.
+   */
+  calendarWrite?: { platform: string } | null;
 };
 
 export type BaaVariables = BaaSelections & {
@@ -149,34 +178,9 @@ export class BaaRenderError extends Error {
 
 const ALWAYS = () => true;
 
-/**
- * Wrap at 78 columns so the document reads the same in a browser and a text
- * file — the downloadable copy is plain text, and a contract that reflows
- * differently depending on where you opened it is a contract people mistrust.
- *
- * `hanging` indents continuation lines past a list marker. Without it,
- * "a. It holds the consents…" wraps back under the "a.", and the reader cannot
- * see where one lettered warranty ends and the next begins. In a clause that
- * imposes obligations on the SIGNER, that is not a cosmetic problem.
- */
-function wrap(text: string, indent = "  ", hanging = indent): string {
-  const words = text.replace(/\s+/g, " ").trim().split(" ");
-  const lines: string[] = [];
-  let line = indent;
-  let prefix = indent;
-
-  for (const word of words) {
-    if (line.length + word.length + 1 > 78 && line.trim() !== prefix.trim()) {
-      lines.push(line);
-      prefix = hanging;
-      line = hanging + word;
-    } else {
-      line = line.trim() ? `${line} ${word}` : prefix + word;
-    }
-  }
-  if (line.trim()) lines.push(line);
-  return lines.join("\n");
-}
+// wrap() — the 78-column wrap every clause renders through — lives in
+// ./wrap.ts, shared with the direct-booking addendum so the clause the two
+// documents have in common wraps to the same bytes in both.
 
 // -----------------------------------------------------------------------------
 // The clause library
@@ -702,8 +706,10 @@ const CLAUSES: readonly BaaClause[] = [
  *                    and a notice address; "healdesk" alone was not a party.
  *   practice status  The clinic is "Practice" throughout and NOTIFIES its
  *                    covered-entity status; healdesk no longer "determines" it.
- *   safeguards       Carves a patient's own chosen channel (a text or call
- *                    they asked for) out of the encryption promise, narrowly.
+ *   safeguards       Carves a patient's own chosen channel — a call they
+ *                    placed, or a callback they asked for — out of the
+ *                    encryption promise, narrowly. SMS is not carved out:
+ *                    healdesk sends none (design of 23 September 2026).
  *   reporting        One discovery standard (164.404(a)(2)), one five-calendar-
  *                    day clock, and the report content 164.410(c) requires.
  *   subcontractors   The covenant triggers on the regulation's four verbs
@@ -727,6 +733,28 @@ const CLAUSES: readonly BaaClause[] = [
  *                    from healdesk. Decision of 22 September 2026.
  *   boilerplate      NEW. Notices, governing law and venue, change in law,
  *                    interpretation, entire agreement as to PHI.
+ *
+ * Added by the booking-and-callbacks design of 23 September 2026 — new and
+ * unreviewed, on top of the September review's changes above:
+ *
+ *   callbacks        REPLACES outbound-consent. `consented-callbacks` is
+ *                    unconditional: healdesk places only a callback the
+ *                    patient agreed to on their own call or thread, captures
+ *                    that consent itself, verbatim, and Practice gives no
+ *                    consent warranty. `reactivation-gate` stays keyed to
+ *                    outboundMessaging, which both signing paths leave false,
+ *                    so it never renders in this version.
+ *   calendar write   NEW. `calendar-write` when a calendar is connected for
+ *                    writing (the `calendarWrite` selection; Cal.com only in
+ *                    this release). An estimated clinic with one gets
+ *                    `data-sources-calendar-only` in place of
+ *                    `data-sources-none`, which now renders only when no
+ *                    calendar is connected.
+ *   direct booking   NEW. `direct-booking` when `bookingMode` is "direct".
+ *                    The body lives in direct-booking-addendum.ts — it is the
+ *                    standalone addendum a practice accepts on its setup
+ *                    link, with its own version, approval flag and golden
+ *                    hash — and is imported here so the two cannot drift.
  */
 const ENTITY = "Viixi FZC";
 const ENTITY_FORM = "a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates";
@@ -747,6 +775,17 @@ function byId(id: string): BaaClause {
   const clause = CLAUSES.find((c) => c.id === id);
   if (!clause) throw new Error(`No 1.0.0 clause ${id}`);
   return clause;
+}
+
+/**
+ * The two selections 1.1.0 adds are optional on BaaSelections (see the type
+ * for why). Predicates read them through these so none ever sees undefined.
+ */
+function bookingModeOf(v: BaaVariables): "desk_confirms" | "direct" {
+  return v.bookingMode ?? "desk_confirms";
+}
+function calendarWriteOf(v: BaaVariables): { platform: string } | null {
+  return v.calendarWrite ?? null;
 }
 
 const CLAUSES_1_1: readonly BaaClause[] = [
@@ -806,7 +845,62 @@ const CLAUSES_1_1: readonly BaaClause[] = [
 
   byId("permitted-uses"),
   byId("data-sources-verified"),
-  byId("data-sources-none"),
+
+  /**
+   * Exactly one data-sources clause applies. In 1.0.0 that is verified or
+   * none; 1.1.0 splits "none" by whether a calendar is connected for writing,
+   * because "holds no credentials to any practice system" is false the day a
+   * Cal.com key is stored. The calendar-only wording keeps every other
+   * sentence of data-sources-none and points at the calendar-write clause
+   * for the one exception.
+   */
+  {
+    id: "data-sources-calendar-only",
+    heading: "What healdesk reads from your systems",
+    appliesWhen: (v) => v.attributionMode !== "verified" && calendarWriteOf(v) !== null,
+    body: (v) =>
+      wrap(
+        `${v.clinicLegalName} has chosen estimated reporting. Apart from the calendar ` +
+          `access described in the calendar clause, healdesk holds no credentials to any ` +
+          `practice system and reads nothing from it. The only patient information ` +
+          `healdesk receives is what patients themselves give it during a call or chat. ` +
+          `Revenue figures are calculated from the average appointment value ` +
+          `${v.clinicLegalName} supplied, and are labelled as estimates wherever they ` +
+          `appear.`,
+      ),
+  },
+  {
+    // The 1.0.0 body, word for word; only the predicate narrows.
+    ...byId("data-sources-none"),
+    appliesWhen: (v) => v.attributionMode !== "verified" && calendarWriteOf(v) === null,
+  },
+
+  /**
+   * The one write healdesk performs, stated as an upper bound: one event
+   * type, one action (add), two triggers (the desk confirmed, or the practice
+   * elected direct booking), a fixed and short list of what crosses — and
+   * never a phone number or a patient email, which the connector's input type
+   * makes impossible to send rather than merely promises not to.
+   */
+  {
+    id: "calendar-write",
+    heading: "What healdesk writes to your calendar",
+    appliesWhen: (v) => calendarWriteOf(v) !== null,
+    body: (v) => {
+      const platform = calendarWriteOf(v)?.platform ?? "the connected calendar";
+      return wrap(
+        `Practice has connected ${platform} so that healdesk may read that calendar's ` +
+          `free and busy times for one event type Practice chooses, and may add an ` +
+          `appointment to that event type only when Practice's front desk confirms a time ` +
+          `on a booking request, or, where Practice has accepted the direct booking ` +
+          `addendum, when the assistant books a caller by telephone. healdesk holds an API ` +
+          `key for that purpose, sends ${platform} a first name, the service asked about and ` +
+          `the time, never a telephone number or a patient's email address, and reads ` +
+          `bookings back only to count them. It moves, edits or cancels nothing it did not ` +
+          `create.`,
+      );
+    },
+  },
 
   {
     id: "own-use",
@@ -887,13 +981,13 @@ const CLAUSES_1_1: readonly BaaClause[] = [
       ) +
       "\n\n" +
       wrap(
-        `One narrow exception: a patient who telephones, or who asks to be reached by ` +
-          `text message at a number they gave, has chosen that channel, and a telephone ` +
-          `call or an SMS is not end-to-end encrypted. healdesk may answer a call and may ` +
-          `send an appointment confirmation, reminder or missed-call follow-up by SMS to ` +
-          `a number the patient supplied for that purpose, limited to the minimum ` +
-          `necessary and never including clinical detail, test results or payment ` +
-          `information. This exception does not extend to any other channel or content.`,
+        `One narrow exception: a patient who telephones, or who asked on their own call ` +
+          `or message to be called back, has chosen the telephone, and a telephone call ` +
+          `is not end-to-end encrypted. healdesk may answer such a call and may place the ` +
+          `callback described in the Callbacks clause, limited to the minimum necessary ` +
+          `and never including clinical detail, test results or payment information. ` +
+          `healdesk sends no SMS. This exception does not extend to any other channel or ` +
+          `content.`,
       ),
   },
 
@@ -995,7 +1089,61 @@ const CLAUSES_1_1: readonly BaaClause[] = [
 
   byId("patient-rights"),
   byId("acting-in-your-place"),
-  byId("outbound-consent"),
+
+  /**
+   * Replaces outbound-consent, and is unconditional where that was keyed to
+   * outboundMessaging: every sentence is an upper bound that holds for every
+   * clinic, callbacks on or off. The warranty is gone because its premise
+   * was — healdesk now captures the consent itself, on the patient's own call
+   * or thread, verbatim and versioned (consent-wording.ts), so it no longer
+   * needs the practice to warrant something only the practice could know.
+   * An AI voice is an "artificial voice" under the TCPA (FCC 24-17), which
+   * is why the consent, the disclosure, the window and the caps are all
+   * stated here rather than in a support article.
+   */
+  {
+    id: "consented-callbacks",
+    heading: "Callbacks, and whose consent they rest on",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `healdesk places no calls to a patient except a callback about a booking request ` +
+          `that patient made, and only after the patient agreed, on that same call or ` +
+          `message thread, to be called back by an automated assistant. The only messages ` +
+          `healdesk sends a patient are replies on a message thread the patient opened ` +
+          `and, where the patient wrote on WhatsApp and agreed to it there, at most one ` +
+          `fixed status message; none of those messages states an appointment time, ` +
+          `service, practitioner or condition. healdesk captures and keeps that consent ` +
+          `itself, verbatim, with its time, channel and wording version, and will produce ` +
+          `the record on request; Practice gives no warranty about it. On every such call ` +
+          `healdesk will state at the outset that the caller is an artificial voice, give ` +
+          `Practice's telephone number, and say how to stop; honour "stop" and any plainly ` +
+          `worded withdrawal at once by suppressing the number across all channels for ` +
+          `good; call only between 8am and 8pm in Practice's local time, which healdesk ` +
+          `treats as the patient's, and never on a Sunday; place no more than two attempts ` +
+          `about one request and no more than four calls to one number in any thirty ` +
+          `days; and send no text messages, reminders or marketing of any kind. Practice ` +
+          `will tell healdesk promptly of any withdrawal it receives directly.`,
+      ),
+  },
+
+  /**
+   * The body is the direct-booking addendum's, imported so the clause in
+   * this draft and the standalone addendum a practice actually accepts
+   * cannot say different things. Keyed to bookingMode, which both signing
+   * paths pass as "desk_confirms": the election is evidenced by the
+   * addendum's own hash, never by a clause hashed out of this draft.
+   */
+  {
+    id: "direct-booking",
+    heading: DIRECT_BOOKING_CLAUSE_HEADING,
+    appliesWhen: (v) => bookingModeOf(v) === "direct",
+    body: () => wrap(DIRECT_BOOKING_CLAUSE_BODY),
+  },
+
+  // Kept keyed to outboundMessaging. Reactivation is not offered; stays
+  // false on both signing paths, so this never renders in 1.1.0 — retained
+  // rather than deleted so the 1.0.0 clause object is untouched.
   byId("reactivation-gate"),
   byId("prohibited"),
 

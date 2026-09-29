@@ -18,6 +18,7 @@ export const ONBOARDING_STEPS = [
   "forwarding_configured",
   "test_call_passed",
   "platform_connected",
+  "booking_requirements_confirmed",
 ] as const;
 
 export type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
@@ -64,6 +65,15 @@ export const ONBOARDING_LABELS: Record<OnboardingStep, { title: string; why: str
     title: "Booking system connected (verified attribution only)",
     why: "Needed for the verified report; estimated clinics skip it.",
     required: false,
+  },
+  // Stamped by the practice on its setup link, by the operator on the call,
+  // or by the specialty defaults when the link expires unspent — so it is
+  // always satisfiable, and go-live (and the database's own
+  // app_mark_clinic_production) refuse while it is open.
+  booking_requirements_confirmed: {
+    title: "Booking request fields confirmed (what the assistant collects)",
+    why: "Minimum necessary: the assistant asks for exactly these and nothing clinical. Confirmed by the practice on its setup link, by you on the call, or by the specialty defaults when the link expires.",
+    required: true,
   },
 };
 

@@ -128,3 +128,64 @@ export const BAA_EXPLAINER = {
     "document; if the two differ, the agreement governs. Whether your practice is a " +
     "covered entity, and what HIPAA requires of you, are questions for your own counsel.",
 } as const;
+
+/** The clause ids 1.1.0-draft adds, each of which has a note below. */
+export type ExplainedClauseId =
+  | "consented-callbacks"
+  | "calendar-write"
+  | "data-sources-calendar-only"
+  | "direct-booking";
+
+/**
+ * Plain-English notes for the clauses the 1.1.0-draft adds, keyed by clause
+ * id, for the signing screen to show beside the clause once that version is
+ * offered. Kept separate from `BAA_EXPLAINER.terms` deliberately: those
+ * paraphrase 45 CFR 164.504(e) and are pin-cited to it, whereas the callbacks
+ * clause rests on the TCPA and the other three describe what the product
+ * does rather than what the regulation requires. The same rules apply —
+ * descriptive, never "you need this", and the agreement governs.
+ *
+ * ⚖️ The clauses themselves are unreviewed (design of 23 September 2026).
+ * Every note here must stay true to the clause it explains; a test in
+ * apps/app renders the 1.1.0-draft variants and freezes their bytes, and the
+ * clause body is the thing to read if a note and a clause ever seem to
+ * disagree.
+ */
+export const BAA_CLAUSE_EXPLAINERS: Readonly<Record<ExplainedClauseId, BaaExplainerTerm>> = {
+  "consented-callbacks": {
+    plain:
+      "healdesk never texts your patients and sends no reminders or win-backs. The only " +
+      "call it places is a call-back to someone who, on their own call or message to you, " +
+      "agreed to one — to settle a time or collect the details you chose at setup. It says " +
+      "it is an AI first, gives your number, honours 'stop' for good, and keeps to 8am–8pm " +
+      "in your practice's time zone and never Sunday. You give no consent warranty: healdesk " +
+      "obtains and records the consent itself, word for word",
+    citation: "47 U.S.C. 227(b)(1)(A); 47 CFR 64.1200(a)(1), (d)",
+  },
+  "calendar-write": {
+    plain:
+      "Where you connect a calendar, healdesk may read its free and busy times for one " +
+      "event type you choose and add an appointment there — only when your front desk " +
+      "confirms a time, or, if you elect direct booking, when the assistant books a caller " +
+      "by phone. It sends the calendar a first name, the service and the time, never a " +
+      "phone number or a patient's email, and never moves, edits or cancels anything it " +
+      "did not create",
+    citation: "164.502(b), 164.504(e)(2)(i)",
+  },
+  "data-sources-calendar-only": {
+    plain:
+      "With estimated reporting, healdesk reads nothing from your systems — the one " +
+      "exception being the calendar access the calendar clause describes. Revenue figures " +
+      "come from the average appointment value you supplied and are labelled as estimates",
+    citation: "164.504(e)(2)(i)",
+  },
+  "direct-booking": {
+    plain:
+      "Only if you elect it, by accepting the separate direct booking addendum: the " +
+      "telephone assistant may book a caller into your connected calendar at a time it " +
+      "read as free, and say so to the caller. Those bookings are yours as if your own " +
+      "staff had made them; healdesk stays responsible for safeguarding the information, " +
+      "and you can withdraw the election at any time by notice",
+    citation: "164.504(e)(2)(i); the Direct booking addendum",
+  },
+};

@@ -464,6 +464,50 @@ describeDb("the booking hand-off, end to end", () => {
     expect(sent).toHaveLength(1);
   });
 
+  test("the sweep keeps a callback yes already on file when only the WhatsApp question went unanswered, and records no opt-in", async () => {
+    const c = await liveClinic("booking-sweep-wa", "555000333", "whatsapp");
+    __setMetaRuntimeForTests(async () => json("The practice will call you.", { wants: true, first_name: "Noor", phone: "+14155550333", window: "Monday morning" }), sender, transport);
+    await post(inboundWa("Noor, 415 555 0333, Monday morning", "15550100333", "555000333"));
+    expect(sent.at(-1)!.text).toBe(callbackConsentQuestion("booking-sweep-wa Clinic"));
+    __setMetaRuntimeForTests(async () => json("Noted.", { callback_ok: true }), sender, transport);
+    await post(inboundWa("yes please, that's fine", "15550100333", "555000333"));
+    expect(sent.at(-1)!.text).toBe(whatsappOptInQuestion("booking-sweep-wa Clinic"));
+    expect(mailed).toHaveLength(0);
+
+    // Silence. The callback consent was answered in the person's own words;
+    // only the opt-in was not.
+    expect(await sweepMetaBookingDrafts(new Date(Date.now() + 9 * 60_000), { transport })).toBe(0);
+    expect(await sweepMetaBookingDrafts(new Date(Date.now() + 11 * 60_000), { transport })).toBe(1);
+    expect(mailed).toHaveLength(1);
+    const stored = await inTenant(c.clinicId, async (client) => ({
+      requests: (await client.query<{ id: string; status: string; whatsapp_optin_at: string | null; whatsapp_optin_quote: string | null }>(`select id, status, whatsapp_optin_at, whatsapp_optin_quote from booking_requests`)).rows,
+      consent: (await client.query<{ phone: string; source: string; exact_wording: string; wording_version: string; booking_request_id: string; revoked_at: string | null }>(`select phone, source, exact_wording, wording_version, booking_request_id, revoked_at from consent_records`)).rows,
+      drafts: (await client.query(`select 1 from meta_booking_drafts`)).rows.length,
+      sweep: (await client.query<{ metadata: Record<string, unknown> }>(`select metadata from audit_log where metadata->>'outcome' = 'created_by_sweep'`)).rows.map((r) => r.metadata),
+    }));
+    expect(stored.requests).toEqual([{ id: expect.any(String), status: "requested", whatsapp_optin_at: null, whatsapp_optin_quote: null }]);
+    expect(stored.consent).toEqual([
+      {
+        phone: "+14155550333",
+        source: "meta_thread",
+        exact_wording: `${CALLBACK_CONSENT.meta.replace("{clinic}", "booking-sweep-wa Clinic")} — answered: yes please, that's fine`,
+        wording_version: CALLBACK_CONSENT.version,
+        booking_request_id: stored.requests[0]!.id,
+        revoked_at: null,
+      },
+    ]);
+    expect(stored.drafts).toBe(0);
+    expect(stored.sweep).toEqual([{ outcome: "created_by_sweep", platform: "whatsapp", unanswered: "whatsapp", consent: true }]);
+    // A recorded no is kept as a no: the sweep never upgrades it.
+    __setMetaRuntimeForTests(async () => json("The practice will call you.", { wants: true, first_name: "Omar", phone: "+14155550334", window: "Tuesday" }), sender, transport);
+    await post(inboundWa("Omar, 415 555 0334, Tuesday", "15550100334", "555000333"));
+    __setMetaRuntimeForTests(async () => json("Noted.", { callback_ok: false }), sender, transport);
+    await post(inboundWa("no thanks", "15550100334", "555000333"));
+    expect(await sweepMetaBookingDrafts(new Date(Date.now() + 11 * 60_000), { transport })).toBe(1);
+    expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from consent_records`))).rows).toHaveLength(1);
+    expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from booking_requests`))).rows).toHaveLength(2);
+  });
+
   test("outside Meta's 24-hour window nothing is sent on any platform, and the page is told to call", async () => {
     const cases: { platform: MetaPlatform; externalId: string; sender: string }[] = [
       { platform: "messenger", externalId: "623456789012345", sender: "user-61" },

@@ -60,7 +60,8 @@ import { META_PROVIDERS, touchMetaThread } from "./channels";
  * the reply (`callback_ok`, `whatsapp_ok`); the evidence is the person's own
  * words, stored server-side BEFORE the model runs. The request is created
  * when the questions are answered — or by the hourly sweep ten minutes after
- * they went unanswered, with no consent row.
+ * one went unanswered: with no consent row if it was the callback question,
+ * with the consent already recorded if only the WhatsApp question was.
  *
  * Two layers enforce the rest. The system prompt forbids it, and a
  * deterministic guard reads every reply before it is sent: a clinical
@@ -516,9 +517,13 @@ const SWEEP_ACTOR: ActorContext = { type: "service", serviceName: "meta-draft-sw
 /**
  * §D.2 step 5, on the hourly tick: every complete draft whose consent
  * question (or WhatsApp question) went unanswered for ten minutes becomes a
- * request with no consent row, so a person who went quiet is not lost. The
- * desk is told as usual; the person is told nothing — the next thing they
- * hear is the practice's call. Returns how many requests were created.
+ * request, so a person who went quiet is not lost. "No consent row" is for
+ * the draft whose CALLBACK question was never answered; a draft that holds
+ * a usable callback yes and went quiet only on the WhatsApp question keeps
+ * that consent — the person's own words are already on file — and simply
+ * gets no WhatsApp opt-in. The desk is told as usual; the person is told
+ * nothing — the next thing they hear is the practice's call. Returns how
+ * many requests were created.
  */
 export async function sweepMetaBookingDrafts(now: Date, deps: { transport?: EmailTransport } = {}): Promise<number> {
   let created = 0;
@@ -535,6 +540,8 @@ export async function sweepMetaBookingDrafts(now: Date, deps: { transport?: Emai
           phone: metaBookingDrafts.phone,
           preferredWindow: metaBookingDrafts.preferredWindow,
           alternativeWindows: metaBookingDrafts.alternativeWindows,
+          callbackConsent: metaBookingDrafts.callbackConsent,
+          callbackConsentQuote: metaBookingDrafts.callbackConsentQuote,
         })
         .from(metaBookingDrafts)
         .where(
@@ -559,9 +566,17 @@ export async function sweepMetaBookingDrafts(now: Date, deps: { transport?: Emai
           .limit(1);
         const fields: CompleteBookingFields = { firstName: d.firstName!, phone: d.phone!, preferredWindow: d.preferredWindow!, alternativeWindows: d.alternativeWindows };
         const thread: BookingThread = { platform, externalId: d.externalId, senderId: d.senderId };
-        const made = await createBookingRequest(tx, { channel: "meta", thread, connectionId: connection?.id ?? null, fields, callbackConsent: null, whatsappOptin: null });
+        // Answered callback question → its answer stands (createBookingRequest
+        // writes the row only for a usable yes); unanswered → no consent.
+        const callbackConsent: ConsentAnswer | null = d.callbackConsent === null ? null : { granted: d.callbackConsent, quote: d.callbackConsentQuote };
+        const made = await createBookingRequest(tx, { channel: "meta", thread, connectionId: connection?.id ?? null, fields, callbackConsent, whatsappOptin: null });
         await notifyDesk(tx, made, { channel: "meta", platform }, { transport: deps.transport });
-        tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: made.id, metadata: { outcome: "created_by_sweep", platform } });
+        tx.audit.record({
+          action: "update",
+          resourceType: "booking_request",
+          resourceId: made.id,
+          metadata: { outcome: "created_by_sweep", platform, unanswered: d.callbackConsent === null ? "callback" : "whatsapp", consent: made.consentRecordId ? true : undefined },
+        });
         n += 1;
       }
       return n;

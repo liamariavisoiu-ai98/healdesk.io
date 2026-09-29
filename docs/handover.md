@@ -700,7 +700,7 @@ re-asking.
    (`leads.cohort_credit_offered_at`), honoured at checkout only inside the
    fourteen days, never from a URL parameter alone. The copy quotes the fee
    range rather than "$500".
-5. **Demo expiry — 7 days.** Already what the code did.
+5. **Demo expiry — 7 days.** The gate cookie was 30 days until 29 September 2026; `DEMO_ACCESS_DAYS` in `apps/web/src/lib/consent.ts` now holds the 7 and the cookie, the privacy policy and /why-wait all read it.
 6. **Reviews — capture every rating, route internal follow-up by score,
    never gate what is published.** Nothing gated exists in code; the
    customer-success plan text is the only thing that said otherwise.

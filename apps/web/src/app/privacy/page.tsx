@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import { LegalPage, Section } from "@/components/LegalPage";
 import { CookieChoice } from "@/components/analytics/CookieChoice";
-import { CALL_CONSENT, CONSENT_NOTICE_VERSION, MARKETING_CONSENT_LABEL } from "@/lib/consent";
+import { CALL_CONSENT, CONSENT_NOTICE_VERSION, MARKETING_CONSENT_LABEL, DEMO_ACCESS_DAYS } from "@/lib/consent";
 import { GATE_COOKIE } from "@/lib/gate";
 import { ENTITY, POLICY, entityDisplayName } from "@/lib/legal";
 import { site } from "@/lib/site";
@@ -61,7 +61,7 @@ export default function PrivacyPage() {
           <li>
             <strong>Your email, when you unlock the demo.</strong> The chat demo asks for an email
             after your first message. We use it to know who tried the product and to reply if you
-            ask us something. It sets one cookie, <code>{GATE_COOKIE}</code>, for 30 days, so you
+            ask us something. It sets one cookie, <code>{GATE_COOKIE}</code>, for {DEMO_ACCESS_DAYS} days, so you
             are not asked again. Alongside the address we keep: whether it is a business or a
             personal domain, which specialty's demo you opened, the campaign code if you arrived
             from an email we sent, the site that referred you (the site name only, never the full
@@ -148,7 +148,7 @@ export default function PrivacyPage() {
       <Section id="cookies" title="4. Cookies">
         <ul className="list-disc space-y-3 pl-6">
           <li>
-            <code>{GATE_COOKIE}</code> — functional. Set when you unlock the demo; HTTP-only; 30 days.
+            <code>{GATE_COOKIE}</code> — functional. Set when you unlock the demo; HTTP-only; {DEMO_ACCESS_DAYS} days.
             Proves to the chat endpoint that an email was given. No consent banner is required
             for a cookie that only does the thing you asked for.
           </li>

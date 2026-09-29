@@ -5,6 +5,7 @@ import { useState } from "react";
 import { BuyButton } from "@/components/BuyModal";
 import { HealdeskSoul } from "@/components/HealdeskSoul";
 import { WhyGoSmart } from "@/components/WhyGoSmart";
+import { DEMO_ACCESS_DAYS } from "@/lib/consent";
 import { site } from "@/lib/site";
 import { specialties } from "@/lib/specialties";
 
@@ -26,11 +27,11 @@ import { specialties } from "@/lib/specialties";
  * There is no product trial. The catalog header explains why: a person builds
  * and QA-tests each agent before it takes a call, the setup fee pays for that
  * work, and a trial and a setup fee do not compose. What IS free is AYA
- * herself, on this site, for thirty days from the moment a visitor unlocks
- * the demo: that is the gate cookie's lifetime (lib/gate.ts) and what the
- * privacy policy states, so the copy says thirty and not the "7 days" the
- * section was first briefed with. A number on this page has to match the
- * cookie and the policy, or all three have to change together.
+ * herself, on this site, for DEMO_ACCESS_DAYS from the moment a visitor
+ * unlocks the demo. The cookie, the privacy policy and this page all read
+ * that one constant (lib/consent.ts): for a week the cookie said 30 while
+ * the owner's decision said 7, and this page nearly shipped a number the
+ * cookie did not keep.
  *
  * So the section sells the demo AND says plainly what the demo is not. The
  * two lists are the whole device: the left one is what a visitor gets today,
@@ -43,7 +44,7 @@ import { specialties } from "@/lib/specialties";
 const IN_THE_DEMO = [
   `${site.agent} on a generic knowledge tree covering all eight specialties`,
   "Live web chat, a scripted example call, or a real demo call to your phone",
-  "Open to you for thirty days from the moment you unlock it with your work email",
+  `Open to you for ${DEMO_ACCESS_DAYS} days from the moment you unlock it with your work email`,
 ] as const;
 
 /** What she does once she is yours. Each line is a promise the terms already make. */
@@ -109,11 +110,12 @@ export function WhyWaitExperience() {
               id="try-heading"
               className="font-display text-ink mt-5 max-w-[16ch] text-[clamp(38px,4.8vw,64px)] leading-[1.02] font-normal tracking-[-0.03em] text-balance"
             >
-              Try {site.agent} for free.
+              Try {site.agent} {DEMO_ACCESS_DAYS} days for free.
             </h2>
             <p className="text-muted mt-5 max-w-[46ch] text-[clamp(17px,1.25vw,19px)] leading-[1.55] font-medium">
               Ask her what a patient would ask, or what you would ask a supplier. Unlock the demo
-              with your work email and it stays open to you for thirty days. Then decide.
+              with your work email and it stays open to you for {DEMO_ACCESS_DAYS} days. Then
+              decide.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <a

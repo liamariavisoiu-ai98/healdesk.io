@@ -12,8 +12,12 @@
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import { DEMO_ACCESS_DAYS } from "@/lib/consent";
+
 export const GATE_COOKIE = "hd_demo";
-const MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
+// Seven days, by the owner's decision, and the same constant the privacy
+// policy and the notice quote. It was 30 here while the decision log said 7.
+const MAX_AGE_SECONDS = 60 * 60 * 24 * DEMO_ACCESS_DAYS;
 
 function secret(): string {
   const value = process.env.HEALDESK_GATE_SECRET;

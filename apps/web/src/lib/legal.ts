@@ -18,8 +18,8 @@ import { plans, type Plan } from "@healdesk/catalog";
  * changes; the footer of each page prints both.
  */
 
-export const LEGAL_VERSION = "2026-09-23.1";
-export const LEGAL_LAST_UPDATED = "23 September 2026";
+export const LEGAL_VERSION = "2026-09-29.1";
+export const LEGAL_LAST_UPDATED = "29 September 2026";
 
 export const ENTITY = {
   /** Full legal name, e.g. "Healdesk, Inc." Empty until the founder supplies it. */

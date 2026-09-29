@@ -66,6 +66,14 @@ export function ChatDemo() {
   const lastChunkAt = useRef(0);
   const chunkGap = useRef(0);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * The route said 503: no model key, or the daily cap. That is not a retry
+   * situation, so the panel stops offering one until the page is reloaded.
+   * Keyed on the status, not on the message text: matching "unavailable" in
+   * the error string also caught the generic fallback for any 5xx, and a
+   * transient 500 locked the demo until reload.
+   */
+  const [paused, setPaused] = useState(false);
 
   const [needsEmail, setNeedsEmail] = useState(false);
   const [email, setEmail] = useState("");
@@ -159,6 +167,7 @@ export function ChatDemo() {
         const data = (await response.json().catch(() => null)) as
           | { error?: string }
           | null;
+        if (response.status === 503) setPaused(true);
         throw new Error(data?.error ?? "The assistant is unavailable.");
       }
 
@@ -273,7 +282,7 @@ export function ChatDemo() {
   const showChips = messages.length === 0;
 
   return (
-    <div className="border-line flex h-[600px] flex-col overflow-hidden rounded-[18px] border bg-white">
+    <div className="flex h-[540px] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_32px_64px_-36px_rgb(23_42_58/0.45)] sm:h-[600px]">
       <div className="border-line flex items-center gap-2.5 border-b px-[18px] py-3.5">
         {/* Alive from first paint, faster while she is composing. The tempo
             is the real streaming rate, so a stalled answer stalls the orb. */}
@@ -284,8 +293,12 @@ export function ChatDemo() {
           label={streaming ? `${site.agent} is typing` : undefined}
         />
         <span className="text-sm font-bold">Web chat &amp; Instagram DM</span>
+        {/* The badge tells the truth about the route. A 503 from /api/chat
+            (no model key, cap reached) used to leave "Live AI" up over a
+            panel that could not answer, which is the one moment the label
+            most needs to be right. */}
         <span className="text-muted ml-auto text-[15px] font-semibold">
-          Live AI · ask anything
+          {paused ? "Demo paused" : "Live AI · ask anything"}
         </span>
       </div>
 
@@ -406,7 +419,7 @@ export function ChatDemo() {
           />
           <button
             type="submit"
-            disabled={streaming || !input.trim()}
+            disabled={streaming || paused || !input.trim()}
             aria-label="Send message"
             className="bg-brand-gradient grid size-[38px] shrink-0 place-items-center rounded-full text-white transition-transform duration-150 hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45 [&_svg]:size-[17px]"
           >

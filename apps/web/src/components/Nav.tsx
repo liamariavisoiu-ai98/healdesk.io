@@ -1,75 +1,46 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { motion, useMotionValue, useTransform } from "motion/react";
 
-import {
-  HANDOFF_FROM,
-  HANDOFF_TO,
-  ramp,
-  useHeroMark,
-} from "@/components/HeroMark";
 import { BuyButton } from "@/components/BuyModal";
 import { WordmarkGlyphs } from "@/components/Wordmark";
 import { site } from "@/lib/site";
 
 /**
- * The navbar logo, and the receiving half of the hero wordmark's hand-off.
+ * The navbar logo.
  *
- * Inside HeroMarkProvider it starts invisible and scales up into place as the
- * giant mark behind AYA shrinks past it. Outside the provider (the footer,
- * /pricing, /contact) `useHeroMark()` returns null, the fallback pins the
- * shared value at 1, and this renders exactly as it always did.
- *
- * Both halves read the same HANDOFF_FROM/HANDOFF_TO window from opposite
- * directions, so they are complementary by construction rather than by two
- * constants happening to agree.
+ * It used to be the receiving half of a hand-off: the giant wordmark behind
+ * AYA in the hero shrank into this one as you scrolled, and this one faded in
+ * as that one faded out. The hero is static now (see HeroStage.tsx), so the
+ * logo is simply always here, at one size, on every route.
  */
 export function Brand({ className = "" }: { className?: string }) {
-  const ctx = useHeroMark();
-  // A constant source when there is no provider, so the hooks below are called
-  // unconditionally and in the same order on every render.
-  const settled = useMotionValue(1);
-  const source = ctx?.markScale ?? settled;
-
-  const handoff = useTransform(source, (s) =>
-    1 - ramp(s, HANDOFF_FROM, HANDOFF_TO),
-  );
-  const scale = useTransform(handoff, (h) => 0.86 + 0.14 * h);
-
   return (
     <a
       href="/"
       className={`inline-flex items-center leading-none ${className}`}
       aria-label={`${site.name} home`}
     >
-      {/* The scale stays applied even at rest (identity 1). Transformed text
-          renders with greyscale antialiasing and untransformed text with
-          subpixel AA, so a mark that only gains a transform mid-animation
-          would visibly change weight at the hand-off. */}
-      <motion.span
-        ref={ctx?.navMarkRef}
-        className="nav-mark inline-block"
-        style={{ opacity: handoff, scale, transformOrigin: "left center" }}
-      >
+      <span className="inline-block">
         <WordmarkGlyphs />
-      </motion.span>
+      </span>
     </a>
   );
 }
 
 /**
- * Wordmark on the left, two calls to action on the right, nothing in between.
+ * Wordmark on the left, one link and two calls to action on the right.
  *
- * There is still no link list, pricing and contact live in the footer. What
- * changed is that the navbar now carries the purchase flow as its PRIMARY
- * action, with the demo demoted to secondary. Until this existed the homepage
- * had no path to checkout at all: AYA's own prompt told her to point at a
- * "Make It Yours" button that only exists on /pricing, so a prospect she had
- * just convinced had to find the footer to buy.
+ * Pricing and contact still live in the footer; "Why wait?" is the one link
+ * that earned a place here, because the page behind it is the argument for
+ * buying now and the calculator it holds used to interrupt the homepage. The
+ * navbar carries the purchase flow as its PRIMARY action, with the demo as
+ * secondary. Until this existed the homepage had no path to checkout at all:
+ * AYA's own prompt told her to point at a "Make It Yours" button that only
+ * exists on /pricing, so a prospect she had just convinced had to find the
+ * footer to buy.
  *
- * Client component for two reasons: the wordmark hand-off above, and the fact
- * that both CTAs behave differently by route.
+ * Client component because both CTAs behave differently by route.
  */
 export function Nav() {
   const pathname = usePathname();
@@ -83,12 +54,21 @@ export function Nav() {
       <div className="mx-auto flex max-w-[1240px] items-center gap-3 px-5 py-4 sm:gap-5 sm:px-8 lg:px-14">
         <Brand />
 
-        {/* Secondary. Hidden on the narrowest screens rather than wrapped: the
-            demo is a scroll away on the homepage regardless, so the row stays
-            two items wide on a phone instead of three cramped ones. */}
+        {/* Text links are hidden on the narrowest screens rather than wrapped:
+            the row stays two items wide on a phone instead of four cramped
+            ones, and both destinations are one scroll or one footer away. */}
+        {site.navLinks.map((item) => (
+          <a
+            key={item.href}
+            href={item.href}
+            className="text-muted hover:text-ink ml-auto hidden text-[16.8px] font-semibold transition-colors sm:inline-flex"
+          >
+            {item.label}
+          </a>
+        ))}
         <a
           href={demoHref}
-          className="text-muted hover:text-ink ml-auto hidden text-[16.8px] font-semibold transition-colors sm:inline-flex sm:items-center sm:gap-1.5"
+          className="text-muted hover:text-ink hidden text-[16.8px] font-semibold transition-colors sm:inline-flex sm:items-center sm:gap-1.5"
         >
           {site.cta.secondary.label}
           <span aria-hidden className="text-[0.85em] opacity-60">

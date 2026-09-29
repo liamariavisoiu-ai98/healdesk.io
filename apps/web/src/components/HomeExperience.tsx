@@ -1,17 +1,17 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 
 import { ChatDemo } from "@/components/ChatDemo";
 import { NicheCarousel } from "@/components/NicheCarousel";
+import { Outcomes } from "@/components/Outcomes";
 import { VoiceDemo } from "@/components/VoiceDemo";
-import { WhyGoSmart } from "@/components/WhyGoSmart";
 import { site } from "@/lib/site";
 import { specialties } from "@/lib/specialties";
 
 /**
- * The client half of the homepage: the two demos, the niche reel, and the
- * revenue question.
+ * The client half of the homepage: the outcomes deck, the two demos and the
+ * niche deck.
  *
  * ## The demos are not configured per specialty, and that is the point
  *
@@ -28,20 +28,21 @@ import { specialties } from "@/lib/specialties";
  * The reel below is unchanged in what it claims. It is the list of phones this
  * one agent already knows, not a menu to choose from.
  *
- * The calculator keeps a specialty selector, and that is not an inconsistency:
- * it needs a ticket size and a booking rate to do arithmetic with. Asking which
- * practice you run in order to price it is a different act from asking which
- * bot you would like to speak to.
+ * ## The calculator is not here any more
+ *
+ * It moved to /why-wait on 23 September 2026 (see WhyWaitExperience). The
+ * homepage is for meeting her; the arithmetic is one click away in the navbar
+ * for the visitor who is already convinced.
+ *
+ * ## The section's dress
+ *
+ * Each panel sits in a field of soft colour, after the product cards on
+ * reception.ai: the white panel reads as a device someone is holding, the
+ * field behind it as the room it is in. The fields are plain CSS gradients
+ * (`demo-field-*` in globals.css), warm behind the chat and cool behind the
+ * call, so the two are told apart before a word is read.
  */
 export function HomeExperience() {
-  // Owned here rather than inside WhyGoSmart so that a click on the reel can
-  // set it, and so the visitor's own volume numbers survive a specialty change.
-  const [selectedId, setSelectedId] = useState(specialties[0]!.id);
-  const selected = specialties.find((s) => s.id === selectedId) ?? specialties[0]!;
-
-  const [callsPerWeek, setCallsPerWeek] = useState(80);
-  const [missedPercent, setMissedPercent] = useState(28);
-
   /** Reel click: go and talk to her. There is nothing to select any more. */
   const goToDemo = useCallback(() => {
     const target = document.getElementById("aya");
@@ -52,33 +53,36 @@ export function HomeExperience() {
 
   return (
     <>
+      {/* The eight outcomes, between the claim and the proof. Its cards open
+          the demo, the same hand-off the niche deck makes further down. */}
+      <Outcomes onOpen={goToDemo} />
+
       {/* The navbar's secondary CTA points here. */}
-      <section id="aya" className="scroll-mt-24 pt-6">
-        <div className="mx-0.5 mb-[18px] flex flex-wrap items-baseline gap-x-3.5 gap-y-2">
-          <span className="text-muted text-xs font-bold tracking-[0.14em] uppercase">
-            Talk to {site.agent}
-          </span>
-          <span className="font-display text-[clamp(24px,2.64vw,31.2px)] font-medium tracking-[-0.02em]">
-            Designed around your customer&apos;s specialty-related behaviour
-          </span>
+      <section id="aya" className="scroll-mt-24 pt-16 sm:pt-24">
+        <div className="mb-8 max-w-[760px] sm:mb-10">
+          <p className="eyebrow-tag">
+            {site.agent} 1.0 · Meet your smart assistant
+          </p>
+          <h2 className="font-display text-ink mt-5 text-[clamp(36px,4.8vw,66px)] leading-[1.02] font-normal tracking-[-0.03em]">
+            Web, Meta &amp; Voice
+          </h2>
+          <p className="text-muted mt-4 max-w-[58ch] text-[clamp(17px,1.25vw,19px)] leading-[1.55] font-medium">
+            One agent behind your website chat, your Instagram and WhatsApp DMs, and your phone
+            line. The chat is live; the call is a scripted example, or have her ring you.
+          </p>
         </div>
 
-        <div className="grid gap-[18px] lg:grid-cols-2">
-          <ChatDemo />
-          <VoiceDemo />
+        <div className="grid gap-5 lg:grid-cols-2 lg:gap-6">
+          <div className="demo-field-warm rounded-[28px] p-3 sm:p-5">
+            <ChatDemo />
+          </div>
+          <div className="demo-field-cool rounded-[28px] p-3 sm:p-5">
+            <VoiceDemo />
+          </div>
         </div>
       </section>
 
       <NicheCarousel specialties={specialties} onSelect={goToDemo} />
-
-      <WhyGoSmart
-        specialty={selected}
-        onSelectSpecialty={setSelectedId}
-        callsPerWeek={callsPerWeek}
-        onCallsPerWeek={setCallsPerWeek}
-        missedPercent={missedPercent}
-        onMissedPercent={setMissedPercent}
-      />
     </>
   );
 }

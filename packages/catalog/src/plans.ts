@@ -281,4 +281,19 @@ export const METERS = {
 export const ALTERNATIVES = {
   inHouseReceptionistMonthlyUsd: [3_900, 4_830] as const,
   answeringServiceMonthlyUsd: [400, 1_500] as const,
+  /**
+   * The U.S. median receptionist wage, for the "why pay this just to keep the
+   * phone covered" line on the pricing page. U.S. Bureau of Labor Statistics,
+   * Occupational Outlook Handbook, Receptionists: median $38,010 a year and
+   * $18.27 an hour in May 2025. Wage only; the loaded range above adds payroll
+   * taxes and benefits, which is why the two figures differ and why the page
+   * shows both. Update the period and the figures together when BLS publishes
+   * the next May release.
+   */
+  receptionistMedianWage: {
+    annualUsd: 38_010,
+    hourlyUsd: 18.27,
+    period: "May 2025",
+    source: "U.S. Bureau of Labor Statistics, Occupational Outlook Handbook",
+  },
 } as const;

@@ -38,7 +38,7 @@ export function LegalPage({
           </div>
         ) : null}
 
-        <p className="text-muted text-xs font-bold tracking-[0.14em] uppercase">Legal</p>
+        <p className="eyebrow-tag">Legal</p>
         <h1 className="font-display mt-3 text-[clamp(34px,5vw,52px)] leading-[1.05] font-medium tracking-[-0.025em]">
           {title}
         </h1>

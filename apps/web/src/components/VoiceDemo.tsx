@@ -149,7 +149,7 @@ export function VoiceDemo() {
   const timestamp = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 
   return (
-    <div className="border-line flex h-[600px] flex-col overflow-hidden rounded-[18px] border bg-white">
+    <div className="flex h-[540px] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_32px_64px_-36px_rgb(23_42_58/0.45)] sm:h-[600px]">
       <div className="border-line flex items-center gap-2.5 border-b px-[18px] py-3.5">
         {/* No orb here any more. It moved down into the call itself, where it
             stands in for her name on her turns, which is the only place in the
@@ -344,14 +344,12 @@ export function VoiceDemo() {
             />
             <span className="text-[13.2px] leading-[1.45] font-medium">
               {CALL_CONSENT.text}{" "}
-              {/* Deliberately NOT labelled "Terms & privacy": there is no
-                  /terms and no /privacy page on this site, and a consent
-                  notice that points at terms which do not exist is worse than
-                  one that points at nothing. /contact answers exactly this
-                  question, "What happens to a number I give you?", so the
-                  link is honest about where it goes. Relabel this the day real
-                  policy pages ship, not before. */}
-              <a href="/contact" className="text-red-deep underline underline-offset-2">
+              {/* Points at the section of the privacy policy that covers the
+                  number itself, not at the policy's top: a consent notice
+                  should land the reader on the answer. It pointed at /contact
+                  while there was no /privacy page to point at; that page
+                  shipped, so the link now goes where it always meant to. */}
+              <a href="/privacy#collect" className="text-red-deep underline underline-offset-2">
                 what we do with your number
               </a>
               . {CALL_CONSENT.note}

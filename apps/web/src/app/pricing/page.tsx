@@ -7,6 +7,7 @@ import { BuyModalProvider } from "@/components/BuyModal";
 import { Footer } from "@/components/Footer";
 import { Nav } from "@/components/Nav";
 import { PricingCards } from "@/components/PricingCards";
+import { site } from "@/lib/site";
 import {
   annualSavingsPercent,
   cheapestPlan,
@@ -73,6 +74,8 @@ export default function PricingPage() {
   const [receptionistLow, receptionistHigh] =
     ALTERNATIVES.inHouseReceptionistMonthlyUsd;
   const [serviceLow, serviceHigh] = ALTERNATIVES.answeringServiceMonthlyUsd;
+  const wage = ALTERNATIVES.receptionistMedianWage;
+  const wageMonthly = Math.round(wage.annualUsd / 12);
 
   return (
     <BuyModalProvider initialPlan={entry.id}>
@@ -81,7 +84,7 @@ export default function PricingPage() {
 
       <main className="mx-auto max-w-[1240px] px-5 pt-16 sm:px-8 sm:pt-20 lg:px-14">
         <div className="max-w-[54ch]">
-          <p className="text-muted text-xs font-bold tracking-[0.14em] uppercase">
+          <p className="eyebrow-tag">
             Pricing
           </p>
           <h1 className="font-display mt-3 text-[clamp(40.8px,6vw,69.6px)] leading-[1.03] font-medium tracking-[-0.028em]">
@@ -97,11 +100,28 @@ export default function PricingPage() {
 
         <PricingCards />
 
-        {/* What it replaces. */}
+        {/* What it replaces.
+
+            The frame is the U.S. median receptionist wage, stated as a monthly
+            figure, after the way reception.ai puts the same question: the
+            reader should see a number they recognise from their own payroll
+            before they see ours. The wage is a wage, not a loaded cost, so the
+            first card still shows the loaded range and the footnote says which
+            is which. And the paragraph says what she does NOT do, in the same
+            breath, because the comparison is only fair if it is honest about
+            the desk work that stays with a person. */}
         <section className="border-line mt-20 rounded-[24px] border bg-white p-7 sm:p-10">
-          <h2 className="font-display text-[clamp(28.8px,3.6vw,40.8px)] leading-tight font-medium tracking-[-0.024em]">
-            What {usd.format(voiceEntry.monthlyUsd)} a month is standing in for.
+          <p className="eyebrow-tag">A smarter way to answer every call</p>
+          <h2 className="font-display mt-5 max-w-[22ch] text-[clamp(28.8px,3.6vw,40.8px)] leading-tight font-normal tracking-[-0.024em] text-balance">
+            Why pay {usd.format(wageMonthly)} a month just to keep the phone covered?
           </h2>
+          <p className="text-muted mt-4 max-w-[64ch] text-[18px] leading-[1.55] font-medium">
+            That is what a receptionist earns at the U.S. median, before payroll taxes, benefits,
+            and the evenings and weekends when nobody is at the desk anyway. {site.agent} answers
+            the calls and takes the booking requests for a fraction of it. She does not greet
+            anyone at the door or run the room, and we would not pretend she does. What she does
+            is make sure the person who does those things is never also the person losing calls.
+          </p>
           <div className="mt-8 grid gap-8 sm:grid-cols-3">
             <Compare
               label="A full-time receptionist"
@@ -120,11 +140,14 @@ export default function PricingPage() {
               featured
             />
           </div>
-          <p className="text-muted mt-7 max-w-[70ch] text-xs">
-            Comparison ranges are sourced industry figures, not quotes for your
-            market. They are here so you can do the arithmetic yourself. The
-            healdesk figure is the entry voice package billed monthly, before
-            the one-time setup fee.
+          <p className="text-muted mt-7 max-w-[76ch] text-xs">
+            Wage comparison based on the {wage.period} U.S. median annual wage for receptionists
+            of {usd.format(wage.annualUsd)}, or {usd.format(wageMonthly)} a month ({wage.source}).
+            The full-time range above is a loaded cost and adds payroll taxes and benefits. All
+            comparison figures are sourced industry numbers, not quotes for your market; they are
+            here so you can do the arithmetic yourself. The healdesk figure is the entry voice
+            package billed monthly, before the one-time setup fee. {site.agent} handles calls,
+            chat and scheduling; she does not replace in-person duties.
           </p>
         </section>
 

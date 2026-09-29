@@ -24,6 +24,12 @@ export function CookieNotice() {
     setOpen(getConsent() === null);
   }, []);
 
+  // The only thing consent switches on is PostHog, and PostHogProvider never
+  // initialises without this key. A notice offering "Accept analytics" for
+  // analytics that cannot run is a question with no consequence, so a build
+  // without the key asks nothing. Inlined at build time, like every
+  // NEXT_PUBLIC_ value, so this is a constant per deployment.
+  if (!process.env.NEXT_PUBLIC_POSTHOG_KEY) return null;
   if (!open) return null;
 
   const answer = (state: "granted" | "denied") => {

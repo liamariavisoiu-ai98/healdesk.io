@@ -90,7 +90,7 @@ export function KnowMore() {
   return (
     <section id="more" className="scroll-mt-24 pt-8 pb-24 sm:pb-28">
       <div className="max-w-[52ch]">
-        <p className="text-muted text-xs font-bold tracking-[0.14em] uppercase">
+        <p className="eyebrow-tag">
           Want to know more?
         </p>
         <h2 className="font-display mt-3 text-[clamp(36px,5.28vw,62.4px)] leading-[1.04] font-medium tracking-[-0.026em]">

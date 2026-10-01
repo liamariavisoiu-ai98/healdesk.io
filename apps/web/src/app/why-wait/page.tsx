@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   title: "Why wait?",
   description:
     "Work out what the calls your practice never hears about are worth, with your " +
-    `own numbers, then try ${site.agent} for free.`,
+    `own numbers, then talk to ${site.agent}.`,
 };
 
 /**

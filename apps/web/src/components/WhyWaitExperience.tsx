@@ -24,9 +24,10 @@ import { specialties } from "@/lib/specialties";
  *
  * ## The section under it says "free", and here is exactly what is free
  *
- * There is no product trial. The catalog header explains why: a person builds
- * and QA-tests each agent before it takes a call, the setup fee pays for that
- * work, and a trial and a setup fee do not compose. What IS free is AYA
+ * There is no product trial. The catalog header explains why: each agent is
+ * built and must pass its pre-launch audit before any channel answers a
+ * patient, the setup fee pays for that work, and a trial and a setup fee do
+ * not compose. What IS free is AYA
  * herself, on this site, for DEMO_ACCESS_DAYS from the moment a visitor
  * unlocks the demo. The cookie, the privacy policy and this page all read
  * that one constant (lib/consent.ts): for a week the cookie said 30 while
@@ -36,8 +37,13 @@ import { specialties } from "@/lib/specialties";
  * So the section sells the demo AND says plainly what the demo is not. The
  * two lists are the whole device: the left one is what a visitor gets today,
  * the right one is what she does once she is theirs, and the gap between
- * them is the sale. Every line on the right is a thing the catalog and the
- * terms already promise; nothing here is written for effect.
+ * them is the sale. Every line on the right is something v1 does as
+ * docs/v1-product-spec.md defines it; nothing here is written for effect.
+ * The right-hand list used to carry an "Every line is in the agreement"
+ * badge. It was removed on 30 September 2026 when the lines were rewritten
+ * for v1: nobody has checked each one against a clause of the terms or the
+ * BAA, and marketing copy cannot assert what a contract says. Restore it only
+ * once counsel has done that mapping.
  */
 
 /** What the visitor gets today, for nothing. Short, and honest about its limits. */
@@ -51,31 +57,31 @@ const IN_THE_DEMO = [
 const WHEN_SHE_IS_YOURS = [
   {
     title: "Your real phone line",
-    body: "Forwarded to her the moment your desk is busy, closed, or lets a call ring out. Your published number never changes.",
+    body: "Forwarded to her for every call, for overflow and after hours, or after hours only: you choose. Your published number never changes.",
   },
   {
     title: "Your services, prices and rules",
-    body: "Not a script. She is built and QA-tested on your practice before she takes a single call.",
+    body: "Not a script. She is built from your practice and has to pass an automated test of your prices, bookings and clinical questions before she answers a patient.",
   },
   {
-    title: "Instagram, WhatsApp and your website, one voice",
-    body: "The same agent behind every channel, so a DM at midnight gets an answer in the same voice, and is moved to the phone or the web when it is time to book.",
+    title: "Instagram, Messenger, WhatsApp and your website, one voice",
+    body: "The same agent behind every channel, so a DM at midnight gets the same answer as the phone, and the appointment is booked right there in the conversation.",
   },
   {
-    title: "Consults pencilled into your real availability",
-    body: "Your desk confirms, calls back or declines in one click. She never writes to your calendar herself.",
+    title: "Booked straight into your calendar",
+    body: "She checks live availability in your Google Calendar and books the slot during the conversation. Prefer to approve each one? Turn auto-confirm off and every booking waits for your desk.",
   },
   {
-    title: "Your deposit rule, stated on the call",
-    body: "Collected by your desk on confirmation, so a no-show is no longer free.",
+    title: "Deposits where you want them",
+    body: "Taken in website chat and DMs through your own checkout link while the patient is still there; phone bookings are flagged for your desk to collect.",
   },
   {
-    title: "A report that names what collected",
-    body: "Every month: which recovered calls became consults, and which consults became revenue.",
+    title: "Proof it's working",
+    body: "Every week: conversations handled, appointments booked, calls answered that would have rung out, deposits collected, and the booked value at your own prices.",
   },
   {
-    title: "A signed BAA and read-only access",
-    body: "Patient information on US-only infrastructure, and nothing in your systems she can change or delete.",
+    title: "A signed BAA",
+    body: "We sign a business associate agreement and handle patient data under it, on US infrastructure. The only system she writes to is the Google Calendar you connect.",
   },
 ] as const;
 
@@ -110,7 +116,7 @@ export function WhyWaitExperience() {
               id="try-heading"
               className="font-display text-ink mt-5 max-w-[16ch] text-[clamp(38px,4.8vw,64px)] leading-[1.02] font-normal tracking-[-0.03em] text-balance"
             >
-              Try {site.agent} {DEMO_ACCESS_DAYS} days for free.
+              Talk to {site.agent} for {DEMO_ACCESS_DAYS} days before you decide.
             </h2>
             <p className="text-muted mt-5 max-w-[46ch] text-[clamp(17px,1.25vw,19px)] leading-[1.55] font-medium">
               Ask her what a patient would ask, or what you would ask a supplier. Unlock the demo
@@ -151,9 +157,6 @@ export function WhyWaitExperience() {
                 <h3 className="font-display text-ink text-[clamp(26px,2.6vw,34px)] leading-tight font-normal tracking-[-0.025em]">
                   When she&apos;s yours
                 </h3>
-                <span className="text-muted text-[14px] font-semibold">
-                  Every line is in the agreement
-                </span>
               </div>
 
               <ol className="divide-line mt-6 divide-y">

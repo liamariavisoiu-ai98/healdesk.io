@@ -137,7 +137,7 @@ export function WhyGoSmart({
               max={400}
               step={5}
               display={String(callsPerWeek)}
-              unit="calls, texts & DMs"
+              unit="calls, chats & DMs"
               onChange={onCallsPerWeek}
               label="Inbound a week"
             />
@@ -173,8 +173,8 @@ export function WhyGoSmart({
             />
             <p className="text-muted mt-3 text-xs">
               There is no independent figure for this and we will not invent
-              one. After your first month the report replaces this dial with
-              your real number.
+              one. After your first month your portal shows how many calls she
+              answered that would have rung out, and what she booked.
             </p>
           </Ask>
 
@@ -223,9 +223,9 @@ export function WhyGoSmart({
             Approximate industry ranges and your own dials, not a quote and not
             a promise of results. {currency.format(result.annualInPlay)} a year
             is in play;{" "}
-            {site.agent} answers 24/7 and rings missed numbers back, and the
-            closed-loop report tells you which of those recovered calls actually
-            collected.
+            {site.agent} answers 24/7, and your portal counts the calls she
+            answered that would have rung out and the value of what she booked,
+            at your own prices.
           </p>
         </div>
       </div>
@@ -332,7 +332,7 @@ function Ring({ share }: { share: number }) {
         viewBox="0 0 120 120"
         className="size-[168px] -rotate-90"
         role="img"
-        aria-label={`healdesk recovers an estimated ${percent} percent of the revenue in play`}
+        aria-label={`Your estimate: ${percent} percent of missed enquiries kept`}
       >
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">

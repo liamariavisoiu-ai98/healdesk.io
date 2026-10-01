@@ -1,7 +1,13 @@
 import { getPlan, METERS, OVERAGE_RATES_PROVISIONAL, plans } from "@healdesk/catalog";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { cohortCouponIdFor, meteredLookupKeysFor, overageLookupKeys } from "./billing";
+import {
+  cohortCouponIdFor,
+  isProductionDeployment,
+  meteredLookupKeysFor,
+  overageLookupKeys,
+  siteUrl,
+} from "./billing";
 
 /**
  * Which metered prices a Session carries. The Session itself needs a Stripe
@@ -54,5 +60,52 @@ describe("overage prices on a Session", () => {
     for (const plan of plans) {
       expect(cohortCouponIdFor(plan)).toBe(`healdesk-cohort-setup-${plan.id}`);
     }
+  });
+});
+
+/**
+ * Production, and where Stripe sends a paying buyer back to.
+ *
+ * NEXT_PUBLIC_SITE_URL is inlined at build time and feeds `success_url`. A
+ * build without it used to fall back to localhost, which charges the customer
+ * and then sends them to their own machine. In production the fallback is a
+ * refusal instead, before any Session exists.
+ */
+describe("production deployments and the return URL", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  test("production is NODE_ENV or VERCEL_ENV, and nothing else", () => {
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("VERCEL_ENV", "");
+    expect(isProductionDeployment()).toBe(false);
+
+    vi.stubEnv("VERCEL_ENV", "production");
+    expect(isProductionDeployment()).toBe(true);
+
+    // A Vercel preview: its build sets NODE_ENV, so it counts as production.
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("NODE_ENV", "production");
+    expect(isProductionDeployment()).toBe(true);
+  });
+
+  test("uses NEXT_PUBLIC_SITE_URL whenever it is set", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://healdesk.io");
+    expect(siteUrl()).toBe("https://healdesk.io");
+  });
+
+  test("falls back to the local dev server outside production", () => {
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "");
+    expect(siteUrl()).toBe("http://localhost:3000");
+  });
+
+  test("refuses in production rather than send a paying buyer to localhost", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "");
+    expect(() => siteUrl()).toThrow(/NEXT_PUBLIC_SITE_URL/);
   });
 });

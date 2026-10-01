@@ -3,7 +3,7 @@ import { Nav } from "@/components/Nav";
 import { ENTITY, LEGAL_LAST_UPDATED, LEGAL_VERSION, legalFactsComplete } from "@/lib/legal";
 
 /**
- * Shared frame for /privacy, /terms and /subprocessors.
+ * Shared frame for /privacy, /terms, /subprocessors, /trust and /data-deletion.
  *
  * One column of readable width, real headings, and a footer that prints the
  * version and date so a reader can tell which text they read. While the

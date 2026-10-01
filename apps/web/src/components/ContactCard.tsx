@@ -108,6 +108,15 @@ export function ContactCard() {
             aria-label="Message"
             className="border-line focus:border-orange text-ink placeholder:text-muted w-full resize-y rounded-xl border px-4 py-3 text-[17.4px] outline-none transition-colors"
           />
+          {/* Permanent, not a tooltip. The message reaches us as ordinary
+              email through a vendor that signs no BAA, and this marketing
+              site may never carry patient information, so the form says so
+              where the typing happens. Existing customers are the likeliest
+              to use it for support. */}
+          <p className="text-muted text-xs font-medium">
+            This reaches us by ordinary email. Please don&apos;t include patient
+            names, numbers or treatment details.
+          </p>
 
           {/* Honeypot. Off-screen rather than display:none, some bots skip
               hidden fields, and hidden from assistive tech and the tab order. */}

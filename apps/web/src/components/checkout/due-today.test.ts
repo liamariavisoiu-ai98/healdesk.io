@@ -97,25 +97,25 @@ describe("the cheapest package is found by price", () => {
 describe("package cards", () => {
   test("a Web OR Meta package shows one chat chip, not two", () => {
     const chips = channelChips(getPlan("chat-single")!);
-    expect(chips).toEqual(["Web chat or Instagram + WhatsApp"]);
+    expect(chips).toEqual(["Website chat or Instagram, Messenger + WhatsApp"]);
   });
 
   test("a Web + Meta package shows both chat chips", () => {
     expect(channelChips(getPlan("chat-dual")!)).toEqual([
-      "Web chat",
-      "Instagram + WhatsApp",
+      "Website chat",
+      "Instagram, Messenger + WhatsApp",
     ]);
   });
 
-  test("voice-only shows only voice", () => {
-    expect(channelChips(getPlan("voice")!)).toEqual(["Voice"]);
+  test("voice-only shows only the phone", () => {
+    expect(channelChips(getPlan("voice")!)).toEqual(["Phone"]);
   });
 
   test("every channel in the Complete package", () => {
     expect(channelChips(getPlan("complete")!)).toEqual([
-      "Web chat",
-      "Instagram + WhatsApp",
-      "Voice",
+      "Website chat",
+      "Instagram, Messenger + WhatsApp",
+      "Phone",
     ]);
   });
 

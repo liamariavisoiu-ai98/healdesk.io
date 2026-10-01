@@ -15,17 +15,25 @@ import { isChatChannelChoice } from "@/lib/pricing";
  * POST /api/webhooks/stripe — every Stripe event we act on, verified here and
  * relayed to apps/app.
  *
- * Two kinds of event, two destinations:
+ * Two kinds of event, two destinations, and two separate moments:
  *
- *   - `checkout.session.completed` (and its async twin) provisions the
- *     account, via /api/provision. This is the ONLY place provisioning is
- *     triggered from in the paid flow. Not the success URL: a buyer who closes
- *     the tab after paying still gets their account, and a stranger who
- *     hand-crafts a success URL gets nothing.
+ *   - `checkout.session.completed` (and its async twin) RECORDS the account,
+ *     via /api/provision: apps/app creates the clinic in the `provisioning`
+ *     billing state, with nothing switched on yet. This is the ONLY place an
+ *     account is created from in the paid flow. Not the success URL: a buyer
+ *     who closes the tab after paying still gets their account, and a
+ *     stranger who hand-crafts a success URL gets nothing.
  *   - Everything in LIFECYCLE_EVENTS — the first invoice paying, renewals,
  *     failed cards, plan changes, pauses, cancellations, chargebacks — goes to
  *     /api/billing/events as the full verified event, where apps/app applies
  *     it to the clinic's entitlements (apps/app/src/lib/billing/events.ts).
+ *     The first invoice's `invoice.paid` (`billing_reason:
+ *     "subscription_create"`) is what moves the clinic from `provisioning` to
+ *     `active`. Service activates only on that paid invoice, never on the
+ *     checkout Session alone (docs/v1-product-spec.md, "Stage 1, payment").
+ *     The spec words that as the account being created on the first paid
+ *     invoice; here the record exists from checkout completion, but it sits
+ *     in `provisioning` with nothing switched on until the invoice is paid.
  *     A pause is a FIELD on `customer.subscription.updated`
  *     (`pause_collection`), not a `customer.subscription.paused` event: that
  *     event only fires when a trial ends without a card, and there is no
@@ -75,6 +83,11 @@ const MAX_BODY_BYTES = 1_000_000;
 
 type EventType = Stripe.Event["type"];
 
+/**
+ * Checkout completion RECORDS the account, in the `provisioning` billing state.
+ * Nothing is switched on by these events: service activates only on the first
+ * paid invoice, which arrives as `invoice.paid` among LIFECYCLE_EVENTS.
+ */
 const PROVISIONING_EVENTS: ReadonlySet<EventType> = new Set<EventType>([
   "checkout.session.completed",
   "checkout.session.async_payment_succeeded",
@@ -225,7 +238,8 @@ async function provision(event: Stripe.Event, relay: Relay): Promise<Response> {
    * delayed-method signup — and it is not even the right question, because
    * "has the first invoice been paid" is answered by `invoice.paid` in
    * apps/app, which is what moves the clinic from `provisioning` to
-   * `active`. Provisioning only needs to know the buyer finished checkout.
+   * `active`. Recording the account only needs to know the buyer finished
+   * checkout; nothing is switched on until that invoice is paid.
    *
    * `status === "complete"` means exactly that, under every setting.
    */
@@ -262,9 +276,12 @@ async function provision(event: Stripe.Event, relay: Relay): Promise<Response> {
       // than a second account, so retries land here harmlessly.
       //
       // Close the funnel loop: the lead becomes a customer, with the plan and
-      // its monthly revenue, so the cold-email question ("which campaign paid")
-      // has an answer in the lead store. Best-effort and after the account
-      // exists — a lead-store outage must never fail a paid provisioning.
+      // its monthly recurring revenue to healdesk, so the cold-email question
+      // ("which campaign paid") has an answer in the lead store. Best-effort
+      // and after the account is recorded — a lead-store outage must never
+      // fail a provisioning. This marks the lead converted when checkout
+      // completes, which for a delayed payment method is before the first
+      // invoice is paid and before the clinic is `active`.
       await recordConversion(session);
       return Response.json({ received: true });
 
@@ -288,9 +305,10 @@ async function provision(event: Stripe.Event, relay: Relay): Promise<Response> {
     case "rejected":
       // 400/422: deterministic, built from metadata we wrote ourselves, and so
       // identical on all three days of retries. Acknowledge to save the
-      // endpoint, but this is money taken with no account, so it must be the
-      // loudest line in the file. Never echo apps/app's error body: the reader
-      // here is the Stripe Dashboard event log.
+      // endpoint, but this is a completed checkout, and usually money taken,
+      // with no account, so it must be the loudest line in the file. Never
+      // echo apps/app's error body: the reader here is the Stripe Dashboard
+      // event log.
       console.error(
         "[healdesk] PROVISIONING REJECTED, paid customer has no account",
         { event: event.id, session: session.id, status: result.status },
@@ -495,11 +513,18 @@ function refId(
 /**
  * Rebuild the provisioning request from Stripe metadata.
  *
- * Metadata values are ALWAYS strings, and provisioning requires
- * `averageTreatmentValueUsd` to be a number. Spreading the metadata object
- * straight through therefore 422s every estimated-attribution signup, which is
- * the default and by far the most common path, so the coercion below is the
- * difference between this working and silently rejecting nearly every sale.
+ * Metadata values are ALWAYS strings, and provisioning, as apps/app is
+ * written today, requires `averageTreatmentValueUsd` to be a number on every
+ * signup whose `attributionMode` is "estimated". Spreading the metadata
+ * object straight through would 422 each of those after checkout completed,
+ * so the coercion below stays for as long as a Session can carry the field,
+ * including Sessions already in flight when the field stops being sent.
+ *
+ * Both fields exist for revenue attribution, which is phase two, not v1. V1
+ * reports booked value, computed from the clinic's own configured service
+ * prices, and never revenue (docs/v1-product-spec.md, "What v1 can prove, and
+ * what it cannot"). /api/checkout still forwards them only because apps/app
+ * provisioning still refuses a signup without `attributionMode`.
  *
  * `billingInterval` and `chatChannelChoice` are checked against the catalog
  * rather than passed through as whatever string was stored: provisioning

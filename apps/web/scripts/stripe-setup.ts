@@ -179,11 +179,20 @@ function describePackage(plan: Plan): string {
       : null,
   ].filter((s): s is string => s !== null);
 
+  // Meta bills the clinic directly for WhatsApp messages, including service
+  // replies inside the 24-hour window from 1 October 2026, and healdesk does
+  // not resell them (docs/v1-product-spec.md, "Pricing consequences"). Said on
+  // the product itself so the invoice line cannot read as covering them.
+  const whatsapp = plan.channels.meta
+    ? " WhatsApp message charges are billed to the clinic by Meta directly."
+    : "";
+
   return (
     `${channelText}. ` +
     `Includes ${allowances.join(" and ")}, ${plural(plan.locations, "location")}. ` +
     `One-time setup fee ${usd(plan.setupFeeUsd * 100)}; ` +
-    `usage over the allowance billed at the published overage rate.`
+    `usage over the allowance billed at the published overage rate.` +
+    whatsapp
   );
 }
 
@@ -736,9 +745,9 @@ function printNext(live: boolean): void {
     `Next:\n` +
       `  1. Webhook endpoint  dashboard.stripe.com → Developers → Webhooks\n` +
       `     URL:    ${host}/api/webhooks/stripe\n` +
-      `     Events: checkout.session.completed\n` +
+      `     Events: checkout.session.completed          (records the account, in provisioning)\n` +
       `             checkout.session.async_payment_succeeded\n` +
-      `             invoice.paid\n` +
+      `             invoice.paid                        (the first one switches service on)\n` +
       `             invoice.payment_failed\n` +
       `             invoice.payment_action_required\n` +
       `             customer.subscription.updated\n` +

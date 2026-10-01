@@ -1,10 +1,23 @@
 /**
  * Synthflow outbound calling, for the "have AYA call me" button.
  *
+ * ## Pre-Retell: this is the marketing demo call only
+ *
+ * The product's voice agent runs on Retell, pointed at a Healdesk-hosted
+ * Claude endpoint (docs/v1-product-spec.md, "Scope and locked decisions"),
+ * and it lives in apps/app, not here. This file places one thing: the single
+ * consented demo call a clinic owner asks for on this website. It stays on
+ * Synthflow until a Retell demo agent exists, and then it is replaced, not
+ * extended. It never carries a patient call, and nothing else in apps/web may
+ * import it (src/lib/no-outbound-voice.test.ts).
+ *
+ * The history below is kept because it explains the API contract, not because
+ * Synthflow is still the product's voice vendor: that decision changed to
+ * Retell on 24 September 2026.
+ *
  * ## Why Synthflow and not the Vapi client this replaces
  *
- * Synthflow is the decided voice vendor and has been since before this route
- * existed, docs/launch-plan.md:777 lists it under "Resolved this session", the
+ * Synthflow was the decided voice vendor at the time this route was written, docs/launch-plan.md:777 lists it under "Resolved this session", the
  * build phases name it outright, and there are two long briefs written for the
  * prompt engineer building the agent. An earlier version of this file talked to
  * Vapi, purely because `.env.example` still carried VAPI_* stubs from an

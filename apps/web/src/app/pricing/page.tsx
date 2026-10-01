@@ -29,14 +29,34 @@ export const metadata: Metadata = {
  * plan, which was true of the old three plans and is false of the five
  * packages: a voice-only package has no chat and a chat-only package has no
  * phone. The cards above say what each includes; this list must not say more.
+ *
+ * The rest is the v1 product as docs/v1-product-spec.md states it: bookings
+ * written live into the clinic's Google Calendar (auto-confirm on by
+ * default; off makes every booking a request staff approve), deposits taken
+ * in chat through the clinic's own checkout while voice flags them for the
+ * desk, inbound only, and the v1 proof set. That set is conversations,
+ * bookings, deposits and booked value; never revenue, which needs phase-two
+ * read-back from the clinic's point of sale.
  */
 const INCLUDED = [
-  "Channels per package: voice, web chat, Instagram DM and WhatsApp",
-  "Booking requests handed to your desk with one click to confirm, call back or decline",
-  "Your deposit rule stated on the call; the desk collects it",
+  "Channels per package: phone, website chat, Instagram, Messenger and WhatsApp",
+  "Bookings written straight into your Google Calendar during the conversation (turn auto-confirm off to approve each one first)",
+  "Deposits taken in chat through your own checkout link; phone bookings flagged for your desk to collect",
   "Inbound only: the agent answers, and never calls or texts anyone on your behalf",
-  "Closed-loop revenue reporting to your inbox",
-  "A signed BAA, and read-only access to your systems",
+  "Conversations handled, appointments booked, deposits collected and booked value, in your portal and a weekly email",
+  "A signed BAA, and the only system we write to is the Google Calendar you connect",
+] as const;
+
+/**
+ * The setup promise, per channel, never global (docs/v1-product-spec.md,
+ * "Honest headline timing"). Two channels wait on things outside our hands:
+ * the clinic's call forwarding and its own WhatsApp billing.
+ */
+const LIVE_WHEN = [
+  { channel: "Website chat", when: "Once the one-line snippet is on your site." },
+  { channel: "Instagram and Messenger", when: "As soon as you connect them." },
+  { channel: "WhatsApp", when: "Once your WhatsApp account has a payment method on it." },
+  { channel: "Phone", when: "Once call forwarding is set on your line, usually the same day." },
 ] as const;
 
 /**
@@ -45,8 +65,9 @@ const INCLUDED = [
  * ## The hero has to be true
  *
  * It used to promise no setup fee, a free trial and no annual option, and all
- * three are now false: there is a one-time setup fee because a person builds
- * and QA-tests the agent before the clinic sees it, there is no trial because
+ * three are now false: there is a one-time setup fee because the agent is
+ * built and must pass its pre-launch audit before any channel answers a
+ * patient, there is no trial because
  * a trial and a setup fee do not compose (see the catalog header), and annual
  * billing exists at a discount. So the hero says exactly those things, and it
  * reads them from the catalog rather than restating them.
@@ -118,7 +139,7 @@ export default function PricingPage() {
           <p className="text-muted mt-4 max-w-[64ch] text-[18px] leading-[1.55] font-medium">
             That is what a receptionist earns at the U.S. median, before payroll taxes, benefits,
             and the evenings and weekends when nobody is at the desk anyway. {site.agent} answers
-            the calls and takes the booking requests for a fraction of it. She does not greet
+            the calls and books the appointments for a fraction of it. She does not greet
             anyone at the door or run the room, and we would not pretend she does. What she does
             is make sure the person who does those things is never also the person losing calls.
           </p>
@@ -136,7 +157,7 @@ export default function PricingPage() {
             <Compare
               label={voiceEntry.name}
               value={usd.format(voiceEntry.monthlyUsd)}
-              note="Answers the calls the desk missed, takes the booking request for the desk to confirm, and reports what collected."
+              note="Answers the calls the desk missed and books them straight into your calendar."
               featured
             />
           </div>
@@ -167,10 +188,30 @@ export default function PricingPage() {
             ))}
           </ul>
           <p className="text-muted mt-6 max-w-[62ch] text-sm font-medium">
-            And nothing for your team to log into. There is no console, no seats
-            and no software to learn, bookings land where they already land, and
-            the report arrives in your inbox.
+            Nothing to install and nothing to learn. A small portal, signed into
+            from an emailed link, holds your switches, every conversation and
+            every booking, and a weekly email sums it up.
           </p>
+        </section>
+
+        {/* When each channel goes live. */}
+        <section className="mt-20">
+          <h2 className="font-display text-[clamp(28.8px,3.6vw,40.8px)] leading-tight font-medium tracking-[-0.024em]">
+            About fifteen minutes of your time.
+          </h2>
+          <p className="text-muted mt-4 max-w-[62ch] text-[18px] leading-[1.55] font-medium">
+            Confirm your services, prices and hours, set how she behaves, connect
+            your Google Calendar, then connect each channel you bought. Each one
+            goes live on its own:
+          </p>
+          <dl className="mt-7 grid gap-x-10 gap-y-4 sm:grid-cols-2">
+            {LIVE_WHEN.map((item) => (
+              <div key={item.channel} className="border-line border-t pt-4">
+                <dt className="text-[18px] font-semibold">{item.channel}</dt>
+                <dd className="text-muted mt-1 text-[16.2px] font-medium">{item.when}</dd>
+              </div>
+            ))}
+          </dl>
         </section>
 
         <CTA />

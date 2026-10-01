@@ -18,20 +18,31 @@ import { plans, type Plan } from "@healdesk/catalog";
  * changes; the footer of each page prints both.
  */
 
-export const LEGAL_VERSION = "2026-09-29.1";
-export const LEGAL_LAST_UPDATED = "29 September 2026";
+export const LEGAL_VERSION = "2026-10-01.1";
+export const LEGAL_LAST_UPDATED = "1 October 2026";
 
 export const ENTITY = {
   /** Full legal name, e.g. "Healdesk, Inc." Empty until the founder supplies it. */
   legalName: "Viixi FZC",
   /**
-   * The entity's form, as it follows the name in the one "Operating entity"
-   * clause of each legal page (terms § 20, privacy § 10). Not "trading as
-   * healdesk": on the page the trade name is the contracting party and the
-   * entity is disclosed, once, as its operator — decision of 23 September
-   * 2026, docs/handover.md "Decisions log", item 14.
+   * The entity's form, as it follows the name in the "Operating entity"
+   * clause of each legal page (terms § 20, privacy § 10) and in the site
+   * footer's entity line (`entityLine()` below). Not "trading as healdesk":
+   * the trade name is the contracting party and the entity is disclosed as
+   * its operator — decision of 23 September 2026, docs/handover.md
+   * "Decisions log", item 14.
    */
   formation: "a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates",
+  /**
+   * The registered street address, exactly as it appears on the trade
+   * licence. Empty until the founder supplies it: it is never guessed, and
+   * nothing renders it while it is empty. Meta's Business Verification
+   * compares this address with the licence, so when it is filled it must match
+   * the licence character for character (docs/v1-product-spec.md,
+   * "Verification details that decide pass or fail"). It is a different thing
+   * from `postalAddress` below, which is a US correspondence mailbox.
+   */
+  registeredAddress: "",
   /**
    * A registered-agent mailbox in Delaware — the same one as
    * packages/leadgen/src/enrich/footer.ts POSTAL_ADDRESS and the Scalabid
@@ -104,12 +115,27 @@ export function legalFactsComplete(): boolean {
 
 /**
  * The entity as it should read in a contract, or the trading name while draft.
- * Called only from the two "Operating entity" clauses (terms § 20, privacy
- * § 10); everywhere else the trade name is the party and the entity is not
- * named. Keep it that way.
+ * Called from the "Operating entity" clauses (terms § 20, privacy § 10).
+ * Elsewhere the trade name is the party; the entity is named in those clauses
+ * and in the footer's entity line, and nowhere else.
  */
 export function entityDisplayName(): string {
   return ENTITY.legalName || "healdesk";
+}
+
+/**
+ * The entity line the site footer prints on every page, worded as the spec
+ * requires it in the footer and on the Terms and Privacy pages: "healdesk is a
+ * service of Viixi FZC, a company registered under the Sharjah Publishing City
+ * Free Zone, United Arab Emirates". The registered address follows only once
+ * `ENTITY.registeredAddress` is filled in; until then the line ends at the
+ * formation rather than printing a placeholder.
+ */
+export function entityLine(): string {
+  const address = ENTITY.registeredAddress
+    ? `, registered address ${ENTITY.registeredAddress}`
+    : "";
+  return `healdesk is a service of ${entityDisplayName()}, ${ENTITY.formation}${address}.`;
 }
 
 export function packagesForTerms(): readonly Plan[] {

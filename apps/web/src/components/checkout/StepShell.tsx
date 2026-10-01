@@ -94,10 +94,15 @@ export function StepShell({
   );
 }
 
+/**
+ * The line under every checkout step. "Calendar access only" because the one
+ * system healdesk connects to and writes into is the clinic's Google Calendar;
+ * the old "Read-only access" stopped being true when v1 started booking.
+ */
 export function Reassurance() {
   return (
     <p className="text-muted mt-10 text-center text-xs">
-      Read-only access · Revoke any time · We never see clinical notes
+      Calendar access only · Revoke any time · We never see clinical notes
     </p>
   );
 }

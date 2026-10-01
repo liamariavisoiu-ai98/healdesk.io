@@ -183,12 +183,15 @@ export function AgreementStep({
       isCoveredEntity: coveredEntity,
       attributionMode,
       connectedPlatform: platformName,
-      // Reactivation is not offered; stays false. No consent warranty is
-      // asked of the clinic: healdesk captures callback consent itself.
+      // v1 is inbound only, so this stays false and no consent warranty is
+      // asked of the clinic.
       outboundMessaging: false,
-      // Checkout does not ask. The direct-booking election is a separate,
-      // counsel-gated addendum accepted on the setup link, evidenced by its
-      // own hash — never by this field (design of 23 September 2026, §E.6).
+      // These two select clauses of the approved BAA text and are left as
+      // they are: the rendered text is hashed and recorded, and changing what
+      // it says is counsel's call, not this form's. Note for counsel: v1
+      // books straight into the clinic's Google Calendar with auto-confirm on
+      // by default (docs/v1-product-spec.md), which neither "desk_confirms"
+      // nor a Cal.com-only calendar-write clause describes.
       bookingMode: "desk_confirms",
       // Cal.com is the one calendar healdesk can write into, so choosing it
       // at step 2 is what puts the calendar-write clause in the agreement.
@@ -545,32 +548,25 @@ export function AgreementStep({
           </label>
         </div>
 
-        {/* ---------------- Call-backs, stated plainly ----------------
-            This box used to restate a consent warranty: the clinic confirming
-            it held TCPA consent for reminders and win-backs, because the
-            clinic was the only party that could have obtained it. That
-            warranty is gone, and not because the product stopped calling.
-            Since 23 September 2026 the only call the product places is a
-            call-back the person agreed to in so many words on their own
-            inbound call or message, and healdesk captures that consent
-            itself, verbatim, with its wording version and channel
-            (packages/catalog/src/consent-wording.ts). Nothing is asked of
-            the clinic, so there is nothing for it to warrant; what it needs
-            to know instead is the upper bound on what will ever be placed in
-            its name, which is what this says. Conspicuous beside the button
-            for the same reason the warranty was: a scroll box and "they saw
-            it" is the reading that fails. */}
+        {/* ---------------- Inbound only, stated plainly ----------------
+            This box used to restate a consent warranty for reminders and
+            win-backs, and then (from 23 September 2026) described consented
+            call-backs. v1 has neither: every product is inbound only, and
+            nothing contacts a patient first or after a conversation ends
+            (docs/v1-product-spec.md, "Scope and locked decisions"). Nothing is
+            placed in the clinic's name, so there is nothing for it to warrant,
+            and the box says exactly that. It is interface copy beside the
+            agreement, not part of it: the BAA text is unchanged. Conspicuous
+            beside the button for the same reason the warranty was: a scroll
+            box and "they saw it" is the reading that fails. */}
         <div className="border-line bg-paper-2/50 mt-6 rounded-xl border p-4">
-          <p className="text-[15.6px] font-bold">About call-backs</p>
+          <p className="text-[15.6px] font-bold">Inbound only</p>
           <p className="text-muted mt-1.5 text-[15.6px] leading-relaxed">
-            healdesk never texts your patients and sends no reminders or
-            win-backs. The only call it ever places is a call-back to someone
-            who, on their own call or message, agreed to one &mdash; to settle a
-            time or collect the details you choose at setup. It says it is an
-            AI first, gives your number, honours &apos;stop&apos; for good, and
-            keeps to 8am&ndash;8pm in your practice&apos;s time zone and never
-            Sunday. You give no consent warranty; we obtain and record the
-            consent ourselves.
+            healdesk only answers. It never calls or texts your patients, and
+            sends no reminders, follow-ups, win-backs or call-backs: every
+            conversation it has is one a patient started. It says it is an AI
+            assistant first, on every channel. You give no consent warranty,
+            because nothing is ever placed in your name.
           </p>
         </div>
 
@@ -684,7 +680,7 @@ export function AgreementStep({
       </section>
 
       <p className="text-muted mt-10 text-center text-xs">
-        No payment on this step · Read-only access · We never see clinical notes
+        No payment on this step · Calendar access only · We never see clinical notes
       </p>
     </StepShell>
   );

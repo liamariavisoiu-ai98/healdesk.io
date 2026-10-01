@@ -1,5 +1,5 @@
 import { WordmarkSlogan } from "@/components/Wordmark";
-import { ENTITY } from "@/lib/legal";
+import { ENTITY, entityLine } from "@/lib/legal";
 import { site } from "@/lib/site";
 
 /**
@@ -23,16 +23,26 @@ import { site } from "@/lib/site";
  * docs/blockers-runbook.md §10 for the sourcing and for what to change when an
  * audit does exist.
  *
- * ⚠️ Line 4 becomes FALSE the day the agent writes a booking back. Change the
- * string in the same commit as that feature, not afterwards.
+ * Every line has to hold for v1 as docs/v1-product-spec.md describes it:
+ *
+ * - The agent writes bookings, into the clinic's Google Calendar and nowhere
+ *   else, so the old "read-only access to your practice management system"
+ *   line is gone and the calendar line says exactly where writes go.
+ * - The database provider is not chosen yet (Neon on Scale, or AWS RDS under
+ *   the AWS BAA), so no line names AWS, and none names KMS while apps/app's
+ *   KMS client does not load in a production build (CLAUDE.md, "apps/app is
+ *   portable but NOT currently deployable").
+ * - Anthropic's covered models keep inputs for 30 days and cannot run with
+ *   zero retention. The spec requires that to be disclosed, so the deletion
+ *   line carries it rather than promising deletion it cannot deliver.
  */
 const COMMITMENTS = [
   "We sign a BAA with every clinic",
-  "PHI stored in US-only AWS infrastructure under a signed AWS BAA",
+  "Patient data stored in US infrastructure",
   "We never use patient data to train models",
-  "Read-only access to your practice management system",
-  "Encrypted in transit and at rest with AWS KMS",
-  "Delete any patient's data on request",
+  "We write bookings only to the Google Calendar you connect",
+  "Encrypted in transit and at rest",
+  "Patient data deleted on your instruction; our AI model provider keeps inputs for 30 days",
 ] as const;
 
 export function Footer() {
@@ -47,8 +57,9 @@ export function Footer() {
             <WordmarkSlogan />
           </a>
           <p className="text-muted mt-3 text-sm font-medium">
-            An AI front desk for high-ticket elective clinics, and the only one
-            that tells you which recovered call actually collected.
+            An AI front desk for high-ticket elective clinics. Every call, chat
+            and DM answered, and the appointment booked while the patient is
+            still there.
           </p>
         </div>
 
@@ -72,11 +83,12 @@ export function Footer() {
               {site.email}
             </a>
           </nav>
-          {/* The mailbox the marketing emails and the legal pages print, in the
-              trade name's context only: no entity name here, and none in the
-              layout metadata either. It is a registered-agent box for
-              correspondence, not an office; the legal pages say so. */}
-          <address className="text-muted text-xs not-italic">{ENTITY.postalAddress}</address>
+          {/* The mailbox the marketing emails and the legal pages print. It is
+              a registered-agent box for correspondence, not an office; the
+              legal pages say so, and so does the label here. */}
+          <address className="text-muted text-xs not-italic">
+            {ENTITY.postalAddressLabel}: {ENTITY.postalAddress}
+          </address>
         </div>
       </div>
 
@@ -106,7 +118,14 @@ export function Footer() {
         </p>
       </div>
 
-      <div className="border-line mx-auto max-w-[1240px] border-t px-5 py-6 sm:px-8 lg:px-14">
+      <div className="border-line mx-auto max-w-[1240px] space-y-2 border-t px-5 py-6 sm:px-8 lg:px-14">
+        {/* The operating entity, on every page. Meta's Business Verification
+            compares the legal name on the trade licence with what the business
+            website shows, and a missing entity name is a documented rejection
+            cause (docs/v1-product-spec.md, "Verification details that decide
+            pass or fail"). The line reads from lib/legal.ts, as the Terms and
+            Privacy pages do, so the three cannot disagree. */}
+        <p className="text-muted text-xs">{entityLine()}</p>
         <p className="text-muted text-xs">
           © {new Date().getFullYear()} {site.name}. Pricing figures shown in demos
           are approximate industry ranges, not quotes.

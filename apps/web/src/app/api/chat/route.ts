@@ -33,8 +33,13 @@ const MAX_TOKENS = 2_000;
 /**
  * The spend ceiling, site-wide, per UTC day. The per-IP limit above bounds one
  * visitor; this bounds the bill when a thousand of them (or one with a proxy
- * pool) arrive at once. At ~2k output tokens a turn the default is a few
- * dollars a day at most. Override with DEMO_DAILY_CHAT_CAP; 0 disables the demo.
+ * pool) arrive at once. It counts turns, not dollars: the default of 2,000
+ * turns at up to MAX_TOKENS each admits about four million output tokens a
+ * day, plus the input of every turn (the composed system prompt rides on all
+ * of them). That is well past "a few dollars", which this comment used to
+ * say; price it against the model's current rates before relying on it, and
+ * lower DEMO_DAILY_CHAT_CAP if it is more than the demo is worth. Override
+ * with DEMO_DAILY_CHAT_CAP; 0 disables the demo.
  */
 const DAILY_CAP = Number(process.env.DEMO_DAILY_CHAT_CAP ?? 2_000);
 const DAY_MS = 24 * 60 * 60 * 1000;

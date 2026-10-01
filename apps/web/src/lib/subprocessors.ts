@@ -5,18 +5,45 @@
  * at healdesk.io/subprocessors" and notice before a new one handles patient
  * information. This module is that list; app/subprocessors/page.tsx renders
  * it. It is also the honest version of the vendor table in
- * docs/hipaa-compliance.md, corrected against what has actually been signed.
+ * docs/hipaa-compliance.md, corrected against what has actually been signed
+ * and against docs/v1-product-spec.md ("Vendor position, vendor by vendor").
  *
- * `handlesPhi` is the column that matters. A vendor that never receives
- * patient information — Stripe bills the clinic, Resend sends the invitation,
- * PostHog measures the marketing site — is listed so the picture is complete,
- * and marked so a compliance reader does not go looking for a BAA that is
- * not needed.
+ * Three kinds of row, and the page says which is which:
+ *
+ *   1. `handlesPhi: true`: receives patient information and works under a
+ *      Business Associate Agreement with us. `baa` says whether it is signed.
+ *   2. `handlesPhi: false`, `baa.state: "not-needed"`: never receives patient
+ *      information. It hosts or measures this website, or sends email that
+ *      carries none.
+ *   3. `handlesPhi: false`, `baa.state: "none-by-design"`: in the patient's
+ *      path, but no agreement exists or ever will, so the product keeps
+ *      clinical content away from it by scoping rather than paperwork. Meta
+ *      (Instagram, Messenger, WhatsApp) carries the patient's own messages,
+ *      kept non-clinical; Stripe takes deposits with only an amount, a
+ *      generic descriptor and an opaque reference.
  *
  * `baa` is a fact about paper, not a hope. "pending" means the agreement has
  * not yet been requested; "requested" means it has, with the date; "signed"
  * means a countersigned document exists and its date is written here. The
  * state moves forward only when the paper does.
+ *
+ * `region` is empty where it has not been confirmed. The page prints that
+ * plainly rather than a guess.
+ *
+ * Changes of 30 September 2026, to match the v1 spec:
+ *   - Retell is the product's voice vendor. Its BAA is self-serve and not yet
+ *     signed (spec, "Where the chain is complete").
+ *   - Synthflow stays only as the vendor that places the one demo call a
+ *     visitor asks for on this website (lib/synthflow.ts). It never carries a
+ *     patient call.
+ *   - Cal.com is gone: v1 writes bookings only to the clinic's own Google
+ *     Calendar, and nothing into Cal.com.
+ *   - Google Calendar is not a row. The calendar is the clinic's own, under
+ *     the clinic's own agreement with Google, not a vendor of ours; the page
+ *     says so under the table.
+ *   - The database provider is not chosen yet (Neon on its Scale plan, or AWS
+ *     RDS under the AWS BAA already held). Add a row for Neon, with its
+ *     agreement, if that is the choice.
  */
 
 export type BaaStatus =
@@ -24,13 +51,16 @@ export type BaaStatus =
   | { state: "requested"; on: string }
   /** Not yet requested. No patient information is sent until it is signed. */
   | { state: "pending" }
-  | { state: "not-needed"; because: string };
+  | { state: "not-needed"; because: string }
+  /** In the patient's path with no agreement possible; kept non-clinical. */
+  | { state: "none-by-design"; because: string };
 
 export type Subprocessor = {
   name: string;
   purpose: string;
   /** What, concretely, the vendor receives. */
   data: string;
+  /** Where it processes. Empty until confirmed. */
   region: string;
   handlesPhi: boolean;
   baa: BaaStatus;
@@ -41,57 +71,82 @@ export type Subprocessor = {
 export const SUBPROCESSORS: readonly Subprocessor[] = [
   {
     name: "Amazon Web Services",
-    purpose: "Hosting the product, its database, encryption keys, storage",
-    data: "All patient information the product holds: contacts, conversations, appointments, transcripts (no audio is kept)",
+    purpose: "Hosting the product and its storage, in the AWS account designated under our AWS agreement",
+    data: "Patient information the product holds: contacts, conversations, appointments, transcripts (no call audio is kept)",
     region: "United States (single region)",
     handlesPhi: true,
     // The AWS Business Associate Addendum, accepted click-through in AWS
     // Artifact. There is no countersigned copy: the executed download is the
     // generic form, and the Artifact "Active" row is the record. The account
-    // memo is docs/policies/aws-hipaa-account.md.
+    // memo is docs/policies/aws-hipaa-account.md. It covers only the
+    // designated account and HIPAA-eligible services.
     baa: { state: "signed", on: "2026-09-22" },
     scope: "product",
   },
   {
-    name: "Synthflow",
-    purpose: "The voice agent: answers forwarded calls, transcribes them, sends the post-call summary. On this website, places the one demo call a visitor asks for",
-    data: "Caller audio, transcript, caller number, call outcome. For the demo call: the number you typed and the call audio",
-    region: "United States workspace",
+    name: "Retell",
+    purpose: "The voice agent's telephony and speech: answers the calls a clinic forwards to it, and transcribes them",
+    data: "Caller audio and caller number during the call, and the call transcript. Call recording is kept off",
+    // Not confirmed. Fill in once the agreement and the account settings are.
+    region: "",
     handlesPhi: true,
-    baa: { state: "pending" },
-    scope: "both",
-  },
-  {
-    name: "Anthropic",
-    purpose: "The language model behind web chat and message handling, and behind the chat demo on this website",
-    data: "Chat messages and the clinic's public service information; on this website, what you type into the demo. No training on any of it",
-    region: "United States",
-    handlesPhi: true,
-    baa: { state: "pending" },
-    scope: "both",
-  },
-  {
-    name: "Cal.com",
-    purpose: "Scheduling for clinics that connect it: receives a first name, the service and the time of appointments the desk confirms or the assistant books",
-    data: "First name (and last name where the practice collects it), the service asked about, and the appointment time. Never a phone number or a patient email.",
-    region: "United States",
-    handlesPhi: true,
+    // Self-serve in Retell's click-agreements portal, not yet signed. Confirm
+    // the executed text names the services in use, then set per-agent
+    // retention and PII controls (spec, "Open items").
     baa: { state: "pending" },
     scope: "product",
   },
   {
-    name: "Stripe",
-    purpose: "Billing the clinic for its subscription",
-    data: "Clinic name, billing contact, card details (held by Stripe, never by healdesk)",
+    name: "Anthropic",
+    purpose: "The language model behind every channel of the product, and behind the chat demo on this website",
+    data: "Conversation text and the clinic's public service information; on this website, what you type into the demo. Under the BAA Anthropic keeps inputs for 30 days, which its covered models require. No training on any of it",
     region: "United States",
-    handlesPhi: false,
-    baa: { state: "not-needed", because: "Receives the clinic's billing identity only; never patient information." },
+    handlesPhi: true,
+    baa: { state: "pending" },
     scope: "both",
   },
   {
+    name: "Meta (Instagram, Messenger, WhatsApp)",
+    purpose: "Carries the messages patients send to a clinic's Instagram account, Facebook Page and WhatsApp number, and the assistant's replies",
+    data: "The patient's own messages and the identifiers Meta attaches to them (on WhatsApp, their phone number). Clinical content is caught when it arrives and not stored, and replies carry no treatment names",
+    region: "Meta's own infrastructure; not region-pinned",
+    handlesPhi: false,
+    baa: {
+      state: "none-by-design",
+      because:
+        "Meta signs no BAA for any messaging product. These channels are kept free of clinical content: anything clinical is moved to a call or the clinic's own secure route.",
+    },
+    scope: "product",
+  },
+  {
+    name: "Stripe",
+    purpose: "Billing the clinic for its subscription; and the hosted checkout a patient opens to pay a deposit, where a clinic takes deposits through Stripe",
+    data: "Clinic name, billing contact, card details (held by Stripe, never by healdesk). For a deposit: the amount, a generic descriptor and an opaque reference, never a treatment name",
+    region: "United States",
+    handlesPhi: false,
+    baa: {
+      state: "none-by-design",
+      because:
+        "Stripe signs no BAA on any tier. Deposits use only the payment-processing carve-out: money, a generic descriptor and an opaque reference, with nothing clinical in the description, the statement descriptor or the metadata.",
+    },
+    scope: "both",
+  },
+  {
+    name: "Synthflow",
+    purpose: "Places the one demo call a visitor asks for on this website. It carries no patient calls: the product's voice agent runs on Retell",
+    data: "The number you typed, the first name you gave, and the audio and transcript of the demo call",
+    region: "United States workspace",
+    handlesPhi: false,
+    baa: {
+      state: "not-needed",
+      because: "Demo calls to clinic owners and staff who asked for one; never a patient call.",
+    },
+    scope: "marketing-site",
+  },
+  {
     name: "Resend",
-    purpose: "Transactional email: invitations, agreement copies, report delivery notices",
-    data: "Recipient address and non-patient content only; reports are aggregate figures",
+    purpose: "Transactional email: invitations, agreement copies, account and billing notices",
+    data: "Recipient address and non-patient content only",
     region: "United States",
     handlesPhi: false,
     baa: { state: "not-needed", because: "The product refuses to send patient information over email; see apps/app/src/lib/reporting." },
@@ -136,3 +191,8 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
 ] as const;
 
 export const PHI_SUBPROCESSORS = SUBPROCESSORS.filter((s) => s.handlesPhi);
+
+/** In the patient's path with no agreement possible, kept non-clinical by design. */
+export const SCOPED_SUBPROCESSORS = SUBPROCESSORS.filter(
+  (s) => s.baa.state === "none-by-design",
+);

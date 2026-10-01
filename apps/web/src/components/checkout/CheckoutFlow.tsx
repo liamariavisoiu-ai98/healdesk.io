@@ -42,14 +42,29 @@ import {
 /**
  * The purchase flow.
  *
- * Five steps, and integration is deliberately not on the critical path: the
- * default customer connects nothing, gets estimated revenue figures, and is
- * live in minutes. Choosing a booking platform is about how we'll *report*, not
- * about whether the product works.
+ * Six steps, and nothing is connected during checkout. In v1 the clinic
+ * connects its Google Calendar and its channels in the onboarding wizard after
+ * the first invoice is paid (docs/v1-product-spec.md, "Stage 2, the wizard").
+ * The booking system asked at step 2 tells us whether she can book live: a
+ * system that reads Google Calendar for conflicts can, and Mindbody (one-way)
+ * and Boulevard (unverified) run with staff confirming each booking.
  *
  * "No booking software" is a first-class option, not a fallback. Those clinics
  * have the most primitive front desk and therefore the most leakage. They are
  * the best prospects, and the copy must not read as a downgrade.
+ *
+ * ## Revenue attribution is phase two, and fenced out of this flow
+ *
+ * Step 3 used to offer "Verified" reporting: read-only access to the clinic's
+ * point of sale, so a recovered call could be followed through to collected
+ * revenue. That is phase two, not v1, and v1 may not claim it. The code is
+ * kept behind VERIFIED_ATTRIBUTION_OFFERED below, which is false, so every
+ * buyer goes through on "estimated". Step 3 still asks for the value of one
+ * booked appointment only because apps/app provisioning, as written today,
+ * refuses an "estimated" signup without it; once provisioning stops requiring
+ * it, the step can go. The choice also selects the BAA variant AgreementStep
+ * renders, so with the fence in place every clinic signs the variant that
+ * describes no point-of-sale connection, which is the truth in v1.
  *
  * ## Signing is step 5, payment is step 6, and that order is load-bearing
  *
@@ -66,6 +81,9 @@ import {
  */
 
 const TOTAL_STEPS = 6;
+
+/** Phase two. See "Revenue attribution is phase two" above. Keep false in v1. */
+const VERIFIED_ATTRIBUTION_OFFERED = false;
 
 /**
  * How long this browser waits for its own server before it stops calling the
@@ -86,9 +104,17 @@ export type State = {
   contactName: string;
   contactEmail: string;
   contactTitle: string;
-  /** Discovery question B. Decides whether their number can be text-enabled. */
+  /**
+   * Discovery question B, from when the product texted. v1 sends no SMS, so
+   * the question is no longer asked; the field stays "unknown" so the
+   * provisioning request keeps its shape.
+   */
   phoneSystemType: "landline" | "voip" | "unknown";
-  /** Does the number ring at the practice first? Decides what "recovered" means. */
+  /**
+   * Which calls forward to AYA. "conditional" is overflow and after hours,
+   * the spec's default coverage mode; "always" is all calls. The third mode,
+   * after hours only, is chosen in the onboarding wizard.
+   */
   callRouting: "conditional" | "always";
 };
 
@@ -449,7 +475,7 @@ export function CheckoutFlow({
         onClose={onClose}
         eyebrow="Get started"
         title="What do you use for booking?"
-        subtitle="This only affects how we report your recovered revenue. The agent answers your phone either way."
+        subtitle="She books into your Google Calendar. This tells us whether your booking system will see those bookings, or whether your staff confirm each one in it. She answers either way."
         onBack={back}
       >
         <div className="grid gap-3">
@@ -466,14 +492,15 @@ export function CheckoutFlow({
                 // Boulevard and then came back here would carry "verified"
                 // into a request provisioning rejects. Force it, the same way
                 // "No booking software" below does.
-                if (!supportsVerifiedAttribution(p)) {
+                if (!VERIFIED_ATTRIBUTION_OFFERED || !supportsVerifiedAttribution(p)) {
                   set("attributionMode", "estimated");
                 }
                 next();
               }}
+              // No description and no "One click" badge: the catalog's
+              // platform notes describe how phase two would read revenue back
+              // out of each system, which v1 does not do and may not claim.
               title={p.name}
-              description={p.note}
-              badge={p.connection === "oauth" ? "One click" : undefined}
             />
           ))}
 
@@ -487,8 +514,7 @@ export function CheckoutFlow({
                 next();
               }}
               title={none.name}
-              description="You'll get everything: the AI answers every call, books appointments, and sends a monthly report. Revenue figures will be estimates from your average treatment value rather than read from a point-of-sale. You can connect a system later."
-              badge="Most common"
+              description="Nothing missing: she answers, and books straight into the Google Calendar you connect during setup."
             />
           </div>
         </div>
@@ -497,9 +523,12 @@ export function CheckoutFlow({
     );
   }
 
-  // --- Step 3: attribution --------------------------------------------------
+  // --- Step 3: value of a booking ------------------------------------------
+  // Phase-two attribution is fenced off (see the header), so this step shows
+  // only the value field. The Verified card stays in the code, unreachable.
   if (step === 3) {
-    const canVerify = platform ? supportsVerifiedAttribution(platform) : false;
+    const canVerify =
+      VERIFIED_ATTRIBUTION_OFFERED && platform ? supportsVerifiedAttribution(platform) : false;
 
     return (
       <StepShell
@@ -507,22 +536,20 @@ export function CheckoutFlow({
         totalSteps={TOTAL_STEPS}
         onClose={onClose}
         eyebrow="Get started"
-        title="How should we measure what it earns you?"
-        subtitle={
-          canVerify
-            ? "You can change this later, and connecting is optional."
-            : `${platform?.name ?? "Your setup"} has nothing for us to read from, so we'll estimate.`
-        }
+        title="What is one booked appointment worth to you?"
+        subtitle="A typical figure is fine. Your full price list is confirmed during setup."
         onBack={back}
       >
         <div className="grid gap-3">
-          <ChoiceCard
-            selected={state.attributionMode === "estimated"}
-            onSelect={() => set("attributionMode", "estimated")}
-            title="Estimated"
-            description="Nothing to connect. We calculate recovered revenue from your average treatment value. Live in minutes."
-            badge="Default"
-          />
+          {canVerify ? (
+            <ChoiceCard
+              selected={state.attributionMode === "estimated"}
+              onSelect={() => set("attributionMode", "estimated")}
+              title="Estimated"
+              description="Nothing to connect."
+              badge="Default"
+            />
+          ) : null}
           {canVerify ? (
             <ChoiceCard
               selected={state.attributionMode === "verified"}
@@ -540,8 +567,8 @@ export function CheckoutFlow({
                 Average value of one booked appointment
               </span>
               <span className="text-muted mt-1 block text-sm">
-                Your best estimate is fine. It is the only input to the figures
-                we report, so we ask rather than guess from a specialty average.
+                Your best estimate is fine; we ask rather than guess from a
+                specialty average.
               </span>
               <span className="border-line focus-within:border-orange mt-3 flex items-center gap-2 rounded-xl border px-4 py-3 transition-colors">
                 <span className="text-muted font-semibold">$</span>
@@ -626,88 +653,24 @@ export function CheckoutFlow({
           />
         </div>
 
-        {/* ---------------- Phone system ----------------
-            Asked here rather than discovered during onboarding because it
-            decides something we cannot work around later: a carrier will
-            text-enable a landline or toll-free number, but not a VoIP one, and
-            plenty of clinics publish RingCentral, Nextiva or Dialpad.
-
-            Call forwarding works either way, so this never blocks the sale and
-            is never a disqualifier. What it changes is whether the text-back
-            and reminder-fallback messages can come from the clinic's own
-            published number. "Not sure" is the honest default and by far the
-            most common answer, an assumed "landline" just fails weeks later,
-            during setup, in front of the customer. */}
-        <fieldset className="border-line mt-6 rounded-2xl border bg-white p-5">
-          <legend className="text-[15.6px] font-bold tracking-[0.04em] uppercase">
-            Your main phone line
-          </legend>
-          <p className="text-muted mt-1.5 text-sm">
-            Is the number on your website a traditional landline or toll-free
-            line, or a cloud phone system like RingCentral, Nextiva or Dialpad?
-            It only affects text messaging, call forwarding works either way.
-          </p>
-
-          <div className="mt-4 grid gap-2">
-            {(
-              [
-                {
-                  id: "landline",
-                  label: "Landline or toll-free",
-                  hint: "A traditional line from a phone company.",
-                },
-                {
-                  id: "voip",
-                  label: "Cloud phone system (VoIP)",
-                  hint: "RingCentral, Nextiva, Dialpad, Grasshopper, or similar.",
-                },
-                {
-                  id: "unknown",
-                  label: "I'm not sure",
-                  hint: "Completely fine. We'll check it during setup.",
-                },
-              ] as const
-            ).map((option) => (
-              <label
-                key={option.id}
-                className={[
-                  "flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 transition-colors",
-                  state.phoneSystemType === option.id
-                    ? "border-red bg-red/[0.04]"
-                    : "border-line hover:border-line-strong",
-                ].join(" ")}
-              >
-                <input
-                  type="radio"
-                  name="phoneSystemType"
-                  checked={state.phoneSystemType === option.id}
-                  onChange={() => set("phoneSystemType", option.id)}
-                  className="accent-red mt-1 size-4 shrink-0"
-                />
-                <span>
-                  <span className="block text-sm font-semibold">
-                    {option.label}
-                  </span>
-                  <span className="text-muted block text-xs">{option.hint}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        {/* The phone-system question that used to sit here decided whether
+            the clinic's number could be text-enabled. v1 sends no SMS of any
+            kind, so it is not asked; phoneSystemType stays "unknown". */}
 
         {/* ---------------- Call routing ----------------
-            Decides what the revenue report counts as recovered. "Ring at the
-            practice first" means every call AYA takes is one the desk missed;
-            "AYA answers everything" means only after-hours calls count. It is
-            asked here so the default is never silently inherited, and it is
-            confirmed again on the onboarding call. */}
+            The voice coverage mode, asked early so the default is never
+            silently inherited. The spec has three modes (docs/v1-product-spec.md,
+            "Coverage mode, chosen by the clinic"); the request carries two of
+            them today, so the third, after hours only, is chosen in the
+            onboarding wizard, and every mode can be changed later. */}
         <fieldset className="border-line mt-6 rounded-2xl border bg-white p-5">
           <legend className="text-[15.6px] font-bold tracking-[0.04em] uppercase">
-            Who should answer first?
+            Which calls should AYA answer?
           </legend>
           <p className="text-muted mt-1.5 text-sm">
-            This decides what your monthly report counts as a recovered call.
-            You can change it during setup.
+            Your published number never changes; your line forwards the calls
+            you choose. You can pick after hours only during setup, and change
+            it at any time.
           </p>
           <div className="mt-4 grid gap-2">
             {(
@@ -715,12 +678,12 @@ export function CheckoutFlow({
                 {
                   id: "conditional",
                   label: "My team answers first; AYA takes what we miss",
-                  hint: "Calls forward to AYA only when the line is busy, unanswered, or after hours. Every call AYA takes counts as recovered.",
+                  hint: "Overflow and after hours: calls forward to AYA when the line is busy, rings out, or it is outside your opening hours.",
                 },
                 {
                   id: "always",
-                  label: "AYA answers everything",
-                  hint: "All calls forward straight to AYA. Only after-hours calls count as recovered, because your team would have taken the rest.",
+                  label: "AYA answers every call",
+                  hint: "All calls forward straight to AYA, day and night.",
                 },
               ] as const
             ).map((option) => (
@@ -874,9 +837,11 @@ export function CheckoutFlow({
             Which chat channel?
           </legend>
           <p className="text-muted mt-1.5 text-sm">
-            {plan.name} includes one. Instagram and WhatsApp are connected
-            through your Meta Business account after payment; the website
-            widget is live as soon as setup finishes.
+            {plan.name} includes one. Website chat goes live once its one-line
+            snippet is on your site. Instagram and Messenger go live as soon as
+            you connect them during setup; WhatsApp once your WhatsApp account
+            has a payment method on it, because Meta bills you directly for
+            WhatsApp messages.
           </p>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
             {CHAT_CHANNEL_CHOICES.map((option) => (
@@ -1331,20 +1296,19 @@ function Complete({ email, onClose }: { email: string; onClose?: () => void }) {
       <h1 className="font-display mt-6 text-[clamp(31.2px,4.32vw,45.6px)] leading-tight font-medium tracking-[-0.024em]">
         You&apos;re set up.
       </h1>
-      {/* No password link is promised here, because nothing sends one. Clinic
-          logins were removed on purpose. There is no account to create and no
-          console to log into. The only thing a clinic ever receives is a
-          one-time connection link, and it is issued separately. Saying so is
-          both true and a better pitch than an invitation to make a password. */}
+      {/* Reached only on the unpaid development path (no Stripe keys), where
+          apps/app has already created the account. On the paid path the buyer
+          leaves for Stripe and comes back to /get-started/done. In v1 the
+          clinic signs in to its portal from an emailed link, so this says so
+          rather than promising a password. */}
       <p className="text-muted mt-4 text-[19.2px] font-medium">
         Your agreement is signed and on file, and we&apos;ve emailed a copy to{" "}
         <strong className="text-ink">{email}</strong>.
       </p>
       <p className="text-muted mt-6 text-sm">
-        Next we configure the agent for your clinic and provision your number.
-        There is nothing for you to log into, if you chose verified reporting,
-        we&apos;ll send you a single link to connect your booking system, and it
-        takes about five minutes.
+        Setup opens from the sign-in link in your welcome email and takes
+        about fifteen minutes: confirm your services, prices and hours, set how
+        she behaves, connect your Google Calendar, then connect each channel.
       </p>
 
       {onClose ? (

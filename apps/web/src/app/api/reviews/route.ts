@@ -24,10 +24,12 @@ import { site } from "@/lib/site";
  *
  * ## Why the gate is not a login
  *
- * There is no session, no password and nothing to sign into. Clinics do not
- * operate software here (see the note at the top of KnowMore.tsx); they get a
- * service. The ID is a claim we check, and getting it wrong comes back as a
- * field error on the form rather than as an authentication failure.
+ * The marketing site has no session, and apps/web must not grow one. v1 does
+ * give clinics a sign-in, to the clinic portal in apps/app, and that portal is
+ * where "leave a review" belongs once it exists: for a signed-in owner, which
+ * would retire this customer-ID check and the lookup behind it. Until then
+ * the ID is a claim we check, and getting it wrong comes back as a field
+ * error on the form rather than as an authentication failure.
  *
  * The check is deliberately not an oracle for guessing IDs. It is rate limited
  * to three attempts an hour per address, and the answer is a bare yes or no

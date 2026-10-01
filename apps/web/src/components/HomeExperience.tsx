@@ -64,11 +64,12 @@ export function HomeExperience() {
             {site.agent} 1.0 · Meet your smart assistant
           </p>
           <h2 className="font-display text-ink mt-5 text-[clamp(36px,4.8vw,66px)] leading-[1.02] font-normal tracking-[-0.03em]">
-            Web, Meta &amp; Voice
+            Website, DMs &amp; Phone
           </h2>
           <p className="text-muted mt-4 max-w-[58ch] text-[clamp(17px,1.25vw,19px)] leading-[1.55] font-medium">
-            One agent behind your website chat, your Instagram and WhatsApp DMs, and your phone
-            line. The chat is live; the call is a scripted example, or have her ring you.
+            One agent behind your website chat, your Instagram, Messenger and WhatsApp messages,
+            and your phone line. The chat is live; the call is a scripted example, or have her
+            place one demo call to you.
           </p>
         </div>
 

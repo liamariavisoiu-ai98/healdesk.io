@@ -23,66 +23,111 @@ import { site } from "@/lib/site";
  *   compliance seal was charged as a standalone deception count in *In re
  *   SkyMed International* (2021). Say what we do; say that nobody has audited
  *   it. See the note in Footer.tsx.
+ * - "How would we know it's working" may claim only what v1 counts:
+ *   conversations handled, appointments booked, calls answered that would
+ *   have rung out, deposits collected, and booked value. Never revenue or
+ *   "collected": attended-and-paid needs read-back from the clinic's own
+ *   point of sale, which is phase two (docs/v1-product-spec.md, "What v1 can
+ *   prove, and what it cannot").
+ *
+ * The setup answer is per channel on purpose: a global "live in minutes" is
+ * the promise the spec forbids, because voice waits on the clinic's call
+ * forwarding and WhatsApp on its own Meta billing.
  */
 const FAQS = [
   {
     q: `What does ${site.agent} actually do?`,
     a:
-      "She answers the phone, texts, web chat, Instagram DMs and WhatsApp, " +
-      "24 hours a day. She handles treatment and pricing questions, works out " +
-      "whether someone is a serious consult or a price-shopper, books them in, " +
-      "and rings back the numbers that went unanswered. An unanswered phone " +
-      "stops being a lost patient.",
+      "She answers your phone, website chat, Instagram, Messenger and " +
+      "WhatsApp, day or night. She answers treatment and pricing questions " +
+      "from your own menu, works out whether someone is ready for a consult, " +
+      "and books them straight into your calendar during the conversation. " +
+      "The calls that used to ring out get answered instead. She only ever " +
+      "answers: she never calls, texts or messages a patient first.",
   },
   {
-    q: "Does she book into the system we already use?",
+    q: "Where does she book?",
     a:
-      "Yes. Mindbody, Vagaro, Boulevard, Zenoti and GoHighLevel, or a plain " +
-      "calendar if that's what you run. A deposit link goes out after the call " +
-      "when you want one, which is the cheapest no-show fix there is.",
+      "Into your Google Calendar, live, while the patient is still in the " +
+      "conversation. Link your booking system to that calendar: Calendly and " +
+      "Cal.com (and Google Calendar on its own) then stop offering the slot. " +
+      "Mindbody only syncs one way, so for Mindbody, and for Boulevard until " +
+      "Boulevard confirms otherwise, your staff confirm each booking in your " +
+      "own system, and we tell you which applies before you buy. Deposits: in " +
+      "website chat, Instagram, Messenger and WhatsApp she sends your own " +
+      "checkout link while the patient is still there; on the phone she books " +
+      "and flags the deposit for your desk to collect.",
   },
   {
     q: "What do we have to log into?",
     a:
-      "Nothing. There is no dashboard for your team to learn, no seats to " +
-      "hand out and no software to run. You get the bookings in the system you " +
-      "already use and a report in your inbox. healdesk is a service, not " +
-      "another tool sitting on your front desk.",
+      "A small portal, used when you want it. You sign in from an emailed " +
+      "link, with no password needed. Switches, not settings, change how she " +
+      "behaves. Every conversation and every booking she made is there, and " +
+      "opening a transcript asks for a second factor. Your owner, manager and " +
+      "billing contact each get their own access. Everything else is done " +
+      "for you.",
+  },
+  {
+    q: "How long until she's live?",
+    a:
+      "About fifteen minutes of your time, then each channel goes live on its " +
+      "own. Website chat, once the one-line snippet is on your site. Instagram " +
+      "and Messenger, as soon as you connect them. WhatsApp, once your " +
+      "WhatsApp account has a payment method on it: Meta bills you directly " +
+      "for WhatsApp messages, including replies from 1 October 2026, and we " +
+      "do not resell them. Your phone, once call forwarding is set on your " +
+      "line, usually the same day.",
+  },
+  {
+    q: "Do we have to give her every call?",
+    a:
+      "No. You choose: all calls, overflow and after hours, or after hours " +
+      "only. Your published number never changes; your line forwards the " +
+      "calls you pick to her. If you have a full-time receptionist, start on " +
+      "after hours only and widen it once you trust her.",
   },
   {
     q: "Will she give medical advice?",
     a:
       "Never, and that is the design rather than a limitation. Anything " +
-      "clinical, safety, side effects, recovery, whether someone is a " +
-      "candidate, goes to your clinical team, with a warm handoff and a " +
-      "booked consult. Intake, history and consent go to a secure link, not " +
-      "onto the call.",
+      "clinical (safety, side effects, recovery, whether someone is a " +
+      "candidate) gets no answer from her: she books a consultation with " +
+      "your provider instead. A report of a complication or an urgent " +
+      "symptom never reaches the AI: it gets a fixed response and an " +
+      "immediate alert to your on-call contact. She takes only what a " +
+      "receptionist would write on a callback slip.",
   },
   {
     q: "How do you handle patient data?",
     a:
-      "We sign a BAA with every clinic. Patient data sits in US-only AWS " +
-      "infrastructure under a signed AWS BAA, encrypted in transit and at rest, " +
-      "and we never use it to train models. Our access to your practice " +
-      "management system is read-only, and we delete any patient's data on " +
-      "request. No third party has audited us, those are our own commitments, " +
-      "and we will walk you through the architecture behind any of them.",
+      "We sign a business associate agreement with every clinic and handle " +
+      "patient data under it. It is stored in US infrastructure, encrypted in " +
+      "transit and at rest, and never used to train models. The only system " +
+      "we write to is the Google Calendar you connect. Our AI model provider " +
+      "keeps conversation inputs for 30 days; everything else is deleted on " +
+      "your instruction. Meta signs no BAA, so she keeps Instagram, Messenger " +
+      "and WhatsApp conversations non-clinical. No third party has audited " +
+      "us, those are our own commitments, and we will walk you through the " +
+      "architecture behind any of them.",
   },
   {
     q: "How would we know it's working?",
     a:
-      "You get the part most AI receptionists skip. They write a booking into " +
-      "your calendar and stop there, so the most they can tell you is that a " +
-      "call was recovered. We read the money event back out of your own " +
-      "point-of-sale, so you can follow a single recovered call through to " +
-      "booked, showed up, and collected. It all stays inside your systems, " +
-      "we never send patient information to an advertising platform.",
+      "Your portal's Home screen and a weekly email show conversations " +
+      "handled, appointments booked, calls answered that would otherwise have " +
+      "rung out, and deposits collected, plus the booked value of those " +
+      "appointments at your own prices. Nothing about a patient is ever sent " +
+      "to an advertising platform.",
   },
   {
     q: "Can we hear her before we commit?",
     a:
-      "Yes. Put your number into the phone panel above and she'll ring you " +
-      "back in about a minute, talk to her the way a patient would.",
+      "Yes. Talk to her in the chat panel above, play the example call, or " +
+      "put your number into the phone panel and she'll call you once, " +
+      "because you asked. Talk to her the way a patient would. That one demo " +
+      "call is the only call she ever places: for your clinic she answers, " +
+      "and never dials out.",
   },
 ] as const;
 

@@ -23,8 +23,13 @@ import { site } from "@/lib/site";
  */
 
 export const DEMO_AGENT = {
+  /**
+   * Opens by saying she is an AI assistant, as the product must on every
+   * channel (docs/v1-product-spec.md, "Guardrails"). The demo models the
+   * disclosure a clinic cannot switch off.
+   */
   greeting:
-    `Hi. I'm ${site.agent}, the front desk healdesk runs for clinics. ` +
+    `Hi. I'm ${site.agent}, healdesk's AI assistant: the front desk healdesk runs for clinics. ` +
     "Med spas, surgery, fertility, dental, derm, weight loss. I answer for " +
     "all of them, and I work out which one I'm on from the call. Ask me " +
     "anything a patient would ask, or anything you'd ask a supplier.",
@@ -53,17 +58,33 @@ export const DEMO_AGENT = {
    * It has to read as a real call at any clinic on the reel below, so it turns
    * on the one thing every one of them shares: a stranger asking what the first
    * appointment costs, and leaving with it booked.
+   *
+   * It follows the spec's call flow ("How a call runs"): the agent opens by
+   * saying it is an AI assistant and that the call is transcribed, offers two
+   * times rather than a list, holds the slot before saying anything
+   * confirming, reads the number back digit by digit, and leaves the
+   * confirmation to the clinic's own system. Nothing is texted or sent: voice
+   * cannot send a link in v1.
    */
   voice: [
+    {
+      agent: true,
+      text: `Thanks for calling. I'm ${site.agent}, the clinic's AI assistant, and this call is transcribed. How can I help?`,
+    },
     { agent: false, text: "Hi. I'm calling about a consultation. How much is it?" },
     {
       agent: true,
-      text: "The consult is complimentary and runs about half an hour with one of our clinicians. I have Tuesday at 4:00 or Thursday morning, which suits you better?",
+      text: "The consult is complimentary and takes about half an hour. I have Tuesday at 4:00 or Thursday at 10:00. Which suits you?",
     },
     { agent: false, text: "Tuesday's good." },
     {
       agent: true,
-      text: "Booked. Can I take your name and the best number to reach you? I'll text the intake form over so there's nothing to fill in when you arrive.",
+      text: "I'm holding Tuesday at 4:00. Can I take your name and the best number to reach you?",
+    },
+    { agent: false, text: "Sam Rivera, 512 555 0142." },
+    {
+      agent: true,
+      text: "That's 5-1-2, 5-5-5, 0-1-4-2. You're booked for a consultation on Tuesday at 4:00, and the clinic's system will send your confirmation.",
     },
   ] as const,
 } as const;

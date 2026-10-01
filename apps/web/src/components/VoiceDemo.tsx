@@ -25,6 +25,12 @@ const LINE_DELAY_MS = 1_600;
  * over their number and have AYA ring them, which is the only way to actually
  * hear the product.
  *
+ * That one consented demo call to a clinic owner is the only call anything
+ * on healdesk ever places. The product is inbound only and never dials a
+ * patient, so the panel says so beside the form. The call still runs through
+ * Synthflow (lib/synthflow.ts) until a Retell demo agent exists; the product
+ * voice agent runs on Retell.
+ *
  * ## The consent gate is not a formality
  *
  * This places an AI-voice call to a number a stranger typed in. The checkbox is
@@ -297,8 +303,14 @@ export function VoiceDemo() {
         </div>
       ) : (
         <form onSubmit={requestCall} className="border-line border-t px-[18px] py-4">
+          {/* Says what this call is: one demo call, placed because the
+              visitor asked. The product itself is inbound only and never
+              dials a patient, and the panel must not suggest otherwise. */}
           <p className="text-[16.2px] font-semibold">
-            Or have it ring your own phone, in about a minute.
+            Or have her place one demo call to your phone, now.
+          </p>
+          <p className="text-muted mt-1 text-[14.4px] font-medium">
+            For your clinic she only answers. She never dials a patient.
           </p>
 
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">

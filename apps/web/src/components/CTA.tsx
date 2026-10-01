@@ -22,7 +22,7 @@ export function CTA() {
         </h2>
         <p className="mx-auto mt-5 max-w-[46ch] text-[20.4px] font-medium text-white">
           Tell us your specialty and where the phone drops. We&apos;ll build the
-          front desk around your treatments, your pricing, and your booking stack.
+          front desk around your treatments, your pricing and your Google Calendar.
         </p>
 
         <div className="mt-9 flex flex-wrap items-center justify-center gap-4">
@@ -42,7 +42,7 @@ export function CTA() {
 
         <p className="mt-7 text-[15.6px] font-medium text-white">
           From {usd.format(entry.monthlyUsd)}/mo + {usd.format(entry.setupFeeUsd)}{" "}
-          setup · No booking software required
+          setup · Works with your Google Calendar
         </p>
       </div>
     </section>

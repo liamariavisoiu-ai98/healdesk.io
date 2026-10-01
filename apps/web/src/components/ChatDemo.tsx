@@ -292,7 +292,7 @@ export function ChatDemo() {
           size={26}
           label={streaming ? `${site.agent} is typing` : undefined}
         />
-        <span className="text-sm font-bold">Web chat &amp; Instagram DM</span>
+        <span className="text-sm font-bold">Website chat &amp; DMs</span>
         {/* The badge tells the truth about the route. A 503 from /api/chat
             (no model key, cap reached) used to leave "Live AI" up over a
             panel that could not answer, which is the one moment the label
@@ -427,6 +427,12 @@ export function ChatDemo() {
           </button>
         </form>
       )}
+      {/* Permanent, under the input. This site holds no patient information
+          and the demo is for clinic staff, so the panel says so where the
+          typing happens (privacy § 2 says the same). */}
+      <p className="text-muted border-line border-t px-[18px] py-2 text-xs font-medium">
+        A demo for clinic staff. Please don&apos;t type patient information.
+      </p>
 
       {/* The conversion step, where the conviction actually happens. It carries
           the email already given to the gate, so the buyer meets a form that is

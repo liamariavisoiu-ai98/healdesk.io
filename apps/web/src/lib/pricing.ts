@@ -24,16 +24,21 @@ import {
  * the due-today figures can be asserted in a test without rendering the step.
  */
 
-/** Shown to buyers. "Meta" means nothing to a clinic; the platform names do. */
+/**
+ * Shown to buyers. "Meta" means nothing to a clinic; the platform names do,
+ * and they are the names the clinic portal uses for its channels: phone,
+ * website chat, Instagram, Messenger, WhatsApp. The Meta channel is all three
+ * of Instagram, Messenger and WhatsApp, so every label for it names all three.
+ */
 export const CHANNEL_LABELS: Record<Channel, string> = {
-  web: "Web chat",
-  meta: "Instagram + WhatsApp",
-  voice: "Voice",
+  web: "Website chat",
+  meta: "Instagram, Messenger + WhatsApp",
+  voice: "Phone",
 };
 
 export const CHAT_CHANNEL_CHOICES = [
   { id: "web", label: "Website" },
-  { id: "meta", label: "Instagram + WhatsApp" },
+  { id: "meta", label: "Instagram, Messenger + WhatsApp" },
 ] as const;
 
 export type ChatChannelChoice = (typeof CHAT_CHANNEL_CHOICES)[number]["id"];
@@ -91,10 +96,14 @@ export function allowanceRows(plan: Plan): AllowanceRow[] {
 /**
  * What happens past the allowance, as one line.
  *
- * `null` while the overage rates are provisional: the catalog says so
- * explicitly, and printing a placeholder number on a pricing page is the one
- * thing a placeholder must never do. The caller renders the published-rate
- * wording instead.
+ * `null` while `OVERAGE_RATES_PROVISIONAL` is set: checkout then attaches no
+ * metered price, so no number may be printed. The caller renders the
+ * published-rate wording instead.
+ *
+ * With the flag off the rates are printed, but they are still placeholders
+ * until measured cost times a target margin replaces them (catalog header,
+ * and docs/v1-product-spec.md "What still has to be computed"). Every caller
+ * that prints this line also says the rates are provisional.
  */
 export function overageLine(plan: Plan): string | null {
   if (OVERAGE_RATES_PROVISIONAL) return null;

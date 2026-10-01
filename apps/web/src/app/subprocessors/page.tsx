@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import { LegalPage, Section } from "@/components/LegalPage";
 import { ENTITY, POLICY } from "@/lib/legal";
-import { SUBPROCESSORS, type BaaStatus } from "@/lib/subprocessors";
+import { SUBPROCESSORS, type BaaStatus, type Subprocessor } from "@/lib/subprocessors";
 
 export const metadata: Metadata = {
   title: "Subprocessors",
@@ -15,6 +15,17 @@ export const metadata: Metadata = {
  * these subcontractors at healdesk.io/subprocessors". The list itself lives
  * in src/lib/subprocessors.ts so the agreement, this page and the compliance
  * file all read one source.
+ *
+ * The "How to read this" text describes three kinds of row, not two, since
+ * Meta and Stripe sit in the patient's path with no agreement possible
+ * (docs/v1-product-spec.md, "Where the chain is complete, and where it is
+ * not"). It no longer says every patient-information vendor is pinned to a US
+ * region: that is not confirmed for Retell, and the region column now says so
+ * where it is not.
+ *
+ * DRAFT pending counsel review (2026-09-30): the BAA points at this page, so
+ * counsel should read the three-kind wording and the Meta and Stripe rows
+ * before the first clinic signs.
  */
 export default function SubprocessorsPage() {
   return (
@@ -24,16 +35,34 @@ export default function SubprocessorsPage() {
     >
       <Section id="how-to-read" title="How to read this">
         <p>
-          <strong>Handles patient information</strong> is the column that matters. A vendor marked
-          Yes receives information that HIPAA protects, and works under a Business Associate
-          Agreement with us — the <em>Agreement</em> column says whether that agreement is signed
-          or still being executed. A vendor marked No never receives patient information: it bills
-          the clinic, sends an invitation email, or measures this website, and the row says which.
+          <strong>Handles patient information</strong> is the column that matters, and a row is
+          one of three kinds.
         </p>
+        <ul className="list-disc space-y-3 pl-6">
+          <li>
+            <strong>Yes.</strong> The vendor receives information that HIPAA protects and works
+            under a Business Associate Agreement with us. The <em>Agreement</em> column says
+            whether that agreement is signed or still to be executed; no patient information goes
+            to a vendor until it is signed.
+          </li>
+          <li>
+            <strong>Kept out by design.</strong> The vendor sits in the patient&apos;s path but
+            signs no agreement, so the product keeps clinical content away from it. Meta carries
+            the messages a patient sends to your Instagram, Messenger or WhatsApp, and the
+            assistant keeps those conversations non-clinical. Stripe takes a deposit with only an
+            amount, a generic descriptor and an opaque reference.
+          </li>
+          <li>
+            <strong>No.</strong> The vendor never receives patient information: it hosts or
+            measures this website, places a demo call a visitor asked for, or sends email that
+            carries none, and the row says which.
+          </li>
+        </ul>
         <p>
-          Every vendor that handles patient information is pinned to a United States region; the
-          agreement's US-infrastructure promise depends on that staying true, and it is reviewed
-          quarterly.
+          Bookings are written into your own Google Calendar. That calendar is yours, held under
+          your own agreement with Google, so it is not a vendor of ours and has no row here. (The
+          Google row below is this website&apos;s own lead register, which never holds patient
+          information.)
         </p>
       </Section>
 
@@ -56,8 +85,8 @@ export default function SubprocessorsPage() {
                   <td className="py-2.5 pr-3 font-semibold">{v.name}</td>
                   <td className="py-2.5 pr-3">{v.purpose}</td>
                   <td className="py-2.5 pr-3">{v.data}</td>
-                  <td className="py-2.5 pr-3">{v.region}</td>
-                  <td className="py-2.5 pr-3">{v.handlesPhi ? "Yes" : "No"}</td>
+                  <td className="py-2.5 pr-3">{v.region || "Not yet confirmed"}</td>
+                  <td className="py-2.5 pr-3">{handles(v)}</td>
                   <td className="py-2.5">{describe(v.baa)}</td>
                 </tr>
               ))}
@@ -86,6 +115,11 @@ export default function SubprocessorsPage() {
   );
 }
 
+function handles(vendor: Subprocessor): string {
+  if (vendor.handlesPhi) return "Yes";
+  return vendor.baa.state === "none-by-design" ? "Kept out by design" : "No";
+}
+
 function describe(status: BaaStatus): string {
   switch (status.state) {
     case "signed":
@@ -96,5 +130,7 @@ function describe(status: BaaStatus): string {
       return "BAA to be executed before any patient information is processed; none is today";
     case "not-needed":
       return `Not required — ${status.because}`;
+    case "none-by-design":
+      return `None, and none available — ${status.because}`;
   }
 }

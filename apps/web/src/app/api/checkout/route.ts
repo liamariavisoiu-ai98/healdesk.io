@@ -6,26 +6,36 @@ import {
   sign,
 } from "@healdesk/catalog";
 
-import { createCheckout, isBillingConfigured } from "@/lib/billing";
+import { createCheckout, isBillingConfigured, isProductionDeployment } from "@/lib/billing";
 import { isCampaignCode } from "@/lib/attribution";
 import { cohortCreditLive, findLeadById, markCheckoutStarted } from "@/lib/leads";
 import { type ChatChannelChoice, isChatChannelChoice } from "@/lib/pricing";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 
 /**
- * POST /api/checkout, complete a purchase.
+ * POST /api/checkout, start a purchase.
  *
- * The marketing site never talks to the product database. It signs the payload
- * and forwards it to apps/app, which owns every write. That keeps exactly one
- * service holding a connection to the database that will eventually contain
- * PHI, even though nothing in this payload is PHI, a clinic owner's name and
- * work email are business contact data.
+ * The browser's checkout step calls this, once the buyer has signed the BAA;
+ * the Stripe webhook never does. It validates the billing terms and hands the
+ * buyer to a Stripe-hosted Checkout Session, and nothing is created in
+ * apps/app here. The account is recorded when that Session completes and is
+ * switched on only when the first invoice is paid, both in
+ * app/api/webhooks/stripe (src/lib/billing.ts explains the two steps).
  *
- * Payment comes first in the real flow: this route is called by the Stripe
- * webhook / success handler, not directly by the browser form. Until Stripe
- * keys exist, `createCheckout` short-circuits and this is called inline,
- * see src/lib/billing.ts.
+ * The marketing site never talks to the product database. What it sends is
+ * signed and carried to apps/app, which owns every write. That keeps exactly
+ * one service holding a connection to the database that will eventually
+ * contain PHI, even though nothing in this payload is PHI, a clinic owner's
+ * name and work email are business contact data.
+ *
+ * Without Stripe keys there is a development path at the bottom that
+ * provisions inline, with no payment, so the purchase flow can be exercised
+ * end to end on a laptop. It is refused in every production deployment; see
+ * the guard in front of it.
  */
+
+/** The shape apps/app issues agreement ids in, and checks again at provisioning. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -126,6 +136,38 @@ export async function POST(request: Request): Promise<Response> {
   if (chatChannelChoice) payload.chatChannelChoice = chatChannelChoice;
 
   /**
+   * The signed agreement, required before anybody can pay.
+   *
+   * The business associate agreement is a blocking step: checkout does not
+   * complete without it (docs/v1-product-spec.md, "Who is what"). apps/app
+   * refuses to provision without an agreement id of exactly this shape, but
+   * it only finds out after the webhook, which on the paid path is after the
+   * card was charged. Checked here, a buyer who skipped the signature step is
+   * stopped before a Session exists, under the same field name, so the form
+   * can send them back to the step they missed.
+   *
+   * This is a shape check, not proof of a signature. Whether the id names an
+   * acceptance of the current BAA version, signed by this buyer and not yet
+   * bound to an account, is only knowable in apps/app, and asking it before
+   * the Session is created needs a signed endpoint that does not exist yet.
+   */
+  if (typeof payload.agreementId !== "string" || !UUID.test(payload.agreementId)) {
+    return Response.json(
+      { error: "Sign the Business Associate Agreement before paying.", field: "agreementId" },
+      { status: 422 },
+    );
+  }
+
+  // `attributionMode` and `averageTreatmentValueUsd` pass through untouched,
+  // and only because apps/app provisioning still refuses a signup without
+  // `attributionMode`. Revenue attribution is phase two, not v1: v1 reports
+  // booked value from the clinic's own configured prices, never revenue
+  // (docs/v1-product-spec.md, "What v1 can prove, and what it cannot"). Once
+  // provisioning stops requiring them, drop both here the way `campaign` and
+  // `leadId` are dropped below. The webhook keeps coercing them for Sessions
+  // already in flight.
+
+  /**
    * Attribution, treated like idempotencyKey: whatever the browser claims is
    * validated server-side, never trusted. The campaign is a slug; the lead id
    * must name a row in the lead store, else it is dropped. Neither reaches
@@ -145,7 +187,8 @@ export async function POST(request: Request): Promise<Response> {
     offer: claimedLead && cohortCreditLive(claimedLead) ? ("cohort-setup" as const) : null,
   };
 
-  // Paid path: hand off to Stripe and let the webhook provision after payment.
+  // Paid path: hand off to Stripe. The webhook records the account when the
+  // Session completes, and the first paid invoice switches it on.
   if (isBillingConfigured()) {
     try {
       const checkout = await createCheckout({
@@ -180,11 +223,31 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  // Unpaid development path. createCheckout() throws in production when Stripe
-  // is unconfigured, so reaching here means we are deliberately provisioning
-  // without payment, key it on the agreement, which is already unique per
-  // signature. Note the colon: an underscore would survive the audit log's
-  // uuid stripper and trip its PHI assertion on some ids and not others.
+  /**
+   * Nothing below this line may run in production.
+   *
+   * With STRIPE_SECRET_KEY unset the paid path above is skipped entirely, so
+   * createCheckout()'s own production refusal never runs, and the only thing
+   * left to do would be to create an account nobody paid for. On any
+   * production deployment (NODE_ENV or VERCEL_ENV "production", which covers
+   * Vercel previews and a local `next start` too) that is refused before
+   * anything is sent to apps/app, loudly in the log and plainly to the buyer.
+   * `next dev` and the test runner are the only places the path below runs.
+   */
+  if (isProductionDeployment()) {
+    console.error(
+      "[healdesk] checkout reached the unpaid development path in production; refusing (is STRIPE_SECRET_KEY set?)",
+    );
+    return Response.json(
+      { error: "Checkout is unavailable right now. Nothing has been charged. Please try again later." },
+      { status: 503 },
+    );
+  }
+
+  // Unpaid development path: provisioning without payment, on purpose, keyed
+  // on the agreement, which is already unique per signature. Note the colon:
+  // an underscore would survive the audit log's uuid stripper and trip its
+  // PHI assertion on some ids and not others.
   const body = JSON.stringify({
     ...payload,
     idempotencyKey: `agr:${String(payload.agreementId ?? "")}`,

@@ -6,15 +6,18 @@ import { CitySelect } from "@/components/CitySelect";
 import { site } from "@/lib/site";
 
 /**
- * "Leave a review", the control beside the score, and the form it opens.
+ * "Leave a review", a small control under the homepage FAQ, and the form it
+ * opens.
  *
  * ## It used to be a panel, twice
  *
  * First a card in the bento, then a full-width orange banner carrying the
  * niche deck's circle-flood. Both were too loud for what they are: an invitation
- * aimed at the small minority of visitors who are already customers, sitting
- * above fifteen reviews aimed at everyone else. It is a two-line text control
- * now, inline with the rating, and the section reads in the right order again.
+ * aimed at the small minority of visitors who are already customers. It is a
+ * two-line text control now. The review wall it once sat beside was
+ * placeholder content and is gone (src/lib/reviews.ts); this control is what
+ * collects the real ones. Its natural home later is the clinic portal, for a
+ * signed-in owner.
  *
  * ## Why the customer ID is asked for, and what it is not
  *
@@ -23,10 +26,10 @@ import { site } from "@/lib/site";
  * the customer ID on the account and /api/reviews checks it against the product
  * database before accepting anything.
  *
- * It is a check, not a login. There is no password, no session and nothing to
- * sign into, which is the same rule the rest of the product follows: clinics do
- * not operate software here, they receive a service. Getting the ID wrong is a
- * field-level error on the form, not a security event.
+ * It is a check, not a login: this form lives on the marketing site, which has
+ * no session of its own. (Clinics do sign in, to the clinic portal in apps/app;
+ * that is a different surface.) Getting the ID wrong is a field-level error on
+ * the form, not a security event.
  *
  * ## Why a review does not appear on the page when it is submitted
  *
@@ -92,13 +95,13 @@ export function LeaveReview() {
   return (
     <>
       {/*
-        An inline control beside the score, not a panel.
+        An inline control, not a panel.
 
         It was a full-width orange banner with the circle-flood on it, which at
-        1128 by 170 was the largest thing in the section and outweighed the
-        fifteen reviews it sat above. The flood went with the background: there
-        is nothing left to flood. What remains is the arrow, which slides on
-        hover, and that is the right amount of movement for a link.
+        1128 by 170 was the largest thing in its section. The flood went with
+        the background: there is nothing left to flood. What remains is the
+        arrow, which slides on hover, and that is the right amount of movement
+        for a link.
       */}
       <button
         type="button"

@@ -27,7 +27,7 @@
  *                   OR days, cost per lead. Not our number, theirs.
  *   payerMix        Cash-pay or insurance. Load-bearing beyond tone: it predicts
  *                   HIPAA covered-entity status, which decides which BAA branch
- *                   they sign and which consent standard applies to reminders.
+ *                   they sign.
  *   scopeRisk       What the agent must never say in THIS practice specifically.
  *                   The generic rule is in the persona; this is the local trap.
  *   objection       The one push-back this practice type actually gives.
@@ -66,7 +66,7 @@ export const PRACTICES: Record<string, PracticeKnowledge> = {
     economics:
       "Room and injector utilisation. An empty chair at 2pm cannot be resold, and the owner is usually the injector, so every hour on the phone is an hour not treating.",
     payerMix:
-      "Almost entirely cash-pay. Most med spas do not bill insurance electronically and are therefore probably NOT HIPAA covered entities, which changes the agreement they sign and removes the healthcare exemption from the TCPA analysis. Never assert their status; ask.",
+      "Almost entirely cash-pay. Most med spas do not bill insurance electronically and are therefore probably NOT HIPAA covered entities, which changes the agreement they sign. Never assert their status; ask.",
     scopeRisk:
       "Candidacy questions arrive constantly, 'can I have filler if I'm breastfeeding', 'will this fix my jawline'. Both must go to a human, warmly and immediately.",
     objection:
@@ -92,7 +92,7 @@ export const PRACTICES: Record<string, PracticeKnowledge> = {
     payerMix:
       "Mixed, and this is the important one, a practice with a medical side almost certainly bills insurance electronically and IS a covered entity, even though the cosmetic half looks like a med spa. The BAA is not optional here.",
     scopeRisk:
-      "Highest of any practice type. Callers describe lesions, ask whether something looks cancerous, and send photos. The agent takes a callback number and nothing else, no reassurance, no triage, not even 'that sounds like it's probably fine'.",
+      "Highest of any practice type. Callers describe lesions, ask whether something looks cancerous, and send photos. The agent books the soonest skin check or passes the caller to the clinic's team, and says nothing else about it: no reassurance, no triage, not even 'that sounds like it's probably fine'.",
     objection:
       "\"Our patients need a real person.\" Agree, and reframe: the agent's job is to get them to a real person faster, not instead.",
     observation:
@@ -140,7 +140,7 @@ export const PRACTICES: Record<string, PracticeKnowledge> = {
     payerMix:
       "Insurance-heavy, so almost always a covered entity, dental practices bill electronically as a matter of course. The BAA matters here and the practice will expect you to have one.",
     scopeRisk:
-      "Pain assessment. 'Is this an emergency?' must become 'let me get you the soonest slot and have someone call you straight back', never a judgement about the tooth.",
+      "Pain assessment. 'Is this an emergency?' must become 'let me get you the soonest slot'; anything that sounds like a complication or urgent pain gets the clinic's fixed urgent line and goes straight to its on-call contact, never a judgement about the tooth.",
     objection:
       "\"Will it handle insurance questions?\" Be honest: it takes the details and routes them, it does not verify benefits. Overpromising here is caught on day one.",
     observation:
@@ -164,7 +164,7 @@ export const PRACTICES: Record<string, PracticeKnowledge> = {
     payerMix:
       "Mixed and complicated; increasingly employer-benefit funded. Almost certainly a covered entity.",
     scopeRisk:
-      "Highest emotional stakes in the tree. Never discuss success rates, protocols, eligibility, age, diagnosis, or anything about anyone's chances. Take the details, book the consult, offer a nurse callback.",
+      "Highest emotional stakes in the tree. Never discuss success rates, protocols, eligibility, age, diagnosis, or anything about anyone's chances. Take the details, book the consult, or pass them to the clinic's team.",
     objection:
       "\"This is too sensitive for AI.\" Take it seriously rather than arguing. The honest answer: it answers the calls nobody is free to take, says very little, and gets a human on the phone sooner, and it never discusses anything clinical.",
     observation:
@@ -310,7 +310,7 @@ export const PRACTICES: Record<string, PracticeKnowledge> = {
     payerMix:
       "Split, and the split matters. A chiropractor submitting claims electronically is usually a HIPAA covered entity. A cash-only massage practice usually is not. Never guess which one you are talking to.",
     scopeRisk:
-      "Never say what is wrong with someone's back, never say whether an adjustment is safe for them, and never answer what a plan will cover. Insurance details go to a secure link and the clinical question goes to the practitioner.",
+      "Never say what is wrong with someone's back, never say whether an adjustment is safe for them, and never answer what a plan will cover. Insurance questions are noted for the front desk and the clinical question goes to the practitioner.",
     objection:
       "\"People book online now.\" The ones in pain do not. They ring, because they want to hear that somebody can see them today.",
     observation:

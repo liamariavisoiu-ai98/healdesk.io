@@ -36,6 +36,9 @@ export const PUBLIC_ROUTES = [
   { path: "/subprocessors", changeFrequency: "monthly", priority: 0.3 },
   { path: "/trust", changeFrequency: "monthly", priority: 0.5 },
   { path: "/why-wait", changeFrequency: "monthly", priority: 0.8 },
+  // The deletion instructions Meta's App Review asks for, linked from the
+  // footer and from privacy § 13.
+  { path: "/data-deletion", changeFrequency: "yearly", priority: 0.3 },
 ] as const satisfies ReadonlyArray<{
   path: `/${string}`;
   changeFrequency: "weekly" | "monthly" | "yearly";

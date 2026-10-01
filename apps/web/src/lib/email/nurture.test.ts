@@ -74,6 +74,26 @@ describe("nurture sequence", () => {
     expect(abandoned.text).toContain("/api/email/unsubscribe?t=");
   });
 
+  test("every touch describes v1, and nothing it does not do", () => {
+    // docs/v1-product-spec.md: inbound only, no SMS, no reminders, calls are
+    // transcribed and never recorded, and v1 claims booked value, never
+    // revenue. Each of these phrases was in the sequence before 30 September.
+    for (const touch of TOUCHES) {
+      const text = touch.text(lead());
+      expect(text).not.toMatch(/revenue/i);
+      expect(text).not.toMatch(/call is recorded/i);
+      expect(text).not.toMatch(/\bSMS\b|\btext you\b|remind/i);
+      expect(text).not.toMatch(/insurable/i);
+      expect(text).not.toMatch(/ring you back/i);
+      expect(text).not.toContain("/#leak");
+      expect(text).not.toMatch(/two minutes/i);
+    }
+    const all = TOUCHES.map((touch) => touch.text(lead())).join("\n");
+    expect(all).toContain("transcribed, not recorded");
+    expect(all).toContain("Google Calendar");
+    expect(all).toContain("/why-wait");
+  });
+
   test("canEmail: marketing needs the box, both kinds stop on unsubscribe, bounce and purchase", () => {
     expect(canEmail(lead(), "marketing")).toEqual({ ok: true });
     expect(canEmail(lead({ marketingConsent: false }), "marketing").ok).toBe(false);

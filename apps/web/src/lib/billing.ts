@@ -37,22 +37,29 @@ import type { ChatChannelChoice } from "@/lib/pricing";
  * trial. There used to be one; the catalog header explains why a trial and a
  * setup fee do not compose, and nothing here should reintroduce it.
  *
- * ## The metered overage prices, and why they are NOT attached yet
+ * ## The metered overage prices, and when they are attached
  *
  * `stripe:setup` creates one metered price per meter (voice minutes, chat
  * conversations). A subscription only bills meter events for a customer when
  * it carries the metered price as an item, so a Session that omits them sells
  * a package whose overage can never be invoiced. They are omitted here ON
- * PURPOSE while `OVERAGE_RATES_PROVISIONAL` is true: the rates in the catalog
- * are placeholders nobody signed, the pricing page refuses to print them, and
- * attaching them would bill a number the buyer was never shown. The pricing
- * page says overage is not billed until the rates are published, and this is
- * the line that makes that true.
+ * PURPOSE while `OVERAGE_RATES_PROVISIONAL` is true: the pricing page refuses
+ * to print the rates then, and attaching them would bill a number the buyer
+ * was never shown.
  *
- * The rates were confirmed on 21 September 2026 and the flag is off.
- * `meteredLookupKeysFor()` attaches both prices to a MONTHLY Session (each
- * only for a package that has the channel) with no `quantity`, which is what
- * the SDK's reference for `line_items` requires of a metered price.
+ * The flag is off: the owner signed the catalog's rates off on 21 September
+ * 2026, so `meteredLookupKeysFor()` attaches both prices to a MONTHLY Session
+ * (each only for a package that has the channel) with no `quantity`, which is
+ * what the SDK's reference for `line_items` requires of a metered price.
+ *
+ * Those rates are still placeholders as far as the v1 spec is concerned:
+ * overage prices are to be set from measured cost times a target margin
+ * (docs/v1-product-spec.md, "What still has to be computed"). That is a
+ * pricing decision, not a billing mechanic, so nothing in this module changes
+ * because of it, and nothing is billed at them yet either (see the end of the
+ * next paragraph). The measured rates, when they exist, change in
+ * packages/catalog; until then, setting the flag back to true is the one
+ * switch that stops a Session carrying them.
  *
  * An ANNUAL Session gets none, on purpose and not as an oversight: the
  * metered prices bill monthly, the annual package price bills yearly, and one
@@ -90,23 +97,29 @@ import type { ChatChannelChoice } from "@/lib/pricing";
  * patient data, and Stripe already receives the email as the customer record.
  * Nothing patient-identifying may ever be added here.
  *
- * ## Where provisioning actually happens
+ * ## Where the account is created, and where service is switched on
  *
  * Not in this module, and not on the browser returning to the success URL: a
  * customer who closes the tab after paying still gets their account, and
- * someone who hand-crafts a success URL gets nothing. The webhook in
- * app/api/webhooks/stripe fires provisioning on `checkout.session.completed`
- * and forwards this metadata, `billingInterval` and `chatChannelChoice`
- * included, to apps/app.
+ * someone who hand-crafts a success URL gets nothing. It takes two webhook
+ * events, both verified in app/api/webhooks/stripe and relayed to apps/app:
  *
- * Because the first invoice now carries real money (recurring + setup) rather
- * than a $0 trial invoice, "completed" is not the same thing as "paid": a
- * delayed payment method can complete the Session with the invoice still open.
- * Provisioning therefore has to gate on `invoice.paid`, and that is owned by the
- * subscription lifecycle handler in apps/app (lib/billing), which also handles
- * renewals, failed payments and cancellation. This module only creates the
- * Session, and the metadata it writes is what those later events are matched
- * back to the clinic with.
+ *   1. `checkout.session.completed` records the account. The webhook forwards
+ *      this metadata, `billingInterval` and `chatChannelChoice` included, to
+ *      apps/app, which creates the clinic in the `provisioning` billing state.
+ *      Nothing is active at this point.
+ *   2. The first invoice's `invoice.paid` (`billing_reason:
+ *      "subscription_create"`) moves the clinic from `provisioning` to
+ *      `active`. Service activates only on that paid invoice, never on the
+ *      checkout Session alone.
+ *
+ * Two steps, because the first invoice carries real money (recurring + setup)
+ * rather than a $0 trial invoice, so "completed" is not the same thing as
+ * "paid": a delayed payment method can complete the Session with the invoice
+ * still open. The activation belongs to the subscription lifecycle handler in
+ * apps/app (lib/billing), which also handles renewals, failed payments and
+ * cancellation. This module only creates the Session, and the metadata it
+ * writes is what those later events are matched back to the clinic with.
  */
 
 export type CheckoutIntent = {
@@ -144,11 +157,28 @@ export function cohortCouponIdFor(plan: Plan): string {
 export type CheckoutResult =
   /** Send the browser here to pay. */
   | { kind: "redirect"; url: string }
-  /** No payment configured; the caller should provision immediately. */
+  /** No payment configured (development only); the caller provisions immediately. */
   | { kind: "skipped"; reason: string };
 
 export function isBillingConfigured(): boolean {
   return Boolean(process.env.STRIPE_SECRET_KEY);
+}
+
+/**
+ * True on a production deployment, where nothing may be provisioned without
+ * payment and nothing may fall back to a development default.
+ *
+ * `next build` sets NODE_ENV=production, and Vercel's preview deployments run
+ * that same build, so NODE_ENV covers every deployment there. VERCEL_ENV is
+ * checked as well so that a production deployment is still recognised if it
+ * ever runs under some other NODE_ENV. Local development (`next dev`) and the
+ * test runner are the only places this is false.
+ */
+export function isProductionDeployment(): boolean {
+  return (
+    process.env.NODE_ENV === "production" ||
+    process.env.VERCEL_ENV === "production"
+  );
 }
 
 /**
@@ -169,8 +199,27 @@ export function stripeClient(): Stripe {
 /** Marks a Session as ours. One Stripe account also serves scalabid. */
 export const APP_MARKER = "healdesk";
 
-function siteUrl(): string {
-  return process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+/**
+ * The origin Stripe sends the buyer back to, for `success_url` and
+ * `cancel_url`.
+ *
+ * Falls back to the local dev server in development, which is where a test
+ * checkout should return. In production it refuses instead: NEXT_PUBLIC_SITE_URL
+ * is inlined at build time, and a build that lacked it would otherwise charge
+ * the customer and then redirect them to localhost on their own machine. The
+ * throw lands in /api/checkout's catch, which answers with an error before any
+ * Session exists, so nobody is charged. An empty value counts as unset: it
+ * would make both URLs relative, which Stripe rejects anyway.
+ */
+export function siteUrl(): string {
+  const configured = process.env.NEXT_PUBLIC_SITE_URL;
+  if (configured) return configured;
+  if (isProductionDeployment()) {
+    throw new Error(
+      "NEXT_PUBLIC_SITE_URL is not set. Refusing to send a paying customer back to localhost.",
+    );
+  }
+  return "http://localhost:3000";
 }
 
 /**
@@ -196,7 +245,7 @@ export async function createCheckout(
   intent: CheckoutIntent,
 ): Promise<CheckoutResult> {
   if (!isBillingConfigured()) {
-    if (process.env.NODE_ENV === "production") {
+    if (isProductionDeployment()) {
       // Refuse rather than hand out free accounts.
       throw new Error(
         "STRIPE_SECRET_KEY is not set. Refusing to provision without payment in production.",

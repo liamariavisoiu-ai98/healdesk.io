@@ -5,20 +5,22 @@ import { Footer } from "@/components/Footer";
 import { HeroStage } from "@/components/HeroStage";
 import { HomeExperience } from "@/components/HomeExperience";
 import { KnowMore } from "@/components/KnowMore";
+import { LeaveReview } from "@/components/LeaveReview";
 import { Nav } from "@/components/Nav";
-import { Reviews } from "@/components/Reviews";
 
 /**
  * The homepage, and the whole site's argument.
  *
- * Six things in order: the claim with AYA beside it, AYA working, the
- * specialties we know, what that is worth, who already pays for it, and a way
- * to ask. Pricing and contact
- * are their own pages but are reachable only from the footer, so nothing
- * competes with the demo for a visitor's first click.
+ * Four things in order: the claim with AYA beside it, AYA working, the
+ * specialties we know, and a way to ask. Pricing and contact are their own
+ * pages but are reachable only from the footer, so nothing competes with the
+ * demo for a visitor's first click.
  *
- * ⚠️ The reviews are placeholder content and must not ship as written. See the
- * note at the top of src/lib/reviews.ts.
+ * There is no review section. The one that sat between the demos and the FAQ
+ * was placeholder content with an invented rating, and it was removed on 30
+ * September 2026 (src/lib/reviews.ts says why). Customers can still leave a
+ * review: the control sits under the FAQ, and nothing it collects is shown
+ * anywhere until someone here has read it and it is real.
  *
  * ## Nothing is parked any more
  *
@@ -46,13 +48,11 @@ export default function HomePage() {
             one selected specialty, so they cannot disagree with each other. */}
         <HomeExperience />
 
-        {/* Social proof sits between the money question and the FAQ on
-            purpose. WhyGoSmart leaves a reader holding a number they worked out
-            themselves, which is the moment they start asking whether anyone
-            else believes it; the FAQ then answers whatever the reviews raised. */}
-        <Reviews />
-
         <KnowMore />
+
+        <div className="border-line border-t pt-8 pb-24 sm:pb-28">
+          <LeaveReview />
+        </div>
       </main>
 
       <Footer />

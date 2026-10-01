@@ -7,9 +7,11 @@ import { POST } from "./route";
  *
  * The interval and the chat-channel choice decide what the card is charged and
  * what provisioning enables, so a value the catalog does not know has to be
- * refused here, on both the paid and the unpaid path. These tests run the
- * unpaid path (no STRIPE_SECRET_KEY) with `fetch` stubbed, so a request that
+ * refused here, on both the paid and the unpaid path, and so does a checkout
+ * with no signed agreement. These tests run the unpaid development path (no
+ * STRIPE_SECRET_KEY, NODE_ENV "test") with `fetch` stubbed, so a request that
  * passes validation can be inspected on its way to apps/app without a server.
+ * The last block pins that the same path is refused in production.
  */
 
 let counter = 0;
@@ -135,5 +137,76 @@ describe("POST /api/checkout validates the billing terms", () => {
     const sent = forwarded(0);
     expect(sent.chatChannelChoice).toBeUndefined();
     expect(sent.plan).toBe("complete");
+  });
+
+  test("refuses a checkout with no signed agreement before anything is created", async () => {
+    // apps/app refuses the same thing at provisioning, but on the paid path
+    // that is after the card was charged. The field name is what lets the form
+    // send the buyer back to the signature step.
+    const { agreementId: _unsigned, ...withoutAgreement } = VALID;
+    const missing = await post(withoutAgreement);
+    expect(missing.status).toBe(422);
+    expect(((await missing.json()) as { field: string }).field).toBe("agreementId");
+
+    const malformed = await post({ ...VALID, agreementId: "agr-123" });
+    expect(malformed.status).toBe(422);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The unpaid development path must be unreachable on a production deployment.
+ *
+ * With STRIPE_SECRET_KEY unset, the paid path is skipped entirely, so the only
+ * thing left for the route to do would be to provision an account nobody paid
+ * for. Both variables that mark production are covered: NODE_ENV, which every
+ * Vercel build sets (previews included), and VERCEL_ENV, in case a production
+ * deployment ever runs under another NODE_ENV.
+ */
+describe("POST /api/checkout never provisions without payment in production", () => {
+  const fetchMock = vi.fn(
+    async (_url: URL | RequestInfo, _init?: RequestInit) =>
+      new Response(JSON.stringify({ clinicSlug: "radiance" }), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      }),
+  );
+
+  beforeEach(() => {
+    vi.stubEnv("HEALDESK_PROVISION_SECRET", "test-secret");
+    vi.stubEnv("HEALDESK_APP_URL", "http://app.test");
+    vi.stubEnv("STRIPE_SECRET_KEY", "");
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockClear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  test("NODE_ENV=production with Stripe unconfigured answers 503 and never reaches apps/app", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const response = await post(VALID);
+    expect(response.status).toBe(503);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toMatch(/Nothing has been charged/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("VERCEL_ENV=production is refused the same way under any NODE_ENV", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    const response = await post(VALID);
+    expect(response.status).toBe(503);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("a preview deployment is refused too, because its build sets NODE_ENV", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL_ENV", "preview");
+    const response = await post(VALID);
+    expect(response.status).toBe(503);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

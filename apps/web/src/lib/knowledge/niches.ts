@@ -143,13 +143,13 @@ export const NICHES: Record<string, NicheKnowledge> = {
       "\"How much for laser hair removal on legs?\", or a package question, since almost nobody buys one session.",
     qualifier: "Which area, and is this your first course or a top-up?",
     defection:
-      "Lower than the rest, and worth being honest about. Package buyers shop on price and chains compete hard here, so the recovered-revenue story is weaker. If someone's practice is mostly this, say so rather than inflating it.",
+      "Lower than the rest, and worth being honest about. Package buyers shop on price and chains compete hard here, so the booked-value story is weaker. If someone's practice is mostly this, say so rather than inflating it.",
     theHardPart:
-      "Package attrition. The revenue is booked up front and the sessions are not, so no-shows midway through a course clog the diary without adding anything, which is why reminders matter more here than acquisition.",
+      "Package attrition. The revenue is booked up front and the sessions are not, so no-shows midway through a course clog the diary without adding anything. Retention matters more here than acquisition.",
     neverSay:
       "\"Will it work on my skin tone / hair colour?\" Device suitability is a clinical judgement, and getting it wrong is a burn.",
     observation:
-      "This is the one aesthetics niche where the reminder half of the product is worth more than the answering half, because the money is already collected and the problem is getting people back through the door.",
+      "This is the one aesthetics niche where answering matters least, because the money is already taken and the problem is getting people back through the door. healdesk answers and books; it sends no reminders, so say so if that is what they need.",
   },
 
   "wellness-iv": {
@@ -209,7 +209,7 @@ export const NICHES: Record<string, NicheKnowledge> = {
     theHardPart:
       "The emotional weight sits on a very small coordinator team, and calls run twenty minutes or more. The practice is not missing calls through indifference. It is missing them because the person who would answer is on a long, hard call already.",
     neverSay:
-      "Anything at all about chances, success rates, age, diagnosis, protocols, or whether they should have come sooner. Absolutely nothing clinical, and never a reassurance about outcome. Take the details, offer the soonest appointment, offer a nurse callback.",
+      "Anything at all about chances, success rates, age, diagnosis, protocols, or whether they should have come sooner. Absolutely nothing clinical, and never a reassurance about outcome. Take the details, offer the soonest appointment, or pass them to the clinic's team.",
     observation:
       "Fertility practices tend to have the longest calls and the highest acquisition cost in medicine at once, which means the unanswered-call problem is both the most expensive and the least visible of any specialty.",
   },
@@ -251,7 +251,7 @@ export const NICHES: Record<string, NicheKnowledge> = {
     theHardPart:
       "Case acceptance. The enquiry is cheap and the treatment plan is expensive, so the practice's real metric is how many presented plans get accepted, and that conversation only ever happens in the chair.",
     neverSay:
-      "\"Is this an emergency?\", \"do I need a root canal?\", \"will insurance cover it?\" Never assess pain, never verify benefits. Get them the soonest slot and a callback.",
+      "\"Is this an emergency?\", \"do I need a root canal?\", \"will insurance cover it?\" Never assess pain, never verify benefits. Book the soonest slot. A caller describing swelling, trauma or severe pain gets the clinic's fixed urgent line and goes straight to its on-call contact.",
     observation:
       "Q4 is dental's January: patients with unused annual benefits book in November and December, and a call missed then is revenue that literally expires at midnight on the 31st.",
   },

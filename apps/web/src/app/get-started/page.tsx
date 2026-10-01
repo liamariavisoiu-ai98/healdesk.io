@@ -8,7 +8,8 @@ import { cheapestPlan } from "@/lib/pricing";
 export const metadata: Metadata = {
   title: "Get started",
   description:
-    "Set up your AI front desk in a few minutes. No booking software required.",
+    "About fifteen minutes of your time, and each channel goes live as you " +
+    "connect it. Works with your Google Calendar.",
   // A checkout funnel has no business in search results.
   robots: { index: false, follow: false },
 };

@@ -39,12 +39,11 @@ const COMMITMENTS = [
   {
     q: "And patient data, once we're a customer?",
     a:
-      "We sign a BAA before anything connects. Patient data sits in US-only " +
-      "AWS infrastructure under a signed AWS BAA, encrypted in transit and at " +
-      "rest, never used to train models, and our access to your practice " +
-      "management system is read-only. No third party has audited us, these " +
-      "are our own commitments and we'll show you the architecture behind any " +
-      "of them.",
+      "We sign a BAA before anything connects, and handle patient data under " +
+      "it: US infrastructure, encrypted in transit and at rest, never used to " +
+      "train models. The only system we write to is the Google Calendar you " +
+      "connect. No third party has audited us, these are our own commitments " +
+      "and we'll show you the architecture behind any of them.",
   },
 ] as const;
 

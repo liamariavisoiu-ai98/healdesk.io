@@ -59,8 +59,8 @@ export const TOUCHES: readonly Touch[] = [
     text: (lead) =>
       `Hi ${firstName(lead)},\n\n` +
       `You tried the ${site.agent} demo yesterday. Thank you — most people leave after one question, so if you got further, you saw the part that matters: it books, it declines clinical questions, and it says it is an AI.\n\n` +
-      `The number worth knowing is yours, not ours. The calculator at ${site.url}/#leak lets you set your own call volume, your own miss rate, and your own guess at what an answered call recovers. We deliberately do not fill that last one in.\n\n` +
-      `If you want to hear it on a real call, the demo line on the same page will ring you back with ${site.agent} on it — with your permission, once, and never again unless you ask.\n\n` +
+      `The number worth knowing is yours, not ours. The calculator at ${site.url}/why-wait lets you set your own call volume, your own miss rate, and your own guess at how many of those calls ${site.agent} would keep. We deliberately do not fill that last one in.\n\n` +
+      `If you want to hear it on a real call, the phone panel beside the demo on ${site.url} will place one demo call to you with ${site.agent} on it — because you asked, once, and never again unless you ask. For your clinic she only answers; she never dials a patient.\n\n` +
       `Reply to this email and a person answers.` +
       footer(lead),
   },
@@ -71,10 +71,10 @@ export const TOUCHES: readonly Touch[] = [
     text: (lead) =>
       `Hi ${firstName(lead)},\n\n` +
       `Two things clinic owners ask first, answered plainly.\n\n` +
-      `1. It does not give medical advice. Ask it whether a treatment is safe during pregnancy and it says it can't answer that and offers to have your team call. That is the product, not a limitation — it is the reason it is insurable.\n\n` +
-      `2. It does not pretend to be a person. Every call opens by saying it is an AI and that the call is recorded. You cannot switch that off, because we would be the co-defendant.\n\n` +
-      `What it does do: answer every call and chat, qualify, book into your calendar or booking system, and show you which recovered contacts actually became revenue. Packages and prices are on one page, with the setup fee shown: ${site.url}/pricing\n\n` +
-      `Reply with your booking system and I'll tell you honestly whether we connect to it yet.` +
+      `1. It does not give medical advice. Ask it whether a treatment is safe during pregnancy and it says it can't answer that and offers to book a consultation with your provider instead. That is the product, not a limitation.\n\n` +
+      `2. It does not pretend to be a person. Every call, chat and DM opens by saying it is an AI assistant, and on the phone that the call is transcribed, not recorded. You cannot switch that off.\n\n` +
+      `What it does do: answer every call, chat and DM, day or night; qualify; book straight into your Google Calendar during the conversation; take deposits in chat through your own checkout link; and show you what it handled and booked. Packages and prices are on one page, with the setup fee shown: ${site.url}/pricing\n\n` +
+      `Reply with your booking system and I'll tell you whether it reads Google Calendar for conflicts, which decides whether she books live for you or your staff confirm each booking.` +
       footer(lead),
   },
   {
@@ -84,10 +84,11 @@ export const TOUCHES: readonly Touch[] = [
     text: (lead) =>
       `Hi ${firstName(lead)},\n\n` +
       `The question I hear at this point is "what does setup actually involve". Here it is, without the brochure:\n\n` +
-      `- You keep your phone number. You forward it to ${site.agent} — on no-answer, on busy, or always — and you can remove the forwarding yourself at any time.\n` +
-      `- We build the agent from your services, prices and hours, and you approve every line before it answers a real call.\n` +
-      `- You sign the Business Associate Agreement at checkout, before payment. The full text and what each clause does is at ${site.url}/trust.\n` +
-      `- The first month's report shows recovered contacts and, if you connect your booking system, which ones collected.\n\n` +
+      `- You keep your phone number. You forward it to ${site.agent} for every call, for overflow and after hours, or after hours only, and you can remove the forwarding yourself at any time.\n` +
+      `- We pre-fill the agent from your website. You confirm your services, prices and hours, set how she behaves, and connect your Google Calendar: about fifteen minutes of your time. An automated test of your prices, bookings and clinical questions has to pass before she answers a patient.\n` +
+      `- Each channel goes live on its own: website chat once the snippet is on your site, Instagram and Messenger once you connect them, WhatsApp once your WhatsApp account has a payment method, your phone once forwarding is set, usually the same day.\n` +
+      `- You sign the Business Associate Agreement at checkout, before payment. The full text is on that step, and a copy is emailed to you.\n` +
+      `- Your portal and a weekly email show conversations handled, appointments booked, calls answered that would have rung out, deposits collected and booked value.\n\n` +
       `If the missing piece is a vendor question — "does it work with X" — reply with X.` +
       footer(lead),
   },

@@ -11,7 +11,7 @@ import { SUBPROCESSORS } from "@/lib/subprocessors";
 export const metadata: Metadata = {
   title: "Privacy policy",
   description:
-    "What healdesk.io collects from visitors, why, who processes it, and how to exercise your rights. Patient data is governed separately, by the Business Associate Agreement.",
+    "What healdesk.io collects from visitors, why, who processes it, and how to exercise your rights; what the product does with Google Calendar and Meta messaging data. Patient data is governed by the Business Associate Agreement.",
 };
 
 /**
@@ -30,6 +30,16 @@ export const metadata: Metadata = {
  * site that no longer exists. The rule for the prose is the same: a sentence
  * may describe only something the code does today. Two adversarial reviews
  * removed every sentence that described a feature we meant to build.
+ *
+ * Sections 11 to 13 are the exception, and are marked as drafts below. Google
+ * requires a privacy policy that discloses what an app does with Google user
+ * data, with its Limited Use statement, before it verifies the Calendar scope,
+ * and Meta requires one covering Platform data, with deletion instructions,
+ * before App Review. Both reviews read this page, and both have to clear
+ * before launch (docs/v1-product-spec.md, "External gates on the launch
+ * date"), so these sections describe the v1 product the spec defines rather
+ * than code that exists today. Every sentence in them must be true by the time
+ * a clinic can connect a calendar or a Meta account.
  */
 export default function PrivacyPage() {
   const marketingVendors = SUBPROCESSORS.filter((s) => s.scope !== "product");
@@ -44,6 +54,13 @@ export default function PrivacyPage() {
           owners and staff considering {site.name}, and anyone who tries the demo. {site.name}{" "}
           ("we", "us") operates it; the operating entity is named in section 10. It does not
           cover patients of our customers.
+        </p>
+        {/* DRAFT pending counsel review (2026-09-30). The scope sentence for
+            sections 11 to 13, which Google's and Meta's app reviews read. */}
+        <p>
+          Sections 11 and 12 also describe what the product does with data it receives from Google
+          and from Meta when a clinic connects its Google Calendar, its Facebook Page, its Instagram
+          account or its WhatsApp number, and section 13 says how to have that data deleted.
         </p>
         <p>
           <strong>Patient information is not handled on this website.</strong> When a clinic
@@ -88,8 +105,10 @@ export default function PrivacyPage() {
           <li>
             <strong>Your phone number, if you ask {site.agent} to call you.</strong> Only when you
             tick a separate box reading: <em>"{CALL_CONSENT.text}"</em>. {CALL_CONSENT.note} The
-            call is placed by Synthflow, our voice platform. The number, the exact wording you
-            agreed to, its version, the time and your IP address are stored as the consent record
+            call is placed by Synthflow, the voice platform that runs this demo call (the
+            product&apos;s own voice agent runs on a different platform and never calls anyone). The
+            number, the exact wording you agreed to, its version, the time and your IP address are
+            stored as the consent record
             for {POLICY.callConsentRetentionYears} years — the period in which a call could be
             disputed — and are used for nothing else.
           </li>
@@ -107,9 +126,12 @@ export default function PrivacyPage() {
             ordinary correspondence.
           </li>
           <li>
+            {/* DRAFT pending counsel review (2026-09-30): the field list, updated
+                to what the checkout asks after the 30 September changes. */}
             <strong>What you enter at checkout.</strong> Your clinic's legal name, its specialty,
-            the booking system it uses, how you want results measured, your work email, and — to
-            sign the Business Associate Agreement — your name and your title at the practice. Card
+            the booking system it uses, the typical value of one booked appointment, which calls you
+            want answered, your work email, and — to sign the Business Associate Agreement — your
+            name and your title at the practice. Card
             details go directly to Stripe and never touch our servers. If you reach the payment
             page and stop, we send one email about it, an hour later, and no more; it carries the
             same one-click unsubscribe.
@@ -272,10 +294,15 @@ export default function PrivacyPage() {
       </Section>
 
       <Section id="entity" title="10. Operating entity, changes and contact">
+        {/* DRAFT pending counsel review (2026-09-30): the entity sentence in the
+            wording the spec requires on the footer, Terms and Privacy. The
+            registered address prints only once ENTITY.registeredAddress is
+            filled in from the trade licence. */}
         <p>
-          {site.name} is a professional services brand operated by {entityDisplayName()},{" "}
-          {ENTITY.formation}. Everything on this page applies regardless of the operating
-          entity's place of incorporation.
+          {site.name} is a service of {entityDisplayName()}, {ENTITY.formation}
+          {ENTITY.registeredAddress ? `, registered address ${ENTITY.registeredAddress}` : ""}.
+          Everything on this page applies regardless of the operating entity's place of
+          incorporation.
         </p>
         <ul className="list-disc space-y-2 pl-6">
           <li>
@@ -298,6 +325,118 @@ export default function PrivacyPage() {
           When this policy changes we update the version and date at the foot of the page. A
           change that reduces your rights or widens what we collect is announced on this page for
           30 days before it takes effect and, for customers, by email.
+        </p>
+      </Section>
+
+      {/* DRAFT pending counsel review (2026-09-30). Required for Google's
+          verification of the Calendar scope: what the app does with Google
+          user data, and the Limited Use statement, verbatim in substance. It
+          describes the v1 calendar connection in docs/v1-product-spec.md
+          ("Where bookings are written"), which is not built yet; every
+          sentence must be true before the first clinic connects. */}
+      <Section id="google" title="11. Google Calendar data (clinics that connect a calendar)">
+        <p>
+          A clinic that uses {site.name} connects its Google Calendar with a Google sign-in during
+          setup, and chooses which calendar the assistant uses. With that access the product does
+          two things, and only these:
+        </p>
+        <ul className="list-disc space-y-3 pl-6">
+          <li>
+            <strong>Reads availability</strong> on the chosen calendar, so the assistant offers
+            patients times that are actually free.
+          </li>
+          <li>
+            <strong>Creates and changes the events it books</strong> on that calendar.
+          </li>
+        </ul>
+        <p>
+          It uses other events on the calendar only to see when the clinic is busy, never changes
+          an event it did not create, and writes to no other Google service. The access is used only to provide the booking feature
+          the clinic turned on. We do not sell Google user data, do not use it for advertising, do
+          not use it to build or improve generalized artificial intelligence or machine learning
+          models, and do not let people read it except where the clinic asks us to, where it is
+          needed for security, or where the law requires it. It is shared with no one except the
+          vendors on our{" "}
+          <a href="/subprocessors" className="underline underline-offset-2">subprocessor list</a>{" "}
+          that run the product, and only as they need it to do so.
+        </p>
+        <p>
+          <strong>
+            {site.name}&apos;s use and transfer to any other app of information received from
+            Google APIs will adhere to the{" "}
+            <a
+              href="https://developers.google.com/terms/api-services-user-data-policy"
+              className="underline underline-offset-2"
+            >
+              Google API Services User Data Policy
+            </a>
+            , including the Limited Use requirements.
+          </strong>
+        </p>
+        <p>
+          The connection is stored encrypted. A clinic can disconnect or change the calendar from
+          its portal at any time, which deletes the stored connection, or remove {site.name}&apos;s
+          access from its Google Account&apos;s security settings, which ends it at once. The events
+          the assistant booked stay in the clinic&apos;s own calendar, which the clinic controls
+          under its own agreement with Google.
+        </p>
+      </Section>
+
+      {/* DRAFT pending counsel review (2026-09-30). Required for Meta App
+          Review of the messaging permissions: what Platform data the product
+          receives and how it is used, kept and deleted. Describes the v1 Meta
+          bot in docs/v1-product-spec.md ("Meta bot behaviour"), which is not
+          built yet. */}
+      <Section id="meta" title="12. Messages received through Meta (Instagram, Messenger, WhatsApp)">
+        <p>
+          A clinic can connect its Facebook Page, its Instagram professional account and its
+          WhatsApp Business number. When it does, Meta sends {site.name} the messages people send
+          to those accounts, with the identifiers Meta attaches to them (on WhatsApp, the
+          sender&apos;s phone number), and the assistant replies on the clinic&apos;s behalf.
+        </p>
+        <ul className="list-disc space-y-3 pl-6">
+          <li>
+            <strong>Only to answer.</strong> The messages are used to answer the person who wrote,
+            on the clinic&apos;s behalf, and to book an appointment or send the clinic&apos;s own
+            payment link while that conversation is open. They are never used for advertising,
+            never sold, and never used to train models.
+          </li>
+          <li>
+            <strong>Only when the person wrote first.</strong> The assistant replies only inside the
+            window Meta opens when someone messages the clinic. It never messages anyone first and
+            sends nothing after a conversation ends.
+          </li>
+          <li>
+            <strong>Nothing clinical.</strong> Meta does not sign the agreements that health
+            information requires, so these conversations are kept non-clinical: clinical content is
+            detected when a message arrives and is not stored, and the assistant moves the
+            conversation to a call or the clinic&apos;s own secure route.
+          </li>
+          <li>
+            <strong>Kept for the clinic.</strong> The conversation is kept for the clinic that
+            received it, under that clinic&apos;s instructions and its Business Associate Agreement
+            with us, and is visible only to that clinic&apos;s own team in its portal. If you wrote
+            to a clinic, that clinic controls the record; see section 13.
+          </li>
+        </ul>
+      </Section>
+
+      {/* DRAFT pending counsel review (2026-09-30). The data-deletion
+          instructions Meta asks for, summarised here and set out in full at
+          /data-deletion. */}
+      <Section id="deletion" title="13. Deleting your data">
+        <p>
+          How to have data deleted, whether you visited this site, use {site.name} as a clinic, or
+          messaged a clinic that uses it, is set out on our{" "}
+          <a href="/data-deletion" className="underline underline-offset-2">
+            data deletion page
+          </a>
+          . In short: email{" "}
+          <a href={`mailto:${ENTITY.privacyEmail}`} className="underline underline-offset-2">
+            {ENTITY.privacyEmail}
+          </a>{" "}
+          and we answer within 30 days, as in section 7. Where the data belongs to a clinic&apos;s
+          patients, we act on that clinic&apos;s instructions.
         </p>
       </Section>
     </LegalPage>

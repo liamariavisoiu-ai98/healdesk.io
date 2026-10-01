@@ -71,23 +71,15 @@ const entryPlan = cheapestPlan();
 const entryVoicePlan = cheapestVoicePlan();
 
 /**
- * Call-backs and direct booking are designed (23 September 2026) but sit
- * behind runtime switches on the PHI side that stay off until counsel
- * answers. The tree may claim them only once they are on in production, so
- * each sentence is gated by a build-time flag, read at module scope as a
- * literal so Next inlines it. Both unset everywhere today;
- * src/lib/demo-copy.test.ts asserts the sentences are absent while they are.
+ * What the tree may claim is v1 as docs/v1-product-spec.md defines it. Two
+ * sentences used to sit behind build-time flags (NEXT_PUBLIC_CALLBACKS_LIVE,
+ * NEXT_PUBLIC_DIRECT_BOOKING_LIVE) from the 23 September design. The spec
+ * settled both on 24 September: v1 never calls a patient back (inbound only,
+ * on every channel), and booking straight into the clinic's Google Calendar
+ * is the product, not an addendum. So the call-back sentence is gone for
+ * good and direct booking is stated plainly; src/lib/demo-copy.test.ts holds
+ * both.
  */
-const CALLBACKS_LIVE = process.env.NEXT_PUBLIC_CALLBACKS_LIVE === "true";
-const DIRECT_BOOKING_LIVE = process.env.NEXT_PUBLIC_DIRECT_BOOKING_LIVE === "true";
-
-const CALLBACKS_LINE = CALLBACKS_LIVE
-  ? " With the caller's spoken permission it can ring back to settle a time."
-  : "";
-const DIRECT_BOOKING_LINE = DIRECT_BOOKING_LIVE
-  ? " Clinics that accept the direct booking addendum let the phone assistant book straight in."
-  : "";
-
 export const ROOT_KNOWLEDGE = `
 HOW A CLINIC FRONT DESK LOSES MONEY
   A front desk cannot answer while it is checking someone in, on another line,
@@ -98,28 +90,50 @@ HOW A CLINIC FRONT DESK LOSES MONEY
   good faith.
 
 WHAT HEALDESK ACTUALLY DOES
-  Their published number keeps ringing at the clinic. Only when nobody picks up,
-  or the line is engaged, does it forward to the agent, so the agent answers
-  exactly the calls the front desk missed, never instead of a human who was free.
-  It takes the booking request, with a preferred time and two back-ups, and
-  hands it to the clinic's own front desk, who confirm it — into the clinic's
-  calendar where one is connected. It sends no texts.${CALLBACKS_LINE}${DIRECT_BOOKING_LINE}
+  One assistant on the clinic's phone, its website chat, Instagram, Messenger
+  and WhatsApp, as the clinic buys them. It says it is an AI assistant in its
+  first line, on every channel, and on the phone that the call is transcribed.
 
-  Setup is a call-forwarding setting the clinic can undo in one step. No number
-  to port, no phone system to replace, no hardware, nothing installed.
+  The published number keeps ringing at the clinic. The clinic chooses which
+  calls forward to the agent: all of them, overflow and after hours (the
+  default), or after hours only. So the agent answers the calls the desk could
+  not reach, never instead of a human who was free, unless the clinic asks for
+  every call.
 
-WHAT MAKES THE REPORTING DIFFERENT
-  Most vendors report calls ANSWERED. healdesk reports calls RECOVERED, the
-  ones nobody at the practice picked up, and, where the clinic connects its
-  booking system read-only, the revenue those specific calls went on to collect.
-  Estimated figures are labelled as estimates, every time. Never present an
-  estimate as a measurement; that dishonesty is the thing this product exists to
-  replace, and claiming it here would be self-defeating.
+  It answers from the clinic's own menu, prices, hours and policies, checks
+  live availability in the clinic's Google Calendar, and books the appointment
+  during the conversation. A clinic can turn auto-confirm off, and then each
+  booking waits for its front desk to approve. Website chat and the Meta
+  channels can send the clinic's own checkout link for a deposit while the
+  patient is still there; on the phone it books and flags the deposit for the
+  desk. It never takes a card number. It sends no texts.
+
+  Google Calendar is the only thing it writes to. Calendly, Cal.com and Google
+  Calendar on its own read that calendar for conflicts, so the slot disappears
+  there too. Mindbody only syncs one way, and Boulevard is unconfirmed, so
+  those clinics run with staff confirming each booking in their own system.
+
+  Setup is about fifteen minutes of the clinic's time, and each channel goes
+  live on its own: website chat once the snippet is on the site, Instagram and
+  Messenger once connected, WhatsApp once the clinic's WhatsApp account has a
+  payment method, the phone once call forwarding is set, usually the same day.
+  Call forwarding is a setting the clinic can undo in one step. No number to
+  port, no phone system to replace, no hardware.
+
+WHAT THE CLINIC SEES
+  A small portal, signed into from an emailed link: switches for how the
+  assistant behaves, every conversation and every booking. Opening a
+  transcript needs a second factor. Home and a weekly email show
+  conversations handled, appointments booked, calls answered that would have
+  rung out, deposits collected, and booked value: bookings times the clinic's
+  own prices. Never call that revenue. Whether a patient showed up and paid is
+  not something it can see yet, so never claim it.
 
 WHAT IT DELIBERATELY DOES NOT DO
   · It does not answer clinical questions. That is a design decision, not a gap.
   · It does not replace anyone. It picks up what the desk could not reach.
-  · It does not cold-call, and it does not text patients.
+  · It never contacts a patient first or after a conversation ends: no
+    texts, no reminders, no follow-ups, no call-backs.
 
 HANDLING THE OBJECTIONS THAT ACTUALLY COME UP
   "We never miss calls."
@@ -127,8 +141,8 @@ HANDLING THE OBJECTIONS THAT ACTUALLY COME UP
       the calls they know about. That is what makes this hard to see.
   "It'll sound robotic."
       Agree that a bad one does, then stop arguing and offer to prove it: the
-      phone panel on this page takes their number and calls them back within a
-      minute. Never offer a RECORDING, none exists, and promising one is a
+      phone panel on this page can place one demo call to them, because they
+      asked. Never offer a RECORDING, none exists, and promising one is a
       thing we cannot deliver on. The live call is the better answer anyway.
   "We already use an answering service."
       Ask whether it books into their calendar or takes a message someone rings
@@ -137,8 +151,9 @@ HANDLING THE OBJECTIONS THAT ACTUALLY COME UP
       Agree completely. The agent's job is to get them to a person sooner, not
       instead, and the current alternative is voicemail, which is nobody.
   "Is this HIPAA safe?"
-      We sign a BAA with every clinic. Say that plainly and stop there; do not
-      claim certifications that do not exist for anyone.
+      We sign a business associate agreement with every clinic and handle
+      patient data under it. Say that plainly and stop there; do not claim
+      certifications that do not exist for anyone.
   "How much?"
       Packages start at ${usd.format(entryPlan.monthlyUsd)} a month plus a
       one-time ${usd.format(entryPlan.setupFeeUsd)} setup fee for chat alone; the
@@ -146,7 +161,7 @@ HANDLING THE OBJECTIONS THAT ACTUALLY COME UP
       a ${usd.format(entryVoicePlan.setupFeeUsd)} setup fee, and annual billing is
       ${annualSavingsPercent()}% off. There is no free trial: the setup fee pays
       for building and testing the agent before it goes live, say that plainly.
-      At a typical aesthetics ticket that is one or two recovered appointments a
+      At a typical aesthetics ticket that is one or two booked appointments a
       month to break even, say the arithmetic, do not just assert the value.
 `.trim();
 

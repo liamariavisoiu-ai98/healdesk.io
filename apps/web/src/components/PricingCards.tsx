@@ -160,11 +160,15 @@ export function PricingCards({
                     {row.value}
                   </Row>
                 ))}
-                {/* While the rates are provisional the row and the footnote
-                    say the same thing: the rate is published before the
-                    first bill, and nothing is billed until it is. */}
+                {/* With the flag set, the row and the footnote say the same
+                    thing: the rate is published before the first bill, and
+                    nothing is billed until it is. With it off the rates print,
+                    marked provisional, because they are placeholders until
+                    measured (see the catalog header). */}
                 <Row label="After that">
-                  {overage ?? "at the rate we publish before your first bill"}
+                  {overage
+                    ? `${overage}, provisional`
+                    : "at the rate we publish before your first bill"}
                 </Row>
                 <Row label="Locations">
                   {plan.locations === 1 ? "One" : `Up to ${plan.locations}`}
@@ -198,7 +202,16 @@ export function PricingCards({
             flag is set: nothing CAN bill overage until the rates are live. */}
         {OVERAGE_RATES_PROVISIONAL
           ? " Overage is not billed until the rates are published, and you will see them in writing before they apply."
-          : null}
+          : " The overage rates are provisional: they are placeholders until we have measured what a minute and a conversation really cost to serve."}
+      </p>
+      {/* Meta's own charge, not ours (docs/v1-product-spec.md, "Pricing
+          consequences" and "Meta bot onboarding"). Every package with the
+          Meta channel includes WhatsApp, so the note is unconditional. */}
+      <p className="text-muted mt-2 max-w-[80ch] text-xs">
+        Packages with Instagram, Messenger + WhatsApp: Meta bills you directly
+        for WhatsApp messages, including replies inside its 24-hour window from
+        1 October 2026, and we do not resell them. WhatsApp cannot send until
+        your WhatsApp account has a payment method on it.
       </p>
     </>
   );

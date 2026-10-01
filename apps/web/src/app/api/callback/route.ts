@@ -14,6 +14,11 @@ export const dynamic = "force-dynamic";
 /**
  * POST /api/callback, "have AYA call me" on the voice demo.
  *
+ * A demo call to a clinic owner or staff member who asked for one, placed
+ * through Synthflow until a Retell demo agent exists (see lib/synthflow.ts).
+ * It is not a patient call-back: the product is inbound only and never dials
+ * a patient, and the panel that posts here says so.
+ *
  * ## This endpoint dials a phone. Treat it accordingly.
  *
  * Everything else on this site is read-only from the visitor's side. This one

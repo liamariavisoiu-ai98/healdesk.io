@@ -13,8 +13,11 @@
  * is never hidden behind the hover: a visitor who never touches the deck has
  * still read all eight.
  *
- * Every line is a thing the terms and the catalog already promise. Change
- * the product before changing a line.
+ * Every line is a thing v1 does as docs/v1-product-spec.md defines it, and
+ * the proof lines stay inside the spec's v1 claim set: conversations handled,
+ * appointments booked, calls answered that would have rung out, deposits
+ * collected, booked value. Never revenue. Change the product before changing
+ * a line.
  */
 export type Outcome = {
   id: string;
@@ -32,8 +35,8 @@ export const OUTCOMES: readonly Outcome[] = [
   },
   {
     id: "by-morning",
-    word: "Waiting for you.",
-    line: "Consult requests in your inbox by morning, with the caller's number.",
+    word: "Booked overnight.",
+    line: "Consults booked into your calendar overnight, there when you open up.",
     still: "/outcomes/by-morning.webp",
   },
   {
@@ -44,14 +47,14 @@ export const OUTCOMES: readonly Outcome[] = [
   },
   {
     id: "deposit",
-    word: "Stated.",
-    line: "Deposits stated on the call, so the desk collects them on confirmation.",
+    word: "Secured.",
+    line: "Deposits taken in chat, through your own checkout, before the slot is lost.",
     still: "/outcomes/deposit.webp",
   },
   {
     id: "one-voice",
     word: "One voice.",
-    line: "Instagram and WhatsApp DMs answered in the same voice as the phone.",
+    line: "Instagram, Messenger and WhatsApp answered in the same voice as the phone.",
     still: "/outcomes/one-voice.webp",
   },
   {
@@ -70,8 +73,8 @@ export const OUTCOMES: readonly Outcome[] = [
   },
   {
     id: "named",
-    word: "Named.",
-    line: "A monthly report that names which recovered calls collected.",
+    word: "Counted.",
+    line: "Every week: calls answered that would have rung out, appointments booked, and their booked value.",
     still: "/outcomes/named.webp",
   },
 ] as const;

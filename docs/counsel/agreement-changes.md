@@ -1,427 +1,246 @@
-# Changes the BAA, the terms and the privacy page need for v1 (launch step 1.11)
+# The BAA, the terms and the privacy page for v1 (launch step 1.11)
 
-> **DRAFT for counsel review — not legal advice.** Written by an AI assistant
-> from the repo on 1 October 2026. It proposes changes; it makes none. The
-> sources quoted are `packages/catalog/src/baa.ts` (BAA 1.0.0, approved and
-> offered today; BAA 1.1.0-draft, not offered), its rendering
-> `docs/baa-v1.1.0-draft.txt`, `apps/web/src/app/terms/page.tsx` and
-> `apps/web/src/app/privacy/page.tsx`. Where they disagree with
-> `docs/v1-product-spec.md`, the spec describes the product.
+> **Adopted by the owner on 1 October 2026 without external counsel review.
+> Residual risks are listed in the Review log. Not legal advice.**
+>
+> BAA 1.2.0 (`packages/catalog/src/baa.ts`, rendered in
+> `docs/baa-v1.2.0.txt`) is the version offered at checkout from 1 October
+> 2026. The terms (`apps/web/src/app/terms/page.tsx`) were rewritten the same
+> day. This file records what was decided and why, checks 1.2.0 against the
+> regulation it claims to satisfy, and lists what the next version (1.2.1)
+> must fix. Where a document disagrees with `docs/v1-product-spec.md` about
+> what the product does, the spec wins.
 
 ## Contents
 
-1. [The five changes that matter most](#1-the-five-changes-that-matter-most)
-2. [BAA 1.0.0, clause by clause](#2-baa-100-the-version-clinics-sign-today)
-3. [BAA 1.1.0-draft, clause by clause](#3-baa-110-draft-clause-by-clause)
-4. [New clauses v1 needs](#4-new-clauses-v1-needs)
-5. [Subprocessors as they now stand](#5-subprocessors-as-they-now-stand)
-6. [Google Calendar: clause, addendum, or neither](#6-google-calendar-clause-addendum-or-neither)
-7. [Meta and Stripe: handled by scoping](#7-meta-and-stripe-handled-by-scoping)
-8. [Terms of service, section by section](#8-terms-of-service-section-by-section)
-9. [Privacy page statements that are now false](#9-privacy-page-statements-that-are-now-false)
-10. [Outline of a data processing addendum](#10-outline-of-a-data-processing-addendum)
-11. [How the change has to ship (for the engineer)](#11-how-the-change-has-to-ship-for-the-engineer)
+1. [What was decided and shipped](#1-what-was-decided-and-shipped)
+2. [BAA 1.2.0 against 45 CFR 164.504(e) and 164.314(a)](#2-baa-120-against-45-cfr-164504e-and-164314a)
+3. [BAA 1.2.0 clause by clause: decision, basis, and what 1.2.1 fixes](#3-baa-120-clause-by-clause)
+4. [Subprocessors, verified](#4-subprocessors-verified)
+5. [Google Calendar](#5-google-calendar)
+6. [Meta and Stripe: the one rule, and its basis](#6-meta-and-stripe-the-one-rule-and-its-basis)
+7. [Terms of service](#7-terms-of-service)
+8. [Privacy page](#8-privacy-page)
+9. [Clinics outside HIPAA: state-law terms instead of a separate DPA](#9-clinics-outside-hipaa)
+10. [Existing signers and subprocessor notice](#10-existing-signers-and-subprocessor-notice)
+11. [How a change ships (for the engineer)](#11-how-a-change-ships-for-the-engineer)
+12. [Review log](#review-log-2026-10-01)
 
 ---
 
-## 1. The five changes that matter most
+## 1. What was decided and shipped
 
-1. **The model-retention sentence is false.** Both BAA versions say, in
-   effect, that the language model keeps nothing. Anthropic's covered
-   service keeps inputs for 30 days. The spec requires the 30 days to be
-   stated in the clinic agreement, with the reason (§2.6, §3.10).
-2. **The "advertising platform" ban collides with the Meta channels.** BAA
-   1.0.0 forbids disclosing PHI "to any advertising platform, in any form".
-   Meta is an advertising platform, and the product replies to patients
-   through it (§2.9, §7).
-3. **Calls must never meet a dead line, but the terms describe one.** Terms
-   §2, §6 and §7 say that on suspension or exit "forwarded calls are not
-   answered" or "are lost". The spec requires every degradation path to end
-   with calls forwarding to a direct clinic line (§8).
-4. **The callbacks, the Cal.com write and the direct-booking addendum
-   describe a product that no longer exists.** v1 places no calls, writes
-   only to Google Calendar, and auto-confirms bookings by default on every
-   channel (§3.12, §3.13, §6).
-5. **The signed 1.0.0 liability clause contradicts the terms and the
-   incident procedure.** 1.0.0 makes healdesk pay to notify patients about a
-   breach it caused. Terms §14 and `docs/incident-response.md` step 6 put
-   that cost on the clinic. For a 1.0.0 signer, the BAA controls on patient
-   information (terms §1, §9) (§2.11).
+Owner's decisions of 1 October 2026, now in code:
 
----
-
-## 2. BAA 1.0.0, the version clinics sign today
-
-1.0.0 is `approvedByCounsel: true` and sits at `BAA_TEMPLATES[0]`. It
-cannot be edited: anyone who signed it signed those bytes, and their stored
-hash must keep reproducing. Every fix below lands in a **new version**. The
-question for counsel is whether the 1.0.0 problems are serious enough to
-stop offering 1.0.0 before the new version is approved.
-
-What a v1 signer actually gets: `outboundMessaging` is `false` on both
-signing paths and `VERIFIED_ATTRIBUTION_OFFERED` is `false` in
-`CheckoutFlow.tsx`, so every new signer gets the clauses
-`covered-entity-status`, `permitted-uses`, `data-sources-none`,
-`safeguards`, `reporting`, `subcontractors`, `patient-rights`,
-`acting-in-your-place`, `prohibited`, `return-or-destroy`, `liability`,
-`records-to-hhs`.
-
-**2.1 Preamble.** Current: `healdesk ("Business Associate")`. "healdesk" is a
-trade name, not a legal person. Change: name Viixi FZC, its form and a
-notice address (1.1.0 does this).
-
-**2.2 `covered-entity-status`**, when the clinic does not know. Current:
-
-> "healdesk applies the same safeguards either way, and will confirm the
-> determination before any real patient information is processed."
-
-Problem: healdesk "confirming" the clinic's legal status takes on a
-determination it cannot make (`docs/counsel-audit.md` §1). 1.1.0 fixes it.
-
-**2.3 `data-sources-none`.** Current:
-
-> "Revenue figures are calculated from the average appointment value
-> [Practice] supplied, and are labelled as estimates wherever they appear."
-
-Two problems. v1 must never claim "revenue"; the honest figure is "booked
-value" (bookings times the clinic's configured prices). And:
-
-> "healdesk holds no credentials to [platform] and reads nothing from it."
-
-is true of the booking platform but false of the clinic's Google Calendar,
-whose OAuth token healdesk will hold for every clinic. Proposed:
-
-> "healdesk reads nothing from Practice's booking or records system. Booked
-> value is the number of bookings the assistant made multiplied by the
-> prices Practice configured, and is labelled as booked value wherever it
-> appears. The only patient information healdesk receives is what patients
-> give it in a conversation, and the calendar access described in the
-> calendar clause."
-
-**2.4 `data-sources-verified`.** Reads settled sales "to measure the revenue
-its agent recovered". Attribution is phase two and fenced out of v1. It
-cannot render today (the checkout flag is off). Keep it out of any v1
-template.
-
-**2.5 `safeguards`.** Current:
-
-> "healdesk will not transmit protected health information over a channel
-> that cannot negotiate encryption — email included."
-
-Problem: a telephone call is not end-to-end encrypted, and a Meta message is
-not a healdesk-controlled channel. The voice product exists to answer phone
-calls. 1.1.0 adds a telephone carve-out; v1 also needs a Meta one (§7).
-
-**2.6 `subcontractors`.** Current:
-
-> "Language models are used to understand a patient and answer them during
-> the conversation. They are not permitted to retain patient information
-> after it ends, and they are not permitted to train on it."
-
-False once the Anthropic BAA is signed: covered models require 30-day
-retention and cannot run with zero data retention (spec, "Five rules",
-third rule). Proposed text in §4.3.
-
-**2.7 `acting-in-your-place`.** Current: "answering a patient who calls,
-and sending messages in [Practice]'s name". Accurate for v1 if "sending
-messages" means replies. Suggest "answering a patient who calls or writes,
-and replying in [Practice]'s name".
-
-**2.8 `outbound-consent` and the assent label.** The clause never renders
-(`outboundMessaging: false`). But the sentence every signer ticks still
-says:
-
-```ts
-export const BAA_ASSENT_LABEL =
-  "I agree to the Business Associate Agreement and confirm the consent warranty above";
-```
-
-There is no consent warranty above it. Every 1.0.0 acceptance records a
-signer confirming a warranty the document does not contain. Change the label
-in the new version, e.g. "I agree to the Business Associate Agreement".
-Counsel: does the stray phrase affect 1.0.0 acceptances already taken?
-
-**2.9 `prohibited`.** Current:
-
-> "· Disclose protected health information to any advertising platform, in
-> any form, including hashed or aggregated."
-
-Meta is an advertising platform. On Instagram, Messenger and WhatsApp the
-assistant sends replies through Meta to a named person who wrote to a
-clinic. Even a non-clinical reply can be PHI (an identifier plus the fact
-that the person sought care from this provider). Options: (a) narrow the ban
-to "for advertising, marketing or measurement purposes"; (b) keep it and
-treat the Meta channels as carrying no PHI by design, with the scoping
-stated in the BAA (§7); (c) both. Recommendation: (c).
-
-**2.10 `return-or-destroy`.** No timeline. The spec says offboarding is
-"export first, then destroy, on a clock that matches the agreement text", and
-lists the data-destruction timeline as open. 1.1.0 sets 30 days.
-
-**2.11 `liability`.** Current:
-
-> "That limit does NOT apply to healdesk's wilful misconduct or gross
-> negligence, and it does NOT apply to healdesk's obligation to bear the
-> cost of notifying patients and regulators about a breach that healdesk
-> caused."
-
-and
-
-> "healdesk is not passing those caps through — the commitment above is
-> healdesk's own, backed by healdesk."
-
-Contradicted by terms §13 (liability excluded where the law allows), terms
-§14 (the clinic indemnifies healdesk, including for notification costs) and
-`docs/incident-response.md` step 6 ("The cost of that notification is the
-clinic's, whoever caused the breach (terms §14, BAA Liability clause)").
-Terms §1 and §9 say the BAA controls on patient information, so for 1.0.0
-signers the BAA promise probably wins. Counsel: which governs for a 1.0.0
-signer, and should the incident procedure say so?
-
----
-
-## 3. BAA 1.1.0-draft, clause by clause
-
-Rendered for counsel in `docs/baa-v1.1.0-draft.txt`. Never offered, never
-signed. Clause numbers below are those in the rendered sample.
-
-| # | Clause id | Change for v1 |
-| --- | --- | --- |
-| — | preamble | `ACCEPTED FOR HEALDESK BY [NAME, TITLE]` is a placeholder; needs the Security Official's name (`docs/policies/security-official.md`, still "[founder's legal name — fill in]"). Notice address is the Delaware registered-agent mailbox; counsel to confirm it is adequate for notices |
-| 1 | `definitions` | Keep. Add "Booked value" and "Conversation" if used elsewhere |
-| 2 | `practice-status` | Keep. It already makes the document a data-protection agreement for non-covered clinics (§10) |
-| 3 | `permitted-uses` | Keep (shared 1.0.0 object) |
-| 4 | `data-sources-none` / `data-sources-calendar-only` | Replace both with one clause, as §2.3. The "Revenue figures" sentence goes. Calendar access is every clinic's case in v1, not an option |
-| 5 | `own-use` | Keep. The example "what fraction of after-hours calls are answered" is fine |
-| 6 | `practice-duties` | Keep. Add: Practice gives healdesk a direct line that does not forward back to healdesk (needed for every fallback) |
-| 7 | `safeguards` | Rewrite the third paragraph; see 3.7 below |
-| 8 | `minimum-necessary` | Keep. Add what a calendar event may contain (§6) |
-| 9 | `reporting` | Keep. Five calendar days is far inside the 60 allowed; owner confirms it is achievable with one person |
-| 10 | `subcontractors` | Rewrite the model paragraph; see 3.10 below |
-| 11 | `patient-rights` | Keep |
-| 12 | `acting-in-your-place` | Keep; see §2.7 |
-| 13 | `consented-callbacks` | **Delete.** Replace with "Inbound only" (§4.1) |
-| — | `calendar-write` (appendix A) | **Delete.** Replace with a Google Calendar clause (§6) |
-| — | `direct-booking` (appendix B) | **Delete from the BAA.** See §6 for where the allocation goes |
-| — | `reactivation-gate` | Delete. It never renders and v1 has no reactivation |
-| 14 | `prohibited` | New object with the narrowed advertising line (§2.9). Do not edit the 1.0.0 object (§11) |
-| 15 | `term` | Keep the 30 days only if counsel and owner agree it is achievable (open item: "data destruction timeline") |
-| 16 | `liability` | Counsel's call. Note it is one-way and reaches claims alleging healdesk's negligence; clinic counsel will push back. Make sure it does not cancel the first-month guarantee (`guarantee-and-refund.md`) |
-| 17 | `records-to-hhs` | Keep |
-| 18 | `notices-and-law` | Keep. Delaware law, UAE entity: see `brief.md` question on enforcement |
-
-**3.7 `safeguards`, third paragraph.** Current:
-
-> "One narrow exception: a patient who telephones, or who asked on their own
-> call or message to be called back, has chosen the telephone, and a
-> telephone call is not end-to-end encrypted. healdesk may answer such a
-> call and may place the callback described in the Callbacks clause, limited
-> to the minimum necessary and never including clinical detail, test results
-> or payment information. healdesk sends no SMS. This exception does not
-> extend to any other channel or content."
-
-Proposed:
-
-> "Two narrow exceptions. A patient who telephones Practice has chosen the
-> telephone, and a telephone call is not end-to-end encrypted; healdesk may
-> answer such a call, limited to the minimum necessary and never including
-> test results or payment card details. A patient who writes to Practice on
-> Instagram, Messenger or WhatsApp has chosen a channel healdesk does not
-> control and whose operator signs no business associate agreement; healdesk
-> may reply there only as the Meta channels clause allows. healdesk places
-> no calls and sends no SMS. These exceptions do not extend to any other
-> channel or content."
-
-**3.10 `subcontractors`, model paragraph.** Current:
-
-> "healdesk configures each provider to retain conversation content no
-> longer than that provider's agreement with healdesk requires for abuse
-> detection and security, and never for any other purpose."
-
-This is truer than 1.0.0 but hides the number. The spec says state it.
-Proposed text in §4.3.
-
----
-
-## 4. New clauses v1 needs
-
-Each is a proposal for counsel to rewrite, not settled text.
-
-**4.1 Inbound only** (replaces `consented-callbacks`).
-
-> "healdesk contacts a patient only in reply, inside a conversation the
-> patient started: a call the patient placed to Practice, a chat the patient
-> opened on Practice's website, or a message the patient sent to an account
-> Practice connected. healdesk places no calls, sends no text messages, and
-> sends no reminders, follow-ups or marketing to patients. On Meta channels
-> it sends nothing outside the window Meta opens when the patient writes."
-
-**4.2 Disclosure and transcription.**
-
-> "The assistant says it is an AI assistant in its first words on every
-> channel. On calls, the same words say the call is transcribed; no call
-> audio is kept by healdesk. Practice cannot switch this off or edit it out.
-> Whether these words satisfy the law of the state where the patient is, and
-> any further notice Practice's own law requires, is addressed in
-> [state-disclosure.md]."
-
-Counsel to decide whether the BAA or the terms is the right home. The terms
-already put "any disclosure your state requires" on the clinic (§8).
-
-**4.3 Language-model retention** (the spec's third non-optional rule).
-
-> "healdesk's language-model provider receives the content of each
-> conversation to generate the assistant's replies. Under its business
-> associate agreement with healdesk, the provider keeps that content for up
-> to 30 days and then deletes it. It may not use it to train or improve any
-> model or for any purpose other than providing and securing its service.
-> The provider's covered service cannot run with shorter retention. This is
-> the one place where conversation content is kept longer than healdesk's
-> own minimum, and it is kept under that agreement."
-
-Confirm the 30 days, and the stated purpose, against the executed Anthropic
-BAA once signed. The spec gives the 30 days but not the purpose.
-
-**4.4 Transcript retention.** The spec says transcripts live in healdesk
-"under a stated retention period" and the portal shows them. No document
-states the period. Add it, with the clinic's ability to shorten it.
-
-**4.5 Meta channels.** See §7.
-
-**4.6 Payments.** See §7.
-
-**4.7 Every fallback reaches a person.**
-
-> "If the service is paused, capped, suspended, ended, or fails, healdesk
-> routes calls to the direct line Practice gave it, and website chat
-> becomes a contact form. Practice keeps that line staffed and does not
-> forward it back to healdesk."
-
-This belongs in the terms more than the BAA, but it touches patient safety
-and counsel may want it in both.
-
----
-
-## 5. Subprocessors as they now stand
-
-From `apps/web/src/lib/subprocessors.ts` and the spec.
-
-| Vendor | Role | PHI? | Agreement | Note |
-| --- | --- | --- | --- | --- |
-| Retell | Voice: telephony and speech | Yes | BAA pending, self-serve | Region not confirmed. Confirm the executed BAA names the services used and covers Retell's own telephony and speech providers |
-| Anthropic | Language model, every channel | Yes | BAA pending | 30-day retention. The marketing demo uses a separate, non-HIPAA organisation (risk analysis), but the register's Anthropic row says "Under the BAA" for both. Split the row |
-| AWS | Hosting, keys, storage, SES for any PHI email | Yes | Signed 22 Sep 2026 (Artifact) | Designated account, eligible services only |
-| Database provider | Postgres | Yes | Not chosen: AWS RDS (under the AWS BAA) or Neon Scale (own BAA) | If Neon, add a row and a 15-day notice is owed to signed clinics before first use |
-| Resend | Transactional email | No | Not needed | Only messages declared `phiClass: "none"` |
-| Synthflow | Marketing demo call only | No | Not needed | Never a patient call. Remove from every product document |
-| Meta | Instagram, Messenger, WhatsApp | Scoped to none | None, ever | §7 |
-| Stripe | Clinic billing; deposits where the clinic uses Stripe | Scoped to none | None, any tier | §7 |
-| Google (clinic's calendar) | The clinic's own system | Yes | The clinic's own agreement with Google | Not healdesk's subprocessor (§6) |
-
-Retired: Cal.com (no write in v1), Synthflow as a product vendor, Twilio (not
-used), Supabase (not chosen).
-
-Notice: both BAA versions promise notice before adding a PHI subcontractor
-(1.1.0: fifteen days, with a termination right). Retell, Anthropic and the
-database provider are new relative to any clinic that signed when Synthflow
-was the voice vendor. Counsel: does a signed clinic need the 15-day notice
-for each before go-live, given no patient data has yet flowed?
-
----
-
-## 6. Google Calendar: clause, addendum, or neither
-
-**What v1 does.** Every clinic connects Google Calendar by OAuth in the
-wizard. healdesk reads free/busy on the chosen calendar (or one per
-provider), creates events for bookings on every channel, and changes only
-events it created (privacy §11). "Auto-confirm bookings" is on by default.
-Off, or a clinic on Mindbody or Boulevard, means manual booking mode:
-requests staff approve.
-
-**Our reading, for counsel to confirm.**
-
-- Writing a booking into the clinic's own calendar is a disclosure to the
-  covered entity, or to the covered entity's own vendor acting for it. Google
-  is not healdesk's subcontractor, because Google holds the data for the
-  clinic under the clinic's agreement, not for healdesk. This is the
-  `practice_account` basis `counsel-audit.md` §7(4) asked about for Cal.com.
-- If the clinic is a covered entity, it needs its own BAA with Google
-  (Workspace, paid plans). A free Gmail calendar has none. The spec says
-  "confirm per clinic". The BAA should put that on the clinic.
-- healdesk holds the OAuth token. That is a credential to a system holding
-  PHI, so the BAA should describe it accurately. "Holds no credentials" is
-  false the day the token is stored.
-
-**So: yes to a clause, no to the addendum.** Proposed clause:
-
-> "**Practice's calendar.** Practice connects a Google Calendar it controls.
-> healdesk holds the connection, encrypted, and uses it only to read when
-> that calendar is free or busy and to create, and change or cancel, the
-> appointments the assistant books. It changes nothing it did not create.
-> Each appointment carries only [the patient's name, a callback number, the
-> service and the time]. Practice holds its own agreement with Google
-> covering that calendar where the law requires one. Practice can disconnect
-> at any time, which ends healdesk's access."
-
-The bracketed list is a minimum-necessary decision. The old Cal.com clause
-promised "never a telephone number"; staff will need the number to reach a
-patient, so the v1 answer may differ.
-
-**The direct-booking addendum.** It is drafted as an opt-in election, for
-telephone only, accepted on a setup link
-(`packages/catalog/src/direct-booking-addendum.ts`,
-`approvedByCounsel: false`, never accepted). v1 inverts every part of that:
-on by default, all channels, a portal switch. Its useful part is the
-allocation:
-
-> "Practice is responsible for those appointments as for any booked by its
-> own staff, including the availability it publishes to that calendar and
-> any deposit it requires; healdesk's responsibility is limited to booking
-> only into that calendar, only at a time it showed as free…"
-
-That is a commercial allocation, not a PHI term. Recommendation: move it into
-terms §8 as "Bookings", keyed to the Auto-confirm switch; retire the
-addendum. Counsel: is a default-on portal switch enough to bind the clinic
-to that allocation, or does it need a separate acceptance?
-
----
-
-## 7. Meta and Stripe: handled by scoping
-
-**Meta.** No BAA, ever. The product scopes Instagram, Messenger and WhatsApp
-to carry nothing clinical: clinical content is detected on arrival and not
-stored, echoed or summarised; no treatment name is ever sent. Three
-documents disagree about what else may be said there:
-
-| Source | What it allows on Meta |
+| Decision | Where |
 | --- | --- |
-| Spec | Book, and send a hosted payment link, inside the 24-hour window. No treatment names |
-| Terms §9 | A booking request only; "never states a time, service or practitioner" |
-| `disclosure.ts` `META_CHANNEL_PROHIBITIONS` | No appointment date, time or provider; nothing about payment |
-| Privacy §12 | "to book an appointment or send the clinic's own payment link" |
+| BAA 1.2.0 published, approved by the owner without external counsel, then replaced the same day by 1.2.1 carrying the five fixes in § 3 (A1–A5); 1.0.0 no longer offered | `BAA_TEMPLATES[0]` is 1.2.1, `approvedByCounsel: true` with the doc comment recording the basis; `docs/baa-v1.2.1.txt` |
+| Anthropic retention stated with the exception its own terms carry: 30 days, except flagged or legally required content, which may be kept up to two years | 1.2.1 clause 11; terms § 9; `/subprocessors` |
+| Anthropic named as the model provider; 30-day retention for abuse detection and security stated; no training | 1.2.0 clause 11; terms § 9 |
+| Callbacks, the Cal.com write, the direct-booking addendum and the reactivation gate removed; Google Calendar clause added, unconditional | 1.2.0 clauses 4, 5, 8; terms § 2 and § 8 "Bookings" |
+| One liability allocation: healdesk's liability excluded where the law allows, capped at twelve months' Fees otherwise, not reaching wilful misconduct, gross negligence or non-limitable liability; the clinic indemnifies, breach investigation and notification costs included; a regulator's civil money penalty on healdesk cannot be shifted and the text says so | 1.2.0 clause 16; terms §§ 13–14 |
+| Forwarded calls pass straight through to the clinic's direct line on pause, suspension, allowance exhaustion, failure or exit; never a dead line; pass-through for at least 30 days after the service ends or until forwarding is removed | Terms §§ 2, 6, 7, 8; `POLICY.forwardingPassThroughDays` |
+| The first-month guarantee adopted | Terms § 5; [guarantee-and-refund.md](./guarantee-and-refund.md) |
+| Opening lines fixed; live transfer off by default | `disclosure.ts`; [state-disclosure.md](./state-disclosure.md) |
+| Assent label: "I agree to the Business Associate Agreement" | `BAA_ASSENT_LABEL` |
 
-Counsel must settle one rule, then all four say it. Also see `brief.md` on
-Meta's own Developer Policies, §5.6.5, which bars using Messenger and
-Instagram messaging "to facilitate direct conversations between people and
-healthcare providers". That may decide the question before HIPAA does.
+Decisions taken in this review by reasoning, for the owner to confirm:
+the one Meta rule (§ 6), the Google Calendar event contents and read scope
+(§ 5), 30-day destruction kept (§ 3 clause 15), the 15-day subprocessor
+notice sent now (§ 10), re-acceptance of 1.2.0 by any 1.0.0 signer before
+go-live (§ 10), a state-law terms clause in 1.2.1 instead of a separate DPA
+(§ 9), and the 1.2.1 fixes listed in § 3.
 
-Proposed BAA clause, once the rule is settled:
+---
 
-> "**Meta channels.** Instagram, Messenger and WhatsApp are operated by Meta,
-> which signs no business associate agreement. If Practice connects them,
-> healdesk replies there only inside a conversation the patient started,
-> sends no clinical content and no treatment name, does not store clinical
-> content a patient sends, and moves the patient to a call or Practice's own
-> secure route. What a patient chooses to send to Meta, and what Meta keeps,
-> is outside healdesk's and Practice's control. Practice accepts this
-> limitation by connecting those channels."
+## 2. BAA 1.2.0 against 45 CFR 164.504(e) and 164.314(a)
 
-**Stripe and the clinic's gateway.** Stripe signs no BAA. Deposits go
-through the clinic's own gateway (Stripe Connect is the open v1 choice).
-Only an amount, a generic descriptor and an opaque reference cross. Counsel:
-confirm reliance on the payment-processing carve-out (HIPAA §1179), and
-whether it covers a gateway the clinic owns, where healdesk creates the
-payment link.
+Checked against the regulatory text at
+https://www.law.cornell.edu/cfr/text/45/164.504 and
+https://www.law.cornell.edu/cfr/text/45/164.314 (read 1 Oct 2026), and
+https://www.law.cornell.edu/cfr/text/45/164.410 for the breach clock. Clause
+numbers are those of the rendered 1.2.0.
+
+| Requirement | Where 1.2.0 meets it | Note |
+| --- | --- | --- |
+| (e)(2)(i) establish permitted and required uses and disclosures; not beyond what the covered entity could do, except management/administration and data aggregation | Cl. 3; cl. 6 | Met |
+| (e)(2)(ii)(A) no use or disclosure other than as permitted or required by law | Cl. 3 ("and as required by law") | Met |
+| (B) appropriate safeguards; comply with Subpart C for ePHI | Cl. 8, first paragraph | Met. Second paragraph has a wording defect (finding A4) |
+| (C) report uses or disclosures not provided for, including breaches of unsecured PHI per § 164.410 | Cl. 10(a), (b); report contents track § 164.410(c) | Met. Five calendar days is inside the 60 § 164.410(b) allows |
+| (D) subcontractors agree to the same restrictions and conditions (§ 164.502(e)(1)(ii)) | Cl. 11, first paragraph | Met |
+| (E) access, § 164.524 | Cl. 12(a) | Met; ten business days to produce is inside the covered entity's 30 |
+| (F) amendment, § 164.526 | Cl. 12(b) | Met |
+| (G) accounting of disclosures, § 164.528 | Cl. 12(c); six-year record in cl. 15 | Met |
+| (H) comply with Subpart E when carrying out a covered-entity obligation | Cl. 13 | Met |
+| (I) books and records to the Secretary | Cl. 17 | Met |
+| (J) return or destroy at termination; extend protections where infeasible | Cl. 15, second paragraph (30 days) | Met |
+| (e)(2)(iii) covered entity may terminate for a material violation | Cl. 15, first paragraph (30-day cure; at once where cure is impossible) | Met |
+| (e)(4) management and administration; disclosures only if required by law or with assurances | Cl. 6, first paragraph, which cites it | Met |
+| (e)(5) same requirements flow to subcontractor contracts | Cl. 11 cites § 164.504(e)(5) | Met |
+| § 164.314(a)(2)(i)(A)–(C) Security Rule compliance, subcontractor flow-down, security-incident reporting | Cl. 8; cl. 11; cl. 10(c) | Met. The "unsuccessful attempts reported once, here" device is the usual one |
+| Omnibus-era: no sale of PHI, no marketing use, minimum necessary (§ 164.502(b)) | Cl. 14; cl. 9 | Met |
+
+Every element is present. The defects found are in accuracy of fact, not
+in the regulatory skeleton; they are listed in § 3 and the Review log.
+
+---
+
+## 3. BAA 1.2.0 clause by clause
+
+The 1.2.0 preamble names Viixi FZC, its form and the Delaware notice
+address, and drops the 1.1.0 "ACCEPTED FOR HEALDESK BY [NAME, TITLE]"
+placeholder. healdesk's assent is shown by offering the text, provisioning
+against it and sending the executed copy; § 164.504(e) requires a written
+arrangement, not a countersignature. Low risk, noted.
+
+| # | Clause | Decision and basis | 1.2.1 fix (A = accuracy finding) |
+| --- | --- | --- | --- |
+| 1 | Definitions | Kept from 1.1.0. Terms "as in force on the effective date" | None |
+| 2 | Practice's status | The clinic determines and warrants its status; healdesk applies the same safeguards either way; the document is a data-protection agreement where the clinic is not covered. Basis: a vendor that "confirms" its customer's legal status owns the error (`counsel-audit.md` § 1). Go-live is refused while status is undetermined (migration 0032) | **A1.** "the FTC Health Breach Notification Rule may apply to Practice" is doubtful. 16 CFR 318.2 reaches vendors of personal health records ("managed, shared, and controlled by or primarily for the individual"), PHR related entities and their service providers; a clinic's booking records are none of these (https://www.law.cornell.edu/cfr/text/16/318.2). Replace with "state breach-notification and consumer-health-privacy laws may apply to both parties" |
+| 3 | Permitted uses | 1.0.0 object, unchanged | None |
+| 4 | What healdesk reads | New body: no credentials to any practice-management or point-of-sale system; the only PHI is what patients give and the calendar access. The "Revenue figures" sentence is gone (v1 may not claim revenue) | None |
+| 5 | Practice's Google Calendar | New, unconditional. OAuth under the clinic's own Google agreement; token held encrypted; the event carries a first name, the service and the time, never a phone number or email; nothing moved or cancelled that healdesk did not create; the clinic acknowledges Google's BAA covers Calendar only where its Workspace admin accepted it. Basis: § 5 below | **A2.** "reads … the events on the booking calendar Practice chooses" describes the Google scope (`calendar.events.owned` reaches every event on a calendar the user owns), not the minimum necessary. Reword: "reads when that calendar is free or busy and the appointments healdesk itself created; Google's permission model gives it access to the other events on that calendar, and it does not read or store them". Engineering rule in § 11 |
+| 6 | Own use and aggregation | Kept. Permits de-identified aggregate statistics; no training | Cite the de-identification standard: "de-identified under 45 CFR 164.514(b)" |
+| 7 | Practice's duties | Kept | Add the direct-line duty? No: it is in terms § 8 and is not a PHI term |
+| 8 | Safeguards | Kept with the callback sentence removed; the one exception is the call a patient placed; no calls, no SMS | **A4.** "will not transmit PHI over a channel that cannot negotiate encryption — email included" contradicts itself and the design: PHI email goes only through SES with `TlsPolicy=REQUIRE`, which fails delivery when the receiving server will not negotiate TLS (risk analysis T13). Delete "— email included" or say "an email whose receiving server will not negotiate encryption is failed, not sent". Also say that the list of individuals in a breach report goes by secure transfer, not in the email (`incident-response.md` step 5 already does this) |
+| 9 | Minimum necessary | Kept and extended: the callback-slip set; no history, medication or diagnosis; no card numbers; the fixed opening disclosure | None |
+| 10 | Reporting | Kept: five business days for improper use and security incidents, five calendar days for a breach, § 164.410(c) contents; cost allocation deferred to cl. 16 | None |
+| 11 | Subcontractors | Names Anthropic, states the 30 days, the purpose, "cannot run with shorter retention", no training. Basis: spec "Five rules", third rule, and Anthropic's published terms (§ 4) | **A3.** "retains conversation content for 30 days … and then deletes it" overstates. Anthropic's own pages say content flagged by its automated trust-and-safety systems, or that the law requires it to keep, may be retained for up to two years, "even with ZDR or HIPAA arrangements in place". Add: "except content Anthropic's automated trust-and-safety systems flag or the law requires it to keep, which it may retain for up to two years". The same sentence is in terms § 9 and must change there too |
+| 12 | Patient rights | 1.0.0 object | None |
+| 13 | Acting in your place | 1.0.0 object | "sending messages in Practice's name" is accurate for replies. Optional: "replying in Practice's name" |
+| 14 | Not authorised | New object: no training; no PHI to any advertising or analytics platform; Meta named, with the scoping ("handles no clinical content, confirms no appointment details"); no clinical advice; no sale | Consistent with the one rule in § 6. Privacy § 12 and `disclosure.ts` must align (§ 8, § 11) |
+| 15 | Term and destruction | Kept: 30 days to return or destroy, export on request before then, infeasibility language, six-year survival of the signed copy and the accounting record. Decision: 30 days stands. Basis: feasible with the purge job and the `--all` export; inside industry norms; matches terms § 7 | Say what happens if an export is requested on day 29: destruction follows delivery of the export |
+| 16 | Liability | The owner's allocation (§ 1). Basis: between commercial parties Delaware enforces clear exculpation and indemnity, and an indemnity reaching the indemnitee's own negligence must say so expressly, which it does; gross negligence and wilful misconduct are carved out because courts will not enforce exculpation of them; the civil-money-penalty sentence states what HIPAA makes true anyway (a business associate is directly liable to OCR) | None in text. Residual: clinic counsel will resist the one-way indemnity and the absence of insurance; that is a commercial negotiation, not a drafting defect (Review log R2) |
+| 17 | Records to HHS | 1.0.0 object | None |
+| 18 | Notices, law | Kept: Delaware law and courts; HIPAA-compatible construction; "replaces any earlier version … from the effective date forward" | Consider appointing the Delaware registered agent as agent for service of process (Review log R3) |
+| — | Missing | Transcript retention period. The spec requires transcripts to live "under a stated retention period"; no document states it, and the clinic's retention window exists in code | **A5.** Add to 1.2.1: "healdesk keeps transcripts and conversation records for [N] days, which Practice may shorten in its portal; the Term clause governs after termination". N is an open owner decision |
+| — | Missing | Payments | Add a one-sentence Payments clause (§ 6 text): amount, generic descriptor, opaque reference; no service name or clinical detail, including metadata and statement descriptor; no card numbers |
+
+---
+
+## 4. Subprocessors, verified
+
+From `apps/web/src/lib/subprocessors.ts`, the spec, and the vendors' own
+pages read on 1 October 2026.
+
+| Vendor | Role | PHI? | Agreement | Verified this session |
+| --- | --- | --- | --- | --- |
+| Anthropic | Language model, every channel | Yes | HIPAA readiness enabled from the Claude Console by executing Anthropic's standard BAA; **pending** | https://platform.claude.com/docs/en/manage-claude/api-and-data-retention : "Conversation content … is not retained by default; the exception is Covered Models, which require 30-day retention"; "Retained data is never used for model training without your express permission"; ZDR is not available to a HIPAA-ready organisation; HIPAA readiness is organisation-wide, so a separate organisation is needed for non-HIPAA work (matches the two-org design); "Even with ZDR or HIPAA arrangements in place, Anthropic may retain data where required by law or where it has been flagged by Anthropic's automated trust and safety systems … for up to 2 years" (finding A3); **"Do not include PHI in JSON schema definitions"** for structured outputs and `strict` tools, because compiled schemas are cached without PHI protections (engineering rule, § 11). https://support.claude.com/en/articles/15455031-covered-models-under-a-business-associate-agreement-baa (1 Jul 2026): "HIPAA-ready API" with standard retention is an Eligible Service; Covered Models "require 30-day data retention on every platform". https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data (1 Jul 2026): deletion "within 30 days", except by agreement, "to enforce our Usage Policy", or by law; Usage Policy violations "up to 2 years" |
+| Retell | Voice telephony and speech | Yes | BAA and DPA self-signed at click-agreements.retellai.com, "no additional fee"; **pending** | https://docs.retellai.com/general/compliance : per-agent retention "from 1 day up to 2 years for transcripts, recordings, and logs"; per-agent storage choice ("everything, exclude PII, or basic attributes only"); hosted on AWS, **region not disclosed**; subprocessor list only on request to support@retellai.com. Action: ask for the list and the region in writing, and confirm the executed BAA names telephony and speech providers |
+| AWS | Hosting, keys, storage, SES for any PHI email | Yes | Accepted 22 Sep 2026 in AWS Artifact | Not re-checked; `docs/policies/aws-hipaa-account.md` |
+| Database provider | Postgres | Yes | Not chosen: AWS RDS under the AWS agreement, or Neon Scale under its own BAA | If Neon: a new row and the 15-day notice (§ 10) |
+| Meta | Instagram, Messenger, WhatsApp | Scoped to carry nothing clinical | None, ever | https://www.facebook.com/legal/Meta-Terms-for-WhatsApp-Business-Platform (23 Sep 2026): "Meta is not a business associate or subcontractor (as those terms are defined in HIPAA)" and "the WhatsApp Business Platform is not HIPAA-compliant". https://developers.facebook.com/devpolicy/ (3 Feb 2026) § 5.6.5, quoted in `brief.md`. https://whatsappbusiness.com/policy/ (23 Sep 2026): no telemedicine or health-related information "if applicable regulations prohibit distribution of such information to systems that do not meet heightened requirements"; automation allowed in the 24-hour window with "prompt, clear, and direct escalation paths" including a phone number; "Medical and healthcare products" among goods businesses may not buy, sell, promote or facilitate |
+| Stripe | Clinic billing; deposits through the clinic's own gateway | Scoped to an amount, a generic descriptor and an opaque reference | None, any tier | **Not located on stripe.com this session**; secondary sources agree Stripe does not sign BAAs and Stripe Identity's own docs exclude PHI. Action: written confirmation from Stripe support before the first deposit link; the design does not depend on the answer |
+| Google (the clinic's calendar) | The clinic's own system | Yes | The clinic's own Workspace agreement with Google | Not healdesk's subprocessor (§ 5). Not re-verified |
+| Resend | Transactional email declared `phiClass: "none"` | No | Not needed | Unchanged |
+| Synthflow | Marketing demo call only | No | Not needed | Never a patient call. Remove from every product document |
+
+Retired: Cal.com, Synthflow as a product vendor, Twilio, Supabase.
+
+---
+
+## 5. Google Calendar
+
+**Decided.** Writing a booking into the clinic's own Google Calendar is a
+disclosure to the covered entity through the covered entity's own vendor.
+Google holds the data for the clinic under the clinic's agreement, not for
+healdesk, so Google is not healdesk's subcontractor and no notice or BAA
+flow-down applies to it; a covered clinic needs its own Google Workspace
+BAA, and the spec's "Google's BAA excludes third-party apps" is why 1.2.0
+clause 5 says healdesk's access is governed by the clinic's agreement with
+healdesk. The OAuth token is a credential to a system holding PHI, so the
+clause says healdesk holds it, encrypted.
+
+**Event contents.** First name, service asked about, time. No telephone
+number, no email address, no notes from the conversation. The number stays
+in the healdesk portal's Bookings screen, where staff read it under a second
+factor. This is the minimum a receptionist needs on the calendar itself.
+
+**Read scope.** Finding A2: the clause should state what healdesk reads
+(free or busy; its own events), not what Google's scope permits. Preferred
+design, for the engineer: request `calendar.events.freebusy` for
+availability and write into a healdesk-created secondary calendar
+(`calendar.app.created`) that the clinic overlays, so the app never has
+access to other patients' events at all. If the clinic insists on its
+primary calendar, `calendar.events.owned` is needed and the clause must
+describe the access honestly.
+
+**The direct-booking addendum** is retired. Its allocation now lives in
+terms § 8 "Bookings": appointments the agent writes are the clinic's
+bookings as if its staff had made them; the clinic keeps availability true
+and collects flagged deposits; healdesk books only into that calendar, only
+at a time it showed as free. The allocation is a commercial term accepted
+at checkout like every other term; the "Auto-confirm bookings" switch is
+configuration, and the allocation holds whether it is on or off (off makes
+every booking a request staff approve, where the allocation is even
+clearer). No separate acceptance is needed.
+
+---
+
+## 6. Meta and Stripe: the one rule, and its basis
+
+**The one Meta rule** (decided in this review; consistent with BAA 1.2.0
+clause 14, terms § 9 and the spec):
+
+On Instagram, Messenger and WhatsApp the assistant (1) replies only inside
+the conversation the patient opened and inside Meta's 24-hour window,
+enforced by the adapter; (2) answers from the clinic's public menu, prices,
+hours and policies without repeating a treatment name; (3) takes the
+callback-slip details and writes the booking into the calendar; (4) sends
+the clinic's hosted payment link where deposits are on; (5) states no
+appointment date, time or practitioner and no treatment name in any Meta
+message, and tells the patient the practice's own confirmation will follow;
+(6) sends no clinical content, and clinical content the patient sends is
+detected on arrival and never stored, echoed or summarised, with the
+patient moved to a call or the clinic's secure route in one plain sentence;
+(7) gives the practice's phone number whenever asked for a person, which is
+one of the escalation paths the WhatsApp policy requires; (8) mentions no
+promotions on these channels, because the WhatsApp policy bars promoting
+"medical and healthcare products" and the line between a treatment and a
+product is not one to test in a DM.
+
+What the rule does for each document: BAA 1.2.0 clause 14 ("handles no
+clinical content, confirms no appointment details") stands; terms § 9 ("can
+book and can send your own payment link, and never sends clinical content
+or a treatment name") stands; `disclosure.ts` `META_CHANNEL_PROHIBITIONS`
+must drop "anything about payment" and keep the rest; privacy § 12 must say
+the same (§ 8). The engineer owns the last two.
+
+**The basis, stated honestly.** For a HIPAA-covered clinic, the fact that an
+identified person asked a provider for an appointment is PHI even with no
+treatment named (the spec's own test: "do not assume a callback slip is
+exempt because it feels administrative"). Meta signs nothing. The product's
+position is therefore not that no PHI touches Meta; it is that the patient
+chose the channel and was warned in the first line, that what healdesk puts
+on the channel is the minimum necessary and never clinical, and that
+nothing a patient already sent to Meta can be unsent. HHS has accepted the
+patient's choice of an unencrypted channel after a warning for email
+(Omnibus Rule preamble, 78 Fed. Reg. 5566, 5634 (25 Jan 2013); not re-read
+this session). It has never said so for a platform that also serves the
+provider's side. This is an accepted risk, recorded in `brief.md` as risk
+7, and the BAA puts the acceptance on the clinic by its choice to connect
+the channel. A covered clinic whose counsel objects can leave the Meta
+channels off or run "Auto-confirm bookings" off, in which case the Meta bot
+takes a request and states nothing.
+
+**Stripe and the clinic's gateway.** The HIPAA statute exempts a financial
+institution's payment processing: "this part … shall not apply to the
+entity with respect to such activities, including … the use or disclosure
+of information by the entity for authorizing, processing, clearing,
+settling, billing, transferring, reconciling or collecting, a payment for,
+or related to, health plan premiums or health care" (42 U.S.C. § 1320d-8,
+https://www.law.cornell.edu/uscode/text/42/1320d-8). That is Stripe's
+exemption, not healdesk's. healdesk's basis is different and stronger: the
+disclosure to the processor is a disclosure for "payment" that a covered
+entity may make without authorisation (45 CFR 164.506(c)), HHS's Privacy
+Rule preamble says a financial institution processing a consumer's payment
+card transaction is not acting on the covered entity's behalf and needs no
+business associate contract (65 Fed. Reg. 82462 (28 Dec 2000),
+https://www.govinfo.gov/content/pkg/FR-2000-12-28/pdf/00-32678.pdf;
+pinpoint not re-read this session), and what healdesk sends carries no
+clinical fact at all. Decision: rely on these three together; keep the
+design that nothing clinical reaches a payment artifact, in the description,
+the statement descriptor or metadata. Proposed 1.2.1 clause:
 
 > "**Payments.** Where Practice takes deposits, healdesk creates a payment
 > link through Practice's own payment processor. The link and the payment
@@ -431,139 +250,200 @@ payment link.
 
 ---
 
-## 8. Terms of service, section by section
+## 7. Terms of service
 
-| § | Current text (quoted) | Problem | Change |
-| --- | --- | --- | --- |
-| 2 | "{agent} answers calls and, where purchased, Instagram, Messenger and WhatsApp" | Web chat is missing | Add website chat |
-| 2 | "takes booking requests … and hands each to your front desk, who confirm a time … The agent confirms an appointment itself only where you have accepted the direct booking addendum (section 8)" | v1 auto-confirms by default on every channel | Describe Auto-confirm and manual booking mode |
-| 2 | "and reports which recovered contacts became revenue" | Attribution is fenced out; "revenue" may not be claimed | "reports conversations handled, appointments booked and booked value" |
-| 2 | "Every call opens with a disclosure that the caller is speaking to an AI" | Spec: every channel, and calls also say "transcribed" | Every conversation, every channel |
-| 2 | "If the service is suspended or ends … we switch the agent off, so forwarded calls are not answered until you do" | A dead line. Spec forbids it | Calls route to the clinic's direct line (§4.7) |
-| 3 | Overage "Until those rates are published, usage above the allowance is not billed" | Fine. Spec wants copy to say rates are placeholders | Keep |
-| 5 | 14-day refund | Guarantee to add | See `guarantee-and-refund.md` |
-| 6 | "the agent is suspended: it stops answering on every channel … your data is kept and stays readable in your console" | Dead line again; "console" is the old name | Calls to direct line; "portal" |
-| 7 | "we tell you how to remove call forwarding (if you do not, forwarded calls are lost — that is why we tell you twice)" | Dead line | Calls to direct line until forwarding is removed. Counsel: for how long after the end? |
-| 7 | "we revoke our access to your calendar and booking system" | v1 has no booking-system access | "your calendar and your Meta accounts and payment gateway" |
-| 7 | "before destroying our copies on the schedule the Business Associate Agreement sets" | 1.0.0 sets no schedule | Fix in the BAA |
-| 8 | "**Calls we place.** The agent places a call to a person only when …" (the whole bullet) | v1 places no calls | Replace with "Inbound only" |
-| 8 | "**Direct booking.** If you accept the direct booking addendum …" | Addendum retired (§6) | Replace with "Bookings" |
-| 8 | (missing) | | Add: the clinic sets call forwarding and keeps a direct line that does not forward back; the clinic keeps its own Google agreement; the greeting cannot remove the AI line |
-| 9 | "**Meta channels.** … takes a booking request (a first name, a number, preferred times) and moves anything further to the phone; it never states a time, service or practitioner there, and after your decision it sends a fixed line naming none of those" | "after your decision it sends a fixed line" is outbound after the conversation; conflicts with spec | One rule from §7 |
-| 9 | (missing) | | Anthropic's 30-day retention, one sentence, pointing to the BAA |
-| 12 | "THAT THE AGENT WILL ANSWER EVERY CALL" | Contradicts the guarantee | Carve out the guarantee |
-| 13–14 | Exclusion and one-way indemnity | Clinic counsel will resist; check it does not swallow the guarantee or conflict with BAA 1.0.0 §2.11 | Counsel's call |
-| 20 | Entity line | Spec requires the Viixi FZC line; present | Keep. Registered address still blank, correctly |
+As shipped on 1 October 2026, read this session.
 
----
-
-## 9. Privacy page statements that are now false
-
-Privacy §9, current:
-
-> "The controls the product commits to for patient information — a signed
-> agreement with every vendor that touches it, United States infrastructure,
-> encryption at rest and in transit, no patient information over email, and
-> breach notice to the clinic within five calendar days of discovery — are
-> set out in the Business Associate Agreement"
-
-| Claim | Why it is false or unproven today | Suggested wording |
+| § | Status | Note |
 | --- | --- | --- |
-| "a signed agreement with every vendor that touches it" | Retell, Anthropic and the database provider are unsigned. Meta and Stripe are in the patient's path and will never sign | "an agreement with every vendor that holds patient information, signed before any patient information reaches it; Meta and Stripe sign none, so the product keeps clinical content away from them" |
-| "United States infrastructure" | Retell's region is unconfirmed; Meta is "not region-pinned" | "United States infrastructure for everything we hold" once Retell's region is confirmed |
-| "encryption … in transit" | A phone call is not end-to-end encrypted; a Meta message is outside our control | Add the telephone and Meta exceptions |
-| "no patient information over email" | True only if alerts carry no patient detail. The risk analysis (T13) lists this as an open design decision | Keep only once decided |
-| "set out in the Business Associate Agreement" | 1.0.0 says the model keeps nothing (false) | Fix the BAA first |
-
-Other statements to check:
-
-- §12 "to book an appointment or send the clinic's own payment link" — one
-  of four conflicting Meta rules (§7).
-- §12 "visible only to that clinic's own team in its portal" — the portal is
-  not built; healdesk operators can also reach data under audit. Suggest
-  "visible to that clinic's team in its portal, and to healdesk staff only
-  as the clinic's agreement allows".
-- §11 "Creates and changes the events it books" — true to the spec, not yet
-  built. The page says every sentence must be true before the first clinic
-  connects; keep that gate.
-- §1 "It does not cover patients of our customers" sits beside §11–13,
-  which describe data from patients. Counsel: does the scope sentence need
-  to say §11–13 are the exception?
-- `/subprocessors` (rendered from `subprocessors.ts`) says of Anthropic
-  "Under the BAA Anthropic keeps inputs for 30 days" on a row that also
-  covers the marketing demo, which is not under the BAA.
-- Web chat greeting in `disclosure.ts`: "Ask for a person any time." v1 has
-  no live staff inbox. A promise of a person in chat should say what
-  happens (a handover request to the clinic).
+| 2 | Done | Names website chat, auto-confirm and manual booking mode, booked value and the "no revenue" sentence, the fixed disclosure on every channel, and the pass-through to the direct line whenever the agent is not answering |
+| 3 | Open | Setup-fee exception from `guarantee-and-refund.md` decision 5, if the owner confirms |
+| 5 | Done | Refund window, guarantee block, no-stacking and the § 13 / § 19 carve-outs. The block itself is to be tightened per `guarantee-and-refund.md` |
+| 6 | Done | Dunning to the owner and billing contact, never the public inbox; pass-through on suspension; "portal" |
+| 7 | Done | Pass-through for at least 30 days after the end or until forwarding is removed; access to Google Calendar, Meta accounts and the gateway revoked; export before destruction on the BAA's schedule (now 30 days) |
+| 8 | Done, one gap | Inbound only; Bookings (the former addendum allocation); call forwarding and the direct line; own notices; roles. **Gap:** a handover duty: "When a caller or visitor asks for a person, the agent takes their details and alerts the contact you named; you get back to them by the end of the next business day, as the agent tells them you will." Without it the opening line promises something nobody is bound to (state-disclosure.md decision 1) |
+| 9 | Done, one fix | BAA controls; liability allocated the same way; the model paragraph; the Meta paragraph matches the one rule. **Fix:** the model paragraph's "keeps that content for 30 days … and then deletes it" needs the flagged-content exception (finding A3) |
+| 12 | Done | Guarantee carve-out; booked value disclaimer |
+| 13 | Done | Exclusion, cap, carve-outs for wilful misconduct, gross negligence, indemnity and non-limitable liability; guarantee not limited; no insurance stated |
+| 14 | Done | One-way indemnity reaching alleged negligence; investigation and notification costs; defence mechanics |
+| 19 | Done | Force majeure excludes payment and the guarantee |
+| 20 | Done | Entity line; registered address blank until known |
 
 ---
 
-## 10. Outline of a data processing addendum
+## 8. Privacy page
 
-Needed for clinics that are not HIPAA covered entities (many cash-pay med
-spas), where state law replaces HIPAA. BAA 1.1.0 `practice-status` already
-says it is "a data-protection agreement on the same terms where it is not"
-a covered entity. Counsel decides whether that sentence is enough or a
-separate DPA is cleaner.
+Statements to fix, for the engineer (page not owned by this review):
 
-1. **Roles.** Practice is the business/controller; healdesk is its service
-   provider/processor (CCPA/CPRA "service provider"; Washington My Health My
-   Data Act "processor"; Nevada SB 370 and Connecticut consumer health data
-   equivalents).
-2. **Subject matter and duration.** The Services, for the term plus the
-   return-or-destroy period.
-3. **Data subjects.** People who call, chat with or message Practice;
-   Practice's staff users.
-4. **Data categories.** Name, phone, email where given, service asked
-   about, preferred time, bookings, deposit status, transcripts (no audio),
-   Meta identifiers. Consumer health data under WA MHMDA.
-5. **Instructions only.** Process only on Practice's documented
-   instructions; no selling, sharing, or combining with other data; no use
-   outside the direct relationship (the CCPA service-provider terms).
-6. **Consent.** WA MHMDA allows collection without separate consent where
-   necessary to provide the service the consumer asked for. Confirm a
-   booking request falls inside that.
-7. **Confidentiality of personnel.**
-8. **Security.** Annex: the measures in the BAA safeguards clause.
-9. **Subprocessors.** The register, 15-day notice, objection right.
-10. **Consumer requests.** Assist with access, deletion, correction within
-    set times.
-11. **Breach notice.** Same five-day clock; note the FTC Health Breach
-    Notification Rule may apply to Practice.
-12. **Return or deletion.** Same 30 days.
-13. **Audit and information.** Documents on request; no on-site audit.
-14. **Cross-border.** healdesk is a UAE entity. Data is hosted in the US.
-    Whether the founder's access from the UAE is a cross-border transfer
-    that any state law cares about is for counsel.
-15. **Liability.** By reference to the terms.
+| Current | Why it is wrong or unproven | Replace with |
+| --- | --- | --- |
+| § 9 "a signed agreement with every vendor that touches it" | Retell, Anthropic and the database provider are unsigned today; Meta and Stripe are in the patient's path and never sign | "an agreement with every vendor that holds patient information, signed before any patient information reaches it; Meta and Stripe sign none, so the product keeps clinical content away from them" |
+| § 9 "United States infrastructure" | Retell's region is undisclosed | Keep only once Retell confirms the region in writing |
+| § 9 "encryption … in transit" | A phone call is not end-to-end encrypted; a Meta message is outside our control | Add the telephone and Meta exceptions, as the BAA does |
+| § 9 "no patient information over email" | Risk analysis T13 is still an open design decision | Keep only once decided |
+| § 12 "to book an appointment or send the clinic's own payment link" | Must match the one rule | Add "and never states a time, service or practitioner there" |
+| § 12 "visible only to that clinic's own team in its portal" | Operators can reach data under audit | "visible to that clinic's team in its portal, and to healdesk staff only as the clinic's agreement allows" |
+| § 11 "Creates and changes the events it books" | True to the spec, not built | Keep behind the page's own "true before the first clinic connects" gate |
+| § 1 "It does not cover patients" | §§ 11–13 describe patient data | Add "except as sections 11 to 13 say about the product" |
+| `/subprocessors` Anthropic row: "Under the BAA Anthropic keeps inputs for 30 days" on a row that also covers the marketing demo | The demo runs in a separate, non-HIPAA organisation; and the row lacks the flagged-content exception | Split the row; add the exception (finding A3) |
+
+Bump `LEGAL_VERSION` and `LEGAL_LAST_UPDATED` with any change.
 
 ---
 
-## 11. How the change has to ship (for the engineer)
+## 9. Clinics outside HIPAA
 
-Not for counsel to act on, but counsel should know the constraints.
+Many cash-pay practices are not covered entities. For them BAA 1.2.0 is, by
+clause 2, "a data-protection agreement on the same terms". Decision: no
+separate DPA. Instead, 1.2.1 adds one clause carrying the specific terms
+state law requires of a processor or service provider, because "the same
+terms" does not supply them:
 
-- **Never edit a 1.0.0 clause object.** `CLAUSES_1_1` reuses 1.0.0 objects by
-  id (`permitted-uses`, `data-sources-verified`, `patient-rights`,
-  `acting-in-your-place`, `reactivation-gate`, `prohibited`,
-  `records-to-hhs`, and the body of `data-sources-none`). Editing one of
-  those changes 1.0.0's bytes and breaks every stored hash. New wording
-  means a new clause object.
-- **The two signing paths must change together.** `apps/app/src/lib/agreements.ts`
-  (server) and `apps/web/src/components/checkout/AgreementStep.tsx` (browser)
-  each build the same `BaaSelections`. The browser sends a hash of what it
-  displayed; the server re-renders and refuses a mismatch. Retiring
-  `calendarWrite`, `bookingMode` or `attributionMode` on one side only makes
-  every signature fail. Both files carry comments asking for this.
-- **Golden tests freeze the text.** `apps/app/tests/baa-golden.test.ts` and
-  the agreements tests. A new version needs new golden hashes, and the
-  assent label change (§2.8) is part of the stored record.
-- **Order of operations.** Add the new template below 1.0.0 with
-  `approvedByCounsel: false`; counsel approves; flip the flag; move it to
-  `[0]`. Provisioning refuses an unapproved template.
-- **Existing signers.** 1.1.0's notices clause says it replaces earlier
-  versions "from the effective date forward". How a 1.0.0 signer moves to it
-  (portal re-acceptance) is a counsel question. If no real clinic has signed
-  1.0.0, the simplest answer is to stop offering it.
-- Bump `LEGAL_VERSION` and `LEGAL_LAST_UPDATED` in `apps/web/src/lib/legal.ts`
-  with any terms or privacy change.
+> "**Where Practice is not a covered entity.** healdesk processes patient
+> information only on Practice's documented instructions, which are the
+> Terms and Practice's portal settings, and for no other purpose. It does
+> not sell or share it, does not retain, use or disclose it outside the
+> direct business relationship with Practice or for any purpose other than
+> providing the Services, and does not combine it with information from any
+> other source except as the Services require. healdesk will give Practice
+> the information it needs to answer a consumer's access, deletion or
+> correction request within ten business days; will tell Practice if it can
+> no longer meet these obligations; will let Practice take reasonable steps
+> to stop and remedy any unauthorised use; and will provide, on request,
+> the documents Practice reasonably needs to verify compliance. The
+> reporting, subcontractor, security and return-or-destroy clauses of this
+> agreement apply to that information as they apply to PHI."
+
+Basis: the California service-provider contract requirements (Cal. Civ.
+Code § 1798.140(ag) and 11 CCR § 7051; statute text not re-read this
+session, so the clause must be checked against it before 1.2.1 publishes),
+the Washington My Health My Data Act's processor-contract requirement (RCW
+19.373.060) and consent exception for a service the consumer requested
+(RCW 19.373.030, read 1 Oct 2026,
+https://app.leg.wa.gov/RCW/default.aspx?cite=19.373.030), and the Nevada and
+Connecticut consumer-health-data laws modelled on Washington's. The FTC
+Health Breach Notification Rule reference is dropped (finding A1); state
+breach-notification statutes apply instead, and under them an entity that
+maintains data for an owner must notify the owner, which the five-day clock
+already does.
+
+Trigger to engage a lawyer: the first clinic outside HIPAA in Washington,
+Nevada or Connecticut, or a consumer request under one of those laws.
+
+---
+
+## 10. Existing signers and subprocessor notice
+
+**1.0.0 signers.** No clinic has gone live and no real patient data has been
+processed. Decision: 1.0.0 is no longer offered; any account that accepted
+1.0.0 re-accepts 1.2.0 in the portal (or by the agreement link in an email)
+before provisioning, and go-live refuses an account whose bound agreement is
+a superseded version. Until re-acceptance, 1.0.0 governs that account,
+including its sentence making healdesk bear notification costs, which is
+one more reason to require re-acceptance before any PHI flows. The 1.2.0
+notices clause then replaces the earlier version "from the effective date
+forward".
+
+**The 1.0.0 assent label.** Every 1.0.0 acceptance recorded "… and confirm
+the consent warranty above" with no warranty in the document. The surplus
+words do not negate assent to the text that was displayed and hashed; the
+risk is confusion, not invalidity, and it is moot once each signer
+re-accepts 1.2.0 under the corrected label.
+
+**Subprocessor notice.** Both BAA versions promise fifteen days' notice
+before a subcontractor handles PHI. Retell, Anthropic and the database
+provider are new relative to any signer from the Synthflow period. Decision:
+send the notice now to every signed account, naming all three (and Neon if
+chosen). Go-live is more than fifteen days away, so the notice costs
+nothing and removes the argument.
+
+---
+
+## 11. How a change ships (for the engineer)
+
+- **Never edit a released clause object.** 1.2.0 reuses 1.1.0 and 1.0.0
+  objects by lookup; a new wording is a new object in a new version. The
+  golden hash for 1.2.0 (`apps/app/tests/baa-golden.test.ts`) must keep
+  reproducing.
+- **1.2.1 carries findings A1–A5, the Payments clause, the state-law clause,
+  and the § 164.514(b) citation.** Add it below 1.2.0 with
+  `approvedByCounsel: false` until the owner approves it the same way, then
+  move it to `[0]`. Publish it before the first real clinic signs if at all
+  possible; A3 is a misstatement of a vendor's terms in a signed document.
+- **The two signing paths change together** (`apps/app/src/lib/agreements.ts`
+  and `apps/web/src/components/checkout/AgreementStep.tsx`).
+- **Calendar scopes.** Request `calendar.events.freebusy` and prefer a
+  healdesk-created secondary calendar (§ 5). If `calendar.events.owned` is
+  used, read only free/busy and healdesk's own events, and log nothing
+  else.
+- **No PHI in tool schemas.** Anthropic's HIPAA page: "Do not include PHI in
+  JSON schema definitions" for structured outputs and `strict` tools. Tool
+  schemas must be static; patient data goes in message content only.
+- **`disclosure.ts`**: drop "Anything about payment" from
+  `META_CHANNEL_PROHIBITIONS`; keep the rest.
+- **Bump `LEGAL_VERSION` and `LEGAL_LAST_UPDATED`** with any terms or privacy
+  change.
+
+---
+
+## Review log (2026-10-01)
+
+Adversarial pass on the 1 October draft, then on BAA 1.2.0 and the terms as
+shipped the same day. Finding → fix applied.
+
+- **The draft asked twenty-one questions of counsel that reasoning or a
+  primary source could settle.** → Each is now a decision with its basis
+  (§§ 1, 3, 5, 6, 9, 10) or an open risk with a trigger (below).
+- **A3. The Anthropic retention sentence in 1.2.0 clause 11 and terms § 9
+  overstates deletion.** Anthropic's published terms allow retention of
+  flagged content for up to two years even under HIPAA arrangements. → 1.2.1
+  wording given; terms § 9 and `/subprocessors` flagged to the engineer.
+  Until fixed, this is a known inaccuracy in a signed agreement (risk R1).
+- **A2. Clause 5 describes the Google scope, not the minimum necessary.** →
+  Wording and a scope design given (§ 5, § 11).
+- **A1. The FTC Health Breach Notification Rule is cited as possibly
+  applying to a clinic.** 16 CFR 318.2 does not reach a clinic's booking
+  records or healdesk as its vendor. → Replace with state breach and
+  consumer-health laws; `docs/incident-response.md` carries the same error
+  and is flagged to the lead.
+- **A4. Clause 8's "email included" contradicts the SES design and the
+  clause's own fail-closed sentence.** → Wording given.
+- **A5. No document states the transcript retention period the spec
+  requires.** → 1.2.1 clause with an owner decision for the number.
+- **Payments had no clause in the BAA and the § 1179 reasoning was
+  misattributed.** § 1179 exempts the processor, not healdesk. → Basis
+  restated on § 164.506(c), the HHS preamble and the no-clinical-fact
+  design; clause proposed.
+- **Four documents disagreed about Meta.** → One rule (§ 6) consistent with
+  1.2.0 and the terms; `disclosure.ts` and privacy § 12 flagged. The HIPAA
+  position on Meta is stated as an accepted risk, not as compliance.
+- **The direct-booking addendum's binding mechanism was an open question.**
+  → Allocation in terms § 8, accepted at checkout; the switch is
+  configuration.
+- **The draft said Google might be healdesk's subcontractor.** → Decided
+  not: the clinic's own vendor, under the clinic's own agreement; the BAA
+  says so.
+- **The "15-day notice" and "1.0.0 signer" questions.** → Decided (§ 10).
+- **The opening line's "within a day" has no counterpart duty in the
+  terms.** → § 8 handover duty proposed (§ 7).
+- **Residual risks.** **R1** BAA 1.2.0 is in force with findings A1–A5
+  unfixed; the most consequential is A3. Trigger: publish 1.2.1 before the
+  first real clinic signs; if a clinic has already signed 1.2.0, send the
+  corrected sentence as a notice under the subcontractors clause. **R2**
+  The one-way indemnity, the exclusion and the absence of insurance will be
+  resisted by some clinics' counsel; enforceability between commercial
+  parties is likely but unconfirmed by a lawyer. Trigger: the first redline
+  (negotiate: a mutual cap is the usual landing), or any claim (engage a
+  lawyer). **R3** Service of process on a UAE entity: the UAE is not a
+  party to the Hague Service Convention, so a clinic suing in Delaware must
+  serve by letters rogatory unless an agent is appointed. Recommended:
+  appoint the Delaware registered agent as agent for service; the owner
+  decides, because it makes healdesk easier to sue as well as easier to
+  contract with. **R4** The HIPAA position on Meta (§ 6) is an accepted
+  risk. Trigger: a covered clinic's counsel objects (offer Meta off or
+  request-only), or HHS guidance on social messaging. **R5** The state-law
+  clause (§ 9) was drafted without re-reading the California statute.
+  Trigger: before 1.2.1 publishes, read Cal. Civ. Code § 1798.140(ag) and
+  11 CCR § 7051 and adjust. **R6** Retell's region and subprocessors are
+  undisclosed; the privacy page's "United States infrastructure" depends on
+  them. Trigger: before the Retell BAA is signed, get both in writing.

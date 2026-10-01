@@ -1,5 +1,15 @@
 # Product Requirements
 
+> **Superseded 2026-09-30 by [v1-product-spec.md](./v1-product-spec.md).** Kept
+> as the August product thinking, not as a roadmap; the live task list is the
+> [Launch plan tab](https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ) of the spec's source doc. Reversed: SMS, appointment reminders, no-show
+> sequences, missed-call text-back, callbacks and reactivation (v1 is inbound
+> only); intake, consent capture, post-care triage and the clinical-note
+> listener (v1 collects what a receptionist writes on a callback slip and
+> routes anything clinical to a person). Closed-loop revenue attribution is
+> phase two, and feeding conversions back to ad platforms is out permanently
+> (architecture.md, "No conversion attribution to ad platforms").
+
 > Split from the original working doc (Part 1). See [archive/](./archive/).
 
 The baseline (capture → book → reactivate) is table stakes already covered — unevenly —

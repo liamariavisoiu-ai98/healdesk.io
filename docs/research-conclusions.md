@@ -1,9 +1,17 @@
 # What the research found, in plain English
 
-**Read this one first.** It explains the whole picture end to end — what the rules actually
-are, why they exist, which of your vendors trip over them, and what it means for the
-business. [blockers-runbook.md](./blockers-runbook.md) is the companion: same findings, but
-written as click-by-click instructions once you already understand why you're doing them.
+> **Dated research record (17 August 2026). Superseded where it conflicts with
+> [v1-product-spec.md](./v1-product-spec.md)**, which decides what the product is; the
+> only live task list is the [Launch plan tab](https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ)
+> of the spec's source doc. Voice is Retell, not Synthflow; there is no SMS, 10DLC or
+> outbound of any kind; Google Calendar is the only booking write target; Boulevard and
+> GoHighLevel read-back is phase two; and Anthropic's covered API runs with 30-day
+> retention, not zero retention. The FTC, trust-badge and SES findings still stand.
+
+It explains the rules as they stood in August — what they are, why they exist, which
+vendors trip over them, and what it means for the business.
+[blockers-runbook.md](./blockers-runbook.md) is the companion: same findings, written as
+click-by-click instructions.
 
 ---
 
@@ -224,8 +232,8 @@ default.** Their docs:
 > By default, Amazon SES uses opportunistic TLS… **If SES can't establish a secure
 > connection, it sends the message unencrypted.**
 
-Read that again in context: healdesk emails monthly reports and appointment confirmations to
-clinics. If a clinic's mail server doesn't support encryption, SES sends the message **in the
+Read that again in context: healdesk emails staff alerts, booking requests and the daily summary
+to clinics (the clinic's own system sends patients their confirmations). If a clinic's mail server doesn't support encryption, SES sends the message **in the
 clear** and reports success. That is a BAA violation that leaves no trace.
 
 The fix is one CLI command creating a configuration set with `TlsPolicy=REQUIRE` — and it
@@ -751,9 +759,10 @@ Under the heading **"How we handle patient data"** — which promises a first-pa
 and implies no outside verifier:
 
 - We sign a BAA with every clinic
-- PHI stored in US-only AWS infrastructure under a signed AWS BAA
+- PHI stored in US-only infrastructure under signed BAAs (the database provider, RDS or
+  Neon Scale, is not chosen yet; name it here once it is)
 - We never use patient data to train models
-- Read-only access to your practice management system
+- We add appointments to your Google Calendar and read its availability — nothing else
 - Encrypted in transit and at rest with AWS KMS
 - Delete any patient's data on request
 
@@ -768,8 +777,9 @@ the question *"show me."* And saying out loud that no government agency certifie
 HIPAA compliant is simultaneously a weapon against every competitor flying that badge and an
 inoculation for you.
 
-Two notes: the "read-only" line becomes **false** the day the agent writes a booking back —
-that's flagged in the code so it changes in the same commit. And the model-training line is
+Two notes: the original "read-only access to your practice management system" line became
+false once v1 booked into the clinic's Google Calendar, which is why it now says what the
+product writes. And the model-training line is
 deliberately narrow ("we never…") rather than broad ("we or our vendors never…") because
 Synthflow's published docs say nothing about training on customer audio. Upgrade it once you
 have that in writing.

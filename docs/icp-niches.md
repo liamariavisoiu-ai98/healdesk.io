@@ -29,9 +29,10 @@ pocket, patients often do 2–3 cycles, and add-ons (ICSI, PGT, egg freezing) pu
 lifetime value toward **$40k–$60k+**.
 
 Inbound is intensely high-intent and emotional — these patients research obsessively and
-call. A long consideration window with many touchpoints makes it a perfect
-nurture/reactivation use case. A single missed call can be a $25k journey walking to a
-competitor.
+call. A long consideration window means the same questions arrive again and again, on
+the phone, the website and Instagram, and v1 answers them identically on every channel.
+(Nurture and reactivation would also fit, but they are outbound: phase two, not v1.) A
+single missed call can be a $25k journey walking to a competitor.
 
 **Caveat:** heavier compliance and often better-staffed front desks than a solo medspa —
 but per-lead value dwarfs everything else here.
@@ -57,9 +58,11 @@ these leads arrive cold through paid ads — the front desk isn't built for the 
 every missed call is a lost annuity, not a lost visit. Demand is enormous: GLP-1 programs
 are now offered at ~38% of US medspas, and 1 in 8 US adults have used one.
 
-**Caveat:** this is regulated intake (can't prescribe/diagnose, needs a BAA,
-medical-necessity documentation), so it converts fastest on ROI but is not the easiest to
-deliver cleanly.
+**Caveat:** the clinical part is regulated intake (prescribing, diagnosis,
+medical-necessity documentation), and the assistant does none of it: it answers from the
+clinic's menu and prices, books the consultation, and routes anything clinical to the
+clinic. It converts fastest on ROI, but the copy must not imply the assistant screens or
+qualifies a patient for a prescription.
 
 ### 4. Dental — implants, full-arch, ortho, cosmetic
 
@@ -91,8 +94,11 @@ Overlaps medspa but standalone derm too — Mohs, cosmetic derm, high volume.
 
 ### 8. Med spas / injectables / body contouring
 
-The existing core, sitting in Tier 2 **only because incumbents like Zenoti/Boulevard
-already bundle native AI in this lane.** Real pain, contested lane.
+The existing core, sitting in Tier 2 **because Zenoti (and Weave) bundle native AI in
+this lane.** Boulevard, Mindbody and Vagaro have no native AI receptionist (August 2026
+research, launch-plan.md "What competitors charge"). Real pain, contested lane. Booking also
+matters here: Mindbody clinics, and Boulevard clinics until Boulevard confirms its Google
+sync, run manual booking mode in v1.
 
 Sub-segments, if you go after it anyway:
 

@@ -1,10 +1,17 @@
 # State of play — 2 September 2026
 
-> **This is a dated audit, not the task list.** Written 2 Sep 2026. Parts of Part 5
-> have since been done, and the open findings below now live in
-> [handover.md](./handover.md) § 3, which is the list to work from. Keep this for
-> the reasoning — the CFR coverage matrix, the defect analysis, and the niche
-> argument are not summarised anywhere else.
+> **Dated audit (2 September 2026), kept for its reasoning, not a task list.**
+> Superseded by [v1-product-spec.md](./v1-product-spec.md) on what the product is,
+> and the only live task list is the
+> [Launch plan tab](https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ) of the spec's
+> source doc. The biggest conflicts: voice is Retell, not Synthflow; the monthly
+> revenue report, attribution and reconciliation are phase two, so "that report is
+> the entire retention mechanism" no longer holds (v1 claims conversations handled,
+> appointments booked, calls answered that would have rung out, deposits collected
+> and booked value); there are no callbacks, so "a callback outranks after-hours"
+> is moot; and a clinic that books mostly by Instagram DM is no longer a veto for
+> the voice agent: it is a buyer for the Meta bot. The CFR coverage matrix, the
+> defect analysis and the niche argument are not summarised anywhere else.
 
 *(updated the same day: the fixes below have landed — see "What changed" at the end)*
 

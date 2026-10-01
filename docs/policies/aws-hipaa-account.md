@@ -36,12 +36,12 @@ behind each line are in the handover under "Once AWS lands".
 
 | Service | Use | PHI | Configuration that makes it compliant |
 | --- | --- | --- | --- |
-| Amazon RDS for PostgreSQL | The product database | Yes | Encrypted with our KMS key at creation; TLS forced; the certificate validated in production (`apps/app/src/db/index.ts`) |
+| Amazon RDS for PostgreSQL | The product database, if RDS is chosen. The spec recommends RDS under this agreement or Neon on its Scale plan under Neon's own BAA; the choice is not made. If Neon is chosen, remove this row and record Neon in the risk analysis | Yes | Encrypted with our KMS key at creation; TLS forced; the certificate validated in production (`apps/app/src/db/index.ts`) |
 | AWS KMS | The key behind stored credentials, RDS, S3, logs and the trail | Keys only | One customer-managed key; production refuses the local wrapper (`lib/crypto/kms.ts`) |
-| Amazon SES | Any message classed `may-carry-phi`; none exists yet, today's mail is PHI-free and goes over Resend | Designated | Configuration set `healdesk-phi` with `TlsPolicy=REQUIRE`; the transport refuses to send otherwise (`lib/reporting/deliver.ts`) |
-| Amazon S3 | Transcript and consent-evidence objects, referenced by URI from Postgres; none exist yet | Yes | SSE-KMS with our key; TLS-only policy; Block Public Access; lifecycle tied to the clinic's retention |
-| Amazon ECS on AWS Fargate ("ECS and EKS engines only") | The web tier and the worker | In memory and in transit | Secrets from the host's store, never the image; a task role holding only the KMS, SES and S3 permissions |
-| Elastic Load Balancing | TLS termination in front of the web tier | In transit | HTTPS listener, HTTP redirected |
+| Amazon SES | Any message classed `may-carry-phi`; none exists yet, today's mail is PHI-free and goes over Resend. The v1 urgent alerts and handover requests either carry no patient detail and link into the portal, or carry the minimum and go only through here; never through Resend (decision open, [hipaa-compliance.md](../hipaa-compliance.md)) | Designated | Configuration set `healdesk-phi` with `TlsPolicy=REQUIRE`; the transport refuses to send otherwise (`lib/reporting/deliver.ts`) |
+| Amazon S3 | Transcript objects, referenced by URI from Postgres; none exist yet. No call audio is kept | Yes | SSE-KMS with our key; TLS-only policy; Block Public Access; lifecycle tied to the clinic's retention |
+| Amazon ECS on AWS Fargate ("ECS and EKS engines only") | The web tier, the worker and the Retell voice endpoint (a long-lived WebSocket process, not built yet), all from one image | In memory and in transit | Secrets from the host's store, never the image; a task role holding only the KMS, SES and S3 permissions |
+| Elastic Load Balancing | TLS termination in front of the web tier and the voice endpoint's WebSocket | In transit | HTTPS listener, HTTP redirected |
 | AWS CloudTrail | Every KMS operation and management call; S3 data events for the PHI bucket | No | On, kept, encrypted with our key, log-file validation |
 | Amazon CloudWatch Logs | stdout of both tasks, from the allowlisted, scrubbing logger (`lib/log.ts`) | No | Encrypted with our key; retention "Never expire" (§4.2(c)) |
 
@@ -57,9 +57,9 @@ resource name, key or tag: those land in CloudTrail and billing outside our key.
 | §4.1 | Identify the account by accepting from inside it | Done 22 September 2026; account `865780386982`; the Active screenshot is outstanding |
 | §4.2(a) | PHI only in eligible services | The table above is the whole list; `apps/app` is the only PHI side |
 | §4.2(b) | The highest level of audit logging | Outstanding: CloudTrail, with the first RDS instance |
-| §4.2(c) | Maximum retention of logs | Outstanding: trail kept indefinitely, log groups never expire; on AWS this supersedes the handover's 30-day rule |
+| §4.2(c) | Maximum retention of logs | Outstanding: trail kept indefinitely, log groups never expire; on AWS this supersedes any shorter log retention |
 | §4.3.1 | Encrypt all PHI at rest and in transit per HHS guidance | In code: TLS to Postgres validated in production, SES refuses without TLS, credentials envelope-encrypted. Outstanding: every configuration above |
-| §4.4 | Consents obtained before PHI is placed | No real patient data until every PHI vendor has a BAA (Synthflow, Anthropic, Cal.com pending) and the clinic has signed ours; the database's BAA gate refuses writes without one |
+| §4.4 | Consents obtained before PHI is placed | No real patient data until every PHI vendor has a BAA (Retell, Anthropic and the database provider pending; Neon only if chosen) and the clinic has signed ours; the database's BAA gate refuses writes without one |
 | §4.5–4.6 | Nothing that makes AWS breach the addendum or HIPAA | The clinic BAA directs nothing at AWS; counsel checks each revision |
 
 ## What AWS commits to

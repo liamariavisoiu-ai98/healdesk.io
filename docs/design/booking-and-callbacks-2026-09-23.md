@@ -1,5 +1,17 @@
 # Booking hand-off, direct booking, callbacks and the minimum-information step
 
+> **Superseded 2026-09-30 by [v1-product-spec.md](../v1-product-spec.md).** Kept
+> as the record of the 23 September design; the live task list is the
+> [Launch plan tab](https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ) of the spec's source doc. Google Calendar is the single write target, not
+> Cal.com. The voice agent, web chat and Meta (inside the 24-hour window) all
+> book directly, with "Auto-confirm bookings" on by default. The staff-approval
+> booking-request path survives only as the auto-confirm-off and
+> manual-booking-mode path, decided from the portal's Bookings screen. AI
+> callbacks, the callback consent wording, WhatsApp templates and the
+> `/setup/<token>` link are out: v1 contacts no patient first, and clinics sign
+> in to a portal instead of using single-use links. Whether a direct-booking
+> addendum is still needed is a question for counsel.
+
 Final design, 23 September 2026, revised after review. For `docs/design/booking-and-callbacks-2026-09-23.md`.
 
 Status: a design for review, then implementation. Nothing in it is built. Every claim about existing code carries a `file:line` verified today; every vendor claim carries a URL and is marked **verify before go-live** where it must be. Built from Design B (compliance-first) with Design A's better-fitting sections grafted in; where the two disagreed, the choice and the reason are stated inline. Review findings (counsel, engineering, owner-intent) are applied throughout; the few rejected are listed in §M with the reason.

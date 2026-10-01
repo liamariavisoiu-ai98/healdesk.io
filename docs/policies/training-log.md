@@ -20,6 +20,7 @@ Append-only. One line per event, newest last.
 | --- | --- | --- |
 | 2026-09-13 | hipaa-risk-analysis.md | Written. Next review by 2027-09-13 or on any vendor/host change |
 | 2026-09-22 | policies/aws-hipaa-account.md | Written; account and region filled in on 2026-09-23, the Artifact screenshot still to file. Next review by 2026-12-22 or on any change to the account, region or service list |
+| 2026-10-01 | hipaa-risk-analysis.md, hipaa-compliance.md, incident-response.md, policies/access-control.md, policies/aws-hipaa-account.md | Redrafted for the v1 spec: Retell replaces Synthflow, web chat and the Meta channels added, Cal.com removed, the clinic portal's access rules, the vendor-notice rule. Drafted, not yet read and signed off by the Security Official; record that read here when done |
 
 ## Sanctions
 

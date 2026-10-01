@@ -1,5 +1,20 @@
 # The healdesk voice agent — contextual prompt for Synthflow
 
+> **Superseded 2026-09-30 by [v1-product-spec.md](./v1-product-spec.md).** The
+> product voice agent runs on Retell, not Synthflow: Retell opens a WebSocket per
+> call to a Healdesk-hosted Claude endpoint in `apps/app`, and every tool call
+> (availability, slot hold, booking) runs there. That endpoint is not built yet.
+> Reversed from this brief: the agent books directly into the clinic's Google
+> Calendar during the call (slot held 60 seconds before anything confirming is
+> said, idempotent write), with a booking request for staff only when
+> "Auto-confirm bookings" is off or the clinic is in manual booking mode; no
+> callbacks, no SMS, nothing sent after the call; complication and
+> urgent-symptom messages are caught before the model and escalated; voice
+> cannot collect a deposit, so it books and flags it for staff. Kept for the
+> research on disclosure, the minimum-information rule and failure lines,
+> which still apply where they agree with the spec. The live task list is the
+> [Launch plan tab](https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ) of the spec's source doc.
+
 **Written for:** the prompt engineer building the Synthflow agent.
 **Written from:** the healdesk.io repository, read 8 September 2026, with a verification pass over every claim.
 **Status of the product:** the voice agent does not exist yet. Everything in this document that describes *behaviour* is either (a) a rule already written down in the repo for a different surface, (b) a constraint the database or the contract imposes, or (c) my recommendation, marked as such. Nothing here describes a running system except where it says so.

@@ -9,6 +9,12 @@ and procedures required by the HIPAA Security Rule for healdesk is:
 > **Role:** Founder and sole operator
 > **Contact:** the address in `apps/web/src/lib/legal.ts` (`privacyEmail`)
 
+The name is still to be filled in by the founder, and must be before the first
+clinic agreement is signed: [v1-product-spec.md](../v1-product-spec.md) lists a
+named privacy and security contact among the obligations that cannot be bought
+from a vendor. The breach procedure and the template clinic notice in
+[incident-response.md](../incident-response.md) name this person.
+
 The same person is the **Privacy Official** for the purposes of the Privacy Rule
 as it applies to a business associate, and the contact named in the Business
 Associate Agreement for breach and security-incident notices.
@@ -16,8 +22,12 @@ Associate Agreement for breach and security-incident notices.
 Responsibilities, in order of importance:
 
 1. Keep the [risk analysis](../hipaa-risk-analysis.md) true, and re-date it on review.
-2. Hold the executed vendor BAAs (see the handover for where) and keep
-   `apps/web/src/lib/subprocessors.ts` matching them.
+2. Hold the executed vendor BAAs (Retell, Anthropic and the database provider
+   once signed; AWS per the [AWS HIPAA Account record](./aws-hipaa-account.md))
+   in the compliance file, and keep `apps/web/src/lib/subprocessors.ts` and the
+   table in [hipaa-compliance.md](../hipaa-compliance.md) matching them. Make
+   sure every vendor's notice address reaches you (incident-response.md,
+   "Notices from our vendors").
 3. Run the breach and incident procedure when it is needed, on the BAA's clock.
 4. Grant and revoke production access under [access-control.md](./access-control.md),
    and apply [sanctions.md](./sanctions.md) — to themselves as to anyone.

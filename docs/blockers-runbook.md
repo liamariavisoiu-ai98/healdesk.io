@@ -1,5 +1,42 @@
 # Blockers runbook
 
+> **Superseded in part, 2026-09-30, by [v1-product-spec.md](./v1-product-spec.md).**
+> Kept for the click paths and vendor research that still hold; where it disagrees with
+> the spec, the spec wins, and the only live task list is the [Launch plan tab](https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ) of the
+> spec's source doc. Still current: §2 (AWS BAA), §3 (Anthropic: HIPAA-ready org, no
+> zero-retention request, which means 30-day retention the clinic agreement must
+> disclose) and §10's rule against HIPAA and PCI badges. Out of date:
+>
+> - **§1 Synthflow** is replaced by **Retell**: self-sign the BAA and DPA in Retell's
+>   click-agreements portal, confirm the executed text names the services in use, set
+>   per-agent retention and PII controls, and pull the custom-LLM WebSocket message
+>   schema before the voice endpoint is built.
+> - **§4 Telephony**: no SMS, no 10DLC, no text-back or reminders, and no Twilio or
+>   Bandwidth account. The Retell number is allocated at payment in the clinic's area
+>   code; the clinic keeps its published number and sets conditional forwarding for
+>   its coverage mode.
+> - **§5 Boulevard and §6 GoHighLevel** read access is phase two (POS read-back). For
+>   v1, ask Boulevard in writing whether an event in a linked Google Calendar blocks
+>   the slot; until it answers, Boulevard clinics run manual booking mode.
+> - **§7 Insurance**: v1 is inbound only and records no call audio (transcription
+>   only); the owner declined insurance on 21 September 2026 (handover.md).
+> - **§8 Counsel**: the TCPA outbound and text-back questions are withdrawn. The open
+>   counsel items are the spec's: state-by-state AI-disclosure and transcription
+>   consent, the UAE business-associate answer and free-zone licence scope, the
+>   30-day Anthropic retention disclosure, the refund window, destruction timeline and
+>   BAA text, and identical guarantee wording on the pricing page and in the service
+>   agreement.
+> - **§9 Stripe**: the three $249–799 products are gone; the catalog has five packages
+>   with a non-refundable setup fee and no trial (`packages/catalog/src/plans.ts`).
+>   Service activates only on the first paid invoice, never on the checkout session
+>   alone. Clinic deposits through the clinic's own gateway carry an amount, a generic
+>   descriptor and an opaque reference, never a treatment name. Confirm which legal
+>   entity the Stripe account is under: the seller is Viixi FZC.
+> - **Missing entirely**: the four external gates in the spec's "External gates on the
+>   launch date" (Meta Business Verification of Viixi FZC, Meta App Review, WhatsApp
+>   Tech Provider, Google OAuth verification for the calendar scope) and the Retell,
+>   Anthropic and database-provider BAAs.
+
 Step-by-step for every account, contract and legal item that gates launch.
 
 Researched and adversarially fact-checked on **17 August 2026**. Every claim below is
@@ -950,9 +987,9 @@ external verifier.
 | Item | Exact string | Note |
 |---|---|---|
 | 1 | We sign a BAA with every clinic | Legally operative fact |
-| 2 | PHI stored in US-only AWS infrastructure under a signed AWS BAA | Accept the BAA and pin the region **first** |
-| 3 | We never use patient data to train models | Narrow first-person version. Upgrade to *"…ours or our vendors'"* only after written confirmation from Synthflow, whose docs say nothing about training on customer audio |
-| 4 | Read-only access to your practice management system | ⚠️ Becomes **false** the day booking ships. Then: *"We read your schedule and write appointments — nothing else"* |
+| 2 | PHI stored in US-only infrastructure under signed BAAs | Name the database provider (RDS or Neon Scale) once chosen; until then do not say "AWS" alone |
+| 3 | We never use patient data to train models | Narrow first-person version. Upgrade to *"…ours or our vendors'"* only after written confirmation from every vendor in the chain (Retell, Anthropic, the database provider) |
+| 4 | We add appointments to your Google Calendar and read its availability — nothing else | v1 writes bookings, so the old "read-only access to your practice management system" line is false |
 | 5 | Encrypted in transit and at rest with AWS KMS | Name the mechanism so it's checkable — Henry Schein's problem was the gap between the word "encryption" and a weaker scheme |
 | 6 | Delete any patient's data on request | Or *"…within 30 days, including backups"* if backup windows require it |
 
@@ -989,8 +1026,9 @@ flying the badge, while inoculating you at the same time.
 | **ISO 27001:2022** | $15K–30K + surveillance audits years 2–3 | 6–12 months | **Wrong credential for this market** |
 | **HITRUST e1 / i1** | $20K–70K / $60K–200K | Months | Not a close call |
 
-**The commercial answer is unflattering to the badge strip.** At $249–799/mo, ACV is
-$2,988–$9,588. A $20K SOC 2 program costs the entire annual revenue of **2–7 customers**.
+**The commercial answer is unflattering to the badge strip.** At the catalog's $397–1,197/mo
+(before setup fees), ACV is $4,764–$14,364. A $20K SOC 2 program costs the entire annual
+revenue of **2–5 customers**.
 The evidence is that small single-location med spas and dental practices do **not** run
 vendor security reviews — a signed BAA is widely treated as sufficient diligence at this
 tier, and the "83% of buyers require SOC 2" statistic compliance vendors quote is explicitly

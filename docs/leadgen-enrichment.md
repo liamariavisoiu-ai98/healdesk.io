@@ -178,30 +178,6 @@ Prompt caching does **not** help here and is deliberately not used: the system
 prompt is ~700 tokens and Haiku 4.5's minimum cacheable prefix is 4,096, so a
 `cache_control` marker would silently never fire.
 
-### What it costs
-
-Classification runs on **Haiku 4.5** ($1/$5 per million tokens), because this is
-a closed-enum label against text already in front of the model — the hard part is
-the crawl, not the judgement.
-
-| | 4,512 clinics |
-|---|---|
-| Haiku 4.5, streaming | **~$14** |
-| Haiku 4.5, `--batch` | **~$7** |
-| *(Sonnet 5, for comparison)* | *~$43* |
-
-Plus the Apify crawl, which is the larger and less predictable line — budget on
-their current compute-unit rate for ~4,500 rendered page loads at depth 1.
-
-`--batch` is half price because batches are not latency-guaranteed: most finish
-within an hour, the ceiling is 24. For a job you read the next morning, paying
-double for speed is a straight waste. Use the streaming path for the `--limit`
-sample, where you want the evidence column in front of you immediately.
-
-Prompt caching does **not** help here and is deliberately not used: the system
-prompt is ~700 tokens and Haiku 4.5's minimum cacheable prefix is 4,096, so a
-`cache_control` marker would silently never fire.
-
 ### Output
 
 ```
@@ -234,14 +210,18 @@ count is being carried by clinics we could barely read.
 
 1. **Defection probability** — would the caller have gone elsewhere? This *is* the
    product's value.
-2. **Phone share** — a veto. The `phone_dependent` column is the proxy.
+2. **Phone share** — a veto for the voice agent, not for the account: a clinic that
+   books by Instagram DM is a buyer for the Meta bot. The `phone_dependent` column is
+   the proxy.
 3. **Config homogeneity** — can one agent config serve hundreds?
 4. **Consultation-gating** — a consult is a low-commitment yes.
 5. **Owner-operator** — the `job_title` column already tells you.
 6. **Volume floor** — ~600–800 emailable clinics. A **floor**, not a target.
-7. **Ticket size** — pass/fail only. At $249/month, break-even is under one
-   recovered appointment per month for every med spa segment, so it screens
-   nothing *within* med spa.
+7. **Ticket size** — pass/fail only. At the August price of $249/month,
+   break-even was under one booked appointment per month for every med spa
+   segment, so it screened nothing *within* med spa. The packages now run
+   $397–1,197/month plus a setup fee (`packages/catalog/src/plans.ts`); redo the
+   break-even against the package a segment would buy before relying on it.
 
 **Two expected traps, both flagged automatically:**
 
@@ -262,7 +242,7 @@ The segment id is a **shared contract**, not just a label. It lives in
 `packages/catalog/src/segments.ts` and is used by:
 
 - the enrichment pipeline, to classify a clinic;
-- the chat agent's knowledge tree (`apps/web/src/lib/knowledge.ts`), to pick a
+- the chat agent's knowledge tree (`apps/web/src/lib/knowledge/index.ts`), to pick a
   branch.
 
 So the segment a cold email targeted is the same string that selects the bot's
@@ -282,6 +262,10 @@ Not part of this pipeline, but on the same critical path:
    advertiser — and the invented-persona-on-a-lookalike-domain pattern is the
    pleaded fact pattern. A real domain, a real person and a real address removes
    it at no cost to deliverability.
-3. **Have something honest to sell.** The BAA is still counsel-unapproved and
-   every rendered copy says DRAFT. Discovery calls, design-partner slots and a
-   demo are honest today; a subscription is not yet.
+3. **Have something honest to sell.** BAA 1.0.0 is approved. What stands
+   between today and an honest subscription is the spec's launch gates and its
+   copy changes: no follow-ups, reminders, text-back or SMS, no "live in two
+   minutes", no unqualified "HIPAA compliant", and a set-up promise stated per
+   channel ([v1-product-spec.md](./v1-product-spec.md), "Copy and pricing changes
+   this scope requires"). Discovery calls, design-partner slots and a demo are
+   honest today.

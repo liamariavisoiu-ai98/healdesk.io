@@ -1,5 +1,33 @@
 # healdesk — Launch Plan: Conversion Flow, Voice Stack, Compliance
 
+> **Superseded 2026-09-30 by [v1-product-spec.md](./v1-product-spec.md).** This
+> is the August 2026 plan, kept for the vendor, pricing and legal research it
+> records. It is not the plan of record and not a task list: where it disagrees
+> with the spec, the spec wins, and the only live task list is the [Launch plan tab](https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ) of the
+> spec's source doc. The biggest reversals:
+>
+> - **Voice runs on Retell**, which opens a WebSocket per call to a
+>   Healdesk-hosted Claude endpoint. The Synthflow sections are history.
+> - **No SMS and nothing outbound.** No 10DLC, no Bandwidth or Twilio numbers,
+>   no text-back, reminders or reactivation. Calls reach the agent by
+>   conditional forwarding on the clinic's own line, in one of three coverage
+>   modes.
+> - **The Meta bot books and can send a payment link inside the 24-hour
+>   window.** "A front door, not a hallway" and "never send a time" are
+>   replaced by: no clinical content and no treatment names in any Meta
+>   message, and the adapter drops any send outside the window.
+> - **Google Calendar is the only booking write target.** No platform picker,
+>   no attribution opt-in, no pasted credentials or `connect+` mailbox.
+> - **Clinics sign in.** A portal (magic link, second factor before
+>   transcripts) and a four-step wizard replace "no login" and the monthly
+>   email report. Revenue attribution and the monthly revenue report are
+>   phase two; v1 reports booked value, never revenue.
+> - **Pricing and unit economics** must be re-modelled on the spec's "Unit
+>   economics and infrastructure" before the pricing page ships; the Synthflow
+>   and SMS cost lines no longer apply.
+> - **The opening disclosure** says the call is transcribed, not recorded; the
+>   final wording and its state-by-state position go to counsel.
+
 Every section ends with a **plain-English** summary. I'm not a lawyer; items marked **⚖️** need
 one.
 

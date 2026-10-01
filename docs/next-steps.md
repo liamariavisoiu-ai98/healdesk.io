@@ -1,5 +1,11 @@
 # Step by step, in order
 
+> **Superseded 2026-09-30. Not a task list.** A mid-September sequence, kept for
+> history. It is built on Synthflow, the monthly revenue report, POS
+> attribution and a $249 plan, all reversed or fenced as phase two by
+> [v1-product-spec.md](./v1-product-spec.md). The only live task list is the
+> [Launch plan tab](https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ) of the spec's source doc.
+
 Everything outstanding, sequenced. Each step says what to run, what you should
 see, and what it unblocks.
 

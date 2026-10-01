@@ -1,5 +1,19 @@
 # healdesk outbound voice agent — contextual prompt
 
+> **Superseded in part, 2026-09-30, by [v1-product-spec.md](./v1-product-spec.md).**
+> The owner-requested demo call (B2B: the owner typed their own number and asked
+> for it) still runs on Synthflow until a Retell demo agent exists. What this
+> brief tells the demo agent about the product is out of date: v1 *does* book
+> straight into the clinic's Google Calendar and *does* cover Instagram,
+> Messenger and WhatsApp, so the "never say we book into their calendar today"
+> rule is reversed. "Closing the revenue loop" is phase two and must not be
+> claimed; v1 claims only conversations handled, appointments booked, calls
+> answered that would have rung out, deposits collected and booked value.
+> Nothing about texting, reminders or follow-ups, and no "recorded" line: calls
+> are transcribed and no audio is kept. Re-brief from the spec's "Replace with"
+> list before the demo agent moves to Retell. The live task list is the [Launch plan tab](https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ) of
+> the spec's source doc.
+
 **For:** the prompt engineer building this agent in Synthflow — and, before them, the person deciding whether it gets built at all. §1.4 and §12 are addressed to the second reader; everything from §2 onwards is addressed to the first.
 
 **What this agent is, in one line:** a clinic owner types their phone number into a form on healdesk.io, and healdesk rings them back to demo the product and sell it. Outbound, B2B, buyer-facing. No patient is on the call and no PHI is in scope.

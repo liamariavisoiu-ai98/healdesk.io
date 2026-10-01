@@ -1,5 +1,22 @@
 # Counsel audit — the six remaining questions, answered
 
+> **Read against [v1-product-spec.md](./v1-product-spec.md) (2026-09-30), which
+> wins where they disagree.** v1 is inbound only, with no SMS, no callbacks and
+> no WhatsApp templates. Sections 3 (reactivation as marketing) and 4 (the
+> missed-call text-back) stay moot, and the callback and WhatsApp-template
+> questions in section 7 are withdrawn. Cal.com is no longer a write target:
+> Google Calendar is the only one. Whether a standalone direct-booking addendum
+> is still needed, now that direct booking with "Auto-confirm bookings" on is
+> the default for every clinic, is a new question for counsel. Section 6's "live
+> in 90 seconds" advice is superseded by the spec's per-channel set-up promise.
+> The open counsel items the spec adds are: the state-by-state AI-disclosure and
+> call-transcription consent position; a prepared answer for a US clinic asking
+> about a UAE business associate, and whether the free-zone licence covers
+> software and marketing services; disclosing Anthropic's 30-day retention in
+> the clinic agreement; the refund window, data-destruction timeline and BAA
+> text; and guarantee wording identical on the pricing page and in the service
+> agreement. The live task list is the [Launch plan tab](https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ) of the spec's source doc.
+
 _21 September 2026. Written by the AI counsel the owner asked for, with the
 statute and the case behind every answer. Not a licensed attorney's opinion;
 where a lawyer's engagement letter would matter, the line says so._

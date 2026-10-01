@@ -51,6 +51,22 @@ detectable — it leaves `msgsndr`/`leadconnector` footprints all over the page.
 > **Note:** treat booking platform as a **scoring attribute, not a hard include/exclude**.
 > The true exclusion is whether the clinic already runs a live AI receptionist.
 
+**What the booking stack means for v1 (2026-09-30).** v1 books only into the clinic's
+Google Calendar, and whether that protects the clinic from a double booking depends on
+which way its own system syncs ([v1-product-spec.md](./v1-product-spec.md), "What the
+hub model does and does not guarantee"). Record it as a qualification attribute:
+
+| Booking stack | v1 tag |
+| --- | --- |
+| Google Calendar alone, Calendly, Cal.com | Live booking: the system reads Google for conflicts |
+| Mindbody | Manual booking mode: its sync is one way, Mindbody to Google. Do not sell live calendar booking |
+| Boulevard | Manual booking mode until Boulevard confirms in writing that a Google event blocks the slot. Do not sell live calendar booking |
+| Vagaro, GoHighLevel, Acuity, Square, others | Unchecked: confirm the sync direction per clinic at onboarding before promising live booking |
+
+Add one more signal while crawling: **an Instagram-DM-heavy clinic** (a "DM to book"
+call to action, a booking link in the Instagram bio, few or no phone prompts on the
+site). It is a buyer for the Meta bot rather than the voice agent.
+
 ### Signal 0 — no online booking at all
 
 Just a phone number and a Squarespace/Wix site, or a Square/Acuity/Booksy/Fresha widget.

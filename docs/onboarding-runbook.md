@@ -1,5 +1,20 @@
 # Onboarding runbook — from Stripe payment to the first answered call
 
+> **Superseded 2026-09-30 by [v1-product-spec.md](./v1-product-spec.md)**
+> ("Onboarding principles" through "Full suite onboarding"). Kept for history;
+> the live task list is the [Launch plan tab](https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ) of the spec's source doc. What changed: the
+> clinic self-serves a four-step wizard in about fifteen minutes of its own
+> attention, already signed in from payment; there is no operator call. The
+> voice number is allocated automatically at payment (on Retell, not
+> Synthflow) and travels in the receipt email. Routing is one of three coverage
+> modes (all calls; overflow and after hours, the default; after hours only),
+> not "conditional or always". The build and quality audit are automatic and
+> go-live follows a passed audit; a person reviews only what the audit flags.
+> The attribution connect step is phase two. What stays with the operator is
+> the exception path: flagged audits, assisted five-minute forwarding calls,
+> the "I cannot get in" route, scrape failures, and the 14-day zero-inbound and
+> 48-hour zero-interaction flags.
+
 **Who:** the operator (you, today). **Where:** `/admin/ops` → the clinic's
 "Onboarding checklist, phone, script, go-live" page. **How long:** one 45-minute
 call with the clinic plus about an hour of your own work, once the vendor

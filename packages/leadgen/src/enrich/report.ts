@@ -34,7 +34,10 @@ export type SegmentStats = {
    * except the phone.
    */
   phoneDependent: number;
-  /** On a platform healdesk connects to — can be offered verified attribution. */
+  /**
+   * Phase two: on a platform the POS read-back could connect to. Verified
+   * attribution is not a v1 offer, so this is planning data, not a pitch.
+   */
   onSupportedPlatform: number;
   chains: number;
   mentionsWeightLoss: number;
@@ -245,7 +248,7 @@ export function formatReport(report: EnrichmentReport): string {
       "high-conf".padStart(11) +
       "phone-dep".padStart(11) +
       "chains".padStart(8) +
-      "connect".padStart(9) +
+      "p2-read".padStart(9) +
       "states".padStart(8),
   );
   lines.push("  " + "-".repeat(85));

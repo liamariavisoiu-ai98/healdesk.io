@@ -57,8 +57,9 @@ export type Label = {
    * "closed Sunday" into the same blank.
    *
    * Null when the page does not say. Guessing plausible clinic hours would be
-   * indistinguishable from reading them, and this feeds clinics.openingHours,
-   * which decides whether a real call is billed as recovered.
+   * indistinguishable from reading them, and these hours go into a cold email
+   * the clinic can check. At most they pre-fill the hours a clinic confirms in
+   * the onboarding wizard; nothing here is written into apps/app.
    */
   opensAt: string | null;
   closesAt: string | null;

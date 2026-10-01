@@ -53,7 +53,11 @@ export type Prospect = {
   score: number;
   scoreReasons: string[];
 
-  /** 0-100, how well we could actually measure this clinic's revenue. */
+  /**
+   * Phase two: 0-100, how well we could measure this clinic's revenue once
+   * POS read-back ships. Not a v1 signal: it must not steer a v1 pitch, email
+   * or sales call (see scoreIntegration in score.ts).
+   */
   integrationScore: number;
   integrationNotes: string[];
 

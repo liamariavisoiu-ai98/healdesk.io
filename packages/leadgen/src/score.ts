@@ -76,6 +76,12 @@ export function scoreProspect(
   // harder sell, but not an exclusion.
   if (detection.provider && ENTERPRISE_SUITES.has(detection.provider)) {
     add(-25, `on ${detection.provider} — likely has native AI bundled`);
+  } else if (detection.provider === "mindbody" || detection.provider === "booker") {
+    // Mindbody syncs one way, Mindbody to Google, so a booking the assistant
+    // writes into Google does not block the slot there. v1 runs manual
+    // booking mode or staff mirroring for these clinics, which is a weaker
+    // offer than live booking, so no bonus.
+    add(0, `on ${detection.provider} — one-way calendar sync, v1 runs manual booking mode or staff mirroring here`);
   } else if (detection.provider) {
     add(10, `on ${detection.provider} — no native AI receptionist`);
   }
@@ -102,7 +108,15 @@ export function scoreProspect(
 }
 
 /**
- * How well we could actually MEASURE this clinic's revenue.
+ * Phase two: how well we could actually MEASURE this clinic's revenue.
+ *
+ * Attribution, POS read-back and "what we earned them" are phase two
+ * (docs/v1-product-spec.md → "Commercial position" → "What v1 can prove, and
+ * what it cannot"). v1 writes into Google Calendar, which knows nothing about
+ * attendance or money. The code is kept for when read-back ships, but this
+ * score must not feed a v1 pitch, email or sales call. It is exported as
+ * `phase2_integration_score` and `phase2_integration_notes` for that reason,
+ * and every note starts "Phase two:".
  *
  * Deliberately a second, independent score. The outbound score above answers
  * "how easy is this clinic to sell to"; this one answers "if they buy, can we
@@ -119,12 +133,13 @@ export function scoreIntegration(detection: BookingDetection): {
 } {
   const notes: string[] = [];
   const provider = detection.provider;
+  const result = (score: number) => ({ score, notes: notes.map((n) => `Phase two: ${n}`) });
 
   if (!provider) {
     notes.push(
       "No booking platform detected — revenue would be estimated from their average treatment value unless they connect a card processor.",
     );
-    return { score: 30, notes };
+    return result(30);
   }
 
   switch (provider) {
@@ -133,41 +148,41 @@ export function scoreIntegration(detection: BookingDetection): {
       notes.push(
         `${provider} exposes both check-in and settled sales — verified attribution is fully possible.`,
       );
-      return { score: 95, notes };
+      return result(95);
 
     case "patientnow":
       notes.push(
         "PatientNow exposes check-in and orders with line items. Rate limit is 1,000 requests/day, so delta sync is mandatory.",
       );
-      return { score: 85, notes };
+      return result(85);
 
     case "gohighlevel":
       notes.push(
         "GoHighLevel only sees payments it processed itself, so revenue must come from the clinic's card processor. Appointments are readable.",
       );
-      return { score: 60, notes };
+      return result(60);
 
     case "vagaro":
       notes.push(
         "Vagaro has no transactions read endpoint — revenue is webhook-forward-only, with no history before the connection date.",
       );
-      return { score: 40, notes };
+      return result(40);
 
     case "acuity":
       notes.push(
         "Acuity has no concept of arrival, so attendance can only be inferred from payment timing.",
       );
-      return { score: 45, notes };
+      return result(45);
 
     case "mindbody":
       notes.push(
         "⚠️ Mindbody's API terms prohibit the product. Serve via a read-only account and their card processor, never the API. See docs/launch-plan.md.",
       );
-      return { score: 35, notes };
+      return result(35);
 
     default:
       notes.push(`${provider} is not yet assessed for integration feasibility.`);
-      return { score: 50, notes };
+      return result(50);
   }
 }
 

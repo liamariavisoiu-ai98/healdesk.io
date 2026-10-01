@@ -47,17 +47,19 @@ export const SEGMENT_RULES = Object.entries(SEGMENT_DEFINITIONS)
  * Segments worth a tuned agent, and why.
  *
  * Ordered by the criteria that actually drive value for this product — see
- * docs/state-of-play.md, Part 3. Ticket size is deliberately NOT here: at $249
- * a month, break-even is under one recovered appointment for every one of
- * these, so it screens nothing.
+ * docs/state-of-play.md, Part 3. Ticket size is deliberately NOT here. It was
+ * left out when the plan was $249 a month, on the reasoning that one booked
+ * appointment covered the cost in every one of these segments. The packages
+ * now run $397 to $1,197 a month (packages/catalog/src/plans.ts), so that
+ * reasoning needs re-checking per segment before it is relied on.
  */
 export const LAUNCH_PRIORITY: Partial<Record<Segment, string>> = {
   injectables:
-    "Only segment with transaction-level evidence of phone dependence (78% of ~20,000 appointments booked by phone, not online). Largest procedure volume, >90% independently owned, one decider. Weakness: high repeat-patient share, so the recovered-call story must target NEW patients specifically.",
+    "Only segment with transaction-level evidence of phone dependence (78% of ~20,000 appointments booked by phone, not online). Largest procedure volume, >90% independently owned, one decider. Weakness: high repeat-patient share, so the answered-call story must target NEW patients specifically.",
   "body-contouring":
     "High consideration, consultation-gated, largely new-patient traffic — so defection on an unanswered call is high. Weakness: several materially different device conversations, so one agent config serves fewer clinics.",
   "weight-loss-glp1":
-    "The most homogeneous intake conversation of any segment, and mostly new-to-practice cold traffic. Weakness: compounding enforcement since the FDA shortage delistings makes these clinics the likeliest to churn, and the intake edges toward clinical.",
+    "Mostly new-to-practice cold traffic asking the same few questions about price and start date. Weakness: compounding enforcement since the FDA shortage delistings makes these clinics the likeliest to churn, and callers drift toward clinical questions. v1 does no clinical intake: it takes callback-slip details and routes anything clinical to staff.",
 };
 
 /** Segments to avoid at launch, with the reason stated so it is re-checkable. */

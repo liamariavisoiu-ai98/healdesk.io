@@ -76,8 +76,10 @@ const DAYS = [
  *
  * Google's strings vary more than they look — "9 AM to 5 PM", "9:30 AM to
  * 6 PM", "Open 24 hours", "Closed". Anything not confidently parsed returns
- * null rather than a guess, because these figures end up in clinics.
- * openingHours where a wrong one silently mis-bills a real call.
+ * null rather than a guess, because these figures are quoted to the clinic in a
+ * cold email, and at most pre-fill the hours it confirms in onboarding. Once
+ * confirmed, a clinic's hours drive its call forwarding schedule and the count
+ * of calls that would have rung out, so a wrong one is never harmless.
  */
 export function parseRange(hours: string): [string, string] | null {
   const s = hours.trim().toLowerCase();
@@ -102,8 +104,8 @@ export function parseRange(hours: string): [string, string] | null {
   // valid, not by copying the closing one.
   //
   // "9 to 5 PM" means nine in the morning. Inheriting "pm" gives 21:00-17:00 —
-  // a range that runs backwards, and one that would have been written into
-  // clinics.openingHours where it silently mis-classifies every evening call.
+  // a range that runs backwards, and one that would be quoted to the clinic as
+  // its own hours and would mis-state every evening.
   // So when no meridiem is given, take the reading where the clinic opens
   // before it closes.
   if (!m[3]) {

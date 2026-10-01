@@ -3,9 +3,9 @@ import type { Segment } from "@healdesk/catalog";
 /**
  * Which one thing healdesk should offer this clinic.
  *
- * The product does seven things. An email that lists seven is a brochure and
- * gets skimmed; an email that names the one thing this clinic is losing money
- * on gets a reply. So the pain point is derived from what the pipeline actually
+ * The product does several things. An email that lists them all is a brochure
+ * and gets skimmed; an email that names the one thing this clinic is short of
+ * gets a reply. So the pain point is derived from what the pipeline actually
  * knows — the unanswered gap, whether they can be booked online, and what they
  * sell — and exactly one capability is proposed.
  *
@@ -13,6 +13,13 @@ import type { Segment } from "@healdesk/catalog";
  * in apps/web/src/lib/knowledge/niches.ts, where each niche carries the thing
  * practitioners in it find genuinely hard. Matching the offer to that is the
  * difference between a vendor and someone who has worked in the field.
+ *
+ * Every capability here is something v1 does inside a conversation the patient
+ * started (docs/v1-product-spec.md → "Scope and locked decisions"). v1 is
+ * inbound only, so there is no win-back, reactivation, check-in, review
+ * request, reminder or follow-up to offer, and an email that offers one sells
+ * the clinic something it cannot have. tests/copy-guard.test.ts fails the
+ * build if one comes back.
  */
 
 export type Capability =
@@ -20,8 +27,6 @@ export type Capability =
   | "calendar-booking"
   | "deposits"
   | "lead-qualification"
-  | "win-backs"
-  | "aftercare-reviews"
   | "upselling";
 
 export type CapabilityPitch = {
@@ -33,35 +38,33 @@ export type CapabilityPitch = {
 /**
  * The segment's own hard problem, and the capability that answers it.
  *
- * Each entry names a failure the practitioner already recognises — which is
- * what stops the offer reading as generic. A clinic owner knows their GLP-1
- * patients evaporate at month three; being told so is being understood.
+ * Each entry names something the practitioner already recognises about the
+ * people who ring them, which is what stops the offer reading as generic.
  */
 /**
  * Chosen on how each segment's PATIENTS behave, not on what the clinic sells.
  *
  * The distinction decides the offer. Two clinics can both take appointments by
- * phone and need opposite things, because in one the caller is loyal and in the
- * other they are shopping.
+ * phone and need different things, because in one the caller is loyal and in
+ * the other they are shopping.
  *
- * Injectables is the case that proves it, and the case I originally got wrong.
- * A returning Botox patient is not shopping: she has an injector she trusts and
- * will happily ring back tomorrow. Offering to chase lapsed patients there is
- * offering to solve a problem the clinic does not have, and it reads as not
- * understanding the business. The money is entirely in the first-time caller,
- * who is ringing three med spas in one sitting and books with whoever answers.
- * So injectables gets capture, not win-backs.
+ * Injectables is the case that proves it. A returning Botox patient is not
+ * shopping: she has an injector she trusts and will happily ring back
+ * tomorrow. The money is in the first-time caller, so injectables gets
+ * capture.
  *
- * Win-backs are right where the RELATIONSHIP is weak and the lapse is silent:
- * a GLP-1 patient on a monthly programme, a body-contouring package half
- * finished, a dental recall. Nobody is loyal to a CoolSculpting applicator.
+ * Every reason is about the patient who is getting in touch now. An earlier
+ * version offered GLP-1 and laser clinics a way to bring lapsed patients back.
+ * That is outbound, which v1 does not do (docs/v1-product-spec.md → "What v1
+ * cannot do"), so both segments now get capture too, on why their new
+ * patients go to whoever answers first.
  */
 const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
   injectables: {
     // NOT the price-shopping claim. docs/marketing-voice-demo-context.md:203
-    // and synthflow-voice-agent-context.md:74 both assert first-timers "ring
-    // three med spas in one sitting and book whoever picks up"; the founder says
-    // that is not true of this market, and they know it and I do not.
+    // asserts first-timers "ring three med spas in one sitting and book
+    // whoever picks up"; the founder says that is not true of this market,
+    // and they know it and I do not.
     //
     // This rests on who is in the room instead, which is structural: in a med
     // spa the person who would answer is usually the person treating, unlike a
@@ -71,14 +74,16 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
       "since the desk is empty while you are in a room",
   },
   "weight-loss-glp1": {
-    // Almost all new to the practice, comparing on price and start date, and
-    // the programme dies at the first titration plateau.
-    capability: "win-backs",
+    // Almost all new to the practice, comparing on price and start date. The
+    // first answer they get is usually the clinic they start with.
+    capability: "around-the-clock",
     because:
-      "the ones who quietly stop around month three and are glad it was you who called",
+      "since most are new to the practice and start with whoever answers first",
   },
   "body-contouring": {
     // Free consult, four-figure package, and the consult no-show is the leak.
+    // The deposit is taken in chat, through a payment link. The phone agent
+    // books and flags the deposit for staff; it never takes one on a call.
     capability: "deposits",
     because:
       "which turns a four-figure enquiry into your booking rather than someone else's",
@@ -90,10 +95,11 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
       "so the ones ready for a surgical consult reach you even while your surgeon is operating",
   },
   "laser-skin": {
-    // Money collected up front, sessions not booked, course abandoned midway.
-    capability: "win-backs",
+    // A first course is a price-led decision, and it usually goes to the
+    // clinic that answered the price question.
+    capability: "around-the-clock",
     because:
-      "the ones who paid up front and drifted, which is revenue you have already banked",
+      "since a first course goes to whichever clinic answers the price question",
   },
   "wellness-iv": {
     // Same-day intent. They are asking about the next two hours.
@@ -108,10 +114,13 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
       "since they have thought about it for months, and a live answer makes it your consult",
   },
   dental: {
-    // Pain overrides loyalty entirely, and recall is where the money leaks.
+    // A new patient ringing round books with the first practice that answers.
+    // Not pitched on pain: a caller reporting an urgent symptom is caught
+    // before the model and escalated to the clinic, not booked by the
+    // assistant, so the copy must not promise to book them.
     capability: "around-the-clock",
     because:
-      "so somebody in real pain gets a time from you, not from the next practice they try",
+      "so a new patient ringing after hours gets a time from you, not from the next practice they try",
   },
   dermatology: {
     // Two different callers on one line, and the cosmetic one leaves quietly.
@@ -120,13 +129,13 @@ const BY_SEGMENT: Partial<Record<Segment, CapabilityPitch>> = {
       "so your medical and cosmetic callers each get the right conversation off the same line",
   },
   chiropractic: {
-    // Acute pain is the opposite of loyal. Someone whose back went this
-    // morning is ringing down a list and stops at the first clinic that says
-    // "come in at two". Plan adherence is the other half of the business, but
-    // it is the acute call that is won or lost on pickup.
+    // A new patient is ringing down a list and stops at the first clinic that
+    // says "come in at two". Pitched on the new patient rather than on acute
+    // pain, for the same reason as dental: a symptom report is escalated to
+    // the clinic, not booked by the assistant.
     capability: "around-the-clock",
     because:
-      "since a back that went this morning books with you only if someone answers",
+      "since a new patient ringing round books with the first clinic that answers",
   },
   "physical-therapy": {
     // The leak is between the referral and the first appointment. The patient
@@ -280,9 +289,71 @@ export function selectCapability(pain: PainInput): CapabilityPitch {
 export const CAPABILITY_LABEL: Record<Capability, string> = {
   "around-the-clock": "Our {assistant} assistant picks up {surfaces}, then books them in",
   "calendar-booking": "Our {assistant} assistant answers {surfaces}, then books straight into your calendar",
-  deposits: "Our {assistant} assistant handles {surfaces}, then secures the deposit before they ring off",
+  // In chat, through a payment link. Never "before they ring off": the phone
+  // agent cannot collect a deposit, it books and flags it for staff.
+  deposits: "Our {assistant} assistant handles {surfaces}, and takes the deposit in chat where you want one",
   "lead-qualification": "Our {assistant} assistant sorts {surfaces} before they reach your desk",
-  "win-backs": "Our {assistant} assistant covers {surfaces}, and brings your lapsed patients back",
-  "aftercare-reviews": "Our {assistant} assistant covers {surfaces}, and checks in after treatment",
-  upselling: "Our {assistant} assistant covers {surfaces}, and offers the add-on while they are on the phone",
+  // Unmapped: no segment selects it. Suggesting add-ons is a portal switch
+  // that ships off, so the copy says it is the clinic's choice.
+  upselling: "Our {assistant} assistant covers {surfaces}, and can suggest an add-on if you switch that on",
 };
+
+/**
+ * Whether a booking the assistant makes is seen as taken by the clinic's own
+ * booking system.
+ *
+ * v1 writes every booking into the clinic's Google Calendar and nowhere else
+ * (docs/v1-product-spec.md → "Where bookings are written"). The clinic's own
+ * system blocks that slot only if it reads Google for conflicts:
+ *
+ *   live        No online booking at all, so the phone is the booking
+ *               system, or a platform that reads Google (Calendly, Cal.com).
+ *               The assistant books, and where there is a booking page the
+ *               slot is gone from it.
+ *   manual      Mindbody, and Booker, which is Mindbody's. Sync runs one way,
+ *               Mindbody to Google, so the clinic runs manual booking mode:
+ *               the assistant takes the preferred time and alerts the desk,
+ *               who confirm in Mindbody.
+ *   unverified  Boulevard (unverified, treated as no until confirmed in
+ *               writing), every other platform, and online booking on a
+ *               system we did not recognise. Nobody has checked their sync
+ *               direction. Onboarding checks it per clinic, so the copy
+ *               promises booking only where their system reads Google.
+ *
+ * The spec's rule: do not sell live calendar booking to a one-way clinic
+ * without saying which of these applies.
+ */
+export type BookingMode = "live" | "manual" | "unverified";
+
+const READS_GOOGLE = new Set(["calendly", "calcom"]);
+const ONE_WAY = new Set(["mindbody", "booker"]);
+
+export function bookingModeFor(
+  platform: string | null | undefined,
+  hasBookingSystem: boolean,
+): BookingMode {
+  if (platform && READS_GOOGLE.has(platform)) return "live";
+  if (platform && ONE_WAY.has(platform)) return "manual";
+  if (platform || hasBookingSystem) return "unverified";
+  return "live";
+}
+
+/**
+ * The opening clause where the assistant cannot simply book.
+ *
+ * Replaces any label that promises a booking or a deposit. A label that
+ * promises neither (lead-qualification) is kept, because it is as true for a
+ * Mindbody clinic as for any other.
+ */
+export const BOOKING_MODE_LABEL: Record<Exclude<BookingMode, "live">, string> = {
+  manual: "Our {assistant} assistant picks up {surfaces}, then takes the time they want and alerts your desk to confirm it in Mindbody",
+  unverified: "Our {assistant} assistant picks up {surfaces}, then books into Google Calendar if your booking system reads it, or alerts your desk",
+};
+
+const BOOKS_OR_COLLECTS: ReadonlySet<Capability> = new Set<Capability>(["around-the-clock", "calendar-booking", "deposits"]);
+
+/** The opening clause for this capability, given how this clinic can be booked. */
+export function offerLabel(capability: Capability, mode: BookingMode): string {
+  if (mode !== "live" && BOOKS_OR_COLLECTS.has(capability)) return BOOKING_MODE_LABEL[mode];
+  return CAPABILITY_LABEL[capability];
+}

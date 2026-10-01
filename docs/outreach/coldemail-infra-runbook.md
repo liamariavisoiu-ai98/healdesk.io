@@ -188,6 +188,7 @@ Goal: ramp to target volume without burning the domains.
 - Never turn InboxKit warmup off once outreach starts.
 - Never turn Instantly warmup on.
 - Never start live cold before the 85% seed-placement gate passes.
+- Never load a list into Instantly unless `packages/leadgen/data/*.csv` was regenerated after the last copy change and the leadgen copy-guard test passes (no win-backs, lapsed patients, reactivation, check-ins, follow-ups, reminders, SMS or texting, revenue, deposit on a call, "HIPAA compliant" or "live in N minutes"). The lists dated 22 September 2026 fail it. See STEP-BY-STEP.md Step 18.
 - Never place a paid InboxKit order or register domains without a recorded human authorization.
 - Never hardcode `CLOUDFLARE_API_TOKEN` or `INBOXKIT_API_KEY`. Read from env, never log them.
 - Never trust a vendor's own warmup or placement percentage as the go/no-go. The seed test is the gate.

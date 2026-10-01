@@ -25,8 +25,8 @@ export class ClinicalContentError extends Error {
     super(
       `Refusing to write clinical content: matched "${matched}". ` +
         `The agent cannot prescribe, diagnose or set treatment plans, and that ` +
-        `is enforced in code paths that could write into an EMR, not only in ` +
-        `the system prompt. See docs/hipaa-compliance.md.`,
+        `is enforced in code paths that write a calendar event or booking ` +
+        `note, not only in the system prompt. See docs/hipaa-compliance.md.`,
     );
     this.name = "ClinicalContentError";
   }
@@ -46,12 +46,63 @@ export function assertNonClinical(text: string): void {
   }
 }
 
+export class TreatmentNameError extends Error {
+  /** The clinic's service name that matched, as the clinic configured it. */
+  readonly serviceName: string;
+
+  constructor(serviceName: string) {
+    super(
+      `Refusing to send a treatment name: the text names the service ` +
+        `"${serviceName}". Payment descriptions, statement descriptors, ` +
+        `payment metadata and Meta messages carry an amount, a generic ` +
+        `descriptor and an opaque reference, never the treatment. See ` +
+        `docs/v1-product-spec.md, "Vendor position, vendor by vendor".`,
+    );
+    this.name = "TreatmentNameError";
+    this.serviceName = serviceName;
+  }
+}
+
+/** Lowercase, and every run of anything but letters and digits to one space. */
+function wordsOf(text: string): string {
+  return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+/**
+ * Refuse text that names one of the clinic's own treatments.
+ *
+ * Stripe and Meta sign no business associate agreement, so the spec keeps
+ * treatment names out of everything they carry: a payment description, a
+ * statement descriptor, payment metadata, a Meta message. "Botox, 3 areas" on
+ * a Stripe charge is a named patient's treatment sitting with a vendor that
+ * holds no agreement. `assertNonClinical` cannot catch that, because a
+ * treatment name is not clinical vocabulary, so this checks against the
+ * clinic's configured service names instead.
+ *
+ * Matching ignores case and punctuation and works on whole words, so "lip
+ * filler" is caught in "Lip-filler deposit" but "Lip" alone does not match
+ * "lipstick". Blank service names are ignored. Call it on every string that
+ * leaves for Stripe, the clinic's gateway or Meta, and fail the send rather
+ * than strip the name and carry on.
+ */
+export function assertNoTreatmentName(text: string, serviceNames: readonly string[]): void {
+  const haystack = ` ${wordsOf(text)} `;
+  for (const name of serviceNames) {
+    const needle = wordsOf(name);
+    if (!needle) continue;
+    if (haystack.includes(` ${needle} `)) throw new TreatmentNameError(name);
+  }
+}
+
 /**
  * Best-effort E.164.
  *
  * Returns undefined rather than guessing when the input isn't recognisably a US
- * number. A wrong number in the consent ledger is worse than a missing one:
- * it makes us confident about permission we don't have.
+ * number. In v1 it normalises the callback number the agent reads back to the
+ * caller and stores on the booking, and a WhatsApp sender's number. A wrong
+ * callback number is worse than a missing one: the booking points staff at a
+ * stranger, and nobody notices until the slot is missed. It is not a record of
+ * permission to contact anyone later; v1 contacts no patient first.
  */
 export function toE164(raw: string | undefined | null): string | undefined {
   if (!raw) return undefined;
@@ -71,9 +122,13 @@ export function toE164(raw: string | undefined | null): string | undefined {
 /**
  * Parse a platform's money value into a decimal string.
  *
+ * Phase two: POS read-back. It exists for money values read back from a
+ * clinic's POS or transaction system, which v1 does not do; keep it out of
+ * every v1 import path. Its only caller today is tests/contract.test.ts.
+ *
  * Never returns a float. Accepts numbers, strings with symbols, and integer
- * cents — platforms disagree, and a silent 100× error in either direction is
- * the kind of bug that reaches a customer's monthly report.
+ * cents. Platforms disagree, and a silent 100× error in either direction is
+ * the kind of bug that reaches a clinic as a wrong figure.
  */
 export function toMoney(
   raw: unknown,

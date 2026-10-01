@@ -27,20 +27,59 @@
  * lives in one place and the site cannot quote $3,804 while Stripe charges
  * $3,800.
  *
- * ## Overage rates — confirmed 21 September 2026
+ * ## Overage rates are placeholders until measured
  *
- * $0.35 per voice minute and $0.25 per chat conversation past the allowance,
- * signed off by the owner (they sit above the vendor per-minute cost and
- * below what a clinic notices). `OVERAGE_RATES_PROVISIONAL` is false, so the
- * pricing page prints them, the terms name them, and a MONTHLY checkout
- * attaches the two metered prices (apps/web/src/lib/billing.ts). Two things
- * are still open and are recorded in the task list, not hidden here: nothing
- * yet reports usage to Stripe's meters, so the metered lines bill zero until
- * `usage-meter-events` is built; and an ANNUAL package attaches no metered
- * price, because Stripe cannot mix a yearly and a monthly price on one
- * subscription — annual overage is invoiced monthly by hand until
- * `annual-overage-invoicing` is built, and the terms say "invoiced
- * separately" for annual packages for exactly that reason.
+ * $0.35 per voice minute and $0.25 per chat conversation past the allowance
+ * are placeholders, not measured prices. The owner signed them off on 21
+ * September 2026, before the cost stack was known. The spec, written after
+ * that (docs/v1-product-spec.md → "Unit economics and infrastructure" → "What
+ * still has to be computed"), lists overage prices as still unset, to be set
+ * from measured cost times a target margin. Voice costs roughly $0.13 to $0.31
+ * a minute all in, plus about a penny a minute for redaction. Nobody has
+ * measured chat cost per conversation yet. Any copy that prints these rates
+ * must say they are placeholders.
+ *
+ * `OVERAGE_RATES_PROVISIONAL` still stays false, on purpose. The flag does
+ * more than change what the page displays. While it is true,
+ * `meteredLookupKeysFor()` in apps/web/src/lib/billing.ts attaches no metered
+ * price to a monthly checkout. The terms also replace their overage sentence
+ * with "Until those rates are published, usage above the allowance is not
+ * billed." Flipping it would change what Stripe bills and what the service
+ * agreement says. That is a billing and counsel decision, not a copy one.
+ * Until someone makes it, false means: the pricing page prints these numbers,
+ * the terms name them, and a MONTHLY checkout attaches the two metered prices.
+ *
+ * Two things are still open, and they are recorded in the task list rather
+ * than hidden here. First, nothing reports usage to Stripe's meters yet, so the
+ * metered lines bill zero until `usage-meter-events` is built. Second, an
+ * ANNUAL package attaches no metered price, because Stripe cannot mix a yearly
+ * and a monthly price on one subscription. Annual overage is invoiced monthly
+ * by hand until `annual-overage-invoicing` is built, which is why the terms
+ * say "invoiced separately" for annual packages.
+ *
+ * ## The allowances are unmeasured too
+ *
+ * The included voice minutes and chat conversations below were set before
+ * anyone measured a real conversation. The spec asks for each package to be
+ * modelled three ways: light use, expected use, and the allowance fully used.
+ * The third matters most, because it is the worst case the pricing promises.
+ * The spec also names chat cost per conversation as the product's largest
+ * unknown: the top tier's 4,000 included conversations cannot be priced until
+ * it is measured on real traffic. Change the numbers only after that exercise.
+ * They are not part of the Stripe lookup keys, so changing one needs no
+ * `stripe:setup` re-run.
+ *
+ * ## WhatsApp starts costing the clinic on 1 October 2026
+ *
+ * Every package that includes `meta` includes WhatsApp, and its conversations
+ * count against `includedChatConversations` like any other chat. The packages
+ * were priced when inbound Meta conversations were free. From 1 October 2026
+ * Meta also charges for WhatsApp service replies inside the 24-hour window,
+ * and it bills the clinic directly. Healdesk does not resell WhatsApp messages
+ * (docs/v1-product-spec.md → "Pricing consequences" and "Meta bot
+ * onboarding"). Nobody has pulled Meta's published rate yet, and nothing here
+ * counts billable WhatsApp messages per clinic. Both are needed before the
+ * pricing page ships.
  *
  * ## The setup-fee delta on an upgrade is owed, not yet invoiced
  *
@@ -51,7 +90,7 @@
  * (docs/handover.md), and the pricing page makes no promise about it either
  * way.
  *
- * See docs/launch-plan.md → "Pricing and unit economics".
+ * See docs/v1-product-spec.md → "Unit economics and infrastructure".
  */
 
 export type Channel = "web" | "meta" | "voice";
@@ -68,9 +107,13 @@ export type Plan = {
   id: string;
   name: string;
   /**
-   * Channels the package includes. `meta` covers Instagram DM, Facebook
-   * Messenger and WhatsApp together — they share one Meta Business connection
-   * and one set of platform terms, so they are sold as one channel.
+   * Channels the package includes. `meta` is the Meta bot: Instagram DMs,
+   * Facebook Messenger and WhatsApp. It is sold as one channel because one
+   * Healdesk Meta app serves all three, but the clinic connects it in two
+   * steps. One Facebook login connects Instagram and Messenger together.
+   * WhatsApp uses Meta's embedded signup, cannot send until the clinic has
+   * added its own payment method in Meta, and may go live after the other
+   * two. Meta bills the clinic directly for WhatsApp; see the header.
    */
   channels: { web: boolean; meta: boolean; voice: boolean };
   /**
@@ -90,14 +133,24 @@ export type Plan = {
   includedChatConversations: number;
   overagePerVoiceMinuteUsd: number;
   overagePerChatConversationUsd: number;
-  /** Locations covered before the next tier or an add-on is needed. */
+  /**
+   * Locations the package covers, which is one for every package. The spec
+   * sells Healdesk per location, with each extra location billed on the same
+   * subscription and renewal date. No additional-location price or lookup key
+   * exists yet, so nobody can buy a second location at checkout.
+   */
   locations: number;
   highlight?: string;
 };
 
-/** See the header. Signed off 21 September 2026. */
+/**
+ * Whether checkout leaves the metered overage prices off and the terms say
+ * overage is not billed. It is NOT a "these rates are final" flag: the rates
+ * below are placeholders either way. See the header for why it stays false.
+ */
 export const OVERAGE_RATES_PROVISIONAL = false;
 
+// Placeholders until measured cost times target margin replaces them.
 const VOICE_OVERAGE = 0.35;
 const CHAT_OVERAGE = 0.25;
 

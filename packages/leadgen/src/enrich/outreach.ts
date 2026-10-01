@@ -1,6 +1,8 @@
 import {
-  CAPABILITY_LABEL,
+  bookingModeFor,
+  offerLabel,
   selectCapability,
+  type BookingMode,
   type Capability,
 } from "./capabilities.ts";
 import type { BookingGap, PlaceHours } from "./places.ts";
@@ -52,7 +54,7 @@ export function clockTime(hhmm: string): string {
  * What to call the product to THIS reader.
  *
  * An owner is being sold a business decision, so "smart assistant" is the right
- * register: it implies judgement and revenue. A receptionist is being told
+ * register: it implies judgement and return. A receptionist is being told
  * something will help with their actual day, and "smart" reads as a threat to
  * someone whose job is answering phones. "Virtual assistant" is the familiar,
  * unthreatening word for help.
@@ -150,8 +152,14 @@ export type OutreachRow = {
   gapHours: string;
   /** "Friday 17:00 to Monday 09:00" — where the gap falls. */
   gapWindow: string;
-  /** Which of the seven capabilities this clinic is being sold. */
+  /** Which capability this clinic is being sold. */
   capability: Capability;
+  /**
+   * Whether the offer may promise a booking outright. "manual" and
+   * "unverified" clinics get a booking clause that says what happens when
+   * their system does not read Google Calendar. See bookingModeFor().
+   */
+  bookingMode: BookingMode;
   /** "smart" for an owner, "virtual" for a receptionist or role address. */
   assistantTerm: "smart" | "virtual";
   /** instagram, facebook, tiktok, whatsapp — whichever they actually run. */
@@ -191,7 +199,7 @@ export type OutreachRow = {
 /**
  * The pitch this clinic gets.
  *
- * Ordered by how much the recovered-call story is worth to them, which is not
+ * Ordered by how much the answered-call story is worth to them, which is not
  * the same as how easy they are to classify.
  */
 /**
@@ -274,6 +282,7 @@ export function buildOutreachRow(
       gapHours: "",
       gapWindow: "",
       capability: "around-the-clock",
+      bookingMode: bookingModeFor(booking?.platform, Boolean(booking?.hasOnlineBooking) || label.offersOnlineBooking),
       assistantTerm: assistant,
       socialChannels: social.join(", "),
       channels: "",
@@ -355,6 +364,7 @@ export function buildOutreachRow(
 
   const window = hours?.gap ?? undefined;
   const channels = selectChannels(social);
+  const bookingMode = bookingModeFor(booking?.platform, !noBooking);
   const offer = buildOffer(
     label,
     window,
@@ -363,6 +373,7 @@ export function buildOutreachRow(
     assistant,
     channelPhrase(channels, social),
     hasAutomation,
+    bookingMode,
   );
 
   return {
@@ -371,6 +382,7 @@ export function buildOutreachRow(
     topOffer: offer.offer,
     closingQuestion: buildQuestion(angle, window, weekendClosed, hours, sites),
     capability: offer.capability,
+    bookingMode,
     assistantTerm: assistant,
     socialChannels: social.join(", "),
     channels: channels.join(", "),
@@ -521,6 +533,7 @@ function buildOffer(
   assistant: "smart" | "virtual",
   surfaces: string,
   introduced: boolean,
+  bookingMode: BookingMode,
 ): { offer: string; capability: Capability } {
   const pitch = selectCapability({
     segment: label.segment,
@@ -540,10 +553,16 @@ function buildOffer(
   // forgot it had already spoken. The has-automation hook names the assistant
   // itself, so here the offer refers back to it instead of re-introducing it,
   // which is also just how a person continues a sentence they already started.
+  //
+  // The booking mode can swap the label: a Mindbody clinic is never promised
+  // a live booking, because the slot the assistant writes into Google does not
+  // block anything in Mindbody (docs/v1-product-spec.md → "What the hub model
+  // does and does not guarantee").
+  const clause = offerLabel(pitch.capability, bookingMode);
   const opening = (
     introduced
-      ? CAPABILITY_LABEL[pitch.capability].replace(/^Our \{assistant\} assistant/, "It")
-      : CAPABILITY_LABEL[pitch.capability]
+      ? clause.replace(/^Our \{assistant\} assistant/, "It")
+      : clause
   )
     .replace("{assistant}", assistant)
     .replace("{surfaces}", surfaces);
@@ -583,11 +602,16 @@ function buildOffer(
  *
  * Meta stays conditional: offering Instagram to a clinic with no Instagram is
  * the fastest way to sound like a form, and unlike a website it is genuinely
- * absent for more than half the list.
+ * absent for more than half the list. Only the three Meta channels the product
+ * answers count. A clinic that runs only TikTok is not offered "social
+ * messages", because the Meta bot covers Instagram, Messenger and WhatsApp
+ * and nothing else.
  */
+const META_SOCIAL = new Set(["instagram", "facebook", "whatsapp"]);
+
 function selectChannels(social: readonly string[]): string[] {
   const out = ["phone", "website"];
-  if (social.length > 0) out.push("meta");
+  if (social.some((s) => META_SOCIAL.has(s))) out.push("meta");
   return out;
 }
 
@@ -602,17 +626,19 @@ function selectChannels(social: readonly string[]): string[] {
  * their product.
  */
 function channelPhrase(channels: readonly string[], social: readonly string[]): string {
+  // Named the way patients name them. A Facebook Page is reached through
+  // Messenger, so that is the word.
   const named = social.includes("instagram")
     ? "Instagram"
     : social.includes("facebook")
-      ? "Facebook"
+      ? "Messenger"
       : social.includes("whatsapp")
         ? "WhatsApp"
-        : "social messages";
+        : null;
 
   const parts = ["your calls"];
   if (channels.includes("website")) parts.push("website chat");
-  if (channels.includes("meta")) parts.push(named);
+  if (channels.includes("meta") && named) parts.push(named);
 
   if (parts.length === 1) return parts[0]!;
   if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;

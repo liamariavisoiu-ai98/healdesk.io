@@ -430,7 +430,56 @@ do the sending from each mailbox. Budget for that; it is not a one-call integrat
 - Schedule weekly for the mailbox lifetime
 
 > **GATE 4:** ≥85% verified primary placement on both providers, from an independent seed list.
-> This is the only gate that authorizes live sending.
+> Placement is one of the two gates that authorize live sending. The copy gate in Step 18 is
+> the other.
+
+### Step 18 — Copy gate `[CODE]` **GATE**
+
+Placement says the mail will arrive. This says what it promises is true. The product sheet the
+old copy was written from promised things v1 does not do, and the spec is explicit that the copy
+changes "before the first batch sends, not after the first sale"
+([docs/v1-product-spec.md](../v1-product-spec.md), "Copy and pricing changes this scope
+requires"). The lists generated on 22 September 2026 (`packages/leadgen/data/*.csv`) predate
+those fixes and still offer win-backs ("brings your lapsed patients back") and a deposit taken
+on the call. **Do not import them.**
+
+1. Run the leadgen tests. `tests/copy-guard.test.ts` runs every hook, offer and closing
+   question the generator can produce through `packages/leadgen/src/enrich/copy-guard.ts` and
+   fails on any of: win-back, winback, lapsed, reactivation, check-in, follow-up or follow up,
+   reminder, aftercare or review request, SMS, texting, revenue, "HIPAA compliant", "live in",
+   or a deposit taken on a call.
+
+   ```bash
+   npm test -w @healdesk/leadgen
+   ```
+
+2. Regenerate the lists from the cached crawl. The enrich CLI runs the same guard and refuses
+   to write a CSV that contains a refused phrase.
+
+   ```bash
+   npm run enrich -w @healdesk/leadgen
+   ```
+
+3. Check the files you are about to load are the ones just written: `all-leads.csv` has a
+   `booking_mode` column, and its modified time is later than the last change to
+   `packages/leadgen/src/enrich/{capabilities,outreach,unreadable,copy-guard}.ts`.
+
+4. Check the Instantly sequence by hand against the same list. The guard covers the generated
+   columns (`hook`, `top_offer`, `closing_question`), not the template text written around them
+   in Instantly. That text must also say nothing outbound, nothing about texting, no
+   "revenue", no unqualified "HIPAA compliant" (the accurate line is that we sign a business
+   associate agreement and handle patient data under it), and no global set-up time (set-up
+   is per channel: website chat once the snippet is pasted, Instagram and Messenger once the
+   clinic connects them, WhatsApp once its WhatsApp account has a payment method, phone once
+   call forwarding is set).
+
+5. Branch the sequence on `booking_mode`. `manual` (Mindbody) and `unverified` (Boulevard,
+   every other platform, and unrecognised booking systems) rows must not be told the
+   assistant books into their system; `live` rows may be.
+
+> **GATE 5:** the leadgen tests pass, the lists were regenerated after the last copy change,
+> and the sequence template was read against the refused list. Record the test run, the
+> regeneration time and the row counts in the run log.
 
 ---
 
@@ -442,11 +491,11 @@ do the sending from each mailbox. Budget for that; it is not a one-call integrat
 | Mailboxes | 30 — 15 Google Workspace, 15 Microsoft 365 |
 | Auth | SPF, DKIM, DMARC, MX verified two independent ways |
 | Warmup | isolated network, auto-ramped, never switched off |
-| First live send | ~3 weeks in, gated on measured placement |
+| First live send | ~3 weeks in, gated on measured placement and the copy gate |
 | End-to-end | **8.0 weeks** to the 14,800th send |
 
 Recurring: $99 Agency + ~$90 warmup + $30/Azure tenant (verify count) ≈ **$219+/mo**, above the
 runbook's $189. Month 1 adds ~$104 of domains. Optional InfraGuard is $3/domain/mo.
 
-Phases 5–7 of the runbook (Instantly, cold ramp, monitoring) begin after Gate 4 and are outside
+Phases 5–7 of the runbook (Instantly, cold ramp, monitoring) begin after Gates 4 and 5 and are outside
 this document.

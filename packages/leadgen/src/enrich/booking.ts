@@ -17,13 +17,20 @@ import { isPlatformId } from "@healdesk/catalog";
  *                       phone, so every missed call is a missed booking. The
  *                       launch plan calls these the hottest prospects, and
  *                       nothing else in the data identifies them.
- *   supported platform  Can connect read-only and get VERIFIED attribution
- *                       rather than estimates — a materially better pitch, and
- *                       the id here is the same string the checkout picker
- *                       uses, so the campaign can deep-link into the funnel
- *                       with the platform already chosen.
- *   other platform      Bookable but unconnectable. Estimated attribution
- *                       only, and a weaker ROI story.
+ *   known platform      Bookable online already. What v1 can promise depends
+ *                       on whether the platform reads the clinic's Google
+ *                       Calendar for conflicts, since that is the only place
+ *                       v1 writes a booking. bookingModeFor() in
+ *                       capabilities.ts turns the id into the booking claim
+ *                       the email is allowed to make.
+ *   unknown platform    Bookable, vendor unrecognised. Treated like a known
+ *                       platform whose sync direction nobody has checked.
+ *
+ * `supported` (can healdesk connect read-only for verified attribution) is
+ * phase two: POS read-back and attribution are fenced out of v1
+ * (docs/v1-product-spec.md → "What v1 can prove, and what it cannot"). The
+ * detection is kept for that, and for the booking claim above, but the
+ * read-back flag does not steer the pitch.
  *
  * ## Why URLs and not the model
  *
@@ -59,11 +66,11 @@ export type BookingPlatform = {
 /**
  * The signature table.
  *
- * Ids match `packages/catalog/src/platforms.ts` wherever healdesk supports the
- * platform, so a detected `boulevard` is the same string the funnel's platform
- * picker expects. Platforms we do not connect to keep their own ids and are
- * reported as unsupported — still useful, since knowing a clinic is on Booksy
- * tells you the ROI story is weaker even though we cannot integrate.
+ * Ids match `packages/catalog/src/platforms.ts` wherever the phase-two
+ * read-back supports the platform, so the two never drift. Platforms it does
+ * not connect to keep their own ids and are reported as unsupported. Every id
+ * still matters to v1, because the platform decides whether a booking written
+ * into Google Calendar blocks the slot in the clinic's own system.
  *
  * Signatures are deliberately narrow. `boulevard` alone would match every
  * clinic on a street called Boulevard; `blvd.app` matches the widget. The rule
@@ -361,7 +368,10 @@ export type BookingDetection = {
   /** Catalog/vendor id, or null when nothing matched. */
   platform: string | null;
   platformName: string | null;
-  /** Can healdesk connect to it read-only for verified attribution? */
+  /**
+   * Phase two: could the POS read-back connect to it for verified
+   * attribution? Not a v1 claim, and not used to choose v1 copy.
+   */
   supported: boolean;
   /** The actual booking URL, so a human can check the call in one click. */
   bookingUrl: string | null;
@@ -381,8 +391,9 @@ export type BookingDetection = {
  * That is worth knowing because Meta channels are a different product
  * conversation with a hard boundary: WhatsApp, Instagram and Messenger cannot
  * carry PHI, since Meta states in its own Cloud API terms that it is not a
- * business associate. So the offer there is intent capture and handoff, never
- * anything clinical, and the enrichment only records that the channel exists.
+ * business associate. So the offer there is answering, booking and a payment
+ * link inside Meta's 24-hour window, never anything clinical, and the
+ * enrichment only records that the channel exists.
  */
 /**
  * Display name for a platform id.
@@ -426,9 +437,9 @@ export function detectBooking(links: readonly string[]): BookingDetection {
   }
 
   if (seen.size > 0) {
-    // First by table order, which puts supported platforms first. When a clinic
-    // matches both a supported and an unsupported platform, the supported one
-    // is the more useful answer — it is the one that changes the pitch.
+    // First by table order, which puts the read-back platforms first. When a
+    // clinic matches both, the table's first is reported as primary and every
+    // match stays in allPlatforms.
     const primary = BOOKING_PLATFORMS.find((p) => seen.has(p.id))!;
     return {
       hasOnlineBooking: true,

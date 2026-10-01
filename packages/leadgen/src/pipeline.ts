@@ -253,7 +253,7 @@ function safeHost(url: string): string | null {
 export function toCsv(prospects: Prospect[]): string {
   const header = [
     "score",
-    "integration_score",
+    "phase2_integration_score",
     "angle",
     "angle_headline",
     "name",
@@ -275,7 +275,7 @@ export function toCsv(prospects: Prospect[]): string {
     "evidence",
     "proof_links",
     "reasons",
-    "integration_notes",
+    "phase2_integration_notes",
   ];
 
   const escape = (value: unknown): string => {

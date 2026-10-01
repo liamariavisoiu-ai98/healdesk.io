@@ -42,8 +42,8 @@ describe("Google hours parsing", () => {
     // A missing am/pm on the opening time takes it from the close — "9 to 5 PM"
     // is written that way and means 09:00.
     expect(parseRange("9 to 5 PM")).toEqual(["09:00", "17:00"]);
-    // Unparseable returns null, never a guess: these figures reach
-    // clinics.openingHours, where a wrong one mis-bills a real call.
+    // Unparseable returns null, never a guess: these figures are quoted to
+    // the clinic, and at most pre-fill the hours it confirms in onboarding.
     expect(parseRange("call for hours")).toBeNull();
   });
 
@@ -339,13 +339,11 @@ describe("who is reading", () => {
 });
 
 describe("segment psychology", () => {
-  test("injectables gets capture, never win-backs", async () => {
+  test("injectables gets capture", async () => {
     const { selectCapability } = await import("../src/enrich/capabilities.ts");
 
-    // The correction that matters. A returning Botox patient is loyal to her
-    // injector and would have rung back tomorrow anyway, so offering to chase
-    // lapsed patients solves a problem the clinic does not have — and reads as
-    // not understanding the business. The money is in the first-time caller.
+    // A returning Botox patient is loyal to her injector and would have rung
+    // back tomorrow anyway. The money is in the first-time caller.
     expect(
       selectCapability({
         segment: "injectables",
@@ -354,9 +352,21 @@ describe("segment psychology", () => {
         closesEarly: false,
       }).capability,
     ).toBe("around-the-clock");
+  });
 
-    // Win-backs belong where the relationship is weak and the lapse is silent.
-    // Nobody is loyal to a CoolSculpting applicator or a monthly GLP-1 script.
+  test("no segment is offered anything outbound", async () => {
+    const { selectCapability, CAPABILITY_LABEL } = await import("../src/enrich/capabilities.ts");
+    const { SEGMENTS } = await import("@healdesk/catalog");
+
+    // v1 is inbound only. GLP-1 and laser clinics used to get "win-backs",
+    // which promised to bring lapsed patients back: outbound, so not v1.
+    expect(Object.keys(CAPABILITY_LABEL).sort()).toEqual(
+      ["around-the-clock", "calendar-booking", "deposits", "lead-qualification", "upselling"].sort(),
+    );
+    for (const segment of SEGMENTS) {
+      const pitch = selectCapability({ segment, gapHours: null, hasOnlineBooking: true, closesEarly: false });
+      expect(["win-backs", "aftercare-reviews"], segment).not.toContain(pitch.capability);
+    }
     expect(
       selectCapability({
         segment: "weight-loss-glp1",
@@ -364,7 +374,57 @@ describe("segment psychology", () => {
         hasOnlineBooking: true,
         closesEarly: false,
       }).capability,
-    ).toBe("win-backs");
+    ).toBe("around-the-clock");
+  });
+});
+
+describe("booking claims follow the clinic's booking system", () => {
+  const row = async (platform: string | null, online = true) => {
+    const { buildOutreachRow } = await import("../src/enrich/outreach.ts");
+    return buildOutreachRow(
+      {
+        clinicId: "c", segment: "injectables", confidence: "high", evidence: "",
+        opensAt: null, closesAt: null, hoursByDay: null, topService: "Botox",
+        offersOnlineBooking: online, mentionsWeightLoss: false, isChainOrFranchise: false,
+      } as never,
+      { hasOnlineBooking: online, platform } as never,
+      {
+        closedDays: [], closedHoursPerWeek: 128, closesAt: "17:00",
+        gap: { hours: 64, startsDay: "Friday", startsAt: "17:00", endsDay: "Monday", endsAt: "09:00" },
+        match: "strong",
+      } as never,
+      { jobTitle: "Owner", email: "j@c.com", social: [] },
+    );
+  };
+
+  test("Mindbody never gets a live booking promise", async () => {
+    // Mindbody syncs one way, Mindbody to Google, so a booking written into
+    // Google does not block the slot in Mindbody. The clinic runs manual
+    // booking mode, and the email says so.
+    for (const platform of ["mindbody", "booker"]) {
+      const r = await row(platform);
+      expect(r.bookingMode).toBe("manual");
+      expect(r.topOffer).not.toMatch(/books them in|books straight/);
+      expect(r.topOffer).toContain("alerts your desk to confirm it in Mindbody");
+    }
+  });
+
+  test("Boulevard and unchecked systems book only where their system reads Google", async () => {
+    // null: online booking on a system the signature table did not recognise.
+    for (const platform of ["boulevard", "zenoti", "vagaro", null]) {
+      const r = await row(platform);
+      expect(r.bookingMode).toBe("unverified");
+      expect(r.topOffer).not.toMatch(/books them in|books straight/);
+      expect(r.topOffer).toContain("if your booking system reads it, or alerts your desk");
+    }
+  });
+
+  test("a phone-only clinic, or a system that reads Google, keeps the live booking claim", async () => {
+    for (const [platform, online] of [[null, false], ["calendly", true]] as const) {
+      const r = await row(platform, online);
+      expect(r.bookingMode).toBe("live");
+      expect(r.topOffer).toContain("books them in");
+    }
   });
 });
 
@@ -503,6 +563,16 @@ describe("which surfaces to offer", () => {
     // Meta stays earned. Offering Instagram to a clinic without one is the
     // fastest way to sound like a form.
     expect((await row(["instagram"], true)).channels).toBe("phone, website, meta");
+  });
+
+  test("only the Meta channels the product answers earn the Meta offer", async () => {
+    // The Meta bot covers Instagram, Messenger and WhatsApp. A TikTok-only
+    // clinic used to be offered "social messages", which it cannot have.
+    const tiktok = await row(["tiktok"], true);
+    expect(tiktok.channels).toBe("phone, website");
+    expect(tiktok.topOffer).not.toContain("social messages");
+    // A Facebook Page is reached through Messenger, so that is what it is called.
+    expect((await row(["facebook"], true)).topOffer).toContain("website chat and Messenger");
   });
 
   test("the offer names the surfaces inside its own sentence", async () => {

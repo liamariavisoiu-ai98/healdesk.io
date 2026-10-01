@@ -1,16 +1,35 @@
 /**
  * Call forwarding, as the clinic has to dial it.
  *
- * The decision (docs/blockers-runbook.md): the clinic keeps its published
- * number and forwards it to the Synthflow-issued one — on busy and on
- * no-answer for "ring at the practice first", or unconditionally for "AYA
- * answers everything". The star codes are carrier-specific and this table is
- * the one place they live. A code we are not sure of is not listed: the page
- * says "ask your carrier" rather than guessing, because a wrong code either
- * does nothing or takes the clinic's line away from its staff.
+ * The decision (docs/v1-product-spec.md → "Voice agent behaviour"): the
+ * clinic keeps its published number and forwards it to the Healdesk number,
+ * which patients never see or dial directly. The voice agent that answers it
+ * runs on Retell. Forwarding is either on busy and on no-answer, so staff keep
+ * answering first, or unconditional, for the "All calls" coverage mode. The
+ * star codes are carrier-specific and this table is the one place they live.
+ * A code we are not sure of is not listed: the page says "ask your carrier"
+ * rather than guessing, because a wrong code either does nothing or takes the
+ * clinic's line away from its staff.
  *
  * Unconditional forwarding is never the default and is shown only for the
  * "always" routing mode, with its own warning.
+ *
+ * The spec has three coverage modes: All calls; Overflow and after hours (the
+ * default); After hours only. The last two also forward everything outside
+ * opening hours, driven by the clinic's hours and holiday closures.
+ * `CallRouting` predates them and takes no hours: "always" is All calls, and
+ * "conditional" is only the busy and no-answer half of Overflow and after
+ * hours. After-hours forwarding and the After hours only mode are not
+ * expressed here yet; they need the clinic's hours as an input, time-of-day
+ * rules for VoIP, and the carrier's scheduled forwarding for a landline,
+ * which has no star code for it. The type and the signature stay as they are
+ * until that is built, because apps/app imports both.
+ *
+ * Every degradation path (Pause AI, the allowance cap's "Stop and fall back",
+ * suspension, cancellation, an outage) sends calls to a direct clinic line.
+ * Once the published number forwards to us, that line cannot be the
+ * published number, or the call loops back. Collecting and checking a direct
+ * line is not built here either.
  */
 
 export type Carrier = "verizon" | "att" | "tmobile" | "spectrum" | "comcast" | "other";
@@ -72,7 +91,7 @@ export function forwardingInstructions(input: {
   carrier: Carrier | null;
   phoneSystemType: PhoneSystemType;
   routing: CallRouting;
-  /** The Synthflow number, E.164. */
+  /** The Healdesk number the clinic forwards to, E.164. */
   destinationE164: string;
 }): ForwardingInstruction {
   const notes: string[] = [
@@ -127,11 +146,11 @@ export function forwardingInstructions(input: {
 
   if (input.routing === "always") {
     return {
-      steps: [{ label: "Forward ALL calls to AYA (your staff will not get the line back until you undo this):", dial: fill(codes.alwaysOn, input.destinationE164) }],
+      steps: [{ label: "Forward ALL calls to your assistant (your staff will not get the line back until you undo this):", dial: fill(codes.alwaysOn, input.destinationE164) }],
       undo: [{ label: "Cancel all-call forwarding:", dial: codes.alwaysOff }],
       notes: [
         ...notes,
-        "You chose \"AYA answers everything\". Only after-hours calls count as recovered on your report in this mode.",
+        "You chose \"All calls\". Only after-hours calls count as calls that would otherwise have rung out in this mode.",
       ],
       needsCarrierHelp: false,
     };
@@ -148,7 +167,7 @@ export function forwardingInstructions(input: {
     ],
     notes: [
       ...notes,
-      "Your staff keep answering first. AYA only gets the calls they miss, and every one of those counts as recovered on your report.",
+      "Your staff keep answering first. Your assistant only gets the calls they miss, and each of those counts as a call that would otherwise have rung out.",
       "Listen for the confirmation tone after each code. If your line is on a business plan (Centrex/PBX), the codes may differ — ask the carrier.",
     ],
     needsCarrierHelp: false,

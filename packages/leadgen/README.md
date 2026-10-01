@@ -48,11 +48,18 @@ Output: `packages/leadgen/data/<location>.csv` — gitignored.
 
 ### Two scores, not one
 
-`score` answers **"how easy is this clinic to sell to"**. `integration_score` answers
-**"if they buy, can we prove what we earned them"**. These used to be one number, and they
-disagree: Zenoti and Boulevard clinics are the hardest sell — both bundle their own AI —
-and the cleanest integrations by a distance. Collapsing them lost whichever half mattered
-at the moment you looked.
+`score` answers **"how easy is this clinic to sell to"**. `phase2_integration_score`
+answers **"once POS read-back ships, can we prove what we earned them"**. These used to be
+one number, and they disagree: Zenoti and Boulevard clinics are the hardest sell — both
+bundle their own AI — and the cleanest integrations by a distance. Collapsing them lost
+whichever half mattered at the moment you looked.
+
+**The second score is phase two and must not feed a v1 pitch, email or sales call.**
+Attribution, POS read-back and "recovered revenue" are fenced out of v1
+([docs/v1-product-spec.md](../../docs/v1-product-spec.md), "What v1 can prove, and what it
+cannot"). v1 writes bookings into Google Calendar, which knows nothing about attendance or
+money. The column and its notes are prefixed so nobody mistakes them for a v1 claim; the
+enrich CSVs carry `phase2_readback_supported` for the same reason.
 
 The playbook is also explicit that booking platform is a **scoring attribute, not a hard
 include/exclude**. The real disqualifier — *does this clinic already run a live AI
@@ -145,6 +152,36 @@ Printed at the end of every run so a CSV is never mistaken for the whole picture
 
 **Known caps:** broad Maps queries return ~120 results max — split by neighbourhood and
 dedupe. Emails aren't in the default Maps payload; plan a second enrichment actor.
+
+---
+
+## The outreach copy gate
+
+`npm run enrich -w @healdesk/leadgen` writes the sendable lists: `data/all-leads.csv`,
+`data/second-contacts.csv`, `data/unreadable-leads.csv` and `data/segments/*.csv`. Their copy
+must match what v1 does
+([docs/v1-product-spec.md](../../docs/v1-product-spec.md), "Copy and pricing changes this
+scope requires"):
+
+- **Inbound only.** No win-backs, reactivation, check-ins, review requests, reminders or
+  follow-ups. No SMS or texting.
+- **No deposit on a call.** The phone agent books and flags the deposit for staff; deposits
+  are taken in chat through a payment link.
+- **Booking follows the clinic's system.** v1 writes only to Google Calendar. A Mindbody
+  clinic (one-way sync) is told the assistant takes the preferred time and alerts the desk;
+  Boulevard and every unchecked platform are told it books where their system reads Google
+  Calendar, otherwise alerts the desk. The `booking_mode` column says which applies
+  (`live`, `manual`, `unverified`).
+- **Never** "revenue", an unqualified "HIPAA compliant", or "live in" some number of minutes.
+
+[`src/enrich/copy-guard.ts`](./src/enrich/copy-guard.ts) holds the refused phrases. The enrich
+CLI refuses to write a CSV that contains one, and
+[`tests/copy-guard.test.ts`](./tests/copy-guard.test.ts) runs it over every combination the
+generator can produce. Both are a gate in
+[docs/outreach/STEP-BY-STEP.md](../../docs/outreach/STEP-BY-STEP.md): no list goes into the
+sending tool unless the test passes and the CSVs were regenerated after the copy last
+changed. **The CSVs on disk dated 22 September 2026 predate the v1 copy fixes and still
+offer win-backs and a deposit on the call; do not upload them.**
 
 ---
 

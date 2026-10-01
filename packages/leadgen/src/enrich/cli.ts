@@ -11,6 +11,7 @@ import {
   type BookingPageFinding,
   type BookingPageTarget,
 } from "./booking-page.ts";
+import { assertSendableCopy } from "./copy-guard.ts";
 import { buildOutreachRow, excludeReason, hookDiversity } from "./outreach.ts";
 import { buildUnreadableRow } from "./unreadable.ts";
 import { fetchPlaceHours, type PlaceHours } from "./places.ts";
@@ -773,9 +774,13 @@ async function main(): Promise<void> {
       // Every message ends on a question. A close that states rather than asks
       // gives the reader nothing to do, and the reply is the point of sending.
       closing_question: out.closingQuestion,
-      // Which of the seven capabilities this clinic is being pitched. Exported
-      // so a sequence can branch on it and so the split is measurable.
+      // Which capability this clinic is being pitched. Exported so a sequence
+      // can branch on it and so the split is measurable.
       capability: out.capability,
+      // live, manual or unverified: whether the offer could promise a booking
+      // outright. A Mindbody clinic is never told the assistant books into
+      // its system, so a sequence must not either. See bookingModeFor().
+      booking_mode: out.bookingMode,
       // Which word the copy uses for the product. Owners get "smart", desks and
       // role addresses get "virtual".
       assistant_term: out.assistantTerm,
@@ -818,7 +823,9 @@ async function main(): Promise<void> {
       // actually sends patients there.
       booking_confidence: book?.confidence ?? "",
       booking_url: book?.bookingUrl ?? "",
-      booking_supported: book?.supported ? "yes" : "",
+      // Phase two only: whether the POS read-back could connect to this
+      // platform. Not a v1 claim; never use it to pick copy or a pitch.
+      phase2_readback_supported: book?.supported ? "yes" : "",
       reserve_url: placeById.get(clinic.id)?.reserveUrl ?? "",
       is_chain: label.isChainOrFranchise ? "yes" : "",
       chain_tier: label.chainTier ?? "",
@@ -864,6 +871,13 @@ async function main(): Promise<void> {
   }
 
   const outDir = join(DATA, "segments");
+
+  // Every segment is checked before any file is cleared or written, so a
+  // refused phrase leaves last run's files as they were rather than half of
+  // them replaced. See copy-guard.ts.
+  for (const [segment, rows] of bySegment) {
+    assertSendableCopy(join(outDir, `${segment}.csv`), rows);
+  }
   await mkdir(outDir, { recursive: true });
 
   // Clear the directory first. A segment that empties out — or moves wholesale
@@ -982,6 +996,7 @@ async function main(): Promise<void> {
 
   if (unreadable.length) {
     const p = join(DATA, "unreadable-leads.csv");
+    assertSendableCopy(p, unreadable);
     await writeFile(p, toCsv(unreadable));
     console.log(
       `\n  unreadable site (one touch)     ${String(unreadable.length).padStart(5)}  ${p}`,
@@ -990,6 +1005,7 @@ async function main(): Promise<void> {
 
   if (secondContacts.length) {
     const secondPath = join(DATA, "second-contacts.csv");
+    assertSendableCopy(secondPath, secondContacts);
     await writeFile(secondPath, toCsv(secondContacts));
     console.log(
       `\n  second contacts (later wave)    ${String(secondContacts.length).padStart(5)}  ${secondPath}`,
@@ -1045,6 +1061,7 @@ async function main(): Promise<void> {
   }
 
   const allPath = join(DATA, "all-leads.csv");
+  assertSendableCopy(allPath, merged);
   await writeFile(allPath, toCsv(merged));
   const counts = merged.reduce<Record<string, number>>((acc, r) => {
     acc[r.list ?? "?"] = (acc[r.list ?? "?"] ?? 0) + 1;

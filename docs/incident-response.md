@@ -19,11 +19,17 @@ of the right class with the original's id in the summary; do not edit the class
 on the old row.
 
 **Non-covered clinics** (cash-pay practices that answered "no" to the
-covered-entity question) are outside HIPAA and inside the FTC Health Breach
-Notification Rule: individuals within 60 days of discovery, the FTC within 10
-business days if 500+ people are affected, and media where 500+ in a state. The
-console adds `ftc_notify_by` to a breach at such a clinic. The BAA clock still
-applies — we promised it contractually regardless of regime.
+covered-entity question) are outside HIPAA. The FTC Health Breach Notification
+Rule does not reach them either: 16 CFR 318.2 covers vendors of personal
+health records and their service providers, and a clinic's booking records
+are neither (corrected 1 October 2026; the earlier text here said the Rule
+applied). What does apply is the breach-notification law of the state where
+the affected people live, which in most states requires notice to individuals
+without unreasonable delay and, above a threshold, to the state attorney
+general. The console's `ftc_notify_by` column is kept as a conservative
+second clock, 60 days from discovery, so a non-covered breach is never left
+with only the contractual deadline. The BAA clock still applies — we promised
+it contractually regardless of regime.
 
 ## Who decides
 

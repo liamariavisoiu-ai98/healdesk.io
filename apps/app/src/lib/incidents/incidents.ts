@@ -17,10 +17,13 @@ import type { TenantTx } from "@/lib/tenant";
  * A clock that lives in someone's memory is a clock that is missed. Opening
  * an incident computes `notify_by` from the class and the discovery time;
  * the console lists open incidents with the deadline; resolving one records
- * how the clinic was told. For a clinic that is not a covered entity, the
- * FTC Health Breach Notification Rule runs a second clock (60 days to
- * individuals; 10 business days to the FTC when 500+ are affected), so a
- * breach at such a clinic also gets `ftc_notify_by`.
+ * how the clinic was told. For a clinic that is not a covered entity, a
+ * breach also gets `ftc_notify_by`, 60 days from discovery. The column's name
+ * predates a correction: the FTC Health Breach Notification Rule (16 CFR
+ * 318.2) reaches vendors of personal health records, not a clinic's booking
+ * records, so the second clock is a conservative floor under state
+ * breach-notification law, not the Rule's own deadline (docs/incident-
+ * response.md, 1 October 2026).
  *
  * Nothing here holds patient data: a summary in ids, and a conversation id
  * where the transcript is the evidence — never the transcript.

@@ -1862,16 +1862,279 @@ function preamble(v: BaaVariables): string {
   ].join("\n");
 }
 
+// -----------------------------------------------------------------------------
+// Version 1.2.1 — the offered version. Five accuracy fixes to 1.2.0.
+// -----------------------------------------------------------------------------
+
+/**
+ * 1.2.1 corrects five factual defects an adversarial review found in 1.2.0 a
+ * few hours after its release, before any clinic had signed it. Nothing
+ * structural changes: every element of 45 CFR 164.504(e) and 164.314(a) was
+ * already present. What changes is five sentences that said something the
+ * vendors' own terms, the regulation or the product contradicted.
+ *
+ *   A1  practice-status   The "FTC Health Breach Notification Rule may apply
+ *                         to Practice" sentence is gone. 16 CFR 318.2 reaches
+ *                         vendors of personal health records and their
+ *                         service providers, not a clinic's booking records.
+ *                         State breach-notification law is named instead.
+ *   A2  google-calendar   Says what healdesk reads, not what Google's scope
+ *                         permits: when the calendar is free or busy, and the
+ *                         appointments healdesk itself created. Google's
+ *                         permission model gives it access to the calendar's
+ *                         other events; it does not read or store them.
+ *   A3  subcontractors    "then deletes it" overstated. Anthropic's own data
+ *                         retention page (privacy.claude.com, updated 1 July
+ *                         2026) says inputs and outputs are deleted within 30
+ *                         days EXCEPT content its automated trust-and-safety
+ *                         systems flag, or that the law requires it to keep,
+ *                         which it may retain for up to two years. The clause
+ *                         now says so.
+ *   A4  safeguards        "— email included" contradicted the clause's own
+ *                         fail-closed sentence and the SES design (TLS
+ *                         required, delivery failed when the receiving server
+ *                         will not negotiate it). Reworded to say that.
+ *   A5  minimum-necessary The spec requires transcripts to live "under a
+ *                         stated retention period", and no document stated
+ *                         it. Now stated: 90 days, the code's default
+ *                         (clinics.retention_media_days), shortenable by
+ *                         Practice in its portal.
+ *
+ * Everything else is 1.2.0's, by lookup. 1.2.0 stays registered and frozen
+ * below, as 1.1.0-draft is: it was offered for part of one day and must keep
+ * reproducing whatever was signed against it.
+ */
+function byId120(id: string): BaaClause {
+  const clause = CLAUSES_1_2.find((c) => c.id === id);
+  if (!clause) throw new Error(`No 1.2.0 clause ${id}`);
+  return clause;
+}
+
+/** The transcript retention the agreement states; the code's default (apps/app clinics.retention_media_days). */
+export const TRANSCRIPT_RETENTION_DAYS = 90;
+
+const CLAUSES_1_2_1: readonly BaaClause[] = [
+  byId120("definitions"),
+
+  // A1: 1.1.0's practice-status body with the HBNR sentence replaced.
+  {
+    id: "practice-status",
+    heading: "Practice's status",
+    appliesWhen: ALWAYS,
+    body: (v) => {
+      const notified =
+        v.isCoveredEntity === true
+          ? `Practice has notified healdesk that it transmits health information electronically in ` +
+            `connection with a transaction covered by HIPAA and is therefore a covered entity.`
+          : v.isCoveredEntity === false
+            ? `Practice has notified healdesk that it does NOT transmit health information ` +
+              `electronically in connection with a HIPAA-covered transaction, and may therefore not ` +
+              `be a covered entity.`
+            : `Practice has not yet notified healdesk whether it is a covered entity, and will do so ` +
+              `before any real patient information is processed.`;
+      return (
+        wrap(notified) +
+        "\n\n" +
+        wrap(
+          `Practice's status is Practice's determination, not healdesk's. Whatever it is, ` +
+            `healdesk applies the safeguards in this agreement, and this agreement is a ` +
+            `business associate agreement under 45 CFR 164.502(e) and 164.504(e) where Practice ` +
+            `is a covered entity, and a data-protection agreement on the same terms where it is ` +
+            `not. Practice will tell healdesk promptly if its status changes. Where Practice is ` +
+            `not a covered entity, state breach-notification and consumer-health-privacy laws ` +
+            `may apply to both parties, and in some states carry a private right of action.`,
+        )
+      );
+    },
+  },
+
+  byId120("permitted-uses"),
+  byId120("data-sources-verified"),
+  byId120("data-sources-none"),
+
+  // A2: what healdesk reads, not what the scope permits.
+  {
+    id: "google-calendar",
+    heading: "Practice's Google Calendar",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `Practice connects its own Google Calendar by OAuth, under Practice's own ` +
+          `agreement with Google. healdesk reads when that calendar is free or busy and ` +
+          `the appointments healdesk itself created; Google's permission model gives it ` +
+          `access to the other events on that calendar, and it does not read or store ` +
+          `them. healdesk holds the OAuth token encrypted, and adds an appointment when ` +
+          `the assistant books one or, where Practice has set bookings to require ` +
+          `approval, when Practice's staff confirm a request. It sends the calendar a ` +
+          `first name, the service asked about and the time, never a telephone number or ` +
+          `an email address, and it moves, edits or cancels nothing it did not create.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Practice acknowledges that Google's business associate agreement covers ` +
+          `Calendar only where Practice's Google Workspace administrator has accepted ` +
+          `it, and that healdesk's access to the calendar is governed by this agreement.`,
+      ),
+  },
+
+  byId120("own-use"),
+  byId120("practice-duties"),
+
+  // A4: the email sentence says what the SES design does.
+  {
+    id: "safeguards",
+    heading: "Safeguards",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `healdesk will use appropriate administrative, physical and technical ` +
+          `safeguards to prevent any use or disclosure of PHI this agreement does not ` +
+          `permit, and will comply with Subpart C of 45 CFR Part 164 — the HIPAA ` +
+          `Security Rule — in respect of electronic PHI.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `PHI is held on United States infrastructure and encrypted at rest. In transit ` +
+          `it is encrypted wherever healdesk controls both ends, and healdesk will not ` +
+          `transmit PHI over a channel that cannot negotiate encryption. An email whose ` +
+          `receiving server will not negotiate encryption is failed, not sent, and ` +
+          `healdesk tells Practice rather than send it in the clear; the list of ` +
+          `individuals in a breach report travels by secure transfer, never in the email ` +
+          `itself.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `One narrow exception: a patient who telephones has chosen the telephone, and a ` +
+          `telephone call is not end-to-end encrypted. healdesk may answer such a call, ` +
+          `limited to the minimum necessary and never including clinical detail, test ` +
+          `results or payment information. healdesk places no calls and sends no SMS. ` +
+          `This exception does not extend to any other channel or content.`,
+      ),
+  },
+
+  // A5: the retention period the spec requires the agreement to state.
+  {
+    id: "minimum-necessary",
+    heading: "Minimum necessary",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `Each party will limit its use, disclosure and requests of PHI to the minimum ` +
+          `necessary to accomplish the purpose, consistent with 45 CFR 164.502(b).`,
+      ) +
+      "\n\n" +
+      wrap(
+        `The assistant collects what a receptionist would write on a callback slip — a ` +
+          `name, a telephone number or email address, the service asked about and a ` +
+          `preferred time — and no more. It does not ask for a history, a medication or ` +
+          `a diagnosis, and it never takes a card number. On every channel its opening ` +
+          `line says that it is an AI assistant and, on a call, that the call is ` +
+          `transcribed; Practice cannot switch that statement off or edit it out.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `healdesk keeps transcripts and conversation records for ` +
+          `${TRANSCRIPT_RETENTION_DAYS} days, which Practice may shorten in its portal; ` +
+          `no call audio is kept at all. The Term clause governs what is held after ` +
+          `termination.`,
+      ),
+  },
+
+  byId120("reporting"),
+
+  // A3: the retention sentence matches Anthropic's published terms.
+  {
+    id: "subcontractors",
+    heading: "Subcontractors",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `healdesk uses subcontractors to deliver the Services — telephony, speech ` +
+          `recognition, language models, hosting and email among them. healdesk will ` +
+          `ensure that any subcontractor that creates, receives, maintains or transmits ` +
+          `PHI on healdesk's behalf agrees in writing, before it does so, to the same ` +
+          `restrictions and conditions this agreement places on healdesk, and to comply ` +
+          `with the HIPAA Security Rule, under a contract meeting 45 CFR 164.314(a) and ` +
+          `164.504(e)(5). healdesk remains answerable to Practice for its ` +
+          `subcontractors' acts and omissions with that PHI.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Language models are used to understand a patient and answer them during a ` +
+          `conversation. healdesk's language-model provider is Anthropic, which receives ` +
+          `the content of each conversation to generate the assistant's replies, under a ` +
+          `business associate agreement with healdesk. Under that agreement Anthropic ` +
+          `retains conversation content for 30 days, for abuse detection and security, ` +
+          `and then deletes it, except content its automated trust-and-safety systems ` +
+          `flag or the law requires it to keep, which it may retain for up to two years; ` +
+          `its covered service cannot run with shorter retention. Anthropic never trains ` +
+          `on that content, and healdesk may not use PHI to train, fine-tune or evaluate ` +
+          `any model, its own or a third party's.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `healdesk keeps a current list of these subcontractors at ` +
+          `healdesk.io/subprocessors and will give Practice at least fifteen days' notice ` +
+          `by email before adding one that will handle PHI. If Practice objects on ` +
+          `reasonable grounds before the change takes effect, Practice may terminate ` +
+          `under the Term clause without penalty.`,
+      ),
+  },
+
+  byId120("patient-rights"),
+  byId120("acting-in-your-place"),
+  byId120("prohibited"),
+  byId120("term"),
+  byId120("liability"),
+  byId120("records-to-hhs"),
+  byId120("notices-and-law"),
+];
+
+/** The 1.2.1 preamble: 1.2.0's, with the version line. */
+function preamble121(v: BaaVariables): string {
+  const title = v.signatoryTitle?.trim() ? `, ${v.signatoryTitle.trim()}` : "";
+  return [
+    `HEALDESK BUSINESS ASSOCIATE AGREEMENT`,
+    `Version 1.2.1 — executed electronically`,
+    ``,
+    `This Agreement is entered into under 45 CFR 164.502(e) and 164.504(e) and`,
+    `takes effect on the date below. It governs Protected Health Information`,
+    `that healdesk creates, receives, maintains or transmits for Practice in the`,
+    `course of the Services defined in the Terms.`,
+    ``,
+    `BETWEEN`,
+    wrap(`${v.clinicLegalName} ("Practice"), a ${v.specialty.toLowerCase()} practice`),
+    wrap(`${ENTITY}, ${ENTITY_FORM} ("healdesk"), of ${NOTICE_ADDRESS}`),
+    ``,
+    `SIGNED FOR PRACTICE BY`,
+    `  ${v.signatoryName}${title}`,
+    `  ${v.signatoryEmail}`,
+    ``,
+    `EFFECTIVE ${formatDate(v.effectiveDate)}`,
+  ].join("\n");
+}
+
 export const BAA_TEMPLATES: readonly BaaTemplate[] = [
   // Newest RELEASED first — CURRENT_BAA_VERSION and currentBaaTemplate() both
   // read [0], so a version stays at [0] until its successor is approved for
   // release too.
   {
-    version: "1.2.0",
+    version: "1.2.1",
     publishedOn: "2026-10-01",
     // Approved for release by the owner on 2026-10-01, on the owner's own
-    // review and without external counsel. The field's doc comment on
-    // BaaTemplate says what the flag means; this is the entry it describes.
+    // review and without external counsel, after the adversarial review of
+    // 1.2.0 the same day. The field's doc comment on BaaTemplate says what
+    // the flag means; this is the entry it describes.
+    approvedByCounsel: true,
+    preamble: preamble121,
+    clauses: CLAUSES_1_2_1,
+  },
+  // Offered for part of 1 October 2026, then replaced by 1.2.1 for the five
+  // accuracy fixes listed above it. Retained and frozen: anything signed
+  // against it must keep reproducing. Not at [0], so never offered again.
+  {
+    version: "1.2.0",
+    publishedOn: "2026-10-01",
     approvedByCounsel: true,
     preamble: preamble120,
     clauses: CLAUSES_1_2,

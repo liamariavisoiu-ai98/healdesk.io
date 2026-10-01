@@ -70,7 +70,11 @@ describe("the terms describe v1 as the spec defines it", () => {
   });
 
   test("the model's 30-day retention is disclosed and liability is allocated once", () => {
-    expect(text).toContain("keeps that content for 30 days, for abuse detection, and then deletes it; it never trains on it");
+    // Anthropic's own retention page: 30 days, except flagged or legally
+    // required content, which it may keep for up to two years. The terms
+    // must carry the exception, or they overstate what happens.
+    expect(text).toContain("keeps that content for 30 days, for abuse detection, and then deletes it, except content");
+    expect(text).toContain("which it may keep for up to two years; it never trains on it");
     expect(text).toContain("in the same way as sections 13 and 14");
     expect(text).toContain("in the same way as this section and section 13");
     expect(text).toContain("These limits do not apply to our wilful misconduct or gross negligence");

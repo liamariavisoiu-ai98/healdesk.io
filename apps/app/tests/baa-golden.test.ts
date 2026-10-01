@@ -30,9 +30,10 @@ import { describe, expect, test } from "vitest";
  *   npx tsx -e 'import("@healdesk/catalog").then(...)' — or simply run this
  *   test and copy the "received" value for the NEW version only.
  *
- * 1.2.0 was released on 2026-10-01 and is what clinics sign; its hashes are
+ * 1.2.1 was released on 2026-10-01 and is what clinics sign; its hashes are
  * the record from that day on. 1.0.0 and 0.1.0-draft have been signed; their
- * hashes never move. 1.1.0-draft was superseded by 1.2.0 without ever being
+ * hashes never move. 1.2.0 was offered for part of that day and is frozen like
+ * the rest. 1.1.0-draft was superseded by 1.2.0 without ever being
  * offered; it is frozen too, because docs/counsel/ quotes its rendering.
  */
 
@@ -63,6 +64,17 @@ const VARIANTS: Record<string, Partial<BaaVariables>> = {
 
 /** version → variant → sha256 of the assembled text. Append-only. */
 const GOLDEN: Record<string, Record<string, string>> = {
+  "1.2.1": {
+    covered_estimated: "618ac4a585a42f23d70865042c5a02e0b4765c07b6e65ba8ecf586e8f386cfd3",
+    notcovered_estimated: "e25654221985d32abf70894a1094183bea6807bb1672517792524f55489e6938",
+    unknown_estimated: "b804a6234271183a37a532fa46ab7ca9af3c44c814324d62819e2827c058f37a",
+    // Identical to covered_estimated by design, as in 1.2.0: no clause reads
+    // outboundMessaging. Asserted below rather than left to look like a typo.
+    covered_outbound: "618ac4a585a42f23d70865042c5a02e0b4765c07b6e65ba8ecf586e8f386cfd3",
+    covered_verified_boulevard: "2c46b7591f2aa7faf6ea82ba0f4f610bb598aacd8559a602a4e8f88027d39ba3",
+  },
+  // Offered for part of 1 October 2026, then replaced by 1.2.1 for five
+  // accuracy fixes. Frozen like every other superseded version.
   "1.2.0": {
     covered_estimated: "f91e1a91870060d46383b827f2e13ce25026802eae1f03b8c91ddf64b19f857b",
     notcovered_estimated: "76ca06a2278624fb25f80196f4ac09ae02126bc0428b0cc7ea5faac79cb133de",
@@ -122,7 +134,7 @@ describe("BAA template freeze", () => {
   test("the variants genuinely differ — the predicates are live, not decorative", () => {
     const current = GOLDEN[CURRENT_BAA_VERSION]!;
     // One coincidence is by design and is asserted as such: outboundMessaging
-    // selects nothing in 1.2.0, so covered_outbound IS covered_estimated.
+    // selects nothing in 1.2.x, so covered_outbound IS covered_estimated.
     // Every other variant is a distinct document.
     expect(current.covered_outbound).toBe(current.covered_estimated);
     const distinct = Object.entries(current)
@@ -261,14 +273,14 @@ describe("1.1.0-draft: booking mode, calendar write and callbacks", () => {
 });
 
 /**
- * 1.2.0, the offered version: what it must and must not contain, pinned on
+ * 1.2.1, the offered version: what it must and must not contain, pinned on
  * every reachable variant. These are the product rules the v1 spec puts into
  * the agreement (docs/v1-product-spec.md, "HIPAA and BAA position"), read out
  * of the rendered text rather than the clause list, because the text is what
  * a clinic signs.
  */
-describe("1.2.0: the offered agreement", () => {
-  const CURRENT = "1.2.0";
+describe("1.2.1: the offered agreement", () => {
+  const CURRENT = "1.2.1";
   const current = () => getBaaTemplate(CURRENT)!;
   const render = (overrides: Partial<BaaVariables>) => prepareBaa(current(), { ...BASE, ...overrides });
   /** Every selection any version has ever read, in every state checkout can and cannot produce. */
@@ -284,7 +296,7 @@ describe("1.2.0: the offered agreement", () => {
     expect(current().approvedByCounsel).toBe(true);
     expect(current().publishedOn).toBe("2026-10-01");
     const text = render({}).text;
-    expect(text).toContain("Version 1.2.0 — executed electronically");
+    expect(text).toContain("Version 1.2.1 — executed electronically");
     expect(text).not.toMatch(/DRAFT|NOT FOR EXECUTION|\[NAME, TITLE\]/);
     // The signatory block is in the preamble, so the notices clause points
     // up at it. 1.1.0's wording pointed "below", at nothing.
@@ -368,11 +380,26 @@ describe("1.2.0: the offered agreement", () => {
     for (const overrides of everyVariant()) {
       const text = unwrap(render(overrides).text);
       const label = JSON.stringify(overrides);
-      // The model-retention rule, with the number (spec, "Five rules", third).
+      // The model-retention rule, with the number (spec, "Five rules", third),
+      // and the exception Anthropic's own retention page carries: flagged or
+      // legally required content may be kept for up to two years. 1.2.0
+      // omitted the exception, which is why 1.2.1 exists (finding A3).
       expect(text, label).toContain(
-        "Anthropic retains conversation content for 30 days, for abuse detection and security, and then deletes it",
+        "Anthropic retains conversation content for 30 days, for abuse detection and security, and then deletes it, except content its automated trust-and-safety systems flag or the law requires it to keep, which it may retain for up to two years",
       );
       expect(text, label).toContain("Anthropic never trains on that content");
+      // A5: the transcript retention period the spec requires to be stated.
+      expect(text, label).toContain("healdesk keeps transcripts and conversation records for 90 days");
+      expect(text, label).toContain("no call audio is kept at all");
+      // A2: what healdesk reads, not what Google's scope permits.
+      expect(text, label).toContain("reads when that calendar is free or busy and the appointments healdesk itself created");
+      expect(text, label).toContain("it does not read or store them");
+      // A4: the email sentence matches the fail-closed SES design.
+      expect(text, label).toContain("An email whose receiving server will not negotiate encryption is failed, not sent");
+      expect(text, label).not.toContain("email included");
+      // A1: the FTC Health Breach Notification Rule does not reach a clinic.
+      expect(text, label).not.toContain("FTC Health Breach");
+      expect(text, label).toContain("state breach-notification and consumer-health-privacy laws");
       expect(text, label).toContain("healdesk may not use PHI to train, fine-tune or evaluate any model");
       expect(text, label).toContain("at least fifteen days' notice");
       // Inbound only, in the safeguards exception.

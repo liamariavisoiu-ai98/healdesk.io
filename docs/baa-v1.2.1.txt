@@ -1,0 +1,358 @@
+healdesk Business Associate Agreement — version 1.2.1, rendered 1 October 2026, the day it was released.
+Rendered for a sample practice in the shape a clinic actually signs: covered-entity status "yes"; no booking
+platform named; inbound only (no clause reads the outbound field, so the document is the same either way).
+This is the version offered at checkout from 1 October 2026, replacing 1.2.0 the same day with five accuracy
+fixes found by an adversarial review (docs/counsel/agreement-changes.md, findings A1 to A5): the Anthropic
+retention sentence now carries the exception for flagged or legally required content; the Google Calendar
+clause says what healdesk reads rather than what Google's scope permits; the FTC Health Breach Notification
+Rule, which does not reach a clinic, is no longer cited; the email sentence matches the fail-closed design;
+and the 90-day transcript retention period is stated. Approved for release by the owner, on the owner's own
+review and without external counsel. Source: packages/catalog/src/baa.ts, template 1.2.1. From the title line
+on, the text below is exactly what apps/app/tests/baa-golden.test.ts freezes as 1.2.1 / covered_estimated
+(SHA-256 618ac4a585a42f23d70865042c5a02e0b4765c07b6e65ba8ecf586e8f386cfd3). The only variant: a practice on
+the phase-two verified read-back, which checkout does not offer in v1, receives the unchanged 1.0.0 clause
+"data-sources-verified" in place of clause 4; it is not rendered here.
+
+HEALDESK BUSINESS ASSOCIATE AGREEMENT
+Version 1.2.1 — executed electronically
+
+This Agreement is entered into under 45 CFR 164.502(e) and 164.504(e) and
+takes effect on the date below. It governs Protected Health Information
+that healdesk creates, receives, maintains or transmits for Practice in the
+course of the Services defined in the Terms.
+
+BETWEEN
+  Golden Clinic LLC ("Practice"), a med-spa practice
+  Viixi FZC, a company registered under the Sharjah Publishing City Free Zone,
+  United Arab Emirates ("healdesk"), of 800 N King Street, Suite 304-1426,
+  Wilmington, DE 19801, United States, and by email to legal@healdesk.io
+
+SIGNED FOR PRACTICE BY
+  Alex Chen, Owner
+  alex@golden.test
+
+EFFECTIVE 13 September 2026
+
+1. DEFINITIONS
+
+  "Practice" means Golden Clinic LLC. "healdesk" means Viixi FZC, a company
+  registered under the Sharjah Publishing City Free Zone, United Arab
+  Emirates. "Terms" means the healdesk Terms of Service at healdesk.io/terms
+  as in force on the effective date. "Services" and "Fees" have the meanings
+  the Terms give them. "Protected health information" (PHI), "breach",
+  "unsecured PHI", "security incident", "subcontractor" and "designated record
+  set" have the meanings given in 45 CFR Parts 160 and 164. "Business day"
+  means a day other than a Saturday, Sunday or United States federal holiday.
+
+  This agreement governs PHI healdesk creates, receives, maintains or
+  transmits for Practice in the course of the Services. Where this agreement
+  and the Terms conflict about PHI, this agreement governs.
+
+2. PRACTICE'S STATUS
+
+  Practice has notified healdesk that it transmits health information
+  electronically in connection with a transaction covered by HIPAA and is
+  therefore a covered entity.
+
+  Practice's status is Practice's determination, not healdesk's. Whatever it
+  is, healdesk applies the safeguards in this agreement, and this agreement is
+  a business associate agreement under 45 CFR 164.502(e) and 164.504(e) where
+  Practice is a covered entity, and a data-protection agreement on the same
+  terms where it is not. Practice will tell healdesk promptly if its status
+  changes. Where Practice is not a covered entity, state breach-notification
+  and consumer-health-privacy laws may apply to both parties, and in some
+  states carry a private right of action.
+
+3. WHAT HEALDESK MAY DO WITH PATIENT INFORMATION
+
+  healdesk may use and disclose protected health information only as necessary
+  to provide the service to Golden Clinic LLC, and as required by law. It may
+  not use or disclose it in any way that Golden Clinic LLC could not.
+
+4. WHAT HEALDESK READS FROM YOUR SYSTEMS
+
+  healdesk holds no credentials to any practice-management or point-of-sale
+  system and reads nothing from one. The only patient information healdesk
+  receives is what patients themselves give it during a call or chat, together
+  with the calendar access the Google Calendar clause describes.
+
+5. PRACTICE'S GOOGLE CALENDAR
+
+  Practice connects its own Google Calendar by OAuth, under Practice's own
+  agreement with Google. healdesk reads when that calendar is free or busy and
+  the appointments healdesk itself created; Google's permission model gives it
+  access to the other events on that calendar, and it does not read or store
+  them. healdesk holds the OAuth token encrypted, and adds an appointment when
+  the assistant books one or, where Practice has set bookings to require
+  approval, when Practice's staff confirm a request. It sends the calendar a
+  first name, the service asked about and the time, never a telephone number
+  or an email address, and it moves, edits or cancels nothing it did not
+  create.
+
+  Practice acknowledges that Google's business associate agreement covers
+  Calendar only where Practice's Google Workspace administrator has accepted
+  it, and that healdesk's access to the calendar is governed by this
+  agreement.
+
+6. HEALDESK'S OWN USE, AND DATA AGGREGATION
+
+  healdesk may use PHI for its own proper management and administration and to
+  carry out its legal responsibilities, and may disclose it for those purposes
+  only where the law requires the disclosure, or where healdesk has obtained
+  reasonable assurances from the recipient that the PHI will be held
+  confidentially, used or further disclosed only as required by law or for the
+  purpose it was disclosed for, and that the recipient will notify healdesk of
+  any breach of its confidentiality. 45 CFR 164.504(e)(4).
+
+  healdesk may combine Practice's PHI with that of other practices only to
+  produce de-identified, aggregate statistics about the Services (for example,
+  what fraction of after-hours calls are answered). It will not use PHI to
+  train, fine-tune or evaluate any model, and nothing in this clause permits
+  it to.
+
+7. WHAT PRACTICE WILL TELL HEALDESK
+
+  Practice will tell healdesk, promptly and in writing:
+
+    a. of any limitation in its notice of privacy practices that affects how
+       healdesk may use or disclose PHI;
+    b. of any change to, or revocation of, a patient's permission to use or
+       disclose PHI, where it affects healdesk;
+    c. of any restriction on the use or disclosure of PHI that Practice has
+       agreed to under 45 CFR 164.522, where it affects healdesk.
+
+  Practice will not ask healdesk to use or disclose PHI in a way that would
+  not be permissible under the HIPAA Privacy Rule if done by Practice.
+
+8. SAFEGUARDS
+
+  healdesk will use appropriate administrative, physical and technical
+  safeguards to prevent any use or disclosure of PHI this agreement does not
+  permit, and will comply with Subpart C of 45 CFR Part 164 — the HIPAA
+  Security Rule — in respect of electronic PHI.
+
+  PHI is held on United States infrastructure and encrypted at rest. In
+  transit it is encrypted wherever healdesk controls both ends, and healdesk
+  will not transmit PHI over a channel that cannot negotiate encryption. An
+  email whose receiving server will not negotiate encryption is failed, not
+  sent, and healdesk tells Practice rather than send it in the clear; the list
+  of individuals in a breach report travels by secure transfer, never in the
+  email itself.
+
+  One narrow exception: a patient who telephones has chosen the telephone, and
+  a telephone call is not end-to-end encrypted. healdesk may answer such a
+  call, limited to the minimum necessary and never including clinical detail,
+  test results or payment information. healdesk places no calls and sends no
+  SMS. This exception does not extend to any other channel or content.
+
+9. MINIMUM NECESSARY
+
+  Each party will limit its use, disclosure and requests of PHI to the minimum
+  necessary to accomplish the purpose, consistent with 45 CFR 164.502(b).
+
+  The assistant collects what a receptionist would write on a callback slip —
+  a name, a telephone number or email address, the service asked about and a
+  preferred time — and no more. It does not ask for a history, a medication or
+  a diagnosis, and it never takes a card number. On every channel its opening
+  line says that it is an AI assistant and, on a call, that the call is
+  transcribed; Practice cannot switch that statement off or edit it out.
+
+  healdesk keeps transcripts and conversation records for 90 days, which
+  Practice may shorten in its portal; no call audio is kept at all. The Term
+  clause governs what is held after termination.
+
+10. REPORTING BREACHES AND SECURITY INCIDENTS
+
+  healdesk will report to Practice, in writing to the address in the Notices
+  clause:
+
+    a. any use or disclosure of PHI not permitted by this agreement, within
+       five business days of healdesk becoming aware of it;
+    b. any breach of unsecured PHI, without unreasonable delay and in no case
+       later than five calendar days after discovery. A breach is treated as
+       discovered on the first day it is known, or by exercising reasonable
+       diligence would have been known, to healdesk or to any person other
+       than the one committing it who is healdesk's workforce member or agent,
+       as 45 CFR 164.410(a)(2) provides. Five days is deliberately far inside
+       the sixty the regulation allows, because Practice's own sixty-day clock
+       to notify patients may run from healdesk's discovery, not from
+       healdesk's report;
+    c. any security incident, within five business days of becoming aware of
+       it — except routine unsuccessful attempts that compromised nothing,
+       such as blocked sign-ins, port scans and filtered traffic, which the
+       parties agree this clause reports once, here, and which healdesk will
+       summarise on request.
+
+  A breach report will include, to the extent known and supplemented as
+  learned: the identification of each individual whose unsecured PHI was or is
+  reasonably believed to have been accessed, acquired, used or disclosed; a
+  description of what happened, including the dates of the breach and of its
+  discovery; the types of PHI involved; what healdesk is doing to investigate,
+  mitigate and prevent recurrence; and a contact. 45 CFR 164.410(c). Who bears
+  the cost of notifying patients, regulators and anyone else about a breach is
+  allocated by the Liability clause.
+
+11. SUBCONTRACTORS
+
+  healdesk uses subcontractors to deliver the Services — telephony, speech
+  recognition, language models, hosting and email among them. healdesk will
+  ensure that any subcontractor that creates, receives, maintains or transmits
+  PHI on healdesk's behalf agrees in writing, before it does so, to the same
+  restrictions and conditions this agreement places on healdesk, and to comply
+  with the HIPAA Security Rule, under a contract meeting 45 CFR 164.314(a) and
+  164.504(e)(5). healdesk remains answerable to Practice for its
+  subcontractors' acts and omissions with that PHI.
+
+  Language models are used to understand a patient and answer them during a
+  conversation. healdesk's language-model provider is Anthropic, which
+  receives the content of each conversation to generate the assistant's
+  replies, under a business associate agreement with healdesk. Under that
+  agreement Anthropic retains conversation content for 30 days, for abuse
+  detection and security, and then deletes it, except content its automated
+  trust-and-safety systems flag or the law requires it to keep, which it may
+  retain for up to two years; its covered service cannot run with shorter
+  retention. Anthropic never trains on that content, and healdesk may not use
+  PHI to train, fine-tune or evaluate any model, its own or a third party's.
+
+  healdesk keeps a current list of these subcontractors at
+  healdesk.io/subprocessors and will give Practice at least fifteen days'
+  notice by email before adding one that will handle PHI. If Practice objects
+  on reasonable grounds before the change takes effect, Practice may terminate
+  under the Term clause without penalty.
+
+12. PATIENT ACCESS, AMENDMENT AND ACCOUNTING
+
+  When a patient asks to see their information, to have it corrected, or to be
+  told who it was disclosed to, Golden Clinic LLC answers them — and healdesk
+  gives Golden Clinic LLC what it needs to answer, within ten business days of
+  being asked:
+
+    a. Access. healdesk will make available the protected health information
+       it holds about that patient in a designated record set, so Golden
+       Clinic LLC can meet its obligations under 45 CFR 164.524.
+    b. Amendment. healdesk will make that information available for amendment
+       and will incorporate any amendment Golden Clinic LLC directs, under 45
+       CFR 164.526. Incorporating it means healdesk's own copy is corrected,
+       not merely annotated.
+    c. Accounting. healdesk will maintain and make available the information
+       Golden Clinic LLC needs to give a patient an accounting of disclosures
+       under 45 CFR 164.528.
+
+  If a patient makes one of these requests to healdesk directly, healdesk will
+  not answer it. It will pass the request to Golden Clinic LLC within five
+  business days and tell the patient it has done so.
+
+13. WHERE HEALDESK ACTS IN YOUR PLACE
+
+  Some of what healdesk does is Golden Clinic LLC carrying out its own duties
+  through healdesk, rather than healdesk doing something of its own —
+  answering a patient who calls, and sending messages in Golden Clinic LLC's
+  name, are both of those. Where healdesk carries out an obligation the HIPAA
+  Privacy Rule places on Golden Clinic LLC, healdesk will meet the
+  requirements that Rule places on Golden Clinic LLC in performing it, and not
+  only the lighter ones it places on a business associate. 45 CFR
+  164.504(e)(2)(ii)(H).
+
+14. WHAT HEALDESK IS NOT AUTHORISED TO DO
+
+  · Use PHI to train, fine-tune, or evaluate any artificial intelligence
+    model, its own or a third party's.
+  · Disclose PHI to any advertising or analytics platform, in any form,
+    including hashed or aggregated. Instagram, Messenger and WhatsApp are
+    operated by Meta, which signs no business associate agreement; where
+    Practice connects them, the assistant replies there only inside a
+    conversation the patient started, handles no clinical content, confirms no
+    appointment details, and moves anything clinical to a call or to
+    Practice's own secure route.
+  · Provide clinical advice, diagnosis, triage, or treatment recommendations
+    through the assistant.
+  · Sell, license, or otherwise monetise patient information.
+
+15. TERM, TERMINATION, AND WHAT HAPPENS TO THE INFORMATION
+
+  This agreement takes effect on the effective date and continues for as long
+  as healdesk holds any PHI for Practice. Either party may terminate it on
+  written notice if the other materially breaches it and does not cure the
+  breach within thirty days of being told of it in writing; where cure is not
+  possible, on notice. Practice may also terminate under the
+  subcontractor-objection right above. Ending the Services ends this
+  agreement, subject to the rest of this clause.
+
+  Within thirty days of termination healdesk will return or destroy all PHI it
+  holds for Practice and retain no copies, and will give Practice, on request
+  before that date, an export of the PHI it holds in a usable electronic form.
+  Where return or destruction is not feasible, healdesk will say why in
+  writing, extend the protections of this agreement to that PHI for as long as
+  it is held, and limit further use to what makes return or destruction
+  infeasible.
+
+  Two records survive termination: the signed copy of this agreement, and the
+  record of disclosures needed to answer an accounting request, each kept for
+  six years from termination as 45 CFR 164.530(j) and 164.528 require. Neither
+  contains more PHI than the record itself needs.
+
+16. LIABILITY, AND WHO INDEMNIFIES WHOM
+
+  To the fullest extent the law allows, healdesk is not liable to Practice for
+  any loss arising out of or relating to this agreement or the Services, in
+  contract, tort or otherwise, including lost profits and indirect,
+  incidental, special or consequential damages. Where the law does not permit
+  that exclusion, healdesk's total aggregate liability to Practice, across all
+  claims, is limited to the Fees paid or payable by Practice in the twelve
+  months before the event giving rise to the claim. That limit does not apply
+  to healdesk's wilful misconduct or gross negligence, or to any liability the
+  law does not allow to be limited.
+
+  Practice will defend, indemnify and hold harmless healdesk and its
+  subcontractors as section 14 of the Terms provides: against every claim,
+  loss, liability, penalty, fine, cost and expense — including reasonable
+  legal fees, the cost of defending a claim, and the cost of investigating a
+  security incident and of notifying patients, regulators, the media and
+  anyone else about a breach — to the extent it arises from or relates to the
+  Services, PHI that Practice or its patients give the Services, Practice's
+  covered-entity status, instructions Practice gave, Practice's own breach of
+  this agreement or violation of HIPAA or of state consumer-health-privacy
+  law, or a claim by a patient, a regulator or any other third party. This
+  indemnity applies to the fullest extent the law allows, including where the
+  claim alleges negligence on healdesk's part, and the limit above does not
+  apply to it. healdesk gives Practice no indemnity.
+
+  This clause allocates cost between the parties. It does not change what each
+  party owes a regulator directly under HIPAA: nothing in it relieves healdesk
+  of a civil money penalty a regulator imposes on healdesk itself, which no
+  contract can shift, and Practice's own duty under 45 CFR 164.404 to notify
+  its patients remains Practice's.
+
+  healdesk does not carry liability insurance, and its own suppliers cap their
+  liability to healdesk at figures far below what a breach can cost. Practice
+  should size its own cover accordingly.
+
+17. AVAILABILITY OF RECORDS
+
+  healdesk will make its internal practices, books and records relating to the
+  use and disclosure of protected health information available to the
+  Secretary of Health and Human Services for the purpose of determining
+  compliance.
+
+18. NOTICES, GOVERNING LAW, AND INTERPRETATION
+
+  Notices under this agreement are in writing. To healdesk: 800 N King Street,
+  Suite 304-1426, Wilmington, DE 19801, United States, and by email to
+  legal@healdesk.io. To Practice: the email address of the signatory above,
+  and any notice address Practice later gives healdesk in writing. Breach
+  reports may additionally be given by telephone to Practice, but the written
+  notice is the notice.
+
+  This agreement is governed by the laws of the State of Delaware and by
+  HIPAA, without regard to conflict-of-laws rules, and the parties submit to
+  the courts of that State. Any ambiguity is resolved in favour of a meaning
+  that permits compliance with HIPAA. A reference to a section of HIPAA or of
+  a regulation means that section as amended, and if a change in law requires
+  a change to this agreement, the parties will agree it in good faith within
+  thirty days of either asking, failing which either may terminate under the
+  Term clause. If any provision is unenforceable the rest stands.
+
+  This agreement, the Terms and the order Practice placed are the entire
+  agreement between Golden Clinic LLC and Viixi FZC about PHI, and replace any
+  earlier version of this agreement between them from the effective date
+  forward; PHI already held is governed by this version from that date.

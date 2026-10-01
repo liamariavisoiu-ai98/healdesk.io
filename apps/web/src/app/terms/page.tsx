@@ -317,8 +317,9 @@ export default function TermsPage() {
           <strong>The language model.</strong> The provider of the language model that generates
           the agent's replies receives the content of each conversation to do so. Under its
           business associate agreement with us it keeps that content for 30 days, for abuse
-          detection, and then deletes it; it never trains on it. The Business Associate Agreement
-          states the same.
+          detection, and then deletes it, except content its automated trust-and-safety systems
+          flag or the law requires it to keep, which it may keep for up to two years; it never
+          trains on it. The Business Associate Agreement states the same.
         </p>
         <p>
           <strong>Meta channels.</strong> Instagram, Messenger and WhatsApp are operated by Meta,

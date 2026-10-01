@@ -99,7 +99,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   {
     name: "Anthropic",
     purpose: "The language model behind every channel of the product, and behind the chat demo on this website",
-    data: "Conversation text and the clinic's public service information; on this website, what you type into the demo. Under the BAA Anthropic keeps inputs for 30 days, which its covered models require. No training on any of it",
+    data: "Conversation text and the clinic's public service information; on this website, what you type into the demo. Under the BAA Anthropic keeps inputs for 30 days, which its covered models require, except content its trust-and-safety systems flag or the law requires it to keep, which it may hold for up to two years. No training on any of it",
     region: "United States",
     handlesPhi: true,
     baa: { state: "pending" },

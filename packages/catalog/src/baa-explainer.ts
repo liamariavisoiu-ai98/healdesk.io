@@ -187,7 +187,8 @@ export const BAA_CLAUSE_EXPLAINERS: Readonly<Record<ExplainedClauseId, BaaExplai
       "Every vendor that handles patient information signs the same obligations with " +
       "healdesk before it does. The language model is Anthropic's: under its agreement with " +
       "healdesk it keeps conversation content for 30 days, for abuse detection and security, " +
-      "then deletes it, and never trains on it. You get fifteen days' notice before a new " +
+      "then deletes it (content its safety systems flag, or the law requires it to keep, may " +
+      "be held for up to two years), and never trains on it. You get fifteen days' notice before a new " +
       "vendor handles patient information, and may end the agreement if you object on " +
       "reasonable grounds",
     citation: "164.504(e)(2)(ii)(D), 164.308(b)(2)",

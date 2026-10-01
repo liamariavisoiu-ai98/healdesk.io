@@ -1022,7 +1022,13 @@ export const incidents = pgTable(
     notifyBy: timestamp("notify_by", { withTimezone: true }).notNull(),
     notifiedAt: timestamp("notified_at", { withTimezone: true }),
     notifiedHow: text("notified_how"),
-    /** For non-covered clinics, the FTC Health Breach Notification Rule clock when it applies. */
+    /**
+     * For non-covered clinics, a second clock 60 days from discovery. Named
+     * for the FTC Health Breach Notification Rule, which on a closer reading
+     * (1 October 2026) does not reach a clinic's booking records: 16 CFR 318.2
+     * covers vendors of personal health records. Kept as a conservative floor
+     * under state breach-notification law; see lib/incidents/incidents.ts.
+     */
     ftcNotifyBy: timestamp("ftc_notify_by", { withTimezone: true }),
     openedBy: text("opened_by").notNull(),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),

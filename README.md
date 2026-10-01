@@ -1,10 +1,17 @@
 # healdesk.io
 
-Vertical AI front-desk / voice-agent service for high-ticket elective healthcare.
+One AI assistant for cash-pay elective clinics, sold as three inbound-only products that
+launch together: an AI voice agent (on Retell), a web chat widget on the clinic's own site,
+and a Meta bot covering Instagram, Facebook Messenger and WhatsApp.
 
-Answers every call, text, and DM — then shows the clinic which recovered call became
-**collected revenue**. That last part is the wedge: every other AI receptionist writes
-*into* the booking system and never reads the money back *out* of the point-of-sale.
+Answers every call, message and DM, day or night. Books straight into the clinic's Google
+Calendar during the conversation. Takes the deposit in chat where the clinic wants one.
+Screens and routes anything clinical to the right person. Inbound only: nothing is sent
+after a conversation ends.
+
+What the product is and does is decided by
+**[docs/v1-product-spec.md](./docs/v1-product-spec.md)**, an export of the source doc; the
+live task list is that doc's "Launch plan" tab.
 
 ---
 
@@ -13,15 +20,21 @@ Answers every call, text, and DM — then shows the clinic which recovered call 
 ```
 healdesk.io/
 ├── apps/
-│   ├── web/          Marketing site + live chat demo   → Vercel #1 (no PHI)
-│   └── app/          Product console + data model      → Vercel #2 (PHI boundary)
+│   ├── web/          Marketing site, demos, checkout, /admin     → Vercel #1 (no PHI)
+│   └── app/          The product: channel adapters (voice          → BAA host (PHI)
+│                     WebSocket, web chat API, Meta webhooks),
+│                     bookings, the clinic portal, the worker
 ├── packages/
+│   ├── catalog/      Shared contract: plans, BAA text, onboarding steps
+│   ├── connectors/   Booking/POS read adapters (phase two: POS read-back)
 │   └── leadgen/      Prospecting pipeline (Apify + Claude)
-└── docs/             PRD, ICP, lead-gen playbook, architecture, HIPAA
+└── docs/             v1-product-spec.md (source of truth), architecture, HIPAA,
+                      runbooks, policies
 ```
 
-Start with **[docs/README.md](./docs/README.md)** — it indexes everything and explains how
-the pieces relate.
+Start with **[docs/v1-product-spec.md](./docs/v1-product-spec.md)**, then
+**[docs/README.md](./docs/README.md)**, which indexes everything else and marks what is
+superseded.
 
 ---
 
@@ -37,7 +50,7 @@ npm run dev:web                         # → http://localhost:3000
 | --- | --- |
 | `npm run dev` | Every workspace at once |
 | `npm run dev:web` | Marketing site only (port 3000) |
-| `npm run dev:app` | Product console only (port 3001) |
+| `npm run dev:app` | The product, `apps/app`, only (port 3001) |
 | `npm run build` | Build all workspaces |
 | `npm run typecheck` | Typecheck all workspaces |
 
@@ -51,8 +64,10 @@ npm run discover -w @healdesk/leadgen -- --location "Austin, Texas"
 
 ## ⚠️ The PHI boundary
 
-`apps/web` handles **no PHI** and can deploy anywhere. `apps/app` handles intake, consent,
-clinical notes, and POS reconciliation — it needs **BAA-covered infrastructure**.
+`apps/web` handles **no PHI** and can deploy anywhere. `apps/app` handles every patient
+conversation: call transcripts (no call audio is kept), web chats, and Meta DMs that are
+kept non-clinical by design. It also holds bookings, deposit status and the clinic portal,
+so it needs **BAA-covered infrastructure**. POS read-back for attribution is phase two.
 
 They share this repo and split at deploy. A repo split is not required: the compliance
 boundary is about where data flows and who signed a BAA, not where code lives.
@@ -95,22 +110,50 @@ close that hole.
 | Workspace | Target | Root directory |
 | --- | --- | --- |
 | `apps/web` | Vercel project #1 | `apps/web` |
-| `apps/app` | Vercel project #2 → BAA host | `apps/app` |
+| `apps/app` | Vercel project #2 → BAA host (AWS, `us-east-1`) | `apps/app` |
+| `apps/app` worker | Same BAA host, separate process | `apps/app` |
+| `apps/app` voice endpoint (Retell custom-LLM WebSocket) | Same BAA host, separate long-lived process | `apps/app` |
 | `packages/leadgen` | Not deployed | — |
 
 Both Vercel projects point at this repo with different root directories, their own env
-vars, and their own domains.
+vars, and their own domains. The voice endpoint cannot run on Vercel at all: Retell holds a
+WebSocket open for the whole call, which a route handler cannot accept. See
+[CLAUDE.md](./CLAUDE.md) → Deployment.
 
 ---
 
 ## Status
 
-- ✅ Marketing site — hero, six-specialty strip, live chat + voice demo, ROI calculator, attribution section
+Read out of the code on 30 September 2026. The spec's "Launch plan" tab is the task list;
+this is only a summary.
+
+- ✅ Marketing site — hero, six-specialty strip, live chat + voice demo, ROI calculator,
+  attribution section. The demo call still runs through Synthflow until the Retell agent
+  exists. Any copy claiming collected or recovered revenue is phase two and has to come out
+  of v1 copy.
 - ✅ Server-side gated chat route
-- ✅ Attribution data model (`apps/app/src/db/schema.ts`)
 - ✅ Lead-gen pipeline
-- ✅ Click-through BAA — version 1.0.0 approved by counsel and enforced: provisioning refuses an unapproved template
-- ✅ Pricing — five channel-priced packages in `packages/catalog`, monthly + annual + one-time setup fee, no trial; `stripe:setup` creates the 17 prices and 2 meters
-- ✅ Entitlements + billing lifecycle — per-clinic channel and allowance entitlements, Stripe invoice/subscription/dispute events handled (this pass)
-- ⬜ Product console — auth, connectors, reconciliation job (see the console page for the ordered list)
-- ⬜ Voice — Synthflow is the vendor; clinics forward their existing number to a Synthflow-issued one. Agent provisioning and the forwarding page are not built yet
+- ✅ Click-through BAA — version 1.0.0 approved by counsel and enforced: provisioning refuses
+  an unapproved template
+- ✅ Entitlements + billing lifecycle — per-clinic channel and allowance entitlements,
+  Stripe invoice/subscription/dispute events handled
+- ⏸ Attribution data model and reconciliation (`apps/app/src/db/schema.ts`,
+  `src/lib/attribution`, `src/lib/sync`) — built, phase two, fenced out of v1 flows and
+  claims
+- ⬜ Pricing — five channel-priced packages in `packages/catalog` (monthly + annual +
+  one-time setup fee, no trial) and `stripe:setup` exist, but the pricing page is not
+  final: the overage rates ($0.35/min, $0.25/conversation) are placeholders until measured,
+  and WhatsApp service replies inside Meta's window become billable on 1 October 2026
+- ⬜ Provisioning on the first paid invoice — today the Stripe webhook in `apps/web`
+  creates the account on `checkout.session.completed`, and `invoice.paid` only activates it
+- ⬜ Voice on Retell — the custom-LLM WebSocket endpoint in `apps/app`, a number in the
+  clinic's area code allocated at payment, the three coverage modes. Not built;
+  `apps/app/src/lib/voice` still ingests Synthflow payloads
+- ⬜ Web chat widget — not built
+- ⬜ Meta bot booking and payment links inside the 24-hour window — not built.
+  `apps/app/src/lib/meta` holds an earlier front-door handler that books nothing. Meta
+  Business Verification of Viixi FZC, App Review and WhatsApp Tech Provider status are
+  pending
+- ⬜ Google Calendar booking — OAuth connection, idempotent writes, 60-second slot holds,
+  manual booking mode, and Google's verification of the calendar scope. Not built
+- ⬜ Clinic portal (seven screens) and the four-step onboarding wizard — not built

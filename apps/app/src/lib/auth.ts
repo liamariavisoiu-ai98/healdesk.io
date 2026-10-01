@@ -1,5 +1,9 @@
 import { betterAuth } from "better-auth";
-import { drizzleAdapter } from "better-auth/adapters/drizzle";
+// better-auth 1.6 moved the adapter into its own package and only re-exports
+// it from "better-auth/adapters/drizzle". npm hoists that package under
+// better-auth's own node_modules, where this workspace cannot resolve it, so
+// it is a direct dependency and imported from its own name.
+import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { nextCookies } from "better-auth/next-js";
 import { organization } from "better-auth/plugins";
 import { and, eq, gt } from "drizzle-orm";

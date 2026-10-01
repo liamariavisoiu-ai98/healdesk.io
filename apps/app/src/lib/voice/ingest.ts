@@ -131,7 +131,12 @@ export class VoiceIngestError extends Error {
 
 export type IngestResult = {
   conversationId: string;
-  recoveryReason: RecoveryReason | null;
+  /**
+   * Widened to what the database can hold: a duplicate webhook returns the
+   * stored row, and rows backfilled by drizzle/0019 carry the retired value.
+   * v1 never writes it (see RecoveryReason).
+   */
+  recoveryReason: StoredRecoveryReason | null;
   duplicate: boolean;
   /**
    * The booking request this call produced, where it produced one. Never an
@@ -146,8 +151,13 @@ export type IngestResult = {
  * The schema enum still carries `missed_call_callback` (drizzle/0019); v1
  * places no calls, so nothing here produces it any more, and the v1 figure
  * "calls answered that would previously have rung out" counts only these three.
+ * A row that already holds the old value (0019 backfilled some) is read back
+ * as the wider schema type below, never produced.
  */
 type RecoveryReason = "after_hours" | "line_busy" | "rang_unanswered";
+
+/** What the database can hand back, which is one value wider than what v1 writes. */
+type StoredRecoveryReason = RecoveryReason | "missed_call_callback";
 
 /**
  * Decide whether this contact was genuinely recovered.

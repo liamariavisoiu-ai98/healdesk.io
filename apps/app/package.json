@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
+    "@better-auth/drizzle-adapter": "^1.6.26",
     "@healdesk/catalog": "*",
     "@healdesk/connectors": "*",
     "better-auth": "^1.6.26",

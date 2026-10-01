@@ -136,11 +136,20 @@ export function channelMayCarryPhi(channel: Channel): boolean {
  * disclosure; so is sympathising with a condition the patient mentioned.
  * "Sorry to hear about your acne" confirms both who they are and why they
  * contacted a dermatologist.
+ *
+ * This is the one Meta rule of docs/counsel/agreement-changes.md § 6, which
+ * BAA 1.2.1 clause 14 and terms § 9 also state: the assistant may book and
+ * may send the clinic's own hosted payment link on these channels, so the
+ * old blanket "anything about payment" entry is gone; a treatment name and
+ * any promotion are out, because WhatsApp's policy bars promoting medical
+ * and healthcare products and Meta signs no BAA.
  */
 export const META_CHANNEL_PROHIBITIONS = [
   "Confirming the person is, was, or will be a patient",
   "Any appointment date, time, or provider name",
+  "Any treatment name, in a reply or in a payment description",
   "Acknowledging a condition they mentioned, even sympathetically",
-  "Anything about payment, balances, or insurance status",
+  "Balances, insurance status, or anything about payment beyond the clinic's own hosted payment link",
+  "Promotions of any kind (WhatsApp's policy bars promoting medical and healthcare products)",
   "Any clinical guidance whatsoever",
 ] as const;

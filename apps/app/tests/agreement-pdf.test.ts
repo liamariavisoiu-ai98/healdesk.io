@@ -1,5 +1,5 @@
 import {
-  BAA_ASSENT_LABEL,
+  assentSentence,
   currentBaaTemplate,
   getBaaTemplate,
   hashBaaText,
@@ -60,6 +60,13 @@ const VARS: BaaVariables = {
 const SIGNED = prepareBaa(currentBaaTemplate(), VARS);
 const ACCEPTED_AT = new Date("2026-08-18T14:03:11.000Z");
 
+/**
+ * What signAgreement stores as the label: the full sentence beside the
+ * checkbox, derived from the clinic name, not the fixed half the browser
+ * sends as proof. Long enough to wrap, which the verbatim test relies on.
+ */
+const ASSENT_LABEL = assentSentence(VARS.clinicLegalName);
+
 function acceptance(
   over: Partial<BaaAcceptanceRecord> = {},
 ): BaaAcceptanceRecord {
@@ -67,7 +74,7 @@ function acceptance(
     documentVersion: SIGNED.version,
     documentHash: SIGNED.hash,
     renderedText: SIGNED.text,
-    assentLabel: BAA_ASSENT_LABEL,
+    assentLabel: ASSENT_LABEL,
     acceptedByName: "Alex Chen",
     acceptedByEmail: "alex@radiance.test",
     acceptedByTitle: "Owner",
@@ -433,8 +440,8 @@ describe("renderAgreementPdf", () => {
     const text = collapsed(lines.join("\n"));
 
     // The label is long enough to wrap; quoted so its bounds are visible.
-    expect(text).toContain(`"${BAA_ASSENT_LABEL}"`);
-    expect(BAA_ASSENT_LABEL.length).toBeGreaterThan(60);
+    expect(text).toContain(`"${ASSENT_LABEL}"`);
+    expect(ASSENT_LABEL.length).toBeGreaterThan(60);
 
     expect(lines).toContain("RECORD OF ASSENT");
     expect(text).toContain("Accepted by Alex Chen");
@@ -777,7 +784,9 @@ describe("renderAgreementPdf", () => {
 
   test("names the file by version and date, and by nothing else", async () => {
     const pdf = await renderAgreementPdf(acceptance());
-    expect(pdf.filename).toBe("healdesk-baa-1.0.0-2026-08-18.pdf");
+    // The record's version, which is the current template's — 1.2.0 today.
+    expect(SIGNED.version).toBe("1.2.0");
+    expect(pdf.filename).toBe(`healdesk-baa-${SIGNED.version}-2026-08-18.pdf`);
     expect(pdf.filename).not.toContain("Radiance");
     expect(pdf.filename).not.toContain("Alex");
 
@@ -786,7 +795,7 @@ describe("renderAgreementPdf", () => {
     const lateNight = await renderAgreementPdf(
       acceptance({ acceptedAt: new Date("2026-08-18T23:30:00.000Z") }),
     );
-    expect(lateNight.filename).toBe("healdesk-baa-1.0.0-2026-08-18.pdf");
+    expect(lateNight.filename).toBe(`healdesk-baa-${SIGNED.version}-2026-08-18.pdf`);
 
     // A stored version is still a string that ends up in a header and a path.
     const hostile = await renderAgreementPdf(

@@ -40,6 +40,9 @@ import {
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 
+/** Text assertions compare through this: the 78-column wrap may break any phrase across lines. */
+const unwrap = (text: string) => text.replace(/\s+/g, " ");
+
 const VARS: BaaVariables = {
   clinicLegalName: "Radiance Med Spa",
   signatoryName: "Alex Chen",
@@ -144,9 +147,13 @@ describe("rendering", () => {
       isCoveredEntity: null,
     });
 
-    expect(yes).toMatch(/is\s+therefore a covered entity/);
-    expect(no).toMatch(/may\s+therefore not be a covered entity/i);
-    expect(unknown).toMatch(/has not yet determined/);
+    expect(yes).toMatch(/is\s+therefore\s+a\s+covered\s+entity/);
+    expect(no).toMatch(/may\s+therefore\s+not\s+be\s+a\s+covered\s+entity/i);
+    // 1.2.0 (via 1.1.0's practice-status clause): the practice NOTIFIES its
+    // status; healdesk no longer "determines" or "confirms" it.
+    expect(unwrap(unknown)).toContain(
+      "has not yet notified healdesk whether it is a covered entity",
+    );
 
     // Three genuinely different documents, so three different hashes.
     expect(new Set([hashBaaText(yes), hashBaaText(no), hashBaaText(unknown)]).size)
@@ -177,6 +184,37 @@ describe("rendering", () => {
       expect(renderBaa(currentBaaTemplate(), VARS)).toMatch(/DRAFT/);
     }
   });
+
+  test("the offered template is released, says so, and carries no draft wording", () => {
+    // 1.2.0 was released on 2026-10-01 on the owner's own review, without
+    // external counsel (the doc comment on approvedByCounsel in
+    // packages/catalog/src/baa.ts records that). The document itself must
+    // read as executable: a DRAFT line, or the 1.1.0 acceptance placeholder,
+    // in an offered agreement is the draft preamble leaking into production.
+    expect(CURRENT_BAA_VERSION).toBe("1.2.0");
+    expect(currentBaaTemplate().approvedByCounsel).toBe(true);
+    const text = renderBaa(currentBaaTemplate(), VARS);
+    expect(text).toContain("Version 1.2.0 — executed electronically");
+    expect(text).not.toMatch(/DRAFT|NOT FOR EXECUTION|\[NAME, TITLE\]/);
+    // The party is the legal entity, not the trade name alone.
+    expect(unwrap(text)).toContain('Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates ("healdesk")');
+  });
+});
+
+describe("the assent sentence", () => {
+  test("mentions no consent warranty, because no offered agreement contains one", () => {
+    // Until 1.2.0 the fixed label ended "and confirm the consent warranty
+    // above", and no offered document had carried that warranty since
+    // outboundMessaging went false on both signing paths. The words beside
+    // the checkbox are the evidence of what was agreed to; they have to
+    // describe the document above them. Rows signed under the old label keep
+    // it — that is what storing the label is for.
+    expect(BAA_ASSENT_LABEL).toBe("I agree to the Business Associate Agreement");
+    expect(assentSentence("Radiance Med Spa")).toBe(
+      "I agree to the Business Associate Agreement on behalf of Radiance Med Spa, and I confirm I am authorised to enter into it.",
+    );
+    expect(assentSentence("  ")).toContain("on behalf of my practice");
+  });
 });
 
 /**
@@ -192,40 +230,42 @@ describe("rendering", () => {
  * the right way to find out.
  */
 describe("every variant the funnel can produce", () => {
+  // outboundMessaging is not an axis any more. In 1.0.0 it keyed the consent
+  // warranty and the reactivation gate; 1.2.0 has neither clause, so the
+  // field has no contractual consequence and a variant per value would be
+  // two names for one document. The test below pins that it stays that way.
   const AXES = {
     isCoveredEntity: [true, false, null] as const,
     attributionMode: ["estimated", "verified"] as const,
     connectedPlatform: [null, "Boulevard"] as const,
-    outboundMessaging: [true, false] as const,
   };
 
   const variants: BaaVariables[] = [];
   for (const isCoveredEntity of AXES.isCoveredEntity) {
     for (const attributionMode of AXES.attributionMode) {
       for (const connectedPlatform of AXES.connectedPlatform) {
-        for (const outboundMessaging of AXES.outboundMessaging) {
-          // Verified with no platform is unreachable — the funnel only offers
-          // verified once a connectable platform is chosen, and signAgreement
-          // rejects the combination. Skip rather than assert on a document
-          // that can never be signed.
-          if (attributionMode === "verified" && connectedPlatform === null) {
-            continue;
-          }
-          variants.push({
-            ...VARS,
-            isCoveredEntity,
-            attributionMode,
-            connectedPlatform,
-            outboundMessaging,
-          });
+        // Verified with no platform is unreachable — the funnel only offers
+        // verified once a connectable platform is chosen, and signAgreement
+        // rejects the combination. Skip rather than assert on a document
+        // that can never be signed.
+        if (attributionMode === "verified" && connectedPlatform === null) {
+          continue;
         }
+        variants.push({
+          ...VARS,
+          isCoveredEntity,
+          attributionMode,
+          connectedPlatform,
+          // What both signing paths pass.
+          outboundMessaging: false,
+        });
       }
     }
   }
 
   test("there are exactly as many as the axes predict", () => {
-    // 3 × ((1 estimated × 2 platforms) + (1 verified × 1 platform)) × 2 = 18
-    expect(variants).toHaveLength(18);
+    // 3 × ((1 estimated × 2 platforms) + (1 verified × 1 platform)) = 9
+    expect(variants).toHaveLength(9);
   });
 
   test.each(variants.map((v) => [describeVariant(v), v] as const))(
@@ -241,14 +281,23 @@ describe("every variant the funnel can produce", () => {
 
       // The obligations that must be in EVERY agreement, whatever they bought.
       for (const required of [
-        "covered-entity-status",
+        "definitions",
+        "practice-status",
         "permitted-uses",
+        "google-calendar",
+        "own-use",
+        "practice-duties",
         "safeguards",
+        "minimum-necessary",
         "reporting",
         "subcontractors",
+        "patient-rights",
+        "acting-in-your-place",
         "prohibited",
-        "return-or-destroy",
+        "term",
+        "liability",
         "records-to-hhs",
+        "notices-and-law",
       ]) {
         expect(
           applicableClauses(currentBaaTemplate(), variables).map((c) => c.id),
@@ -289,26 +338,37 @@ describe("every variant the funnel can produce", () => {
         // handed a contract describing credentials we do not hold.
         expect(text).toMatch(/holds no\s+credentials/);
         expect(text).not.toMatch(/READ-ONLY access/);
+        // v1 reads nothing from any practice system; a clinic that named its
+        // platform (a Mindbody or Boulevard clinic in manual booking mode)
+        // reads that about its own system, by name.
+        if (variables.connectedPlatform) {
+          expect(unwrap(text)).toContain(
+            `holds no credentials to ${variables.connectedPlatform}, or to any other practice-management or point-of-sale system`,
+          );
+        }
+        // And no v1 agreement claims revenue: the figure v1 may state is
+        // booked value, and the BAA states no figure at all.
+        expect(text).not.toMatch(/revenue/i);
       }
     }
   });
 
-  test("the consent warranty appears only where outbound messaging is on", () => {
+  test("outbound messaging has no contractual consequence, and no outbound clause is reachable", () => {
+    // v1 is inbound only. 1.0.0 keyed the consent warranty and the
+    // reactivation gate to outboundMessaging; 1.2.0 registers neither clause,
+    // so flipping the field must change nothing — which is why it is no
+    // longer an axis above. A variant that DID change would mean an outbound
+    // clause had found its way back into the offered template.
     for (const variables of variants) {
-      const ids = applicableClauses(currentBaaTemplate(), variables).map((c) => c.id);
-      expect(ids.includes("outbound-consent")).toBe(variables.outboundMessaging);
-    }
-  });
-
-  test("reactivation is gated whenever covered-entity status is unresolved", () => {
-    // The healthcare exemption is available only to a covered entity or its
-    // business associate, so an unresolved determination has to switch the
-    // feature off — and say so in the document rather than in a support thread.
-    for (const variables of variants) {
-      const ids = applicableClauses(currentBaaTemplate(), variables).map((c) => c.id);
-      const expected =
-        variables.outboundMessaging && variables.isCoveredEntity !== true;
-      expect(ids.includes("reactivation-gate")).toBe(expected);
+      const off = prepareBaa(currentBaaTemplate(), variables);
+      const on = prepareBaa(currentBaaTemplate(), { ...variables, outboundMessaging: true });
+      expect(on.hash).toBe(off.hash);
+      for (const prepared of [off, on]) {
+        for (const gone of ["outbound-consent", "reactivation-gate", "consented-callbacks", "direct-booking"]) {
+          expect(prepared.clauseIds).not.toContain(gone);
+        }
+        expect(prepared.text).not.toMatch(/warrants that|holds the consents|reactivation|called back/i);
+      }
     }
   });
 
@@ -330,7 +390,6 @@ function describeVariant(v: BaaVariables): string {
     `ce=${String(v.isCoveredEntity)}`,
     v.attributionMode,
     v.connectedPlatform ?? "no-platform",
-    v.outboundMessaging ? "outbound" : "inbound-only",
   ].join("/");
 }
 
@@ -441,7 +500,13 @@ describe("validation", () => {
     // into the record as "what the button said".
     expect(() =>
       validateSignRequest(
-        validSignRequest({ assentLabel: "I agree to the Business Associate Agreement" }),
+        validSignRequest({
+          // The label every build before 1.2.0 sent — exactly the case the
+          // check exists for: a stale bundle reporting words the current
+          // agreement does not say.
+          assentLabel:
+            "I agree to the Business Associate Agreement and confirm the consent warranty above",
+        }),
       ),
     ).toThrow(/does not match/);
     expect(() =>
@@ -461,6 +526,31 @@ describe("validation", () => {
     expect(() =>
       validateSignRequest(validSignRequest({ displayedHash: undefined })),
     ).not.toThrow();
+  });
+
+  test("refuses verified reporting while phase two is off", () => {
+    // Checkout no longer offers verified attribution, but a hand-crafted
+    // request could still ask for it, and the clause it selects describes
+    // read-only access to a practice system and "revenue", neither of which
+    // v1 has. The same flag that keeps the phase-two jobs off keeps this
+    // clause unsignable.
+    delete process.env.HEALDESK_PHASE_TWO_ATTRIBUTION;
+    expect(() =>
+      validateSignRequest(
+        validSignRequest({ attributionMode: "verified", platform: "boulevard" }),
+      ),
+    ).toThrow(/not offered in v1/);
+
+    process.env.HEALDESK_PHASE_TWO_ATTRIBUTION = "true";
+    try {
+      expect(() =>
+        validateSignRequest(
+          validSignRequest({ attributionMode: "verified", platform: "boulevard" }),
+        ),
+      ).not.toThrow();
+    } finally {
+      delete process.env.HEALDESK_PHASE_TWO_ATTRIBUTION;
+    }
   });
 });
 
@@ -594,7 +684,10 @@ describeDb("signing", () => {
   test("the stored document reflects what they bought, and records the variant", async () => {
     // The end-to-end version of the variant tests: a verified clinic and an
     // estimated one sign genuinely different contracts through the real API
-    // path, and each row carries the clause list that produced it.
+    // path, and each row carries the clause list that produced it. Verified
+    // reporting is phase two, so the flag that admits it is set for this test
+    // only (and cleared in the finally below).
+    process.env.HEALDESK_PHASE_TWO_ATTRIBUTION = "true";
     const verified = await signAgreement(
       validSignRequest({
         clinicLegalName: "Verified Clinic",
@@ -625,15 +718,23 @@ describeDb("signing", () => {
     ]);
     expect(rows[0]!.variables.appliedClauses).toContain("data-sources-verified");
     expect(rows[0]!.variables.attributionMode).toBe("verified");
+    delete process.env.HEALDESK_PHASE_TWO_ATTRIBUTION;
   });
 
   test("refuses verified reporting for a platform with nothing to read", async () => {
     // Otherwise the contract would describe a data flow that cannot exist.
-    await expect(
-      signAgreement(
-        validSignRequest({ attributionMode: "verified", platform: "none" }),
-      ),
-    ).rejects.toThrow(/nothing is connected|has none|nothing to read/i);
+    // Phase two is switched on so this test reaches that check rather than
+    // the earlier "not offered in v1" refusal.
+    process.env.HEALDESK_PHASE_TWO_ATTRIBUTION = "true";
+    try {
+      await expect(
+        signAgreement(
+          validSignRequest({ attributionMode: "verified", platform: "none" }),
+        ),
+      ).rejects.toThrow(/nothing is connected|has none|nothing to read/i);
+    } finally {
+      delete process.env.HEALDESK_PHASE_TWO_ATTRIBUTION;
+    }
   });
 
   test("agreements signed but never paid for are surfaced, not lost", async () => {

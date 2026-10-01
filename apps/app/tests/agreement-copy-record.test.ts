@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  BAA_ASSENT_LABEL,
+  assentSentence,
   currentBaaTemplate,
   prepareBaa,
   type BaaVariables,
@@ -111,7 +111,8 @@ async function seedAcceptance(): Promise<string> {
         appliedClauses: PREPARED.clauseIds,
         displayedHashVerified: true,
       } as unknown as Record<string, unknown>,
-      assentLabel: BAA_ASSENT_LABEL,
+      // The full sentence the server derives, as signAgreement stores it.
+      assentLabel: assentSentence(VARS.clinicLegalName),
       acceptedByName: VARS.signatoryName,
       acceptedByEmail: VARS.signatoryEmail,
       acceptedByTitle: VARS.signatoryTitle ?? null,

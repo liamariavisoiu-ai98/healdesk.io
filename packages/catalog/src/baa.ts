@@ -19,12 +19,15 @@ import { wrap } from "./wrap";
  *   - **Verified attribution** means we hold read-only credentials to their
  *     booking system and pull appointments and settled sales out of it.
  *     **Estimated** means we connect to nothing and see only our own calls.
- *     Those are different data flows and the permitted-uses clause has to say
- *     which one this clinic bought.
- *   - **Covered-entity status** decides which regime applies to both parties,
- *     and separately decides whether reactivation messaging can be switched on
- *     at all — the TCPA healthcare exemption is available only to a covered
- *     entity or its business associate.
+ *     Those are different data flows and the data-sources clause has to say
+ *     which one this clinic bought. (Verified is the phase-two read-back and
+ *     is not offered at checkout in v1; the axis stays a live predicate so
+ *     the variant set stays honest.)
+ *   - **Covered-entity status** decides which regime applies to both parties.
+ *     In 1.0.0 it also decided whether reactivation messaging could be
+ *     switched on at all — the TCPA healthcare exemption is available only to
+ *     a covered entity or its business associate. v1 has no outbound of any
+ *     kind, so 1.2.0 carries no clause keyed to it.
  *
  * So a template is a PREAMBLE plus a library of CLAUSES, each of which knows
  * when it applies. Rendering assembles the clauses that apply to this clinic,
@@ -51,16 +54,20 @@ import { wrap } from "./wrap";
  * server-side, and the client sends back a hash of what it displayed so a
  * mismatch is refused rather than recorded.
  *
- * ⚖️ Version 1.0.0 is counsel-approved and is what clinics now sign. The
- * 0.1.0-draft entry is retained below it, never offered: accounts created
- * before approval signed that exact text, and their stored hash has to keep
+ * ⚖️ Version 1.2.0 is the current template and is what clinics now sign. It
+ * was released on 2026-10-01 by the owner, on the owner's own review and
+ * without external counsel; the doc comment on `approvedByCounsel` records
+ * exactly what that flag now means. 1.0.0, which counsel approved in
+ * September 2026, 1.1.0-draft, which was never offered, and 0.1.0-draft are
+ * retained below it and never offered again: accounts created against 1.0.0
+ * and 0.1.0-draft signed that exact text, and their stored hash has to keep
  * reproducing from it. That reproducibility is the whole reason the ASSEMBLED
  * document is hashed rather than the template.
  *
- * `approvedByCounsel` is now enforced rather than merely asserted —
- * provisionClinic() refuses to create a clinic against an unapproved template.
- * It is a no-op while 1.0.0 is current, and exists so the next revision in
- * progress cannot be signed into a live account by accident.
+ * `approvedByCounsel` is enforced rather than merely asserted —
+ * provisionClinic() refuses to create a clinic against a template where it is
+ * false — so a revision in progress cannot be signed into a live account by
+ * accident.
  *
  * To publish a revision: add a new template version, never edit an existing
  * one. Someone has signed the old one.
@@ -107,7 +114,10 @@ export type BaaSelections = {
    * an obligation on the CLINIC, kept because signed 1.0.0 agreements contain
    * it. In 1.1.0-draft that clause is gone: healdesk captures callback consent
    * itself (`consented-callbacks`, always present), and the field keys only
-   * `reactivation-gate`, which therefore never renders.
+   * `reactivation-gate`, which therefore never renders. No 1.2.0 clause reads
+   * it at all: v1 is inbound only, neither `outbound-consent` nor
+   * `reactivation-gate` is registered there, and a 1.2.0 document is
+   * byte-identical whatever it holds.
    */
   outboundMessaging: boolean;
   /**
@@ -120,7 +130,10 @@ export type BaaSelections = {
    * keep compiling in this wave; both signing paths are expected to pass it
    * explicitly (checkout does not ask, so both pass "desk_confirms"). The
    * election itself is evidenced by the standalone addendum's hash
-   * (direct-booking-addendum.ts), never by this field.
+   * (direct-booking-addendum.ts), never by this field. No 1.2.0 clause reads
+   * it either: v1 books into the clinic's own Google Calendar under an
+   * unconditional clause, with auto-confirm on by default, and the agreement
+   * carries no direct-booking election.
    */
   bookingMode?: "desk_confirms" | "direct";
   /**
@@ -128,8 +141,9 @@ export type BaaSelections = {
    * e.g. "Cal.com" — or null when no calendar is connected for writing. Keys
    * the 1.1.0 `calendar-write` clause and, for an estimated clinic, picks
    * `data-sources-calendar-only` over `data-sources-none`. Optional,
-   * defaulting to null, for the same reason as `bookingMode`; checkout passes
-   * { platform: "Cal.com" } when the chosen platform is `calcom`.
+   * defaulting to null, for the same reason as `bookingMode`. Both signing
+   * paths now pass null, identically: Cal.com is not a v1 write target, and
+   * no 1.2.0 clause reads this — its Google Calendar clause is unconditional.
    */
   calendarWrite?: { platform: string } | null;
 };
@@ -163,7 +177,17 @@ export type BaaTemplate = {
   version: string;
   /** When this template version was published. Not when anyone signed it. */
   publishedOn: string;
-  /** True once counsel has approved this version. Provisioning refuses otherwise. */
+  /**
+   * Approved for release by the owner, who takes responsibility for the text.
+   * Provisioning refuses a template where this is false, and the signing
+   * screen flags one as a draft.
+   *
+   * The name predates the decision it now records. 1.0.0 was approved by
+   * counsel; version 1.2.0 was released on 2026-10-01 on the owner's own
+   * review without external counsel, and this flag is what records that
+   * release. Not renamed, because provisioning, agreements, AgreementStep and
+   * the tests all read it by this name.
+   */
   approvedByCounsel: boolean;
   preamble: (v: BaaVariables) => string;
   clauses: readonly BaaClause[];
@@ -689,14 +713,13 @@ const CLAUSES: readonly BaaClause[] = [
 
 /**
  * ⚖️ The revision the September 2026 review asked for, drafted so counsel
- * reviews a document rather than a list. It is registered at BAA_TEMPLATES[1],
- * BELOW 1.0.0, so nothing offers it: currentBaaTemplate() reads [0] and
- * provisioning refuses an unapproved template anyway. When counsel signs off,
- * the placeholders in square brackets are replaced with the five facts the
- * owner supplies (entity, notice address, governing law, cap floor, refund
- * window), approvedByCounsel flips, and the entry moves to [0] with new golden
- * hashes. Until then the golden test freezes this draft too, so a stray edit
- * is a failing test rather than a silent change to a document under review.
+ * reviews a document rather than a list. It was never offered and never
+ * signed: 1.2.0 (below) superseded it on 2026-10-01, keeping its structure
+ * and dropping what v1 does not do. It stays registered, below the offered
+ * version and with approvedByCounsel false, because docs/counsel/ cites its
+ * rendering (docs/baa-v1.1.0-draft.txt) and the golden test freezes it — a
+ * stray edit here is a failing test rather than a silent change to a document
+ * other documents quote.
  *
  * What changed against 1.0.0, clause by clause, and why:
  *
@@ -1286,6 +1309,500 @@ function draftPreamble110(v: BaaVariables): string {
 }
 
 // -----------------------------------------------------------------------------
+// Version 1.2.0 — the offered template. Released 2026-10-01.
+// -----------------------------------------------------------------------------
+
+/**
+ * The v1 agreement, built on 1.1.0-draft's structure — the named party, the
+ * definitions, Practice's status, own use, Practice's duties, minimum
+ * necessary, term, liability and the boilerplate — and brought into line with
+ * docs/v1-product-spec.md, which fences out everything the draft described
+ * that v1 does not do. Released on 2026-10-01 by the owner, on the owner's own
+ * review and without external counsel; the template entry's
+ * `approvedByCounsel` records that (see the field's doc comment).
+ *
+ * What changed against 1.1.0-draft, clause by clause:
+ *
+ *   preamble         "executed electronically"; no DRAFT wording and no
+ *                    acceptance placeholder. The two party lines wrap, so the
+ *                    plain-text copy stays inside 78 columns.
+ *   data sources     `data-sources-calendar-only` is gone. `data-sources-none`
+ *                    is a new body: no credentials to any practice-management
+ *                    or point-of-sale system, nothing read from one, and the
+ *                    one access healdesk does hold is the calendar the next
+ *                    clause describes. The "Revenue figures" sentence is gone:
+ *                    v1 may not claim revenue (CLAUDE.md, "Claims and copy").
+ *   google-calendar  NEW and unconditional, replacing `calendar-write`. Every
+ *                    v1 clinic connects its own Google Calendar by OAuth, and
+ *                    the appointment healdesk adds there is the only write it
+ *                    performs anywhere.
+ *   safeguards       The exception keeps only the call a patient placed. The
+ *                    callback sentence is gone; healdesk places no calls and
+ *                    sends no SMS.
+ *   minimum          Adds what the assistant collects — a callback slip's
+ *                    worth; no history, medication or diagnosis; no card
+ *                    numbers — and the opening-line disclosure Practice
+ *                    cannot switch off.
+ *   reporting        Same clocks, same 164.410(c) content; the closing
+ *                    sentence defers the notification-cost allocation to the
+ *                    Liability clause rather than restating it.
+ *   subcontractors   Names the model provider and the number. Anthropic
+ *                    retains conversation content for 30 days, for abuse
+ *                    detection and security, under its BAA with healdesk, then
+ *                    deletes it; it never trains on it (spec, "Five rules",
+ *                    third rule). The fifteen-day notice and objection right
+ *                    stay.
+ *   prohibited       New object (the 1.0.0 one is untouched). The advertising
+ *                    bullet is replaced by one that is true of v1: no PHI to
+ *                    any advertising or analytics platform, and on Instagram,
+ *                    Messenger and WhatsApp — where Meta signs no BAA — the
+ *                    assistant handles no clinical content and confirms no
+ *                    appointment details. No training, no clinical advice and
+ *                    no monetising stay.
+ *   liability        The owner's allocation, the same as Terms §13–14:
+ *                    healdesk's liability excluded where the law allows and
+ *                    capped at twelve months' Fees where it does not, the cap
+ *                    not reaching wilful misconduct, gross negligence or any
+ *                    liability the law says cannot be limited; Practice
+ *                    indemnifies as Terms §14 says, incident investigation and
+ *                    breach notification costs included; a civil money penalty
+ *                    a regulator imposes on healdesk stays healdesk's, which no
+ *                    contract can shift. The 1.0.0 sentence making healdesk
+ *                    bear notification costs is gone.
+ *   notices          One word: notices to Practice go to the signatory's
+ *                    address "above" (it is in the preamble), where 1.1.0
+ *                    said "below". Otherwise 1.1.0's, including the
+ *                    entire-agreement paragraph that replaces earlier
+ *                    versions from the effective date.
+ *   removed          `consented-callbacks`, `direct-booking`,
+ *                    `reactivation-gate` and `calendar-write`. v1 has no
+ *                    outbound of any kind and no booking election, so nothing
+ *                    keyed to `outboundMessaging` or `bookingMode` may be
+ *                    reachable; `calendarWrite` is null on both signing paths.
+ *
+ * Reused unchanged, by lookup rather than copy: definitions, practice-status,
+ * own-use, practice-duties and term from 1.1.0-draft; permitted-uses,
+ * data-sources-verified, patient-rights, acting-in-your-place and
+ * records-to-hhs from 1.0.0. `data-sources-verified` is the phase-two
+ * read-back and cannot render from checkout while VERIFIED_ATTRIBUTION_OFFERED
+ * is false; it is kept so the attribution axis stays a live predicate, as in
+ * every earlier version.
+ */
+function byId110(id: string): BaaClause {
+  const clause = CLAUSES_1_1.find((c) => c.id === id);
+  if (!clause) throw new Error(`No 1.1.0 clause ${id}`);
+  return clause;
+}
+
+const CLAUSES_1_2: readonly BaaClause[] = [
+  byId110("definitions"),
+  byId110("practice-status"),
+  byId("permitted-uses"),
+  byId("data-sources-verified"),
+
+  /**
+   * The v1 statement of what healdesk reads: nothing, from any system a
+   * practice runs. Names the platform when the practice named one, so a
+   * Mindbody or Boulevard clinic in manual booking mode reads a sentence about
+   * its own system rather than a generic one. The single access healdesk does
+   * hold — the Google Calendar OAuth token — is the next clause's subject, and
+   * this one points at it rather than pretending it away.
+   */
+  {
+    id: "data-sources-none",
+    heading: "What healdesk reads from your systems",
+    appliesWhen: (v) => v.attributionMode !== "verified",
+    body: (v) =>
+      wrap(
+        (v.connectedPlatform
+          ? `healdesk holds no credentials to ${v.connectedPlatform}, or to any other ` +
+            `practice-management or point-of-sale system, and reads nothing from them. `
+          : `healdesk holds no credentials to any practice-management or point-of-sale ` +
+            `system and reads nothing from one. `) +
+          `The only patient information healdesk receives is what patients themselves ` +
+          `give it during a call or chat, together with the calendar access the Google ` +
+          `Calendar clause describes.`,
+      ),
+  },
+
+  /**
+   * The one write healdesk performs, as an upper bound: one calendar, one
+   * action (add), two triggers (the assistant booked, or staff confirmed a
+   * request where the practice requires approval), a fixed and short list of
+   * what crosses, and never a phone number or an email address. Google is not
+   * healdesk's subcontractor here — the calendar is the practice's own system
+   * under the practice's own agreement with Google — which is why the clause
+   * has Practice acknowledge where Google's BAA does and does not reach, and
+   * places healdesk's access under this agreement.
+   */
+  {
+    id: "google-calendar",
+    heading: "Practice's Google Calendar",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `Practice connects its own Google Calendar by OAuth, under Practice's own ` +
+          `agreement with Google. healdesk reads that calendar's free and busy times and ` +
+          `the events on the booking calendar Practice chooses, holds the OAuth token ` +
+          `encrypted, and adds an appointment when the assistant books one or, where ` +
+          `Practice has set bookings to require approval, when Practice's staff confirm a ` +
+          `request. It sends the calendar a first name, the service asked about and the ` +
+          `time, never a telephone number or an email address, and it moves, edits or ` +
+          `cancels nothing it did not create.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Practice acknowledges that Google's business associate agreement covers ` +
+          `Calendar only where Practice's Google Workspace administrator has accepted ` +
+          `it, and that healdesk's access to the calendar is governed by this agreement.`,
+      ),
+  },
+
+  byId110("own-use"),
+  byId110("practice-duties"),
+
+  /**
+   * 1.1.0's first two paragraphs, word for word. The third keeps only the
+   * exception that is true of v1: a patient who telephones has chosen the
+   * telephone. The callback sentence is gone because healdesk places no calls.
+   */
+  {
+    id: "safeguards",
+    heading: "Safeguards",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `healdesk will use appropriate administrative, physical and technical ` +
+          `safeguards to prevent any use or disclosure of PHI this agreement does not ` +
+          `permit, and will comply with Subpart C of 45 CFR Part 164 — the HIPAA ` +
+          `Security Rule — in respect of electronic PHI.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `PHI is held on United States infrastructure and encrypted at rest. In transit ` +
+          `it is encrypted wherever healdesk controls both ends, and healdesk will not ` +
+          `transmit PHI over a channel that cannot negotiate encryption — email included. ` +
+          `Where a message cannot be delivered securely healdesk will fail the delivery ` +
+          `and tell Practice, rather than send it in the clear.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `One narrow exception: a patient who telephones has chosen the telephone, and a ` +
+          `telephone call is not end-to-end encrypted. healdesk may answer such a call, ` +
+          `limited to the minimum necessary and never including clinical detail, test ` +
+          `results or payment information. healdesk places no calls and sends no SMS. ` +
+          `This exception does not extend to any other channel or content.`,
+      ),
+  },
+
+  /**
+   * The regulation's sentence, then the product's: what the assistant
+   * collects, stated as the ceiling, and the opening-line disclosure the
+   * clinic cannot switch off (spec, "Five rules", first and fifth).
+   */
+  {
+    id: "minimum-necessary",
+    heading: "Minimum necessary",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `Each party will limit its use, disclosure and requests of PHI to the minimum ` +
+          `necessary to accomplish the purpose, consistent with 45 CFR 164.502(b).`,
+      ) +
+      "\n\n" +
+      wrap(
+        `The assistant collects what a receptionist would write on a callback slip — a ` +
+          `name, a telephone number or email address, the service asked about and a ` +
+          `preferred time — and no more. It does not ask for a history, a medication or ` +
+          `a diagnosis, and it never takes a card number. On every channel its opening ` +
+          `line says that it is an AI assistant and, on a call, that the call is ` +
+          `transcribed; Practice cannot switch that statement off or edit it out.`,
+      ),
+  },
+
+  /**
+   * 1.1.0's reporting clause with one change: the closing sentence used to
+   * say whose cost breach notification is, and now says which clause decides
+   * it. One allocation, stated once, in the Liability clause.
+   */
+  {
+    id: "reporting",
+    heading: "Reporting breaches and security incidents",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(`healdesk will report to Practice, in writing to the address in the Notices clause:`) +
+      "\n\n" +
+      wrap(
+        `a. any use or disclosure of PHI not permitted by this agreement, within five ` +
+          `business days of healdesk becoming aware of it;`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `b. any breach of unsecured PHI, without unreasonable delay and in no case later ` +
+          `than five calendar days after discovery. A breach is treated as discovered on ` +
+          `the first day it is known, or by exercising reasonable diligence would have ` +
+          `been known, to healdesk or to any person other than the one committing it who ` +
+          `is healdesk's workforce member or agent, as 45 CFR 164.410(a)(2) provides. ` +
+          `Five days is deliberately far inside the sixty the regulation allows, because ` +
+          `Practice's own sixty-day clock to notify patients may run from healdesk's ` +
+          `discovery, not from healdesk's report;`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `c. any security incident, within five business days of becoming aware of it — ` +
+          `except routine unsuccessful attempts that compromised nothing, such as blocked ` +
+          `sign-ins, port scans and filtered traffic, which the parties agree this clause ` +
+          `reports once, here, and which healdesk will summarise on request.`,
+        "    ",
+        "       ",
+      ) +
+      "\n\n" +
+      wrap(
+        `A breach report will include, to the extent known and supplemented as learned: ` +
+          `the identification of each individual whose unsecured PHI was or is reasonably ` +
+          `believed to have been accessed, acquired, used or disclosed; a description of ` +
+          `what happened, including the dates of the breach and of its discovery; the ` +
+          `types of PHI involved; what healdesk is doing to investigate, mitigate and ` +
+          `prevent recurrence; and a contact. 45 CFR 164.410(c). Who bears the cost of ` +
+          `notifying patients, regulators and anyone else about a breach is allocated by ` +
+          `the Liability clause.`,
+      ),
+  },
+
+  /**
+   * The spec's third non-optional rule: the model provider's retention
+   * contradicts minimum retention everywhere else, and the contradiction is
+   * disclosed here, with the number and the reason, rather than left for a
+   * clinic's counsel to find. The first and third paragraphs are 1.1.0's.
+   */
+  {
+    id: "subcontractors",
+    heading: "Subcontractors",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `healdesk uses subcontractors to deliver the Services — telephony, speech ` +
+          `recognition, language models, hosting and email among them. healdesk will ` +
+          `ensure that any subcontractor that creates, receives, maintains or transmits ` +
+          `PHI on healdesk's behalf agrees in writing, before it does so, to the same ` +
+          `restrictions and conditions this agreement places on healdesk, and to comply ` +
+          `with the HIPAA Security Rule, under a contract meeting 45 CFR 164.314(a) and ` +
+          `164.504(e)(5). healdesk remains answerable to Practice for its ` +
+          `subcontractors' acts and omissions with that PHI.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Language models are used to understand a patient and answer them during a ` +
+          `conversation. healdesk's language-model provider is Anthropic, which receives ` +
+          `the content of each conversation to generate the assistant's replies, under a ` +
+          `business associate agreement with healdesk. Under that agreement Anthropic ` +
+          `retains conversation content for 30 days, for abuse detection and security, ` +
+          `and then deletes it; its covered service cannot run with shorter retention. ` +
+          `Anthropic never trains on that content, and healdesk may not use PHI to ` +
+          `train, fine-tune or evaluate any model, its own or a third party's.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `healdesk keeps a current list of these subcontractors at ` +
+          `healdesk.io/subprocessors and will give Practice at least fifteen days' notice ` +
+          `by email before adding one that will handle PHI. If Practice objects on ` +
+          `reasonable grounds before the change takes effect, Practice may terminate ` +
+          `under the Term clause without penalty.`,
+      ),
+  },
+
+  byId("patient-rights"),
+  byId("acting-in-your-place"),
+
+  /**
+   * A new object, because the 1.0.0 one is signed. Three of the four bullets
+   * are 1.0.0's in substance. The advertising bullet is the change: the 1.0.0
+   * ban on disclosing PHI "to any advertising platform" collided with
+   * Instagram, Messenger and WhatsApp, which Meta operates and through which
+   * the assistant replies to patients. The honest form keeps the ban on
+   * advertising and analytics use and says how the Meta channels are scoped —
+   * nothing clinical, no appointment details — which is the product rule the
+   * adapter enforces (CLAUDE.md, "Channels and contact").
+   */
+  {
+    id: "prohibited",
+    heading: "What healdesk is not authorised to do",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `· Use PHI to train, fine-tune, or evaluate any artificial intelligence model, ` +
+          `its own or a third party's.`,
+        "  ",
+        "    ",
+      ) +
+      "\n" +
+      wrap(
+        `· Disclose PHI to any advertising or analytics platform, in any form, including ` +
+          `hashed or aggregated. Instagram, Messenger and WhatsApp are operated by Meta, ` +
+          `which signs no business associate agreement; where Practice connects them, the ` +
+          `assistant replies there only inside a conversation the patient started, ` +
+          `handles no clinical content, confirms no appointment details, and moves ` +
+          `anything clinical to a call or to Practice's own secure route.`,
+        "  ",
+        "    ",
+      ) +
+      "\n" +
+      wrap(
+        `· Provide clinical advice, diagnosis, triage, or treatment recommendations ` +
+          `through the assistant.`,
+        "  ",
+        "    ",
+      ) +
+      "\n" +
+      wrap(`· Sell, license, or otherwise monetise patient information.`),
+  },
+
+  byId110("term"),
+
+  /**
+   * The owner's allocation, decided 2026-10-01, and the same one Terms §13 and
+   * §14 state: one answer in both documents, so neither can be read against
+   * the other. What is load-bearing whatever the numbers:
+   *
+   *   1. The carve-out from the cap. A cap that also limits liability for
+   *      healdesk's own wilful misconduct or gross negligence is the kind a
+   *      court declines to enforce; carving those out, and anything the law
+   *      says cannot be limited, is what makes the rest credible.
+   *   2. The regulatory sentence. A civil money penalty a regulator imposes on
+   *      healdesk is healdesk's to pay whatever this clause says; writing that
+   *      down is reality, not generosity, and it stops the indemnity being
+   *      read as a promise no contract can keep.
+   *   3. Naming the upstream mismatch and the absence of insurance out loud.
+   *      The clinic is entitled to know where the money behind a promise comes
+   *      from, and to size its own cover.
+   *
+   * The 1.0.0 sentence making healdesk bear the cost of notifying patients and
+   * regulators is gone: Terms §14 and docs/incident-response.md put that cost
+   * on the practice, and the reporting clause above now defers to this one.
+   */
+  {
+    id: "liability",
+    heading: "Liability, and who indemnifies whom",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `To the fullest extent the law allows, healdesk is not liable to Practice for any ` +
+          `loss arising out of or relating to this agreement or the Services, in contract, ` +
+          `tort or otherwise, including lost profits and indirect, incidental, special or ` +
+          `consequential damages. Where the law does not permit that exclusion, healdesk's ` +
+          `total aggregate liability to Practice, across all claims, is limited to the Fees ` +
+          `paid or payable by Practice in the twelve months before the event giving rise to ` +
+          `the claim. That limit does not apply to healdesk's wilful misconduct or gross ` +
+          `negligence, or to any liability the law does not allow to be limited.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Practice will defend, indemnify and hold harmless healdesk and its ` +
+          `subcontractors as section 14 of the Terms provides: against every claim, loss, ` +
+          `liability, penalty, fine, cost and expense — including reasonable legal fees, ` +
+          `the cost of defending a claim, and the cost of investigating a security ` +
+          `incident and of notifying patients, regulators, the media and anyone else about ` +
+          `a breach — to the extent it arises from or relates to the Services, PHI that ` +
+          `Practice or its patients give the Services, Practice's covered-entity status, ` +
+          `instructions Practice gave, Practice's own breach of this agreement or ` +
+          `violation of HIPAA or of state consumer-health-privacy law, or a claim by a ` +
+          `patient, a regulator or any other third party. This indemnity applies to the ` +
+          `fullest extent the law allows, including where the claim alleges negligence on ` +
+          `healdesk's part, and the limit above does not apply to it. healdesk gives ` +
+          `Practice no indemnity.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `This clause allocates cost between the parties. It does not change what each ` +
+          `party owes a regulator directly under HIPAA: nothing in it relieves healdesk ` +
+          `of a civil money penalty a regulator imposes on healdesk itself, which no ` +
+          `contract can shift, and Practice's own duty under 45 CFR 164.404 to notify its ` +
+          `patients remains Practice's.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `healdesk does not carry liability insurance, and its own suppliers cap their ` +
+          `liability to healdesk at figures far below what a breach can cost. Practice ` +
+          `should size its own cover accordingly.`,
+      ),
+  },
+
+  byId("records-to-hhs"),
+
+  /**
+   * 1.1.0's boilerplate with one word changed: the signatory's email address
+   * is in the preamble, above the clauses, and 1.1.0 said "below", pointing
+   * at nothing. Everything else — notices, Delaware law and venue, change in
+   * law, severability, and the entire-agreement paragraph that replaces
+   * earlier versions from the effective date — is word for word.
+   */
+  {
+    id: "notices-and-law",
+    heading: "Notices, governing law, and interpretation",
+    appliesWhen: ALWAYS,
+    body: (v) =>
+      wrap(
+        `Notices under this agreement are in writing. To healdesk: ${NOTICE_ADDRESS}. ` +
+          `To Practice: the email address of the signatory above, and any notice address ` +
+          `Practice later gives healdesk in writing. Breach reports may additionally be ` +
+          `given by telephone to Practice, but the written notice is the notice.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `This agreement is governed by the laws of the State of ${GOVERNING_STATE} and by ` +
+          `HIPAA, without regard to conflict-of-laws rules, and the parties submit to the ` +
+          `courts of that State. Any ambiguity is resolved in favour of a meaning that ` +
+          `permits compliance with HIPAA. A reference to a section of HIPAA or of a ` +
+          `regulation means that section as amended, and if a change in law requires a ` +
+          `change to this agreement, the parties will agree it in good faith within ` +
+          `thirty days of either asking, failing which either may terminate under the ` +
+          `Term clause. If any provision is unenforceable the rest stands.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `This agreement, the Terms and the order Practice placed are the entire ` +
+          `agreement between ${v.clinicLegalName} and ${ENTITY} about PHI, and replace ` +
+          `any earlier version of this agreement between them from the effective date ` +
+          `forward; PHI already held is governed by this version from that date.`,
+      ),
+  },
+];
+
+/**
+ * The 1.2.0 preamble: 1.1.0's, in executed form. No DRAFT line, and no
+ * acceptance block for healdesk — 1.0.0 had none either, and a block with a
+ * placeholder name is exactly the kind of text this file refuses to render.
+ * The two party lines go through wrap() so the plain-text copy stays inside
+ * 78 columns however long the practice's name or the notice address is.
+ */
+function preamble120(v: BaaVariables): string {
+  const title = v.signatoryTitle?.trim() ? `, ${v.signatoryTitle.trim()}` : "";
+  return [
+    `HEALDESK BUSINESS ASSOCIATE AGREEMENT`,
+    `Version 1.2.0 — executed electronically`,
+    ``,
+    `This Agreement is entered into under 45 CFR 164.502(e) and 164.504(e) and`,
+    `takes effect on the date below. It governs Protected Health Information`,
+    `that healdesk creates, receives, maintains or transmits for Practice in the`,
+    `course of the Services defined in the Terms.`,
+    ``,
+    `BETWEEN`,
+    wrap(`${v.clinicLegalName} ("Practice"), a ${v.specialty.toLowerCase()} practice`),
+    wrap(`${ENTITY}, ${ENTITY_FORM} ("healdesk"), of ${NOTICE_ADDRESS}`),
+    ``,
+    `SIGNED FOR PRACTICE BY`,
+    `  ${v.signatoryName}${title}`,
+    `  ${v.signatoryEmail}`,
+    ``,
+    `EFFECTIVE ${formatDate(v.effectiveDate)}`,
+  ].join("\n");
+}
+
+// -----------------------------------------------------------------------------
 // Templates
 // -----------------------------------------------------------------------------
 
@@ -1346,9 +1863,22 @@ function preamble(v: BaaVariables): string {
 }
 
 export const BAA_TEMPLATES: readonly BaaTemplate[] = [
-  // Newest APPROVED first — CURRENT_BAA_VERSION and currentBaaTemplate() both
-  // read [0], so the counsel-approved version stays at [0] until its
-  // successor is approved too.
+  // Newest RELEASED first — CURRENT_BAA_VERSION and currentBaaTemplate() both
+  // read [0], so a version stays at [0] until its successor is approved for
+  // release too.
+  {
+    version: "1.2.0",
+    publishedOn: "2026-10-01",
+    // Approved for release by the owner on 2026-10-01, on the owner's own
+    // review and without external counsel. The field's doc comment on
+    // BaaTemplate says what the flag means; this is the entry it describes.
+    approvedByCounsel: true,
+    preamble: preamble120,
+    clauses: CLAUSES_1_2,
+  },
+  // Counsel-approved in September 2026 and offered until 1.2.0 replaced it.
+  // Retained, never offered again: accounts created against it signed this
+  // exact text, and their stored hash must keep reproducing from it.
   {
     version: "1.0.0",
     publishedOn: "2026-09-05",
@@ -1356,9 +1886,10 @@ export const BAA_TEMPLATES: readonly BaaTemplate[] = [
     preamble: approvedPreamble,
     clauses: CLAUSES,
   },
-  // ⚖️ The revision under review. Registered so it is frozen by the golden
-  // test and renderable for counsel (`renderBaa(getBaaTemplate("1.1.0-draft"),
-  // …)`), never offered: it is not at [0] and approvedByCounsel is false, and
+  // ⚖️ The September 2026 revision, superseded by 1.2.0 without ever being
+  // offered. Registered so the golden test keeps freezing it and
+  // docs/baa-v1.1.0-draft.txt stays reproducible (`renderBaa(getBaaTemplate(
+  // "1.1.0-draft"), …)`); it is not at [0] and approvedByCounsel is false, and
   // provisioning refuses an unapproved template regardless.
   {
     version: "1.1.0-draft",
@@ -1393,9 +1924,15 @@ export const CURRENT_BAA_VERSION = BAA_TEMPLATES[0]!.version;
  *
  * Changing this changes what future signatures say they agreed to. Existing
  * rows keep the label they were signed under — that is the point of storing it.
+ *
+ * Until 1.2.0 the label ended "and confirm the consent warranty above". No
+ * offered document has carried a consent warranty since `outboundMessaging`
+ * went false on both signing paths, and 1.2.0 has no clause that could, so
+ * every signer was confirming a warranty their agreement did not contain. The
+ * phrase was dropped with 1.2.0 on 2026-10-01; rows signed under the old label
+ * keep it, as stored.
  */
-export const BAA_ASSENT_LABEL =
-  "I agree to the Business Associate Agreement and confirm the consent warranty above";
+export const BAA_ASSENT_LABEL = "I agree to the Business Associate Agreement";
 
 /**
  * The COMPLETE sentence beside the checkbox, as the signer sees it.

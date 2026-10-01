@@ -129,63 +129,67 @@ export const BAA_EXPLAINER = {
     "covered entity, and what HIPAA requires of you, are questions for your own counsel.",
 } as const;
 
-/** The clause ids 1.1.0-draft adds, each of which has a note below. */
+/** The 1.2.0 clauses that have a note below. */
 export type ExplainedClauseId =
-  | "consented-callbacks"
-  | "calendar-write"
-  | "data-sources-calendar-only"
-  | "direct-booking";
+  | "data-sources-none"
+  | "google-calendar"
+  | "minimum-necessary"
+  | "subcontractors";
 
 /**
- * Plain-English notes for the clauses the 1.1.0-draft adds, keyed by clause
- * id, for the signing screen to show beside the clause once that version is
- * offered. Kept separate from `BAA_EXPLAINER.terms` deliberately: those
- * paraphrase 45 CFR 164.504(e) and are pin-cited to it, whereas the callbacks
- * clause rests on the TCPA and the other three describe what the product
- * does rather than what the regulation requires. The same rules apply —
- * descriptive, never "you need this", and the agreement governs.
+ * Plain-English notes for the clauses of 1.2.0 that describe what the product
+ * does rather than paraphrase the regulation, keyed by clause id, for the
+ * signing screen to show beside the clause. Kept separate from
+ * `BAA_EXPLAINER.terms` deliberately: those are pin-cited to 45 CFR 164.504(e),
+ * whereas these are facts about the service — what healdesk reads, the Google
+ * Calendar access, what the assistant collects, and the model provider's
+ * retention, which the spec says a clinic must not have to discover from its
+ * own counsel. The same rules apply — descriptive, never "you need this", and
+ * the agreement governs.
  *
- * ⚖️ The clauses themselves are unreviewed (design of 23 September 2026).
- * Every note here must stay true to the clause it explains; a test in
- * apps/app renders the 1.1.0-draft variants and freezes their bytes, and the
- * clause body is the thing to read if a note and a clause ever seem to
- * disagree.
+ * ⚖️ Every note here must stay true to the clause it explains. The golden
+ * test in apps/app freezes the 1.2.0 bytes, and the clause body is the thing
+ * to read if a note and a clause ever seem to disagree. Three of these ids
+ * (data-sources-none, minimum-necessary, subcontractors) were also used by
+ * earlier versions with different bodies; the notes describe the 1.2.0 body,
+ * and the signing screen only ever renders the current template, so no
+ * earlier body is shown beside them.
  */
 export const BAA_CLAUSE_EXPLAINERS: Readonly<Record<ExplainedClauseId, BaaExplainerTerm>> = {
-  "consented-callbacks": {
+  "data-sources-none": {
     plain:
-      "healdesk never texts your patients and sends no reminders or win-backs. The only " +
-      "call it places is a call-back to someone who, on their own call or message to you, " +
-      "agreed to one — to settle a time or collect the details you chose at setup. It says " +
-      "it is an AI first, gives your number, honours 'stop' for good, and keeps to 8am–8pm " +
-      "in your practice's time zone and never Sunday. You give no consent warranty: healdesk " +
-      "obtains and records the consent itself, word for word",
-    citation: "47 U.S.C. 227(b)(1)(A); 47 CFR 64.1200(a)(1), (d)",
-  },
-  "calendar-write": {
-    plain:
-      "Where you connect a calendar, healdesk may read its free and busy times for one " +
-      "event type you choose and add an appointment there — only when your front desk " +
-      "confirms a time, or, if you elect direct booking, when the assistant books a caller " +
-      "by phone. It sends the calendar a first name, the service and the time, never a " +
-      "phone number or a patient's email, and never moves, edits or cancels anything it " +
-      "did not create",
-    citation: "164.502(b), 164.504(e)(2)(i)",
-  },
-  "data-sources-calendar-only": {
-    plain:
-      "With estimated reporting, healdesk reads nothing from your systems — the one " +
-      "exception being the calendar access the calendar clause describes. Revenue figures " +
-      "come from the average appointment value you supplied and are labelled as estimates",
+      "healdesk connects to no practice-management or point-of-sale system and holds no " +
+      "credentials to one. The only patient information it receives is what patients give " +
+      "it in a call or chat, plus the Google Calendar access the next clause describes",
     citation: "164.504(e)(2)(i)",
   },
-  "direct-booking": {
+  "google-calendar": {
     plain:
-      "Only if you elect it, by accepting the separate direct booking addendum: the " +
-      "telephone assistant may book a caller into your connected calendar at a time it " +
-      "read as free, and say so to the caller. Those bookings are yours as if your own " +
-      "staff had made them; healdesk stays responsible for safeguarding the information, " +
-      "and you can withdraw the election at any time by notice",
-    citation: "164.504(e)(2)(i); the Direct booking addendum",
+      "You connect your own Google Calendar with a Google login. healdesk reads when it is " +
+      "free or busy, adds an appointment when the assistant books one (or when your staff " +
+      "approve a request, if you set bookings to need approval), sends it a first name, the " +
+      "service and the time — never a phone number or an email address — and never moves, " +
+      "edits or cancels anything it did not create. Google's own agreement covers Calendar " +
+      "only where your Workspace administrator has accepted it",
+    citation: "164.502(b), 164.504(e)(2)(i)",
+  },
+  "minimum-necessary": {
+    plain:
+      "The assistant takes what a receptionist would write on a callback slip — a name, a " +
+      "number or email, the service asked about and a preferred time — and asks for no " +
+      "history, medication or diagnosis. It never takes a card number. It says it is an AI " +
+      "assistant in its first line on every channel, and on calls that the call is " +
+      "transcribed; you cannot switch that off",
+    citation: "164.502(b)",
+  },
+  subcontractors: {
+    plain:
+      "Every vendor that handles patient information signs the same obligations with " +
+      "healdesk before it does. The language model is Anthropic's: under its agreement with " +
+      "healdesk it keeps conversation content for 30 days, for abuse detection and security, " +
+      "then deletes it, and never trains on it. You get fifteen days' notice before a new " +
+      "vendor handles patient information, and may end the agreement if you object on " +
+      "reasonable grounds",
+    citation: "164.504(e)(2)(ii)(D), 164.308(b)(2)",
   },
 };

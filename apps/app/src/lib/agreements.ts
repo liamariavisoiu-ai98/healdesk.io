@@ -22,6 +22,7 @@ import { isSendableAddress } from "@/lib/reporting/deliver";
 
 import { recordSecurityEvent } from "./audit";
 import type { RequestContext } from "./audit";
+import { env } from "./env";
 import { log } from "@/lib/log";
 
 /**
@@ -175,6 +176,20 @@ export function validateSignRequest(
     throw new AgreementError("Unknown platform.", "platform");
   }
 
+  // Verified attribution is phase two (v1 spec: attended-and-collected
+  // figures are "not available in v1"). Checkout no longer offers it, but a
+  // hand-crafted request could still ask for it, and the clause it selects
+  // describes read-only access to a practice system and reports "revenue",
+  // neither of which v1 has. Refused here, under the same flag that keeps
+  // the phase-two jobs switched off, so the only way to sign that clause is
+  // to switch phase two on deliberately.
+  if (body.attributionMode === "verified" && !env.phaseTwoAttribution()) {
+    throw new AgreementError(
+      "Verified reporting is not offered in v1; it stays off until HEALDESK_PHASE_TWO_ATTRIBUTION is \"true\".",
+      "attributionMode",
+    );
+  }
+
   // Verified attribution needs something to read from. Signing an agreement
   // that describes a connection to nothing would be describing a data flow
   // that cannot exist.
@@ -248,22 +263,19 @@ export async function signAgreement(
     connectedPlatform,
     // Stays false: v1 is inbound only (v1 spec, "No outbound on any product").
     // The product places no calls and sends no messages to patients, so the
-    // clinic gives no consent warranty.
+    // clinic gives no consent warranty, and no 1.2.0 clause reads this.
     outboundMessaging: false,
-    // Checkout does not ask. The direct-booking election is the standalone
-    // addendum accepted on the setup link and evidenced by its own hash
-    // (packages/catalog/src/direct-booking-addendum.ts), never by this field.
+    // Checkout does not ask, and no 1.2.0 clause reads this: v1 books into
+    // the clinic's own Google Calendar with auto-confirm on by default, and
+    // the direct-booking addendum is not part of the agreement. Passed as the
+    // same literal apps/web's AgreementStep.tsx passes, because the rendered
+    // text is hashed on both sides and must come out byte-identical.
     bookingMode: "desk_confirms",
-    // Kept in step with apps/web's AgreementStep.tsx, which passes the same
-    // literal for the same platform id: that is what keeps the displayed hash
-    // and the stored hash equal, so neither side may change alone. The
-    // current template (1.0.0) carries no calendar-write clause, so this
-    // selects nothing it renders. v1 writes nothing into Cal.com (its write
-    // adapter was removed; Google Calendar is the only write target), so the
-    // Cal.com selection should be retired on both sides together, and whether
-    // the agreement must say anything about writing a booking into the
-    // clinic's own Google Calendar is a question for counsel.
-    calendarWrite: connectedPlatform === "Cal.com" ? { platform: "Cal.com" } : null,
+    // Null on both sides, identically (AgreementStep.tsx passes the same):
+    // the displayed hash and the stored hash must be equal, so neither side
+    // may change this alone. 1.2.0's Google Calendar clause is unconditional
+    // and Cal.com is not a v1 write target, so nothing selects on this.
+    calendarWrite: null,
   };
 
   /**

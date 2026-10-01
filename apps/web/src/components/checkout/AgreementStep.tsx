@@ -183,21 +183,18 @@ export function AgreementStep({
       isCoveredEntity: coveredEntity,
       attributionMode,
       connectedPlatform: platformName,
-      // v1 is inbound only, so this stays false and no consent warranty is
-      // asked of the clinic.
+      // v1 is inbound only, so this stays false. No 1.2.0 clause reads it,
+      // and no consent warranty is asked of the clinic.
       outboundMessaging: false,
-      // These two select clauses of the approved BAA text and are left as
-      // they are: the rendered text is hashed and recorded, and changing what
-      // it says is counsel's call, not this form's. Note for counsel: v1
-      // books straight into the clinic's Google Calendar with auto-confirm on
-      // by default (docs/v1-product-spec.md), which neither "desk_confirms"
-      // nor a Cal.com-only calendar-write clause describes.
+      // Neither selection reaches the 1.2.0 document: v1 books into the
+      // clinic's own Google Calendar under an unconditional clause, with
+      // auto-confirm on by default, and Cal.com is not a write target. Both
+      // are passed as the fixed values apps/app's signing path passes
+      // (lib/agreements.ts), because the rendered text is hashed on both
+      // sides and must come out byte-identical; neither side may change one
+      // alone.
       bookingMode: "desk_confirms",
-      // Cal.com is the one calendar healdesk can write into, so choosing it
-      // at step 2 is what puts the calendar-write clause in the agreement.
-      // The literal display name must match what apps/app's signing path
-      // derives from the same platform id, or the two renders hash apart.
-      calendarWrite: platformId === "calcom" ? { platform: "Cal.com" } : null,
+      calendarWrite: null,
     };
   }, [
     clinicName,
@@ -207,7 +204,6 @@ export function AgreementStep({
     specialty,
     coveredEntity,
     attributionMode,
-    platformId,
     platformName,
   ]);
 
@@ -217,11 +213,11 @@ export function AgreementStep({
   );
 
   /**
-   * Plain-English notes for the clauses this version adds beyond the
-   * regulation's own list (callbacks, the calendar write, direct booking),
-   * shown only for a clause that actually renders in THIS clinic's variant.
-   * Empty on 1.0.0, which has none of them; fills in on its own the day
-   * 1.1.0 is approved and promoted, with no change here.
+   * Plain-English notes for the clauses of the current version that describe
+   * what the product does rather than paraphrase the regulation (what
+   * healdesk reads, the Google Calendar access, what the assistant collects,
+   * the model provider's retention), shown only for a clause that actually
+   * renders in THIS clinic's variant.
    */
   const clauseNotes = useMemo(() => {
     if (!variables) return [];

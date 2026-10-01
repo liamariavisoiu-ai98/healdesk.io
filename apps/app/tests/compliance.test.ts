@@ -87,6 +87,14 @@ describe("disclosure", () => {
     // does not describe.
     expect(text).toMatch(/transcribed/i);
     expect(text).toMatch(/representative/i);
+    // Live transfer is off by default and v1 has no live staff inbox, so the
+    // opener may promise a handover to staff within a day, never a person
+    // on the line now (decision of 1 October 2026).
+    expect(text).toMatch(/get back to you within a day/i);
+    expect(text).not.toMatch(/reach a person/i);
+    expect(disclosureFor({ clinicName: "Radiance", channel: "web_chat" })).toMatch(
+      /get back to you within a day/i,
+    );
   });
 
   test("Meta channels get a warning, not a welcome — and it promises phone, never text", () => {

@@ -32,21 +32,31 @@ export type DisclosureContext = {
 /**
  * The voice opener.
  *
- * Says AI, says transcribed, says no audio is kept, and offers a human — in
- * one breath. "Transcribed" is the operative word for the statutes below; "no
- * audio is kept" is true since 21 September 2026 (conversations carries no
- * recording reference and the vendor's recording storage is off) and must
- * stay true, because a disclosure that understates what happens is worse
- * than none.
+ * Says AI, says transcribed, says no audio is kept, and says how a person
+ * gets involved — in one breath. "Transcribed" is the operative word for the
+ * statutes below; "no audio is kept" is true since 21 September 2026
+ * (conversations carries no recording reference and the vendor's recording
+ * storage is off) and must stay true, because a disclosure that understates
+ * what happens is worse than none.
  * "Transcribed" is not decoration: the CIPA §631(a) exposure in *Ambriz v.
  * Google* is about a third party intercepting call CONTENTS, which is what
  * transcription is. Disclosing recording alone does not describe it.
+ *
+ * The human line used to say "to reach a person", which promised a live
+ * transfer. Live transfer is off by default (v1 spec, "Transfer live calls":
+ * Off) and under conditional forwarding the agent only ever gets the calls
+ * the clinic did not pick up, so at the moment a caller asks, the clinic has
+ * just failed to answer. What the product can keep is the handover: the
+ * request is passed to the clinic's staff and they get back to the caller,
+ * within a day. The line promises that and nothing more (decision of
+ * 1 October 2026).
  */
 export function voiceDisclosure(context: DisclosureContext): string {
   return (
     `Hi, I'm an AI assistant for ${context.clinicName} — not a human. ` +
     `This call is transcribed by an automated system; no audio recording is kept. ` +
-    `Say "representative" at any time to reach a person.`
+    `Say "representative" at any time and I'll pass you to the practice team, ` +
+    `who will get back to you within a day.`
   );
 }
 
@@ -95,7 +105,13 @@ export function disclosureFor(context: DisclosureContext): string {
     case "sms":
       return smsDisclosure(context);
     case "web_chat":
-      return `You're chatting with an AI assistant for ${context.clinicName}. Ask for a person any time.`;
+      // Same promise as the voice line: a handover to staff, not a live
+      // person. v1 has no live staff inbox, so "ask for a person any time"
+      // would promise a seat that nobody is sitting in.
+      return (
+        `You're chatting with an AI assistant for ${context.clinicName}. ` +
+        `Ask for a person any time and the practice team will get back to you within a day.`
+      );
     case "instagram_dm":
     case "whatsapp":
       return metaChannelGreeting(context);

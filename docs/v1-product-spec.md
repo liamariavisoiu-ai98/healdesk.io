@@ -1,5 +1,5 @@
 <!-- Source of truth. Exported verbatim from the "Healdesk v1: Products, Behaviour and Limits" doc,
-     tab 1 (https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ), on 2026-09-30.
+     tab 1 (https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ), on 2026-10-01.
      Do not edit this copy: change the doc, then re-export. The "Launch plan" it links to is
      tab 2 of the same doc, and is the only live task list. -->
 
@@ -57,7 +57,7 @@ Built in house with Claude Code on the Claude API.
 
 ### 3. Meta bot
 
-One integration covering Instagram DMs, Facebook Messenger and WhatsApp, built directly on the Meta Cloud API under Healdesk's own Meta app. Each clinic connects its own Instagram professional account, Page and WhatsApp number through a one-click login in the onboarding wizard.
+One integration covering Instagram DMs, Facebook Messenger and WhatsApp, built directly on the Meta Cloud API under Healdesk's own Meta app. Each clinic connects its own Instagram professional account, Page and WhatsApp number through a one-click login in the onboarding wizard. Meta's Developer Policies, updated 3 February 2026, bar using Messenger or Instagram messaging "to facilitate direct conversations between people and healthcare providers". Whether a clinic's assistant is allowed is open, and launch step 0.13 settles it.
 
 Answers, qualifies, books and can send a payment link, all inside the 24-hour window that Meta opens when a patient messages first.
 
@@ -151,7 +151,7 @@ One Healdesk Meta app covers all three channels. Clinics connect their own accou
 When a patient messages first, Meta opens a 24-hour window. Inside it the agent can send freely. The clock resets every time the patient writes again. Outside it, automated sending is not possible:
 
 - Instagram requires the HUMAN\_AGENT tag outside the window, and Meta scopes that to a real person answering an issue that could not be resolved in time, not to an automated agent.
-- The tags that used to permit appointment reminders on Messenger, including CONFIRMED\_EVENT\_UPDATE and ACCOUNT\_UPDATE, were withdrawn on 10 February 2026.
+- The tags that used to permit appointment reminders on Messenger, CONFIRMED\_EVENT\_UPDATE, ACCOUNT\_UPDATE and POST\_PURCHASE\_UPDATE, were withdrawn effective 27 April 2026.
 - WhatsApp allows business-initiated messages only through approved templates, which is outbound and therefore out of scope for v1.
 
 Healdesk enforces the window in code, not in the prompt. If a send is attempted outside it, the adapter drops it. The model is never the thing enforcing a Meta policy.
@@ -418,7 +418,7 @@ Heavier, and honest about it. The clinic connects through Meta's embedded signup
 
 The payment method step surprises people, so the wizard states it up front rather than at the end: Meta bills the clinic directly for WhatsApp messages, Healdesk does not resell them, and the account cannot send until a card is attached.
 
-One constraint to plan around: a number already in use with the WhatsApp Business app has to be migrated rather than freshly registered, and a number cannot be on two WhatsApp platforms at once. Ask which number the clinic intends to use before they start, not halfway through.
+One constraint to plan around: a number already in use with the WhatsApp Business app may stay on the app and connect here too, through Meta's coexistence option. US support for coexistence is still to be confirmed. Without it, a number cannot be on two WhatsApp platforms at once. Ask which number the clinic intends to use before they start, not halfway through.
 
 ### Realistic timing
 
@@ -660,7 +660,7 @@ Every line here is a deliberate scope decision with a reason. None of it should 
 
 | Not in v1 | Why |
 | --- | --- |
-| Appointment reminders | Outbound. Also blocked on Messenger since the relevant message tags were withdrawn in February 2026 |
+| Appointment reminders | Outbound. Also blocked on Messenger since the relevant message tags were withdrawn effective 27 April 2026 |
 | No-show and cancellation follow-up | Outbound |
 | Reactivation of lapsed patients | Outbound |
 | Missed-call text-back | Outbound, and requires SMS |
@@ -729,7 +729,7 @@ The scoping decision rests on this table, so it is worth being precise rather th
 | Supabase | Database, transcripts, account records | Yes | Only on Team or Enterprise with the paid HIPAA add-on. Free and Pro have no path at all. Covered projects must be marked high compliance with point-in-time recovery, SSL enforcement, network restrictions, MFA and connection logging. Team is published at $599 a month and the add-on price is not published. Cheaper providers sign the same agreement, so this is no longer the assumed choice. See the infrastructure section |
 | Retell | Voice telephony and speech | **Yes, self-serve** | Retell's documentation states the BAA and the DPA are available for self-signing at its click-agreements portal, at no additional fee, and not gated to an enterprise contract. It also documents per-agent retention from 1 day to 2 years and per-agent PII controls. Some third-party comparisons still claim HIPAA is Enterprise-only; the vendor's own documentation is the better source, but confirm the executed agreement names the services in use |
 | Twilio, if used for numbers | Telephony | Yes | Only on Security or Enterprise Edition, and only for the products on Twilio's eligible list. WhatsApp is explicitly not on that list |
-| Google Workspace | The clinic's calendar | Yes, on paid plans | The calendar belongs to the clinic, so this agreement is between the clinic and Google, not Healdesk and Google. Worth confirming the clinic has one |
+| Google Workspace | The clinic's calendar | Yes, on paid Workspace plans, once the clinic's Workspace admin accepts it | The calendar belongs to the clinic, so this agreement is between the clinic and Google, not Healdesk and Google. The clinic's Workspace admin must accept Google's BAA, and a consumer Gmail calendar has no route to coverage. Google's BAA excludes third-party apps, so Healdesk's access to the calendar is covered by Healdesk's BAA with the clinic. Confirm per clinic |
 | Stripe | Payments | **No, on any tier** | Stripe does not sign business associate agreements and does not hold itself out as one. Usable only inside the payment-processing carve-out: money, a generic descriptor and an opaque reference. No treatment name, no diagnosis, no clinical metadata, not in the description, not in the statement descriptor, not in metadata |
 | Meta | Instagram, Messenger, WhatsApp | **Never** | Meta states in its Cloud API terms that it is not a business associate, and the WhatsApp Business terms disclaim suitability for healthcare. No vendor sitting in front of Meta changes this. Twilio, which resells WhatsApp, excludes it from its own eligible list for the same reason |
 | AWS, where infrastructure sits on it | Hosting | Yes, and already executed | The agreement applies only to the designated HIPAA account and to HIPAA-eligible services, with encryption of all PHI required and audit logging at the highest level |
@@ -796,14 +796,14 @@ The code is not the bottleneck. These four queues are, and three of them can be 
 
 | Gate | Who controls it | Duration | Start now? |
 | --- | --- | --- | --- |
-| Meta Business Verification of Viixi FZC | Meta | Reported from hours to 14 days, with rejections costing a full cycle | Yes, today |
-| Meta App Review for the messaging permissions | Meta | About 24 hours average, once submitted | Submit as soon as a minimal working app exists |
+| Meta Business Verification of Viixi FZC | Meta | Up to 14 business days by Meta's own figure, with rejections costing a full cycle | Yes, today |
+| Meta App Review for the messaging permissions | Meta | Within a week by Meta's general guide, once submitted. The 24-hour figure is WhatsApp's. Needs one screen recording per permission | Submit as soon as a minimal working app exists |
 | WhatsApp Tech Provider setup and per-clinic signup | Meta | Longer, and adds per-clinic steps | Start after the first two clear |
-| Calendar access | Google | Calendar access is a sensitive scope, so Google verifies the app first, typically 3 to 5 business days after submission. Until then clinics see a warning screen, only 100 can ever connect, and connections expire every 7 days | Yes. Submit as soon as the calendar connection works end to end. This one must clear before launch |
+| Calendar access | Google | Calendar access needs a pair of sensitive scopes, calendar.events.freebusy and calendar.events.owned, so Google verifies the app first. Brand verification comes first, 2 to 3 business days. Sensitive-scope review then takes about 10 business days, not guaranteed, with reports of several weeks. Until approval, an app In production but unverified shows clinics a warning screen and allows up to 100 Google accounts over the project's life. The 7-day expiry applies only to an app left in Testing | Yes. Submit as soon as the calendar connection works end to end. A small pilot can run unverified. Paid self-serve waits for approval |
 
 ### Two things that remove most of the delay
 
-App Review needs a screencast of the app sending and receiving one real message. It does not need the finished product. Build a minimal slice, submit, then keep building while review runs.
+App Review needs one screen recording per permission, each showing the login that grants it and a real message arriving. It does not need the finished product. Build a minimal slice, submit, then keep building while review runs.
 
 All three permissions go in a single bulk submission rather than one at a time, since separate submissions mean separate round trips.
 
@@ -882,11 +882,11 @@ One correction on the zero-PHI idea that gets suggested around this: routing tra
 
 | Input | Known | Missing |
 | --- | --- | --- |
-| Voice cost per minute | Roughly $0.13 to $0.31 all in once speech, model and telephony are counted | The blended figure on the actual configuration |
+| Voice cost per minute | Retell's own share with a custom LLM is about $0.085 to $0.12 a minute, plus $2 per number a month and $8 a month per concurrent call beyond 20. These are pricing-page figures, unconfirmed. Pay-as-you-go now runs on prepaid credits, and calls stop at a $0 balance | The Claude cost per minute, which is separate and must be measured, then the blended figure on the actual configuration |
 | PII redaction | About a penny a minute | Whether it is on for every clinic or only covered ones |
 | Chat cost per conversation | Not established | The largest unknown in the product. The clinic profile rides in the system prompt on every turn, so a long conversation is not cheap. Needs measuring on real traffic before the top tier's 4,000 included conversations can be priced |
 | Concurrency | 20 concurrent calls included on the voice platform's pay-as-you-go, extra slots about $8 each a month | Whether 20 is enough at 15 to 20 clinics |
-| WhatsApp | Service replies inside the window become billable on 1 October 2026 | Meta's published rate, and a per-clinic counter to track it |
+| WhatsApp | From 1 October 2026, service messages cost $0.0034 per delivered message in North America, after 1,000 free per number each month | A per-clinic counter to track it |
 | Overage prices | Still unset | Cannot ship a pricing page without them. Set from measured cost times target margin |
 
 ### The exercise to run
@@ -927,7 +927,7 @@ Per channel, not global. Web live the same day, voice live once call forwarding 
 
 ### Pricing consequences
 
-The Meta chatbot SKU is priced on the assumption that inbound conversation is free. From 1 October 2026 Meta charges for service replies inside the WhatsApp window. Pull Meta's published rate card before the pricing page ships, and count billable WhatsApp messages per clinic from day one rather than reconstructing them from invoices later.
+The Meta chatbot SKU is priced on the assumption that inbound conversation is free. From 1 October 2026 Meta charges for service replies inside the WhatsApp window: $0.0034 per delivered message in North America, after 1,000 free per number each month. Count billable WhatsApp messages per clinic from day one rather than reconstructing them from invoices later.
 
 ## Open items
 
@@ -936,7 +936,7 @@ The Meta chatbot SKU is priced on the assumption that inbound conversation is fr
 | Boulevard sync direction, unverified | Ask Boulevard whether an event created in a linked Google Calendar blocks that slot in Boulevard. Until confirmed in writing, Boulevard clinics run manual booking mode |
 | Exact custom LLM WebSocket contract Retell expects | Retell opens a WebSocket to the Healdesk endpoint per call. Pull the message schema from Retell's documentation before the voice proxy is built, since the whole proxy shape depends on it |
 | Whether Stripe Connect is the only gateway in v1 | Decide whether the manual invoice fallback ships alongside it for clinics with no online payment setup |
-| Meta's published WhatsApp service-message rates from 1 October 2026 | Meta's own rate card, to be pulled before the pricing page ships |
+| Meta's published WhatsApp service-message rates from 1 October 2026 | Resolved 1 October: $0.0034 per delivered service message in North America, after 1,000 free per number each month. Now in the unit economics table |
 | Prepared answer for a US clinic asking about a non-US business associate | Counsel, plus confirmation that the free zone licence activity covers software and marketing services |
 | Refund window, data destruction timeline, business associate agreement text | Legal review |
 | Retell BAA not yet signed | Self-sign it in Retell's click-agreements portal, confirm the executed text names the services in use, then set per-agent retention and PII controls. Do this before the first clinic agreement is signed |

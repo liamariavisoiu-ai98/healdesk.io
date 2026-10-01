@@ -5,6 +5,7 @@ import { TrackView } from "@/components/analytics/TrackView";
 import { CTA } from "@/components/CTA";
 import { BuyModalProvider } from "@/components/BuyModal";
 import { Footer } from "@/components/Footer";
+import { Guarantee } from "@/components/Guarantee";
 import { Nav } from "@/components/Nav";
 import { PricingCards } from "@/components/PricingCards";
 import { site } from "@/lib/site";
@@ -193,6 +194,9 @@ export default function PricingPage() {
             every booking, and a weekly email sums it up.
           </p>
         </section>
+
+        {/* The guarantee, word for word the same as terms § 5 (see Guarantee.tsx). */}
+        <Guarantee />
 
         {/* When each channel goes live. */}
         <section className="mt-20">

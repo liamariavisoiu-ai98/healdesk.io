@@ -2,13 +2,13 @@ import { annualTotalUsd, OVERAGE_RATES_PROVISIONAL } from "@healdesk/catalog";
 import type { Metadata } from "next";
 
 import { LegalPage, Section } from "@/components/LegalPage";
-import { ENTITY, POLICY, entityDisplayName, packagesForTerms } from "@/lib/legal";
+import { ENTITY, GUARANTEE_TEXT, POLICY, entityDisplayName, packagesForTerms } from "@/lib/legal";
 import { site } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "Terms of service",
   description:
-    "The subscription agreement for healdesk: packages and fees, automatic renewal and how to cancel, the setup fee, what the AI does and does not do, liability, and how patient information is governed.",
+    "The subscription agreement for healdesk: packages and fees, automatic renewal and how to cancel, the setup fee, refunds and the first-month guarantee, what the AI does and does not do, liability, and how patient information is governed.",
 };
 
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -19,8 +19,19 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * Every number comes from packages/catalog/src/plans.ts, so a pricing change
  * is a contract change in the same commit and the terms can never quote a
  * stale figure. The founder-supplied facts (entity, governing law, liability
- * floor, refund window) come from src/lib/legal.ts and drive the wording
- * below: a zero refund window renders as "no refund window", not as a blank.
+ * floor, refund window, guarantee thresholds) come from src/lib/legal.ts and
+ * drive the wording below: a zero refund window renders as "no refund window",
+ * not as a blank. The first-month guarantee in section 5 is rendered from
+ * GUARANTEE_TEXT there, because the spec requires the pricing page to carry
+ * the identical words; /pricing must render the same object.
+ *
+ * What the service is (section 2) follows docs/v1-product-spec.md: inbound
+ * only on five channels, booking straight into the Practice's Google Calendar,
+ * a deposit link in chat, nothing clinical, and no claim of revenue. Every
+ * degradation path — pause, suspension, allowance cap, the end of the service
+ * — passes forwarded calls straight through to the Practice's own direct line
+ * (sections 2, 6, 7 and 8), because the spec's rule is that non-payment never
+ * produces a dead phone line.
  *
  * The contracting party on the page is the trade name, "healdesk". The legal
  * entity behind it is named exactly once, in section 20 ("Operating entity
@@ -32,7 +43,13 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  *
  * Order of precedence is stated in section 9 and matters: the Business
  * Associate Agreement signed at checkout controls for patient information,
- * these terms for everything else. The two must not be read as conflicting.
+ * these terms for everything else. The two must not be read as conflicting,
+ * which is why sections 9, 13 and 14 describe one liability allocation and
+ * say the Business Associate Agreement makes the same one.
+ *
+ * Finalised by the owner on 1 October 2026 without external counsel review;
+ * docs/counsel/agreement-changes.md § 8 and guarantee-and-refund.md record
+ * what changed and the choices made.
  */
 export default function TermsPage() {
   const packages = packagesForTerms();
@@ -59,21 +76,32 @@ export default function TermsPage() {
 
       <Section id="service" title="2. What the service is, and is not">
         <p>
-          {site.name} is an AI front desk: {site.agent} answers calls and, where purchased,
-          Instagram, Messenger and WhatsApp for your Practice; qualifies enquiries; takes booking
-          requests — a name, a number, a preferred time and two alternatives, and the details you
-          choose at setup — and hands each to your front desk, who confirm a time (into your
-          calendar, where you connect one), propose other times, call the person back, or decline;
-          and reports which recovered contacts became revenue. The agent confirms an appointment
-          itself only where you have accepted the direct booking addendum (section 8).
+          {site.name} is an AI front desk. {site.agent} answers your Practice's phone calls,
+          website chat, Instagram, Messenger and WhatsApp, on the channels you buy, from the
+          services, prices, hours and policies you approve; qualifies enquiries; books
+          appointments straight into the Google Calendar you connect, during the conversation,
+          holding the slot before anything is confirmed; sends a hosted deposit link in chat,
+          through your own payment gateway, where you want one; routes anything clinical to your
+          Practice; and reports conversations handled, appointments booked, calls answered that
+          would otherwise have rung out, deposits collected and booked value, meaning the bookings
+          it made multiplied by your own configured prices. It does not report revenue, because
+          it cannot see it. "Auto-confirm bookings" is on by default; you may instead set every
+          booking to be a request your staff approve, and a Practice whose booking system does
+          not read Google Calendar for conflicts runs that way (section 8). By phone it cannot
+          take a payment: it books and flags the deposit for your staff to collect. Card numbers
+          are never taken on any channel.
         </p>
         <ul className="list-disc space-y-2 pl-6">
           <li>
-            <strong>It is not a medical device and gives no medical advice.</strong> The agent is
-            configured to decline clinical questions and route them to your staff. You will not
-            configure it to diagnose, recommend treatment, or triage, and you will not rely on it
-            for emergencies. Every call opens with a disclosure that the caller is speaking to an
-            AI; that disclosure cannot be switched off.
+            <strong>It is not a medical device and gives no medical advice.</strong> The agent
+            declines clinical questions, gives no diagnosis, treatment plan or promise of an
+            outcome, quotes no price outside your configured list, and routes anything clinical
+            to your staff; a report of a complication or an urgent symptom goes at once to the
+            contact you name. You will not configure it to diagnose, recommend treatment or
+            triage, and you will not rely on it for emergencies. On every channel the assistant's
+            first line says it is an AI assistant; on calls the same line says the call is
+            transcribed, and no call audio is kept. You cannot switch that off or edit it out
+            through the greeting.
           </li>
           <li>
             <strong>It works on your instructions.</strong> The services it offers, the prices it
@@ -81,11 +109,15 @@ export default function TermsPage() {
             for keeping them accurate.
           </li>
           <li>
-            <strong>It never leaves you without a line in silence.</strong> Your number stays
-            yours: you forward it to the agent, and you can remove that forwarding at any time
-            without us. If the service is suspended or ends, we tell you at once, and again in
-            writing, how to remove it so calls reach your Practice exactly as they did before, and we
-            switch the agent off, so forwarded calls are not answered until you do.
+            <strong>It never leaves you without a line.</strong> Your number stays yours: you
+            forward it to the agent, in the coverage mode you choose, and you can remove that
+            forwarding at any time without us. Whenever the agent is not answering — because you
+            paused it, because the service is suspended for non-payment, because your monthly
+            allowance has run out and your setting is "Stop and fall back", or because the
+            service has ended or failed — forwarded calls are passed straight through to the
+            direct line you gave us at setup (section 8) rather than answered by the agent, and
+            website chat becomes a contact form. Each time, we also tell you how to remove the
+            forwarding so calls reach your Practice exactly as they did before.
           </li>
         </ul>
       </Section>
@@ -173,62 +205,81 @@ export default function TermsPage() {
         </p>
       </Section>
 
-      <Section id="refunds" title="5. Refunds">
+      <Section id="refunds" title="5. Refunds and the first-month guarantee">
         <p>
           {POLICY.refundWindowDays > 0
             ? `If you cancel within ${POLICY.refundWindowDays} days of your first payment we refund the first period's subscription fee in full. The setup fee is not refundable.`
             : "Subscription fees are not refundable except where these terms or the law say otherwise. The setup fee is not refundable."}{" "}
-          Where a refund is due to a Practice that is staying, it is applied as a credit to the next
-          invoice; where the Practice is leaving, it is returned to the card.
+          Where a refund other than under the guarantee below is due to a Practice that is
+          staying, it is applied as a credit to the next invoice; where the Practice is leaving,
+          it is returned to the card.
+        </p>
+        {GUARANTEE_TEXT.paragraphs.map((para) => (
+          <p key={para.lead}>
+            <strong>{para.lead}</strong> {para.body}
+          </p>
+        ))}
+        <p>
+          A Practice receives at most one refund of its first period's fee, whether under the
+          paragraph above or under the guarantee; the two do not stack. The guarantee refund is
+          not limited by section 13, and section 19 does not apply to it.
         </p>
       </Section>
 
       <Section id="payment" title="6. Late and failed payment">
         <p>
-          If a renewal payment fails we retry it and email your billing contact. The service stays
-          fully on for seven days. If the invoice is still unpaid after that, the agent is
-          suspended: it stops answering on every channel, we tell you how to remove call
-          forwarding so callers reach your Practice, and your data is kept and stays readable in
-          your console. Paying the open invoice restores everything at once. If
-          the invoice is still unpaid thirty days after it was due, we may cancel the subscription,
-          and section 7 then applies. Amounts unpaid when due may bear interest at the lower of 1% per
-          month and the maximum lawful rate.
+          If a renewal payment fails we retry it and email the owner and your billing contact,
+          never your Practice's public inbox. The service stays fully on for seven days. If the
+          invoice is still unpaid after that, the service is suspended: the agent stops answering
+          on every channel, forwarded calls are passed straight through to your direct line
+          (section 8) rather than answered, website chat becomes a contact form, we tell you how
+          to remove call forwarding so callers reach your Practice as they did before, and your
+          data is kept and stays readable in your portal. Paying the open invoice restores
+          everything at once. If the invoice is still unpaid thirty days after it was due, we may
+          cancel the subscription, and section 7 then applies. Amounts unpaid when due may bear
+          interest at the lower of 1% per month and the maximum lawful rate.
         </p>
       </Section>
 
       <Section id="end" title="7. When the service ends">
         <p>
           When your subscription ends for any reason: the agent stops answering at the end of the
-          paid period; we tell you how to remove call forwarding (if you do not, forwarded calls
-          are lost — that is why we tell you twice); we revoke our access to your calendar and
-          booking system; and we deliver an export of your data — transcripts, notes
-          and the booking log — before destroying our copies on the schedule the Business Associate
-          Agreement sets. Billing records are retained as tax law requires.
+          paid period, and from then forwarded calls are passed straight through to your direct
+          line (section 8) rather than answered. That pass-through continues for at least{" "}
+          {POLICY.forwardingPassThroughDays} days after the service ends or until you remove call
+          forwarding, whichever is first; we tell you how to remove it, at once and again in
+          writing, so calls reach your Practice exactly as they did before. We revoke our access to
+          your Google Calendar, your Meta accounts and your payment gateway; and we deliver an
+          export of your data — transcripts and the booking log — before destroying our copies on
+          the schedule the Business Associate Agreement sets. Billing records are retained as tax
+          law requires.
         </p>
       </Section>
 
       <Section id="you" title="8. Your responsibilities">
         <ul className="list-disc space-y-2 pl-6">
           <li>
-            <strong>Calls we place.</strong> The agent places a call to a person only when that
-            person, during their own call or message to you, agreed in so many words to an
-            automated call-back, and only about the booking request they made: to ask for details
-            your front desk needs, to offer the alternative times your desk proposed, or to confirm
-            a time your desk chose. Every such call says at the outset that it is an AI, is
-            transcribed, gives your practice's number, and how to stop it; a request to stop is
-            honoured for good; calls are placed only between 8am and 8pm in the local time of the
-            practice you contacted, which we treat as your own, and never on a Sunday, at most
-            twice about one request and at most four times to one number in thirty days. We send
-            no reminders, no reactivation or win-back messages and no marketing by any channel, and
-            we do not text patients. If you ask for any of those, we will decline.
+            <strong>Inbound only.</strong> The agent speaks to a person only in reply, inside a
+            conversation that person started with your Practice: it places no calls, sends no
+            text messages, and sends no reminders, follow-ups or marketing to patients by any
+            channel, and if you ask for any of those we will decline.
           </li>
           <li>
-            <strong>Direct booking.</strong> If you accept the direct booking addendum, the agent
-            may book a caller straight into the calendar you connected, at a free time it read from
-            that calendar, and will say so to the caller. You accept responsibility for those
-            bookings as if your own staff had made them, including keeping that calendar's
-            availability true and any deposit you require, and you may withdraw the election at any
-            time by notice. Direct booking is available by phone only.
+            <strong>Bookings.</strong> Appointments the agent writes into the Google Calendar you
+            connect are your Practice's bookings, as if your own staff had made them: you keep
+            that calendar's availability true, you collect any deposit the agent flagged for you,
+            and you tell us which booking system you use, so we can tell you whether a booking in
+            Google Calendar blocks the slot there. Mindbody's sync runs one way and it does not;
+            Boulevard is unverified. Where it does not, the agent takes a booking request for
+            your staff to confirm instead of booking. Our part is to book only into that calendar,
+            only at a time it showed as free.
+          </li>
+          <li>
+            <strong>Call forwarding and your direct line.</strong> You set and keep the call
+            forwarding on your own line, with your carrier, in the coverage mode you chose. You
+            give us a direct phone number for your Practice that is not itself forwarded to us,
+            keep it staffed, and tell us when it changes: it is where calls go whenever the agent
+            is not answering (sections 2, 6 and 7).
           </li>
           <li>
             <strong>Accurate configuration.</strong> Services, prices, hours, escalation contacts
@@ -240,8 +291,9 @@ export default function TermsPage() {
             to patients about the use of automated systems.
           </li>
           <li>
-            <strong>Your account.</strong> You will keep your credentials confidential and tell us
-            promptly if you believe they have been compromised.
+            <strong>Your account.</strong> You choose who at your Practice holds the owner,
+            manager and billing-contact roles, keep your sign-in links and any password
+            confidential, and tell us promptly if you believe they have been compromised.
           </li>
           <li>
             <strong>Lawful use.</strong> You will not use the service for emergencies, for
@@ -256,20 +308,29 @@ export default function TermsPage() {
           sign at checkout is the agreement required by 45 CFR 164.502(e); where it is not, we apply
           the same terms to the same information anyway. That agreement controls over these terms
           for everything about patient information: what we may do with it, how we protect it, what
-          we report, and what happens to it when you leave. The list of companies that process it for
-          us, and whether each has signed with us, is at{" "}
+          we report, and what happens to it when you leave. It allocates liability for patient
+          information in the same way as sections 13 and 14 of these terms. The list of companies
+          that process it for us, and whether each has signed with us, is at{" "}
           <a href="/subprocessors" className="underline underline-offset-2">/subprocessors</a>.
         </p>
         <p>
+          <strong>The language model.</strong> The provider of the language model that generates
+          the agent's replies receives the content of each conversation to do so. Under its
+          business associate agreement with us it keeps that content for 30 days, for abuse
+          detection, and then deletes it; it never trains on it. The Business Associate Agreement
+          states the same.
+        </p>
+        <p>
           <strong>Meta channels.</strong> Instagram, Messenger and WhatsApp are operated by Meta,
-          which does not sign Business Associate Agreements. On those channels the agent answers
-          public questions and takes a booking request (a first name, a number, preferred times)
-          and moves anything further to the phone; it never states a time, service or practitioner
-          there, and after your decision it sends a fixed line naming none of those. On a WhatsApp
-          thread the assistant sends only replies inside the conversation the person opened, and
-          never states a time, service or practitioner. It does not collect or confirm health
-          information there. You may switch those channels off at any time, and you accept this
-          documented limitation when you purchase a package that includes them.
+          which does not sign Business Associate Agreements. If you connect them, the agent replies
+          there only inside the conversation the person opened, and only within the window Meta
+          allows; it answers from your public menu, prices, hours and policies, can book and can
+          send your own payment link, and never sends clinical content or a treatment name there.
+          Clinical content a person sends on those channels is caught on arrival and is not stored,
+          echoed back or carried into a summary; the agent moves the person to a call or to your
+          own secure route and says why in one sentence. What a person chooses to send to Meta,
+          and what Meta keeps, is outside our control and yours. You may switch those channels off
+          at any time, and you accept this documented limitation when you connect them.
         </p>
       </Section>
 
@@ -294,12 +355,14 @@ export default function TermsPage() {
 
       <Section id="disclaimers" title="12. Disclaimers">
         <p>
-          THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE". WE DO NOT WARRANT THAT IT WILL BE
-          UNINTERRUPTED OR ERROR-FREE, THAT THE AGENT WILL ANSWER EVERY CALL OR BOOK EVERY
-          APPOINTMENT, OR THAT ANY PARTICULAR REVENUE WILL RESULT. FIGURES ON OUR WEBSITE ARE
-          ILLUSTRATIVE INDUSTRY RANGES, NOT PROMISES. EXCEPT AS EXPRESSLY STATED IN THESE TERMS OR
-          THE BUSINESS ASSOCIATE AGREEMENT, WE DISCLAIM ALL WARRANTIES, EXPRESS OR IMPLIED,
-          INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
+          EXCEPT FOR THE FIRST-MONTH GUARANTEE IN SECTION 5, THE SERVICE IS PROVIDED "AS IS" AND
+          "AS AVAILABLE". WE DO NOT WARRANT THAT IT WILL BE UNINTERRUPTED OR ERROR-FREE, THAT THE
+          AGENT WILL ANSWER EVERY CALL OR BOOK EVERY APPOINTMENT, OR THAT ANY PARTICULAR REVENUE
+          WILL RESULT. BOOKED VALUE IS AN ESTIMATE FROM YOUR OWN CONFIGURED PRICES, NOT A MEASURE
+          OF REVENUE, AND FIGURES ON OUR WEBSITE ARE ILLUSTRATIVE INDUSTRY RANGES, NOT PROMISES.
+          EXCEPT AS EXPRESSLY STATED IN THESE TERMS OR THE BUSINESS ASSOCIATE AGREEMENT, WE
+          DISCLAIM ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING MERCHANTABILITY, FITNESS FOR A
+          PARTICULAR PURPOSE AND NON-INFRINGEMENT.
         </p>
       </Section>
 
@@ -319,9 +382,10 @@ export default function TermsPage() {
           .
         </p>
         <p>
-          These limits do not apply to your indemnity obligations in section 14, or to any
-          liability that cannot be excluded or limited by law. We carry no liability insurance; you
-          should size your own cover accordingly.
+          These limits do not apply to our wilful misconduct or gross negligence, to your
+          indemnity obligations in section 14, or to any liability that cannot be excluded or
+          limited by law. The first-month guarantee refund in section 5 is not limited by this
+          section. We carry no liability insurance; you should size your own cover accordingly.
         </p>
       </Section>
 
@@ -339,7 +403,10 @@ export default function TermsPage() {
         </p>
         <p>
           <strong>We</strong> give you no indemnity. The Business Associate Agreement allocates
-          liability for patient information the same way.
+          liability for patient information in the same way as this section and section 13.
+          Nothing in these terms or in the Business Associate Agreement shifts to you a civil
+          money penalty a regulator imposes on us for our own conduct, or changes what either of
+          us owes a regulator directly.
         </p>
         <p>
           We will tell you promptly of a claim and cooperate at your expense. You will conduct the
@@ -354,8 +421,8 @@ export default function TermsPage() {
           These terms start when you subscribe and continue while any subscription is active. We
           may suspend the service for non-payment as section 6 describes, or immediately if your use
           creates a legal or security risk, telling you why. Either party may terminate for a
-          material breach the other does not cure within 30 days of written notice. Sections 7 and
-          9 to 20 survive termination.
+          material breach the other does not cure within 30 days of written notice. Sections 5, 7
+          and 9 to 20 survive termination.
         </p>
       </Section>
 
@@ -394,10 +461,10 @@ export default function TermsPage() {
           These terms, the Business Associate Agreement and the order you complete at checkout are
           the entire agreement between us and replace any earlier discussion. If a term is
           unenforceable the rest stands. Neither party is liable for delay caused by events beyond
-          its reasonable control, except for payment obligations. You may not assign these terms
-          without our consent, except to a successor of your whole Practice; we may assign them to a
-          successor of our business. Nothing creates a partnership or agency beyond the agent acting
-          on your instructions as section 2 describes.
+          its reasonable control, except for payment obligations and the first-month guarantee in
+          section 5. You may not assign these terms without our consent, except to a successor of
+          your whole Practice; we may assign them to a successor of our business. Nothing creates a
+          partnership or agency beyond the agent acting on your instructions as section 2 describes.
         </p>
       </Section>
 

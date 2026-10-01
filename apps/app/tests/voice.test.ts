@@ -7,7 +7,6 @@ import {
   bookingRequestFrom,
   classifyBooking,
   classifyRecovery,
-  missingRequirementFields,
   type VoiceCallEvent,
 } from "@/lib/voice/ingest";
 import { readSynthflowPayload } from "@/lib/voice/synthflow-payload";
@@ -66,11 +65,9 @@ describe("conditional forwarding — the normal setup", () => {
     );
   });
 
-  test("a callback outranks after-hours, because it is the stronger claim", () => {
+  test("a call the agent placed is never recovery, whatever the hour: healdesk places none (v1 is inbound only)", () => {
     const nightCallback = call({ startedAt: AFTER_HOURS, isCallback: true });
-    expect(classifyRecovery(nightCallback, CONDITIONAL)).toBe(
-      "missed_call_callback",
-    );
+    expect(classifyRecovery(nightCallback, CONDITIONAL)).toBeNull();
   });
 
   test("no opening hours on file still counts the recovery", () => {
@@ -101,16 +98,10 @@ describe("always-forwarded — where the AI is the front desk", () => {
     );
   });
 
-  test("a callback we placed ourselves is recovered whatever the hour", () => {
-    expect(classifyRecovery(call({ isCallback: true }), ALWAYS)).toBe(
-      "missed_call_callback",
-    );
-  });
-
-  test("a call matched to the outbound ledger is not recovery: the contact it follows up was counted when it arrived (§F.6)", () => {
+  test("a call the agent placed is never recovery, and nothing produces missed_call_callback", () => {
     for (const clinic of [ALWAYS, CONDITIONAL]) {
-      expect(classifyRecovery(call({ isCallback: true }), clinic, { placedByUs: true })).toBeNull();
-      expect(classifyRecovery(call({ startedAt: AFTER_HOURS }), clinic, { placedByUs: true })).toBeNull();
+      expect(classifyRecovery(call({ isCallback: true }), clinic)).toBeNull();
+      expect(classifyRecovery(call({ startedAt: AFTER_HOURS, isCallback: true }), clinic)).toBeNull();
     }
   });
 
@@ -243,7 +234,7 @@ describe("the call-to-booking-request link", () => {
     expect(bookingRequestFrom(call({ outcome: "booked", booking: { scheduledFor: WHEN } }), null, TZ)).toBeNull();
   });
 
-  test("alternatives are cleaned like the primary, fields are limited to the practice's set, and only a quoted yes is consent (§D.1, §F.2)", () => {
+  test("alternatives are cleaned like the primary, and fields are limited to the practice's set (§D.1)", () => {
     // A plastic-surgery practice asks for a surname, the service and the visit type.
     const requirements = resolveBookingRequirements("plastic-surgery", null);
     const req = bookingRequestFrom(
@@ -252,7 +243,6 @@ describe("the call-to-booking-request link", () => {
         transcriptUri: "https://transcripts.example.test/call_1.txt",
         booking: { scheduledFor: WHEN, preferredWindow: "Thursday afternoon", alternativeWindows: ["Friday morning", "Thursday afternoon", "Monday, for my rosacea", "Tuesday"], treatment: "Consultation" },
         collectedFields: { last_name: "Okonkwo", consult_or_treatment: "consultation", new_or_existing: "new", dob: "1990-01-01", phone: "+15550000000" },
-        callbackConsent: { answer: "yes", quote: "yeah that's fine, call me back" },
       }),
       CONTACT,
       TZ,
@@ -262,17 +252,8 @@ describe("the call-to-booking-request link", () => {
     expect(req.alternativeWindows).toEqual(["Friday morning", "Tuesday"]);
     expect(req.collectedFields).toEqual({ last_name: "Okonkwo", consult_or_treatment: "consultation" });
     expect(req.refusedFields.map((r) => `${r.field}:${r.reason}`).sort()).toEqual(["dob:not_required", "new_or_existing:not_required", "phone:locked"]);
-    expect(req.callbackConsent).toEqual({ granted: true, quote: "yeah that's fine, call me back", evidenceUri: "https://transcripts.example.test/call_1.txt" });
-    // The service is on the request already, so nothing is left to collect.
-    expect(missingRequirementFields(requirements, req).map((f) => f.id)).toEqual([]);
-    expect(missingRequirementFields(requirements, { treatment: null, collectedFields: {} }).map((f) => f.id)).toEqual(["last_name", "service", "consult_or_treatment"]);
-
-    // No, unclear, or a yes with nothing quoted: no consent.
-    for (const consent of [{ answer: "no" as const, quote: "no thanks" }, { answer: "unclear" as const, quote: "hmm" }, { answer: "yes" as const }]) {
-      const r = bookingRequestFrom(call({ outcome: "booked", booking: { scheduledFor: WHEN }, callbackConsent: consent }), CONTACT, TZ)!;
-      expect(r.callbackConsent?.granted && Boolean(r.callbackConsent.quote)).toBe(false);
-    }
-    expect(bookingRequestFrom(call({ outcome: "booked", booking: { scheduledFor: WHEN } }), CONTACT, TZ)!.callbackConsent).toBeNull();
+    // No consent of any kind rides on a request: healdesk contacts no one about it.
+    expect(req).not.toHaveProperty("callbackConsent");
     // With no requirement set, every collected field is refused rather than stored.
     expect(bookingRequestFrom(call({ outcome: "booked", booking: { scheduledFor: WHEN }, collectedFields: { last_name: "X" } }), CONTACT, TZ)!.collectedFields).toEqual({});
   });
@@ -306,9 +287,6 @@ describe("the documented Synthflow shape", () => {
           preferred_alt_1: "Friday morning",
           preferred_alt_2: "",
           booked_treatment: "Consultation",
-          callback_consent: "yes",
-          callback_consent_quote: "sure, that's fine",
-          stop_requested: "false",
           field_last_name: "Okonkwo",
           field_consult_or_treatment: "consultation",
         },
@@ -318,23 +296,15 @@ describe("the documented Synthflow shape", () => {
     expect(event.callerPhone).toBe("+14155550192");
     expect(event.callerName).toBe("Dana");
     expect(event.outcome).toBe("booked");
-    expect(event.callStatus).toBe("completed");
     expect(event.booking).toMatchObject({ preferredWindow: "Thursday afternoon", alternativeWindows: ["Friday morning"], treatment: "Consultation" });
-    expect(event.callbackConsent).toEqual({ answer: "yes", quote: "sure, that's fine" });
-    expect(event.stopRequested).toBe(false);
     expect(event.collectedFields).toEqual({ last_name: "Okonkwo", consult_or_treatment: "consultation" });
   });
 
-  test("no, unclear and stop map plainly; dispositions fold to what the dialer acts on", () => {
+  test("a withheld caller number is dropped, and call-back variables are not read (v1 is inbound only)", () => {
     const base = { call_id: "c", start_time: "2026-09-02T18:00:00Z" };
-    expect(readSynthflowPayload({ ...base, collected_variables: { callback_consent: "no" } }, CLINIC).callbackConsent).toEqual({ answer: "no", quote: undefined });
-    expect(readSynthflowPayload({ ...base, collected_variables: { callback_consent: "unclear", callback_consent_quote: "maybe" } }, CLINIC).callbackConsent).toEqual({ answer: "unclear", quote: "maybe" });
-    expect(readSynthflowPayload({ ...base, collected_variables: { callback_consent: "perhaps" } }, CLINIC).callbackConsent).toBeUndefined();
-    expect(readSynthflowPayload({ ...base, collected_variables: { stop_requested: "true" } }, CLINIC).stopRequested).toBe(true);
-    expect(readSynthflowPayload({ ...base, status: "no-answer" }, CLINIC).callStatus).toBe("no_answer");
-    expect(readSynthflowPayload({ ...base, status: "BUSY" }, CLINIC).callStatus).toBe("busy");
-    expect(readSynthflowPayload({ ...base, status: "failed" }, CLINIC).callStatus).toBe("failed");
-    expect(readSynthflowPayload({ ...base, status: "something-else" }, CLINIC).callStatus).toBeUndefined();
+    const event = readSynthflowPayload({ ...base, collected_variables: { callback_consent: "yes", stop_requested: "true" } }, CLINIC);
+    expect(event).not.toHaveProperty("callbackConsent");
+    expect(event).not.toHaveProperty("stopRequested");
     // A withheld lead number is dropped, not replaced by a stale alias; with no lead, the alias is read.
     expect(readSynthflowPayload({ ...base, lead: { phone_number: "anonymous" }, phone_number: "(555) 010-0123" }, CLINIC).callerPhone).toBeUndefined();
     expect(readSynthflowPayload({ ...base, phone_number: "(555) 010-0123" }, CLINIC).callerPhone).toBe("+15550100123");

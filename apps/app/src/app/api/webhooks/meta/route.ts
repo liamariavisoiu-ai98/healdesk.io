@@ -19,7 +19,8 @@ export const runtime = "nodejs";
  * clinic's sealed token, opened inside the tenant transaction. A message
  * that completes a booking request also emails the clinic's desk a
  * single-use link (lib/meta/booking-requests.ts); the sender id travels
- * into that flow so the desk's decision can be relayed back to the person.
+ * into that flow so the desk's decision can be relayed back to the person —
+ * inside Meta's 24-hour window only, which lib/meta/channels.ts enforces.
  *
  * Always 200 once the signature is good: Meta retries on anything else, and
  * a message we could not answer is not one we want delivered twice.
@@ -81,17 +82,22 @@ export async function POST(request: Request): Promise<Response> {
       }
       const actor = { type: "agent", serviceName: "meta-front-door" } as const;
       const sent = await withTenant({ clinicId: owner.clinicId, actor }, async (tx) => {
+        // The window opens when the person sent the message, not when we
+        // read it: a webhook Meta retries a day late must not reopen it.
+        const sentAt = message.sentAt ?? new Date();
         const answer = await answerFrontDoor(tx, {
           platform: message.platform,
           text: message.text,
           responder,
           thread: { platform: message.platform, externalId: message.externalId, senderId: message.senderId, connectionId: owner.connectionId },
           transport: transportForTests,
+          now: sentAt,
         });
         if (!answer) return false;
-        // Replying to the message just received: the window is open by
-        // definition, and the thread may hold no request yet to say so.
-        await sendMetaReply(tx, owner, message.externalId, message.senderId, answer.text, send, { lastInboundAt: new Date() });
+        // Replying to the message just received: the thread may hold no
+        // request yet, so the instant is passed in. sendMetaReply still drops
+        // the reply if that instant is more than 24 hours old.
+        await sendMetaReply(tx, owner, message.externalId, message.senderId, answer.text, send, { lastInboundAt: sentAt });
         return true;
       });
       if (sent) answered += 1;

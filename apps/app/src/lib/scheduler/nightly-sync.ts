@@ -9,6 +9,10 @@ import { JOB_NIGHTLY_SYNC, runJob } from "./jobs";
 /**
  * Put work on the queues the worker already drains.
  *
+ * PHASE TWO: attribution read-back. Not part of v1. runJob() refuses to run
+ * the nightly-sync job unless HEALDESK_PHASE_TWO_ATTRIBUTION is "true"
+ * (lib/scheduler/jobs.ts), so no v1 path enqueues a sync or a reconcile.
+ *
  * Nightly: one sync per active connection, staggered a few seconds apart so
  * a hundred clinics do not hit their platforms in the same minute (PatientNow
  * allows 1,000 requests a day per account), with a singletonKey so a

@@ -1,4 +1,3 @@
-import { CALLBACK_CONSENT } from "@healdesk/catalog";
 import { fixtureAdapter } from "@healdesk/connectors";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -169,7 +168,6 @@ describeDb("the direct-booking tools", () => {
     expect(await ctx.json()).toEqual({
       required_fields_spoken: "your first name, a number the practice can call, a day or time that works best, one or two other times that could work, your last name, which service you're asking about, and whether this is a consultation or a treatment visit",
       booking_mode: "desk_confirms",
-      consent_line: CALLBACK_CONSENT.voice,
       deposit_line: expect.stringMatching(/^A deposit of 100 dollars/),
       clinic_phone_spoken: "four one five — five five five — oh one nine nine",
     });
@@ -218,7 +216,7 @@ describeDb("the direct-booking tools", () => {
     expect((await post("book", c.clinicId, call("call_book_1", { first_name: "Dana <script>", at: slots[0]!.at }))).status).toBe(400);
     expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from appointments`))).rows).toHaveLength(0);
 
-    // The booking. Fields are validated as on a callback; a clinical service is dropped to null.
+    // The booking. Fields are validated against the practice's set; a clinical service is dropped to null.
     const chosen = slots[1]!;
     const booked = await post("book", c.clinicId, call("call_book_1", { first_name: "Dana", at: chosen.at, service: "Rhinoplasty consultation", fields: { last_name: "Okonkwo", consult_or_treatment: "consultation", dob: "1990", phone: "+15550000000" } }));
     expect(booked.status).toBe(200);

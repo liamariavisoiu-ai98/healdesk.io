@@ -81,35 +81,12 @@ export const env = {
    * Bearer secret the voice agent's mid-call tools send to
    * /api/voice/tools/[clinicId]/* (design of 23 September 2026, §E.2).
    * Deliberately a DIFFERENT secret from the post-call webhook's: the tools
-   * can book and can revoke a consent, the webhook can only report, and a
-   * leaked reporting header must not become a booking header. Unset means
-   * every tool route answers 503.
+   * can book, the webhook can only report, and a leaked reporting header must
+   * not become a booking header. Unset means every tool route answers 503.
+   * Pre-Retell: these routes serve the Synthflow agent until the Retell
+   * endpoint exists.
    */
   voiceToolsSecret: () => optional("HEALDESK_VOICE_TOOLS_SECRET"),
-
-  /**
-   * The callback kill switch (§F.1). One of the gates every placed call
-   * passes — the clinic's own switch, a matching consent row and the calling
-   * window are the others — and the only one an operator can flip without a
-   * database write. Read at use, never cached. Anything but "true" is off.
-   */
-  outboundCallbacksEnabled: (): boolean => process.env.HEALDESK_OUTBOUND_CALLBACKS_ENABLED === "true",
-
-  /**
-   * Synthflow, for the calls the PRODUCT places (§F.8). Separate from the
-   * marketing site's SYNTHFLOW_* variables, which place the owner's demo call
-   * from a different workspace. No key → the dialer refuses every row with
-   * gate_basis "no vendor".
-   */
-  synthflowApiKey: () => optional("HEALDESK_SYNTHFLOW_API_KEY"),
-
-  /**
-   * The API origin, which MUST start with https://api.us.synthflow.ai: the
-   * workspace that hears patient information sits on the US cluster under the
-   * executed BAA, and the dialer refuses (gate_basis "non-US vendor base")
-   * when this is unset or points anywhere else (§F.5 step 1).
-   */
-  synthflowApiBase: () => optional("HEALDESK_SYNTHFLOW_API_BASE"),
 
   kmsKeyId: () => optional("HEALDESK_KMS_KEY_ID"),
 
@@ -145,19 +122,22 @@ export const env = {
 
   /**
    * The direct-booking kill switch (design of 23 September 2026, §E.1). One
-   * of six independent gates, and the only one an operator can flip without
-   * a database write; it is read on every tool call and never cached, so
-   * unsetting it in an environment stops the assistant booking on the next
-   * call. Anything but the literal string "true" is off.
+   * of the gates in lib/booking/mode.ts, and the only one an operator can
+   * flip without a database write; it is read on every tool call and never
+   * cached, so unsetting it in an environment stops the assistant booking on
+   * the next call. Anything but the literal string "true" is off.
    */
   directBookingEnabled: (): boolean => process.env.HEALDESK_DIRECT_BOOKING_ENABLED === "true",
 
   /**
-   * WhatsApp template sends outside the 24-hour window (§G.3). Set only after
-   * counsel answers I.6 (3) and Meta has approved the template; until then
-   * `sendMetaTemplate` refuses and the desk calls.
+   * Phase two: attribution. The monthly revenue report, the nightly POS/EMR
+   * sync and reconciliation, and the read-back connect link are fenced out of
+   * v1 (v1 spec, "What v1 can prove, and what it cannot"; CLAUDE.md, "Claims
+   * and copy"). Their code is kept; while this is anything but the literal
+   * string "true" none of it runs, no clinic is mailed a revenue figure, and
+   * the console refuses to switch those jobs on. Leave it unset in v1.
    */
-  whatsappTemplatesEnabled: (): boolean => process.env.HEALDESK_WHATSAPP_TEMPLATES_ENABLED === "true",
+  phaseTwoAttribution: (): boolean => process.env.HEALDESK_PHASE_TWO_ATTRIBUTION === "true",
 
   isProduction: () => process.env.NODE_ENV === "production",
   isTest: () => process.env.NODE_ENV === "test",

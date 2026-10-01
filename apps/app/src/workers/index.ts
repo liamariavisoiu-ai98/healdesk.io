@@ -2,7 +2,6 @@ import { reconcilePeriod } from "@/lib/sync/reconcile-store";
 import { monthContaining, previousMonth } from "@/lib/attribution/period";
 import {
   getBoss,
-  QUEUE_CALLBACK_DIALER,
   QUEUE_PROCESS_WEBHOOK,
   QUEUE_RECONCILE_CLINIC,
   QUEUE_SYNC_CONNECTION,
@@ -12,9 +11,7 @@ import {
   type ReconcileClinicPayload,
   type SyncConnectionPayload,
 } from "@/lib/queue/boss";
-import { runCallbackDialerJob } from "@/lib/scheduler/callback-dialer";
 import { runTick } from "@/lib/scheduler/tick";
-import { SynthflowOutboundClient } from "@/lib/voice/outbound";
 import { syncConnection } from "@/lib/sync/run";
 import { processWebhookEvent } from "@/lib/sync/webhooks";
 import { withTenant } from "@/lib/tenant";
@@ -121,17 +118,8 @@ async function main(): Promise<void> {
     });
   });
 
-  // The callback dialer's clock (design of 23 September 2026, §F.11): every
-  // fifteen minutes, through runJob, so the `scheduled_jobs` switch gates it
-  // like every other job and it costs nothing while off. The Synthflow
-  // client is constructed HERE and handed in — the only place in the
-  // product a real vendor client meets the dialer.
-  await boss.schedule(QUEUE_CALLBACK_DIALER, "*/15 * * * *", {}, { tz: "UTC" });
-  const outbound = new SynthflowOutboundClient();
-  await boss.work(QUEUE_CALLBACK_DIALER, { batchSize: 1 }, async () => {
-    const outcome = await runCallbackDialerJob({ now: new Date(), client: outbound });
-    log.info("callback dialer", { job: "callback-dialer", status: outcome.status, reason: "note" in outcome ? outcome.note : undefined });
-  });
+  // No outbound clock. The call-back dialer of 23 September 2026 was removed
+  // (v1 is inbound only): nothing in this process asks a vendor to dial.
 
   log.info("worker ready");
 

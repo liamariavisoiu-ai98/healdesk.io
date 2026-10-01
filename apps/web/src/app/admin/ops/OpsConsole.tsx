@@ -134,7 +134,9 @@ function JobsSection({
         Everything here is off until someone turns it on. Leave them off until
         there are real tenants: a report job running against an empty or
         half-configured estate either does nothing or does something
-        embarrassing.
+        embarrassing. Jobs marked phase two (the monthly revenue report and
+        the nightly booking-system sync) are attribution, which v1 does not
+        offer; they cannot be switched on here.
       </p>
 
       {!jobs.ok ? (
@@ -184,13 +186,16 @@ function JobCard({
               {job.enabled ? "On" : "Off"}
             </Tag>
             {job.runningSince ? <Tag tone="warn">running</Tag> : null}
+            {job.phaseTwo ? <Tag tone="muted">phase two</Tag> : null}
           </div>
           <p className="text-muted mt-1.5 text-sm">{job.cadence}</p>
         </div>
 
         <button
           type="button"
-          disabled={pending}
+          // A phase-two job can be switched off, never on: the ops API
+          // refuses, and the button does not offer what will be refused.
+          disabled={pending || (job.phaseTwo && !job.enabled)}
           onClick={() => {
             setNote(null);
             startTransition(async () => {
@@ -221,7 +226,7 @@ function JobCard({
               : "bg-ink text-white",
           ].join(" ")}
         >
-          {pending ? "Working…" : job.enabled ? "Turn off" : "Turn on"}
+          {pending ? "Working…" : job.enabled ? "Turn off" : job.phaseTwo ? "Phase two" : "Turn on"}
         </button>
       </div>
 
@@ -282,13 +287,14 @@ function ClinicsSection({
       ) : (
         <>
           {needsLink.length > 0 ? (
+            /* Phase two: the read-back credential only matters once
+               attribution is switched on, and v1 does not offer it. */
             <p className="text-muted mt-3 max-w-[62ch] text-sm">
-              {needsLink.length}{" "}
+              Phase two: {needsLink.length}{" "}
               {needsLink.length === 1 ? "clinic has" : "clinics have"} neither a
-              stored credential nor an outstanding link. Until someone here
-              issues one, their attribution stays estimated. There is no other
-              way for a clinic to give us access, because there is nothing for
-              them to log into.
+              stored read-back credential nor an outstanding connect link. That
+              matters only once attribution read-back is switched on; v1 reports
+              no revenue and reads nothing back from a booking system.
             </p>
           ) : null}
 
@@ -319,12 +325,13 @@ function ClinicsSection({
           )}
 
           <p className="text-muted mt-3 max-w-[62ch] text-xs">
-            Configuration only. There is deliberately no per-clinic screen to
-            open: clinics never sign in, so nothing in this product renders one
-            clinic&rsquo;s patient-level data on a page. The connect link is the
-            single exception, one page, once, for the clinic to hand over a
-            read-only credential, and it shows them nothing patient-level
-            either.
+            Configuration only. This is our operator console, and nothing here
+            renders one clinic&rsquo;s patient-level data on a page. Clinics
+            see their own conversations and bookings in the clinic portal on
+            the PHI side, behind a second factor (v1, not built yet). The
+            connect link is phase two: one page, once, for a clinic to hand
+            over a read-only credential, and it shows them nothing
+            patient-level either.
           </p>
         </>
       )}
@@ -343,9 +350,8 @@ function ClinicCard({
   const first = clinic.blockers[0];
 
   return (
-    /* A div, not a link. There is no per-clinic page to open: clinics never
-       sign in, so nothing in this product renders one clinic's patient-level
-       data on a screen. */
+    /* A div, not a link. There is no per-clinic patient-level page to open
+       here: this console renders configuration only. */
     <div className="border-line rounded-2xl border bg-white p-5">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-semibold">{clinic.name}</span>
@@ -371,9 +377,8 @@ function ClinicCard({
         <Tag tone={clinic.baaSignedOn ? "ok" : "muted"}>
           {clinic.baaSignedOn ? `BAA ${clinic.baaSignedOn}` : "no BAA"}
         </Tag>
-        <Tag tone={clinic.attributionMode === "verified" ? "ok" : "muted"}>
-          {clinic.attributionMode}
-        </Tag>
+        {/* Phase two: v1 reports no revenue, estimated or verified. */}
+        <Tag tone="muted">{`attribution ${clinic.attributionMode} (phase two)`}</Tag>
         <ConnectionTag state={clinic.connection} />
         <span className="text-muted ml-auto text-sm">{clinic.timezone}</span>
       </div>

@@ -5,7 +5,8 @@ export const runtime = "nodejs";
 
 /**
  * POST /api/voice/tools/[clinicId]/book — a mid-call tool for the phone
- * agents (design of 23 September 2026, §E.2/§F.9). Authentication, the body
+ * agent (design of 23 September 2026, §E.2). Pre-Retell: called by the
+ * Synthflow agent until the Retell endpoint exists. Authentication, the body
  * cap, the rate limits, the audit row and the tool itself all live in
  * lib/voice/tools.ts; this file only names which tool the path is.
  */

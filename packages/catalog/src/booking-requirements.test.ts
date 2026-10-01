@@ -104,7 +104,8 @@ describe("the booking-requirements catalogue", () => {
       expect(field.metaEligible, field.id).toBe(field.locked);
       expect(field.channels.includes("meta"), field.id).toBe(field.metaEligible);
       expect(field.channels, field.id).toContain("voice");
-      expect(field.channels, field.id).toContain("callback");
+      // Inbound only: no field is asked on a call healdesk places.
+      expect(field.channels as string[], field.id).not.toContain("callback");
     }
     expect(ids(metaEligible(resolveBookingRequirements("dental", null)))).toEqual(LOCKED);
   });

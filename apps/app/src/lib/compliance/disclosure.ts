@@ -51,42 +51,6 @@ export function voiceDisclosure(context: DisclosureContext): string {
 }
 
 /**
- * The callback's greeting (design of 23 September 2026, §F.7): the first
- * thing a person hears on a call the product placed, in the vendor's
- * first-message field, verbatim and not model text, under twenty seconds.
- *
- * It does the opener's three jobs — AI, transcribed, no audio kept — and the
- * three §64.1200(b) jobs an OUTBOUND call adds: it says why we are calling
- * (their own booking request, so the person can place it), gives the
- * practice's number in spoken form (the identification-and-number duty; the
- * dialer refuses to place a call for a clinic with no published number), and
- * states the opt-out at the outset — "stop" or key 1, both bound to a
- * mid-call action that suppresses the number before the call ends, and
- * "representative" or key 0 for a person. `clinicPhoneSpoken` is the number
- * read for the ear ("four one five — five five five — oh one nine nine"),
- * never the E.164 string. The wording is not frozen until counsel answers on
- * §64.1200(b)(2)-(3).
- */
-export function callbackDisclosure(context: { clinicName: string; clinicPhoneSpoken: string }): string {
-  return (
-    `Hi, this is the automated AI assistant for ${context.clinicName} — not a human — ` +
-    `calling back about the booking request you made with us. ` +
-    `This call is transcribed by an automated system; no audio recording is kept. ` +
-    `If you'd rather we didn't call, say 'stop' or press 1 at any time and we won't call again; ` +
-    `you can also tell the practice on ${context.clinicPhoneSpoken}. ` +
-    `Say 'representative' or press 0 to reach a person. Is now an okay time?`
-  );
-}
-
-/**
- * What the callback's first model turn says once, and only if the person
- * talked over the greeting (§F.7): the three facts again, in one breath.
- */
-export function callbackTalkedOverLine(context: { clinicName: string }): string {
-  return `Sorry — quickly: I'm an AI assistant for ${context.clinicName}, this call is transcribed, and you can say stop at any time.`;
-}
-
-/**
  * California AB 3030 addendum.
  *
  * Applies when a health facility uses generative AI for patient communications
@@ -113,8 +77,8 @@ export function smsDisclosure(context: DisclosureContext): string {
  * and that the API is not HIPAA compliant. So the job on these channels is to
  * be useful without ever confirming anything, and to move the conversation to
  * a channel we can actually secure. "By phone", never "or text": healdesk
- * sends no texts (§G.4), and a greeting that promised one would be a promise
- * nothing in the product can keep.
+ * sends no texts (v1 spec, "SMS cut from v1 entirely"), and a greeting that
+ * promised one would be a promise nothing in the product can keep.
  */
 export function metaChannelGreeting(context: DisclosureContext): string {
   return (

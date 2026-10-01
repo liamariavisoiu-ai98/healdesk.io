@@ -11,8 +11,10 @@ import { inTenant, seedClinic, seedContact, seedConversation } from "./setup/fac
 
 /**
  * The calendar write (design of 23 September 2026, §B.3–B.4), against the
- * fixture adapter, which books the way Cal.com does: no idempotency key, so
- * the same request twice is two bookings unless the caller reads back first.
+ * fixture adapter, which books like a vendor with no idempotency key: the
+ * same request twice is two bookings unless the caller reads back first. No
+ * real vendor is registered in v1 (the Cal.com adapter was removed; Google
+ * Calendar is not built yet), so the fixture is the only writable calendar.
  */
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const ACTOR = { type: "service", serviceName: "test" } as const;
@@ -111,7 +113,7 @@ describeDb("the calendar write, against the fixture", () => {
       expect(s.label).toMatch(/^[A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2}, \d{1,2}:\d{2} (AM|PM)$/);
     }
     const opened = await resolveBookingRequest(f.token);
-    expect(opened).toMatchObject({ calendar: { writable: true }, preferredWindow: "Thursday afternoon", alternativeWindows: ["Friday morning"], callbackAvailable: false });
+    expect(opened).toMatchObject({ calendar: { writable: true }, preferredWindow: "Thursday afternoon", alternativeWindows: ["Friday morning"] });
     expect(opened!.calendar!.slots.map((s) => s.at)).toEqual(listed.map((s) => s.at));
   });
 
@@ -119,7 +121,7 @@ describeDb("the calendar write, against the fixture", () => {
     const f = await clinicWithRequest("cal-ok");
     const slot = (await resolveBookingRequest(f.token))!.calendar!.slots[0]!;
     const decided = await decideBookingRequest(f.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: new Date(slot.at) });
-    expect(decided).toMatchObject({ outcome: "decided", followUp: null, calendarWrite: "written", callback: null });
+    expect(decided).toMatchObject({ outcome: "decided", followUp: null, calendarWrite: "written" });
     expect(decided.appointmentId).not.toBeNull();
 
     const rows = await appointmentRow(f.clinicId);

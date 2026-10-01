@@ -62,8 +62,8 @@ export const ONBOARDING_LABELS: Record<OnboardingStep, { title: string; why: str
     required: true,
   },
   platform_connected: {
-    title: "Booking system connected (verified attribution only)",
-    why: "Needed for the verified report; estimated clinics skip it.",
+    title: "Booking system connected (phase two: verified attribution only)",
+    why: "Phase two. Needed only for the verified report, which v1 does not offer; v1 clinics skip it.",
     required: false,
   },
   // Stamped by the practice on its setup link, by the operator on the call,

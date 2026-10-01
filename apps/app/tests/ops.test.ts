@@ -1,7 +1,7 @@
 import { ONBOARDING_STEPS } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
-import { agreementCarriesCalendarWrite, isIanaTimeZone, runOperation, type Operator } from "@/lib/ops/api";
+import { agreementCarriesCalendarWrite, isIanaTimeZone, isOpName, runOperation, type Operator } from "@/lib/ops/api";
 import { blockersFor, listClinics, type ClinicOverview } from "@/lib/ops/clinics";
 
 import {
@@ -49,12 +49,10 @@ const clinic = (over: Partial<ClinicOverview> = {}): ClinicOverview => ({
   bookingMode: "desk_confirms",
   directBookingElectedAt: null,
   directBookingWithdrawnAt: null,
-  outboundCallbacksEnabled: false,
   timezoneConfirmedAt: null,
   bookingRequirements: null,
   bookingRequirementsConfirmedAt: null,
   bookingRequirementsSource: null,
-  synthflowCallbackAgentId: null,
   ...over,
 });
 
@@ -140,8 +138,6 @@ describeDb("ops clinic listing", () => {
         "bookingRequirementsSource",
         "directBookingElectedAt",
         "directBookingWithdrawnAt",
-        "outboundCallbacksEnabled",
-        "synthflowCallbackAgentId",
         "timezoneConfirmedAt",
         "callRouting",
         "callRoutingConfirmedAt",
@@ -212,12 +208,19 @@ describe("IANA time zones", () => {
   });
 });
 
-describeDb("ops: booking hand-off, callbacks and direct booking", () => {
+describe("inbound only: the call-back and template operations are gone", () => {
+  test("neither the call-back switch nor the WhatsApp template op is an operation any more", () => {
+    expect(isOpName("setOutboundCallbacks")).toBe(false);
+    expect(isOpName("setWhatsAppTemplate")).toBe(false);
+  });
+});
+
+describeDb("ops: booking hand-off and direct booking", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
-    delete process.env.HEALDESK_WHATSAPP_TEMPLATES_ENABLED;
     delete process.env.HEALDESK_DIRECT_BOOKING_ENABLED;
+    delete process.env.HEALDESK_PHASE_TWO_ATTRIBUTION;
   }, 60_000);
 
   afterAll(async () => {
@@ -233,10 +236,12 @@ describeDb("ops: booking hand-off, callbacks and direct booking", () => {
     expect(json).not.toMatch(/"fullName":/);
     // The new fields are present with their resting values.
     expect(view.bookingMode).toBe("desk_confirms");
-    expect(view.outboundCallbacksEnabled).toBe(false);
     expect(view.timezoneConfirmedAt).toBeNull();
-    expect(view.pendingCallbacks).toBe(0);
     expect(view.calendarConnection).toBeNull();
+    // The call-back switch, its queue count and the WhatsApp template are gone.
+    for (const key of ["outboundCallbacksEnabled", "pendingCallbacks", "whatsappTemplateName", "whatsappTemplatesFlag"]) {
+      expect(view, key).not.toHaveProperty(key);
+    }
     expect(view.calendarWrites).toEqual([]);
     const requirements = view.requirements as { fields: string[]; source: string | null; catalogue: unknown[]; neverAsked: string[] };
     expect(requirements.fields.slice(0, 4)).toEqual(["first_name", "phone", "preferred_window", "alternative_windows"]);
@@ -252,83 +257,60 @@ describeDb("ops: booking hand-off, callbacks and direct booking", () => {
     expect(writes.writes).toEqual([]);
   });
 
-  test("setOutboundCallbacks refuses on until the time zone is confirmed and the number is on file", async () => {
-    const { clinicId } = await seedClinic("ops-callbacks");
-    const refusedTz = await run("setOutboundCallbacks", { clinicId, enabled: true });
-    expect(refusedTz.status).toBe("error");
-    expect(String(refusedTz.message)).toMatch(/time zone/i);
-
+  test("setClinicTimezone refuses what is not an IANA zone and stamps the confirmation", async () => {
+    const { clinicId } = await seedClinic("ops-timezone");
     expect((await run("setClinicTimezone", { clinicId, timezone: "EST" })).status).toBe("error");
     const tz = await run("setClinicTimezone", { clinicId, timezone: "America/Chicago" });
     expect(tz).toMatchObject({ status: "updated", timezone: "America/Chicago" });
     const overview = (await listClinics()).find((c) => c.id === clinicId)!;
     expect(overview.timezone).toBe("America/Chicago");
     expect(overview.timezoneConfirmedAt).not.toBeNull();
-
-    const refusedPhone = await run("setOutboundCallbacks", { clinicId, enabled: true });
-    expect(refusedPhone.status).toBe("error");
-    expect(String(refusedPhone.message)).toMatch(/published number/i);
-
-    await getMigratorPool().query(`update clinics set published_phone_e164 = '+14155550199' where id = $1`, [clinicId]);
-    expect((await run("setOutboundCallbacks", { clinicId, enabled: true })).status).toBe("updated");
-    expect((await listClinics()).find((c) => c.id === clinicId)!.outboundCallbacksEnabled).toBe(true);
-    // Off always succeeds.
-    expect((await run("setOutboundCallbacks", { clinicId, enabled: false })).status).toBe("updated");
   });
 
-  test("setWhatsAppTemplate refuses without the flag", async () => {
-    const { clinicId } = await seedClinic("ops-whatsapp");
-    delete process.env.HEALDESK_WHATSAPP_TEMPLATES_ENABLED;
-    const refused = await run("setWhatsAppTemplate", { clinicId, templateName: "healdesk_request_update_v1" });
+  test("issueConnectLink is phase two: refused in v1, and with the fence lifted a read-only guide issues", async () => {
+    const { clinicId: acuityId } = await seedClinic("ops-acuity");
+    await getMigratorPool().query(`update clinics set booking_provider = 'acuity' where id = $1`, [acuityId]);
+
+    delete process.env.HEALDESK_PHASE_TWO_ATTRIBUTION;
+    const refused = await run("issueConnectLink", { clinicId: acuityId });
     expect(refused.status).toBe("error");
-    expect(String(refused.message)).toMatch(/HEALDESK_WHATSAPP_TEMPLATES_ENABLED/);
-    // With the flag but no WhatsApp channel there is nowhere to put it.
-    process.env.HEALDESK_WHATSAPP_TEMPLATES_ENABLED = "true";
+    expect(String(refused.message)).toMatch(/phase two/i);
+    const none = await inTenant(acuityId, async (client) => (await client.query(`select id from connection_links where clinic_id = $1`, [acuityId])).rows);
+    expect(none).toEqual([]);
+
+    process.env.HEALDESK_PHASE_TWO_ATTRIBUTION = "true";
     try {
-      const noChannel = await run("setWhatsAppTemplate", { clinicId, templateName: "healdesk_request_update_v1" });
-      expect(noChannel.status).toBe("error");
-      expect(String(noChannel.message)).toMatch(/WhatsApp channel/);
+      const issued = await run("issueConnectLink", { clinicId: acuityId });
+      expect(issued.status).toBe("issued");
+      expect(String(issued.url)).toMatch(/\/connect\/[A-Za-z0-9_-]{43}$/);
     } finally {
-      delete process.env.HEALDESK_WHATSAPP_TEMPLATES_ENABLED;
+      delete process.env.HEALDESK_PHASE_TWO_ATTRIBUTION;
     }
   });
 
-  test("issueConnectLink for calcom refuses without a calendar-write agreement", async () => {
-    const { clinicId, organizationId } = await seedClinic("ops-calcom");
-    await getMigratorPool().query(`update clinics set booking_provider = 'calcom' where id = $1`, [clinicId]);
-
-    // No agreement at all.
-    const none = await run("issueConnectLink", { clinicId });
-    expect(none).toMatchObject({ status: "error", reason: "baa_lacks_calendar_write" });
+  test("agreementCarriesCalendarWrite reads the bound, in-effect agreement's own clauses", async () => {
+    const { organizationId } = await seedClinic("ops-calendar-clause");
+    expect(await agreementCarriesCalendarWrite(organizationId)).toBe(false);
 
     // A bound 1.0.0 agreement: no calendar-write clause was in that document.
     await getMigratorPool().query(
       `insert into baa_acceptances (organization_id, document_version, document_hash, rendered_text, variables, assent_label, accepted_by_name, accepted_by_email, accepted_at, bound_at)
-       values ($1, '1.0.0', repeat('a', 64), 'BAA', '{"appliedClauses":["parties","safeguards"],"calendarWrite":null}'::jsonb, 'I agree', 'Alex', 'alex@calcom.test', now() - interval '2 days', now() - interval '2 days')`,
+       values ($1, '1.0.0', repeat('a', 64), 'BAA', '{"appliedClauses":["parties","safeguards"],"calendarWrite":null}'::jsonb, 'I agree', 'Alex', 'alex@clause.test', now() - interval '2 days', now() - interval '2 days')`,
       [organizationId],
     );
     expect(await agreementCarriesCalendarWrite(organizationId)).toBe(false);
-    expect(await run("issueConnectLink", { clinicId })).toMatchObject({ status: "error", reason: "baa_lacks_calendar_write" });
 
     // A later bound agreement whose rendered document carried the clause.
     await getMigratorPool().query(
       `insert into baa_acceptances (organization_id, document_version, document_hash, rendered_text, variables, assent_label, accepted_by_name, accepted_by_email, accepted_at, bound_at)
-       values ($1, '1.1.0-draft', repeat('b', 64), 'BAA', '{"appliedClauses":["parties","calendar-write"],"calendarWrite":{"platform":"Cal.com"}}'::jsonb, 'I agree', 'Alex', 'alex@calcom.test', now(), now())`,
+       values ($1, '1.1.0-draft', repeat('b', 64), 'BAA', '{"appliedClauses":["parties","calendar-write"],"calendarWrite":{"platform":"Cal.com"}}'::jsonb, 'I agree', 'Alex', 'alex@clause.test', now(), now())`,
       [organizationId],
     );
     expect(await agreementCarriesCalendarWrite(organizationId)).toBe(true);
-    const issued = await run("issueConnectLink", { clinicId });
-    expect(issued.status).toBe("issued");
-    expect(String(issued.url)).toMatch(/\/connect\/[A-Za-z0-9_-]{43}$/);
 
     // Terminated: counts for nothing again.
     await getMigratorPool().query(`update baa_acceptances set terminated_at = now() where organization_id = $1 and document_version = '1.1.0-draft'`, [organizationId]);
     expect(await agreementCarriesCalendarWrite(organizationId)).toBe(false);
-
-    // A read-only platform never asks the question.
-    const { clinicId: acuityId } = await seedClinic("ops-acuity");
-    await getMigratorPool().query(`update clinics set booking_provider = 'acuity' where id = $1`, [acuityId]);
-    expect((await run("issueConnectLink", { clinicId: acuityId })).status).toBe("issued");
   });
 
   test("setBookingMode direct refuses listing the missing gates; desk_confirms stamps the withdrawal", async () => {

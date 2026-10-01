@@ -16,6 +16,15 @@ import { withTenant } from "@/lib/tenant";
  *
  * Called from the voice webhook after ingestion, outside the ingest
  * transaction: an alert that fails must not undo a conversation row.
+ * (Nothing calls it in production yet; see the audit's live-alert finding.)
+ *
+ * The copy promises nothing the product does not do: a booking is in
+ * healdesk's record, and in the clinic's calendar only where one is
+ * connected for writing, which in v1 means Google Calendar once that adapter
+ * exists. TODO(v1): link to the clinic portal's Bookings and Conversations
+ * screens, behind the second factor, once the portal is built; until then
+ * the alert names no screen, because the operator console is ours, not the
+ * clinic's.
  */
 export type AlertKind = "booked" | "escalated";
 
@@ -49,9 +58,9 @@ export async function sendLiveAlert(
           : `${clinic.name}: a caller asked for a person`;
       const text =
         kind === "booked"
-          ? `AYA booked a new appointment a moment ago. It is in your booking system now; open the console to see the call.\n` +
+          ? `AYA booked a new appointment a moment ago. It is recorded in healdesk; add it to your own calendar if it does not appear there.\n` +
             (depositDue ? `A deposit is due on it. The caller was told the front desk will call to collect it, so that call is yours.\n` : "")
-          : `A caller asked to speak with a person and AYA took a message. Please follow up from the console.\n`;
+          : `A caller asked to speak with a person and AYA took a message. Please follow up with them.\n`;
       let any = false;
       for (const recipient of recipients) {
         const claim = await claimDelivery(tx, { kind: "alert", periodKey: `${kind}:${conversationId}`, recipient: recipient.email });

@@ -288,6 +288,13 @@
       "when": 1790667255588,
       "tag": "0040_booking_modes_callbacks",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1790835556105,
+      "tag": "0041_inbound_only",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 
 import { canWriteBookings, isUsable, limitationsOf } from "../src/capabilities";
 import { fixtureAdapter } from "../src/fixture/adapter";
@@ -12,8 +12,6 @@ import type {
   CreateAppointmentInput,
   TimeWindow,
 } from "../src/types";
-
-import { fakeCalcom } from "./calcom-fake";
 
 /**
  * The contract every adapter must satisfy.
@@ -55,22 +53,6 @@ function harnessFor(adapter: ConnectorAdapter): Harness {
         install() {},
         uninstall() {},
       };
-    case "calcom": {
-      // The registered instance resolves fetch at call time, so stubbing the
-      // global routes it into the fake. Keyed per clinic so two clinics get
-      // two Cal.com accounts.
-      const fake = fakeCalcom({ seedBookings: 130 });
-      return {
-        context: (clinicId = CLINIC_A) => ({
-          clinicId,
-          connectionId: CONNECTION,
-          credentials: { apiKey: `cal_${clinicId}` },
-          metadata: { eventTypeId: 4242, durationMinutes: 30 },
-        }),
-        install: () => vi.stubGlobal("fetch", fake.fetch),
-        uninstall: () => vi.unstubAllGlobals(),
-      };
-    }
     default:
       throw new Error(
         `${adapter.id} is registered but has no offline harness in contract.test.ts. ` +
@@ -428,7 +410,7 @@ describe("fixture write path", () => {
     expect(found).toEqual({ ok: true, value: { externalId: "fx-req-9" } });
   });
 
-  test("the same key twice is two bookings, as it would be on Cal.com", async () => {
+  test("the same key twice is two bookings, as it would be on a vendor with no idempotency key", async () => {
     const first = await fixtureAdapter.createAppointment(context, input());
     const second = await fixtureAdapter.createAppointment(context, input());
     expect(first.ok && first.value.externalId).toBe("fx-req-9");

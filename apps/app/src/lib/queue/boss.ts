@@ -38,21 +38,19 @@ export const QUEUE_RECONCILE_CLINIC = "reconcile-clinic";
 export const QUEUE_PROCESS_WEBHOOK = "process-webhook";
 /** The clock. pg-boss's cron sends one empty job here every hour; the worker's tick handler drains it. */
 export const QUEUE_TICK = "tick-hourly";
-/**
- * The callback dialer's clock (design of 23 September 2026, §F.11): one
- * empty job every fifteen minutes. Listed here because scripts/install-queue.ts
- * creates exactly the queues in QUEUES and pg-boss v10 refuses to work a
- * queue that was never created — `npm run queue:install` must be re-run per
- * environment when this list grows.
- */
-export const QUEUE_CALLBACK_DIALER = "callback-dialer";
 
+/**
+ * scripts/install-queue.ts creates exactly these, and pg-boss v10 refuses to
+ * work a queue that was never created — `npm run queue:install` must be
+ * re-run per environment when this list grows. The 23 September 2026
+ * `callback-dialer` queue was removed with the call-back (v1 places no
+ * calls); where it was installed, it is simply never worked.
+ */
 export const QUEUES = [
   QUEUE_SYNC_CONNECTION,
   QUEUE_RECONCILE_CLINIC,
   QUEUE_PROCESS_WEBHOOK,
   QUEUE_TICK,
-  QUEUE_CALLBACK_DIALER,
 ] as const;
 
 export type QueueName = (typeof QUEUES)[number];

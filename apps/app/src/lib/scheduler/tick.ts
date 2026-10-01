@@ -1,4 +1,4 @@
-import { sweepMetaBookingDrafts } from "@/lib/meta/front-door";
+import { expireLapsedRequests } from "@/lib/meta/booking-requests";
 import { applyBookingRequirementDefaults } from "@/lib/onboarding/requirements";
 
 import { runAnnualRenewalReminderJob } from "./annual-renewal-reminder";
@@ -43,18 +43,20 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   };
 
   await record("billing-sweep", () => runBillingSweepJob({ now }));
+  // Phase two: runJob() reports it "disabled" in v1 whatever its switch says.
   await record("monthly-report", () => runMonthlyReportJob({ now, send: true }));
   await record("weekly-recap", () => runWeeklyRecapJob({ now }));
   await record("connection-health", () => runConnectionHealthJob({ now }));
-  // §D.2 step 5: a Meta draft whose consent question went unanswered for ten
-  // minutes becomes a request with no consent row, so a person who went
-  // quiet is not lost. Not a switched job: it is a pure function of the
-  // clock over drafts that already exist, like the other sweeps here.
-  await record("meta-draft-sweep", async () => ({ status: "ok", note: `${await sweepMetaBookingDrafts(now)} created` }));
+  // §C.4: booking requests whose link or proposed times have lapsed become
+  // `expired`. Not a switched job: a pure function of the clock over rows
+  // that already exist, like the sweep below. (It ran inside the call-back
+  // dialer job until that was removed.)
+  await record("booking-request-expiry", async () => ({ status: "ok", note: `${(await expireLapsedRequests(now)).expired} expired` }));
   // §H.5: a clinic whose setup link expired unspent gets the specialty
   // defaults stamped as its booking requirement set. Same shape as the sweep
   // above: a pure function of the clock over rows that already exist.
   await record("booking-requirements-defaults", async () => ({ status: "ok", note: `${await applyBookingRequirementDefaults(now)} defaulted` }));
+  // Phase two, like the monthly report.
   if (hour === 2) await record("nightly-sync", () => runNightlySyncJob({ now }));
   if (hour === 3) await record("retention-purge", () => runRetentionPurgeJob({ now }));
   if (hour === 4) await record("offboarding-destroy", () => runOffboardingDestroyJob({ now }));

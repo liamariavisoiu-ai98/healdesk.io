@@ -43,8 +43,6 @@ const FIXTURE = {
     preferred_alt_1: "Friday morning",
     preferred_alt_2: "",
     booked_treatment: "Botox",
-    callback_consent: "yes",
-    callback_consent_quote: "yes that's fine",
     rang_at_clinic_first: "true",
   },
 };
@@ -62,8 +60,6 @@ describe("reading the vendor payload", () => {
     expect(event.booking?.scheduledFor.toISOString()).toBe("2026-09-10T15:00:00.000Z");
     expect(event.booking?.treatment).toBe("Botox");
     expect(event.booking?.alternativeWindows).toEqual(["Friday morning"]);
-    expect(event.callbackConsent).toEqual({ answer: "yes", quote: "yes that's fine" });
-    expect(event.callStatus).toBe("completed");
     // No audio reference, even when the vendor sends one (21 September 2026).
     expect("recordingUri" in event).toBe(false);
   });
@@ -186,19 +182,18 @@ describeDb("POST /api/webhooks/voice/[clinicId]", () => {
     expect(rows.convos[0]!.recovery_reason).toBe("rang_unanswered");
     expect(rows.convos[0]!.outcome).toBe("booked");
     expect(rows.contacts).toEqual([{ phone: "+15550100123", timezone: "America/New_York" }]);
-    // The agent semi-confirms only: a request for the desk, no appointment
-    // row until the desk confirms a slot (21 September 2026).
+    // No direct booking on this clinic: a request for the desk, no
+    // appointment row until the desk confirms a slot.
     expect(rows.appts).toHaveLength(0);
     expect(rows.requests).toEqual([{ channel: "voice", status: "requested" }]);
-    // §D.1/§F.2: the alternative and the consent row, quoting the caller's own words with the transcript as evidence.
+    // §D.1: the alternative is kept; no consent row of any kind is written
+    // (v1 is inbound only, so nothing is asked about calling them back).
     const detail = await inTenant(c.clinicId, async (client) => ({
       request: (await client.query<{ preferred_window: string; alternative_windows: string[]; collected_fields: Record<string, string> }>(`select preferred_window, alternative_windows, collected_fields from booking_requests`)).rows[0],
-      consent: (await client.query<{ source: string; exact_wording: string; wording_version: string; evidence_uri: string }>(`select source, exact_wording, wording_version, evidence_uri from consent_records`)).rows,
+      consent: (await client.query(`select id from consent_records`)).rows,
     }));
     expect(detail.request).toEqual({ preferred_window: "next Thursday afternoon", alternative_windows: ["Friday morning"], collected_fields: {} });
-    expect(detail.consent).toEqual([
-      { source: "inbound_call", exact_wording: expect.stringMatching(/automated assistant calls you back.* — answered: "yes that's fine"$/), wording_version: "callback-v2", evidence_uri: "https://transcripts.example.test/call_abc123.txt" },
-    ]);
+    expect(detail.consent).toEqual([]);
 
     const again = await post(c.clinicId, FIXTURE);
     expect(again.status).toBe(200);

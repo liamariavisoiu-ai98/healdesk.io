@@ -179,10 +179,8 @@ type OperatorOp =
   | "attachMetaChannel"
   | "setMetaFrontDoor"
   | "setBookingRequirements"
-  | "setOutboundCallbacks"
   | "setClinicTimezone"
   | "setConnectionPhiBasis"
-  | "setWhatsAppTemplate"
   | "setBookingMode"
   | "issueSetupLink"
   | "retryCalendarWrite"
@@ -316,6 +314,8 @@ export type OpsJob = {
   lastRunNote: string | null;
   /** Set while a run is in flight, which is the one thing a toggle cannot stop. */
   runningSince: string | null;
+  /** Phase two (attribution) and fenced upstream: it does not run in v1 and cannot be switched on. */
+  phaseTwo: boolean;
 };
 
 /**
@@ -1555,6 +1555,8 @@ function readJob(value: unknown): OpsJob {
     lastRunStatus: optionalText(row.lastRunStatus, "job.lastRunStatus"),
     lastRunNote: optionalText(row.lastRunNote, "job.lastRunNote"),
     runningSince: running?.at ?? null,
+    // Absent from an older apps/app means not fenced, which is what it was.
+    phaseTwo: row.phaseTwo === true,
   };
 }
 
@@ -1764,12 +1766,8 @@ export type OnboardingView = {
     gates: { id: DirectBookingGate; ok: boolean }[];
     missing: string[];
   };
-  outboundCallbacksEnabled: boolean;
   timezoneConfirmedAt: string | null;
   timezone: string;
-  pendingCallbacks: number;
-  whatsappTemplateName: string | null;
-  whatsappTemplatesFlag: boolean;
   calendarConnection: { connectionId: string; platform: string; phiBasis: PhiBasis | null; writable: boolean } | null;
   calendarWrites: CalendarWriteRow[];
 };
@@ -1950,12 +1948,8 @@ function readOnboardingView(value: unknown): OnboardingView {
         missing: list(d.missing ?? [], "directBooking.missing").map((m) => text(m, "directBooking.missing")),
       };
     })(),
-    outboundCallbacksEnabled: data.outboundCallbacksEnabled === true,
     timezoneConfirmedAt: optionalString(data.timezoneConfirmedAt),
     timezone: optionalString(data.timezone) ?? text(clinic.timezone, "clinic.timezone"),
-    pendingCallbacks: typeof data.pendingCallbacks === "number" && Number.isInteger(data.pendingCallbacks) && data.pendingCallbacks >= 0 ? data.pendingCallbacks : 0,
-    whatsappTemplateName: optionalString(data.whatsappTemplateName),
-    whatsappTemplatesFlag: data.whatsappTemplatesFlag === true,
     calendarConnection: (() => {
       if (!data.calendarConnection) return null;
       const c = object(data.calendarConnection, "getOnboarding.calendarConnection");
@@ -2320,15 +2314,13 @@ export function setMetaFrontDoor(clinicId: string, enabled: boolean) {
 
 
 // -----------------------------------------------------------------------------
-// Booking hand-off, callbacks and direct booking (design of 23 September 2026)
+// Booking hand-off and direct booking (design of 23 September 2026). The
+// call-back switch and the WhatsApp template op went with v1's inbound-only
+// rule.
 // -----------------------------------------------------------------------------
 
 export function setBookingRequirements(clinicId: string, fields: string[]) {
   return simple("setBookingRequirements", { clinicId, fields });
-}
-
-export function setOutboundCallbacks(clinicId: string, enabled: boolean) {
-  return simple("setOutboundCallbacks", { clinicId, enabled });
 }
 
 export function setClinicTimezone(clinicId: string, timezone: string) {
@@ -2337,10 +2329,6 @@ export function setClinicTimezone(clinicId: string, timezone: string) {
 
 export function setConnectionPhiBasis(clinicId: string, input: { connectionId: string; basis: PhiBasis | null; note?: string }) {
   return simple("setConnectionPhiBasis", { clinicId, connectionId: input.connectionId, basis: input.basis, ...(input.note ? { note: input.note } : {}) });
-}
-
-export function setWhatsAppTemplate(clinicId: string, templateName: string | null) {
-  return simple("setWhatsAppTemplate", { clinicId, templateName });
 }
 
 export type BookingModeOutcome =

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { canWriteBookings, getAdapter } from "@healdesk/connectors";
 import { and, desc, eq, gt, isNotNull, isNull, ne, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
@@ -9,7 +10,6 @@ import {
   bookingRequests,
   clinics,
   connectionLinks,
-  outboundCalls,
   providerConnections,
   reportDeliveries,
   scheduledJobs,
@@ -100,7 +100,7 @@ import {
 import { goLive, goLivePreconditions } from "@/lib/onboarding/go-live";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { completeStep, reopenStep } from "@/lib/onboarding/steps";
-import { getJob, listJobs as listJobRecords } from "@/lib/scheduler/jobs";
+import { getJob, listJobs as listJobRecords, PHASE_TWO_JOBS } from "@/lib/scheduler/jobs";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 import { log } from "@/lib/log";
 
@@ -253,13 +253,13 @@ const OPERATIONS = [
   // The Meta front door: a sealed token per platform, and the per-clinic switch.
   "attachMetaChannel",
   "setMetaFrontDoor",
-  // Booking hand-off, callbacks and direct booking (design of 23 September
-  // 2026, §B.4, §E.6, §H.5). Configuration and write ledgers; never a patient.
+  // Booking hand-off and direct booking (design of 23 September 2026, §B.4,
+  // §E.6, §H.5). Configuration and write ledgers; never a patient. The
+  // call-back switch and the WhatsApp template name went with v1's
+  // inbound-only rule.
   "setBookingRequirements",
-  "setOutboundCallbacks",
   "setClinicTimezone",
   "setConnectionPhiBasis",
-  "setWhatsAppTemplate",
   "setBookingMode",
   "issueSetupLink",
   "retryCalendarWrite",
@@ -301,10 +301,8 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "attachMetaChannel",
   "setMetaFrontDoor",
   "setBookingRequirements",
-  "setOutboundCallbacks",
   "setClinicTimezone",
   "setConnectionPhiBasis",
-  "setWhatsAppTemplate",
   "setBookingMode",
   "issueSetupLink",
   // Mutating because it moves the appointment's calendar columns and may
@@ -787,14 +785,10 @@ export async function runOperation(
       return opSetMetaFrontDoor(args, operator);
     case "setBookingRequirements":
       return opSetBookingRequirements(args, operator);
-    case "setOutboundCallbacks":
-      return opSetOutboundCallbacks(args, operator);
     case "setClinicTimezone":
       return opSetClinicTimezone(args, operator);
     case "setConnectionPhiBasis":
       return opSetConnectionPhiBasis(args, operator);
-    case "setWhatsAppTemplate":
-      return opSetWhatsAppTemplate(args, operator);
     case "setBookingMode":
       return opSetBookingMode(args, operator);
     case "issueSetupLink":
@@ -969,7 +963,17 @@ export type OpsJobRow = {
   lastRunNote: string | null;
   runningSince: string | null;
   updatedAt: string;
+  /**
+   * Phase two (attribution) and fenced in this environment: runJob() will
+   * not run it and toggleJob will not switch it on. The console says so.
+   */
+  phaseTwo: boolean;
 };
+
+/** A phase-two job in an environment where phase two is off. */
+function fencedJob(name: string): boolean {
+  return PHASE_TWO_JOBS.has(name) && !env.phaseTwoAttribution();
+}
 
 async function opListJobs(): Promise<OpsOutcome> {
   const jobs = await listJobRecords();
@@ -991,6 +995,7 @@ async function opListJobs(): Promise<OpsOutcome> {
     lastRunNote: job.lastRunNote,
     runningSince: job.runningSince?.toISOString() ?? null,
     updatedAt: job.updatedAt.toISOString(),
+    phaseTwo: fencedJob(job.name),
   }));
 
   return ok({ jobs: rows });
@@ -1026,6 +1031,15 @@ async function opToggleJob(
   const job = await getJob(name);
   if (!job) {
     return ok({ status: "error", message: "No such job." } satisfies ToggleJobState);
+  }
+  // Phase two is fenced out of v1: the monthly revenue report and the POS
+  // sync never run for a v1 clinic, so the switch cannot be turned on here.
+  // Switching one off is always allowed.
+  if (enabled && fencedJob(name)) {
+    return ok({
+      status: "error",
+      message: "That job is phase two (attribution) and does not run in v1. It stays off until HEALDESK_PHASE_TWO_ATTRIBUTION is \"true\".",
+    } satisfies ToggleJobState);
   }
 
   /**
@@ -1097,10 +1111,12 @@ export type IssueConnectLinkState =
 /**
  * Mint a single-use connection link for one clinic.
  *
- * Clinics do not sign in. There is no account, no password and no console for
- * them, so nothing in the product can create this link on their behalf — if ops
- * cannot issue one, a clinic has no way to grant the read-only access that
- * turns estimated attribution into verified attribution.
+ * PHASE TWO: attribution read-back. The link hands over a pasted read-only
+ * credential for a POS or booking system, which v1 neither reads nor asks
+ * for (v1 spec, onboarding principle 2: "Every connection is a login
+ * button"). Refused unless HEALDESK_PHASE_TWO_ATTRIBUTION is "true", so no
+ * v1 clinic is mailed a link that promises it a revenue figure. The v1 clinic
+ * portal, where clinics do sign in, is not built yet.
  *
  * The token, the digest and the TTL all belong to `lib/connections/links.ts`,
  * which stores a hash, clamps the window and lets Postgres stamp the clock.
@@ -1113,6 +1129,13 @@ async function opIssueConnectLink(
 ): Promise<OpsOutcome> {
   const clinicId = stringArg(args, "clinicId");
   const recipientEmail = stringArg(args, "recipientEmail", MAX_EMAIL_LENGTH);
+
+  if (!env.phaseTwoAttribution()) {
+    return ok({
+      status: "error",
+      message: "Connect links are phase two (attribution read-back) and are not issued in v1. Nothing was minted or sent.",
+    } satisfies IssueConnectLinkState);
+  }
 
   if (!clinicId || !UUID_SHAPED.test(clinicId)) {
     return ok({
@@ -2371,7 +2394,7 @@ export type OnboardingView = {
     catalogue: { id: string; label: string; locked: boolean; phoneOnly: boolean }[];
     neverAsked: string[];
   };
-  /** §E.6: the mode, the election, and the six gates behind the switch. */
+  /** §E.6: the mode, the election, and the six gates behind the switch (see lib/booking/mode.ts for what v1 changes). */
   bookingMode: "desk_confirms" | "direct";
   directBookingElectedAt: string | null;
   directBookingWithdrawnAt: string | null;
@@ -2382,15 +2405,9 @@ export type OnboardingView = {
     /** The sentences directBookingAllowed() refuses on, verbatim. */
     missing: string[];
   };
-  /** §F: the per-clinic switch and what it waits on. */
-  outboundCallbacksEnabled: boolean;
+  /** The clinic's zone and whether anyone confirmed it, or it is still the provisioning default. */
   timezoneConfirmedAt: string | null;
   timezone: string;
-  /** Count of outbound_calls rows still `due`. A number, never a row. */
-  pendingCallbacks: number;
-  /** §G.3: the approved UTILITY template name on the WhatsApp channel, if any. */
-  whatsappTemplateName: string | null;
-  whatsappTemplatesFlag: boolean;
   /** §B.3: the one connection healdesk may write into, and the basis recorded on it. */
   calendarConnection: { connectionId: string; platform: string; phiBasis: PhiBasis | null; writable: boolean } | null;
   /** §B.4: every appointment with a calendar write attempted. No name, phone or service. */
@@ -2528,12 +2545,8 @@ async function opGetOnboarding(
     directBookingElectedAt: clinic.directBookingElectedAt?.toISOString() ?? null,
     directBookingWithdrawnAt: clinic.directBookingWithdrawnAt?.toISOString() ?? null,
     directBooking: booking.directBooking,
-    outboundCallbacksEnabled: clinic.outboundCallbacksEnabled,
     timezoneConfirmedAt: clinic.timezoneConfirmedAt?.toISOString() ?? null,
     timezone: clinic.timezone,
-    pendingCallbacks: booking.pendingCallbacks,
-    whatsappTemplateName: booking.whatsappTemplateName,
-    whatsappTemplatesFlag: env.whatsappTemplatesEnabled(),
     calendarConnection: booking.calendarConnection,
     calendarWrites: booking.calendarWrites,
   };
@@ -2543,8 +2556,8 @@ async function opGetOnboarding(
 /**
  * The booking-side state of one clinic, read inside the tenant transaction
  * opGetOnboarding already opens (§A.14): the connection healdesk may write
- * into and its basis, the WhatsApp template name, the calendar-write ledger,
- * the count of due callbacks, and the six direct-booking gates.
+ * into and its basis, the calendar-write ledger, and the six direct-booking
+ * gates.
  *
  * Nothing here is a patient. The calendar rows carry an appointment id, a
  * slot, a status and a short vendor status; tests/ops.test.ts asserts that
@@ -2557,28 +2570,29 @@ async function readBookingState(
 ) {
   const writable = await writableConnection(tx);
   // The connection healdesk COULD write into once a basis is recorded: the
-  // active, non-Meta connection whose adapter has the write side. Reported
+  // active connection whose registered adapter has the write side. Reported
   // even when not yet writable, so the console can offer the basis select.
-  const [candidate] = await tx.db
-    .select({ id: providerConnections.id, provider: providerConnections.provider, phiBasis: providerConnections.phiBasis })
-    .from(providerConnections)
-    .where(and(eq(providerConnections.clinicId, tx.clinicId), eq(providerConnections.status, "active"), eq(providerConnections.provider, "calcom")))
-    .orderBy(providerConnections.createdAt)
-    .limit(1);
+  // No adapter for a real calendar is registered today (only the test
+  // fixture writes): the Cal.com write adapter was removed, v1 writes to
+  // Google Calendar only, and that adapter is launch plan steps 1.5 and 1.7.
+  // So this is null for every real clinic.
+  const candidates = connections.filter((c) => {
+    if (c.status !== "active") return false;
+    const adapter = getAdapter(c.provider);
+    return adapter !== undefined && canWriteBookings(adapter.capabilities);
+  });
+  const [candidate] = candidates.length
+    ? await tx.db
+        .select({ id: providerConnections.id, provider: providerConnections.provider, phiBasis: providerConnections.phiBasis })
+        .from(providerConnections)
+        .where(and(eq(providerConnections.clinicId, tx.clinicId), eq(providerConnections.id, candidates[0]!.id)))
+        .limit(1)
+    : [];
   const calendarConnection = writable
     ? { connectionId: writable.connectionId, platform: writable.provider, phiBasis: writable.phiBasis, writable: true }
     : candidate
       ? { connectionId: candidate.id, platform: candidate.provider, phiBasis: candidate.phiBasis, writable: false }
       : null;
-
-  const whatsapp = connections.find((c) => c.provider === META_PROVIDERS.whatsapp);
-  const meta = (whatsapp?.metadata ?? null) as { templateName?: unknown } | null;
-  const whatsappTemplateName = typeof meta?.templateName === "string" && meta.templateName.trim() ? meta.templateName.trim() : null;
-
-  const [due] = await tx.db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(outboundCalls)
-    .where(and(eq(outboundCalls.clinicId, tx.clinicId), eq(outboundCalls.status, "due")));
 
   const [outstanding] = await tx.db
     .select({ id: connectionLinks.id })
@@ -2600,8 +2614,6 @@ async function readBookingState(
 
   return {
     calendarConnection,
-    whatsappTemplateName,
-    pendingCallbacks: due?.n ?? 0,
     setupLinkOutstanding: Boolean(outstanding),
     calendarWrites: await listCalendarWritesWithin(tx),
     directBooking: {
@@ -3290,7 +3302,7 @@ async function opSetMetaFrontDoor(
 
 
 // -----------------------------------------------------------------------------
-// Booking hand-off, callbacks and direct booking (design of 23 September 2026)
+// Booking hand-off and direct booking (design of 23 September 2026)
 // -----------------------------------------------------------------------------
 
 export type BookingRequirementsState =
@@ -3323,37 +3335,6 @@ async function opSetBookingRequirements(
 
 export type SwitchState = { status: "updated"; auditRecorded: boolean } | { status: "error"; message: string };
 
-/**
- * §F.1: the per-clinic callbacks switch. On is refused until the time zone
- * has been confirmed (quiet hours are judged in it) and the published number
- * is on file (every callback states it). Off always succeeds; the env kill
- * switch is separate and outranks this.
- */
-async function opSetOutboundCallbacks(
-  args: Record<string, unknown>,
-  operator: Operator,
-): Promise<OpsOutcome> {
-  const clinic = await clinicById(stringArg(args, "clinicId"));
-  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies SwitchState);
-  const enabled = booleanArg(args, "enabled");
-  if (enabled === undefined) return ok({ status: "error", message: "On or off?" } satisfies SwitchState);
-  if (enabled && !clinic.timezoneConfirmedAt) {
-    return ok({ status: "error", message: "Confirm the clinic's time zone first: quiet hours are judged in it, and a default zone is never dialled against." } satisfies SwitchState);
-  }
-  if (enabled && !clinic.publishedPhoneE164) {
-    return ok({ status: "error", message: "Enter the clinic's published number first: every callback gives it." } satisfies SwitchState);
-  }
-  await withTenant(
-    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
-    async (tx) => {
-      await tx.db.update(clinics).set({ outboundCallbacksEnabled: enabled, updatedAt: new Date() }).where(eq(clinics.id, tx.clinicId));
-      tx.audit.record({ action: "update", resourceType: "clinic_outbound_callbacks", resourceId: tx.clinicId, metadata: { enabled } });
-    },
-  );
-  const auditRecorded = await audit(operator, enabled ? "outbound_callbacks_enabled" : "outbound_callbacks_disabled", { clinicSlug: clinic.slug });
-  return ok({ status: "updated", auditRecorded } satisfies SwitchState);
-}
-
 export type TimezoneState = { status: "updated"; timezone: string; auditRecorded: boolean } | { status: "error"; message: string };
 
 /** An IANA zone the runtime's Intl data knows. "EST" and "UTC+5" are refused. */
@@ -3367,7 +3348,7 @@ export function isIanaTimeZone(value: string): boolean {
   }
 }
 
-/** §A.5: confirm the clinic's zone. Until stamped, `timezone` is the provisioning default and no callback is dialled. */
+/** §A.5: confirm the clinic's zone. Until stamped, `timezone` is the provisioning default, a guess rather than the clinic's answer. */
 async function opSetClinicTimezone(
   args: Record<string, unknown>,
   operator: Operator,
@@ -3435,46 +3416,6 @@ async function opSetConnectionPhiBasis(
   );
   if (!found) return ok({ status: "error", message: "No such connection on this clinic." } satisfies SwitchState);
   const auditRecorded = await audit(operator, "connection_phi_basis_set", { clinicSlug: clinic.slug, provider: found.provider, phiBasis: basis });
-  return ok({ status: "updated", auditRecorded } satisfies SwitchState);
-}
-
-/**
- * §G.3: the approved UTILITY template's name, stored on the WhatsApp
- * channel's metadata. Refused while HEALDESK_WHATSAPP_TEMPLATES_ENABLED is
- * not "true" — the flag waits on counsel, and a name recorded before then
- * would be a template a code path could send.
- */
-async function opSetWhatsAppTemplate(
-  args: Record<string, unknown>,
-  operator: Operator,
-): Promise<OpsOutcome> {
-  const clinic = await clinicById(stringArg(args, "clinicId"));
-  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies SwitchState);
-  if (!env.whatsappTemplatesEnabled()) {
-    return ok({ status: "error", message: "WhatsApp templates are switched off in this environment (HEALDESK_WHATSAPP_TEMPLATES_ENABLED). Nothing was recorded." } satisfies SwitchState);
-  }
-  const templateName = args.templateName === null ? null : stringArg(args, "templateName", 120);
-  if (templateName !== null && (!templateName || !/^[a-z0-9_]{1,120}$/.test(templateName))) {
-    return ok({ status: "error", message: "A template name is lower-case letters, digits and underscores, as Meta approved it." } satisfies SwitchState);
-  }
-  const found = await withTenant(
-    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
-    async (tx) => {
-      const [row] = await tx.db
-        .update(providerConnections)
-        .set({
-          metadata: sql`coalesce(${providerConnections.metadata}, '{}'::jsonb) || ${JSON.stringify({ templateName })}::jsonb`,
-          updatedAt: new Date(),
-        })
-        .where(and(eq(providerConnections.clinicId, tx.clinicId), eq(providerConnections.provider, META_PROVIDERS.whatsapp)))
-        .returning({ id: providerConnections.id });
-      if (!row) return null;
-      tx.audit.record({ action: "update", resourceType: "provider_connection", resourceId: row.id, metadata: { platform: "whatsapp", templateSet: templateName !== null } });
-      return row;
-    },
-  );
-  if (!found) return ok({ status: "error", message: "Attach the WhatsApp channel first; the template name lives on it." } satisfies SwitchState);
-  const auditRecorded = await audit(operator, "whatsapp_template_set", { clinicSlug: clinic.slug, templateSet: templateName !== null });
   return ok({ status: "updated", auditRecorded } satisfies SwitchState);
 }
 

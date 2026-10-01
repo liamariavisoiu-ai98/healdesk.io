@@ -86,8 +86,7 @@ export async function truncateAll(): Promise<void> {
       ('annual-renewal-reminder', 'Daily; emails the billing contact 30 days before an annual renewal, once per period', false),
       ('weekly-recap', 'Hourly check; sends each live clinic a 7-day recap on its own Monday morning, and a first one on day 7', false),
       ('nightly-sync', 'Daily at 02:00 UTC; enqueues a sync per active connection, staggered; reconcile on the 1st', false),
-      ('offboarding-destroy', 'Daily; destroys the patient data of clinics whose destroy_after has passed and whose export was delivered', false),
-      ('callback-dialer', 'Every 15 minutes; places due callbacks inside the window, expires lapsed reschedules, cancels calls for expired requests', false)
+      ('offboarding-destroy', 'Daily; destroys the patient data of clinics whose destroy_after has passed and whose export was delivered', false)
     on conflict (name) do update set enabled = (excluded.name = 'heartbeat'), updated_by = null
   `);
 }

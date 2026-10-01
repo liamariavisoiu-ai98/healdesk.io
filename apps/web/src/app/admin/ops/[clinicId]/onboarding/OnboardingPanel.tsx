@@ -41,15 +41,13 @@ type Actions = {
   startForwardingTest: () => Promise<OpsResult<ForwardingTestOutcome>>;
   attachMeta: (input: { platform: MetaPlatform; externalId: string; accessToken: string; label?: string }) => Promise<OpsResult<SimpleOutcome>>;
   setMeta: (enabled: boolean) => Promise<OpsResult<SimpleOutcome>>;
-  // Booking hand-off, callbacks and direct booking (design of 23 September 2026).
+  // Booking hand-off and direct booking (design of 23 September 2026).
   saveRequirements: (fields: string[]) => Promise<OpsResult<SimpleOutcome>>;
   resendSetupLink: (to: string | null) => Promise<OpsResult<IssueLinkOutcome>>;
   setBookingMode: (mode: "desk_confirms" | "direct") => Promise<OpsResult<BookingModeOutcome>>;
   confirmTimezone: (timezone: string) => Promise<OpsResult<SimpleOutcome>>;
-  setCallbacks: (enabled: boolean) => Promise<OpsResult<SimpleOutcome>>;
   setPhiBasis: (input: { connectionId: string; basis: PhiBasis | null; note?: string }) => Promise<OpsResult<SimpleOutcome>>;
   retryCalendarWrite: (appointmentId: string) => Promise<OpsResult<RetryCalendarWriteOutcome>>;
-  setWhatsAppTemplate: (templateName: string | null) => Promise<OpsResult<SimpleOutcome>>;
 };
 
 /** The six gates behind the direct-booking switch (§E.1), in the console's words. */
@@ -57,7 +55,7 @@ const GATE_LABELS: Record<DirectBookingGate, string> = {
   env: "HEALDESK_DIRECT_BOOKING_ENABLED is \"true\" in this environment",
   addendum: "The direct-booking addendum is approved by counsel",
   election: "The practice accepted the addendum on its setup link (unwithdrawn)",
-  calendar: "Writable calendar: Cal.com only, BAA basis recorded on the connection",
+  calendar: "Writable calendar with a PHI basis recorded on the connection (none can exist until the Google Calendar adapter is built)",
   production: "The clinic is live (production)",
   agent: "The agent script is approved",
 };
@@ -173,16 +171,12 @@ export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingV
         <BookingModeCard view={v} onSwitch={actions.setBookingMode} />
       </Section>
 
-      <Section title={`Call-backs — ${v.outboundCallbacksEnabled ? "on" : "off"}`}>
-        <CallbacksCard view={v} onConfirmTimezone={actions.confirmTimezone} onSwitch={actions.setCallbacks} />
+      <Section title="Time zone">
+        <TimezoneCard view={v} onConfirmTimezone={actions.confirmTimezone} />
       </Section>
 
       <Section title="Calendar">
         <CalendarCard view={v} onBasis={actions.setPhiBasis} onRetry={actions.retryCalendarWrite} />
-      </Section>
-
-      <Section title="WhatsApp template">
-        <WhatsAppTemplateCard view={v} onSave={actions.setWhatsAppTemplate} />
       </Section>
 
       <Section title="Go live">
@@ -542,8 +536,10 @@ function MetaFrontDoor({ view, onAttach, onSwitch }: { view: OnboardingView; onA
       <p className="text-muted">
         Messenger, Instagram DMs and WhatsApp are a front door, not a hallway: the assistant answers public questions (hours,
         address, services, price ranges) and hands off to the phone. It never acknowledges a condition, names a time or a
-        provider, or discusses payment, and a guard replaces any reply that tries. Meta signs no BAA — the clinic accepts that
-        residual risk explicitly before this is switched on, and a dermatology or fertility practice may reasonably decline.
+        provider, or discusses payment, and a guard replaces any reply that tries. Replies go out only inside Meta&rsquo;s
+        24-hour window; once it closes nothing is sent, on any platform, and there is no template path. Meta signs no BAA — the
+        clinic accepts that residual risk explicitly before this is switched on, and a dermatology or fertility practice may
+        reasonably decline.
       </p>
       <ul className="mt-3 grid gap-2">
         {m.channels.map((c) => (
@@ -555,10 +551,10 @@ function MetaFrontDoor({ view, onAttach, onSwitch }: { view: OnboardingView; onA
       </ul>
       <p className="text-muted mt-3">
         Booking requests handed to the desk, last 30 days (phone and Meta): <strong>{m.bookingRequests.waiting}</strong>{" "}
-        waiting · {m.bookingRequests.confirmed} confirmed · {m.bookingRequests.accepted} call-back · {m.bookingRequests.declined}{" "}
-        declined. Every agent semi-confirms only: it takes a name, a number and a preferred window, emails the desk a
-        single-use link, and the desk confirms a slot, calls back or declines there. The person is only ever told the practice
-        will call. The requests themselves are not shown here.
+        waiting · {m.bookingRequests.confirmed} confirmed · {m.bookingRequests.accepted} accepted (the desk calls) ·{" "}
+        {m.bookingRequests.declined} declined. Until the Google Calendar adapter exists every booking is a request: the agent
+        takes a name, a number and a preferred window, emails the desk a single-use link, and the desk confirms a slot, calls
+        them or declines there. healdesk itself contacts no one about a request. The requests themselves are not shown here.
       </p>
       <form
         onSubmit={(event) => {
@@ -625,7 +621,7 @@ function MetaFrontDoor({ view, onAttach, onSwitch }: { view: OnboardingView; onA
 
 
 /* -------------------------------------------------------------------------- */
-/* Booking hand-off, callbacks and direct booking                              */
+/* Booking hand-off, direct booking, time zone and calendar                    */
 /* -------------------------------------------------------------------------- */
 
 function whenLabel(iso: string | null): string {
@@ -731,6 +727,8 @@ function BookingModeCard({ view, onSwitch }: { view: OnboardingView; onSwitch: A
         Desk confirms: every request goes to the front desk's single-use link. Direct: on phone calls only, the assistant books
         a caller straight into the connected calendar at a time it read as free. The database is the authority either way: a
         switch here with an un-edited prompt never books, and an edited prompt with the switch off is refused by the tool.
+        In v1 this becomes the clinic's own &ldquo;Auto-confirm bookings&rdquo; switch, writing to Google Calendar, once that
+        adapter is built (launch plan steps 1.5 and 1.7); until then no clinic can pass the calendar gate below.
       </p>
       <p className="mt-2">
         Election: {view.directBookingElectedAt ? `accepted ${whenLabel(view.directBookingElectedAt)}` : "none"}
@@ -788,17 +786,14 @@ function BookingModeCard({ view, onSwitch }: { view: OnboardingView; onSwitch: A
   );
 }
 
-function CallbacksCard({ view, onConfirmTimezone, onSwitch }: { view: OnboardingView; onConfirmTimezone: Actions["confirmTimezone"]; onSwitch: Actions["setCallbacks"] }) {
+function TimezoneCard({ view, onConfirmTimezone }: { view: OnboardingView; onConfirmTimezone: Actions["confirmTimezone"] }) {
   const [pending, start] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
-  const on = view.outboundCallbacksEnabled;
   return (
     <div className="text-sm">
       <p className="text-muted">
-        The only call the product places: a call-back to someone who agreed to one on their own call or message, about their
-        own request. 8am–8pm in the clinic's time zone, never Sunday, two attempts per request. The zone must be confirmed
-        before the switch goes on, because quiet hours are judged in it and a provisioning default is never dialled against.
-        The environment kill switch (HEALDESK_OUTBOUND_CALLBACKS_ENABLED) is separate and outranks this.
+        The clinic&rsquo;s own time zone, confirmed with the clinic rather than left at the provisioning default. Opening hours,
+        after-hours calls and the times the desk sees are all read in it. healdesk places no calls, so nothing is dialled in it.
       </p>
       <form
         onSubmit={(event) => {
@@ -817,17 +812,6 @@ function CallbacksCard({ view, onConfirmTimezone, onSwitch }: { view: Onboarding
         </label>
         <button type="submit" disabled={pending} className="border-line-strong rounded-full border px-4 py-2 text-xs font-bold">Confirm time zone</button>
       </form>
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() => start(async () => setMessage(describe(await onSwitch(!on)) ?? (on ? "Call-backs switched off." : "Call-backs switched on.")))}
-          className={`rounded-full px-4 py-2 text-xs font-bold ${on ? "border-line-strong border" : "bg-black text-white"}`}
-        >
-          {on ? "Switch call-backs off" : "Switch call-backs on"}
-        </button>
-        <span className="text-muted text-xs">Due now: {view.pendingCallbacks}.</span>
-      </div>
       {message ? <p className="mt-2 text-xs">{message}</p> : null}
     </div>
   );
@@ -841,9 +825,11 @@ function CalendarCard({ view, onBasis, onRetry }: { view: OnboardingView; onBasi
   return (
     <div className="text-sm">
       <p className="text-muted">
-        Cal.com is the one calendar healdesk can write into. A connection is written to only once the lawful basis for the
-        vendor to hold a first name, a service and a time is recorded on it: Cal.com's own BAA with us, or the practice's own
-        account under the practice's agreement. NULL means none, and none means read-only.
+        v1 writes bookings to the clinic&rsquo;s Google Calendar and nothing else: no Cal.com, Mindbody or Boulevard. That
+        adapter is not built yet (launch plan steps 1.5 and 1.7), so no connection here is writable today and a confirmed
+        request is recorded in healdesk only. A connection is written to only once the lawful basis for holding a first name,
+        a service and a time is recorded on it: the vendor&rsquo;s own BAA with us, or the practice&rsquo;s own account
+        under the practice&rsquo;s agreement. None means read-only.
       </p>
       {c ? (
         <form
@@ -873,7 +859,7 @@ function CalendarCard({ view, onBasis, onRetry }: { view: OnboardingView; onBasi
           <p className="text-muted text-xs sm:col-span-3">{c.writable ? "Writable." : "Not writable until a basis is recorded."}</p>
         </form>
       ) : (
-        <p className="text-muted mt-2">No Cal.com connection on this clinic.</p>
+        <p className="text-muted mt-2">No writable calendar connection on this clinic.</p>
       )}
       <p className="mt-4 font-semibold">Calendar writes needing attention: {attention.length}</p>
       <ul className="mt-2 grid gap-2">
@@ -904,36 +890,6 @@ function CalendarCard({ view, onBasis, onRetry }: { view: OnboardingView; onBasi
         {view.calendarWrites.length === 0 ? <li className="text-muted text-xs">No calendar write attempted yet.</li> : null}
       </ul>
       {message ? <p className="mt-2 text-xs">{message}</p> : null}
-    </div>
-  );
-}
-
-function WhatsAppTemplateCard({ view, onSave }: { view: OnboardingView; onSave: Actions["setWhatsAppTemplate"] }) {
-  const [pending, start] = useTransition();
-  const [message, setMessage] = useState<string | null>(null);
-  const flag = view.whatsappTemplatesFlag;
-  return (
-    <div className="text-sm">
-      <p className="text-muted">
-        The one fixed status message a WhatsApp thread may carry outside the 24-hour window, as a Meta-approved UTILITY
-        template, and only for a person who opted in on that thread. Record the approved name here once Meta says APPROVED.
-        {flag ? "" : " Disabled until HEALDESK_WHATSAPP_TEMPLATES_ENABLED is \"true\" — counsel has not yet answered."}
-      </p>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          const name = String(new FormData(event.currentTarget).get("templateName") ?? "").trim() || null;
-          start(async () => setMessage(describe(await onSave(name)) ?? "Recorded."));
-        }}
-        className="mt-3 flex flex-wrap items-end gap-3"
-      >
-        <label className="min-w-[260px]">
-          <span className="text-muted block text-xs font-bold uppercase">Template name</span>
-          <input name="templateName" defaultValue={view.whatsappTemplateName ?? ""} placeholder="healdesk_request_update_v1" disabled={!flag || pending} className="border-line mt-1 w-full rounded-lg border px-3 py-2 disabled:opacity-50" />
-        </label>
-        <button type="submit" disabled={!flag || pending} className="border-line-strong rounded-full border px-4 py-2 text-xs font-bold disabled:opacity-50">Save template name</button>
-        {message ? <span className="text-xs">{message}</span> : null}
-      </form>
     </div>
   );
 }

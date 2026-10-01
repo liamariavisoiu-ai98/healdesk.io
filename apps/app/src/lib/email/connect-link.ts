@@ -7,12 +7,14 @@ import {
 /**
  * The email that carries a clinic's one-time connection link.
  *
- * This is the *only* message a clinic ever receives that asks them to do
- * something in a browser, because it is the only thing we ever ask them to do.
- * There is no account, no password and no console for them — so if this email
- * is unclear there is no second surface where they can work it out, and no
- * "forgot password" flow to recover from. That is the whole reason it is
- * written the way it is.
+ * PHASE TWO: attribution read-back. Not sent in v1: the ops operation that
+ * calls it (issueConnectLink) refuses unless HEALDESK_PHASE_TWO_ATTRIBUTION is
+ * "true". When phase two revives it, the pasted credential should become a
+ * login button wherever the platform offers one (v1 spec, onboarding
+ * principle 2), and the copy should point at the clinic portal.
+ *
+ * The copy must stand on its own: if this email is unclear the clinic has no
+ * second place to work out what it is being asked to do.
  *
  * ## Why it reuses the report transport
  *
@@ -96,10 +98,6 @@ export function renderConnectLink(email: ConnectLinkEmail): {
     ``,
     `The link works once and expires on ${expiry}.`,
     ``,
-    `There is nothing to sign up for and no password to set. healdesk has no`,
-    `login for clinics — this link is the only thing we will ever ask you to`,
-    `open.`,
-    ``,
     `If it has already been used or has expired, contact us and we will send a`,
     `new one.`,
   ].join("\n");
@@ -118,8 +116,6 @@ export function renderConnectLink(email: ConnectLinkEmail): {
     `one credential — we never ask for your own login, and this access cannot `,
     `change anything in your system.</p>`,
     `<p><strong>The link works once and expires on ${escapeHtml(expiry)}.</strong></p>`,
-    `<p>There is nothing to sign up for and no password to set. healdesk has no `,
-    `login for clinics — this link is the only thing we will ever ask you to open.</p>`,
     `<p>If it has already been used or has expired, contact us and we will send `,
     `a new one.</p>`,
   ].join("");

@@ -1,3 +1,6 @@
+// PHASE TWO: attribution (POS/EMR read-back, sync, reconciliation and the
+// monthly revenue report). Not part of v1: kept, but fenced out of v1 flows,
+// screens, emails and copy (HEALDESK_PHASE_TWO_ATTRIBUTION, lib/env.ts).
 import { and, count, eq, gte, isNotNull, lt } from "drizzle-orm";
 
 import { appointments, clinics, conversations } from "@/db/schema";

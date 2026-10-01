@@ -39,7 +39,7 @@ export type PatientBundle = {
   consentRecords: (typeof consentRecords.$inferSelect)[];
   suppressions: (typeof suppressions.$inferSelect)[];
   contactAttempts: (typeof contactAttempts.$inferSelect)[];
-  /** Requests made on a Meta channel and handed to the desk; the token digest is not included. */
+  /** Booking requests from any channel, handed to the desk on the manual booking path; the token digest is not included. */
   bookingRequests: Omit<typeof bookingRequests.$inferSelect, "tokenHash">[];
   /** Every audit row that touched any of the ids above: the accounting of disclosures. */
   accountingOfDisclosures: (typeof auditLog.$inferSelect)[];

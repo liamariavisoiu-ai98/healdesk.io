@@ -1,4 +1,4 @@
-import { and, count, eq, gte, isNotNull, lt } from "drizzle-orm";
+import { and, count, eq, gte, inArray, lt } from "drizzle-orm";
 
 import { appointments, conversations } from "@/db/schema";
 import { describeError, log } from "@/lib/log";
@@ -20,6 +20,14 @@ import { JOB_WEEKLY_RECAP, runJob } from "./jobs";
  * go-live regardless of weekday, because the first one is the one that
  * sells. A recap over a week with no conversations at all sends nothing —
  * an email saying zero is worse than silence.
+ *
+ * What it may claim is fixed by the v1 spec ("What v1 can prove, and what it
+ * cannot"): conversations handled, calls answered that would otherwise have
+ * rung out, and appointments booked. Never revenue, never "collected", never
+ * "recovered": attribution is phase two. TODO(v1): deposits collected and
+ * booked value (bookings times the clinic's own listed prices) belong here
+ * too, once an appointment carries its deposit's paid time and a snapshot of
+ * the listed price at booking; neither exists yet, so neither is shown.
  */
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -41,7 +49,14 @@ export function weekKey(at: Date): string {
   return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
-export type WeeklyFigures = { handled: number; recovered: number; booked: number };
+export type WeeklyFigures = { handled: number; answeredWouldHaveRungOut: number; booked: number };
+
+/**
+ * The reasons that mean a call reached the assistant because nobody at the
+ * clinic could take it. Not `missed_call_callback`: v1 places no calls, and
+ * that legacy value is never counted as a call answered.
+ */
+const RANG_OUT_REASONS = ["after_hours", "line_busy", "rang_unanswered"] as const;
 
 export async function sendDueRecaps(now: Date, transport?: EmailTransport): Promise<{ sent: number; skipped: number; failed: number }> {
   const out = { sent: 0, skipped: 0, failed: 0 };
@@ -72,7 +87,10 @@ export async function sendDueRecaps(now: Date, transport?: EmailTransport): Prom
 
         const inWeek = and(eq(conversations.clinicId, tx.clinicId), gte(conversations.startedAt, start), lt(conversations.startedAt, end));
         const [handled] = await tx.db.select({ value: count() }).from(conversations).where(inWeek);
-        const [recovered] = await tx.db.select({ value: count() }).from(conversations).where(and(inWeek, isNotNull(conversations.recoveryReason)));
+        const [rangOut] = await tx.db
+          .select({ value: count() })
+          .from(conversations)
+          .where(and(inWeek, eq(conversations.channel, "voice"), inArray(conversations.recoveryReason, [...RANG_OUT_REASONS])));
         const [booked] = await tx.db
           .select({ value: count() })
           .from(appointments)
@@ -80,15 +98,15 @@ export async function sendDueRecaps(now: Date, transport?: EmailTransport): Prom
           .where(and(eq(appointments.clinicId, tx.clinicId), inWeek));
         tx.audit.record({ action: "read", resourceType: "conversation", resultCount: handled?.value ?? 0, metadata: { purpose: "weekly_recap" } });
 
-        const figures: WeeklyFigures = { handled: handled?.value ?? 0, recovered: recovered?.value ?? 0, booked: booked?.value ?? 0 };
+        const figures: WeeklyFigures = { handled: handled?.value ?? 0, answeredWouldHaveRungOut: rangOut?.value ?? 0, booked: booked?.value ?? 0 };
         if (figures.handled === 0) return "skipped" as const;
 
         const text =
           `Hi,\n\nYour week with AYA at ${clinic.name}:\n\n` +
-          `  Calls and chats answered:   ${figures.handled}\n` +
-          `  Of those, ones your desk would have missed:   ${figures.recovered}\n` +
-          `  Appointments booked from them:   ${figures.booked}\n\n` +
-          `The monthly report adds what those bookings collected. Reply to this email with anything that looked wrong on a call and we will pull it up.\n`;
+          `  Conversations handled:   ${figures.handled}\n` +
+          `  Calls answered that would otherwise have rung out:   ${figures.answeredWouldHaveRungOut}\n` +
+          `  Appointments booked from those conversations:   ${figures.booked}\n\n` +
+          `Reply to this email with anything that looked wrong on a call and we will pull it up.\n`;
 
         let any = false;
         for (const recipient of recipients) {

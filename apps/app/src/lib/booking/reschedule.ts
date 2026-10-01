@@ -1,7 +1,6 @@
 import { eq } from "drizzle-orm";
 
 import { clinics } from "@/db/schema";
-import { scheduleCallback, type ScheduleOutcome } from "@/lib/callbacks/schedule";
 import { describeError, log } from "@/lib/log";
 import { followUpLine, type BookingChannel } from "@/lib/meta/booking-requests";
 import { sendMetaReply, type MetaChannelOwner, type MetaSender } from "@/lib/meta/channels";
@@ -10,18 +9,17 @@ import type { TenantTx } from "@/lib/tenant";
 
 /**
  * Carrying the desk's alternatives to the person (design of 23 September
- * 2026, §C.2). First match wins:
+ * 2026, §C.2, as narrowed by the v1 spec's "No outbound on any product").
  *
- *   1. Callbacks on for the clinic, the kill switch on, and a usable consent
- *      row → a consented `offer_alternatives` callback is queued; the
- *      assistant reads the times out and takes the choice (§C.3).
- *   2. Otherwise no automated contact: the desk calls, and the page says so.
+ * healdesk places no calls, so the desk goes through the times with the
+ * person by phone itself, and the page says so. The 23 September design
+ * also offered them on a consented call-back from the assistant; that path
+ * was removed for v1.
  *
- * On a Meta thread, in either case and only inside Meta's 24-hour window,
- * the person also gets one fixed line that names no day, time or provider.
- * The line says the practice will go through the options by phone — which is
- * true in both branches — so it is the same text whether the phone is ours
- * or the desk's.
+ * On a Meta thread, and only inside Meta's 24-hour window (which
+ * sendMetaReply enforces), the person also gets one fixed line that names no
+ * day, time or provider. The line says the practice will go through the
+ * options by phone, which is what happens.
  */
 export type RescheduleRequest = {
   id: string;
@@ -33,12 +31,8 @@ export type RescheduleRequest = {
 };
 
 export type RescheduleOutreach = {
-  /** The callback attempt: queued, or why not. */
-  callback: ScheduleOutcome;
   /** The Meta line: sent, refused by the window, the thread gone, failed — or null for a phone request. */
   meta: "sent" | "failed" | "outside_window" | "no-channel" | null;
-  /** True when no automated contact will carry the times: the page tells the desk to call. */
-  deskCalls: boolean;
 };
 
 export async function planRescheduleOutreach(
@@ -46,8 +40,6 @@ export async function planRescheduleOutreach(
   request: RescheduleRequest,
   deps: { send?: MetaSender; now?: Date } = {},
 ): Promise<RescheduleOutreach> {
-  const callback = await scheduleCallback(tx, request.id, "offer_alternatives", { now: deps.now });
-
   let meta: RescheduleOutreach["meta"] = null;
   if (request.channel === "meta") {
     if (!request.connectionId || !request.platform || !request.externalId || !request.senderId) {
@@ -68,12 +60,12 @@ export async function planRescheduleOutreach(
     }
   }
 
-  const outreach: RescheduleOutreach = { callback, meta, deskCalls: !callback.scheduled };
+  const outreach: RescheduleOutreach = { meta };
   tx.audit.record({
     action: "update",
     resourceType: "booking_request",
     resourceId: request.id,
-    metadata: { outcome: "reschedule_outreach", callback: callback.scheduled ? "scheduled" : callback.reason, meta: meta ?? undefined, deskCalls: outreach.deskCalls },
+    metadata: { outcome: "reschedule_outreach", meta: meta ?? undefined, deskCalls: true },
   });
   return outreach;
 }

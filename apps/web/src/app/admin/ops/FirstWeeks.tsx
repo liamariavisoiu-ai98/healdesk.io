@@ -75,7 +75,7 @@ function HealthRow({ row, onTouch }: { row: ClinicHealth; onTouch: Parameters<ty
         {row.conversations.total} calls handled ({row.conversations.last7} this week) · {row.recovered.total} the desk would have missed ·{" "}
         {row.bookings} booked{row.firstRecoveredBookingOn ? ` · first recovered booking ${row.firstRecoveredBookingOn}` : ""} ·{" "}
         {row.recipients} report recipient{row.recipients === 1 ? "" : "s"} · forwarding {row.forwardingTested ? "tested" : "NOT tested"} ·{" "}
-        {row.connected ? "booking system connected" : "estimated attribution"}
+        {row.connected ? "read-back connected (phase two)" : "no read-back (phase two)"}
         {row.usage && row.usage.voiceMinutesIncluded > 0 ? ` · ${Math.round(row.usage.voiceMinutesUsed)}/${row.usage.voiceMinutesIncluded} voice min` : ""}
       </p>
       {row.flags.map((f) => (

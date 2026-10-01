@@ -4,6 +4,7 @@ import { openRequiredSteps, type OnboardingStep } from "@healdesk/catalog";
 
 import { unsafeDb } from "@/db";
 import { recordSecurityEvent } from "@/lib/audit";
+import { env } from "@/lib/env";
 import { listClinics, type ClinicOverview } from "@/lib/ops/clinics";
 
 /**
@@ -27,8 +28,10 @@ export function goLivePreconditions(clinic: ClinicOverview): GoLiveCheck {
   if (!clinic.openingHoursPresent) missing.push("Opening hours are not on file.");
   if (!clinic.callRoutingConfirmedAt) missing.push("Call routing has not been confirmed.");
   if (!clinic.agentApprovedAt) missing.push("The agent script has not been approved.");
+  // Phase two: a booking-system connection is required only for verified
+  // attribution, which v1 does not offer, so in v1 go-live never waits on it.
   const open: OnboardingStep[] = openRequiredSteps(clinic.onboarding, {
-    requirePlatform: clinic.attributionMode === "verified",
+    requirePlatform: env.phaseTwoAttribution() && clinic.attributionMode === "verified",
   });
   for (const step of open) missing.push(`Onboarding step open: ${step.replace(/_/g, " ")}.`);
   return missing.length ? { ok: false, missing } : { ok: true };

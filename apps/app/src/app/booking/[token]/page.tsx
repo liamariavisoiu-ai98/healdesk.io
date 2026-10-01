@@ -11,29 +11,35 @@ import { DecideForm } from "./DecideForm";
 /**
  * The desk's view of one booking request, and the one place it is decided.
  *
- * A practice never logs into anything. When an agent — on the phone or on a
- * Meta thread — has taken a booking request, the desk is emailed a link to
- * this page; the token in the path is the whole of the authentication,
- * exactly as it is for /connect/[token]. Expired, unknown and malformed
- * tokens are one redirect to /booking/invalid, so a stale URL confirms
- * nothing about which requests exist.
+ * When an agent — on the phone or on a Meta thread — has taken a booking
+ * request, the desk is emailed a link to this page; the token in the path is
+ * the whole of the authentication, exactly as it is for /connect/[token].
+ * Expired, unknown and malformed tokens are one redirect to /booking/invalid,
+ * so a stale URL confirms nothing about which requests exist. TODO(v1): the
+ * clinic portal's Bookings screen (signed in, second factor before patient
+ * details) is where this queue belongs; it is not built yet, and until it is
+ * this emailed link is the desk's only way in.
  *
- * Every agent semi-confirms only (decision of 21 September 2026). The desk
- * has the final say here: confirm a time, which is the moment the
- * appointment row comes into existence; accept with a call-back; propose up
- * to three other times (23 September 2026, §C); or decline. Where the clinic
+ * This is the manual booking path: what happens when the assistant did not
+ * book directly (manual booking mode, Auto-confirm off, a broken calendar,
+ * and for now every clinic, until the Google Calendar adapter exists). The
+ * desk has the final say here: confirm a time, which is the moment the
+ * appointment row comes into existence; accept and call them; propose up to
+ * three other times (23 September 2026, §C) and go through them by phone; or
+ * decline. healdesk contacts no one about a request. Where the clinic
  * connected a writable calendar, confirming also adds the appointment there
- * and this page says whether that worked.
+ * and this page says whether that worked; in v1 no such calendar exists yet,
+ * so the appointment is recorded here and the desk adds it to its own system.
  *
  * This page does show patient details — a name, a number, the times they
- * asked for, what a callback collected, and on a phone request the service
- * asked for — because that is what the desk needs in order to call. It lives
+ * asked for, what the assistant collected, and on a phone request the
+ * service asked for — because that is what the desk needs in order to call. It lives
  * in apps/app, the PHI side, is served over the BAA-covered host, and is
  * never indexed. The email that carried the link named none of it.
  *
  * A decided request still renders, read-only, with its outcome: a second
  * click on the same email should show what happened, not a dead end. An
- * accepted call-back can still be confirmed to a slot from here, and
+ * accepted request can still be confirmed to a slot from here, and
  * proposed alternatives can be confirmed, replaced or declined. An
  * appointment the assistant booked itself (§E.5) is read-only from the
  * start: the practice changes it in its own calendar.
@@ -46,7 +52,7 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-type Params = { followup?: string; calendar?: string; callback?: string };
+type Params = { followup?: string; calendar?: string };
 
 export default async function BookingRequestPage({ params, searchParams }: { params: Promise<{ token: string }>; searchParams: Promise<Params> }) {
   const { token } = await params;
@@ -70,7 +76,7 @@ export default async function BookingRequestPage({ params, searchParams }: { par
   const when = req.createdAt.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
   const via = channelLabel(req.channel, req.platform);
   const open = req.status === "requested";
-  const callbackPending = req.status === "accepted";
+  const acceptedPending = req.status === "accepted";
   const rescheduling = req.status === "rescheduling";
   const direct = req.bookedVia === "agent_direct";
   const service = req.treatment ?? req.collectedFields.service ?? null;
@@ -81,10 +87,10 @@ export default async function BookingRequestPage({ params, searchParams }: { par
     ? "Booked by the assistant on the call"
     : open
       ? "A patient would like to book"
-      : callbackPending
+      : acceptedPending
         ? "Accepted — awaiting your call"
         : rescheduling
-          ? "Alternatives proposed — awaiting the person"
+          ? "Alternatives proposed — awaiting your call"
           : req.status === "expired" && req.proposedSlots.length
             ? "Alternatives lapsed"
             : `Request ${req.status}`;
@@ -116,14 +122,14 @@ export default async function BookingRequestPage({ params, searchParams }: { par
 
       {direct ? (
         <Decided req={req} query={query} />
-      ) : open || callbackPending || rescheduling ? (
+      ) : open || acceptedPending || rescheduling ? (
         <>
           <p className="mt-6 max-w-[58ch] text-[15px] text-[color:var(--color-muted)]">
             {open
               ? "Confirm a time if you can see them then; the appointment is recorded and they are told by phone. Accept if you'd rather call to arrange it; they'll be told you will call. Propose other times if you can't offer theirs. Decline if you can't offer anything; they'll be told you will call to find another time. On a message thread the reply names no time and no provider."
-              : callbackPending
-                ? "You accepted this and said you would call. Once you have agreed a time with them, confirm it here so the appointment is recorded — or propose times for the assistant to put to them."
-                : "You proposed these times. When the person chooses one it is confirmed here; if none work you can propose others or decline."}
+              : acceptedPending
+                ? "You accepted this and said you would call. Once you have agreed a time with them, confirm it here so the appointment is recorded — or propose other times and go through them by phone."
+                : "You proposed these times. Call them to go through them, then confirm the one they choose here; if none work you can propose others or decline."}
           </p>
           {rescheduling ? <Proposed req={req} query={query} /> : null}
           <DecideForm
@@ -131,11 +137,10 @@ export default async function BookingRequestPage({ params, searchParams }: { par
             treatment={service}
             mode={open ? "decide" : rescheduling ? "rescheduling" : "confirm"}
             calendar={req.calendar}
-            callbackAvailable={req.callbackAvailable}
             preferred={{ primary: req.preferredWindow, alternatives: req.alternativeWindows }}
             proposedSlots={req.proposedSlots.map((s) => ({ at: s.at, label: s.label }))}
           />
-          {callbackPending ? <Decided req={req} query={query} /> : null}
+          {acceptedPending ? <Decided req={req} query={query} /> : null}
         </>
       ) : (
         <Decided req={req} query={query} />
@@ -144,12 +149,9 @@ export default async function BookingRequestPage({ params, searchParams }: { par
   );
 }
 
-/** The alternatives out with the person, and which channel carries them. */
+/** The alternatives the desk proposed. The desk carries them, by phone: healdesk places no calls. */
 function Proposed({ req, query }: { req: ResolvedBookingRequest; query: Params }) {
-  const carried =
-    req.pendingCallback?.purpose === "offer_alternatives" || query.callback === "scheduled"
-      ? "With their permission the assistant will ring them to go through these times; when they choose one it is confirmed here and you are told by email."
-      : "Call them to offer these times, then confirm the one they choose here.";
+  const carried = "Call them to offer these times, then confirm the one they choose here.";
   const thread =
     req.channel !== "meta"
       ? null
@@ -206,15 +208,13 @@ function Decided({ req, query }: { req: ResolvedBookingRequest; query: Params })
     ? null
     : direct
       ? "The assistant told the caller on the call."
-      : req.pendingCallback?.purpose === "confirm_time" || query.callback === "scheduled"
-        ? "With their permission the assistant will ring them to confirm this time."
-        : "Call them to confirm it; nothing has been sent.";
+      : "Call them to confirm the time.";
   const heading = direct
     ? "Booked"
     : req.status === "confirmed"
       ? "Confirmed"
       : req.status === "accepted"
-        ? "Accepted, call-back pending"
+        ? "Accepted, awaiting your call"
         : req.status === "declined"
           ? "Declined"
           : req.proposedSlots.length

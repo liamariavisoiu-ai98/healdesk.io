@@ -34,6 +34,14 @@ import { wrap } from "./wrap";
  *
  * To revise: add a new entry at DIRECT_BOOKING_ADDENDUMS[0] with a new
  * version. Never edit an existing one — a clinic's stored hash points at it.
+ *
+ * v1 note: the v1 spec has the assistant book straight into the clinic's
+ * Google Calendar on every channel, with "Auto-confirm bookings" on by
+ * default, and says nothing of an addendum. The Cal.com write this text was
+ * drafted around was removed. Whether the Google Calendar path needs this
+ * election at all is a question for counsel; until it is answered the gate
+ * stays where it is (apps/app/src/lib/booking/mode.ts, launch plan steps 1.5
+ * and 1.7). The text below is unchanged.
  */
 
 export type DirectBookingAddendum = {

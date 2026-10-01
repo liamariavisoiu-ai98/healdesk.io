@@ -8,21 +8,21 @@ import { decideBookingRequest, MAX_PROPOSED_SLOTS, type BookingDecision } from "
 import { log } from "@/lib/log";
 
 /**
- * The desk's one write: confirm a slot, accept with a call-back, propose up
- * to three other times, or decline.
+ * The desk's one write: confirm a slot, accept and call them, propose up to
+ * three other times, or decline.
  *
  * No session, no account — the token in the form is re-resolved server-side
  * and the clinic comes from the row it finds, never from anything the
  * browser sent. `decideBookingRequest()` is one conditional UPDATE, so two
  * people at the desk clicking at once produce one decision, and the trigger
  * in drizzle/0040 stops a decided row being re-decided afterwards, with the
- * permitted second steps: a call-back acceptance can be confirmed to a slot
- * or turned into proposed times later from the same page, and proposed
- * times can be confirmed, replaced or declined.
+ * permitted second steps: an acceptance can be confirmed to a slot or turned
+ * into proposed times later from the same page, and proposed times can be
+ * confirmed, replaced or declined.
  *
  * Confirming is the one place in the product an appointment row is created
- * from an agent's conversation. The agent semi-confirmed; this click is the
- * booking. Where the clinic connected a writable calendar the slot comes
+ * from a request. The agent took the request; this click is the booking.
+ * Where the clinic connected a writable calendar the slot comes
  * from its free times (an ISO instant in `slotAt`) and the appointment is
  * also written there, after this decision has committed; a typed time in
  * `confirmedFor` still works, calendar or not.
@@ -113,7 +113,6 @@ export async function decideRequest(_previous: DecideFormState, formData: FormDa
   const params = new URLSearchParams({
     followup: outcome.followUp ?? "none",
     calendar: outcome.calendarWrite ?? "none",
-    callback: outcome.callback ? (outcome.callback.scheduled ? "scheduled" : outcome.callback.reason) : "none",
   });
   redirect(`/booking/${token}?${params.toString()}`, RedirectType.replace);
 }

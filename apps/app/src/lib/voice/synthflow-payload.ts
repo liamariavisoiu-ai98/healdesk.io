@@ -3,6 +3,14 @@ import type { VoiceCallEvent } from "./ingest";
 /**
  * Synthflow's post-call webhook, mapped to the one row the product runs on.
  *
+ * Pre-Retell. The v1 product voice agent runs on Retell (v1 spec, "Voice runs
+ * on Retell"), through a Healdesk-hosted custom-LLM WebSocket endpoint that
+ * is not built yet (launch plan step 2.1). Until it is, this reader is the
+ * only source of `VoiceCallEvent`s, and it stays because the voice webhook,
+ * the forwarding test and the operator console's view of calls still run on
+ * it. Do not extend it; build the Retell end-of-call path beside it, then
+ * delete this file.
+ *
  * ## What this trusts, and what it does not
  *
  * The payload supplies OBSERVABLE facts: the call id, the caller's number,
@@ -42,19 +50,14 @@ import type { VoiceCallEvent } from "./ingest";
  *   preferred_window   the first choice in the caller's own words
  *   preferred_alt_1/2  up to two other times, verbatim or empty (§D.1)
  *   booked_treatment   as offered from the approved service list
- *   callback_consent   yes | no | unclear — the answer to the fixed
- *                      question, and callback_consent_quote their exact
- *                      words (§F.2); a yes with no quote is not consent
- *   stop_requested     set only by the callback agent's stop action: a
- *                      redundant second record of the stop, never derived
- *                      from transcript text (§F.7)
  *   field_<id>         one per voice-eligible required field (§H.5)
  *   rang_at_clinic_first / clinic_line_busy / is_callback   carrier facts,
- *                      when the forwarding leg exposes them
+ *                      when the forwarding leg exposes them; a call flagged
+ *                      as placed by the agent is refused by ingestCall()
  *
- * The top-level `status` is read as the call's disposition so the dialer can
- * tell a call that was answered from one that was not (§F.4): no answer,
- * busy or a vendor failure earns a second attempt; anything else does not.
+ * The call-back variables of 23 September 2026 (`callback_consent`,
+ * `callback_consent_quote`, `stop_requested`) and the dialer's reading of the
+ * top-level `status` were removed with the call-back: v1 is inbound only.
  */
 
 export class VoicePayloadError extends Error {
@@ -105,17 +108,6 @@ const OUTCOMES = new Set([
   "abandoned",
 ]);
 
-/** The vendor's disposition words, folded to the three the dialer acts on. Verify the vocabulary before go-live. */
-function disposition(value: string | undefined): VoiceCallEvent["callStatus"] {
-  if (!value) return undefined;
-  const v = value.toLowerCase().replace(/[\s_-]+/g, "");
-  if (v === "noanswer" || v === "unanswered" || v === "notanswered") return "no_answer";
-  if (v === "busy") return "busy";
-  if (v === "failed" || v === "error" || v === "canceled" || v === "cancelled") return "failed";
-  if (v === "completed" || v === "ended" || v === "answered" || v === "success") return "completed";
-  return undefined;
-}
-
 /** `field_<id>` variables, as the requirement fields they name. Values only; the ids are validated downstream. */
 function collectedFields(vars: Obj): Record<string, string> | undefined {
   const out: Record<string, string> = {};
@@ -126,15 +118,6 @@ function collectedFields(vars: Obj): Record<string, string> | undefined {
     if (id && text) out[id] = text;
   }
   return Object.keys(out).length ? out : undefined;
-}
-
-function consentAnswer(value: string | undefined): "yes" | "no" | "unclear" | undefined {
-  if (!value) return undefined;
-  const v = value.toLowerCase();
-  if (v === "yes" || v === "true") return "yes";
-  if (v === "no" || v === "false") return "no";
-  if (v === "unclear") return "unclear";
-  return undefined;
 }
 
 /** E.164 where we can get there; anything else is not a number we should store. */
@@ -167,7 +150,6 @@ export function readSynthflowPayload(raw: unknown, clinicId: string): VoiceCallE
 
   const outcome = str(vars.outcome, vars.call_outcome, call.outcome)?.toLowerCase();
   const bookedFor = when(vars.booked_for, vars.appointment_time, vars.booking_time);
-  const consent = consentAnswer(str(vars.callback_consent));
   const alternatives = [str(vars.preferred_alt_1), str(vars.preferred_alt_2)].filter((v): v is string => Boolean(v));
 
   const event: VoiceCallEvent = {
@@ -180,7 +162,6 @@ export function readSynthflowPayload(raw: unknown, clinicId: string): VoiceCallE
     rangAtClinicFirst: bool(vars.rang_at_clinic_first, call.rang_at_clinic_first),
     clinicLineBusy: bool(vars.clinic_line_busy, call.clinic_line_busy),
     isCallback: bool(vars.is_callback, call.is_callback, call.outbound),
-    callStatus: disposition(str(call.status, body.status)),
     outcome: outcome && OUTCOMES.has(outcome) ? (outcome as VoiceCallEvent["outcome"]) : undefined,
     treatmentInterest: str(vars.treatment_interest, vars.service),
     disclosurePlayedAt: when(vars.disclosure_played_at, call.disclosure_played_at) ?? startedAt,
@@ -202,12 +183,6 @@ export function readSynthflowPayload(raw: unknown, clinicId: string): VoiceCallE
             externalSource: str(vars.booking_source),
           }
         : undefined,
-    // §F.2: the answer and the person's own words, kept apart. The row is
-    // written downstream only for a "yes" with a non-empty quote.
-    callbackConsent: consent ? { answer: consent, quote: str(vars.callback_consent_quote) } : undefined,
-    // §F.7: the callback agent's stop action sets this. Never derived from
-    // transcript text — `isStopRequest` is not an inbound intent classifier.
-    stopRequested: bool(vars.stop_requested),
     collectedFields: collectedFields(vars),
   };
   return event;

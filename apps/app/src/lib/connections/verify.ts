@@ -150,8 +150,9 @@ export async function verifyConnection(input: {
     canSee,
     cannotSee,
     unverifiedReason:
+      // Phase two (read-back). No email is sent when a first sync fails, so
+      // none is promised here.
       `Saved and encrypted. We haven't called ${platform.name} yet to confirm the ` +
-      `credential works — we'll do that on the first sync and email you if anything ` +
-      `is wrong.`,
+      `credential works; that happens on the first sync.`,
   };
 }

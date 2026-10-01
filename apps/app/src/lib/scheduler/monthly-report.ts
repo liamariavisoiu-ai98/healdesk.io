@@ -16,15 +16,21 @@ import { JOB_MONTHLY_REPORT, runJob } from "./jobs";
 /**
  * The monthly report job.
  *
- * Builds a report per clinic for the month that has just ended, in that
- * clinic's own timezone. Sending is NOT wired up yet — that needs SES and a
- * verified sending domain (Phase 8). Until then the job builds and counts, so
- * the enumeration, tenant scoping and audit trail are all exercised before any
- * mail can possibly go out.
+ * PHASE TWO: attribution. Not part of v1. The v1 spec fences the monthly
+ * revenue report, "recovered revenue" and POS read-back out of v1 flows,
+ * screens, emails and copy ("What v1 can prove, and what it cannot"). The
+ * code is kept; runJob() refuses to run it unless
+ * HEALDESK_PHASE_TWO_ATTRIBUTION is "true" (lib/scheduler/jobs.ts), and the
+ * ops console refuses to switch it on, so no v1 clinic is ever mailed a
+ * revenue figure. The v1 summaries are the weekly recap (weekly-recap.ts) and
+ * the daily summary the spec asks for, which is not built yet.
  *
- * ⚠️ This job is switched OFF until ops enables it from the console. There are
- * no tenants yet, and a report job that runs against an empty or half-configured
- * estate produces either nothing or something embarrassing.
+ * Builds a report per clinic for the month that has just ended, in that
+ * clinic's own timezone, and, with `send`, delivers it to the clinic's
+ * recipients through deliverReport().
+ *
+ * ⚠️ Even in phase two this job is switched OFF until ops enables it from the
+ * console.
  */
 
 export type ReportRunResult = {

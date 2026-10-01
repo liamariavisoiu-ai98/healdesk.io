@@ -10,6 +10,7 @@ import {
   type ResolvedLink,
 } from "@/lib/connections/links";
 import { saveConnection } from "@/lib/connections/store";
+import { env } from "@/lib/env";
 import {
   CredentialValidationError,
   validateCredentials,
@@ -21,10 +22,10 @@ import { connectRequestContext } from "./request-context";
 import { log } from "@/lib/log";
 
 /**
- * The one write a clinic ever makes to healdesk.
+ * The read-back credential handover's one write. Phase two: refused in v1.
  *
- * There is no session behind this action and there never will be — a clinic has
- * no account to sign into. The only thing the browser sends that says anything
+ * There is no session behind this action: the token is the whole of the
+ * authentication. The only thing the browser sends that says anything
  * about identity is the token, and it is re-resolved here against the database
  * before a single field is read. The clinic and the platform come back from
  * that lookup; a hidden `clinicId` field would be an authorisation bug with a
@@ -235,6 +236,12 @@ export async function submitCredential(
   // malformed rather than throw, and a second, quietly diverging opinion here
   // would only add a timing difference between "wrong shape" and "wrong token".
   if (typeof token !== "string") {
+    return { status: "failed", message: DEAD_LINK_MESSAGE };
+  }
+
+  // Phase two (attribution read-back) is fenced out of v1: no credential is
+  // accepted, whatever the token, exactly as the page refuses to render.
+  if (!env.phaseTwoAttribution()) {
     return { status: "failed", message: DEAD_LINK_MESSAGE };
   }
 

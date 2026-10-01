@@ -19,12 +19,26 @@ import { withTenant, type TenantTx } from "@/lib/tenant";
  *
  * The one write the connector port allows — add the appointment the desk
  * confirmed, or the assistant booked where the practice elected direct
- * booking — reaches the vendor from here and nowhere else. Three things this
- * file guarantees, in order of how expensive it would be to get them wrong:
+ * booking — reaches the vendor from here and nowhere else.
  *
- *   1. **Never twice.** Cal.com has no idempotency key, so a create whose
- *      reply never arrived (`timeout`, `network`, `unconfirmed`) may or may
- *      not have booked the slot. The appointment row's `calendar_write_status`
+ * No vendor today. v1 writes to the clinic's Google Calendar and nothing else
+ * (v1 spec, "Where bookings are written"): no Mindbody, no Boulevard, no
+ * Cal.com. The Cal.com write adapter this was built around was removed, and
+ * the Google Calendar adapter is not built yet (launch plan steps 1.5 and
+ * 1.7), so `writableConnection()` finds nothing for any real clinic, slots
+ * come back empty, and every write reports `not-connected`: a confirmed
+ * request is recorded in healdesk only, and the desk adds it to its own
+ * calendar. TODO(v1): when the Google adapter lands it plugs in here, through
+ * the same port, and must also hold the slot for 60 seconds before anything
+ * confirming is said (v1 spec, "How a call runs").
+ *
+ * Three things this file guarantees, in order of how expensive it would be to
+ * get them wrong:
+ *
+ *   1. **Never twice.** A vendor with no idempotency key (the removed Cal.com
+ *      adapter had none) may or may not have booked the slot when a create's
+ *      reply never arrived (`timeout`, `network`, `unconfirmed`). The
+ *      appointment row's `calendar_write_status`
  *      is the state machine: a conditional UPDATE to `writing` stops a second
  *      click starting a second write while the first is in flight, and every
  *      attempt after the very first reads the vendor back by our own key
@@ -77,7 +91,7 @@ export type WritableConnection = {
  *
  * Active, its adapter declares all three write-side methods, and — the part
  * that is policy rather than plumbing — a lawful basis for the vendor to hold
- * a name, a service and a time is recorded on the row. A Cal.com key with no
+ * a name, a service and a time is recorded on the row. A credential with no
  * `phi_basis` is a read-only connection to us, whatever the API allows.
  */
 export async function writableConnection(tx: TenantTx): Promise<WritableConnection | null> {
@@ -96,7 +110,7 @@ export async function writableConnection(tx: TenantTx): Promise<WritableConnecti
 
 export type CalendarSlot = { at: string; label: string };
 
-/** "Thu 26 Sep, 2:00 PM", in the clinic's own clock. What the desk reads and what the person is told on a callback. */
+/** "Thu 26 Sep, 2:00 PM", in the clinic's own clock. What the desk reads. */
 export function slotLabel(at: Date, timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,

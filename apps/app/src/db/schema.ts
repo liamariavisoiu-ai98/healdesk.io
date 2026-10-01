@@ -373,7 +373,7 @@ export const clinics = pgTable(
      */
     metaFrontDoorEnabled: boolean("meta_front_door_enabled").notNull().default(false),
 
-    // --- Booking mode, consented callbacks and the requirement set (0040). ---
+    // --- Booking mode and the requirement set (0040). ---
     /**
      * How a request becomes an appointment. `desk_confirms` (the default): the
      * practice's human decides on the single-use page. `direct`: the voice
@@ -395,15 +395,8 @@ export const clinics = pgTable(
     directBookingClauseHash: customType<{ data: Buffer }>({ dataType: () => "bytea" })("direct_booking_clause_hash"),
     directBookingWithdrawnAt: timestamp("direct_booking_withdrawn_at", { withTimezone: true }),
     /**
-     * Consented callbacks for this clinic. Off by default and switched on by
-     * an operator, and only one gate of several: the environment kill switch,
-     * a matching consent row and the calling window all still apply.
-     */
-    outboundCallbacksEnabled: boolean("outbound_callbacks_enabled").notNull().default(false),
-    /**
      * Stamped by the ops op setClinicTimezone. NULL means `timezone` is still
-     * the provisioning default, and nothing is dialled against a default:
-     * quiet hours are the recipient's local hours, and a default is a guess.
+     * the provisioning default: a guess, not an answer the clinic gave.
      */
     timezoneConfirmedAt: timestamp("timezone_confirmed_at", { withTimezone: true }),
     /**
@@ -415,8 +408,6 @@ export const clinics = pgTable(
     bookingRequirementsConfirmedAt: timestamp("booking_requirements_confirmed_at", { withTimezone: true }),
     /** Who settled the set: the practice on its setup link, an operator on the call, or the defaults when the link expired. */
     bookingRequirementsSource: text("booking_requirements_source").$type<BookingRequirementsSource>(),
-    /** The clinic's own Synthflow callback agent (a per-clinic clone, so its post-call webhook can carry the clinic's secret). */
-    synthflowCallbackAgentId: text("synthflow_callback_agent_id"),
 
     /** When call_routing stopped being the column default and became an answer. */
     callRoutingConfirmedAt: timestamp("call_routing_confirmed_at", { withTimezone: true }),
@@ -1070,12 +1061,15 @@ export const clinicTouches = pgTable(
 );
 
 /**
- * A booking REQUEST from the Meta front door: not a booking. The person gave
- * a first name, a callback number and a preferred day or time in a channel
- * that cannot carry a confirmation, so the request is written here (the PHI
+ * A booking REQUEST: not a booking. The person gave a first name, a number
+ * the practice can call and a preferred day or time, on a call or a Meta
+ * thread, and the assistant did not book it — because the clinic runs manual
+ * booking mode, or (v1, not built yet) has "Auto-confirm bookings" off, or
+ * its calendar connection is broken. The request is written here (the PHI
  * side), the practice's desk is emailed a single-use link with no patient in
- * it, and a human accepts or declines. Either way the person hears back on
- * the channel they used — that the practice has their request, never a time.
+ * it, and a human decides. On a Meta thread the person may hear back on the
+ * channel they used, inside Meta's 24-hour window only — that the practice
+ * has their request, never a time.
  *
  * `sender_id` is the platform's opaque id for the person, kept only to
  * address that one follow-up message. The token hash is the desk's
@@ -1095,9 +1089,9 @@ export const bookingRequests = pgTable(
       .notNull()
       .references(() => contacts.id, { onDelete: "cascade" }),
     /**
-     * Where the request came from. Every channel semi-confirms only
-     * (decision of 21 September 2026): the agent takes the request, the
-     * desk has the final say.
+     * Where the request came from. The desk has the final say on every
+     * request; whether the assistant takes a request or books directly is
+     * the clinic's booking mode (clinics.booking_mode).
      */
     channel: text("channel").$type<"voice" | "meta">().notNull().default("meta"),
     /** The call the request was taken on, for voice. */
@@ -1121,8 +1115,8 @@ export const bookingRequests = pgTable(
     /**
      * `{ [BookingFieldId]: string }` — the practice's requirement set as
      * collected, limited to catalogue ids, each value screened for clinical
-     * content. Written at creation (voice) and by the callback tool; updatable
-     * while the request is open. A service collected after creation lands in
+     * content. Written at creation (voice); updatable while the request is
+     * open. A service collected after creation lands in
      * `collected_fields.service` because `treatment` is frozen — readers
      * prefer `treatment ?? collected_fields.service`.
      */
@@ -1147,8 +1141,9 @@ export const bookingRequests = pgTable(
     appointmentId: uuid("appointment_id").references(() => appointments.id, { onDelete: "set null" }),
     /**
      * The fourth decision — "propose other times". Up to three slots (a
-     * CHECK), offered by the desk or read from the calendar, put to the
-     * person on a consented callback. Replaceable while `rescheduling`,
+     * CHECK), offered by the desk or read from the calendar, which the desk
+     * then goes through with the person by phone itself (healdesk places no
+     * calls). Replaceable while `rescheduling`,
      * frozen once terminal. A row cannot be `rescheduling` with nothing to
      * choose from or no deadline (CHECK, 0040).
      */
@@ -1163,9 +1158,6 @@ export const bookingRequests = pgTable(
      * route idempotent on a retried tool call. Frozen after insert.
      */
     vendorCallId: text("vendor_call_id"),
-    /** WhatsApp opt-in, asked as its own question after the callback one; the raw reply is the evidence. */
-    whatsappOptinAt: timestamp("whatsapp_optin_at", { withTimezone: true }),
-    whatsappOptinQuote: text("whatsapp_optin_quote"),
     /** The person's last inbound message on the thread — the start of Meta's 24-hour window. */
     lastInboundAt: timestamp("last_inbound_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -1176,21 +1168,22 @@ export const bookingRequests = pgTable(
     uniqueIndex("booking_requests_vendor_call_idx")
       .on(t.clinicId, t.vendorCallId)
       .where(sql`${t.vendorCallId} is not null`),
-    // The thread a Meta request lives on, for the window check and the sweep.
+    // The thread a Meta request lives on, for the window check.
     index("booking_requests_thread_idx").on(t.clinicId, t.platform, t.senderId),
   ],
 );
 
 /** One offered time on a `rescheduling` request. `label` is the clinic-zone rendering the person hears. */
 export type ProposedSlot = { at: string; label: string; source: "calendar" | "desk" };
-/** See bookingRequests.bookedVia. */
-export type BookedVia = "desk" | "callback" | "agent_direct";
+/** See bookingRequests.bookedVia. 0041 dropped 'callback' from the CHECK: healdesk places no calls. */
+export type BookedVia = "desk" | "agent_direct";
 
 /**
  * The half-collected request: what the person has said so far on one thread,
  * so the assistant can ask for the missing piece across messages without
  * remembering any of the conversation. Overwritten per message, deleted when
- * the request is created, and swept after a day.
+ * the request is created, and swept after a day. 0041 dropped the callback
+ * consent and WhatsApp opt-in columns: v1 asks neither question.
  */
 export const metaBookingDrafts = pgTable(
   "meta_booking_drafts",
@@ -1205,19 +1198,6 @@ export const metaBookingDrafts = pgTable(
     phone: text("phone"),
     preferredWindow: text("preferred_window"),
     alternativeWindows: text("alternative_windows").array().notNull().default(sql`'{}'::text[]`),
-    /**
-     * The two consent questions, asked as fixed text once the three things
-     * are in hand, and the person's raw replies. The quotes are stored here,
-     * server-side, before the model ever sees the message — the evidence is
-     * what the person typed, not what the model made of it. They become the
-     * consent row's exact wording when the request is created.
-     */
-    consentAskedAt: timestamp("consent_asked_at", { withTimezone: true }),
-    callbackConsent: boolean("callback_consent"),
-    callbackConsentQuote: text("callback_consent_quote"),
-    whatsappAskedAt: timestamp("whatsapp_asked_at", { withTimezone: true }),
-    whatsappOptin: boolean("whatsapp_optin"),
-    whatsappOptinQuote: text("whatsapp_optin_quote"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.clinicId, t.platform, t.senderId] })],
@@ -1754,15 +1734,6 @@ export const consentRecords = pgTable(
     exactWording: text("exact_wording").notNull(),
     /** Recording or screenshot, behind an S3-compatible URL. */
     evidenceUri: text("evidence_uri"),
-    /**
-     * The catalogue version of the consent wording that was asked. An
-     * outbound call may only reference a versioned consent (0040 trigger),
-     * and code checks the version equals the current one before dialling.
-     */
-    wordingVersion: text("wording_version"),
-    /** The booking request the consent was captured for, when there was one. */
-    bookingRequestId: uuid("booking_request_id").references(() => bookingRequests.id, { onDelete: "set null" }),
-
     grantedAt: timestamp("granted_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1853,87 +1824,6 @@ export const contactAttempts = pgTable(
     ),
   ],
 );
-
-/**
- * The placed-call ledger (0040). ⚠️ PHI: the row carries the number dialled.
- *
- * One row per attempt to call a person back, written BEFORE the vendor is
- * asked to dial (recordAttempt precedes placeCall), so a crash mid-dial counts
- * against the person rather than allowing a retry storm. Every gate that can
- * be a table shape is one:
- *
- *   - no consent row, no dial: consent_record_id is NOT NULL, and a trigger
- *     refuses a consent that is another clinic's, another number's, revoked,
- *     unversioned, or not captured on an inbound contact;
- *   - never a third attempt: (booking_request_id, attempt_no) is unique and
- *     attempt_no is 1 or 2;
- *   - one row per vendor call per clinic, so the post-call webhook matches
- *     exactly one attempt.
- *
- * The runtime role can INSERT and can UPDATE only the outcome columns; the
- * number, the purpose and the consent it was placed under are evidence and
- * never move. Follows the conversations retention clock; the number is nulled
- * at the same purge as contacts.
- */
-export const outboundCalls = pgTable(
-  "outbound_calls",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    clinicId: uuid("clinic_id")
-      .notNull()
-      .references(() => clinics.id, { onDelete: "cascade" }),
-    contactId: uuid("contact_id")
-      .notNull()
-      .references(() => contacts.id, { onDelete: "cascade" }),
-    bookingRequestId: uuid("booking_request_id")
-      .notNull()
-      .references(() => bookingRequests.id, { onDelete: "cascade" }),
-    /** No cascade: a consent row is never deleted, and a call must not outlive the record of its permission. */
-    consentRecordId: uuid("consent_record_id")
-      .notNull()
-      .references(() => consentRecords.id),
-    purpose: text("purpose").$type<OutboundCallPurpose>().notNull(),
-    /** ⚠️ PHI. E.164, as on contacts.phone and the consent row. */
-    phone: text("phone").notNull(),
-    /** 1 or 2 (CHECK). There is no 3. */
-    attemptNo: smallint("attempt_no").notNull(),
-    /** Earliest the dialer may place it; the window and quiet hours are checked again at dial time. */
-    notBefore: timestamp("not_before", { withTimezone: true }).notNull(),
-    status: text("status").$type<OutboundCallStatus>().notNull().default("due"),
-    /** Why a `refused` row was refused — a code, never a reason with a number in it. */
-    refusalCode: text("refusal_code"),
-    /** Which consent basis the dial-time gate passed on. */
-    gateBasis: text("gate_basis"),
-    vendorCallId: text("vendor_call_id"),
-    /** When the vendor accepted the request. `eta` means queued, so this is not the dial time. */
-    placedAt: timestamp("placed_at", { withTimezone: true }),
-    completedAt: timestamp("completed_at", { withTimezone: true }),
-    /** The conversation the post-call webhook produced, once it matched this row by vendor_call_id. */
-    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex("outbound_calls_vendor_idx")
-      .on(t.clinicId, t.vendorCallId)
-      .where(sql`${t.vendorCallId} is not null`),
-    // Never a third attempt, by shape.
-    uniqueIndex("outbound_calls_attempt_idx").on(t.bookingRequestId, t.attemptNo),
-    index("outbound_calls_due_idx")
-      .on(t.status, t.notBefore)
-      .where(sql`${t.status} = 'due'`),
-  ],
-);
-
-export type OutboundCallPurpose = "collect_fields" | "offer_alternatives" | "confirm_time";
-export type OutboundCallStatus =
-  | "due"
-  | "placing"
-  | "placed"
-  | "completed"
-  | "failed"
-  | "unknown"
-  | "cancelled"
-  | "refused";
 
 /**
  * Background jobs, and whether they are switched on.
@@ -2486,5 +2376,4 @@ export const TENANT_SCOPED_TABLES = [
   "clinic_touches",
   "booking_requests",
   "meta_booking_drafts",
-  "outbound_calls",
 ] as const;

@@ -1,14 +1,15 @@
-import { calcomAdapter } from "./calcom/adapter";
 import { fixtureAdapter } from "./fixture/adapter";
 import type { ConnectorAdapter } from "./port";
 
 /**
  * Adapter lookup.
  *
- * The fixture and Cal.com are registered. The other platforms need vendor
- * accounts that do not exist yet, and registering an unimplemented one would
- * let the sync engine pick it up and fail at runtime rather than at connect
- * time.
+ * Only the fixture is registered. The read-back platforms are phase two and
+ * need vendor accounts that do not exist yet, and registering an
+ * unimplemented one would let the sync engine pick it up and fail at runtime
+ * rather than at connect time. The Cal.com write adapter of 23 September 2026
+ * was removed: v1 writes bookings to the clinic's Google Calendar only, and
+ * nothing into Cal.com, Mindbody or Boulevard.
  *
  * Adding one is a single line here plus the adapter itself — the engine, the
  * reconciler and the reports need no changes, which is the return on the port
@@ -18,7 +19,6 @@ import type { ConnectorAdapter } from "./port";
  */
 const ADAPTERS: Record<string, ConnectorAdapter> = {
   [fixtureAdapter.id]: fixtureAdapter,
-  [calcomAdapter.id]: calcomAdapter,
 };
 
 export function getAdapter(platformId: string): ConnectorAdapter | undefined {

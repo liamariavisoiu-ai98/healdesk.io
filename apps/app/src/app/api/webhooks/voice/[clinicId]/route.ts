@@ -16,6 +16,12 @@ export const runtime = "nodejs";
 /**
  * POST /api/webhooks/voice/[clinicId] — the call that makes the product real.
  *
+ * Pre-Retell. This receives Synthflow's post-call webhook (read by
+ * lib/voice/synthflow-payload.ts). The v1 voice agent runs on Retell through
+ * a Healdesk-hosted custom-LLM WebSocket endpoint in its own long-lived
+ * process, which is not built yet (launch plan step 2.1); its end-of-call
+ * record should reach ingestCall() the same way, and this route then goes.
+ *
  * Until this existed nothing wrote a `conversations` row: the report,
  * the reconciliation and the pitch were all fed by nothing. The voice
  * platform posts here when a call ends; the route authenticates it, stores

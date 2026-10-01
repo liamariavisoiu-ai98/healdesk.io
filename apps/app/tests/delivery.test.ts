@@ -158,7 +158,9 @@ describeDb("delivery", () => {
           addRecipient(tx, { email: `${c.slug}@example-clinic.test`, addedBy: "test" }),
         );
       }
-      await seedConversation(busy.clinicId, { startedAt: new Date(monday.getTime() - 2 * DAY), recovered: true, booked: true });
+      await seedConversation(busy.clinicId, { startedAt: new Date(monday.getTime() - 2 * DAY), recoveryReason: "rang_unanswered", booked: true });
+      // A legacy call-back reason is not a call answered that would have rung out.
+      await seedConversation(busy.clinicId, { startedAt: new Date(monday.getTime() - 2 * DAY), recovered: true });
       await seedConversation(busy.clinicId, { startedAt: new Date(monday.getTime() - 3 * DAY) });
       // Outside the window: last month.
       await seedConversation(busy.clinicId, { startedAt: new Date(monday.getTime() - 20 * DAY), recovered: true });
@@ -168,9 +170,11 @@ describeDb("delivery", () => {
       expect(run.sent).toBe(1);
       expect(transport.sent).toHaveLength(1);
       const text = transport.sent[0]!.message.text;
-      expect(text).toMatch(/answered:\s+2/);
-      expect(text).toMatch(/missed:\s+1/);
-      expect(text).toMatch(/booked from them:\s+1/);
+      expect(text).toMatch(/Conversations handled:\s+3/);
+      expect(text).toMatch(/would otherwise have rung out:\s+1/);
+      expect(text).toMatch(/booked from those conversations:\s+1/);
+      // v1 claims only: never revenue, collected or recovered.
+      expect(text).not.toMatch(/revenue|collected|recovered|monthly report/i);
 
       expect((await sendDueRecaps(monday, transport)).sent).toBe(0);
       expect(transport.sent).toHaveLength(1);
@@ -334,16 +338,17 @@ describeDb("delivery", () => {
       const jobs = Object.fromEntries(out.map((o) => [o.job, o.status]));
       // Hour 2 gates the nightly sync in; nothing else night-time is due.
       expect(Object.keys(jobs).sort()).toEqual(
-        ["billing-sweep", "booking-requirements-defaults", "connection-health", "meta-draft-sweep", "monthly-report", "nightly-sync", "weekly-recap"].sort(),
+        ["billing-sweep", "booking-request-expiry", "booking-requirements-defaults", "connection-health", "monthly-report", "nightly-sync", "weekly-recap"].sort(),
       );
-      // Every job that has not been switched on says so rather than working.
+      // Every job that has not been switched on says so rather than working;
+      // the two phase-two jobs say so in v1 even when switched on.
       for (const [job, status] of Object.entries(jobs)) {
         if (job === "connection-health") continue; // enabled by the test above
         if (job === "booking-requirements-defaults") continue; // §H.5 sweep, not a switched job
-        if (job === "meta-draft-sweep") continue; // a sweep, not a switched job: pure function of the clock, reports a count
+        if (job === "booking-request-expiry") continue; // a sweep, not a switched job: pure function of the clock, reports a count
         expect(status, job).toBe("disabled");
       }
-      expect(jobs["meta-draft-sweep"]).toBe("ok");
+      expect(jobs["booking-request-expiry"]).toBe("ok");
       expect(out.some((o) => o.status === "threw")).toBe(false);
     });
   });

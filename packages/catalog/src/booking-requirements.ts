@@ -42,8 +42,12 @@ export type BookingFieldId =
   | "consult_or_treatment"
   | "preferred_provider";
 
-/** Where a field may be asked for. `callback` is the consented outbound call. */
-export type BookingChannel = "voice" | "meta" | "callback";
+/**
+ * Where a field may be asked for. Inbound only: the 23 September 2026
+ * `callback` channel (a consented outbound call) was removed for v1, which
+ * places no calls.
+ */
+export type BookingChannel = "voice" | "meta";
 
 export type BookingField = {
   id: BookingFieldId;
@@ -59,16 +63,16 @@ export type BookingField = {
 };
 
 export const BOOKING_FIELDS: readonly BookingField[] = [
-  { id: "first_name", label: "First name", ask: "your first name", locked: true, channels: ["voice", "meta", "callback"], metaEligible: true },
-  { id: "phone", label: "Phone number the practice can call", ask: "a number the practice can call", locked: true, channels: ["voice", "meta", "callback"], metaEligible: true },
-  { id: "preferred_window", label: "Preferred day or time", ask: "a day or time that works best", locked: true, channels: ["voice", "meta", "callback"], metaEligible: true },
-  { id: "alternative_windows", label: "Two other times that could work", ask: "one or two other times that could work", locked: true, channels: ["voice", "meta", "callback"], metaEligible: true },
-  { id: "last_name", label: "Last name", ask: "your last name", locked: false, channels: ["voice", "callback"], metaEligible: false },
+  { id: "first_name", label: "First name", ask: "your first name", locked: true, channels: ["voice", "meta"], metaEligible: true },
+  { id: "phone", label: "Phone number the practice can call", ask: "a number the practice can call", locked: true, channels: ["voice", "meta"], metaEligible: true },
+  { id: "preferred_window", label: "Preferred day or time", ask: "a day or time that works best", locked: true, channels: ["voice", "meta"], metaEligible: true },
+  { id: "alternative_windows", label: "Two other times that could work", ask: "one or two other times that could work", locked: true, channels: ["voice", "meta"], metaEligible: true },
+  { id: "last_name", label: "Last name", ask: "your last name", locked: false, channels: ["voice"], metaEligible: false },
   // = the `treatment` column at creation; `collected_fields.service` when collected afterwards.
-  { id: "service", label: "Service asked about", ask: "which service you're asking about", locked: false, channels: ["voice", "callback"], metaEligible: false },
-  { id: "new_or_existing", label: "New or returning patient", ask: "whether you've been to the practice before", locked: false, channels: ["voice", "callback"], metaEligible: false },
-  { id: "consult_or_treatment", label: "Consultation or treatment visit", ask: "whether this is a consultation or a treatment visit", locked: false, channels: ["voice", "callback"], metaEligible: false },
-  { id: "preferred_provider", label: "Preferred practitioner, if any", ask: "whether there's a particular practitioner you'd like to see", locked: false, channels: ["voice", "callback"], metaEligible: false },
+  { id: "service", label: "Service asked about", ask: "which service you're asking about", locked: false, channels: ["voice"], metaEligible: false },
+  { id: "new_or_existing", label: "New or returning patient", ask: "whether you've been to the practice before", locked: false, channels: ["voice"], metaEligible: false },
+  { id: "consult_or_treatment", label: "Consultation or treatment visit", ask: "whether this is a consultation or a treatment visit", locked: false, channels: ["voice"], metaEligible: false },
+  { id: "preferred_provider", label: "Preferred practitioner, if any", ask: "whether there's a particular practitioner you'd like to see", locked: false, channels: ["voice"], metaEligible: false },
 ];
 
 /**

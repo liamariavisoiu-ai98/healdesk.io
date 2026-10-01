@@ -17,7 +17,6 @@ export * from "./baa-explainer";
 export * from "./booking-requirements";
 export * from "./clinical-content";
 export * from "./connection-steps";
-export * from "./consent-wording";
 export * from "./direct-booking-addendum";
 export * from "./forwarding";
 export * from "./onboarding";

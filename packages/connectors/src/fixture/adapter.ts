@@ -29,8 +29,8 @@ import { weekdaySlots } from "./slots";
  * nothing. If the pipeline only works against a fixture with no cursors, no
  * pagination and complete history, the first real platform breaks it.
  *
- * The same idea runs the write side. The fixture books like Cal.com does —
- * no idempotency key, so the same request twice makes two bookings — and has
+ * The same idea runs the write side. The fixture books like a vendor with no
+ * idempotency key — the same request twice makes two bookings — and has
  * two switches the app's calendar-write tests throw: `failNextWrite()` for
  * "the vendor said no" and `timeoutNextWrite()` for "the vendor booked it and
  * we never heard". The second is the case that double-books a slot unless the
@@ -173,7 +173,7 @@ export class FixtureAdapter implements ConnectorAdapter {
       return fromHttpStatus(409, "Conflict", "fixture createAppointment");
     }
 
-    // No idempotency key, like Cal.com: the same request twice is two
+    // No idempotency key, like the vendors this mimics: the same request twice is two
     // bookings, with distinct ids, and the caller is the one who must not
     // let that happen.
     const priorWithKey = this.#writes.filter(

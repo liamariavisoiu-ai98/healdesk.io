@@ -12,17 +12,17 @@ import { decideRequest, type DecideFormState } from "./actions";
  * a calendar slot is an instant and needs neither).
  *
  * `mode` is "decide" for a fresh request (confirm / accept / propose /
- * decline), "confirm" for one already accepted with a call-back, where the
+ * decline), "confirm" for one already accepted, where the desk calls and the
  * only step left is to pin the slot, and "rescheduling" for one whose
- * alternatives are out with the person (confirm the one they chose,
- * propose different times, or decline).
+ * alternatives the desk is going through with the person by phone (confirm
+ * the one they chose, propose different times, or decline).
  *
  * `calendar` is the clinic's free slots when it connected a writable
  * calendar (design of 23 September 2026, §B.3): radios named `slotAt`, the
  * person's own times shown above them, and the typed time kept as "another
- * time". Without one, the form is the typed time alone. The sentence under
- * the confirm button is chosen by the server from whether the assistant may
- * ring the person (§F.3).
+ * time". Without one — every clinic in v1 until the Google Calendar adapter
+ * exists — the form is the typed time alone. healdesk places no calls, so
+ * the desk always confirms with the person itself.
  */
 export type Slot = { at: string; label: string };
 
@@ -31,7 +31,6 @@ export function DecideForm({
   treatment,
   mode,
   calendar,
-  callbackAvailable,
   preferred,
   proposedSlots,
 }: {
@@ -39,7 +38,6 @@ export function DecideForm({
   treatment: string | null;
   mode: "decide" | "confirm" | "rescheduling";
   calendar: { writable: boolean; slots: Slot[] } | null;
-  callbackAvailable: boolean;
   preferred: { primary: string; alternatives: string[] };
   proposedSlots: Slot[];
 }) {
@@ -53,7 +51,7 @@ export function DecideForm({
   const option = "flex items-baseline gap-2 text-[15px]";
   const writable = calendar?.writable === true;
   const slots = calendar?.slots ?? [];
-  const ringOrCall = callbackAvailable ? "With their permission the assistant will ring them to confirm this time." : "Call them to confirm it; nothing is sent to them.";
+  const ringOrCall = "Call them to confirm it; healdesk does not call them.";
 
   return (
     <form action={action} className="mt-6 grid gap-4 text-[15px]">
@@ -120,7 +118,7 @@ export function DecideForm({
         <p className="text-[13px] text-[color:var(--color-muted)]">
           {writable
             ? `This records the appointment in healdesk and, because your calendar is connected, adds it to your calendar. ${ringOrCall}`
-            : `This records the appointment in your healdesk record. ${ringOrCall}`}
+            : `This records the appointment in healdesk only; add it to your own calendar or booking system. ${ringOrCall}`}
         </p>
       </fieldset>
 
@@ -158,9 +156,7 @@ export function DecideForm({
             {mode === "rescheduling" ? "Propose these instead" : "Propose these times"}
           </button>
           <p className="text-[13px] text-[color:var(--color-muted)]">
-            {callbackAvailable
-              ? "With their permission the assistant will ring them to go through these; when they choose one it is confirmed and you are told."
-              : "Call them to offer these times, then confirm the one they choose here."}
+            Call them to offer these times, then confirm the one they choose here.
           </p>
         </fieldset>
       ) : null}

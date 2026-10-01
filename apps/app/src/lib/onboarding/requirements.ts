@@ -182,9 +182,15 @@ export async function setBookingRequirementsWithin(
 
 /**
  * Whether the setup page may offer the Direct booking section (§H.3): the
- * addendum is counsel-approved, and the platform is one healdesk can write
- * into — Cal.com — or none yet, so a practice with no calendar today can
- * still elect ahead of connecting one. Never shown for a read-only platform.
+ * addendum is counsel-approved, and the practice's own system is one that
+ * reads the Google Calendar the assistant writes into for conflicts (Cal.com,
+ * or no booking system at all), so a booking there cannot be double-booked by
+ * its own software. healdesk writes nothing into Cal.com itself (v1 spec,
+ * "Where bookings are written"). Never shown for a one-way or unverified
+ * system such as Mindbody or Boulevard: those run manual booking mode.
+ * TODO(v1, launch plan steps 1.5 and 1.7): Calendly and plain Google Calendar
+ * belong in this set too once the Google adapter and the per-clinic record of
+ * the clinic's system exist.
  */
 export function directBookingOffered(platformId: string): boolean {
   if (!currentDirectBookingAddendum().approvedByCounsel) return false;

@@ -2,18 +2,14 @@ import { metaEligible, resolveBookingRequirements } from "@healdesk/catalog";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 
 import { __setMetaRuntimeForTests, GET, POST } from "@/app/api/webhooks/meta/route";
-import { isCallbackStopRequest, isStopRequest } from "@/lib/compliance/contact-policy";
 import { attachMetaChannel, resolveMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta/channels";
 import {
   answerFrontDoor,
   buildFrontDoorPrompt,
-  callbackConsentQuestion,
   FRONT_DOOR_PROBES,
   guardReply,
   handoffLine,
   probeVerdict,
-  stopAcknowledgedLine,
-  whatsappOptInQuestion,
 } from "@/lib/meta/front-door";
 import { parseMetaEvents, signMetaBody, verifyMetaSignature } from "@/lib/meta/webhook";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
@@ -85,12 +81,11 @@ describe("the guard", () => {
     expect(prompt).toMatch(/insurance, payment status/);
     expect(prompt).toMatch(/Consultation \(from \$0\)/);
     expect(prompt).toMatch(/Free parking/);
-    // §D.2 rule 4 and the new answer format.
+    // §D.2 rule 4 and the answer format. Inbound only: nothing about call-backs
+    // or WhatsApp messages is asked or classified.
     expect(prompt).toMatch(/up to two other times that could also work/);
-    expect(prompt).toMatch(/You never ask about call-backs or WhatsApp messages; the system asks those itself/);
     expect(prompt).toMatch(/"alt_windows"/);
-    expect(prompt).toMatch(/"callback_ok"/);
-    expect(prompt).toMatch(/"whatsapp_ok"/);
+    expect(prompt).not.toMatch(/call-back|callback_ok|whatsapp_ok/i);
     expect(prompt).toMatch(/your first name; a number the practice can call; a day or time that works best; one or two other times that could work; nothing else may be asked/);
     // A metaEligible: false field never appears, however the practice's set is configured.
     for (const field of resolved.filter((f) => !f.metaEligible)) {
@@ -98,29 +93,7 @@ describe("the guard", () => {
       expect(prompt.toLowerCase()).not.toContain(field.label.toLowerCase());
     }
     expect(FRONT_DOOR_PROBES.length).toBeGreaterThanOrEqual(12);
-    expect(FRONT_DOOR_PROBES.map((p) => p.id)).toEqual(expect.arrayContaining(["alts", "surname", "consent-yes"]));
-  });
-
-  test("the two fixed questions and the stop acknowledgement pass the guard, so the code can always send them", () => {
-    for (const line of [callbackConsentQuestion("Radiance Med Spa"), whatsappOptInQuestion("Radiance Med Spa"), stopAcknowledgedLine({ clinicName: "Radiance", phone: "+1 415 555 0199" })]) {
-      expect(guardReply(line)).toEqual({ ok: true });
-      expect(line).not.toMatch(/\b\d{1,2}(:\d{2})?\s?(am|pm)\b/i);
-    }
-    expect(callbackConsentQuestion("Radiance")).toMatch(/^Thanks — I've got what the practice needs\. Is it OK for Radiance's automated assistant/);
-    expect(whatsappOptInQuestion("Radiance")).toMatch(/^One more thing — is it OK for Radiance to send you a message here on WhatsApp/);
-  });
-});
-
-describe("the stop matcher for inbound Meta text (§F.2)", () => {
-  test("matches the unmistakable phrasings and never cancel or quit", () => {
-    for (const text of ["please stop calling me", "STOP", "unsubscribe me", "opt out", "remove me from this", "don't contact me", "do not call me again", "take me off your list", "no more calls please", "stop contacting me"]) {
-      expect(isCallbackStopRequest(text), text).toBe(true);
-    }
-    for (const text of ["I need to cancel my appointment", "can I quit the waiting list?", "cancel", "quit", "what are your hours?", "yes, Thursday works"]) {
-      expect(isCallbackStopRequest(text), text).toBe(false);
-    }
-    // The reply-to-our-message matcher is untouched and stays broader.
-    expect(isStopRequest("I need to cancel my appointment")).toBe(true);
+    expect(FRONT_DOOR_PROBES.map((p) => p.id)).toEqual(expect.arrayContaining(["alts", "surname"]));
   });
 });
 
@@ -142,6 +115,25 @@ describe("reading Meta's payloads", () => {
     });
     expect(events).toEqual([{ platform: "messenger", externalId: PAGE_ID, senderId: "u1", text: "hi there" }]);
     expect(parseMetaEvents({ object: "instagram", entry: [{ id: "ig1", messaging: [{ sender: { id: "p" }, recipient: { id: "ig1" }, message: { text: "hours?" } }] }] })[0]!.platform).toBe("instagram");
+  });
+
+  test("Meta's timestamp becomes sentAt, never later than now: the window starts when the person wrote", () => {
+    const now = new Date("2026-09-30T12:00:00Z");
+    const messenger = parseMetaEvents(
+      { object: "page", entry: [{ id: PAGE_ID, messaging: [{ sender: { id: "u1" }, recipient: { id: PAGE_ID }, timestamp: Date.parse("2026-09-29T08:00:00Z"), message: { text: "hi" } }] }] },
+      now,
+    );
+    expect(messenger[0]!.sentAt?.toISOString()).toBe("2026-09-29T08:00:00.000Z");
+    const whatsapp = parseMetaEvents(
+      { object: "whatsapp_business_account", entry: [{ changes: [{ value: { metadata: { phone_number_id: "555000111" }, messages: [{ from: "15550100123", timestamp: String(Date.parse("2026-09-30T11:00:00Z") / 1000), type: "text", text: { body: "hi" } }] } }] }] },
+      now,
+    );
+    expect(whatsapp[0]!.sentAt?.toISOString()).toBe("2026-09-30T11:00:00.000Z");
+    // A clock ahead of ours is clamped to now; nonsense is dropped.
+    const ahead = parseMetaEvents({ object: "page", entry: [{ id: PAGE_ID, messaging: [{ sender: { id: "u1" }, recipient: { id: PAGE_ID }, timestamp: Date.parse("2026-10-02T00:00:00Z"), message: { text: "hi" } }] }] }, now);
+    expect(ahead[0]!.sentAt?.toISOString()).toBe(now.toISOString());
+    const nonsense = parseMetaEvents({ object: "page", entry: [{ id: PAGE_ID, messaging: [{ sender: { id: "u1" }, recipient: { id: PAGE_ID }, timestamp: "soon", message: { text: "hi" } }] }] }, now);
+    expect(nonsense[0]).not.toHaveProperty("sentAt");
   });
 
   test("WhatsApp: the phone number id is ours, the sender is theirs", () => {

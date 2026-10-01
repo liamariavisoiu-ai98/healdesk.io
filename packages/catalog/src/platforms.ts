@@ -18,12 +18,6 @@ export type ConnectionMethod =
   | "oauth"
   /** They create a read-only user for us; we configure everything after. */
   | "readonly_user"
-  /**
-   * They create an API key in their own account and paste it, with the id of
-   * the one event type we may touch. The key is theirs to revoke. The only
-   * method that grants a WRITE (adding an appointment); the guide says so.
-   */
-  | "api_key"
   /** Nothing to connect. */
   | "none";
 
@@ -46,12 +40,11 @@ export type Platform = {
   /** Blocks selecting "verified" attribution through this platform alone. */
   requiresProcessorForRevenue?: boolean;
   /**
-   * Set false on a platform whose connection exists to be WRITTEN to (a
-   * calendar) and cannot support verified attribution: it holds no revenue
-   * and does not know whether the person arrived. `supportsVerifiedAttribution()`
-   * honours it, so checkout forces estimated reporting, and the BAA describes
-   * the connection through its calendar-write clause rather than the
-   * verified data-sources clause. Absent means "as the connection implies".
+   * Set false on a platform that cannot support verified attribution because
+   * it holds no revenue and does not know whether the person arrived (a
+   * scheduling calendar). `supportsVerifiedAttribution()` honours it, so
+   * checkout forces estimated reporting. Absent means "as the connection
+   * implies".
    */
   verifiedAttribution?: boolean;
 };
@@ -117,17 +110,19 @@ export const platforms: readonly Platform[] = [
     requiresProcessorForRevenue: true,
   },
   {
-    // The one calendar healdesk can write into in this release. Read-only
-    // attribution is not what it is for: Cal.com has no revenue and no
-    // arrival concept, so a Cal.com clinic reports estimated and gets the
-    // calendar-write clause instead.
+    // Nothing to connect. v1 writes bookings to the clinic's Google Calendar
+    // only (v1 spec, "Where bookings are written"); Cal.com reads that
+    // calendar for conflicts, so the clinic links the two in Cal.com itself.
+    // The Cal.com write adapter of 23 September 2026 was removed: healdesk
+    // writes nothing into Cal.com. It holds no revenue and no arrival, so
+    // verified attribution is never offered through it.
     id: "calcom",
     name: "Cal.com",
-    connection: "api_key",
+    connection: "none",
     money: "unsupported",
     arrival: "unsupported",
     verifiedAttribution: false,
-    note: "The one calendar we can add appointments to: when your front desk confirms a time, it lands in your Cal.com calendar. Cal.com holds no revenue and doesn't know whether someone arrived, so your report stays estimated.",
+    note: "We book into your Google Calendar. Link Cal.com to that calendar and it stops offering a time we have booked.",
   },
   {
     id: NO_PLATFORM_ID,

@@ -36,10 +36,6 @@ export const BUDGETS: Record<string, RateBudget> = {
   boulevard: { perMinute: 60, perDay: null, interactiveReserve: 0 },
   acuity: { perMinute: 600, perDay: null, interactiveReserve: 0 },
   fixture: { perMinute: null, perDay: null, interactiveReserve: 0 },
-  // Cal.com publishes a per-key limit the adapter has not verified; 60/min is
-  // the package default and comfortably below anything a clinic's calendar
-  // needs. Raise it only from the vendor's current docs.
-  calcom: { perMinute: 60, perDay: null, interactiveReserve: 0 },
 };
 
 export function budgetFor(platformId: string): RateBudget {

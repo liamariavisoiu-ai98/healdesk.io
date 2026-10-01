@@ -1,7 +1,8 @@
 import type { BookingField } from "@healdesk/catalog";
 
 /**
- * Strings written for the ear, not the eye.
+ * Strings written for the ear, not the eye. Pre-Retell callers (the Synthflow
+ * tool routes in tools.ts) use these today; the Retell endpoint should too.
  *
  * Everything the phone agents read aloud comes through here so the
  * conversion from data to speech happens once and is tested once: a
@@ -15,8 +16,8 @@ const DIGIT_WORDS = ["oh", "one", "two", "three", "four", "five", "six", "seven"
 /**
  * "+14155550199" → "four one five — five five five — oh one nine nine".
  * A US number drops its country code; anything else is read digit by digit
- * in groups of three. §64.1200(b) wants the practice's number stated at the
- * outset of a callback, and a voice model reads "+14155550199" as a sum.
+ * in groups of three. The agent gives the practice's own number when it hands
+ * a caller to the desk, and a voice model reads "+14155550199" as a sum.
  */
 export function spokenPhone(e164: string): string {
   const digits = e164.replace(/\D/g, "");

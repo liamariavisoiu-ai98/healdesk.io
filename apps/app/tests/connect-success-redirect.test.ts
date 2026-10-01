@@ -123,6 +123,8 @@ function acuityForm(overrides: Record<string, string> = {}): FormData {
 let errors: unknown[][];
 
 beforeEach(() => {
+  // The handover is phase two; these tests exercise it with the fence lifted.
+  process.env.HEALDESK_PHASE_TWO_ATTRIBUTION = "true";
   mocks.redirect.mockClear();
   mocks.burnSucceeds.value = true;
   mocks.saveThrows.value = null;
@@ -135,6 +137,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  delete process.env.HEALDESK_PHASE_TWO_ATTRIBUTION;
 });
 
 describe("a stored credential leaves /connect/[token]", () => {

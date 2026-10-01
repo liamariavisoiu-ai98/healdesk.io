@@ -203,9 +203,7 @@ describeDb("booking_requests transitions (0040)", () => {
         c.query(
           `update booking_requests
               set collected_fields = '{"service":"consultation"}'::jsonb,
-                  last_inbound_at = now(),
-                  whatsapp_optin_at = now(),
-                  whatsapp_optin_quote = 'yes, whatsapp is fine'
+                  last_inbound_at = now()
             where id = $1`,
           [open],
         ),
@@ -216,8 +214,6 @@ describeDb("booking_requests transitions (0040)", () => {
     for (const set of [
       `collected_fields = '{"service":"consultation"}'::jsonb`,
       `last_inbound_at = now()`,
-      `whatsapp_optin_at = now()`,
-      `whatsapp_optin_quote = 'yes'`,
       `reschedule_expires_at = now()`,
     ]) {
       await expect(
@@ -235,7 +231,7 @@ describeDb("booking_requests transitions (0040)", () => {
       `token_hash = decode(repeat('ab', 32), 'hex')`,
       `preferred_window = 'any time at all'`,
       `alternative_windows = '{}'`,
-      `booked_via = 'callback'`,
+      `booked_via = 'agent_direct'`,
       `vendor_call_id = 'call_frozen_2'`,
       `treatment = 'botox'`,
       `channel = 'meta', platform = 'messenger', external_id = 'p', sender_id = 's'`,
@@ -298,7 +294,6 @@ describeDb("booking_requests transitions (0040)", () => {
       [
         "status", "desk_notified_at", "decided_at", "decided_by_label", "desk_note", "confirmed_for", "appointment_id",
         "conversation_id", "proposed_slots", "reschedule_expires_at", "collected_fields", "last_inbound_at",
-        "whatsapp_optin_at", "whatsapp_optin_quote",
       ].sort(),
     );
 
@@ -356,6 +351,16 @@ describeDb("booking_requests transitions (0040)", () => {
         c.query(
           `insert into booking_requests (clinic_id, contact_id, channel, preferred_window, booked_via, token_hash, expires_at)
            values ($1, $2, 'voice', 'mornings', 'robot', $3, now() + interval '7 days')`,
+          [f.clinicId, f.contactId, randomBytes(32)],
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "23514", constraint: "booking_requests_booked_via_known" });
+    // drizzle/0041: healdesk places no calls, so 'callback' is no longer a provenance.
+    await expect(
+      inTenant(f.clinicId, (c) =>
+        c.query(
+          `insert into booking_requests (clinic_id, contact_id, channel, preferred_window, booked_via, token_hash, expires_at)
+           values ($1, $2, 'voice', 'mornings', 'callback', $3, now() + interval '7 days')`,
           [f.clinicId, f.contactId, randomBytes(32)],
         ),
       ),

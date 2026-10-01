@@ -27,12 +27,6 @@
         // The PostHog project key is inlined into the client bundle at build
         // time; missing here, the site builds with analytics silently off.
         "NEXT_PUBLIC_POSTHOG_KEY",
-        // Whether the marketing demo may describe call-backs and direct
-        // booking. Inlined into the demo prompt and knowledge tree at build
-        // time; missing here, the site builds as if neither were live, which
-        // is the safe direction but not necessarily the intended one.
-        "NEXT_PUBLIC_CALLBACKS_LIVE",
-        "NEXT_PUBLIC_DIRECT_BOOKING_LIVE",
 
         // Everything below is read at RUNTIME only — no NEXT_PUBLIC_ prefix, so
         // none of it is inlined into a bundle and none of it changes build
@@ -79,15 +73,14 @@
         // Connect's platform id, and where the console lives for redirects.
         "HEALDESK_OPS_EMAIL",
         "HEALDESK_VOICE_WEBHOOK_SECRET",
-        // The booking design of 23 September 2026: the three counsel-gated
-        // platform switches (off unless "true"), the mid-call tool routes'
-        // own bearer, and the product's Synthflow key and US-cluster origin.
-        "HEALDESK_OUTBOUND_CALLBACKS_ENABLED",
+        // The booking design of 23 September 2026: the direct-booking switch
+        // (off unless "true") and the mid-call tool routes' own bearer. The
+        // call-back and WhatsApp-template switches went with v1's
+        // inbound-only rule.
         "HEALDESK_DIRECT_BOOKING_ENABLED",
-        "HEALDESK_WHATSAPP_TEMPLATES_ENABLED",
         "HEALDESK_VOICE_TOOLS_SECRET",
-        "HEALDESK_SYNTHFLOW_API_KEY",
-        "HEALDESK_SYNTHFLOW_API_BASE",
+        // Phase two (attribution): off unless "true", and unset in v1.
+        "HEALDESK_PHASE_TWO_ATTRIBUTION",
         "META_APP_SECRET",
         "META_VERIFY_TOKEN",
         "STRIPE_CONNECT_CLIENT_ID",

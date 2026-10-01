@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { BOOKING_FIELDS, CALLBACK_CONSENT, findClinicalContent, resolveBookingRequirements, type BookingField, type BookingFieldId } from "@healdesk/catalog";
+import { BOOKING_FIELDS, findClinicalContent, resolveBookingRequirements, type BookingField, type BookingFieldId } from "@healdesk/catalog";
 import { toE164 } from "@healdesk/connectors";
-import { and, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, lt, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import {
@@ -10,20 +10,16 @@ import {
   appointments,
   bookingRequests,
   clinics,
-  consentRecords,
   contacts,
   metaBookingDrafts,
-  outboundCalls,
   reportRecipients,
   type BookedVia,
   type CalendarWriteStatus,
-  type OutboundCallPurpose,
   type ProposedSlot,
 } from "@/db/schema";
 import type { ActorContext, RequestContext } from "@/lib/audit";
 import { slotLabel, slotsFor, writableConnection, writeToCalendar, type CalendarSlot, type CalendarWriteOutcome } from "@/lib/booking/calendar";
 import { planRescheduleOutreach, type RescheduleOutreach } from "@/lib/booking/reschedule";
-import { callbacksAvailable, scheduleCallback, type ScheduleOutcome } from "@/lib/callbacks/schedule";
 import { env } from "@/lib/env";
 import { describeError, log } from "@/lib/log";
 import { listClinics } from "@/lib/ops/clinics";
@@ -34,51 +30,50 @@ import { META_WINDOW_MS, sendMetaReply, type MetaChannelOwner, type MetaSender }
 import type { MetaPlatform } from "./front-door";
 
 /**
- * The booking hand-off, for every channel.
+ * The booking hand-off: the manual booking path, for the phone and the Meta
+ * front door.
  *
- * Decision of 21 September 2026: no agent — phone, web or Meta — confirms a
- * booking. Each one takes a REQUEST (a name, a number, a preferred day or
- * time and up to two other times that could work, and on the phone the
- * service asked for), hands it to the practice through a single-use link,
- * and tells the person the practice will confirm. The desk has the final say
- * from that page: confirm a slot, which is the moment the appointment row
- * comes into existence; accept with "we'll call back"; propose up to three
- * other times (decision of 23 September 2026, §C); or decline. The only
- * confirmation a patient ever hears comes from a human at the practice, by
- * phone, from the assistant on a callback the person consented to, or as a
- * fixed line on the Meta thread that names no time.
+ * In v1 (docs/v1-product-spec.md, "Booking behaviour and deposit control")
+ * the assistant books straight into the clinic's Google Calendar during the
+ * conversation, with "Auto-confirm bookings" on by default. A REQUEST is what
+ * it takes instead when it cannot or may not book: the clinic runs manual
+ * booking mode (Mindbody, Boulevard), has Auto-confirm off, or its calendar
+ * connection is broken. Until the Google Calendar adapter exists (launch plan
+ * steps 1.5 and 1.7) every booking is a request.
+ *
+ * A request is a name, a number, a preferred day or time and up to two other
+ * times that could work, and on the phone the service asked for. It reaches
+ * the practice through a single-use link, and the person is told the
+ * practice will confirm. The desk has the final say from that page: confirm
+ * a slot, which is the moment the appointment row comes into existence;
+ * accept and call them; propose up to three other times (decision of
+ * 23 September 2026, §C) and go through them by phone; or decline. healdesk
+ * itself contacts no one about a request: the confirmation a person hears
+ * comes from a human at the practice, by phone, or as a fixed line on the
+ * Meta thread that names no time, sent only inside Meta's 24-hour window.
  *
  * Why the exposure is lower this way: an agent that states a time on a
  * channel is making a promise the clinic's calendar may not keep, and on a
  * Meta thread it is also writing an appointment into a platform with no BAA.
- * A request is neither. The appointment row, which the revenue report counts,
- * is created by the desk's click — or, from a `rescheduling` request, by the
- * person choosing one of the times the desk already approved — and nothing
- * else. Where the clinic connected a writable calendar, confirming also
- * writes the appointment into it (lib/booking/calendar.ts), after this
- * module's transaction has committed.
+ * A request is neither. The appointment row is created by the desk's click
+ * and nothing else. Where the clinic connected a writable calendar,
+ * confirming also writes the appointment into it (lib/booking/calendar.ts),
+ * after this module's transaction has committed; v1 has no writable adapter
+ * yet, so today the appointment is recorded here only.
  *
  * ## What is stored, and where
  *
  * `meta_booking_drafts` is the half-collected Meta request keyed by the
  * thread, so the next message can ask for the missing piece without this code
- * remembering any of the conversation. Since 23 September it also holds the
- * two fixed consent questions' state and the person's raw replies to them —
- * the only thread text the product keeps, and it keeps it as consent
- * evidence (§F.2). Overwritten per message, deleted when the request is
- * created, swept after a day. A phone call has no draft: the agent collects
- * everything on the call and the webhook delivers it at once.
+ * remembering any of the conversation. Overwritten per message, deleted when
+ * the request is created, swept after a day. A phone call has no draft: the
+ * agent collects everything on the call and the webhook delivers it at once.
  *
  * `booking_requests` is the request. Its contact row is the caller's (voice)
  * or upserted by phone (Meta), so the person the desk rings is one contact
  * either way. The desk's credential is SHA-256(token), never the token — the
  * same discipline, and the same bootstrap RLS policy, as connection_links
- * (drizzle/0024, 0037, 0039). The token is never rotated: every later notice
- * to the desk is linkless and says "open the link from the original email".
- *
- * `consent_records` gains one row per request where the person said yes to
- * the fixed callback question and their own words are on file. A bare "yes"
- * classified by the model with no stored text is not consent (§F.2).
+ * (drizzle/0024, 0037, 0039). The token is never rotated.
  *
  * ## What never leaves the tenant
  *
@@ -97,10 +92,6 @@ export const DRAFT_TTL_HOURS = 24;
 export const RESCHEDULE_TTL_HOURS = 72;
 export const MAX_ALTERNATIVE_WINDOWS = 2;
 export const MAX_PROPOSED_SLOTS = 3;
-/** The longest reply kept as consent evidence. */
-export const CONSENT_QUOTE_MAX_CHARS = 300;
-/** Stored in place of a consent reply that carried clinical content. Never consent. */
-export const REDACTED_QUOTE = "redacted";
 
 const TOKEN_BYTES = 32;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
@@ -204,26 +195,13 @@ export function missingPieces(fields: BookingFields): string[] {
 // The Meta draft
 // -----------------------------------------------------------------------------
 
-export type MetaDraft = BookingFields & {
-  consentAskedAt: Date | null;
-  callbackConsent: boolean | null;
-  callbackConsentQuote: string | null;
-  whatsappAskedAt: Date | null;
-  whatsappOptin: boolean | null;
-  whatsappOptinQuote: string | null;
-};
+export type MetaDraft = BookingFields;
 
 const draftColumns = {
   firstName: metaBookingDrafts.firstName,
   phone: metaBookingDrafts.phone,
   preferredWindow: metaBookingDrafts.preferredWindow,
   alternativeWindows: metaBookingDrafts.alternativeWindows,
-  consentAskedAt: metaBookingDrafts.consentAskedAt,
-  callbackConsent: metaBookingDrafts.callbackConsent,
-  callbackConsentQuote: metaBookingDrafts.callbackConsentQuote,
-  whatsappAskedAt: metaBookingDrafts.whatsappAskedAt,
-  whatsappOptin: metaBookingDrafts.whatsappOptin,
-  whatsappOptinQuote: metaBookingDrafts.whatsappOptinQuote,
 };
 
 function threadWhere(clinicId: string, thread: BookingThread) {
@@ -239,7 +217,7 @@ export async function readMetaDraft(tx: TenantTx, thread: BookingThread): Promis
   return row ?? null;
 }
 
-/** Merge what this message added into the thread's draft and return the whole. The consent columns are left as they are. */
+/** Merge what this message added into the thread's draft and return the whole. */
 export async function mergeDraft(tx: TenantTx, thread: BookingThread, fields: BookingFields): Promise<BookingFields> {
   const existing = await readMetaDraft(tx, thread);
   const preferredWindow = fields.preferredWindow ?? existing?.preferredWindow ?? null;
@@ -260,45 +238,8 @@ export async function mergeDraft(tx: TenantTx, thread: BookingThread, fields: Bo
   return merged;
 }
 
-/** Record consent-question state on the draft: asked, answered, the raw reply. */
-export async function patchMetaDraft(
-  tx: TenantTx,
-  thread: BookingThread,
-  patch: Partial<Pick<MetaDraft, "consentAskedAt" | "callbackConsent" | "callbackConsentQuote" | "whatsappAskedAt" | "whatsappOptin" | "whatsappOptinQuote">>,
-): Promise<void> {
-  await tx.db.update(metaBookingDrafts).set({ ...patch, updatedAt: new Date() }).where(threadWhere(tx.clinicId, thread));
-}
-
-/** The number this thread's newest request holds, when the draft is gone. */
-export async function metaThreadPhone(tx: TenantTx, thread: BookingThread): Promise<string | null> {
-  const [row] = await tx.db
-    .select({ phone: contacts.phone })
-    .from(bookingRequests)
-    .innerJoin(contacts, eq(contacts.id, bookingRequests.contactId))
-    .where(and(eq(bookingRequests.clinicId, tx.clinicId), eq(bookingRequests.platform, thread.platform), eq(bookingRequests.senderId, thread.senderId)))
-    .orderBy(desc(bookingRequests.createdAt))
-    .limit(1);
-  return row?.phone ?? null;
-}
-
-/**
- * A reply to one of the fixed questions, as evidence: the person's own words,
- * capped, or the literal `redacted` when they carried clinical content. The
- * redaction marker is never consent.
- */
-export function consentQuoteOf(text: string): string {
-  const trimmed = text.trim().replace(/\s+/g, " ");
-  if (!trimmed) return "";
-  return findClinicalContent({ text: trimmed }).length ? REDACTED_QUOTE : trimmed.slice(0, CONSENT_QUOTE_MAX_CHARS);
-}
-
-/** True when a stored answer counts: yes, in their own words, with nothing redacted. */
-export function isUsableConsent<T extends { granted: boolean; quote: string | null }>(answer: T | null | undefined): answer is T & { granted: true; quote: string } {
-  return Boolean(answer && answer.granted && answer.quote && answer.quote.trim() && answer.quote !== REDACTED_QUOTE);
-}
-
 // -----------------------------------------------------------------------------
-// The collected requirement fields (§A.2, §F.9)
+// The collected requirement fields (§A.2)
 // -----------------------------------------------------------------------------
 
 const LOCKED_COLUMN_FIELDS: ReadonlySet<string> = new Set(["first_name", "phone", "preferred_window", "alternative_windows"]);
@@ -307,8 +248,8 @@ const LOCKED_COLUMN_FIELDS: ReadonlySet<string> = new Set(["first_name", "phone"
  * Validate what an agent collected against the practice's requirement set:
  * a catalogue id the practice asked for, at most 120 characters, and nothing
  * clinical. Anything else is dropped and named, never stored. The four locked
- * fields live in their own columns and are refused here so a callback cannot
- * quietly rewrite a frozen number or window.
+ * fields live in their own columns and are refused here so nothing collected
+ * later can quietly rewrite a frozen number or window.
  */
 export function cleanCollectedFields(
   requirements: readonly BookingField[],
@@ -341,48 +282,11 @@ export function cleanCollectedFields(
   return { accepted, refused };
 }
 
-async function clinicRequirements(tx: TenantTx): Promise<BookingField[]> {
-  const [clinic] = await tx.db.select({ specialty: clinics.specialty, stored: clinics.bookingRequirements }).from(clinics).where(eq(clinics.id, tx.clinicId)).limit(1);
-  return resolveBookingRequirements(clinic?.specialty ?? "", clinic?.stored ?? null);
-}
-
-/**
- * Store what a callback collected (§F.9): validated against the clinic's set,
- * merged into `collected_fields`, each refusal audited as `field_refused`.
- * A `service` lands in `collected_fields.service` because `treatment` is
- * frozen. Nothing is written on a request that is already decided.
- */
-export async function recordCollectedFields(tx: TenantTx, requestId: string, fields: Record<string, string>): Promise<void> {
-  const [request] = await tx.db
-    .select({ status: bookingRequests.status, collected: bookingRequests.collectedFields })
-    .from(bookingRequests)
-    .where(and(eq(bookingRequests.id, requestId), eq(bookingRequests.clinicId, tx.clinicId)))
-    .limit(1);
-  const { accepted, refused } = cleanCollectedFields(await clinicRequirements(tx), fields);
-  for (const r of refused) {
-    tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: requestId, metadata: { outcome: "field_refused", field: r.field, reason: r.reason } });
-  }
-  if (!request) return;
-  if (request.status === "confirmed" || request.status === "declined" || request.status === "expired") {
-    tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: requestId, metadata: { outcome: "rejected", reason: "terminal", fields: Object.keys(accepted) } });
-    return;
-  }
-  if (Object.keys(accepted).length === 0) return;
-  await tx.db
-    .update(bookingRequests)
-    .set({ collectedFields: { ...request.collected, ...accepted } })
-    .where(and(eq(bookingRequests.id, requestId), eq(bookingRequests.clinicId, tx.clinicId)));
-  tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: requestId, metadata: { outcome: "fields_collected", fields: Object.keys(accepted) } });
-}
-
 // -----------------------------------------------------------------------------
 // Creation
 // -----------------------------------------------------------------------------
 
-export type CreatedBookingRequest = { id: string; token: string; expiresAt: Date; consentRecordId: string | null };
-
-/** An answer to one of the fixed questions: the classifier's verdict and the person's own words. */
-export type ConsentAnswer = { granted: boolean; quote: string | null; evidenceUri?: string | null };
+export type CreatedBookingRequest = { id: string; token: string; expiresAt: Date };
 
 export type CreateBookingRequestInput =
   | {
@@ -390,10 +294,8 @@ export type CreateBookingRequestInput =
       thread: BookingThread;
       connectionId: string | null;
       fields: CompleteBookingFields;
-      /** §D.2 step 4 / §F.2: a consent row is written only for a usable yes. */
-      callbackConsent?: ConsentAnswer | null;
-      /** §G.2: stamped only for a usable yes, on WhatsApp threads. */
-      whatsappOptin?: ConsentAnswer | null;
+      /** When the person's last message was sent: the start of Meta's 24-hour window. Defaults to now. */
+      lastInboundAt?: Date;
     }
   | {
       channel: "voice";
@@ -405,15 +307,13 @@ export type CreateBookingRequestInput =
       alternativeWindows?: string[];
       /** Validated here against the clinic's requirement set; refusals audited. */
       collectedFields?: Record<string, string>;
-      callbackConsent?: ConsentAnswer | null;
     };
 
 /**
  * The request row and the desk's token — returned once, to be put into
  * exactly one email. A Meta request also upserts its contact by phone and
- * deletes its draft, in the same transaction. A usable yes to the callback
- * question becomes a consent row pointing at the request, with the question
- * and the person's own reply as its exact wording.
+ * deletes its draft, in the same transaction. No consent of any kind is
+ * asked for or recorded: healdesk contacts no one about a request.
  */
 export async function createBookingRequest(tx: TenantTx, input: CreateBookingRequestInput): Promise<CreatedBookingRequest> {
   const [clinic] = await tx.db
@@ -423,13 +323,9 @@ export async function createBookingRequest(tx: TenantTx, input: CreateBookingReq
     .limit(1);
 
   let contactId: string;
-  let phone: string | null;
   if (input.channel === "voice") {
     contactId = input.contactId;
-    const [contact] = await tx.db.select({ phone: contacts.phone }).from(contacts).where(and(eq(contacts.id, contactId), eq(contacts.clinicId, tx.clinicId))).limit(1);
-    phone = contact?.phone ?? null;
   } else {
-    phone = input.fields.phone;
     const [existing] = await tx.db
       .select({ id: contacts.id })
       .from(contacts)
@@ -459,7 +355,6 @@ export async function createBookingRequest(tx: TenantTx, input: CreateBookingReq
     input.channel === "meta"
       ? cleanAlternatives(input.fields.alternativeWindows, [input.fields.preferredWindow])
       : cleanAlternatives(input.alternativeWindows ?? [], [input.preferredWindow]);
-  const whatsapp = input.channel === "meta" && isUsableConsent(input.whatsappOptin) ? input.whatsappOptin : null;
 
   const raw = randomBytes(TOKEN_BYTES);
   const token = raw.toString("base64url");
@@ -482,47 +377,13 @@ export async function createBookingRequest(tx: TenantTx, input: CreateBookingReq
       collectedFields,
       tokenHash: hashToken(token),
       expiresAt: sql`now() + make_interval(days => ${BOOKING_REQUEST_TTL_DAYS})`,
-      lastInboundAt: input.channel === "meta" ? now : null,
-      whatsappOptinAt: whatsapp ? now : null,
-      whatsappOptinQuote: whatsapp ? whatsapp.quote : null,
+      lastInboundAt: input.channel === "meta" ? (input.lastInboundAt ?? now) : null,
     })
     .returning({ id: bookingRequests.id, expiresAt: bookingRequests.expiresAt });
   if (!row) throw new Error("Failed to create a booking request: no row returned.");
 
   if (input.channel === "meta") {
     await tx.db.delete(metaBookingDrafts).where(threadWhere(tx.clinicId, input.thread));
-  }
-
-  // The consent row: only a usable yes, and only with a number to hold it for.
-  let consentRecordId: string | null = null;
-  const consent = input.callbackConsent;
-  if (phone && isUsableConsent(consent)) {
-    const question = input.channel === "meta" ? CALLBACK_CONSENT.meta.replace("{clinic}", clinic?.name ?? "the practice") : CALLBACK_CONSENT.voice;
-    const exactWording = input.channel === "meta" ? `${question} — answered: ${consent.quote}` : `${question} — answered: "${consent.quote}"`;
-    const [record] = await tx.db
-      .insert(consentRecords)
-      .values({
-        clinicId: tx.clinicId,
-        phone,
-        channel: "voice",
-        consentType: "express",
-        source: input.channel === "meta" ? "meta_thread" : "inbound_call",
-        exactWording,
-        evidenceUri: consent.evidenceUri ?? null,
-        wordingVersion: CALLBACK_CONSENT.version,
-        bookingRequestId: row.id,
-      })
-      .returning({ id: consentRecords.id });
-    consentRecordId = record?.id ?? null;
-    if (consentRecordId) {
-      tx.audit.record({
-        action: "create",
-        resourceType: "consent_record",
-        resourceId: consentRecordId,
-        resourceIds: [row.id],
-        metadata: { source: input.channel === "meta" ? "meta_thread" : "inbound_call", wordingVersion: CALLBACK_CONSENT.version },
-      });
-    }
   }
 
   tx.audit.record({
@@ -535,11 +396,9 @@ export async function createBookingRequest(tx: TenantTx, input: CreateBookingReq
       platform: input.channel === "meta" ? input.thread.platform : undefined,
       expiresInDays: BOOKING_REQUEST_TTL_DAYS,
       alternatives: alternativeWindows.length,
-      consent: consentRecordId ? true : undefined,
-      whatsappOptin: whatsapp ? true : undefined,
     },
   });
-  return { id: row.id, token, expiresAt: row.expiresAt, consentRecordId };
+  return { id: row.id, token, expiresAt: row.expiresAt };
 }
 
 export const PLATFORM_LABEL: Record<MetaPlatform, string> = { messenger: "Messenger", instagram: "Instagram", whatsapp: "WhatsApp" };
@@ -617,45 +476,6 @@ export async function notifyDesk(
   return { status: "sent", recipients: sent };
 }
 
-export type RenotifyVariant = "collected" | "chose_none" | "confirm_no" | "chose_slot";
-
-const RENOTIFY_BODY: Record<RenotifyVariant, string> = {
-  collected:
-    "The assistant has spoken to the person and added what you asked for. Open the link from the original email to accept, confirm a time, propose other times, or decline.",
-  chose_none:
-    "The assistant has spoken to the person: none of the times you proposed work for them. Open the link from the original email to propose other times or decline.",
-  confirm_no:
-    "The assistant has spoken to the person: they said the confirmed time no longer works — call them; to move it, cancel in your calendar and treat it as a new request.",
-  chose_slot:
-    "The assistant has spoken to the person and they chose one of the times you proposed. The appointment is recorded; open the link from the original email to see it and whether it reached your calendar.",
-};
-
-/**
- * Tell the desk again, after a callback changed something (§F.10). Linkless
- * on purpose: the plain token existed once, at creation, and is never
- * rotated, so the only way back to the page is the original email. Stamps
- * `desk_notified_at`, which sits outside every freeze so a terminal request
- * can still be re-notified.
- */
-export async function renotifyDesk(tx: TenantTx, requestId: string, variant: RenotifyVariant, deps: { transport?: EmailTransport } = {}): Promise<void> {
-  const [clinic] = await tx.db.select({ name: clinics.name }).from(clinics).where(eq(clinics.id, tx.clinicId)).limit(1);
-  const clinicName = clinic?.name ?? "your practice";
-  const recipients = await deskRecipients(tx);
-  if (recipients.length === 0) {
-    log.warn("booking request update has no desk to notify", { clinicId: tx.clinicId, requestId });
-    return;
-  }
-  const transport = deps.transport ?? getTransport("none");
-  const subject = `Booking request updated — ${clinicName}`;
-  const body = RENOTIFY_BODY[variant];
-  const text = `${body}\n\nThis email carries no patient details on purpose.`;
-  const html = `<p>${escapeHtml(body)}</p><p>This email carries no patient details on purpose.</p>`;
-  const sent = await deliverToDesk(tx, transport, recipients, { subject, text, html }, { clinicName, requestId });
-  if (sent === 0) return;
-  await tx.db.update(bookingRequests).set({ deskNotifiedAt: new Date() }).where(and(eq(bookingRequests.id, requestId), eq(bookingRequests.clinicId, tx.clinicId)));
-  tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: requestId, metadata: { outcome: "desk_renotified", variant, recipients: sent } });
-}
-
 async function deskRecipients(tx: TenantTx): Promise<{ email: string }[]> {
   return tx.db
     .select({ email: reportRecipients.email })
@@ -731,16 +551,11 @@ export type ResolvedBookingRequest = {
   proposedSlots: ProposedSlot[];
   rescheduleExpiresAt: Date | null;
   bookedVia: BookedVia;
-  whatsappOptinAt: Date | null;
   lastInboundAt: Date | null;
   /** Free slots from the writable calendar while the request is open (§B.3); null when there is no writable connection. */
   calendar: { writable: boolean; slots: CalendarSlot[] } | null;
   /** The confirmed appointment's calendar write, for the read-only views. */
   calendarWrite: { status: CalendarWriteStatus; error: string | null } | null;
-  /** §B.3/§F.3: the assistant may ring them — both switches on and a usable consent row. Chooses the page's copy. */
-  callbackAvailable: boolean;
-  /** A callback queued or in flight for this request, if any. */
-  pendingCallback: { purpose: OutboundCallPurpose; status: string } | null;
   /** §G.1: whether a Meta line could still reach them; null for a phone request. */
   metaWindowOpen: boolean | null;
 };
@@ -776,7 +591,6 @@ export async function resolveBookingRequest(token: string, request?: RequestCont
         proposedSlots: bookingRequests.proposedSlots,
         rescheduleExpiresAt: bookingRequests.rescheduleExpiresAt,
         bookedVia: bookingRequests.bookedVia,
-        whatsappOptinAt: bookingRequests.whatsappOptinAt,
         lastInboundAt: bookingRequests.lastInboundAt,
         expired: sql<boolean>`${bookingRequests.expiresAt} <= now()`,
         clinicName: clinics.name,
@@ -803,13 +617,6 @@ export async function resolveBookingRequest(token: string, request?: RequestCont
     if (open && (await writableConnection(tx))) {
       calendar = { writable: true, slots: await slotsFor(tx, 14, { preferred: [row.preferredWindow, ...row.alternativeWindows] }) };
     }
-    const [pending] = await tx.db
-      .select({ purpose: outboundCalls.purpose, status: outboundCalls.status })
-      .from(outboundCalls)
-      .where(and(eq(outboundCalls.bookingRequestId, row.id), inArray(outboundCalls.status, ["due", "placing", "placed"])))
-      .orderBy(desc(outboundCalls.createdAt))
-      .limit(1);
-
     return {
       id: row.id,
       clinicId,
@@ -831,12 +638,9 @@ export async function resolveBookingRequest(token: string, request?: RequestCont
       proposedSlots: row.proposedSlots,
       rescheduleExpiresAt: row.rescheduleExpiresAt,
       bookedVia: row.bookedVia,
-      whatsappOptinAt: row.whatsappOptinAt,
       lastInboundAt: row.lastInboundAt,
       calendar,
       calendarWrite: row.calendarWriteStatus ? { status: row.calendarWriteStatus, error: row.calendarWriteError ?? null } : null,
-      callbackAvailable: await callbacksAvailable(tx, row.phone),
-      pendingCallback: pending ? { purpose: pending.purpose, status: pending.status } : null,
       metaWindowOpen: row.channel === "meta" ? row.lastInboundAt !== null && row.lastInboundAt.getTime() + META_WINDOW_MS > Date.now() : null,
     };
   });
@@ -853,8 +657,6 @@ export type DecisionOutcome = {
   appointmentId: string | null;
   /** §B.4: the calendar write's outcome once an appointment was created; null when nothing was confirmed. */
   calendarWrite: CalendarWriteOutcome | null;
-  /** §F.3/§F.4: a consented callback queued for this decision, or why not; null when none was attempted. */
-  callback: ScheduleOutcome | null;
 };
 
 export type DecisionInput = {
@@ -909,7 +711,7 @@ export async function decideBookingRequest(
   input: DecisionInput,
   send?: MetaSender,
 ): Promise<DecisionOutcome> {
-  const none: DecisionOutcome = { outcome: "invalid", followUp: null, appointmentId: null, calendarWrite: null, callback: null };
+  const none: DecisionOutcome = { outcome: "invalid", followUp: null, appointmentId: null, calendarWrite: null };
   const now = input.now ?? new Date();
   const hash = hashIfWellFormed(token);
   if (!hash) return none;
@@ -940,12 +742,10 @@ export async function decideBookingRequest(
         collectedFields: bookingRequests.collectedFields,
         expiresAt: bookingRequests.expiresAt,
         expired: sql<boolean>`${bookingRequests.expiresAt} <= now()`,
-        phone: contacts.phone,
         timezone: clinics.timezone,
         clinicName: clinics.name,
       })
       .from(bookingRequests)
-      .innerJoin(contacts, eq(contacts.id, bookingRequests.contactId))
       .innerJoin(clinics, eq(clinics.id, bookingRequests.clinicId))
       .where(eq(bookingRequests.tokenHash, hash))
       .limit(1);
@@ -1012,29 +812,26 @@ export async function decideBookingRequest(
       metadata: { outcome: "decided", decision, channel: row.channel, slots: decision === "rescheduling" ? slots.length : undefined },
     });
 
-    // §C.2: the alternatives are carried by a consented callback, or the desk calls.
+    // §C.2: the desk goes through the alternatives by phone; on a Meta
+    // thread, a fixed line says so, inside the window only.
     if (decision === "rescheduling") {
       const outreach: RescheduleOutreach = await planRescheduleOutreach(tx, row, { send, now });
-      return { outcome: "decided", followUp: outreach.meta, appointmentId: null, calendarWrite: null, callback: outreach.callback };
+      return { outcome: "decided", followUp: outreach.meta, appointmentId: null, calendarWrite: null };
     }
 
-    // §F.3: a confirmed time is read back to the person by the assistant, with their permission.
-    let callback: ScheduleOutcome | null = null;
-    if (decision === "confirmed" && (await callbacksAvailable(tx, candidate.phone))) {
-      callback = await scheduleCallback(tx, row.id, "confirm_time", { now });
-    }
-
-    if (row.channel !== "meta") return { outcome: "decided", followUp: null, appointmentId, calendarWrite: null, callback };
-    if (!row.connectionId || !row.platform || !row.externalId || !row.senderId) return { outcome: "decided", followUp: "no-channel", appointmentId, calendarWrite: null, callback };
+    if (row.channel !== "meta") return { outcome: "decided", followUp: null, appointmentId, calendarWrite: null };
+    if (!row.connectionId || !row.platform || !row.externalId || !row.senderId) return { outcome: "decided", followUp: "no-channel", appointmentId, calendarWrite: null };
     const owner: MetaChannelOwner = { clinicId: tx.clinicId, connectionId: row.connectionId, platform: row.platform, enabled: true };
     try {
+      // Outside Meta's 24-hour window sendMetaReply sends nothing: v1 has no
+      // message tag and no template, so the desk calls instead.
       const sent = await sendMetaReply(tx, owner, row.externalId, row.senderId, followUpLine(candidate.clinicName, decision), send, { now });
-      if (sent.status !== "sent") return { outcome: "decided", followUp: "outside_window", appointmentId, calendarWrite: null, callback };
+      if (sent.status !== "sent") return { outcome: "decided", followUp: "outside_window", appointmentId, calendarWrite: null };
       tx.audit.record({ action: "create", resourceType: "meta_front_door_reply", resourceId: tx.clinicId, metadata: { platform: row.platform, source: "booking_follow_up" } });
-      return { outcome: "decided", followUp: "sent", appointmentId, calendarWrite: null, callback };
+      return { outcome: "decided", followUp: "sent", appointmentId, calendarWrite: null };
     } catch (error) {
       log.error("booking follow-up not sent", { clinicId: tx.clinicId, requestId: row.id, error: describeError(error) });
-      return { outcome: "decided", followUp: "failed", appointmentId, calendarWrite: null, callback };
+      return { outcome: "decided", followUp: "failed", appointmentId, calendarWrite: null };
     }
   });
 
@@ -1043,90 +840,6 @@ export async function decideBookingRequest(
     return { ...decided, calendarWrite: await writeToCalendar(clinicId, decided.appointmentId, { now }) };
   }
   return decided;
-}
-
-/**
- * The person chose one of the desk's proposed times (§C.3), on a callback or
- * on the desk's own phone call. Because the desk pre-approved these slots,
- * choosing one confirms: `rescheduling → confirmed`, an appointment row, the
- * calendar write, and the desk told — linkless — that it is done. An `at`
- * that is not one of `proposed_slots` is refused outright: the assistant
- * cannot invent a time.
- *
- * `booked_via` is frozen at insert by the 0040 trigger and absent from the
- * runtime grant, so the provenance of the choice is recorded in the decision
- * label and the audit row rather than on the column.
- */
-export async function confirmProposedSlot(
-  clinicId: string,
-  requestId: string,
-  at: Date,
-  opts: { bookedVia: "callback" | "desk"; decidedByLabel: string; actor?: ActorContext; request?: RequestContext; transport?: EmailTransport; now?: Date },
-): Promise<DecisionOutcome> {
-  const none: DecisionOutcome = { outcome: "invalid", followUp: null, appointmentId: null, calendarWrite: null, callback: null };
-  if (!isValidDate(at)) return none;
-  const now = opts.now ?? new Date();
-  const actor = opts.actor ?? LINK_ACTOR;
-
-  const decided = await withTenant({ clinicId, actor, request: opts.request }, async (tx): Promise<DecisionOutcome> => {
-    const [candidate] = await tx.db
-      .select({
-        id: bookingRequests.id,
-        status: bookingRequests.status,
-        contactId: bookingRequests.contactId,
-        conversationId: bookingRequests.conversationId,
-        treatment: bookingRequests.treatment,
-        collectedFields: bookingRequests.collectedFields,
-        proposedSlots: bookingRequests.proposedSlots,
-        expired: sql<boolean>`${bookingRequests.expiresAt} <= now()`,
-      })
-      .from(bookingRequests)
-      .where(and(eq(bookingRequests.id, requestId), eq(bookingRequests.clinicId, tx.clinicId)))
-      .limit(1);
-    if (!candidate || candidate.expired) {
-      tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: requestId, metadata: { outcome: "rejected", reason: "invalid", decision: "choose_slot" } });
-      return none;
-    }
-    if (candidate.status !== "rescheduling") {
-      tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: requestId, metadata: { outcome: "rejected", reason: "already-decided", decision: "choose_slot" } });
-      return { ...none, outcome: "already-decided" };
-    }
-    const chosen = candidate.proposedSlots.find((s) => Date.parse(s.at) === at.getTime());
-    if (!chosen) {
-      tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: requestId, metadata: { outcome: "rejected", reason: "slot_not_proposed", decision: "choose_slot" } });
-      return none;
-    }
-
-    const appointmentId = await insertAppointment(tx, {
-      contactId: candidate.contactId,
-      conversationId: candidate.conversationId,
-      scheduledFor: at,
-      treatment: candidate.treatment ?? candidate.collectedFields.service ?? null,
-    });
-    const [row] = await tx.db
-      .update(bookingRequests)
-      .set({ status: "confirmed", decidedAt: now, decidedByLabel: opts.decidedByLabel.trim().slice(0, 80) || null, confirmedFor: at, appointmentId })
-      .where(and(eq(bookingRequests.id, candidate.id), eq(bookingRequests.status, "rescheduling"), gt(bookingRequests.expiresAt, sql`now()`)))
-      .returning({ id: bookingRequests.id });
-    if (!row) {
-      await tx.db.delete(appointments).where(and(eq(appointments.id, appointmentId), eq(appointments.clinicId, tx.clinicId)));
-      tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: candidate.id, metadata: { outcome: "rejected", reason: "already-decided", decision: "choose_slot" } });
-      return { ...none, outcome: "already-decided" };
-    }
-    tx.audit.record({
-      action: "create",
-      resourceType: "appointment",
-      resourceId: appointmentId,
-      metadata: { conversationId: candidate.conversationId ?? undefined, bookingRequestId: row.id, confirmedByDesk: false, chosenByPerson: true, via: opts.bookedVia, confirmedByClinicSystem: false },
-    });
-    tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: row.id, metadata: { outcome: "decided", decision: "confirmed", via: opts.bookedVia, slotSource: chosen.source } });
-    return { outcome: "decided", followUp: null, appointmentId, calendarWrite: null, callback: null };
-  });
-  if (decided.outcome !== "decided" || !decided.appointmentId) return decided;
-
-  const calendarWrite = await writeToCalendar(clinicId, decided.appointmentId, { actor, now });
-  await withTenant({ clinicId, actor, request: opts.request }, (tx) => renotifyDesk(tx, requestId, "chose_slot", { transport: opts.transport }));
-  return { ...decided, calendarWrite };
 }
 
 async function insertAppointment(
@@ -1162,14 +875,11 @@ async function insertAppointment(
 /**
  * Lapse what has lapsed, every clinic: a `rescheduling` request past its
  * reschedule deadline and an open request past its link's expiry become
- * `expired`, and every callback still `due` for a request that is now
- * terminal is cancelled with `request_expired` — except the informational
- * `confirm_time` call on a confirmed request, which §F.4 permits. The
- * callback-dialer job calls this; it never dials.
+ * `expired`. A pure function of the clock over rows that already exist; the
+ * hourly tick runs it (lib/scheduler/tick.ts).
  */
-export async function expireLapsedRequests(now: Date): Promise<{ expired: number; cancelledCalls: number }> {
+export async function expireLapsedRequests(now: Date): Promise<{ expired: number }> {
   let expired = 0;
-  let cancelledCalls = 0;
   for (const clinic of await listClinics()) {
     const result = await withTenant({ clinicId: clinic.id, actor: EXPIRY_ACTOR }, async (tx) => {
       const lapsed = await tx.db
@@ -1186,28 +896,11 @@ export async function expireLapsedRequests(now: Date): Promise<{ expired: number
       for (const r of lapsed) {
         tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: r.id, metadata: { outcome: "decided", decision: "expired", reason: r.wasRescheduling ? "alternatives_lapsed" : "link_expired" } });
       }
-      const cancelled = await tx.db
-        .update(outboundCalls)
-        .set({ status: "cancelled", refusalCode: "request_expired" })
-        .where(
-          and(
-            eq(outboundCalls.clinicId, tx.clinicId),
-            eq(outboundCalls.status, "due"),
-            sql`exists (select 1 from ${bookingRequests} r where r.id = ${outboundCalls.bookingRequestId}
-                        and r.status in ('confirmed', 'declined', 'expired')
-                        and not (r.status = 'confirmed' and ${outboundCalls.purpose} = 'confirm_time'))`,
-          ),
-        )
-        .returning({ id: outboundCalls.id });
-      if (cancelled.length) {
-        tx.audit.record({ action: "update", resourceType: "outbound_call", resourceIds: cancelled.map((c) => c.id), metadata: { outcome: "cancelled", reason: "request_expired" } });
-      }
-      return { expired: lapsed.length, cancelled: cancelled.length };
+      return lapsed.length;
     });
-    expired += result.expired;
-    cancelledCalls += result.cancelled;
+    expired += result;
   }
-  return { expired, cancelledCalls };
+  return { expired };
 }
 
 /** Counts only, for the care view. A `rescheduling` request is one the desk has answered, so it counts with `accepted`. */

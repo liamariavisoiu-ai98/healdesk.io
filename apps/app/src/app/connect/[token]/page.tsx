@@ -9,6 +9,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { withinConnectAttemptLimit } from "@/lib/connections/attempt-limit";
+import { env } from "@/lib/env";
 import {
   resolveConnectionLink,
   type ResolvedLink,
@@ -18,12 +19,17 @@ import { ConnectForm, CopyRow } from "./ConnectForm";
 import { connectRequestContext } from "./request-context";
 
 /**
- * The only surface a clinic ever sees.
+ * The read-back credential handover.
  *
- * healdesk is a service, not software a clinic operates: no clinic login, no
- * account, no password, and this page is the whole of the customer's interface
- * with the product. They arrive from one link in one email, follow the steps
- * for their platform, paste one credential and are finished forever.
+ * PHASE TWO: attribution read-back. Not part of v1: a pasted credential is
+ * exactly what the v1 onboarding rules forbid ("Every connection is a login
+ * button"), and v1 reads nothing back from a clinic's system. While
+ * HEALDESK_PHASE_TWO_ATTRIBUTION is not "true" every token, real or not, gets
+ * the same redirect to /connect/invalid, before the token is even looked at.
+ * Clinics sign into the v1 clinic portal (not built yet), not here.
+ *
+ * In phase two: they arrive from one link in one email, follow the steps for
+ * their platform and paste one credential.
  *
  * ## What authenticates this
  *
@@ -101,11 +107,7 @@ export const metadata: Metadata = {
   title: "Connect your booking system",
   // Overridden, not inherited. The root layout's description is "Clinic console
   // for healdesk." — written when everything below it was staff-only and behind
-  // a session. These two pages are the exception that came later, and they are
-  // the only ones a clinic ever sees, so inheriting it would greet the customer
-  // with the word this whole flow exists to make untrue: there is no console,
-  // and they never sign into anything. It names no clinic, for the same reason
-  // the title doesn't.
+  // a session. It names no clinic, for the same reason the title doesn't.
   description: "Give healdesk read-only access to your booking system, once.",
   // The root layout already says this. Repeated because this is the one page in
   // the app a non-employee is ever sent to, and inheriting a rule silently is
@@ -129,6 +131,10 @@ export default async function ConnectPage({
   ) {
     return <Throttled />;
   }
+
+  // Phase two is fenced before the token is examined: the same redirect as a
+  // dead link, so the page says nothing about which tokens exist.
+  if (!env.phaseTwoAttribution()) redirect("/connect/invalid");
 
   // No shape check in front of this. lib/connections/links.ts is contracted to
   // return null for anything malformed rather than throw, and a second, quietly
@@ -172,25 +178,6 @@ export default async function ConnectPage({
         here. We never ask for your own login, and this access can&apos;t change
         anything in {platform.name}.
       </p>
-      <p className="mt-3 max-w-[58ch] text-[15px] text-[color:var(--color-muted)]">
-        There&apos;s no account to create and nothing to sign into, not now and not
-        later. This page is the whole of it.
-      </p>
-
-      {/*
-        Why they are doing this at all, in the same words the email used. A
-        clinic on estimated attribution is reading modelled revenue every month;
-        this is the one thing that turns those figures into numbers checked
-        against their own system, and it is worth saying before the steps rather
-        than assuming they remember the email.
-      */}
-      {link.attributionMode === "estimated" ? (
-        <p className="mt-3 max-w-[58ch] text-[15px] text-[color:var(--color-muted)]">
-          Until this is connected, the revenue in your monthly report is an
-          estimate. This is what turns it into figures checked against your own
-          booking system.
-        </p>
-      ) : null}
 
       {personalised.vendorRequestNeeded ? (
         <p className="mt-6 rounded-xl border border-[color:var(--color-red)]/30 bg-[color:var(--color-red)]/[0.06] px-4 py-3 text-[15px] font-medium">

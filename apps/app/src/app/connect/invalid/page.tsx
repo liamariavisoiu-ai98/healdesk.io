@@ -22,11 +22,10 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "This link is no longer valid",
-  // Overridden for the same reason as the wizard's: the root layout describes
-  // this app as a "Clinic console", and a clinic landing here has just been
-  // told there is nothing to sign into. It also says nothing about why the
-  // link failed — this page is never told, and its metadata is not a back door
-  // for telling it.
+  // Overridden: the root layout describes this app as a "Clinic console". It
+  // also says nothing about why the link failed — this page is never told, and
+  // its metadata is not a back door for telling it. (Phase two: in v1 every
+  // connect link lands here, because the read-back handover is fenced off.)
   description: "Ask us for a new setup link.",
   robots: { index: false, follow: false },
 };
@@ -57,11 +56,6 @@ export default function ConnectInvalidPage() {
           hello@healdesk.io
         </a>{" "}
         and ask for a new setup link.
-      </p>
-
-      <p className="mt-8 text-xs text-[color:var(--color-muted)]">
-        There is no account to sign into here, and there never will be. Setting up
-        healdesk is one link, one paste, once.
       </p>
     </main>
   );

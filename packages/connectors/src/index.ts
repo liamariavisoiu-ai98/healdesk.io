@@ -2,6 +2,13 @@
  * @healdesk/connectors — the anti-corruption layer between eight booking
  * platforms and one canonical model.
  *
+ * PHASE TWO for its read side: POS/EMR read-back, sync and reconciliation are
+ * fenced out of v1 (CLAUDE.md, "Phase two, fenced out of v1"). The port's
+ * narrow write side (port.ts: listSlots, createAppointment,
+ * findAppointmentByKey) is kept as the seam the v1 Google Calendar adapter
+ * can plug into (launch plan steps 1.5 and 1.7); the only adapter registered
+ * today is the fixture.
+ *
  * Deliberately imports no Drizzle, no `pg`, and no Next. That is what lets the
  * whole layer be contract-tested in milliseconds with no database running, and
  * stops our storage shapes leaking into what we call "canonical".
@@ -21,14 +28,6 @@ export * from "./registry";
 export * from "./result";
 export * from "./throttle";
 export * from "./types";
-export {
-  CALCOM_API_VERSIONS,
-  CALCOM_TIMEOUT_MS,
-  CalcomAdapter,
-  calcomAdapter,
-  HEALDESK_REQUEST_ID_KEY,
-  type CalcomAdapterOptions,
-} from "./calcom/adapter";
 export { FixtureAdapter, fixtureAdapter, type RecordedWrite } from "./fixture/adapter";
 export { weekdaySlots, type SlotSchedule } from "./fixture/slots";
 export { generate, type FixtureOptions } from "./fixture/generator";

@@ -43,9 +43,9 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Setup complete",
   // Overridden for the same reason as the wizard's and the invalid page's: the
-  // root layout calls this app a "Clinic console", and a clinic reading this
-  // has just been told, correctly, that there is nothing to sign into. Names no
-  // clinic, for the same reason the page doesn't.
+  // root layout calls this app a "Clinic console". Names no clinic, for the
+  // same reason the page doesn't. (Phase two: unreachable in v1, because the
+  // handover that redirects here is fenced off.)
   description: "Your booking system is connected to healdesk.",
   robots: { index: false, follow: false },
 };
@@ -66,7 +66,7 @@ export default function ConnectDonePage() {
       </p>
 
       <p className="mt-4 text-[15px] text-[color:var(--color-muted)]">
-        The one-time link has now expired. No account or login needed.
+        The one-time link has now expired.
       </p>
 
       {/*

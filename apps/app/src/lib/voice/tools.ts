@@ -1,24 +1,16 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
-import { CALLBACK_CONSENT, findClinicalContent, resolveBookingRequirements } from "@healdesk/catalog";
+import { findClinicalContent, resolveBookingRequirements } from "@healdesk/catalog";
 import { toE164 } from "@healdesk/connectors";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
-import { agentConfigs, appointments, bookingRequests, clinics, outboundCalls } from "@/db/schema";
+import { agentConfigs, appointments, bookingRequests, clinics } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { slotLabel, slotsFor, writeToCalendar, type CalendarWriteOutcome } from "@/lib/booking/calendar";
 import { directBookingAllowed } from "@/lib/booking/mode";
-import { honourStopRequest } from "@/lib/callbacks/schedule";
 import { env } from "@/lib/env";
 import { describeError, log } from "@/lib/log";
-import {
-  BOOKING_REQUEST_TTL_DAYS,
-  cleanCollectedFields,
-  confirmProposedSlot,
-  notifyDesk,
-  recordCollectedFields,
-  renotifyDesk,
-} from "@/lib/meta/booking-requests";
+import { BOOKING_REQUEST_TTL_DAYS, cleanCollectedFields, notifyDesk } from "@/lib/meta/booking-requests";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
@@ -26,16 +18,22 @@ import { upsertCallerContact } from "./ingest";
 import { spokenFieldList, spokenPhone, spokenSlot } from "./spoken";
 
 /**
- * The mid-call tool routes (design of 23 September 2026, §E.2 and §F.9):
- * what the phone agents may ask the product for while a call is up, and
- * the only way a voice call writes anything before its post-call webhook.
+ * The mid-call tool routes (design of 23 September 2026, §E.2): what the
+ * phone agent may ask the product for while a call is up, and the only way
+ * a voice call writes anything before its post-call webhook.
  *
- * Four tools behind one handler:
+ * Pre-Retell. These are HTTP routes a Synthflow agent calls mid-call. The v1
+ * voice agent runs on Retell, whose custom-LLM WebSocket endpoint will run
+ * the same fixed tool layer (availability, the 60-second slot hold, the
+ * booking write) in its own long-lived process (launch plan step 2.1); the
+ * logic here is what that endpoint should call, not a second copy of it.
+ *
+ * Three tools behind one handler:
  *
  *   context   what this clinic's assistant asks for, and whether it may
  *             book: the requirement set as one spoken sentence, the
- *             effective booking mode, the fixed consent question, the
- *             deposit line and the practice's number for the ear.
+ *             effective booking mode, the deposit line and the practice's
+ *             number for the ear.
  *   slots     free times from the writable calendar, six at most, each with
  *             a spoken form — refused outright unless every direct-booking
  *             gate holds, so the agent falls back to taking a request.
@@ -44,14 +42,15 @@ import { spokenFieldList, spokenPhone, spokenSlot } from "./spoken";
  *             and an already-`confirmed` request are inserted together,
  *             the calendar is written after the commit with an eight-second
  *             budget, and the desk gets the FYI.
- *   callback  what the callback agent collected or chose, resolved through
- *             the ledger row the vendor's call id belongs to — never a
- *             request id the model supplies.
+ *
+ * The call-back tool of 23 September 2026 (§F.9) was removed: v1 places no
+ * calls. TODO(v1, launch plan steps 1.5 and 1.7): the Google Calendar write
+ * and the 60-second hold before anything confirming is said; see
+ * lib/booking/mode.ts for the gate this path still depends on.
  *
  * Authentication is a fixed Bearer secret compared in constant time, and it
- * is a DIFFERENT secret from the post-call webhook's: these routes can book
- * and can revoke a consent; the webhook can only report. Unset means 503 and
- * nothing written. Bodies are capped at 32 KB and must carry the vendor's
+ * is a DIFFERENT secret from the post-call webhook's: these routes can book;
+ * the webhook can only report. Unset means 503 and nothing written. Bodies are capped at 32 KB and must carry the vendor's
  * `call_id` and `user_phone_number`; the limits are 60 calls a minute per
  * clinic and 12 per call id. Every call writes one audit row whose metadata
  * carries `callRef`, the SHA-256 of the call id — the scanner strips a
@@ -59,7 +58,7 @@ import { spokenFieldList, spokenPhone, spokenSlot } from "./spoken";
  * a phone number — and never the number itself.
  */
 
-export type VoiceTool = "context" | "slots" | "book" | "callback";
+export type VoiceTool = "context" | "slots" | "book";
 
 export const VOICE_TOOL_MAX_BODY_BYTES = 32 * 1024;
 export const VOICE_TOOL_SLOT_LIMIT = 6;
@@ -69,7 +68,6 @@ export const BOOK_CALENDAR_BUDGET_MS = 8_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TOOL_ACTOR: ActorContext = { type: "agent", serviceName: "voice-tools" };
 const DIRECT_BOOKING_LABEL = "assistant (direct booking)";
-const CALLBACK_LABEL = "assistant (callback)";
 
 type Deps = { transport?: EmailTransport; now?: Date };
 
@@ -111,7 +109,7 @@ export async function handleVoiceTool(request: Request, clinicIdParam: string, t
 
   const call: ToolCall = { clinicId, callId, callRef: callRefOf(callId), phone, body, now: deps.now ?? new Date(), transport: deps.transport };
   try {
-    const reply = await (tool === "context" ? voiceToolContext(call) : tool === "slots" ? voiceToolSlots(call) : tool === "book" ? voiceToolBook(call) : voiceToolCallback(call));
+    const reply = await (tool === "context" ? voiceToolContext(call) : tool === "slots" ? voiceToolSlots(call) : voiceToolBook(call));
     return Response.json(reply.body, { status: reply.status });
   } catch (error) {
     // A BAA-gate refusal (synthetic clinic in production) or a database
@@ -194,7 +192,6 @@ export type VoiceContextReply = {
   required_fields_spoken: string;
   /** The EFFECTIVE mode: "direct" only while every §E.1 gate holds right now, so the agent never starts a flow the tool would refuse. */
   booking_mode: "desk_confirms" | "direct";
-  consent_line: string;
   deposit_line: string;
   clinic_phone_spoken: string;
 };
@@ -213,7 +210,6 @@ async function voiceToolContext(call: ToolCall): Promise<ToolReply> {
     return {
       required_fields_spoken: spokenFieldList(resolveBookingRequirements(clinic.specialty, clinic.requirements ?? null)),
       booking_mode: direct ? "direct" : "desk_confirms",
-      consent_line: CALLBACK_CONSENT.voice,
       deposit_line: depositLine(agent?.depositPolicy ?? null),
       clinic_phone_spoken: clinic.phone ? spokenPhone(clinic.phone) : "",
     };
@@ -441,73 +437,4 @@ async function withBudget<T, F>(work: Promise<T>, ms: number, fallback: F): Prom
   } finally {
     if (timer) clearTimeout(timer);
   }
-}
-
-// -----------------------------------------------------------------------------
-// callback
-// -----------------------------------------------------------------------------
-
-export type CallbackAction = "collect" | "choose_slot" | "confirm" | "stop" | "none_work";
-const CALLBACK_ACTIONS: ReadonlySet<string> = new Set(["collect", "choose_slot", "confirm", "stop", "none_work"]);
-
-async function voiceToolCallback(call: ToolCall): Promise<ToolReply> {
-  const action = typeof call.body.action === "string" && CALLBACK_ACTIONS.has(call.body.action) ? (call.body.action as CallbackAction) : null;
-  if (!action) return { status: 400, body: { error: "action_required" } };
-
-  const resolved = await withTenant({ clinicId: call.clinicId, actor: TOOL_ACTOR }, async (tx): Promise<ToolReply | { requestId: string; phone: string; timezone: string }> => {
-    // The request comes from the ledger row the call id belongs to — never
-    // from the body — so a model cannot name another person's request.
-    const [row] = await tx.db
-      .select({ requestId: outboundCalls.bookingRequestId, phone: outboundCalls.phone, timezone: clinics.timezone })
-      .from(outboundCalls)
-      .innerJoin(clinics, eq(clinics.id, outboundCalls.clinicId))
-      .where(and(eq(outboundCalls.clinicId, tx.clinicId), eq(outboundCalls.vendorCallId, call.callId), inArray(outboundCalls.status, ["placing", "placed", "completed", "unknown"])))
-      .limit(1);
-    if (!row) {
-      tx.audit.record({ action: "update", resourceType: "voice_tool_callback", resourceId: tx.clinicId, metadata: { callRef: call.callRef, action, outcome: "unknown_call" } });
-      return { status: 404, body: { ok: false, error: "unknown_call" } };
-    }
-    tx.audit.record({ action: "update", resourceType: "voice_tool_callback", resourceId: row.requestId, metadata: { callRef: call.callRef, action } });
-
-    switch (action) {
-      case "collect": {
-        const fieldsRaw = call.body.fields;
-        const fields = fieldsRaw && typeof fieldsRaw === "object" && !Array.isArray(fieldsRaw) ? (fieldsRaw as Record<string, unknown>) : null;
-        if (!fields) return { status: 400, body: { ok: false, error: "fields_required" } };
-        const strings: Record<string, string> = {};
-        for (const [k, v] of Object.entries(fields)) if (typeof v === "string") strings[k] = v;
-        await recordCollectedFields(tx, row.requestId, strings);
-        await renotifyDesk(tx, row.requestId, "collected", { transport: call.transport });
-        return { status: 200, body: { ok: true, next: "close" } };
-      }
-      case "confirm": {
-        const answer = typeof call.body.answer === "string" ? call.body.answer.trim().toLowerCase() : "";
-        if (answer !== "yes" && answer !== "no") return { status: 400, body: { ok: false, error: "answer_required" } };
-        if (answer === "no") await renotifyDesk(tx, row.requestId, "confirm_no", { transport: call.transport });
-        return { status: 200, body: { ok: true, next: "close" } };
-      }
-      case "stop": {
-        // honourStopRequest suppresses on every channel, revokes every consent
-        // row for the number and cancels every `due` row — one transaction.
-        await honourStopRequest(tx, row.phone, "stop_request");
-        return { status: 200, body: { ok: true, next: "end" } };
-      }
-      case "none_work": {
-        await renotifyDesk(tx, row.requestId, "chose_none", { transport: call.transport });
-        return { status: 200, body: { ok: true, next: "close" } };
-      }
-      case "choose_slot":
-        return { requestId: row.requestId, phone: row.phone, timezone: row.timezone };
-    }
-  });
-  if ("status" in resolved) return resolved;
-
-  // choose_slot opens its own transactions (the calendar write must not
-  // hold one), so it runs after the resolution above has committed.
-  const at = isoDate(call.body.at);
-  if (!at) return { status: 400, body: { ok: false, error: "at_required" } };
-  const decided = await confirmProposedSlot(call.clinicId, resolved.requestId, at, { bookedVia: "callback", decidedByLabel: CALLBACK_LABEL, actor: TOOL_ACTOR, transport: call.transport, now: call.now });
-  if (decided.outcome === "already-decided") return { status: 409, body: { ok: false, error: "already_decided" } };
-  if (decided.outcome !== "decided") return { status: 409, body: { ok: false, error: "slot_not_proposed" } };
-  return { status: 200, body: { ok: true, booked: true, when_spoken: spokenSlot(at, resolved.timezone), calendar: decided.calendarWrite ?? "not-connected" } };
 }

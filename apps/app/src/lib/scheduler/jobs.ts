@@ -2,6 +2,7 @@ import { eq, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import { scheduledJobs } from "@/db/schema";
+import { env } from "@/lib/env";
 
 /**
  * Background job control.
@@ -27,8 +28,12 @@ export const JOB_ANNUAL_RENEWAL_REMINDER = "annual-renewal-reminder";
 export const JOB_WEEKLY_RECAP = "weekly-recap";
 export const JOB_NIGHTLY_SYNC = "nightly-sync";
 export const JOB_OFFBOARDING_DESTROY = "offboarding-destroy";
-/** See callback-dialer.ts. Seeded by drizzle/0040, switched off. */
-export const JOB_CALLBACK_DIALER = "callback-dialer";
+/**
+ * Phase two: the attribution jobs. Their code is kept, but they never run in
+ * v1 (env.phaseTwoAttribution()), and the console refuses to switch them on.
+ * The 0040 `callback-dialer` job was removed by drizzle/0041.
+ */
+export const PHASE_TWO_JOBS: ReadonlySet<string> = new Set([JOB_MONTHLY_REPORT, JOB_NIGHTLY_SYNC]);
 
 /** How long before a `runningSince` lock is assumed to be a crashed run. */
 const STALE_LOCK_MS = 60 * 60 * 1000;
@@ -88,6 +93,13 @@ export async function runJob(
 ): Promise<JobOutcome> {
   const job = await getJob(name);
   if (!job) throw new Error(`Unknown job: ${name}`);
+
+  // Phase two is fenced here, before the switch is even read: a job the
+  // console somehow left on still does nothing in a v1 environment.
+  if (PHASE_TWO_JOBS.has(name) && !env.phaseTwoAttribution()) {
+    await record(name, "disabled", "Phase two: not run in v1 (HEALDESK_PHASE_TWO_ATTRIBUTION is not \"true\").", now);
+    return { status: "disabled" };
+  }
 
   if (!job.enabled) {
     await record(name, "disabled", "Job is switched off.", now);

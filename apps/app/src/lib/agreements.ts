@@ -246,19 +246,23 @@ export async function signAgreement(
     isCoveredEntity: request.isCoveredEntity,
     attributionMode: request.attributionMode,
     connectedPlatform,
-    // Reactivation is not offered; stays false. The clinic gives no consent
-    // warranty: the only call the product places is a call-back the person
-    // agreed to on their own inbound contact, and healdesk records that
-    // consent itself (design of 23 September 2026, §F.2).
+    // Stays false: v1 is inbound only (v1 spec, "No outbound on any product").
+    // The product places no calls and sends no messages to patients, so the
+    // clinic gives no consent warranty.
     outboundMessaging: false,
     // Checkout does not ask. The direct-booking election is the standalone
     // addendum accepted on the setup link and evidenced by its own hash
     // (packages/catalog/src/direct-booking-addendum.ts), never by this field.
     bookingMode: "desk_confirms",
-    // Cal.com is the one calendar healdesk can write into; choosing it puts
-    // the calendar-write clause in the agreement. The browser passes the
-    // same literal for the same platform id (AgreementStep.tsx), which is
-    // what keeps the displayed hash and the stored hash equal.
+    // Kept in step with apps/web's AgreementStep.tsx, which passes the same
+    // literal for the same platform id: that is what keeps the displayed hash
+    // and the stored hash equal, so neither side may change alone. The
+    // current template (1.0.0) carries no calendar-write clause, so this
+    // selects nothing it renders. v1 writes nothing into Cal.com (its write
+    // adapter was removed; Google Calendar is the only write target), so the
+    // Cal.com selection should be retired on both sides together, and whether
+    // the agreement must say anything about writing a booking into the
+    // clinic's own Google Calendar is a question for counsel.
     calendarWrite: connectedPlatform === "Cal.com" ? { platform: "Cal.com" } : null,
   };
 

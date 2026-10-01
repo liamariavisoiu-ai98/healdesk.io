@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { buildAllReports } from "@/lib/scheduler/monthly-report";
 import {
   JOB_MONTHLY_REPORT,
+  JOB_WEEKLY_RECAP,
   getJob,
   listJobs,
   runJob,
@@ -65,7 +66,7 @@ describeDb("scheduler", () => {
 
   test("a disabled job does no work, and says why", async () => {
     let ran = false;
-    const outcome = await runJob(JOB_MONTHLY_REPORT, async () => {
+    const outcome = await runJob(JOB_WEEKLY_RECAP, async () => {
       ran = true;
       return "should not happen";
     });
@@ -75,19 +76,19 @@ describeDb("scheduler", () => {
 
     // Recorded rather than silent: "it didn't run because it's off" is a
     // different answer from "it didn't run" and ops needs to tell them apart.
-    const job = await getJob(JOB_MONTHLY_REPORT);
+    const job = await getJob(JOB_WEEKLY_RECAP);
     expect(job?.lastRunStatus).toBe("disabled");
   });
 
   test("an enabled job runs and records its outcome", async () => {
     const opsUser = await seedOpsUser();
-    await setJobEnabled(JOB_MONTHLY_REPORT, true, opsUser);
+    await setJobEnabled(JOB_WEEKLY_RECAP, true, opsUser);
 
-    const outcome = await runJob(JOB_MONTHLY_REPORT, async () => "did 3 things");
+    const outcome = await runJob(JOB_WEEKLY_RECAP, async () => "did 3 things");
 
     expect(outcome).toEqual({ status: "ok", note: "did 3 things" });
 
-    const job = await getJob(JOB_MONTHLY_REPORT);
+    const job = await getJob(JOB_WEEKLY_RECAP);
     expect(job?.lastRunStatus).toBe("ok");
     expect(job?.lastRunNote).toBe("did 3 things");
     // The lock is released whatever happened.
@@ -97,15 +98,15 @@ describeDb("scheduler", () => {
 
   test("a failing job records the failure and releases the lock", async () => {
     const opsUser = await seedOpsUser();
-    await setJobEnabled(JOB_MONTHLY_REPORT, true, opsUser);
+    await setJobEnabled(JOB_WEEKLY_RECAP, true, opsUser);
 
-    const outcome = await runJob(JOB_MONTHLY_REPORT, async () => {
+    const outcome = await runJob(JOB_WEEKLY_RECAP, async () => {
       throw new Error("connector unreachable");
     });
 
     expect(outcome.status).toBe("failed");
 
-    const job = await getJob(JOB_MONTHLY_REPORT);
+    const job = await getJob(JOB_WEEKLY_RECAP);
     expect(job?.lastRunStatus).toBe("failed");
     expect(job?.lastRunNote).toContain("connector unreachable");
     // A crashed run that leaves the lock set blocks the job forever, and the
@@ -115,7 +116,7 @@ describeDb("scheduler", () => {
 
   test("two runners starting together do not both proceed", async () => {
     const opsUser = await seedOpsUser();
-    await setJobEnabled(JOB_MONTHLY_REPORT, true, opsUser);
+    await setJobEnabled(JOB_WEEKLY_RECAP, true, opsUser);
 
     let started = 0;
     const work = async () => {
@@ -125,8 +126,8 @@ describeDb("scheduler", () => {
     };
 
     const [first, second] = await Promise.all([
-      runJob(JOB_MONTHLY_REPORT, work),
-      runJob(JOB_MONTHLY_REPORT, work),
+      runJob(JOB_WEEKLY_RECAP, work),
+      runJob(JOB_WEEKLY_RECAP, work),
     ]);
 
     expect(started).toBe(1);
@@ -136,17 +137,34 @@ describeDb("scheduler", () => {
 
   test("a stale lock from a crashed run is reclaimed", async () => {
     const opsUser = await seedOpsUser();
-    await setJobEnabled(JOB_MONTHLY_REPORT, true, opsUser);
+    await setJobEnabled(JOB_WEEKLY_RECAP, true, opsUser);
 
     // Simulate a process that died mid-run two hours ago.
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
     await getMigratorPool().query(
       `update scheduled_jobs set running_since = $2 where name = $1`,
-      [JOB_MONTHLY_REPORT, twoHoursAgo],
+      [JOB_WEEKLY_RECAP, twoHoursAgo],
     );
 
-    const outcome = await runJob(JOB_MONTHLY_REPORT, async () => "recovered");
+    const outcome = await runJob(JOB_WEEKLY_RECAP, async () => "recovered");
     expect(outcome).toEqual({ status: "ok", note: "recovered" });
+  });
+
+  test("a phase-two job does nothing in v1, even switched on, and says why", async () => {
+    const opsUser = await seedOpsUser();
+    delete process.env.HEALDESK_PHASE_TWO_ATTRIBUTION;
+    await setJobEnabled(JOB_MONTHLY_REPORT, true, opsUser);
+    let ran = false;
+    const outcome = await runJob(JOB_MONTHLY_REPORT, async () => {
+      ran = true;
+      return "should not happen";
+    });
+    expect(outcome).toEqual({ status: "disabled" });
+    expect(ran).toBe(false);
+    const job = await getJob(JOB_MONTHLY_REPORT);
+    expect(job?.lastRunStatus).toBe("disabled");
+    expect(job?.lastRunNote).toMatch(/^Phase two/);
+    await setJobEnabled(JOB_MONTHLY_REPORT, false, opsUser);
   });
 
   test("the runtime role cannot create or drop jobs", async () => {

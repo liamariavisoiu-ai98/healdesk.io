@@ -17,12 +17,19 @@ import type { MetaPlatform } from "./front-door";
  * our own replies are dropped. The `externalId` is what resolves the clinic
  * (app_meta_channel); the `senderId` is the platform's opaque id for the
  * person, used once to address the reply and never stored.
+ *
+ * `sentAt` is when the person sent the message, as Meta stamps it
+ * (`timestamp`: milliseconds on Messenger and Instagram, seconds as a string
+ * on WhatsApp), never later than the moment it is read. It is the start of
+ * the 24-hour window, so a webhook Meta retries a day late does not reopen a
+ * window that has already closed. Absent when the payload carries none.
  */
 export type InboundMetaMessage = {
   platform: MetaPlatform;
   externalId: string;
   senderId: string;
   text: string;
+  sentAt?: Date;
 };
 
 type Obj = Record<string, unknown>;
@@ -30,7 +37,16 @@ const obj = (v: unknown): Obj => (v && typeof v === "object" && !Array.isArray(v
 const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v.trim() : undefined);
 
-export function parseMetaEvents(body: unknown): InboundMetaMessage[] {
+/** Meta's `timestamp`, in the unit the platform uses, as a Date no later than now; undefined when missing or nonsense. */
+function sentAtOf(raw: unknown, unit: "ms" | "s", now: Date): Date | undefined {
+  const n = typeof raw === "number" ? raw : typeof raw === "string" && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : NaN;
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  const at = new Date(unit === "s" ? n * 1000 : n);
+  if (!Number.isFinite(at.getTime())) return undefined;
+  return at.getTime() > now.getTime() ? now : at;
+}
+
+export function parseMetaEvents(body: unknown, now: Date = new Date()): InboundMetaMessage[] {
   const root = obj(body);
   const out: InboundMetaMessage[] = [];
   const object = str(root.object);
@@ -46,7 +62,8 @@ export function parseMetaEvents(body: unknown): InboundMetaMessage[] {
         const senderId = str(obj(msg.sender).id);
         const externalId = str(obj(msg.recipient).id) ?? str(entry.id);
         if (!text || !senderId || !externalId) continue;
-        out.push({ platform, externalId, senderId, text });
+        const sentAt = sentAtOf(msg.timestamp, "ms", now);
+        out.push({ platform, externalId, senderId, text, ...(sentAt ? { sentAt } : {}) });
       }
     } else if (object === "whatsapp_business_account") {
       for (const c of arr(entry.changes)) {
@@ -58,7 +75,8 @@ export function parseMetaEvents(body: unknown): InboundMetaMessage[] {
           const text = str(obj(msg.text).body);
           const senderId = str(msg.from);
           if (!text || !senderId || !externalId) continue;
-          out.push({ platform: "whatsapp", externalId, senderId, text });
+          const sentAt = sentAtOf(msg.timestamp, "s", now);
+          out.push({ platform: "whatsapp", externalId, senderId, text, ...(sentAt ? { sentAt } : {}) });
         }
       }
     }

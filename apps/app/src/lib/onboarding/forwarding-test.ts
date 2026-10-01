@@ -15,14 +15,15 @@ import { completeStep, readOnboarding, reopenStep } from "./steps";
  * first call to arrive inside the window is the test. Three facts are
  * recorded — it arrived, the caller ID survived the forward, and which
  * condition fired where the carrier told us — and `test_call_passed` is
- * stamped only when the caller ID survived. If it did not, every future
- * caller would look like the clinic and no callback could ever reach the
- * right person, so the step stays open with the reason on the page.
+ * stamped only when the caller ID survived. If it did not, every caller
+ * would look like the clinic: the agent could not identify the caller or
+ * read back their number, and the clinic's own follow-up would reach nobody,
+ * so the step stays open with the reason on the page.
  *
  * Separately, and at any time: a call whose caller ID IS the clinic's own
  * published number is the carrier substituting the forwarding line. That
  * reopens the step on its own — the carrier changed something, and the
- * clinic should hear about it before the report shrinks.
+ * clinic should hear about it before calls stop counting as answered.
  */
 export const FORWARDING_TEST_WINDOW_MS = 5 * 60 * 1000;
 

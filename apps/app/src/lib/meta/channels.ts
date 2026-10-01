@@ -1,14 +1,11 @@
-import { toE164 } from "@healdesk/connectors";
-import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
-import { bookingRequests, clinics, providerConnections, suppressions } from "@/db/schema";
-import type { ActorContext } from "@/lib/audit";
+import { bookingRequests, clinics } from "@/db/schema";
 import { saveConnection, withCredentials } from "@/lib/connections/store";
-import { env } from "@/lib/env";
-import { withTenant, type TenantTx } from "@/lib/tenant";
+import type { TenantTx } from "@/lib/tenant";
 
-import { guardReply, type MetaPlatform } from "./front-door";
+import type { MetaPlatform } from "./front-door";
 
 /**
  * A clinic's Meta channels: one sealed access token per platform, on the
@@ -16,20 +13,19 @@ import { guardReply, type MetaPlatform } from "./front-door";
  * platform's id for the page / account / number in plain metadata so the
  * webhook can find the tenant.
  *
- * Two rules about what may be sent, both from the design of 23 September
- * 2026 (§G):
+ * One rule about what may be sent, enforced here in the adapter and never
+ * left to the prompt (v1 spec, "The 24-hour window, the rule that shapes
+ * everything"): free-form text only inside Meta's 24-hour customer-service
+ * window, on every platform. WhatsApp enforces it; Messenger and Instagram
+ * reject `messaging_type: "RESPONSE"` outside it and we use no message tags.
+ * So `sendMetaReply` drops the send rather than calling Graph when the
+ * thread's last inbound message is more than a day old, whatever the model
+ * or the caller asked for, and the desk is told to call.
  *
- *   - Free-form text only inside Meta's 24-hour customer-service window,
- *     on every platform. WhatsApp enforces it; Messenger and Instagram
- *     reject `messaging_type: "RESPONSE"` outside it and we use no message
- *     tags. So `sendMetaReply` refuses rather than calling Graph when the
- *     thread's last inbound message is more than a day old, and the desk is
- *     told to call.
- *   - Outside the window, on WhatsApp only, one approved utility template,
- *     only to a person who opted in to it as its own question, only while
- *     the environment flag is on, and only with parameters the reply guard
- *     would pass. The template carries a first name, a clinic name and a
- *     clinic phone — no time, service, provider or "appointment".
+ * There is no other way out. v1 is inbound only, so there is no message tag,
+ * no HUMAN_AGENT send and no WhatsApp template: the out-of-window template
+ * path of 23 September 2026 (§G.3) was removed, and nothing in this file can
+ * reach a person who has not written in the last 24 hours.
  */
 export const META_PROVIDERS: Record<MetaPlatform, string> = {
   messenger: "meta-messenger",
@@ -39,10 +35,6 @@ export const META_PROVIDERS: Record<MetaPlatform, string> = {
 
 /** Meta's customer-service window: 24 hours from the person's last message. */
 export const META_WINDOW_MS = 24 * 60 * 60 * 1000;
-
-/** The template submitted to Meta (§G.3). The approved name is read from the connection's metadata, never assumed. */
-export const WHATSAPP_TEMPLATE_NAME = "healdesk_request_update_v1";
-export const WHATSAPP_TEMPLATE_LANGUAGE = "en_US";
 
 export function isMetaPlatform(value: unknown): value is MetaPlatform {
   return value === "messenger" || value === "instagram" || value === "whatsapp";
@@ -146,7 +138,8 @@ export async function graphSend(input: Parameters<MetaSender>[0]): Promise<void>
 export type MetaSendOutcome = { status: "sent" } | { status: "outside_window" };
 
 /**
- * Send free-form text on a thread, inside its window only.
+ * Send free-form text on a thread, inside its window only. The only send
+ * function this product has for Meta; outside the window it sends nothing.
  *
  * A caller replying to the message it just received passes `lastInboundAt`
  * (the instant is in its hand and the thread may hold no request yet);
@@ -176,108 +169,4 @@ export async function sendMetaReply(
     await send({ platform: owner.platform, externalId, accessToken, recipientId, text });
   });
   return { status: "sent" };
-}
-
-// -----------------------------------------------------------------------------
-// The WhatsApp template (§G.3)
-// -----------------------------------------------------------------------------
-
-export type MetaTemplateSender = (input: { externalId: string; accessToken: string; payload: Record<string, unknown> }) => Promise<void>;
-
-/** The vendor's shape for a template send. Three text parameters, nothing free-form. */
-export function whatsappTemplatePayload(input: { to: string; templateName: string; firstName: string; clinicName: string; clinicPhone: string }): Record<string, unknown> {
-  return {
-    messaging_product: "whatsapp",
-    recipient_type: "individual",
-    to: input.to,
-    type: "template",
-    template: {
-      name: input.templateName,
-      language: { code: WHATSAPP_TEMPLATE_LANGUAGE },
-      components: [
-        {
-          type: "body",
-          parameters: [
-            { type: "text", text: input.firstName },
-            { type: "text", text: input.clinicName },
-            { type: "text", text: input.clinicPhone },
-          ],
-        },
-      ],
-    },
-  };
-}
-
-export async function graphSendTemplate(input: Parameters<MetaTemplateSender>[0]): Promise<void> {
-  const response = await fetch(`https://graph.facebook.com/v21.0/${encodeURIComponent(input.externalId)}/messages`, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${input.accessToken}` },
-    body: JSON.stringify(input.payload),
-  });
-  if (!response.ok) throw new Error(`Graph API ${response.status}`);
-}
-
-export type MetaTemplateOutcome = { status: "sent"; template: string } | { status: "refused"; reason: string };
-
-const TEMPLATE_ACTOR: ActorContext = { type: "service", serviceName: "meta-template" };
-
-/**
- * One approved WhatsApp template to one person, outside the window (§G.2–G.3).
- * Refuses, in order: the environment flag unset; no WhatsApp channel; no
- * approved template name on the connection; a parameter the reply guard
- * would refuse; no opt-in recorded for this person on this clinic's WhatsApp
- * thread; the number suppressed. Audits `meta_template_sent { template }`.
- */
-export async function sendMetaTemplate(
-  input: { clinicId: string; to: string; firstName: string; clinicName: string; clinicPhone: string },
-  deps: { tx?: TenantTx; send?: MetaTemplateSender; actor?: ActorContext } = {},
-): Promise<MetaTemplateOutcome> {
-  const run = async (tx: TenantTx): Promise<MetaTemplateOutcome> => {
-    const refuse = (reason: string): MetaTemplateOutcome => {
-      tx.audit.record({ action: "create", resourceType: "meta_template_sent", resourceId: tx.clinicId, metadata: { outcome: "refused", reason } });
-      return { status: "refused", reason };
-    };
-    if (!env.whatsappTemplatesEnabled()) return refuse("templates_disabled");
-
-    const [connection] = await tx.db
-      .select({ id: providerConnections.id, metadata: providerConnections.metadata })
-      .from(providerConnections)
-      .where(and(eq(providerConnections.clinicId, tx.clinicId), eq(providerConnections.provider, META_PROVIDERS.whatsapp), isNotNull(providerConnections.metadata)))
-      .limit(1);
-    const metadata = (connection?.metadata ?? null) as { externalId?: unknown; templateName?: unknown } | null;
-    if (!connection || typeof metadata?.externalId !== "string") return refuse("no_channel");
-    const templateName = typeof metadata.templateName === "string" && metadata.templateName.trim() ? metadata.templateName.trim() : null;
-    if (!templateName) return refuse("no_template");
-
-    for (const value of [input.firstName, input.clinicName, input.clinicPhone]) {
-      if (!guardReply(value).ok) return refuse("parameter_refused");
-    }
-
-    const [optin] = await tx.db
-      .select({ id: bookingRequests.id })
-      .from(bookingRequests)
-      .where(and(eq(bookingRequests.clinicId, tx.clinicId), eq(bookingRequests.platform, "whatsapp"), eq(bookingRequests.senderId, input.to), isNotNull(bookingRequests.whatsappOptinAt)))
-      .limit(1);
-    if (!optin) return refuse("no_optin");
-
-    const phones = [input.to, toE164(input.to) ?? "", toE164(`+${input.to}`) ?? ""].filter(Boolean);
-    const [suppressed] = await tx.db
-      .select({ id: suppressions.id })
-      .from(suppressions)
-      .where(and(eq(suppressions.clinicId, tx.clinicId), inArray(suppressions.phone, phones), or(isNull(suppressions.channel), eq(suppressions.channel, "sms"))))
-      .limit(1);
-    if (suppressed) return refuse("suppressed");
-
-    const payload = whatsappTemplatePayload({ to: input.to, templateName, firstName: input.firstName, clinicName: input.clinicName, clinicPhone: input.clinicPhone });
-    const send = deps.send ?? graphSendTemplate;
-    await withCredentials(tx.db, { clinicId: tx.clinicId, connectionId: connection.id }, async (credentials) => {
-      const accessToken = credentials.accessToken;
-      if (!accessToken) throw new Error("The channel has no access token.");
-      await send({ externalId: metadata.externalId as string, accessToken, payload });
-    });
-    tx.audit.record({ action: "create", resourceType: "meta_template_sent", resourceId: connection.id, metadata: { template: templateName, platform: "whatsapp" } });
-    return { status: "sent", template: templateName };
-  };
-  if (deps.tx) return run(deps.tx);
-  return withTenant({ clinicId: input.clinicId, actor: deps.actor ?? TEMPLATE_ACTOR }, run);
 }

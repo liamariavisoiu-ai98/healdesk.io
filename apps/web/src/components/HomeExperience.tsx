@@ -10,8 +10,9 @@ import { site } from "@/lib/site";
 import { specialties } from "@/lib/specialties";
 
 /**
- * The client half of the homepage: the outcomes deck, the two demos and the
- * niche deck.
+ * The client half of the homepage: the two demos, the outcomes deck and the
+ * niche deck, in that order. The demos come first, straight under the hero, on
+ * the owner's instruction of 3 October 2026.
  *
  * ## The demos are not configured per specialty, and that is the point
  *
@@ -53,10 +54,6 @@ export function HomeExperience() {
 
   return (
     <>
-      {/* The eight outcomes, between the claim and the proof. Its cards open
-          the demo, the same hand-off the niche deck makes further down. */}
-      <Outcomes onOpen={goToDemo} />
-
       {/* The navbar's secondary CTA points here. */}
       <section id="aya" className="scroll-mt-24 pt-16 sm:pt-24">
         <div className="mb-8 max-w-[760px] sm:mb-10">
@@ -82,6 +79,11 @@ export function HomeExperience() {
           </div>
         </div>
       </section>
+
+      {/* The eight outcomes, straight after the demos: meet her first, then
+          see what a month of her changes. Its cards scroll back up to the
+          demo, the same hand-off the niche deck makes below. */}
+      <Outcomes onOpen={goToDemo} />
 
       <NicheCarousel specialties={specialties} onSelect={goToDemo} />
     </>

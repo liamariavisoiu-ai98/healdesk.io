@@ -39,8 +39,8 @@ export const metadata: Metadata = {
 /**
  * The homepage, and the whole site's argument.
  *
- * Five things in order: the claim with AYA beside it, AYA working, the
- * specialties we know, what clinics say, and a way to ask. Pricing and contact
+ * Six things in order: the claim, AYA working, what changes in month one,
+ * the specialties we know, what clinics say, and a way to ask. Pricing and contact
  * are their own pages but are reachable only from the footer, so nothing
  * competes with the demo for a visitor's first click.
  *

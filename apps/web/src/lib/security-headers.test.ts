@@ -106,14 +106,12 @@ describe("contentSecurityPolicy", () => {
     expect(preview.get("frame-src")).toEqual(["https://vercel.live", GOOGLE_DOCS_ORIGIN]);
   });
 
-  it("lets the hero video and the glTF decoder run", () => {
+  it("lets the videos play, and no longer allows what the 3D hero needed", () => {
     expect(csp.get("media-src")).toEqual(["'self'", "blob:"]);
     expect(csp.get("img-src")).toEqual(["'self'", "data:", "blob:"]);
-    // GLTFLoader fetches the hero model's embedded texture via a blob: URL.
-    // Dropping this renders her as a white clay bust, silently.
-    expect(csp.get("connect-src")).toContain("blob:");
-    // MeshoptDecoder instantiates embedded WebAssembly; this is not 'unsafe-eval'.
-    expect(csp.get("script-src")).toContain("'wasm-unsafe-eval'");
+    // The glTF hero, removed on 3 October 2026, was the only reason for these.
+    expect(csp.get("connect-src")).not.toContain("blob:");
+    expect(csp.get("script-src")).not.toContain("'wasm-unsafe-eval'");
   });
 
   it("adds unsafe-eval and drops the https upgrade only in development", () => {

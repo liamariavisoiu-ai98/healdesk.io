@@ -47,7 +47,7 @@ export const site = {
   domain: "healdesk.io",
   url: normalizeSiteUrl(process.env.NEXT_PUBLIC_SITE_URL) ?? "https://healdesk.io",
 
-  /** The agent's name. She is the face in the hero and the voice on the phone. */
+  /** The agent's name. She is the voice in the chat and on the phone. */
   agent: "AYA",
 
   /**

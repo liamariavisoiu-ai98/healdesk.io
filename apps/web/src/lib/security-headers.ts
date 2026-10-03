@@ -22,19 +22,13 @@
  *     at build time) and TAN Ashford is a local woff2. No font CDN, so no
  *     fonts.googleapis.com / fonts.gstatic.com here, and adding them would be
  *     a regression, not a fix.
- *   - Video: the hero and the niche cards play from /public (webm + mp4), and
- *     HealdeskSoul's poster is a local PNG. `blob:` is allowed in media-src
+ *   - Video: the niche cards and HealdeskSoul play from /public (webm + mp4),
+ *     and HealdeskSoul's poster is a local PNG. `blob:` is allowed in media-src
  *     because MediaSource-backed playback surfaces as a blob: URL and it costs
  *     nothing to permit.
- *   - The 3D hero: three.js loads a glTF from /public, decoded by
- *     MeshoptDecoder, which instantiates an EMBEDDED WebAssembly module. That
- *     needs `'wasm-unsafe-eval'` in script-src. It is not `'unsafe-eval'`:
- *     it permits WebAssembly compilation only, not string-to-JS. Without it
- *     the model silently fails to load (HeroModel already degrades gracefully),
- *     so a violation there would not break the page, but it would remove the
- *     hero. HeroModel does not call `MeshoptDecoder.useWorkers()`, so no
- *     blob: worker is needed; if someone turns workers on, add
- *     `worker-src 'self' blob:`.
+ *   - No WebAssembly and no blob: fetches. The 3D hero needed both
+ *     (`'wasm-unsafe-eval'` for its MeshoptDecoder, `blob:` in connect-src for
+ *     its texture) and was removed on 3 October 2026, so both went with it.
  *   - Payment: checkout POSTs to /api/checkout and then `location.assign`s the
  *     Stripe-hosted Checkout URL. There is NO Stripe.js on the page, so
  *     js.stripe.com is deliberately absent from script-src and there is no
@@ -234,8 +228,6 @@ export function cspDirectives(
       self,
       // See "The trade-off" above. Next's own inline bootstrap scripts need it.
       "'unsafe-inline'",
-      // MeshoptDecoder (three.js glTF hero) instantiates embedded WebAssembly.
-      "'wasm-unsafe-eval'",
       POSTHOG_ASSETS_ORIGIN,
       ...(dev ? ["'unsafe-eval'"] : []),
       ...(preview ? VERCEL_TOOLBAR.script : []),
@@ -245,20 +237,12 @@ export function cspDirectives(
     "img-src": [self, "data:", "blob:", ...(preview ? VERCEL_TOOLBAR.img : [])],
     // next/font and the local Ashford woff2. No CDN.
     "font-src": [self, ...(preview ? VERCEL_TOOLBAR.font : [])],
-    // The hero and niche videos from /public; blob: for MediaSource playback.
+    // The niche and soul videos from /public; blob: for MediaSource playback.
     "media-src": [self, "blob:"],
     // Our own /api routes (the chat stream, the gate, checkout, the callback)
     // plus PostHog. 'self' also covers the dev server's HMR websocket.
-    //
-    // blob: because three's GLTFLoader unpacks the hero model's embedded JPEG
-    // skin into a blob: URL and then FETCHES it to build the texture. Without
-    // this the fetch is refused, the load logs "Couldn't load texture", and
-    // she renders as an untextured white bust, which is what production
-    // showed for eleven days before anyone read the console. A blob: URL can
-    // only ever name data this page created, so it exfiltrates nothing.
     "connect-src": [
       self,
-      "blob:",
       POSTHOG_INGEST_ORIGIN,
       POSTHOG_ASSETS_ORIGIN,
       ...(preview ? VERCEL_TOOLBAR.connect : []),

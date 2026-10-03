@@ -40,7 +40,6 @@ are kept current against the spec.
 | [leadgen-enrichment.md](./leadgen-enrichment.md) | Turning the contact file into a launch segment: the enrichment pipeline, its cost, and how to read the result. |
 | [outreach/](./outreach/) | Cold-email infrastructure for our own B2B outreach, gate by gate, and the run log. |
 | [marketing-voice-demo-context.md](./marketing-voice-demo-context.md) | The brief for the demo call an owner requests from the site. Predates the spec; its banner says what still holds. |
-| [hero-frames.md](./hero-frames.md) | Production spec for the site's hero image grid. |
 
 ## Superseded, kept for history
 

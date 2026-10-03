@@ -16,7 +16,15 @@ import { GUARANTEE_TEXT } from "@/lib/legal";
  * Under the FTC Act the material conditions of an advertised guarantee have
  * to be clear where it is advertised, not only in the agreement a buyer sees
  * later, which is why the whole text is here rather than a one-line summary
- * with a link.
+ * with a link. For the same reason nothing above the block may say more than
+ * its first sentence (docs/counsel/guarantee-and-refund.md, "Advertising the
+ * guarantee"): the eyebrow "If she misses one, the month is on us" dropped
+ * every condition, so it went on 3 October 2026, and the heading is the
+ * guarantee's name, nothing more.
+ *
+ * It is on the page before the routed and answered counter exists in
+ * apps/app, by the owner's decision of 3 October 2026: until the counter is
+ * built, a claim is checked by hand against the vendors' logs.
  */
 export function Guarantee() {
   return (
@@ -24,10 +32,9 @@ export function Guarantee() {
       aria-labelledby="guarantee-heading"
       className="border-line mt-20 rounded-[24px] border bg-white p-7 sm:p-10"
     >
-      <p className="eyebrow-tag">If she misses one, the month is on us</p>
       <h2
         id="guarantee-heading"
-        className="font-display mt-5 text-[clamp(28.8px,3.6vw,40.8px)] leading-tight font-medium tracking-[-0.024em]"
+        className="font-display text-[clamp(28.8px,3.6vw,40.8px)] leading-tight font-medium tracking-[-0.024em]"
       >
         {GUARANTEE_TEXT.heading}
       </h2>

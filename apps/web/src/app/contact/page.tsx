@@ -8,6 +8,7 @@ import { Nav } from "@/components/Nav";
 import { site } from "@/lib/site";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/contact" },
   title: "Contact us",
   description:
     "Talk to a person about healdesk, what it would answer, what it would " +
@@ -40,10 +41,11 @@ const COMMITMENTS = [
     q: "And patient data, once we're a customer?",
     a:
       "We sign a BAA before anything connects, and handle patient data under " +
-      "it: US infrastructure, encrypted in transit and at rest, never used to " +
-      "train models. The only system we write to is the Google Calendar you " +
-      "connect. No third party has audited us, these are our own commitments " +
-      "and we'll show you the architecture behind any of them.",
+      "it: encrypted at rest and, wherever we control both ends, in transit, " +
+      "and never used to train models. The only system we write to is the " +
+      "Google Calendar you connect. No third party has audited us, these are " +
+      "our own commitments and we'll show you the architecture behind any of " +
+      "them.",
   },
 ] as const;
 

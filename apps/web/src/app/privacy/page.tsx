@@ -9,6 +9,7 @@ import { site } from "@/lib/site";
 import { SUBPROCESSORS } from "@/lib/subprocessors";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/privacy" },
   title: "Privacy policy",
   description:
     "What healdesk.io collects from visitors, why, who processes it, and how to exercise your rights; what the product does with Google Calendar and Meta messaging data. Patient data is governed by the Business Associate Agreement.",
@@ -31,15 +32,19 @@ export const metadata: Metadata = {
  * may describe only something the code does today. Two adversarial reviews
  * removed every sentence that described a feature we meant to build.
  *
- * Sections 11 to 13 are the exception, and are marked as drafts below. Google
- * requires a privacy policy that discloses what an app does with Google user
- * data, with its Limited Use statement, before it verifies the Calendar scope,
- * and Meta requires one covering Platform data, with deletion instructions,
- * before App Review. Both reviews read this page, and both have to clear
- * before launch (docs/v1-product-spec.md, "External gates on the launch
- * date"), so these sections describe the v1 product the spec defines rather
- * than code that exists today. Every sentence in them must be true by the time
- * a clinic can connect a calendar or a Meta account.
+ * Sections 11 to 13 are the exception, and the comments on each say so.
+ * Google requires a privacy policy that discloses what an app does with Google
+ * user data, with its Limited Use statement, before it verifies the Calendar
+ * scope, and Meta requires one covering Platform data, with deletion
+ * instructions, before App Review. Both reviews read this page, and both have
+ * to clear before launch (docs/v1-product-spec.md, "External gates on the
+ * launch date"), so these sections describe the v1 product the spec defines
+ * rather than code that exists today. Every sentence in them must be true by
+ * the time a clinic can connect a calendar or a Meta account.
+ *
+ * Adopted 3 Oct 2026 by the owner without external counsel review, with the
+ * wording docs/counsel/agreement-changes.md § 8 gives for sections 1, 9 and
+ * 12, and section 9's claims about the product cut back to what is decided.
  */
 export default function PrivacyPage() {
   const marketingVendors = SUBPROCESSORS.filter((s) => s.scope !== "product");
@@ -53,10 +58,11 @@ export default function PrivacyPage() {
           This policy covers <strong>{site.domain}</strong> and the people who use it: clinic
           owners and staff considering {site.name}, and anyone who tries the demo. {site.name}{" "}
           ("we", "us") operates it; the operating entity is named in section 10. It does not
-          cover patients of our customers.
+          cover patients of our customers, except as sections 11 to 13 say about the product.
         </p>
-        {/* DRAFT pending counsel review (2026-09-30). The scope sentence for
-            sections 11 to 13, which Google's and Meta's app reviews read. */}
+        {/* Adopted 3 Oct 2026 by the owner without external counsel review.
+            The scope sentence for sections 11 to 13, which Google's and Meta's
+            app reviews read. */}
         <p>
           Sections 11 and 12 also describe what the product does with data it receives from Google
           and from Meta when a clinic connects its Google Calendar, its Facebook Page, its Instagram
@@ -126,8 +132,9 @@ export default function PrivacyPage() {
             ordinary correspondence.
           </li>
           <li>
-            {/* DRAFT pending counsel review (2026-09-30): the field list, updated
-                to what the checkout asks after the 30 September changes. */}
+            {/* Adopted 3 Oct 2026 by the owner without external counsel review:
+                the field list, updated to what the checkout asks after the 30
+                September changes. */}
             <strong>What you enter at checkout.</strong> Your clinic's legal name, its specialty,
             the booking system it uses, the typical value of one booked appointment, which calls you
             want answered, your work email, and — to sign the Business Associate Agreement — your
@@ -282,22 +289,37 @@ export default function PrivacyPage() {
       <Section id="security" title="9. Security">
         <p>
           The marketing site holds no patient information, which is the first and best security
-          control. What it does hold is encrypted in transit and at rest, reachable only through
-          this site's own server code, and rate-limited. The controls the product commits to for
-          patient information — a signed agreement with every vendor that touches it, United States
-          infrastructure, encryption at rest and in transit, no patient information over email,
-          and breach notice to the clinic within five calendar days of discovery — are set out in the
-          Business Associate Agreement, and the vendors are listed on the subprocessor page with
-          the status of each agreement. No third party has audited us; these are our own
-          commitments and we will show you the architecture behind any of them.
+          control. What it does hold is encrypted at rest, and in transit wherever we control both
+          ends, reachable only through this site's own server code, and rate-limited.
+        </p>
+        <p>
+          The controls the product commits to for patient information are set out in the
+          Business Associate Agreement. There is an agreement with every vendor that holds patient
+          information, signed before any patient information reaches it; Meta and Stripe sign
+          none, so the product keeps clinical content away from them. Patient information is
+          encrypted at rest, and in transit wherever we control both ends. Two routes are outside
+          that: a phone call is not end-to-end encrypted, and a patient who telephones has chosen
+          the telephone; and a message on Instagram, Messenger or WhatsApp travels through
+          Meta&apos;s systems, which we do not control. Email that would carry patient information
+          goes only over an encrypted connection, and is not sent if the receiving server cannot
+          accept one. A breach is reported to the clinic within five calendar days of discovery.
+        </p>
+        <p>
+          The product&apos;s servers and its database run in Amazon Web Services&apos; US East
+          region. The voice provider&apos;s region is being confirmed in writing, and appears on
+          the{" "}
+          <a href="/subprocessors" className="underline underline-offset-2">subprocessor page</a>{" "}
+          once it is. That page lists every vendor with the status of its agreement. No third
+          party has audited us; these are our own commitments and we will show you the
+          architecture behind any of them.
         </p>
       </Section>
 
       <Section id="entity" title="10. Operating entity, changes and contact">
-        {/* DRAFT pending counsel review (2026-09-30): the entity sentence in the
-            wording the spec requires on the footer, Terms and Privacy. The
-            registered address prints only once ENTITY.registeredAddress is
-            filled in from the trade licence. */}
+        {/* Adopted 3 Oct 2026 by the owner without external counsel review:
+            the entity sentence in the wording the spec requires on the footer,
+            Terms and Privacy. The registered address prints only once
+            ENTITY.registeredAddress is filled in from the trade licence. */}
         <p>
           {site.name} is a service of {entityDisplayName()}, {ENTITY.formation}
           {ENTITY.registeredAddress ? `, registered address ${ENTITY.registeredAddress}` : ""}.
@@ -328,12 +350,13 @@ export default function PrivacyPage() {
         </p>
       </Section>
 
-      {/* DRAFT pending counsel review (2026-09-30). Required for Google's
-          verification of the Calendar scope: what the app does with Google
-          user data, and the Limited Use statement, verbatim in substance. It
-          describes the v1 calendar connection in docs/v1-product-spec.md
-          ("Where bookings are written"), which is not built yet; every
-          sentence must be true before the first clinic connects. */}
+      {/* Adopted 3 Oct 2026 by the owner without external counsel review.
+          Required for Google's verification of the Calendar scope: what the
+          app does with Google user data, and the Limited Use statement,
+          verbatim in substance. It describes the v1 calendar connection in
+          docs/v1-product-spec.md ("Where bookings are written"), which is not
+          built yet; every sentence must be true before the first clinic
+          connects. */}
       <Section id="google" title="11. Google Calendar data (clinics that connect a calendar)">
         <p>
           A clinic that uses {site.name} connects its Google Calendar with a Google sign-in during
@@ -382,11 +405,12 @@ export default function PrivacyPage() {
         </p>
       </Section>
 
-      {/* DRAFT pending counsel review (2026-09-30). Required for Meta App
-          Review of the messaging permissions: what Platform data the product
-          receives and how it is used, kept and deleted. Describes the v1 Meta
-          bot in docs/v1-product-spec.md ("Meta bot behaviour"), which is not
-          built yet. */}
+      {/* Adopted 3 Oct 2026 by the owner without external counsel review.
+          Required for Meta App Review of the messaging permissions: what
+          Platform data the product receives and how it is used, kept and
+          deleted. Describes the v1 Meta bot in docs/v1-product-spec.md ("Meta
+          bot behaviour"), which is not built yet, and the one Meta rule in
+          docs/counsel/agreement-changes.md § 6. */}
       <Section id="meta" title="12. Messages received through Meta (Instagram, Messenger, WhatsApp)">
         <p>
           A clinic can connect its Facebook Page, its Instagram professional account and its
@@ -396,10 +420,12 @@ export default function PrivacyPage() {
         </p>
         <ul className="list-disc space-y-3 pl-6">
           <li>
-            <strong>Only to answer.</strong> The messages are used to answer the person who wrote,
-            on the clinic&apos;s behalf, and to book an appointment or send the clinic&apos;s own
-            payment link while that conversation is open. They are never used for advertising,
-            never sold, and never used to train models.
+            <strong>Only to answer.</strong> The assistant uses the messages to answer the person
+            who wrote, on the clinic&apos;s behalf, and to book an appointment or send the
+            clinic&apos;s own payment link while that conversation is open. The payment link
+            itself carries an amount and a reference and never names a time, service or
+            practitioner. The messages are never used for advertising, never sold, and never used
+            to train models.
           </li>
           <li>
             <strong>Only when the person wrote first.</strong> The assistant replies only inside the
@@ -415,15 +441,16 @@ export default function PrivacyPage() {
           <li>
             <strong>Kept for the clinic.</strong> The conversation is kept for the clinic that
             received it, under that clinic&apos;s instructions and its Business Associate Agreement
-            with us, and is visible only to that clinic&apos;s own team in its portal. If you wrote
-            to a clinic, that clinic controls the record; see section 13.
+            with us, and is visible to that clinic&apos;s team in its portal, and to healdesk staff
+            only as the clinic&apos;s agreement allows. If you wrote to a clinic, that clinic
+            controls the record; see section 13.
           </li>
         </ul>
       </Section>
 
-      {/* DRAFT pending counsel review (2026-09-30). The data-deletion
-          instructions Meta asks for, summarised here and set out in full at
-          /data-deletion. */}
+      {/* Adopted 3 Oct 2026 by the owner without external counsel review.
+          The data-deletion instructions Meta asks for, summarised here and set
+          out in full at /data-deletion. */}
       <Section id="deletion" title="13. Deleting your data">
         <p>
           How to have data deleted, whether you visited this site, use {site.name} as a clinic, or

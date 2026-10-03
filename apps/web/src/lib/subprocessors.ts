@@ -19,8 +19,12 @@
  *      path, but no agreement exists or ever will, so the product keeps
  *      clinical content away from it by scoping rather than paperwork. Meta
  *      (Instagram, Messenger, WhatsApp) carries the patient's own messages,
- *      kept non-clinical; Stripe takes deposits with only an amount, a
- *      generic descriptor and an opaque reference.
+ *      kept non-clinical.
+ *
+ * Two things in the patient's path have no row, because they are the
+ * clinic's own vendors, not ours: its Google Calendar, and the payment
+ * processor account a deposit is taken through. The page says so above the
+ * register.
  *
  * `baa` is a fact about paper, not a hope. "pending" means the agreement has
  * not yet been requested; "requested" means it has, with the date; "signed"
@@ -40,10 +44,20 @@
  *     Calendar, and nothing into Cal.com.
  *   - Google Calendar is not a row. The calendar is the clinic's own, under
  *     the clinic's own agreement with Google, not a vendor of ours; the page
- *     says so under the table.
+ *     says so above the register.
  *   - The database provider is not chosen yet (Neon on its Scale plan, or AWS
  *     RDS under the AWS BAA already held). Add a row for Neon, with its
  *     agreement, if that is the choice.
+ *
+ * Changes of 3 October 2026 (docs/counsel/agreement-changes.md § 8):
+ *   - Anthropic is two rows. The product's model runs in a HIPAA-ready
+ *     organisation under its BAA; the website demo runs in a separate
+ *     organisation with no BAA and no patient information. One row with
+ *     scope "both" told a visitor that the BAA's retention applied to what
+ *     they typed into the demo.
+ *   - Stripe is our own billing only. A deposit is taken through the clinic's
+ *     own payment processor account, so that leg left the register for a
+ *     note above it.
  */
 
 export type BaaStatus =
@@ -97,13 +111,25 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     scope: "product",
   },
   {
-    name: "Anthropic",
-    purpose: "The language model behind every channel of the product, and behind the chat demo on this website",
-    data: "Conversation text and the clinic's public service information; on this website, what you type into the demo. Under the BAA Anthropic keeps inputs for 30 days, which its covered models require, except content its trust-and-safety systems flag or the law requires it to keep, which it may hold for up to two years. No training on any of it",
+    name: "Anthropic (the product)",
+    purpose: "The language model behind every channel of the product, in a HIPAA-ready Anthropic organisation used only for the product",
+    data: "Conversation text and the clinic's public service information. Under the BAA Anthropic keeps inputs for 30 days, which its covered models require, except content its trust-and-safety systems flag or the law requires it to keep, which it may hold for up to two years. No training on any of it",
     region: "United States",
     handlesPhi: true,
     baa: { state: "pending" },
-    scope: "both",
+    scope: "product",
+  },
+  {
+    name: "Anthropic (the website demo)",
+    purpose: "The language model behind the chat demo on this website, in a separate Anthropic organisation from the product's",
+    data: "What you type into the demo, and the public service information of the specialty being demonstrated. No training on any of it",
+    region: "United States",
+    handlesPhi: false,
+    baa: {
+      state: "not-needed",
+      because: "A separate organisation from the product's, with no BAA: the demo is for clinic owners and staff, not a patient channel, and no patient information is sent to it.",
+    },
+    scope: "marketing-site",
   },
   {
     name: "Meta (Instagram, Messenger, WhatsApp)",
@@ -120,16 +146,16 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   },
   {
     name: "Stripe",
-    purpose: "Billing the clinic for its subscription; and the hosted checkout a patient opens to pay a deposit, where a clinic takes deposits through Stripe",
-    data: "Clinic name, billing contact, card details (held by Stripe, never by healdesk). For a deposit: the amount, a generic descriptor and an opaque reference, never a treatment name",
+    purpose: "Billing the clinic for its healdesk subscription",
+    data: "Clinic name, billing contact, card details (held by Stripe, never by healdesk)",
     region: "United States",
     handlesPhi: false,
     baa: {
-      state: "none-by-design",
+      state: "not-needed",
       because:
-        "Stripe signs no BAA on any tier. Deposits use only the payment-processing carve-out: money, a generic descriptor and an opaque reference, with nothing clinical in the description, the statement descriptor or the metadata.",
+        "Our own billing carries business contact and payment details only. Deposits go through the clinic's own payment processor account, not this one; see the note above the register.",
     },
-    scope: "both",
+    scope: "marketing-site",
   },
   {
     name: "Synthflow",
@@ -149,7 +175,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     data: "Recipient address and non-patient content only",
     region: "United States",
     handlesPhi: false,
-    baa: { state: "not-needed", because: "The product refuses to send patient information over email; see apps/app/src/lib/reporting." },
+    baa: { state: "not-needed", because: "It carries only email that holds no patient information: the product refuses to send anything else through it (apps/app/src/lib/reporting)." },
     scope: "both",
   },
   {

@@ -32,17 +32,25 @@ import { site } from "@/lib/site";
  *   the AWS BAA), so no line names AWS, and none names KMS while apps/app's
  *   KMS client does not load in a production build (CLAUDE.md, "apps/app is
  *   portable but NOT currently deployable").
+ * - No line says where patient data is stored. "US infrastructure" was here
+ *   until 3 October 2026, but the voice provider's region is not confirmed in
+ *   writing, and a footer line cannot carry the qualification the privacy and
+ *   trust pages do (docs/counsel/agreement-changes.md § 8).
+ * - Encryption is claimed only as far as it goes: at rest, and in transit
+ *   wherever we control both ends. A phone call and a Meta message are not
+ *   ours end to end; /trust says so.
  * - Anthropic's covered models keep inputs for 30 days and cannot run with
- *   zero retention. The spec requires that to be disclosed, so the deletion
- *   line carries it rather than promising deletion it cannot deliver.
+ *   zero retention, and even under its BAA Anthropic may keep flagged content
+ *   for up to two years. The spec requires that to be disclosed, so the
+ *   deletion line carries both rather than promising deletion it cannot
+ *   deliver.
  */
 const COMMITMENTS = [
   "We sign a BAA with every clinic",
-  "Patient data stored in US infrastructure",
   "We never use patient data to train models",
   "We write bookings only to the Google Calendar you connect",
-  "Encrypted in transit and at rest",
-  "Patient data deleted on your instruction; our AI model provider keeps inputs for 30 days",
+  "Encrypted at rest, and in transit wherever we control both ends",
+  "Patient data deleted on your instruction; our AI model provider keeps inputs for 30 days, or up to two years where its safety systems flag them or the law requires",
 ] as const;
 
 export function Footer() {

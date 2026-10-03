@@ -5,6 +5,7 @@ import { ENTITY } from "@/lib/legal";
 import { site } from "@/lib/site";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/data-deletion" },
   title: "Data deletion",
   description:
     "How to have your data deleted by healdesk: as a visitor to this site, as a clinic that uses healdesk, or as someone who messaged a clinic on Instagram, Messenger or WhatsApp.",
@@ -15,8 +16,10 @@ export const metadata: Metadata = {
  * that receives Platform data to publish, and the page privacy § 13 points at.
  * Linked from the footer and listed in the sitemap.
  *
- * DRAFT pending counsel review (2026-09-30). Three audiences, because the
- * answer differs: a visitor to this site, whose data we control; a clinic,
+ * Adopted 3 Oct 2026 by the owner without external counsel review, with the
+ * model provider's two-year exception added beside its 30 days
+ * (docs/counsel/agreement-changes.md, finding A3). Three audiences, because
+ * the answer differs: a visitor to this site, whose data we control; a clinic,
  * whose connections and account we hold; and a patient who messaged a
  * clinic, whose record the clinic controls under its Business Associate
  * Agreement with us, so we act on the clinic's instructions rather than
@@ -68,7 +71,8 @@ export default function DataDeletionPage() {
             Google or Meta are deleted on your instruction, under your Business Associate Agreement
             with us. Email {email} from the owner&apos;s address on the account. Our AI model
             provider keeps conversation inputs for 30 days under its own agreement, which we cannot
-            shorten.
+            shorten, and may keep content its automated trust-and-safety systems flag, or that the
+            law requires it to keep, for up to two years.
           </li>
         </ul>
       </Section>

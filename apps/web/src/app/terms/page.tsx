@@ -6,6 +6,7 @@ import { ENTITY, GUARANTEE_TEXT, POLICY, entityDisplayName, packagesForTerms } f
 import { site } from "@/lib/site";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/terms" },
   title: "Terms of service",
   description:
     "The subscription agreement for healdesk: packages and fees, automatic renewal and how to cancel, the setup fee, refunds and the first-month guarantee, what the AI does and does not do, liability, and how patient information is governed.",
@@ -47,9 +48,11 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * which is why sections 9, 13 and 14 describe one liability allocation and
  * say the Business Associate Agreement makes the same one.
  *
- * Finalised by the owner on 1 October 2026 without external counsel review;
- * docs/counsel/agreement-changes.md § 8 and guarantee-and-refund.md record
- * what changed and the choices made.
+ * Finalised by the owner on 1 October 2026 without external counsel review,
+ * and revised the same way on 3 October 2026 (the setup-fee exception in
+ * section 3, the annual-plan refunds in section 4, the export in section 7,
+ * the handover duty in section 8); docs/counsel/agreement-changes.md § 7 and
+ * guarantee-and-refund.md record what changed and the choices made.
  */
 export default function TermsPage() {
   const packages = packagesForTerms();
@@ -147,8 +150,8 @@ export default function TermsPage() {
                   <td className="py-2 pr-3">{usd.format(p.monthlyUsd)}</td>
                   <td className="py-2 pr-3">{usd.format(annualTotalUsd(p))}</td>
                   <td className="py-2 pr-3">{usd.format(p.setupFeeUsd)}</td>
-                  <td className="py-2 pr-3">{p.includedVoiceMinutes ? p.includedVoiceMinutes.toLocaleString() : "—"}</td>
-                  <td className="py-2">{p.includedChatConversations ? p.includedChatConversations.toLocaleString() : "—"}</td>
+                  <td className="py-2 pr-3">{p.includedVoiceMinutes ? p.includedVoiceMinutes.toLocaleString("en-US") : "—"}</td>
+                  <td className="py-2">{p.includedChatConversations ? p.includedChatConversations.toLocaleString("en-US") : "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -165,9 +168,13 @@ export default function TermsPage() {
         </p>
         <p>
           <strong>The setup fee</strong> is charged once, on your first invoice, and pays for
-          building, configuring and testing your agent. It is not refundable. Moving to a package
-          with a higher setup fee charges only the difference. Where a founding-cohort credit was
-          offered to you by email, it is applied to the setup fee at checkout and to nothing else.
+          building, configuring and testing your agent. It is not refundable, except in one case.
+          If none of your channels has gone live within {POLICY.setupFeeRefundNotLiveDays} days of
+          your payment, and the delay is not caused by something still waiting on you (such as
+          connecting your calendar or a channel, or setting up call forwarding), we refund the
+          setup fee. Moving to a package with a higher setup fee charges only the difference.
+          Where a founding-cohort credit was offered to you by email, it is applied to the setup
+          fee at checkout and to nothing else.
         </p>
         <p>
           Payments are processed through our Stripe account, which is linked to our operating
@@ -197,7 +204,10 @@ export default function TermsPage() {
           with the renewal date, the amount and how to cancel.{" "}
           {POLICY.annualProRataRefund
             ? "If you cancel an annual plan mid-term we refund the unused whole months."
-            : "If you cancel an annual plan mid-term the service continues to the end of the term you paid for and no refund is made for the unused part."}
+            : "If you cancel an annual plan mid-term the service continues to the end of the term you paid for and no refund is made for the unused part."}{" "}
+          {POLICY.refundWindowDays > 0
+            ? `Under section 5 an annual plan is refunded in one of two amounts: the whole first year's subscription fee if you cancel within ${POLICY.refundWindowDays} days of your first payment, or, under the first-month guarantee, one month at your plan's annual per-month price.`
+            : "Under the first-month guarantee in section 5, an annual plan is refunded one month at your plan's annual per-month price, not the year's fee."}
         </p>
         <p>
           <strong>Price changes</strong> apply from your next renewal and are announced by email
@@ -208,11 +218,11 @@ export default function TermsPage() {
       <Section id="refunds" title="5. Refunds and the first-month guarantee">
         <p>
           {POLICY.refundWindowDays > 0
-            ? `If you cancel within ${POLICY.refundWindowDays} days of your first payment we refund the first period's subscription fee in full. The setup fee is not refundable.`
-            : "Subscription fees are not refundable except where these terms or the law say otherwise. The setup fee is not refundable."}{" "}
+            ? `If you cancel within ${POLICY.refundWindowDays} days of your first payment we refund the first period's subscription fee in full. The setup fee is not refundable, except as section 3 says.`
+            : "Subscription fees are not refundable except where these terms or the law say otherwise. The setup fee is not refundable, except as section 3 says."}{" "}
           Where a refund other than under the guarantee below is due to a Practice that is
           staying, it is applied as a credit to the next invoice; where the Practice is leaving,
-          it is returned to the card.
+          it is returned to the payment method you paid with.
         </p>
         {GUARANTEE_TEXT.paragraphs.map((para) => (
           <p key={para.lead}>
@@ -249,10 +259,10 @@ export default function TermsPage() {
           {POLICY.forwardingPassThroughDays} days after the service ends or until you remove call
           forwarding, whichever is first; we tell you how to remove it, at once and again in
           writing, so calls reach your Practice exactly as they did before. We revoke our access to
-          your Google Calendar, your Meta accounts and your payment gateway; and we deliver an
-          export of your data — transcripts and the booking log — before destroying our copies on
-          the schedule the Business Associate Agreement sets. Billing records are retained as tax
-          law requires.
+          your Google Calendar, your Meta accounts and your payment gateway. Within 30 days of the
+          end we deliver an export of your data — transcripts and the booking log — and we then
+          destroy our copies when and as the Business Associate Agreement says. Billing records
+          are retained as tax law requires.
         </p>
       </Section>
 
@@ -280,6 +290,11 @@ export default function TermsPage() {
             give us a direct phone number for your Practice that is not itself forwarded to us,
             keep it staffed, and tell us when it changes: it is where calls go whenever the agent
             is not answering (sections 2, 6 and 7).
+          </li>
+          <li>
+            <strong>Requests for a person.</strong> When a caller or visitor asks for a person, the
+            assistant takes their details and alerts the contact you named. You get back to them
+            within 24 hours, as the assistant tells them you will.
           </li>
           <li>
             <strong>Accurate configuration.</strong> Services, prices, hours, escalation contacts
@@ -495,6 +510,16 @@ export default function TermsPage() {
               {ENTITY.noticesEmail}
             </a>
           </li>
+          {/* The registered address off the trade licence, printed here and in
+              privacy § 10 and nowhere else. The footer carries the mailbox
+              below instead, under its own label; see ENTITY.registeredAddress
+              in src/lib/legal.ts. The two are listed together, in this order,
+              so neither can be mistaken for the other. */}
+          {ENTITY.registeredAddress ? (
+            <li>
+              <strong>Registered address:</strong> {ENTITY.registeredAddress}
+            </li>
+          ) : null}
           <li>
             <strong>{ENTITY.postalAddressLabel}:</strong> {ENTITY.postalAddress}
           </li>

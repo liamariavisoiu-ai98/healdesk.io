@@ -86,8 +86,9 @@ export function readSynthflowConfig():
 
   const requested = process.env.SYNTHFLOW_REGION;
   // Defaults to `us`, not to `global`. The workspace cluster is a permanent,
-  // one-time choice and the US one is what makes the infrastructure claim on
-  // the site true; silently defaulting to the global host would undermine it.
+  // one-time choice and the US one is what keeps Synthflow's row on
+  // /subprocessors ("United States workspace") true; silently defaulting to
+  // the global host would undermine it.
   const region: SynthflowRegion =
     requested === "eu" || requested === "global" || requested === "us"
       ? requested

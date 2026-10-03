@@ -5,6 +5,7 @@ import { ENTITY, POLICY } from "@/lib/legal";
 import { SUBPROCESSORS, type BaaStatus, type Subprocessor } from "@/lib/subprocessors";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/subprocessors" },
   title: "Subprocessors",
   description:
     "Every company that processes data for healdesk, what each receives, where it runs, and whether it handles patient information under a signed agreement.",
@@ -17,15 +18,17 @@ export const metadata: Metadata = {
  * file all read one source.
  *
  * The "How to read this" text describes three kinds of row, not two, since
- * Meta and Stripe sit in the patient's path with no agreement possible
+ * Meta sits in the patient's path with no agreement possible
  * (docs/v1-product-spec.md, "Where the chain is complete, and where it is
  * not"). It no longer says every patient-information vendor is pinned to a US
  * region: that is not confirmed for Retell, and the region column now says so
- * where it is not.
+ * where it is not. The clinic's own calendar and its own payment processor
+ * are in the patient's path too, but they are the clinic's vendors, so they
+ * are notes above the register rather than rows in it.
  *
- * DRAFT pending counsel review (2026-09-30): the BAA points at this page, so
- * counsel should read the three-kind wording and the Meta and Stripe rows
- * before the first clinic signs.
+ * Adopted 3 Oct 2026 by the owner without external counsel review, with the
+ * Anthropic row split in two and the deposit leg moved out of Stripe's row
+ * (docs/counsel/agreement-changes.md § 8). The BAA points at this page.
  */
 export default function SubprocessorsPage() {
   return (
@@ -49,13 +52,12 @@ export default function SubprocessorsPage() {
             <strong>Kept out by design.</strong> The vendor sits in the patient&apos;s path but
             signs no agreement, so the product keeps clinical content away from it. Meta carries
             the messages a patient sends to your Instagram, Messenger or WhatsApp, and the
-            assistant keeps those conversations non-clinical. Stripe takes a deposit with only an
-            amount, a generic descriptor and an opaque reference.
+            assistant keeps those conversations non-clinical.
           </li>
           <li>
             <strong>No.</strong> The vendor never receives patient information: it hosts or
-            measures this website, places a demo call a visitor asked for, or sends email that
-            carries none, and the row says which.
+            measures this website, runs its demo, places a demo call a visitor asked for, bills
+            your subscription, or sends email that carries none, and the row says which.
           </li>
         </ul>
         <p>
@@ -63,6 +65,14 @@ export default function SubprocessorsPage() {
           your own agreement with Google, so it is not a vendor of ours and has no row here. (The
           Google row below is this website&apos;s own lead register, which never holds patient
           information.)
+        </p>
+        <p>
+          Deposits, where you take them, go through your own payment processor account, which
+          you connect during setup. It is yours too, under your own agreement with it, so it has
+          no row here either. A deposit link carries only an amount, a generic description and
+          a reference code: no treatment name or other clinical detail, in the description, the
+          statement descriptor or the metadata. (The Stripe row below is our own billing of your
+          subscription.)
         </p>
       </Section>
 

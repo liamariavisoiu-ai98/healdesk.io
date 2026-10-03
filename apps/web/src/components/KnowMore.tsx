@@ -22,7 +22,10 @@ import { site } from "@/lib/site";
  *   certified or audited us. There is no HIPAA certification, and displaying a
  *   compliance seal was charged as a standalone deception count in *In re
  *   SkyMed International* (2021). Say what we do; say that nobody has audited
- *   it. See the note in Footer.tsx.
+ *   it. See the note in Footer.tsx. It also claims only what is decided: no
+ *   storage location while the voice provider's region is unconfirmed,
+ *   encryption in transit only where we control both ends, and the model
+ *   provider's two-year exception beside its 30 days.
  * - "How would we know it's working" may claim only what v1 counts:
  *   conversations handled, appointments booked, calls answered that would
  *   have rung out, deposits collected, and booked value. Never revenue or
@@ -102,14 +105,16 @@ const FAQS = [
     q: "How do you handle patient data?",
     a:
       "We sign a business associate agreement with every clinic and handle " +
-      "patient data under it. It is stored in US infrastructure, encrypted in " +
-      "transit and at rest, and never used to train models. The only system " +
-      "we write to is the Google Calendar you connect. Our AI model provider " +
-      "keeps conversation inputs for 30 days; everything else is deleted on " +
-      "your instruction. Meta signs no BAA, so she keeps Instagram, Messenger " +
-      "and WhatsApp conversations non-clinical. No third party has audited " +
-      "us, those are our own commitments, and we will walk you through the " +
-      "architecture behind any of them.",
+      "patient data under it. It is encrypted at rest, and in transit " +
+      "wherever we control both ends, and never used to train models. The " +
+      "only system we write to is the Google Calendar you connect. Our AI " +
+      "model provider keeps conversation inputs for 30 days, and up to two " +
+      "years for anything its safety systems flag or the law requires it to " +
+      "keep; everything else is deleted on your instruction. Meta signs no " +
+      "BAA, so she keeps Instagram, Messenger and WhatsApp conversations " +
+      "non-clinical. No third party has audited us, those are our own " +
+      "commitments, and we will walk you through the architecture behind any " +
+      "of them.",
   },
   {
     q: "How would we know it's working?",

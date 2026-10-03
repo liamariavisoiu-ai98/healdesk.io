@@ -458,13 +458,12 @@
 
    ## Three stacked elements, because one cannot hold two transforms
 
-   The heartbeat is a scale and the interior motion is a shader, so `__beat`
-   scales and `__orb`, the canvas inside it, draws. The orb used to be a video
-   clip under a third element, `__sheen`, a fixed highlight that made the
-   rotating picture read as a sphere turning under a lamp. The highlight, the
-   rim light and the edge are drawn by the shader now (lib/soul-shader.ts),
-   at any size, so the overlay is gone, and so is the radial mask that faded
-   the clip out before its own rim: the canvas carries alpha of its own.
+   The heartbeat is a scale and the rotation is a rotate, and an element gets
+   one `transform` animation. So `__beat` scales, `__orb` rotates inside it,
+   and `__sheen` sits over the top doing neither. That last one is not
+   decoration: a rotating picture reads as a spinner, and a rotating picture
+   under a highlight that stays put reads as a sphere turning under a lamp. It
+   is the difference between "loading" and "alive".
 
    ## Two knobs, one keyframe
 
@@ -632,29 +631,109 @@
   }
 }
 
+/*
+ * The soft edge.
+ *
+ * ⚠️ This rule was deleted by accident once and nothing noticed for several
+ * changes, because the artwork it masks was a PNG with its own alpha: the
+ * corners were already transparent, so a missing mask looked identical to a
+ * working one. The clip that replaced it has no alpha, and the same missing
+ * rule immediately painted a hard white square. If the sphere ever grows
+ * corners again, look here first.
+ *
+ * The mask lives on the beat wrapper rather than on the orb inside it, so the
+ * sheen above can be given the identical falloff. Opaque through the middle,
+ * then alpha down to nothing before the nominal radius. There is no boundary
+ * anywhere in it, which is what makes the edge read as soft: an edge is only
+ * ever the place where something stops abruptly.
+ */
+.soul__edge {
+  --soul-fade: radial-gradient(
+    closest-side,
+    #000 54%,
+    rgb(0 0 0 / 0.86) 72%,
+    rgb(0 0 0 / 0.45) 87%,
+    transparent 99%
+  );
+  -webkit-mask-image: var(--soul-fade);
+  mask-image: var(--soul-fade);
+}
+
 .soul__beat {
   display: block;
   width: 100%;
   height: 100%;
   animation: soul-heartbeat var(--soul-beat) cubic-bezier(0.45, 0, 0.55, 1) infinite;
   /*
-   * No mask and no `mix-blend-mode: multiply` here any more. Both existed to
-   * remove the white the video clip arrived on; the canvas and the poster
-   * both carry alpha, so there is nothing to remove. The mask in particular
-   * was also fading the sphere out from 54% of its radius, which is exactly
-   * where the shader now puts the rim light it worked for.
+   * The white the clip arrives on is removed here, not on the video itself,
+   * and the distinction cost an hour. A mask makes an element an isolated
+   * blending group, so `mix-blend-mode` on the video inside this one had
+   * nothing to blend against and multiplied against emptiness: the white
+   * survived and painted a rounded white square over the aura. Moved up one
+   * level it blends against the real backdrop, white multiplies away, and the
+   * warm mass keeps its colour.
    */
+  mix-blend-mode: multiply;
 }
 
 /*
- * The canvas, or the poster where the canvas cannot run. Fills the box at
- * 1:1: the shader leaves its own margin for the halo and the beat, so there
- * is no overscale and nothing to clip.
+ * No blur on the orb.
+ *
+ * It existed to take the crispness off the still's rim. The clip has no rim to
+ * soften: its own edges are already diffuse, and blurring them again only cost
+ * the artwork its detail, which is the hot spot and the grain in the mass.
  */
+
 .soul__orb {
   display: block;
   width: 100%;
   height: 100%;
+  object-fit: cover;
+  /*
+   * The clip's orb sits inside a white margin, so at 1:1 it reads small and
+   * pale once the mask has taken the outer fifth off as well. Overscaling puts
+   * the mass back in the box; the mask clips whatever leaves it.
+   */
+  transform: scale(1.35);
+}
+
+/*
+ * The fixed light, and the rim under it.
+ *
+ * A specular highlight up and to the left, a warm bounce at the lower right,
+ * and an inset rim to round the edge off. None of it turns with the orb, which
+ * is the whole trick.
+ */
+.soul__sheen {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /*
+   * The radius is back, and it is not decorative.
+   *
+   * Without it this square box painted a faint lighter rectangle over the
+   * aura at its lower right, visible against the flowing layers behind. Both
+   * gradients are also pulled well inside the box now, so nothing of the sheen
+   * survives as far as the edge, where the sphere is meant to be dissolving.
+   */
+  border-radius: 999px;
+  background-image:
+    radial-gradient(
+      52% 46% at 33% 27%,
+      rgb(255 255 255 / 0.5) 0%,
+      rgb(255 255 255 / 0.1) 40%,
+      rgb(255 255 255 / 0) 62%
+    ),
+    radial-gradient(
+      54% 50% at 66% 72%,
+      rgb(255 180 90 / 0.26) 0%,
+      rgb(255 180 90 / 0) 58%
+    );
+  /*
+   * No inset rim any more. It drew a crisp hairline right where the orb is now
+   * fading out, which is the one place a hard line is most obvious: a sharp
+   * ring hanging in the air a pixel outside a soft sphere.
+   */
 }
 
 /* The ring the voice state emits. Always mounted, normally invisible. */

@@ -1,20 +1,22 @@
 import { summarize, type Review, type ReviewSummary } from "@/lib/reviews";
 
 /**
- * The review wall as it was designed, for looking at the design on localhost.
+ * The review wall as it was designed, shown labelled as examples until real
+ * reviews are published.
  *
- * ⚠️ PLACEHOLDER CONTENT, AND DEVELOPMENT ONLY. Every review, name, face and
- * number here was written to design against, not collected from a customer.
- * The portraits in public/reviews are StyleGAN output from
- * thispersondoesnotexist.com and the archive counts are invented. Several
- * cards also claim things v1 does not do (tracing who showed up and paid,
- * writing into Mindbody or Boulevard, "no login").
+ * ⚠️ PLACEHOLDER CONTENT. Every review, name, face and number here was
+ * written to design against, not collected from a customer. The portraits in
+ * public/reviews are StyleGAN output from thispersondoesnotexist.com and the
+ * archive counts are invented. Several cards also claim things v1 does not do
+ * (tracing who showed up and paid, writing into Mindbody or Boulevard, "no
+ * login").
  *
- * The homepage reads this module only when NODE_ENV is not "production", so
- * `next dev` shows the wall exactly as it was and every build, Vercel's
- * previews included, shows PUBLISHED from src/lib/reviews.ts instead. Publishing
- * invented testimonials or an invented aggregate is a per-review civil penalty
- * under 16 CFR Part 465; src/lib/reviews.test.ts pins the gate.
+ * The owner chose on 3 October 2026 to show this set on the live site while
+ * PUBLISHED is empty, on one condition: the wall renders it with `examples`
+ * set, which prints EXAMPLE_NOTICE ("Example reviews: ...") above the rating.
+ * Shown without that line it would be invented testimonials and an invented
+ * aggregate presented as real, which is a per-review civil penalty under 16
+ * CFR Part 465. src/lib/reviews.test.ts pins the condition.
  *
  * Nothing here may be copied into PUBLISHED, and the test checks that too.
  */

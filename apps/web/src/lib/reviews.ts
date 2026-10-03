@@ -2,17 +2,17 @@
  * Customer reviews: the shape one takes, the ones we have published, and the
  * numbers the homepage's review wall derives from them.
  *
- * ## The wall is back, and it shows only what is in PUBLISHED
+ * ## The wall shows PUBLISHED, or the examples, labelled
  *
  * Until 30 September 2026 the homepage carried a review wall: fifteen
  * testimonials, StyleGAN portraits from thispersondoesnotexist.com, and an
  * aggregate of "286 clinics, 4.9 average". None of it was collected from a
- * customer, and v1 had not answered a real call. The wall was taken down and,
- * on 3 October 2026, its design was restored with the content split off:
- * production renders PUBLISHED below, and hides the section while it is
- * empty; `next dev` renders the old placeholder set from reviews.sample.ts so
- * the design can be worked on. Every count the header shows is computed from
- * the reviews it is given, never typed.
+ * customer, and v1 had not answered a real call. The wall was taken down;
+ * on 3 October 2026 it came back, with the content split off into
+ * reviews.sample.ts. While PUBLISHED below is empty the homepage shows that
+ * sample set with a line above the rating saying the reviews are examples;
+ * the first published review replaces the whole set. Every count the header
+ * shows is computed from the reviews it is given, never typed.
  *
  * Publishing invented testimonials or a made-up aggregate rating is a
  * per-review civil penalty under the FTC's rule on consumer reviews and

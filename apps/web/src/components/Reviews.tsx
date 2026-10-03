@@ -472,7 +472,25 @@ function StepArrow({
   );
 }
 
-export function Reviews({ summary }: { summary: ReviewSummary }) {
+/**
+ * The line that says the wall is examples, shown whenever it renders the
+ * sample set (src/lib/reviews.sample.ts). The owner chose, on 3 October 2026,
+ * to show the original wall on the live site rather than nothing, and this
+ * line is the condition: none of those reviews came from a customer, so the
+ * section says so before its rating does. src/lib/reviews.test.ts checks the
+ * homepage passes `examples` whenever it passes the sample set.
+ */
+export const EXAMPLE_NOTICE =
+  "Example reviews: healdesk is launching, and these show the format real ones will take.";
+
+export function Reviews({
+  summary,
+  examples = false,
+}: {
+  summary: ReviewSummary;
+  /** True when `summary` is the sample set rather than published reviews. */
+  examples?: boolean;
+}) {
   const { reviews } = summary;
   const reduce = useReducedMotion() ?? false;
 
@@ -544,6 +562,13 @@ export function Reviews({ summary }: { summary: ReviewSummary }) {
           aria-hidden
           className="via-orange mx-auto mt-5 mb-9 block h-px w-full max-w-[200px] bg-gradient-to-r from-transparent to-transparent"
         />
+        {/* Above the rating on purpose: it has to be read before the 4.9
+            is, not found after it. Body size and ink, not a muted caption. */}
+        {examples && (
+          <p className="border-line text-ink mx-auto -mt-2 mb-10 inline-block max-w-full rounded-[6px] border bg-white px-4 py-2 text-[15.6px] font-semibold">
+            {EXAMPLE_NOTICE}
+          </p>
+        )}
       </div>
 
       <RatingHeader summary={summary} />

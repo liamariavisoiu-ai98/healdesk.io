@@ -6,22 +6,22 @@ import { Footer } from "@/components/Footer";
 import { HeroStage } from "@/components/HeroStage";
 import { HomeExperience } from "@/components/HomeExperience";
 import { KnowMore } from "@/components/KnowMore";
-import { LeaveReview } from "@/components/LeaveReview";
 import { Nav } from "@/components/Nav";
 import { Reviews } from "@/components/Reviews";
 import { PUBLISHED, summarize } from "@/lib/reviews";
 import { SAMPLE } from "@/lib/reviews.sample";
 
 /**
- * The reviews the wall shows.
+ * The reviews the wall shows: the published ones once there are any, and
+ * until then the sample set, labelled as examples on the wall itself.
  *
- * ⚠️ The sample set is invented and is for `next dev` only. Every build,
- * Vercel's previews included, runs with NODE_ENV "production" and gets the
- * published reviews, which hides the section while there are none.
- * src/lib/reviews.test.ts pins this line.
+ * ⚠️ The sample set is invented (src/lib/reviews.sample.ts). It is on the
+ * live site by the owner's decision of 3 October 2026 ONLY with Reviews'
+ * `examples` flag set, which prints EXAMPLE_NOTICE above the rating. Never
+ * render SAMPLE without it. src/lib/reviews.test.ts pins both lines.
  */
-const REVIEWS =
-  process.env.NODE_ENV === "production" ? summarize(PUBLISHED) : SAMPLE;
+const SHOWING_EXAMPLES = PUBLISHED.length === 0;
+const REVIEWS = SHOWING_EXAMPLES ? SAMPLE : summarize(PUBLISHED);
 
 /**
  * The homepage is the one page with no metadata of its own, so it declares a
@@ -44,10 +44,9 @@ export const metadata: Metadata = {
  * are their own pages but are reachable only from the footer, so nothing
  * competes with the demo for a visitor's first click.
  *
- * What clinics say is the review wall, and it is there only when there are
- * reviews to put on it (see REVIEWS above). While it is hidden, "leave a
- * review", which normally sits in the wall's header, moves under the FAQ so
- * customers can still reach it.
+ * What clinics say is the review wall. Until real reviews are published it
+ * shows the sample set, labelled as examples (see REVIEWS above). "Leave a
+ * review" sits in its header.
  *
  * ## Nothing is parked any more
  *
@@ -77,15 +76,10 @@ export default function HomePage() {
 
         {/* Social proof sits between the money question and the FAQ on
             purpose: the FAQ then answers whatever the reviews raised. */}
-        {REVIEWS.reviews.length > 0 && <Reviews summary={REVIEWS} />}
+        <Reviews summary={REVIEWS} examples={SHOWING_EXAMPLES} />
 
         <KnowMore />
 
-        {REVIEWS.reviews.length === 0 && (
-          <div className="border-line border-t pt-8 pb-24 sm:pb-28">
-            <LeaveReview />
-          </div>
-        )}
       </main>
 
       <Footer />

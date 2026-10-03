@@ -7,20 +7,33 @@ import { HomeExperience } from "@/components/HomeExperience";
 import { KnowMore } from "@/components/KnowMore";
 import { LeaveReview } from "@/components/LeaveReview";
 import { Nav } from "@/components/Nav";
+import { Reviews } from "@/components/Reviews";
+import { PUBLISHED, summarize } from "@/lib/reviews";
+import { SAMPLE } from "@/lib/reviews.sample";
+
+/**
+ * The reviews the wall shows.
+ *
+ * ⚠️ The sample set is invented and is for `next dev` only. Every build,
+ * Vercel's previews included, runs with NODE_ENV "production" and gets the
+ * published reviews, which hides the section while there are none.
+ * src/lib/reviews.test.ts pins this line.
+ */
+const REVIEWS =
+  process.env.NODE_ENV === "production" ? summarize(PUBLISHED) : SAMPLE;
 
 /**
  * The homepage, and the whole site's argument.
  *
- * Four things in order: the claim with AYA beside it, AYA working, the
- * specialties we know, and a way to ask. Pricing and contact are their own
- * pages but are reachable only from the footer, so nothing competes with the
- * demo for a visitor's first click.
+ * Five things in order: the claim with AYA beside it, AYA working, the
+ * specialties we know, what clinics say, and a way to ask. Pricing and contact
+ * are their own pages but are reachable only from the footer, so nothing
+ * competes with the demo for a visitor's first click.
  *
- * There is no review section. The one that sat between the demos and the FAQ
- * was placeholder content with an invented rating, and it was removed on 30
- * September 2026 (src/lib/reviews.ts says why). Customers can still leave a
- * review: the control sits under the FAQ, and nothing it collects is shown
- * anywhere until someone here has read it and it is real.
+ * What clinics say is the review wall, and it is there only when there are
+ * reviews to put on it (see REVIEWS above). While it is hidden, "leave a
+ * review", which normally sits in the wall's header, moves under the FAQ so
+ * customers can still reach it.
  *
  * ## Nothing is parked any more
  *
@@ -48,11 +61,17 @@ export default function HomePage() {
             one selected specialty, so they cannot disagree with each other. */}
         <HomeExperience />
 
+        {/* Social proof sits between the money question and the FAQ on
+            purpose: the FAQ then answers whatever the reviews raised. */}
+        {REVIEWS.reviews.length > 0 && <Reviews summary={REVIEWS} />}
+
         <KnowMore />
 
-        <div className="border-line border-t pt-8 pb-24 sm:pb-28">
-          <LeaveReview />
-        </div>
+        {REVIEWS.reviews.length === 0 && (
+          <div className="border-line border-t pt-8 pb-24 sm:pb-28">
+            <LeaveReview />
+          </div>
+        )}
       </main>
 
       <Footer />

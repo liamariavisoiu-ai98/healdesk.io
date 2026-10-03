@@ -1,15 +1,18 @@
 /**
- * The shape a published customer review takes, for when there are real ones.
+ * Customer reviews: the shape one takes, the ones we have published, and the
+ * numbers the homepage's review wall derives from them.
  *
- * ## There is no review section on the site, on purpose
+ * ## The wall is back, and it shows only what is in PUBLISHED
  *
  * Until 30 September 2026 the homepage carried a review wall: fifteen
  * testimonials, StyleGAN portraits from thispersondoesnotexist.com, and an
  * aggregate of "286 clinics, 4.9 average". None of it was collected from a
- * customer, and v1 had not answered a real call. Several cards also claimed
- * things v1 does not do: tracing which callers showed up and paid, writing
- * into Mindbody or Boulevard, "no login". The wall, its invented counts and
- * the slider that rendered them were deleted, and git history has them.
+ * customer, and v1 had not answered a real call. The wall was taken down and,
+ * on 3 October 2026, its design was restored with the content split off:
+ * production renders PUBLISHED below, and hides the section while it is
+ * empty; `next dev` renders the old placeholder set from reviews.sample.ts so
+ * the design can be worked on. Every count the header shows is computed from
+ * the reviews it is given, never typed.
  *
  * Publishing invented testimonials or a made-up aggregate rating is a
  * per-review civil penalty under the FTC's rule on consumer reviews and
@@ -20,7 +23,7 @@
  *
  * Collection still works: LeaveReview.tsx posts to /api/reviews, which checks
  * the customer and sends the review to us to be read. Nothing it receives
- * appears anywhere until someone here publishes it. When real reviews return:
+ * appears anywhere until someone here adds it to PUBLISHED. Before adding one:
  *
  * - none may claim what v1 cannot do: attended or collected revenue, writes
  *   into a booking system other than Google Calendar, deposit links sent
@@ -97,4 +100,81 @@ export type Review = {
 export function attribution(review: Review): string {
   const place = review.city ? `${review.city} ${review.state}` : review.state;
   return review.jobTitle ? `${review.jobTitle}, ${place}` : place;
+}
+
+/**
+ * Reviews a real customer wrote, that someone here has read and approved.
+ * Newest last. Adding one is the whole of publishing it.
+ */
+export const PUBLISHED: readonly Review[] = [];
+
+/** The rungs the panel draws a bar for, best first. */
+export const REVIEW_SCALE = [5, 4, 3, 2, 1] as const;
+
+export type Stars = (typeof REVIEW_SCALE)[number];
+
+/** Everything the review wall prints, derived from one list of reviews. */
+export type ReviewSummary = {
+  /** The cards, in the order the slider shows them. */
+  reviews: readonly Review[];
+  /** Ratings per rung, for the bars. */
+  distribution: Readonly<Record<Stars, number>>;
+  /** Ratings left, written or not. */
+  total: number;
+  /** Ratings that came with words attached. */
+  written: number;
+  /** Mean rating across every rating left, to one decimal place. */
+  average: number;
+};
+
+/**
+ * Ratings left without a card on the wall, by rung, plus how many of those
+ * came with words. Real reviews have none: every one we publish is a card.
+ * Only reviews.sample.ts passes one.
+ */
+type Archive = {
+  ratings: Readonly<Record<Stars, number>>;
+  written: number;
+};
+
+const EMPTY: Archive = {
+  ratings: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+  written: 0,
+};
+
+/**
+ * Derives the header's numbers from the cards, so a review added to the list
+ * moves the total, its bar, the average and the written count together. Four
+ * numbers kept in step by hand do not stay in step.
+ */
+export function summarize(
+  reviews: readonly Review[],
+  archive: Archive = EMPTY,
+): ReviewSummary {
+  const distribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 } as Record<
+    Stars,
+    number
+  >;
+  for (const stars of REVIEW_SCALE) {
+    distribution[stars] =
+      archive.ratings[stars] +
+      reviews.filter((review) => review.rating === stars).length;
+  }
+
+  const total = REVIEW_SCALE.reduce(
+    (sum, stars) => sum + distribution[stars],
+    0,
+  );
+  const points = REVIEW_SCALE.reduce(
+    (sum, stars) => sum + stars * distribution[stars],
+    0,
+  );
+
+  return {
+    reviews,
+    distribution,
+    total,
+    written: archive.written + reviews.length,
+    average: total === 0 ? 0 : Math.round((points / total) * 10) / 10,
+  };
 }

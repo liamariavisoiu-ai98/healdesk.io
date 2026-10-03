@@ -190,6 +190,15 @@
     scroll-padding-top: 5rem;
   }
 
+  /* The whole site at 90%, as if the visitor had zoomed out one step. Not on
+     a phone: the full-screen modal is sized in dvh, which zoom would leave 10%
+     short, and iOS Safari zooms the page in on focus of any input under 16px. */
+  @media (min-width: 640px) {
+    html {
+      zoom: 0.9;
+    }
+  }
+
   body {
     background-color: var(--color-paper);
     color: var(--color-ink);

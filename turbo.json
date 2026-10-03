@@ -61,7 +61,7 @@
         "HEALDESK_SES_CONFIGURATION_SET",
         "AWS_REGION",
 
-        // The "have AVA call me" demo. The first two are required for a call to
+        // The "have AYA call me" demo. The first two are required for a call to
         // be placed at all; REGION defaults to "us" and FROM_NUMBER is optional.
         "SYNTHFLOW_API_KEY",
         "SYNTHFLOW_DEMO_AGENT_ID",

@@ -24,7 +24,7 @@ import { usePointerField, type TiltControl } from "@/lib/usePointerField";
  *
  * ## What this asset can and cannot do, which decided the whole design
  *
- * The source is `public/hero-3d/ava.glb`, converted from a 1.6M-triangle OBJ
+ * The source is `public/hero-3d/aya.glb`, converted from a 1.6M-triangle OBJ
  * bust. It is a SINGLE FUSED MESH with no skeleton: OBJ and STL cannot carry
  * one, and nothing in the export invented it. So there are no head joints to
  * rotate and no eye joints to aim, and there are no blend shapes either.
@@ -59,7 +59,7 @@ import { usePointerField, type TiltControl } from "@/lib/usePointerField";
  * square-on, which is the pose the layered renderer's own notes argue for.
  */
 
-/** Where `public/hero-3d/ava.glb` came from, so the next person does not have
+/** Where `public/hero-3d/aya.glb` came from, so the next person does not have
  *  to re-derive a pipeline from a 177MB file:
  *
  *    AYA.obj (800k verts / 1.6M tris, no mtllib)
@@ -78,7 +78,7 @@ import { usePointerField, type TiltControl } from "@/lib/usePointerField";
  *  collapse across a UV seam. Adding `-sa` lets it, and the result is a face
  *  with texture islands dragged across it in visible streaks. Going lower
  *  needs a UV re-atlas and a texture re-bake, not a flag. */
-const MODEL_URL = "/hero-3d/ava.glb";
+const MODEL_URL = "/hero-3d/aya.glb";
 
 /**
  * Cancels the model's baked gaze offset, see the header. Measured, not guessed:

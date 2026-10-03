@@ -270,13 +270,13 @@ describeDb("the booking hand-off, end to end", () => {
     // Accept: one decision, relayed as the fixed line through the sealed token.
     const decided = await decideBookingRequest(token, "accepted", { decidedByLabel: "Jo at the desk", deskNote: "Thursday 10am works" }, sender);
     expect(decided).toEqual({ outcome: "decided", followUp: "sent", appointmentId: null, calendarWrite: null });
-    expect(sent[4]).toMatchObject({ platform: "messenger", externalId: PAGE_ID, recipientId: "user-77", accessToken: "EAAB-page-token-0123456789" });
-    expect(sent[4]!.text).toBe(followUpLine("booking Clinic", "accepted"));
-    expect(sent[4]!.text).not.toMatch(/Thursday|10am/);
+    expect(sent[3]).toMatchObject({ platform: "messenger", externalId: PAGE_ID, recipientId: "user-77", accessToken: "EAAB-page-token-0123456789" });
+    expect(sent[3]!.text).toBe(followUpLine("booking Clinic", "accepted"));
+    expect(sent[3]!.text).not.toMatch(/Thursday|10am/);
 
     // A second decision, either way, changes nothing and sends nothing.
     expect(await decideBookingRequest(token, "declined", { decidedByLabel: null, deskNote: null }, sender)).toEqual({ outcome: "already-decided", followUp: null, appointmentId: null, calendarWrite: null });
-    expect(sent).toHaveLength(5);
+    expect(sent).toHaveLength(4);
     const after = await resolveBookingRequest(token);
     expect(after).toMatchObject({ status: "accepted", decidedByLabel: "Jo at the desk", deskNote: "Thursday 10am works" });
 

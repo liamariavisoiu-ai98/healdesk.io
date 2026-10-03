@@ -169,8 +169,11 @@ describeDb("billing sweep", () => {
     expect((await row(lapsed)).status).toBe("suspended");
     expect(await reasons(lapsed)).toEqual(["provisioned", "test", "test", "grace_expired"]);
 
-    // A second sweep finds nothing to do for it: not past_due any more.
-    const again = await sweepBilling(new Date());
+    // A second sweep finds nothing to do for it: not past_due any more. Its
+    // clock is pinned inside the annual clinic's first month. On the wall
+    // clock, from 1 October 2026 this sweep also rolled the annual clinic's
+    // month, and the next test found nothing left to roll.
+    const again = await sweepBilling(new Date(yearStart.getTime() + 11 * DAY_MS));
     expect(again.suspended).toEqual([]);
     expect((await row(lapsed)).status).toBe("suspended");
   });

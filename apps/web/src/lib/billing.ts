@@ -10,6 +10,7 @@ import {
 import Stripe from "stripe";
 
 import type { ChatChannelChoice } from "@/lib/pricing";
+import { normalizeSiteUrl } from "@/lib/site";
 
 /**
  * Billing, behind an interface.
@@ -212,7 +213,7 @@ export const APP_MARKER = "healdesk";
  * would make both URLs relative, which Stripe rejects anyway.
  */
 export function siteUrl(): string {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL;
+  const configured = normalizeSiteUrl(process.env.NEXT_PUBLIC_SITE_URL);
   if (configured) return configured;
   if (isProductionDeployment()) {
     throw new Error(

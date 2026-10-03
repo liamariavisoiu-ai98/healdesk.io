@@ -17,10 +17,35 @@
  * meeting her. Nothing else.
  */
 
+/**
+ * NEXT_PUBLIC_SITE_URL as an origin, or null when it is unset or blank.
+ *
+ * The value is typed by hand into Vercel's dashboard, and the two easy
+ * mistakes are both fatal at build time: `new URL()` in layout.tsx's
+ * metadataBase throws on a bare "healdesk.io" and on an empty string, and
+ * every route fails page-data collection with it. That is what a Production
+ * build that Preview passed looks like, since Preview leaves the variable
+ * unset and falls back. So a missing scheme becomes https, a trailing slash
+ * goes (every caller appends its own path), and anything still not a URL
+ * fails with the variable's name in the message instead of "Invalid URL".
+ */
+export function normalizeSiteUrl(raw: string | undefined): string | null {
+  const trimmed = raw?.trim() ?? "";
+  if (!trimmed) return null;
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  let parsed: URL;
+  try {
+    parsed = new URL(withScheme);
+  } catch {
+    throw new Error(`NEXT_PUBLIC_SITE_URL is not a URL: ${JSON.stringify(raw)}`);
+  }
+  return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, "");
+}
+
 export const site = {
   name: "healdesk",
   domain: "healdesk.io",
-  url: process.env.NEXT_PUBLIC_SITE_URL ?? "https://healdesk.io",
+  url: normalizeSiteUrl(process.env.NEXT_PUBLIC_SITE_URL) ?? "https://healdesk.io",
 
   /** The agent's name. She is the face in the hero and the voice on the phone. */
   agent: "AYA",

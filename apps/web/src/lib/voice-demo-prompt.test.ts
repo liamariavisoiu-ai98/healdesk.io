@@ -123,7 +123,9 @@ describe("how she sells", () => {
     const prompt = text(direction);
     expect(prompt).toContain("Never discount and never hint at one.");
     expect(prompt).toContain("Don't invent urgency");
-    expect(prompt).toContain("Never invent a statistic, a customer, a result or a testimonial.");
+    expect(prompt).toContain("Never invent a statistic, a customer, a result or a testimonial");
+    // She once opened with "Many clinics find that...": proof nobody measured.
+    expect(prompt).toContain('never say what "many clinics" or "most owners" find');
   });
 });
 

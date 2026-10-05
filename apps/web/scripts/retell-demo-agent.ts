@@ -65,16 +65,17 @@ const MODEL = "claude-5.5-sonnet";
 const VOICE_ID = "retell-Sloane";
 
 /**
- * The smile, and only the smile. Expressive Mode with sighs, pauses and
- * filler words was heard as "drunk"; with it off, steady settings were heard
- * as "sleepy". So it is on with one tag, used where a hostess smiles, and an
- * instruction that rules out everything that went wrong before.
+ * The smile and the sympathy, nothing else. Expressive Mode with sighs,
+ * pauses and filler words was heard as "drunk"; with it off, steady
+ * settings were heard as "sleepy". So it is on with two tags, used where a
+ * hostess would smile or sympathise, and an instruction that rules out
+ * everything that went wrong before.
  */
-const EXPRESSIVE_TAGS = ["happy"];
+const EXPRESSIVE_TAGS = ["happy", "empathetic"];
 const EXPRESSIVE_GUIDANCE =
   "Speak with a gentle, warm smile throughout, calm and bright. Use [happy] only on a greeting, a thank-you " +
-  "or good news, at most once every few turns. Never sigh, never pause for effect, never whisper, never sound " +
-  "excited, and never tag a price, a number or a name.";
+  "or good news, and [empathetic] only when they describe something hard, each at most once every few turns. " +
+  "Never sigh, never pause for effect, never whisper, never sound excited, and never tag a price, a number or a name.";
 
 /** The opening is spoken with that smile; the tag is never read aloud. */
 const SMILE = "[happy] ";

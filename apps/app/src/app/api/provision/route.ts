@@ -7,6 +7,7 @@ import {
 import { issueConnectionLink } from "@/lib/connections/links";
 import { sendSetupLink } from "@/lib/email/setup-link";
 import { env } from "@/lib/env";
+import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import {
   ProvisioningError,
   provisionClinic,
@@ -56,12 +57,21 @@ function problem(message: string, status: number, field?: string): Response {
  */
 async function mailSetupLink(clinicId: string, request: ProvisionRequest): Promise<void> {
   try {
+    // Checked before minting, so a missing origin leaves no orphaned live link.
+    const originProblem = publicOriginProblem();
+    if (originProblem) {
+      log.error("setup link could not be issued; issue one from the console", {
+        clinicId,
+        error: originProblem,
+      });
+      return;
+    }
     const { token, expiresAt } = await issueConnectionLink(
       clinicId,
       { purpose: "setup" },
       { actor: { type: "service", serviceName: "provisioning" } },
     );
-    const url = `${env.betterAuthUrl().replace(/\/$/, "")}/setup/${token}`;
+    const url = publicUrl(`/setup/${token}`);
     const result = await sendSetupLink({
       to: request.contactEmail.trim().toLowerCase(),
       clinicId,

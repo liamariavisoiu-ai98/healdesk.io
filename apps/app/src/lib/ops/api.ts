@@ -69,6 +69,7 @@ import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
 import { sendSetupLink } from "@/lib/email/setup-link";
 import { env } from "@/lib/env";
+import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import { writableConnection, writeToCalendar, type CalendarWriteOutcome } from "@/lib/booking/calendar";
 import { directBookingAllowed } from "@/lib/booking/mode";
 import { applyBookingRequirementDefaultsFor, setBookingRequirementsWithin } from "@/lib/onboarding/requirements";
@@ -1174,13 +1175,18 @@ async function opIssueConnectLink(
   const writeGuard = await refuseCalendarWriteLinkWithout(clinic.id, actorFor(operator), operator.request);
   if (writeGuard) return ok(writeGuard);
 
+  // Before minting: a link committed with no origin to put it on is a live
+  // credential nobody receives.
+  const originProblem = publicOriginProblem();
+  if (originProblem) return ok({ status: "error", message: originProblem } satisfies IssueConnectLinkState);
+
   const { token, expiresAt } = await issueConnectionLink(
     clinic.id,
     {},
     { actor: actorFor(operator), request: operator.request },
   );
 
-  const url = `${env.betterAuthUrl().replace(/\/$/, "")}/connect/${token}`;
+  const url = publicUrl(`/connect/${token}`);
 
   let delivery: ConnectLinkDelivery = { attempted: false };
 
@@ -3509,12 +3515,14 @@ async function opIssueSetupLink(
   if (to !== undefined && !EMAIL_SHAPED.test(to)) {
     return ok({ status: "error", message: "That doesn't look like an email address." } satisfies IssueConnectLinkState);
   }
+  const originProblem = publicOriginProblem();
+  if (originProblem) return ok({ status: "error", message: originProblem } satisfies IssueConnectLinkState);
   const { token, expiresAt } = await issueConnectionLink(
     clinic.id,
     { purpose: "setup" },
     { actor: actorFor(operator), request: operator.request },
   );
-  const url = `${env.betterAuthUrl().replace(/\/$/, "")}/setup/${token}`;
+  const url = publicUrl(`/setup/${token}`);
   let delivery: ConnectLinkDelivery = { attempted: false };
   if (to) {
     const result = await sendSetupLink({ to, clinicId: clinic.id, clinicName: clinic.name, specialty: clinic.specialty, url, expiresAt });

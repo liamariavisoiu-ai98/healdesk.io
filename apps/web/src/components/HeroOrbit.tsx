@@ -23,11 +23,12 @@ import { LABEL, RING } from "@/lib/integrations";
  * Calendar and nothing else, and a clinic on one of them links the two in
  * that system's own settings, which the spec calls "a setting in their
  * system, not a Healdesk integration" (docs/v1-product-spec.md, "Where
- * bookings are written"). The spec's table has Calendly and Cal.com reading
- * Google's calendar for conflicts. HighLevel is not in it yet; it does the
- * same through a "conflict calendar", which blocks any slot holding an event
- * marked busy, as hers are. The owner kept all three on the ring after the
- * review said so, and the label says they work through that calendar.
+ * bookings are written"). The spec's table ("What the hub model does and
+ * does not guarantee") has all three reading Google's calendar for
+ * conflicts, HighLevel through a "conflict calendar" that blocks any slot
+ * holding an event marked busy, as hers are. The owner kept all three on the
+ * ring after the review said so, and the label says they work through that
+ * calendar.
  * Stripe is the gateway a clinic connects to take deposits in chat, and
  * deposits stay off until it does.
  *

@@ -198,6 +198,7 @@ The direction of each vendor's sync decides whether a Healdesk booking is visibl
 | Google Calendar alone | Yes | Nothing to reconcile |
 | Calendly | Yes | Calendly reads connected Google calendars for conflicts, so a Healdesk event removes that slot from their booking page |
 | Cal.com | Yes | Same conflict-checking model |
+| HighLevel | Yes | HighLevel's [own documentation](https://help.gohighlevel.com/support/solutions/articles/155000002374) states it blocks any slot holding an event marked busy in a Google calendar the clinic turns on as a conflict calendar. Google marks a Healdesk event busy by default, so it removes that slot |
 | Mindbody | No | Mindbody's own documentation states the integration runs one direction only, Mindbody to Google. Events created in Google do not sync back |
 | Boulevard | Unverified | Treat as no until confirmed in writing |
 

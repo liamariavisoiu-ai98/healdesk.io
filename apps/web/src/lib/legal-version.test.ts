@@ -35,10 +35,10 @@ import { LEGAL_LAST_UPDATED, LEGAL_VERSION } from "@/lib/legal";
  */
 
 const PINNED = {
-  version: "2026-10-05.1",
+  version: "2026-10-05.2",
   lastUpdated: "5 October 2026",
   sha256: {
-    "/terms": "36592330a4b142753f8c0595455fc29a9f3eb27e559a044e724ecf50836c4d0c",
+    "/terms": "b709d8ddbcbbffd513564bcd361ba0bf07d9e151f3817fb21b21c198f5087487",
     "/privacy": "f6cef30dde47ea58e6776c7938d6686cf79571466af536b73403e5b2c003e175",
     "/subprocessors": "dac6f541caf51dd83c57ca16cf71c2acee3bad84366a53255bb3dee7e0c81f2a",
     "/trust": "e7cb2522546abf916df67e04325b124df11884d64dd7cb2cff625256b6990324",

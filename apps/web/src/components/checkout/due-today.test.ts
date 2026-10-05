@@ -2,6 +2,7 @@ import {
   annualTotalUsd,
   firstInvoiceUsd,
   getPlan,
+  getPricingCard,
   OVERAGE_RATES_PROVISIONAL,
   plans,
   recurringUsd,
@@ -58,7 +59,7 @@ describe("due today", () => {
   );
 
   test("the concrete figures for the entry package", () => {
-    const plan = getPlan("chat-single")!;
+    const plan = getPlan("chat-web")!;
     expect(dueToday(plan, "month").totalUsd).toBe(397 + 497);
     expect(dueToday(plan, "year").totalUsd).toBe(317 * 12 + 497);
   });
@@ -95,24 +96,24 @@ describe("the cheapest package is found by price", () => {
  * an allowance of zero produces no line at all rather than "0 voice minutes".
  */
 describe("package cards", () => {
-  test("a Web OR Meta package shows one chat chip, not two", () => {
-    const chips = channelChips(getPlan("chat-single")!);
+  test("a Web OR Meta card shows one chat chip, not two", () => {
+    const chips = channelChips(getPricingCard("chat-single")!);
     expect(chips).toEqual(["Website chat or Instagram, Messenger + WhatsApp"]);
   });
 
   test("a Web + Meta package shows both chat chips", () => {
-    expect(channelChips(getPlan("chat-dual")!)).toEqual([
+    expect(channelChips(getPricingCard("chat-dual")!)).toEqual([
       "Website chat",
       "Instagram, Messenger + WhatsApp",
     ]);
   });
 
   test("voice-only shows only the phone", () => {
-    expect(channelChips(getPlan("voice")!)).toEqual(["Phone"]);
+    expect(channelChips(getPricingCard("voice")!)).toEqual(["Phone"]);
   });
 
   test("every channel in the Complete package", () => {
-    expect(channelChips(getPlan("complete")!)).toEqual([
+    expect(channelChips(getPricingCard("complete")!)).toEqual([
       "Website chat",
       "Instagram, Messenger + WhatsApp",
       "Phone",
@@ -124,7 +125,7 @@ describe("package cards", () => {
       { label: "Included voice minutes", value: "1,000/mo" },
       { label: "Included chat conversations", value: "—" },
     ]);
-    expect(allowanceRows(getPlan("chat-single")!)).toEqual([
+    expect(allowanceRows(getPlan("chat-web")!)).toEqual([
       { label: "Included voice minutes", value: "—" },
       { label: "Included chat conversations", value: "1,000/mo" },
     ]);
@@ -136,7 +137,7 @@ describe("package cards", () => {
 
   test("the overage line quotes each package's own rate", () => {
     if (OVERAGE_RATES_PROVISIONAL) return;
-    expect(overageLine(getPlan("chat-single")!)).toContain("$0.40/conversation");
+    expect(overageLine(getPlan("chat-web")!)).toContain("$0.40/conversation");
     expect(overageLine(getPlan("chat-dual")!)).toContain("$0.30/conversation");
     expect(overageLine(getPlan("voice")!)).toContain("$0.80/min");
     expect(overageLine(getPlan("complete")!)).toContain("$0.80/min");

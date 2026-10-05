@@ -26,7 +26,7 @@ import { inTenant, seedClinic } from "./setup/factories";
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 
-const chatVoice = getPlan("chat-voice")!;
+const metaVoice = getPlan("meta-voice")!;
 const voiceOnly = getPlan("voice")!;
 
 describeDb("entitlements", () => {
@@ -44,9 +44,8 @@ describeDb("entitlements", () => {
     // declared tenant, so the insert itself proves the WITH CHECK half.
     await withTenant({ clinicId: clinicA, actor: { type: "system" } }, (tx) =>
       seedEntitlements(tx.db, clinicA, {
-        plan: chatVoice,
+        plan: metaVoice,
         interval: "month",
-        chatChannelChoice: "meta",
         stripeCustomerId: "cus_enta",
         stripeSubscriptionId: "sub_enta",
       }),
@@ -65,13 +64,12 @@ describeDb("entitlements", () => {
     await closePools();
   });
 
-  test("seeds allowances and channels from the package, honouring the chat choice", async () => {
+  test("seeds allowances and channels from the package", async () => {
     const rows = await inTenant(clinicA, (client) =>
       client.query<{
         status: string;
         plan_code: string;
         billing_interval: string;
-        chat_channel_choice: string | null;
         channels_enabled: { web: boolean; meta: boolean; voice: boolean };
         included_voice_minutes: number;
         included_chat_conversations: number;
@@ -81,14 +79,13 @@ describeDb("entitlements", () => {
 
     // A subscription to wait on, so provisioning until the first invoice.
     expect(row.status).toBe("provisioning");
-    expect(row.plan_code).toBe("chat-voice");
+    expect(row.plan_code).toBe("meta-voice");
     expect(row.billing_interval).toBe("month");
-    // "Web OR Meta": the catalog lists both, the buyer picked one.
-    expect(row.chat_channel_choice).toBe("meta");
+    // The Meta twin of "Web OR Meta + Voice": the package id alone decides.
     expect(row.channels_enabled).toEqual({ web: false, meta: true, voice: true });
-    expect(row.included_voice_minutes).toBe(chatVoice.includedVoiceMinutes);
+    expect(row.included_voice_minutes).toBe(metaVoice.includedVoiceMinutes);
     expect(row.included_chat_conversations).toBe(
-      chatVoice.includedChatConversations,
+      metaVoice.includedChatConversations,
     );
 
     // The one transition row with no `from`.
@@ -103,16 +100,14 @@ describeDb("entitlements", () => {
     ]);
   });
 
-  test("a package without the choice ignores it and enables what it sells", async () => {
+  test("a voice-only package enables only the phone", async () => {
     const rows = await inTenant(clinicB, (client) =>
       client.query<{
-        chat_channel_choice: string | null;
         channels_enabled: { web: boolean; meta: boolean; voice: boolean };
         included_chat_conversations: number;
       }>(`select * from entitlements where clinic_id = $1`, [clinicB]),
     );
     const row = rows.rows[0]!;
-    expect(row.chat_channel_choice).toBeNull();
     expect(row.channels_enabled).toEqual({ web: false, meta: false, voice: true });
     // Zero, not missing: a fact the UI can render.
     expect(row.included_chat_conversations).toBe(0);

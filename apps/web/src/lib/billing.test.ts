@@ -18,20 +18,22 @@ import {
 describe("overage prices on a Session", () => {
   test("each package gets the meters for the channels it sells, at its own rate", () => {
     // The rates the owner set on 5 October 2026: $0.80 a voice minute, $0.40
-    // a chat conversation on the single-channel chat package, $0.30 on the
+    // a chat conversation on the single-channel chat packages, $0.30 on the
     // rest. Spelled out rather than derived, so a catalog edit that changes
     // what a clinic is billed has to change this line too.
     expect(overageLookupKeys(getPlan("voice")!)).toEqual(["healdesk_meter_voice_minutes_80"]);
-    expect(overageLookupKeys(getPlan("chat-single")!)).toEqual([
-      "healdesk_meter_chat_conversations_40",
-    ]);
+    for (const id of ["chat-web", "chat-meta"]) {
+      expect(overageLookupKeys(getPlan(id)!)).toEqual(["healdesk_meter_chat_conversations_40"]);
+    }
     expect(overageLookupKeys(getPlan("chat-dual")!)).toEqual([
       "healdesk_meter_chat_conversations_30",
     ]);
-    expect(overageLookupKeys(getPlan("chat-voice")!)).toEqual([
-      "healdesk_meter_voice_minutes_80",
-      "healdesk_meter_chat_conversations_30",
-    ]);
+    for (const id of ["web-voice", "meta-voice"]) {
+      expect(overageLookupKeys(getPlan(id)!)).toEqual([
+        "healdesk_meter_voice_minutes_80",
+        "healdesk_meter_chat_conversations_30",
+      ]);
+    }
     expect(overageLookupKeys(getPlan("complete")!)).toEqual([
       "healdesk_meter_voice_minutes_80",
       "healdesk_meter_chat_conversations_30",

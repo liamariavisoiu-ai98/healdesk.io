@@ -3,7 +3,8 @@
 import {
   type BillingInterval,
   OVERAGE_RATES_PROVISIONAL,
-  plans,
+  planForCard,
+  pricingCards,
 } from "@healdesk/catalog";
 import { useState } from "react";
 
@@ -18,7 +19,7 @@ import {
 } from "@/lib/pricing";
 
 /**
- * The five package cards on /pricing, with the monthly / annual toggle.
+ * The five pricing cards on /pricing, with the monthly / annual toggle.
  *
  * A client component only because the toggle is state; the page around it
  * stays a server component so the metadata and the comparison band render
@@ -100,12 +101,15 @@ export function PricingCards({
           centred under the first row of three instead of leaving a hole at
           the right. A five-column row would squeeze every price. */}
       <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
-        {plans.map((plan, i) => {
-          const featured = Boolean(plan.highlight);
+        {pricingCards.map((card, i) => {
+          // A twin card's two packages are priced identically (the catalog
+          // test holds them to it), so either one states the card's terms.
+          const plan = planForCard(card);
+          const featured = Boolean(card.highlight);
           const overage = overageLine(plan);
           return (
             <div
-              key={plan.id}
+              key={card.id}
               className={[
                 "flex flex-col rounded-[22px] border p-7 sm:p-8 lg:col-span-2",
                 i === 3 ? "lg:col-start-2" : "",
@@ -114,20 +118,20 @@ export function PricingCards({
             >
               <div className="flex items-baseline justify-between gap-3">
                 <h2 className="font-display text-[24px] font-medium tracking-[-0.02em]">
-                  {plan.name}
+                  {card.name}
                 </h2>
                 {/* Ink on Tuscan Sun is 9.3:1. The same label set IN Sun on
                     the page ground would be 1.5:1 and unreadable. This
                     accent is a fill, never a text colour. */}
-                {plan.highlight ? (
+                {card.highlight ? (
                   <span className="bg-sun text-ink shrink-0 rounded-full px-2.5 py-1 text-[12.6px] font-bold tracking-[0.08em] uppercase">
-                    {plan.highlight}
+                    {card.highlight}
                   </span>
                 ) : null}
               </div>
 
               <div className="mt-3 flex flex-wrap gap-1.5">
-                {channelChips(plan).map((chip) => (
+                {channelChips(card).map((chip) => (
                   <span
                     key={chip}
                     className="bg-paper-2 text-muted rounded-full px-2.5 py-1 text-[12.6px] font-bold"
@@ -176,7 +180,7 @@ export function PricingCards({
               </dl>
 
               <a
-                href={`/get-started?plan=${encodeURIComponent(plan.id)}&interval=${interval}`}
+                href={`/get-started?plan=${encodeURIComponent(card.id)}&interval=${interval}`}
                 className={[
                   // Flat rectangles, matching BuyButton: solid red on the
                   // featured card, outlined ink on the rest.

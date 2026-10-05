@@ -152,14 +152,25 @@ export function HealdeskSoul({
    * The CSS loops pause through the class; the clip has to be told. The
    * effect runs again when the clip mounts after hydration, so a reader who
    * paused before then does not get it starting behind their back.
+   *
+   * A browser that will not autoplay, as an iPhone in Low Power Mode will
+   * not, leaves the clip on its first frame and draws its own play button
+   * over it, which at hero size is a large dark disc on the orb. play()
+   * rejects with NotAllowedError there, and the soul falls back to its still,
+   * which has no button. Any other rejection, such as an aborted load, is
+   * not a refusal and changes nothing.
    */
   const video = useRef<HTMLVideoElement>(null);
+  const [refused, setRefused] = useState(false);
 
   useEffect(() => {
     const clipEl = video.current;
     if (!clipEl) return;
     if (paused) clipEl.pause();
-    else clipEl.play().catch(() => {});
+    else
+      clipEl.play().catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "NotAllowedError") setRefused(true);
+      });
   }, [paused, still]);
 
   const media = CLIPS[clip];
@@ -192,7 +203,7 @@ export function HealdeskSoul({
       <span className="soul__ring" />
 
       <span className="soul__beat soul__edge">
-        {still ? (
+        {still || refused ? (
           <img
             src={media.poster}
             alt=""

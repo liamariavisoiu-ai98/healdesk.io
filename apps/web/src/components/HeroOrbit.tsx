@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 
 import { HealdeskSoul } from "@/components/HealdeskSoul";
 import { LABEL, RING } from "@/lib/integrations";
@@ -48,7 +48,89 @@ import { LABEL, RING } from "@/lib/integrations";
  * the image, because a role="img" hides its children from screen readers,
  * and it holds everything where it is rather than snapping back to rest.
  * Under reduced motion nothing moves, so it is not shown.
+ *
+ * ## Resting out of view
+ *
+ * Away from the hero the orbit rests, held the same way, so a reader deep in
+ * the page is not paying for the clip and every loop while none of it is in
+ * sight (see useResting). The button only ever shows the reader's own choice.
  */
+
+/**
+ * Whether the orbit may rest: more than a screen from the viewport and not
+ * being headed back to.
+ *
+ * The hero is the top of the page, so heading back is going up. Any scroll
+ * upwards wakes it at once, however far down, and so do the keys that jump
+ * up a page or to the top, on the key press, before the first frame of the
+ * scroll they start. A screen of margin means a reader on the way back finds
+ * it already moving. An upward nudge that stops for two seconds while still
+ * out of reach was not a way back, and it rests again.
+ */
+const OUT_OF_REACH = "100% 0px";
+const INTENT_LAPSES_MS = 2000;
+
+function useResting(target: RefObject<HTMLElement | null>) {
+  const [resting, setResting] = useState(false);
+
+  useEffect(() => {
+    const el = target.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+
+    let inReach = true;
+    let headingBack = false;
+    let lastY = window.scrollY;
+    let lapse: ReturnType<typeof setTimeout> | undefined;
+
+    const sync = () => setResting(!inReach && !headingBack);
+    const headBack = () => {
+      headingBack = true;
+      clearTimeout(lapse);
+      lapse = setTimeout(() => {
+        headingBack = false;
+        sync();
+      }, INTENT_LAPSES_MS);
+      sync();
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // A batch can hold more than one change; the last is where it is now.
+        const latest = entries[entries.length - 1];
+        if (!latest) return;
+        inReach = latest.isIntersecting;
+        sync();
+      },
+      { rootMargin: OUT_OF_REACH },
+    );
+    const onScroll = () => {
+      const y = window.scrollY;
+      if (y < lastY) headBack();
+      else if (y > lastY && headingBack) {
+        headingBack = false;
+        clearTimeout(lapse);
+        sync();
+      }
+      lastY = y;
+    };
+    const onKey = (event: KeyboardEvent) => {
+      const toTop = event.key === "ArrowUp" && (event.metaKey || event.ctrlKey);
+      if (event.key === "Home" || event.key === "PageUp" || toTop) headBack();
+    };
+
+    observer.observe(el);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("keydown", onKey);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("keydown", onKey);
+      clearTimeout(lapse);
+    };
+  }, [target]);
+
+  return resting;
+}
 
 /**
  * Seconds per swing and per bounce, and a head start, for logo `i`.
@@ -79,15 +161,18 @@ function drift(i: number) {
  */
 export function HeroOrbit({ className = "" }: { className?: string }) {
   const [paused, setPaused] = useState(false);
+  const stage = useRef<HTMLDivElement>(null);
+  const resting = useResting(stage);
+  const held = paused || resting;
 
   return (
-    <div className={`relative ${className}`}>
-      <div role="img" aria-label={LABEL} className="orbit" data-paused={paused || undefined}>
+    <div ref={stage} className={`relative ${className}`}>
+      <div role="img" aria-label={LABEL} className="orbit" data-paused={held || undefined}>
         {/* Hidden as well as presentational: an image's children should not
             be read, but accessibility tools still listed an empty list item
             per logo under the label. */}
         <div className="orbit__core" aria-hidden>
-          <HealdeskSoul size="var(--orbit-soul)" clip="hero" paused={paused} />
+          <HealdeskSoul size="var(--orbit-soul)" clip="hero" paused={held} />
         </div>
 
         <ul className="orbit__ring" aria-hidden>

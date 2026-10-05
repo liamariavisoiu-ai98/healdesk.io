@@ -84,9 +84,21 @@ export const auth = betterAuth({
 
   rateLimit: {
     enabled: true,
-    // Database-backed rather than Redis: one less vendor, and it keeps
-    // apps/app runnable in a plain container.
-    storage: "database",
+    /**
+     * In-process memory, not "database" (design D5, 5 October 2026).
+     *
+     * "database" needs a `rateLimit` model that auth-schema.ts never had and
+     * no migration ever created, so EVERY request to /api/auth/* threw before
+     * it reached its handler — invisible only because nothing clinic-facing
+     * used the HTTP endpoints yet. Memory keeps the "no Redis, plain
+     * container" property the database choice was made for. Its limit is that
+     * counters are per process and reset on deploy, which is acceptable for
+     * Better Auth's own throttle: the clinic sign-in form applies its own rate
+     * limit before it issues a link, and sign-in is by single-use link only.
+     * tests/auth-handler.test.ts drives the real handler so this cannot
+     * silently regress.
+     */
+    storage: "memory",
   },
 
   databaseHooks: {

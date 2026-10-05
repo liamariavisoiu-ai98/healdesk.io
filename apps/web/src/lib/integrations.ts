@@ -16,7 +16,9 @@
  * ring noted that two come from a stock site that marks brand logos for
  * editorial use and the website glyph from one that asks for a credit on its
  * free licence. Calendly's and HighLevel's, added the same day, are copies
- * from TrustRadius and from RingCentral's app gallery.
+ * from TrustRadius and from RingCentral's app gallery. Stripe's is the
+ * owner's vector replacement for an untraceable Google Images thumbnail,
+ * rendered from SVG at the canvas size.
  */
 
 export type RingLogo = {

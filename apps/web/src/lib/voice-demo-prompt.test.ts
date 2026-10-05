@@ -138,7 +138,7 @@ describe("price, precisely", () => {
   });
 
   test("overage is called provisional, as copy must", () => {
-    expect(flat(VOICE_DEMO_PRICES)).toContain("These overage rates are provisional");
+    expect(flat(VOICE_DEMO_PRICES)).toContain("Provisional: only if asked, and say so.");
   });
 
   test.each(DIRECTIONS)("%s: the price list and the risk reversal are both in the prompt", (direction) => {
@@ -184,6 +184,27 @@ describe("the rules every call keeps", () => {
   test("on the call, 'it'll sound robotic' is answered by the call, not by placing one", () => {
     expect(text("outbound")).not.toContain("phone panel");
     expect(text("outbound")).toContain("let this call answer it");
+  });
+
+  test.each(DIRECTIONS)("%s: short enough to answer fast", (direction) => {
+    // The model reads all of it before every reply. At about 3,400 words
+    // its median was 1.3 seconds of a 1.5-second budget; see the header.
+    const words = voiceDemoLlm(direction).prompt.split(/\s+/).length;
+    const notes = voiceDemoVariables({ specialtyId: "med-spa" }).practice_notes.split(/\s+/).length;
+    expect(words + notes).toBeLessThan(2_400);
+  });
+
+  test.each(DIRECTIONS)("%s: the facts that must not drift are there", (direction) => {
+    const prompt = text(direction);
+    for (const fact of [
+      "checks live availability in their Google Calendar and books during the conversation",
+      "Auto-confirm is on by default",
+      "It sends no texts and never contacts a patient first",
+      "booked value at their own prices",
+      "It never answers clinical questions",
+    ]) {
+      expect(prompt).toContain(fact);
+    }
   });
 });
 

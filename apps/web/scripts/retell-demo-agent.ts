@@ -33,8 +33,9 @@
  *   - DNC detection on, paired with `honor_internal_dnc` on every call
  *     /api/callback places, so "stop calling me" outlives this call.
  *   - Retell's "professional call center rep" preset off: it fights the
- *     peer register the prompt asks for. Filler words off: an AI that says
- *     "um" is performing being human.
+ *     peer register the prompt asks for. Natural filler words on: owners
+ *     heard the call without them as robotic, and the opening line has
+ *     already said it is an AI, so sounding human misleads nobody.
  */
 
 import { type VoiceDemoDirection, voiceDemoLlm } from "../src/lib/voice-demo-prompt";
@@ -56,12 +57,20 @@ const AGENT_ID_VAR: Record<VoiceDemoDirection, string> = {
 const MODEL = "claude-5.5-sonnet";
 
 /**
- * Change by ear, in Retell's dashboard voice picker, then here. The fallback
- * must be another TTS provider (Retell's rule) so an outage changes the voice
- * rather than ending the call.
+ * A Retell platform voice: tuned for phone audio (pacing, fillers, clarity at
+ * telephone bitrates) and the only kind that supports Expressive Mode. The
+ * ElevenLabs voice before it was judged robotic on test calls. Platform
+ * voices fail over to another provider on their own, so there is no fallback
+ * list. Change by ear in the dashboard's voice picker, then here.
  */
-const VOICE_ID = "11labs-Grace";
-const FALLBACK_VOICE_IDS = ["cartesia-Grace"];
+const VOICE_ID = "retell-Grace";
+
+/**
+ * Expressive Mode's palette: the agent may add one of these where it fits,
+ * most lines have none, and it never tags a price or a number. No "excited":
+ * owners heard the earlier voice as loud, and a consultant is not excited.
+ */
+const EXPRESSIVE_TAGS = ["curious", "empathetic", "pause", "emphasis"];
 
 /**
  * Where Retell posts request_follow_up. The deployed site, never
@@ -163,13 +172,18 @@ function agentConfig(llmId: string, direction: VoiceDemoDirection) {
     agent_name: AGENT_NAME[direction],
     response_engine: { type: "retell-llm", llm_id: llmId },
     voice_id: VOICE_ID,
-    fallback_voice_ids: FALLBACK_VOICE_IDS,
+    fallback_voice_ids: null,
+    enable_expressive_mode: true,
+    expressive_emotion_tags: EXPRESSIVE_TAGS,
     language: "en-US",
-    // Calm, not loud: a touch slower, quieter and steadier than Retell's
-    // defaults (1, 1, 1), and fewer "mm-hm"s, which read as eagerness.
-    voice_speed: 0.95,
-    volume: 0.85,
-    voice_temperature: 0.6,
+    // Natural speed and variation. The slower, steadier settings tried for
+    // "calm" (0.95 speed, 0.6 temperature) made the voice flatter, which
+    // owners heard as robotic; calm now comes from the wording. Dynamic speed
+    // matches the caller's own pace.
+    voice_speed: 1,
+    volume: 0.9,
+    voice_temperature: 1,
+    enable_dynamic_voice_speed: true,
     // 1 is Retell's fastest: reply as soon as the turn is judged over. 0.8
     // added a wait that measured calls showed as about 0.4s of every pause.
     responsiveness: 1,
@@ -192,18 +206,22 @@ function agentConfig(llmId: string, direction: VoiceDemoDirection) {
     data_storage_setting: "basic_attributes_only",
     data_storage_retention_days: 30,
     opt_in_signed_url: true,
-    boosted_keywords: ["healdesk", "AYA", "Botox", "Mindbody", "Boulevard", "Vagaro", "Zenoti"],
+    // None: Retell lists boosted keywords as a cost to transcription latency.
+    boosted_keywords: null,
+    // Every preset adds tokens to every turn. Only the one the prompt cannot
+    // do itself stays on: light, natural fillers. The disclosure, numbers
+    // read aloud and staying in scope are all in the prompt already.
     handbook_config: {
       default_personality: false,
       conversational_personality: false,
-      natural_filler_words: false,
+      natural_filler_words: true,
       high_empathy: false,
       echo_verification: false,
       nato_phonetic_alphabet: false,
-      speech_normalization: true,
-      smart_matching: true,
-      ai_disclosure: true,
-      scope_boundaries: true,
+      speech_normalization: false,
+      smart_matching: false,
+      ai_disclosure: false,
+      scope_boundaries: false,
     },
   };
 }

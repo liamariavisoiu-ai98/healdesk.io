@@ -1,4 +1,9 @@
-import { plans, type Plan } from "@healdesk/catalog";
+import {
+  FIRST_PERIOD_REFUND_DAYS,
+  plans,
+  SETUP_FEE_REFUND_NOT_LIVE_DAYS,
+  type Plan,
+} from "@healdesk/catalog";
 
 /**
  * The facts the legal pages are built from.
@@ -91,9 +96,10 @@ export const POLICY = {
    * Days after purchase within which the first period is refundable in full.
    * 0 = no refund window. The setup fee is not refunded under this window,
    * whatever its value (decision of 21 September 2026); its one exception is
-   * `setupFeeRefundNotLiveDays` below.
+   * `setupFeeRefundNotLiveDays` below. The number lives in the catalog so
+   * apps/app's refund actions read the same one.
    */
-  refundWindowDays: 14,
+  refundWindowDays: FIRST_PERIOD_REFUND_DAYS,
   /**
    * The one exception to the non-refundable setup fee (terms § 3): it is
    * refunded when none of the Practice's channels has gone live this many days
@@ -101,9 +107,10 @@ export const POLICY = {
    * Practice. docs/counsel/guarantee-and-refund.md decision 5, adopted on 3
    * October 2026. Provisioning starts on the first paid invoice, so it should
    * never have to be paid; a flat "never refundable" for a service never
-   * delivered is the term the FTC Act and a card dispute both reach.
+   * delivered is the term the FTC Act and a card dispute both reach. The
+   * number lives in the catalog so apps/app's refund actions read the same one.
    */
-  setupFeeRefundNotLiveDays: 30,
+  setupFeeRefundNotLiveDays: SETUP_FEE_REFUND_NOT_LIVE_DAYS,
   /** Whether an annual plan cancelled mid-term is refunded pro rata. */
   annualProRataRefund: false,
   /**

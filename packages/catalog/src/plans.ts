@@ -76,8 +76,8 @@
  * The included voice minutes and chat conversations below were set before
  * anyone measured a real conversation. The owner cut them with the rates on 5
  * October 2026: chat from 1,500 / 3,000 / 1,500 / 4,000 to 1,000 / 2,000 /
- * 1,000 / 2,000 (chat-single, chat-dual, chat-voice, complete), and the top
- * tier's voice from 1,500 minutes to 1,000. The spec asks for each package to
+ * 1,000 / 2,000 (single-channel chat, chat-dual, chat with voice, complete),
+ * and the top tier's voice from 1,500 minutes to 1,000. The spec asks for each package to
  * be modelled three ways: light use, expected use, and the allowance fully
  * used. The third matters most, because it is the worst case the pricing
  * promises. The spec also names chat cost per conversation as the product's
@@ -161,10 +161,11 @@ export type Plan = {
   overagePerVoiceMinuteUsd: number;
   overagePerChatConversationUsd: number;
   /**
-   * Locations the package covers, which is one for every package. The spec
-   * sells Healdesk per location, with each extra location billed on the same
-   * subscription and renewal date. No additional-location price or lookup key
-   * exists yet, so nobody can buy a second location at checkout.
+   * Locations the package covers at checkout, which is one for every package.
+   * Each extra location is added later from the portal on the same
+   * subscription and renewal date, at the package's own price plus its setup
+   * fee (`additionalLocationChargeUsd`), as more quantity of the same package
+   * price; checkout itself still sells one.
    */
   locations: number;
 };
@@ -435,6 +436,37 @@ export function stripeLookupKey(plan: Plan, kind: PriceKind): string {
   return `healdesk_${plan.id}_${kind}_${cents}`;
 }
 
+export type ParsedLookupKey = {
+  planId: string;
+  kind: PriceKind;
+  /** The amount the key was minted with. Compare against the catalog to spot a stale price. */
+  cents: number;
+};
+
+/**
+ * The inverse of `stripeLookupKey()`: `healdesk_<plan>_<kind>_<cents>`.
+ *
+ * Plan ids contain hyphens and never underscores, which is what makes the
+ * split unambiguous; plans.test.ts round-trips every plan and kind through
+ * both functions so the two cannot drift apart. (It lived in apps/app until 5
+ * October 2026, when the plan-change and metered-item code there started
+ * needing it in more than one place; apps/app re-exports it.)
+ *
+ * Returns null for anything that is not a package price — the metered
+ * overage prices, scalabid's prices on the same Stripe account, a key from a
+ * plan that has since been removed from the catalog — and the caller decides
+ * what that means for the event it is holding.
+ */
+export function parseLookupKey(key: string): ParsedLookupKey | null {
+  const match = /^healdesk_([a-z0-9-]+)_(month|year|setup)_(\d+)$/.exec(key);
+  if (!match) return null;
+  return {
+    planId: match[1]!,
+    kind: match[2] as PriceKind,
+    cents: Number(match[3]),
+  };
+}
+
 /**
  * The two account-wide meters. Each counts one unit past the allowance, by
  * Stripe customer, and backs one metered price per distinct overage rate:
@@ -510,6 +542,69 @@ export function planMeteredPrices(
   }
   return out;
 }
+
+// -----------------------------------------------------------------------------
+// Usage: what one chat conversation and one voice minute are
+// -----------------------------------------------------------------------------
+
+/**
+ * A chat conversation is one person's thread on one channel, from their first
+ * message until this long passes with no message from them; their next
+ * message after that starts a new conversation (owner decision of 5 October
+ * 2026). The same 24 hours as Meta's customer-service window, so "one
+ * conversation" and "one window in which we may reply" are the same thing.
+ */
+export const CHAT_CONVERSATION_SILENCE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Billable voice minutes for ONE call: its length rounded up to the next
+ * whole minute, so 61 seconds is 2 minutes (owner decision of 5 October
+ * 2026). Calls are metered one at a time and never by summing seconds across
+ * calls first. Zero, negative, NaN or infinite durations bill nothing: a
+ * duration we cannot trust is not a reason to charge.
+ */
+export function billableVoiceMinutes(durationSeconds: number): number {
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return 0;
+  return Math.ceil(durationSeconds / 60);
+}
+
+// -----------------------------------------------------------------------------
+// Extra locations
+// -----------------------------------------------------------------------------
+
+/**
+ * What one additional location costs (owner decision of 5 October 2026): the
+ * package's recurring price again — monthly, or the annual total — on the SAME
+ * subscription and renewal date (Stripe prorates the first period), plus the
+ * package's setup fee once. Included minutes and conversations add up across
+ * locations: the pooled allowance is the package allowance × locations.
+ */
+export function additionalLocationChargeUsd(
+  plan: Plan,
+  interval: BillingInterval,
+): { recurringUsd: number; setupFeeUsd: number } {
+  return { recurringUsd: recurringUsd(plan, interval), setupFeeUsd: plan.setupFeeUsd };
+}
+
+// -----------------------------------------------------------------------------
+// Refund windows (terms § 3), here so apps/web's terms and apps/app's refund
+// actions read the same two numbers
+// -----------------------------------------------------------------------------
+
+/**
+ * The one exception to the non-refundable setup fee: refunded when none of the
+ * practice's channels has gone live this many days after its payment, unless
+ * the delay is something still waiting on the practice. Adopted 3 October 2026
+ * (docs/counsel/guarantee-and-refund.md decision 5).
+ */
+export const SETUP_FEE_REFUND_NOT_LIVE_DAYS = 30;
+
+/**
+ * Days after purchase within which the first period's subscription fee is
+ * refundable in full. The setup fee is never refunded under this window
+ * (decision of 21 September 2026).
+ */
+export const FIRST_PERIOD_REFUND_DAYS = 14;
 
 /**
  * What a clinic is displacing, for the comparison on the pricing page.

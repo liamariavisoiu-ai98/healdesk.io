@@ -84,6 +84,11 @@
         "META_APP_SECRET",
         "META_VERIFY_TOKEN",
         "STRIPE_CONNECT_CLIENT_ID",
+        // The Stripe launch (5 October 2026): the Connect webhook's own
+        // signing secret on apps/app, and apps/web's switch for Stripe Tax on
+        // Checkout (on only when "true").
+        "STRIPE_CONNECT_WEBHOOK_SECRET",
+        "STRIPE_AUTOMATIC_TAX",
         "HEALDESK_WEB_URL"
       ],
       "outputs": [".next/**", "!.next/cache/**", "dist/**"]

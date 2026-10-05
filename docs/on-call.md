@@ -28,6 +28,14 @@ reminder (09 UTC). It also still carries the monthly revenue report and the nigh
 sync, which are phase two and stay switched off in v1, and two sweeps from the 23
 September booking design (Meta booking drafts, booking-requirement defaults).
 
+The Stripe launch (drizzle/0043) adds five billing jobs, all seeded off: hourly, the
+usage meter report (overage on monthly plans to Stripe's meters), the usage alerts (the
+80% and 100% allowance emails) and the billing-notices backstop sender; daily, the
+annual overage invoice (05 UTC) and billing housekeeping (06 UTC: expired checkout
+intents, Meta message refs older than 7 days, Connect OAuth states older than a day).
+Only housekeeping is built so far; the other four are stubs until their work packages
+land, and switched on early they record "Not built yet." and do nothing.
+
 v1 adds jobs that are not built yet: the Google Calendar token watch, knowledge re-audits
 when a clinic's knowledge changes, the monthly re-scrape diff, the demo-sandbox purge
 (7 to 14 days), the 14-day zero-inbound flag for an active voice plan, the 48-hour

@@ -64,7 +64,9 @@ export async function truncateAll(): Promise<void> {
 
   // billing_events first and by name: it has no foreign keys, so nothing
   // cascades into it, and a dedupe ledger left over from the previous run
-  // would make every replayed fixture event a silent no-op.
+  // would make every replayed fixture event a silent no-op. The same holds
+  // for the identity-plane tables 0043 added without foreign keys
+  // (checkout_intents, stripe_connect_events, stripe_connect_states).
   await pool.query(`
     truncate table
       billing_events, billing_transitions, entitlements,
@@ -72,6 +74,7 @@ export async function truncateAll(): Promise<void> {
       webhook_events, sync_runs, transactions, appointments,
       conversations, contacts, provider_connections, clinic_touches,
       clinic_memberships, clinics, baa_acceptances,
+      checkout_intents, sign_in_links, stripe_connect_events, stripe_connect_states,
       invitation, member, organization, session, account, verification, "user"
     restart identity cascade
   `);
@@ -86,7 +89,12 @@ export async function truncateAll(): Promise<void> {
       ('annual-renewal-reminder', 'Daily; emails the billing contact 30 days before an annual renewal, once per period', false),
       ('weekly-recap', 'Hourly check; sends each live clinic a 7-day recap on its own Monday morning, and a first one on day 7', false),
       ('nightly-sync', 'Daily at 02:00 UTC; enqueues a sync per active connection, staggered; reconcile on the 1st', false),
-      ('offboarding-destroy', 'Daily; destroys the patient data of clinics whose destroy_after has passed and whose export was delivered', false)
+      ('offboarding-destroy', 'Daily; destroys the patient data of clinics whose destroy_after has passed and whose export was delivered', false),
+      ('usage-meter-report', 'Hourly; reports overage on monthly plans to Stripe''s meters', false),
+      ('annual-overage-invoice', 'Daily at 05 UTC; invoices annual plans'' overage per closed month', false),
+      ('usage-alerts', 'Hourly; queues the 80% and 100% allowance emails', false),
+      ('billing-notices', 'Hourly backstop; sends queued billing emails to owners and billing contacts', false),
+      ('billing-housekeeping', 'Daily at 06 UTC; purges expired checkout intents and Meta message refs', false)
     on conflict (name) do update set enabled = (excluded.name = 'heartbeat'), updated_by = null
   `);
 }

@@ -67,6 +67,17 @@ export const ALLOWED_LOG_KEYS: ReadonlySet<string> = new Set([
   "channel",
   "transport",
   "subject",
+  // The Stripe launch (5 October 2026). Each names a category, never a
+  // person: `meter` is voice_minutes or chat_conversations, `purpose` a
+  // sign-in link's purpose, `decision` an answer-gate or deposit outcome,
+  // `phase` a step name, `field` the name of a form field (never its value).
+  "meter",
+  "purpose",
+  "decision",
+  "phase",
+  "field",
+  "noticeId",
+  "windowStart",
   // Counters.
   "count",
   "written",
@@ -80,6 +91,8 @@ export const ALLOWED_LOG_KEYS: ReadonlySet<string> = new Set([
   "olderThanDays",
   "months",
   "ms",
+  "attempt",
+  "units",
   // Short free text, scrubbed on the way out.
   "reason",
   "error",

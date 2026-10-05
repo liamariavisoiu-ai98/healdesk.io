@@ -29,6 +29,18 @@ export const JOB_WEEKLY_RECAP = "weekly-recap";
 export const JOB_NIGHTLY_SYNC = "nightly-sync";
 export const JOB_OFFBOARDING_DESTROY = "offboarding-destroy";
 /**
+ * The Stripe launch's billing jobs (drizzle/0043), seeded off. Hourly:
+ * reporting overage on monthly plans to Stripe's meters, queueing the 80% and
+ * 100% allowance emails, and the backstop sender for the billing-notice
+ * outbox. Daily: invoicing annual plans' overage per closed month (05 UTC)
+ * and the housekeeping purge (06 UTC). Wired in tick.ts.
+ */
+export const JOB_USAGE_METER_REPORT = "usage-meter-report";
+export const JOB_ANNUAL_OVERAGE_INVOICE = "annual-overage-invoice";
+export const JOB_USAGE_ALERTS = "usage-alerts";
+export const JOB_BILLING_NOTICES = "billing-notices";
+export const JOB_BILLING_HOUSEKEEPING = "billing-housekeeping";
+/**
  * Phase two: the attribution jobs. Their code is kept, but they never run in
  * v1 (env.phaseTwoAttribution()), and the console refuses to switch them on.
  * The 0040 `callback-dialer` job was removed by drizzle/0041.

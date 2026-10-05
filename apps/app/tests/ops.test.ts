@@ -53,6 +53,8 @@ const clinic = (over: Partial<ClinicOverview> = {}): ClinicOverview => ({
   bookingRequirements: null,
   bookingRequirementsConfirmedAt: null,
   bookingRequirementsSource: null,
+  billingClinicId: null,
+  stripeConnectDisconnectedAt: null,
   ...over,
 });
 
@@ -132,6 +134,7 @@ describeDb("ops clinic listing", () => {
         "agentApprovedAt",
         "attributionMode",
         "baaSignedAt",
+        "billingClinicId",
         "bookingMode",
         "bookingRequirements",
         "bookingRequirementsConfirmedAt",
@@ -163,6 +166,7 @@ describeDb("ops clinic listing", () => {
         "specialty",
         "stripeConnectAccountId",
         "stripeConnectConnectedAt",
+        "stripeConnectDisconnectedAt",
         "synthflowNumberE164",
         "timezone",
         "wentLiveAt",

@@ -88,6 +88,28 @@ export const env = {
    */
   voiceToolsSecret: () => optional("HEALDESK_VOICE_TOOLS_SECRET"),
 
+  /**
+   * The platform Stripe secret key (design D15). apps/app uses it for Stripe
+   * Connect, plan changes, extra locations, metered usage, annual overage
+   * invoices, refunds and portal sessions; read it through
+   * lib/billing/stripe-client.ts. Optional: unset in development means every
+   * Stripe-backed action reports "not configured" instead of failing at boot,
+   * and the no-Stripe provisioning path keeps working.
+   */
+  stripeSecretKey: () => optional("STRIPE_SECRET_KEY"),
+
+  /** Stripe Connect's platform client id (`ca_…`) for the OAuth link. Optional; unset hides Connect. */
+  stripeConnectClientId: () => optional("STRIPE_CONNECT_CLIENT_ID"),
+
+  /**
+   * Signing secret of the Connect webhook endpoint on apps/app
+   * (`/api/webhooks/stripe-connect`). Deliberately NOT apps/web's
+   * STRIPE_WEBHOOK_SECRET: Connect events terminate here and never pass
+   * through the marketing site, and a leaked platform-webhook secret must not
+   * be able to forge a "deposit paid". Unset means the route answers 503.
+   */
+  stripeConnectWebhookSecret: () => optional("STRIPE_CONNECT_WEBHOOK_SECRET"),
+
   kmsKeyId: () => optional("HEALDESK_KMS_KEY_ID"),
 
   /** Base64, 32 bytes. Development only. */

@@ -1,19 +1,27 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  additionalLocationChargeUsd,
+  annualTotalUsd,
+  billableVoiceMinutes,
   cardForPlan,
+  CHAT_CONVERSATION_SILENCE_MS,
   chatChannelOf,
+  FIRST_PERIOD_REFUND_DAYS,
   getPlan,
   getPricingCard,
   meteredPriceLookupKey,
   offersChatChoice,
   overageRateCents,
+  parseLookupKey,
   type Plan,
   planForCard,
   planMeteredPrices,
   plans,
   pricingCards,
+  SETUP_FEE_REFUND_NOT_LIVE_DAYS,
   stripeLookupKey,
+  type PriceKind,
 } from "./plans";
 
 /**
@@ -178,5 +186,81 @@ describe("pricing cards", () => {
       const p = getPlan(c.id);
       if (p) expect(c.planIds).toEqual([p.id]);
     }
+  });
+});
+
+describe("package lookup keys read back", () => {
+  test("every plan and kind round-trips through stripeLookupKey and parseLookupKey", () => {
+    const kinds: PriceKind[] = ["month", "year", "setup"];
+    for (const plan of plans) {
+      for (const kind of kinds) {
+        const key = stripeLookupKey(plan, kind);
+        const cents =
+          kind === "setup" ? plan.setupFeeUsd * 100 : kind === "year" ? annualTotalUsd(plan) * 100 : plan.monthlyUsd * 100;
+        expect(parseLookupKey(key), key).toEqual({ planId: plan.id, kind, cents });
+      }
+    }
+  });
+
+  test("anything that is not a package price is not ours to read", () => {
+    for (const key of [
+      "healdesk_meter_voice_minutes_80",
+      "healdesk_meter_chat_conversations_30",
+      "scalabid_pro_month_9900",
+      "healdesk_chat-voice_weekly_100",
+      "healdesk_Complete_month_100",
+      "healdesk_complete_month_",
+      "",
+    ]) {
+      expect(parseLookupKey(key), key).toBeNull();
+    }
+  });
+});
+
+describe("what one unit of usage is", () => {
+  test("a chat conversation ends after 24 hours of silence from the person", () => {
+    expect(CHAT_CONVERSATION_SILENCE_MS).toBe(86_400_000);
+  });
+
+  test("each call rounds up to the next whole minute, on its own", () => {
+    expect(billableVoiceMinutes(1)).toBe(1);
+    expect(billableVoiceMinutes(59)).toBe(1);
+    expect(billableVoiceMinutes(60)).toBe(1);
+    expect(billableVoiceMinutes(61)).toBe(2);
+    expect(billableVoiceMinutes(120)).toBe(2);
+    expect(billableVoiceMinutes(120.4)).toBe(3);
+    // Three 20-second calls are three minutes, never one: calls are metered per call.
+    expect([20, 20, 20].map(billableVoiceMinutes).reduce((a, b) => a + b, 0)).toBe(3);
+  });
+
+  test("a duration we cannot trust bills nothing", () => {
+    for (const bad of [0, -5, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(billableVoiceMinutes(bad), String(bad)).toBe(0);
+    }
+  });
+});
+
+describe("an extra location", () => {
+  test("costs the package's own recurring price again plus its setup fee once", () => {
+    const webVoice = getPlan("web-voice")!;
+    expect(additionalLocationChargeUsd(webVoice, "month")).toEqual({ recurringUsd: 897, setupFeeUsd: 997 });
+    expect(additionalLocationChargeUsd(webVoice, "year")).toEqual({ recurringUsd: 717 * 12, setupFeeUsd: 997 });
+    const single = getPlan("chat-web")!;
+    expect(additionalLocationChargeUsd(single, "month")).toEqual({ recurringUsd: 397, setupFeeUsd: 497 });
+  });
+
+  test("every package prices a location the same way it prices the first", () => {
+    for (const plan of plans) {
+      expect(additionalLocationChargeUsd(plan, "month").recurringUsd, plan.id).toBe(plan.monthlyUsd);
+      expect(additionalLocationChargeUsd(plan, "year").recurringUsd, plan.id).toBe(annualTotalUsd(plan));
+      expect(additionalLocationChargeUsd(plan, "month").setupFeeUsd, plan.id).toBe(plan.setupFeeUsd);
+    }
+  });
+});
+
+describe("refund windows", () => {
+  test("carry the numbers the terms quote", () => {
+    expect(SETUP_FEE_REFUND_NOT_LIVE_DAYS).toBe(30);
+    expect(FIRST_PERIOD_REFUND_DAYS).toBe(14);
   });
 });

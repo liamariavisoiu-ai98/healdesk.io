@@ -338,7 +338,19 @@ describeDb("delivery", () => {
       const jobs = Object.fromEntries(out.map((o) => [o.job, o.status]));
       // Hour 2 gates the nightly sync in; nothing else night-time is due.
       expect(Object.keys(jobs).sort()).toEqual(
-        ["billing-sweep", "booking-request-expiry", "booking-requirements-defaults", "connection-health", "monthly-report", "nightly-sync", "weekly-recap"].sort(),
+        [
+          "billing-sweep",
+          "booking-request-expiry",
+          "booking-requirements-defaults",
+          "connection-health",
+          "monthly-report",
+          "nightly-sync",
+          "weekly-recap",
+          // The Stripe launch's hourly jobs (drizzle/0043), each behind its switch.
+          "usage-meter-report",
+          "usage-alerts",
+          "billing-notices",
+        ].sort(),
       );
       // Every job that has not been switched on says so rather than working;
       // the two phase-two jobs say so in v1 even when switched on.

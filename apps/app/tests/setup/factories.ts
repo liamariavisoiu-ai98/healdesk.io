@@ -50,6 +50,15 @@ export async function seedClinic(label: string): Promise<SeededClinic> {
   );
   const clinicId = rows[0]!.id;
 
+  // Better Auth's org-level row, as provisioning writes it (design D3).
+  // app_user_clinic_grants walks only the clinics in a user's own
+  // organisations, so a grant with no member row is invisible to the portal.
+  await pool.query(
+    `insert into member (id, organization_id, user_id, role, created_at)
+     values ($1, $2, $3, 'owner', now())`,
+    [`mem_${label}_${randomUUID().slice(0, 8)}`, organizationId, staffUserId],
+  );
+
   // clinic_memberships IS forced, so declare the tenant before writing to it.
   await inTenant(clinicId, async (client) => {
     await client.query(
@@ -59,6 +68,124 @@ export async function seedClinic(label: string): Promise<SeededClinic> {
   });
 
   return { clinicId, organizationId, slug, staffUserId, staffEmail };
+}
+
+export type ClinicRole = "owner" | "admin" | "clinician" | "front_desk" | "billing" | "read_only";
+
+/**
+ * Another person with a grant on an existing clinic: a user, a `member` row in
+ * the clinic's organisation and an active clinic_memberships row with `role`.
+ * The portal's three roles are owner, admin (the spec's manager) and billing.
+ */
+export async function seedPortalUser(
+  clinicId: string,
+  role: ClinicRole,
+  options: { label?: string; memberRole?: string } = {},
+): Promise<{ userId: string; email: string }> {
+  const pool = getMigratorPool();
+  const label = options.label ?? role;
+  const suffix = randomUUID().slice(0, 8);
+  const userId = `usr_${label}_${suffix}`;
+  const email = `${label}-${suffix}@example-clinic.test`;
+
+  const { rows } = await pool.query<{ organization_id: string }>(
+    `select organization_id from clinics where id = $1`,
+    [clinicId],
+  );
+  const organizationId = rows[0]?.organization_id;
+  if (!organizationId) throw new Error(`seedPortalUser: no clinic ${clinicId}`);
+
+  await pool.query(
+    `insert into "user" (id, name, email, email_verified, created_at, updated_at)
+     values ($1, $2, $3, true, now(), now())`,
+    [userId, `${label} person`, email],
+  );
+  await pool.query(
+    `insert into member (id, organization_id, user_id, role, created_at) values ($1, $2, $3, $4, now())`,
+    [`mem_${label}_${suffix}`, organizationId, userId, options.memberRole ?? (role === "owner" ? "owner" : "member")],
+  );
+  await inTenant(clinicId, async (client) => {
+    await client.query(
+      `insert into clinic_memberships (clinic_id, user_id, role) values ($1, $2, $3::clinic_role)`,
+      [clinicId, userId, role],
+    );
+  });
+  return { userId, email };
+}
+
+export type SeedEntitledOptions = {
+  /** Catalog package id. Default "complete". */
+  planId?: string;
+  interval?: "month" | "year";
+  /**
+   * false: the no-Stripe path (no ids, seeded straight to active). Otherwise
+   * Stripe ids are invented unless given, the row starts in `provisioning`
+   * and is moved to `active` as the first paid invoice would.
+   */
+  stripe?: false | { customerId?: string; subscriptionId?: string };
+  /** Record the first invoice's period and setup fee. Default: a period starting `periodStart`. */
+  firstInvoice?: false | { periodStart?: Date; periodEnd?: Date; setupFeePaidUsd?: number };
+  /** Leave the row in `provisioning` instead of moving it to `active`. */
+  status?: "active" | "provisioning";
+  locations?: number;
+};
+
+/**
+ * An entitlements row for a seeded clinic, written through the real writers
+ * (seedEntitlements, recordFirstInvoice, transition) on the RUNTIME role
+ * inside the clinic's tenant, so the fixture obeys the same grants and edges
+ * production does. Imported lazily so suites that never call it do not open
+ * the application's own pool.
+ */
+export async function seedEntitled(
+  clinicId: string,
+  options: SeedEntitledOptions = {},
+): Promise<{ stripeCustomerId: string | null; stripeSubscriptionId: string | null }> {
+  const [{ getPlan }, { seedEntitlements, recordFirstInvoice }, { transition }, { withTenant }, { entitlements }, { eq }] =
+    await Promise.all([
+      import("@healdesk/catalog"),
+      import("@/lib/billing/entitlements"),
+      import("@/lib/billing/state-machine"),
+      import("@/lib/tenant"),
+      import("@/db/schema"),
+      import("drizzle-orm"),
+    ]);
+
+  const plan = getPlan(options.planId ?? "complete");
+  if (!plan) throw new Error(`seedEntitled: no plan ${options.planId}`);
+  const interval = options.interval ?? "month";
+  const suffix = randomUUID().replace(/-/g, "").slice(0, 14);
+  const stripeCustomerId = options.stripe === false ? null : (options.stripe?.customerId ?? `cus_test${suffix}`);
+  const stripeSubscriptionId =
+    options.stripe === false ? null : (options.stripe?.subscriptionId ?? `sub_test${suffix}`);
+
+  await withTenant({ clinicId, actor: { type: "service", serviceName: "test-fixture" } }, async (tx) => {
+    const status = await seedEntitlements(tx.db, clinicId, {
+      plan,
+      interval,
+      stripeCustomerId,
+      stripeSubscriptionId,
+    });
+    if (options.firstInvoice !== false) {
+      const periodStart = options.firstInvoice?.periodStart ?? new Date("2026-10-01T00:00:00Z");
+      const periodEnd =
+        options.firstInvoice?.periodEnd ??
+        new Date(Date.UTC(periodStart.getUTCFullYear() + (interval === "year" ? 1 : 0), periodStart.getUTCMonth() + (interval === "year" ? 0 : 1), periodStart.getUTCDate()));
+      await recordFirstInvoice(tx.db, clinicId, {
+        periodStart,
+        periodEnd,
+        setupFeePaidUsd: options.firstInvoice?.setupFeePaidUsd ?? plan.setupFeeUsd,
+      });
+    }
+    if (status === "provisioning" && (options.status ?? "active") === "active") {
+      await transition(tx, "active", { actor: "system", reason: "invoice.paid" });
+    }
+    if (options.locations !== undefined) {
+      await tx.db.update(entitlements).set({ locations: options.locations }).where(eq(entitlements.clinicId, clinicId));
+    }
+  });
+
+  return { stripeCustomerId, stripeSubscriptionId };
 }
 
 /** Insert a contact as the migrator, inside a declared tenant. */

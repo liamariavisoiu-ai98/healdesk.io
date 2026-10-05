@@ -260,6 +260,7 @@ describeDb("database audit (0031)", () => {
       "contact_attempts",
       "contacts",
       "conversations",
+      "deposit_payments",
       "meta_booking_drafts",
       "suppressions",
       "transactions",

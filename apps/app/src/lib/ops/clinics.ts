@@ -62,6 +62,10 @@ export type ClinicOverview = {
   bookingRequirements: string[] | null;
   bookingRequirementsConfirmedAt: Date | null;
   bookingRequirementsSource: "practice" | "operator" | "defaults" | null;
+  // 0043: the clinic whose subscription this location is billed on (null: its
+  // own billing clinic), and when its Stripe Connect account was disconnected.
+  billingClinicId: string | null;
+  stripeConnectDisconnectedAt: Date | null;
 };
 
 /** Something an operator has to act on before this clinic can go live. */
@@ -80,7 +84,8 @@ export async function listClinics(): Promise<ClinicOverview[]> {
                stripe_connect_account_id, stripe_connect_connected_at, meta_front_door_enabled,
                booking_mode, direct_booking_elected_at, direct_booking_withdrawn_at,
                timezone_confirmed_at,
-               booking_requirements, booking_requirements_confirmed_at, booking_requirements_source
+               booking_requirements, booking_requirements_confirmed_at, booking_requirements_source,
+               billing_clinic_id, stripe_connect_disconnected_at
           from app_clinics_overview()`,
   );
 
@@ -134,6 +139,10 @@ export async function listClinics(): Promise<ClinicOverview[]> {
       ? new Date(row.booking_requirements_confirmed_at as string)
       : null,
     bookingRequirementsSource: (["practice", "operator", "defaults"] as const).find((s) => s === row.booking_requirements_source) ?? null,
+    billingClinicId: (row.billing_clinic_id as string | null) ?? null,
+    stripeConnectDisconnectedAt: row.stripe_connect_disconnected_at
+      ? new Date(row.stripe_connect_disconnected_at as string)
+      : null,
   }));
 }
 

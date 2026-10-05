@@ -2,7 +2,6 @@ import {
   type BillingInterval,
   channelList,
   type Plan,
-  type PriceKind,
 } from "@healdesk/catalog";
 import { eq } from "drizzle-orm";
 
@@ -373,33 +372,10 @@ export async function storeStripeIds(
   await updateOrThrow(db, clinicId, values);
 }
 
-export type ParsedLookupKey = {
-  planId: string;
-  kind: PriceKind;
-  /** The amount the key was minted with. Compare against the catalog to spot a stale price. */
-  cents: number;
-};
-
 /**
- * The inverse of `stripeLookupKey()` in the catalog: `healdesk_<plan>_<kind>_<cents>`.
- *
- * Lives here rather than next to its partner because the catalog is the
- * contract between apps/web and apps/app and only apps/app ever needs to read
- * a key back. Plan ids contain hyphens and never underscores, which is what
- * makes the split unambiguous; tests/billing-events.test.ts round-trips every
- * plan and kind through both functions so the two cannot drift apart.
- *
- * Returns null for anything that is not ours — the metered overage prices,
- * scalabid's prices on the same Stripe account, a key from a plan that has
- * since been removed from the catalog — and the caller decides what that
- * means for the event it is holding.
+ * `parseLookupKey` moved to the catalog (packages/catalog/src/plans.ts) on 5
+ * October 2026, beside its partner `stripeLookupKey()`, because apps/app is no
+ * longer the only reader: the metered-item reconciler and the plan-change
+ * actions need it too. Re-exported here so existing imports keep working.
  */
-export function parseLookupKey(key: string): ParsedLookupKey | null {
-  const match = /^healdesk_([a-z0-9-]+)_(month|year|setup)_(\d+)$/.exec(key);
-  if (!match) return null;
-  return {
-    planId: match[1]!,
-    kind: match[2] as PriceKind,
-    cents: Number(match[3]),
-  };
-}
+export { parseLookupKey, type ParsedLookupKey } from "@healdesk/catalog";

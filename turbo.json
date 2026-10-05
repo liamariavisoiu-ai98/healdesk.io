@@ -61,12 +61,14 @@
         "HEALDESK_SES_CONFIGURATION_SET",
         "AWS_REGION",
 
-        // The "have AYA call me" demo. The first two are required for a call to
-        // be placed at all; REGION defaults to "us" and FROM_NUMBER is optional.
-        "SYNTHFLOW_API_KEY",
-        "SYNTHFLOW_DEMO_AGENT_ID",
-        "SYNTHFLOW_REGION",
-        "SYNTHFLOW_FROM_NUMBER",
+        // The "have AYA call me" demo, on Retell. The first three are required
+        // for a call to be placed at all. The webhook key signs the agent's
+        // request_follow_up tool calls; unset, that tool refuses and AYA gives
+        // out the inbox address instead.
+        "RETELL_API_KEY",
+        "RETELL_DEMO_AGENT_ID",
+        "RETELL_DEMO_FROM_NUMBER",
+        "RETELL_WEBHOOK_KEY",
 
         // apps/app, Phases 6 and 8. The watchdog's digest address, the voice
         // webhook's bearer, the Meta webhook's secret and verify token, Stripe

@@ -38,8 +38,12 @@
  *   - Retell is the product's voice vendor. Its BAA is self-serve and not yet
  *     signed (spec, "Where the chain is complete").
  *   - Synthflow stays only as the vendor that places the one demo call a
- *     visitor asks for on this website (lib/synthflow.ts). It never carries a
- *     patient call.
+ *     visitor asks for on this website. It never carries a patient call.
+ *
+ * Changes of 5 October 2026: the demo call moved from Synthflow to Retell
+ * (lib/retell-demo-call.ts), on a separate agent from the product's. Its row
+ * is "Retell (the website demo call)", beside the product's own Retell row,
+ * as Anthropic has one row per organisation.
  *   - Cal.com is gone: v1 writes bookings only to the clinic's own Google
  *     Calendar, and nothing into Cal.com.
  *   - Google Calendar is not a row. The calendar is the clinic's own, under
@@ -158,10 +162,11 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     scope: "marketing-site",
   },
   {
-    name: "Synthflow",
-    purpose: "Places the one demo call a visitor asks for on this website. It carries no patient calls: the product's voice agent runs on Retell",
-    data: "The number you typed, the first name you gave, and the audio and transcript of the demo call",
-    region: "United States workspace",
+    name: "Retell (the website demo call)",
+    purpose: "Places the one demo call a visitor asks for on this website, on a separate agent from the product's, and runs the conversation on Anthropic's Claude model",
+    data: "The number you typed, the first name you gave and the specialty you were viewing, and the call's audio and words while it is live. Retell keeps no recording or transcript of the demo call, only its basic record (time, length, how it ended), for 30 days",
+    // Not confirmed in writing, as for the product's row above.
+    region: "",
     handlesPhi: false,
     baa: {
       state: "not-needed",

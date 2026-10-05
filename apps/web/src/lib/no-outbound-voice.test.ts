@@ -26,13 +26,13 @@ describe("no outbound AI voice to prospects", () => {
     const callers: string[] = [];
     for (const file of walk(SRC)) {
       const rel = relative(SRC, file).split("\\").join("/");
-      if (rel === "lib/synthflow.ts") continue;
+      if (rel === "lib/retell-demo-call.ts") continue;
       // Code only: a comment that names placeCall() is documentation, not a dial.
       const code = readFileSync(file, "utf8")
         .split("\n")
         .filter((line) => !/^\s*(\*|\/\/|\/\*)/.test(line))
         .join("\n");
-      if (/\bplaceCall\s*\(/.test(code) || /from "@\/lib\/synthflow"/.test(code)) {
+      if (/\bplaceCall\s*\(/.test(code) || /from "@\/lib\/retell-demo-call"/.test(code)) {
         callers.push(rel);
       }
     }

@@ -1,0 +1,259 @@
+/**
+ * Create or update AYA's demo-call agent in Retell from the repo.
+ *
+ *   npm run retell:demo -w @healdesk/web -- --dry-run   # print, no calls
+ *   npm run retell:demo -w @healdesk/web                # create, then update
+ *
+ * With RETELL_DEMO_AGENT_ID unset it creates a Retell LLM and an agent and
+ * prints the agent id to set. With it set it updates that agent's draft and
+ * its LLM in place, so a catalog price change reaches the call by re-running
+ * this, not by editing a prompt in the dashboard (see lib/voice-demo-prompt.ts).
+ *
+ * ## This is the marketing demo, not the product
+ *
+ * The agent calls a clinic owner who asked for one call, on a Retell-hosted
+ * prompt. The product's voice agent is Retell pointed at our own Claude
+ * endpoint in apps/app, and it is not configured here.
+ *
+ * ## Settings that are decisions, not defaults
+ *
+ *   - data_storage_setting `basic_attributes_only`: Retell keeps neither the
+ *     audio nor the transcript. It has no "transcript but no recording"
+ *     setting, and the call says it is transcribed, never recorded, so keeping
+ *     audio would make the opening line untrue in a two-party-consent state.
+ *   - voicemail: hang up. The brief allows no voicemail until counsel rules.
+ *   - DNC detection on, paired with `honor_internal_dnc` on every call
+ *     /api/callback places, so "stop calling me" outlives this call.
+ *   - Retell's "professional call center rep" preset off: it fights the
+ *     peer register the prompt asks for. Filler words off: an AI that says
+ *     "um" is performing being human.
+ */
+
+import {
+  VOICE_DEMO_GENERAL_PROMPT,
+  VOICE_DEMO_OPENING,
+  VOICE_DEMO_STATES,
+  VOICE_DEMO_VARIABLES,
+  type VoiceDemoState,
+} from "../src/lib/voice-demo-prompt";
+
+const API = "https://api.retellai.com";
+const AGENT_NAME = "healdesk demo call (AYA)";
+
+/**
+ * Claude, as the chat demo is. Sonnet rather than Opus because a phone turn
+ * has to start within about a second; the chat demo can afford to think.
+ */
+const MODEL = "claude-5.5-sonnet";
+
+/**
+ * Change by ear, in Retell's dashboard voice picker, then here. The fallback
+ * must be another TTS provider (Retell's rule) so an outage changes the voice
+ * rather than ending the call.
+ */
+const VOICE_ID = "11labs-Grace";
+const FALLBACK_VOICE_IDS = ["cartesia-Grace"];
+
+/**
+ * Where Retell posts request_follow_up. The deployed site, never
+ * NEXT_PUBLIC_SITE_URL: a local .env points that at localhost, which Retell's
+ * servers cannot reach, and a tool that silently fails would leave AYA giving
+ * out the inbox address on every call.
+ */
+const TOOL_ORIGIN = process.env.RETELL_DEMO_TOOL_ORIGIN ?? "https://healdesk.io";
+
+const dryRun = process.argv.includes("--dry-run");
+
+const END_CALL = {
+  type: "end_call",
+  name: "end_call",
+  description: "Hang up. Call it straight after your last line, whenever the prompt says to end the call.",
+};
+
+const REQUEST_FOLLOW_UP = {
+  type: "custom",
+  name: "request_follow_up",
+  description:
+    "Pass a prospect's request to the healdesk team by email: a pricing or discount question, " +
+    "terms, a second location, or a session with the team. Only after they agreed to be contacted " +
+    "and you confirmed their details. The reply says whether it was sent; follow it.",
+  url: `${TOOL_ORIGIN}/api/voice-demo/follow-up`,
+  method: "POST",
+  parameters: {
+    type: "object",
+    properties: {
+      topic: {
+        type: "string",
+        enum: ["pricing", "discount", "terms", "sales_session", "other"],
+        description: "What they want from the team.",
+      },
+      name: { type: "string", description: "Their name, as they gave it." },
+      clinic: { type: "string", description: "Their clinic's name, if they gave it." },
+      email: {
+        type: "string",
+        description: "Their email, lowercase, exactly as spelled and confirmed.",
+      },
+      preferred_time: {
+        type: "string",
+        description: "For a session with the team: the day and rough time in their words, with their time zone.",
+      },
+      recommended_package: {
+        type: "string",
+        description: "The package you recommended, by its name from the price list.",
+      },
+      summary: {
+        type: "string",
+        description:
+          "Two or three plain sentences of what they told you: practice type, locations, who answers now, " +
+          "when calls slip through, what a new patient is worth, booking system, why now. Never anything about a patient.",
+      },
+      notes: {
+        type: "string",
+        description: "What they want from the team, in one plain line.",
+      },
+    },
+    required: ["topic", "email"],
+  },
+  speak_during_execution: true,
+  execution_message_type: "static_text",
+  execution_message_description: "One sec, passing that on.",
+  speak_after_execution: true,
+  timeout_ms: 10_000,
+  // A retry after a slow success would mail the team twice.
+  max_retry: 0,
+};
+
+function edge(e: VoiceDemoState["edges"][number]) {
+  return {
+    destination_state_name: e.to,
+    description: e.when,
+    ...(e.carry
+      ? {
+          parameters: {
+            type: "object",
+            properties: Object.fromEntries(
+              Object.entries(e.carry).map(([key, description]) => [key, { type: "string", description }]),
+            ),
+            required: Object.keys(e.carry),
+          },
+        }
+      : {}),
+  };
+}
+
+const llmConfig = {
+  model: MODEL,
+  model_temperature: 0.2,
+  start_speaker: "agent",
+  begin_message: VOICE_DEMO_OPENING,
+  general_prompt: VOICE_DEMO_GENERAL_PROMPT,
+  general_tools: [END_CALL],
+  starting_state: "greeting",
+  states: VOICE_DEMO_STATES.map((state) => ({
+    name: state.name,
+    state_prompt: state.prompt,
+    edges: state.edges.map(edge),
+    // Only the close can pass anything on, so only the close has the tool.
+    tools: state.name === "close" ? [REQUEST_FOLLOW_UP] : [],
+  })),
+  default_dynamic_variables: VOICE_DEMO_VARIABLES,
+};
+
+function agentConfig(llmId: string) {
+  return {
+    agent_name: AGENT_NAME,
+    response_engine: { type: "retell-llm", llm_id: llmId },
+    voice_id: VOICE_ID,
+    fallback_voice_ids: FALLBACK_VOICE_IDS,
+    language: "en-US",
+    // Calm, not loud: a touch slower, quieter and steadier than Retell's
+    // defaults (1, 1, 1), and fewer "mm-hm"s, which read as eagerness.
+    voice_speed: 0.95,
+    volume: 0.85,
+    voice_temperature: 0.6,
+    responsiveness: 0.8,
+    interruption_sensitivity: 0.8,
+    enable_backchannel: true,
+    backchannel_frequency: 0.3,
+    begin_message_delay_ms: 800,
+    reminder_trigger_ms: 8_000,
+    reminder_max_count: 1,
+    end_call_after_silence_ms: 20_000,
+    // A backstop, not the target. The prompt reads {{session_duration}} and
+    // wraps up from about nine minutes, so the cap never cuts a sentence on a
+    // call that is going well; it only ends one that has gone wrong.
+    max_call_duration_ms: 12 * 60_000,
+    voicemail_option: { action: { type: "hangup" } },
+    enable_dnc_detection: true,
+    data_storage_setting: "basic_attributes_only",
+    data_storage_retention_days: 30,
+    opt_in_signed_url: true,
+    boosted_keywords: ["healdesk", "AYA", "Botox", "Mindbody", "Boulevard", "Vagaro", "Zenoti"],
+    handbook_config: {
+      default_personality: false,
+      conversational_personality: false,
+      natural_filler_words: false,
+      high_empathy: false,
+      echo_verification: false,
+      nato_phonetic_alphabet: false,
+      speech_normalization: true,
+      smart_matching: true,
+      ai_disclosure: true,
+      scope_boundaries: true,
+    },
+  };
+}
+
+async function retell<T>(path: string, method: "GET" | "POST" | "PATCH", body?: unknown): Promise<T> {
+  const response = await fetch(`${API}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${process.env.RETELL_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`${method} ${path} -> HTTP ${response.status}: ${text.slice(0, 600)}`);
+  return JSON.parse(text) as T;
+}
+
+async function main(): Promise<void> {
+  if (dryRun) {
+    console.log(JSON.stringify({ llm: llmConfig, agent: agentConfig("<llm_id>") }, null, 2));
+    for (const state of llmConfig.states) {
+      const words = (llmConfig.general_prompt + state.state_prompt).split(/\s+/).length;
+      console.log(`Stage ${state.name}: about ${words} words a turn.`);
+    }
+    console.log("Nothing was sent.");
+    return;
+  }
+  if (!process.env.RETELL_API_KEY) throw new Error("RETELL_API_KEY is not set.");
+  if (!TOOL_ORIGIN.startsWith("https://")) throw new Error(`RETELL_DEMO_TOOL_ORIGIN must be https: ${TOOL_ORIGIN}`);
+
+  const agentId = process.env.RETELL_DEMO_AGENT_ID;
+  if (!agentId) {
+    const llm = await retell<{ llm_id: string }>("/create-retell-llm", "POST", llmConfig);
+    const agent = await retell<{ agent_id: string }>("/create-agent", "POST", agentConfig(llm.llm_id));
+    console.log(`Created LLM ${llm.llm_id} and agent ${agent.agent_id}.`);
+    console.log(`Set RETELL_DEMO_AGENT_ID=${agent.agent_id} to update it in place next time.`);
+    return;
+  }
+
+  const existing = await retell<{ response_engine?: { type?: string; llm_id?: string } }>(
+    `/get-agent/${agentId}`,
+    "GET",
+  );
+  const llmId = existing.response_engine?.llm_id;
+  if (existing.response_engine?.type !== "retell-llm" || !llmId) {
+    throw new Error(`Agent ${agentId} does not run on a Retell LLM; refusing to overwrite it.`);
+  }
+  await retell(`/update-retell-llm/${llmId}`, "PATCH", llmConfig);
+  await retell(`/update-agent/${agentId}`, "PATCH", agentConfig(llmId));
+  console.log(`Updated LLM ${llmId} and agent ${agentId} (draft).`);
+}
+
+main().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+});

@@ -45,7 +45,7 @@
  *   - The voice demo: scripted playback plus a POST to /api/callback that has
  *     AYA ring the visitor. It never opens the microphone, which is why
  *     Permissions-Policy says `microphone=()` rather than `(self)`.
- *   - Server-side fetches (Resend, Synthflow, GitHub, Anthropic) happen in
+ *   - Server-side fetches (Resend, Retell, GitHub, Anthropic) happen in
  *     route handlers and are invisible to a browser CSP. Do not add them.
  *
  * ## The trade-off: `'unsafe-inline'` instead of nonces
@@ -286,7 +286,7 @@ export const STRICT_TRANSPORT_SECURITY = "max-age=63072000; includeSubDomains; p
 
 /**
  * Nothing on the site needs any of these. The voice demo is scripted playback
- * and the live call is placed by Synthflow to the visitor's PHONE, so the
+ * and the live call is placed by Retell to the visitor's PHONE, so the
  * browser never opens a microphone. Payment is Stripe-hosted, so the Payment
  * Request API is never used here either.
  *

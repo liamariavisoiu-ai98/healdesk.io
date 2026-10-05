@@ -2122,8 +2122,6 @@ export type BillingStatus = (typeof billingStatusEnum.enumValues)[number];
 /** Which channels the agent may answer on. Keys match the catalog's `Channel`. */
 export type ChannelsEnabled = Record<Channel, boolean>;
 
-export type ChatChannelChoice = "web" | "meta";
-
 /** Who asked for a status change. Support acts through the ops console. */
 export type BillingActor = "system" | "client" | "support";
 
@@ -2180,9 +2178,6 @@ export const entitlements = pgTable(
       .$type<ChannelsEnabled>()
       .notNull()
       .default({ web: false, meta: false, voice: false }),
-    /** Only set for a "Web OR Meta" package; which one the buyer picked. */
-    chatChannelChoice: text("chat_channel_choice").$type<ChatChannelChoice>(),
-
     includedVoiceMinutes: integer("included_voice_minutes").notNull().default(0),
     includedChatConversations: integer("included_chat_conversations")
       .notNull()
@@ -2233,10 +2228,6 @@ export const entitlements = pgTable(
     check(
       "entitlements_interval_check",
       sql`${t.billingInterval} in ('month', 'year')`,
-    ),
-    check(
-      "entitlements_chat_choice_check",
-      sql`${t.chatChannelChoice} is null or ${t.chatChannelChoice} in ('web', 'meta')`,
     ),
     check(
       "entitlements_overage_mode_check",

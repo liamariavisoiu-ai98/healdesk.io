@@ -56,15 +56,17 @@
  * ## Idempotent by lookup_key, not by name
  *
  * Every price carries a `lookup_key` from `stripeLookupKey()`, which encodes
- * the plan id, the kind and the amount (`healdesk_chat-voice_month_89700`).
+ * the plan id, the kind and the amount (`healdesk_web-voice_month_89700`).
  * Re-running finds the existing price by that key, checks that it still says
  * what the catalog says, and leaves it alone. A catalog price CHANGE produces a
  * new key, so it is a new price; the previous one stays active for the
  * subscriptions already on it and is reported here as STALE so a human can
  * archive it once nobody is billing on it.
  *
- * Nothing here is destructive: nothing is archived, updated or deleted. The
- * one write beyond create is `transfer_lookup_key`, used only when the key is
+ * Nothing here is destructive: nothing is archived or deleted, and no amount
+ * is ever updated. Beyond create, a product's name and description are
+ * brought in line with the catalog (see findOrCreateProduct), and
+ * `transfer_lookup_key` is used only when the key is
  * held by an INACTIVE price — Stripe keeps lookup keys unique across prices,
  * so without the transfer an archived price would block its own replacement.
  */
@@ -172,15 +174,13 @@ function describePackage(plan: Plan): string {
   const channels = channelList(plan);
   const hasChat = channels.includes("web") || channels.includes("meta");
 
-  const channelText = plan.chatChannelChoice
-    ? `Web OR Meta chat (chosen at onboarding)${plan.channels.voice ? " + AI voice agent" : ""}`
-    : [
-        plan.channels.web ? "Web chat" : null,
-        plan.channels.meta ? "Meta chat (Instagram, Messenger, WhatsApp)" : null,
-        plan.channels.voice ? "AI voice agent" : null,
-      ]
-        .filter((s): s is string => s !== null)
-        .join(" + ");
+  const channelText = [
+    plan.channels.web ? "Web chat" : null,
+    plan.channels.meta ? "Meta chat (Instagram, Messenger, WhatsApp)" : null,
+    plan.channels.voice ? "AI voice agent" : null,
+  ]
+    .filter((s): s is string => s !== null)
+    .join(" + ");
 
   const allowances = [
     plan.channels.voice
@@ -261,7 +261,7 @@ function computeDesired(): Desired {
   return {
     packages: plans.map((plan) => ({
       plan,
-      productName: `healdesk ${plan.name}`,
+      productName: plan.name,
       description: describePackage(plan),
       prices: desiredPrices(plan),
     })),
@@ -561,7 +561,9 @@ async function syncCohortCoupons(stripe: Stripe): Promise<void> {
     }
     const coupon = await stripe.coupons.create({
       id,
-      name: `${COHORT_SETUP_CREDIT.name} — ${plan.name}`,
+      // Stripe caps a coupon name at 40 characters, and appending the package
+      // name overran it for most packages. The id already names the package.
+      name: COHORT_SETUP_CREDIT.name,
       amount_off: amountOff,
       currency: "usd",
       duration: "once",
@@ -632,7 +634,7 @@ async function syncMeter(
     METER_META,
     want.eventName,
     {
-      name: `healdesk ${want.displayName}`,
+      name: want.displayName,
       description: `Billed per ${want.unitLabel} beyond the package allowance, monthly in arrears.`,
     },
   );
@@ -715,7 +717,7 @@ function printDryRun(desired: Desired): void {
   for (const m of desired.meters) {
     console.log(`\n${m.displayName}  (${m.eventName})`);
     line("·", `meter    event_name=${m.eventName}  sum(value) by stripe_customer_id`);
-    line("·", `product  healdesk ${m.displayName}  [${METER_META}=${m.eventName}]`);
+    line("·", `product  ${m.displayName}  [${METER_META}=${m.eventName}]`);
     for (const rate of m.prices) {
       line(
         "·",
@@ -835,7 +837,10 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const live = key.startsWith("sk_live_");
+  // A restricted key (rk_) is the recommended way to run this, and it is just
+  // as live as a secret key (sk_); checking only sk_live_ labelled a live run
+  // "test mode" and skipped the warning below.
+  const live = /^(sk|rk)_live_/.test(key);
   if (live) {
     console.log(
       `\n${"!".repeat(72)}\n` +

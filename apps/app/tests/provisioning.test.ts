@@ -37,7 +37,7 @@ function validRequest(overrides: Partial<ProvisionRequest> = {}): ProvisionReque
     platform: "none",
     attributionMode: "estimated",
     averageTreatmentValueUsd: 550,
-    plan: "chat-voice",
+    plan: "web-voice",
     contactName: "Alex Chen",
     contactEmail: "alex@radiance.test",
     // A real uuid: validation only checks the shape, and the database check
@@ -140,25 +140,18 @@ describe("provision request validation", () => {
     ).toThrow(/specialty/i);
   });
 
-  test("rejects a billing interval or chat choice the catalog does not sell", () => {
+  test("rejects a billing interval the catalog does not sell", () => {
     expect(() =>
       validateProvisionRequest(
         validRequest({ billingInterval: "week" as never }),
       ),
     ).toThrow(/billing interval/i);
     expect(() =>
-      validateProvisionRequest(
-        validRequest({ chatChannelChoice: "sms" as never }),
-      ),
-    ).toThrow(/chat channel/i);
-    expect(() =>
       validateProvisionRequest(validRequest({ stripeSubscriptionId: "" })),
     ).toThrow(/stripeSubscriptionId/);
-    // Both optional: every caller that predates them still validates.
+    // Optional: every caller that predates it still validates.
     expect(() =>
-      validateProvisionRequest(
-        validRequest({ billingInterval: "year", chatChannelChoice: "meta" }),
-      ),
+      validateProvisionRequest(validRequest({ billingInterval: "year" })),
     ).not.toThrow();
   });
 });
@@ -295,7 +288,7 @@ describeDb("provisioning", () => {
     expect(clinic.attribution_mode).toBe("estimated");
     expect(clinic.booking_provider).toBeNull();
     expect(clinic.average_treatment_value_usd).toBe("550.00");
-    expect(clinic.plan).toBe("chat-voice");
+    expect(clinic.plan).toBe("web-voice");
 
     // Always synthetic at creation, whatever the buyer ticked. Moving to
     // production requires a signed BAA and is a separate, deliberate act.
@@ -490,9 +483,8 @@ describeDb("provisioning", () => {
         clinicName: "Entitled Clinic",
         contactEmail: "ent@example.test",
         agreementId: await signFor("Entitled Clinic", "ent@example.test"),
-        plan: "chat-voice",
+        plan: "meta-voice",
         billingInterval: "year",
-        chatChannelChoice: "meta",
         stripeCustomerId: "cus_provisioned",
         stripeSubscriptionId: "sub_provisioned",
       }),
@@ -501,14 +493,13 @@ describeDb("provisioning", () => {
     const row = await readEntitlements(result.clinicId);
     // A subscription to wait on: the first invoice.paid activates it.
     expect(row.status).toBe("provisioning");
-    expect(row.plan_code).toBe("chat-voice");
+    expect(row.plan_code).toBe("meta-voice");
     expect(row.billing_interval).toBe("year");
     expect(row.stripe_customer_id).toBe("cus_provisioned");
     expect(row.stripe_subscription_id).toBe("sub_provisioned");
     expect(row.included_voice_minutes).toBe(1_000);
     expect(row.included_chat_conversations).toBe(1_000);
-    // "Web OR Meta + Voice", and the buyer chose Meta.
-    expect(row.chat_channel_choice).toBe("meta");
+    // Meta + Voice: the package id alone says which chat channel.
     expect(row.channels_enabled).toEqual({ web: false, meta: true, voice: true });
     // Nothing paid yet; the first invoice sets this.
     expect(row.setup_fee_paid_usd).toBe("0.00");
@@ -520,21 +511,19 @@ describeDb("provisioning", () => {
         clinicName: "Dev Path Clinic",
         contactEmail: "dev@example.test",
         agreementId: await signFor("Dev Path Clinic", "dev@example.test"),
-        plan: "chat-single",
+        plan: "chat-web",
       }),
     );
 
     const row = await readEntitlements(result.clinicId);
     // Nothing will ever arrive to activate it, so it starts there.
     expect(row.status).toBe("active");
-    expect(row.plan_code).toBe("chat-single");
+    expect(row.plan_code).toBe("chat-web");
     expect(row.billing_interval).toBe("month");
     expect(row.stripe_customer_id).toBeNull();
     expect(row.stripe_subscription_id).toBeNull();
     expect(row.included_voice_minutes).toBe(0);
     expect(row.included_chat_conversations).toBe(1_000);
-    // A choice package with no choice sent defaults to web.
-    expect(row.chat_channel_choice).toBe("web");
     expect(row.channels_enabled).toEqual({ web: true, meta: false, voice: false });
   });
 
@@ -562,7 +551,6 @@ async function readEntitlements(clinicId: string): Promise<{
   stripe_subscription_id: string | null;
   included_voice_minutes: number;
   included_chat_conversations: number;
-  chat_channel_choice: string | null;
   channels_enabled: { web: boolean; meta: boolean; voice: boolean };
   setup_fee_paid_usd: string;
 }> {

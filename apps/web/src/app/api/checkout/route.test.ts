@@ -37,7 +37,7 @@ const VALID = {
   platform: "none",
   attributionMode: "estimated",
   averageTreatmentValueUsd: 550,
-  plan: "chat-single",
+  plan: "chat-web",
   contactName: "Alex Chen",
   contactEmail: "alex@example.com",
   phoneSystemType: "unknown",
@@ -109,34 +109,34 @@ describe("POST /api/checkout validates the billing terms", () => {
     expect(sent.billingInterval).toBe("year");
   });
 
-  test("a Web OR Meta package validates the chat channel and defaults to web", async () => {
-    const bad = await post({ ...VALID, chatChannelChoice: "sms" });
-    expect(bad.status).toBe(422);
-    expect(((await bad.json()) as { field: string }).field).toBe(
-      "chatChannelChoice",
-    );
-
-    const defaulted = await post(VALID);
-    expect(defaulted.status).toBe(201);
-    const sent = forwarded(0);
-    expect(sent.chatChannelChoice).toBe("web");
-
-    const meta = await post({ ...VALID, chatChannelChoice: "meta" });
-    expect(meta.status).toBe(201);
-    const sentMeta = forwarded(1);
-    expect(sentMeta.chatChannelChoice).toBe("meta");
+  test("a package id is required; a pricing card's id is not a package", async () => {
+    // The browser resolves the "Web OR Meta" card to one of its two packages
+    // before posting. A card id reaching the route is a stale page or a hand-
+    // made request, and guessing which twin it meant would guess a channel.
+    const card = await post({ ...VALID, plan: "chat-single" });
+    expect(card.status).toBe(422);
+    expect(((await card.json()) as { field: string }).field).toBe("plan");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("a package without the choice drops a stray chat channel", async () => {
-    const response = await post({
-      ...VALID,
-      plan: "complete",
-      chatChannelChoice: "meta",
-    });
+  test("both Meta packages are on sale, Meta Chatbot included", async () => {
+    const alone = await post({ ...VALID, plan: "chat-meta" });
+    expect(alone.status).toBe(201);
+    expect(forwarded(0).plan).toBe("chat-meta");
+
+    const withPhone = await post({ ...VALID, plan: "meta-voice" });
+    expect(withPhone.status).toBe(201);
+    expect(forwarded(1).plan).toBe("meta-voice");
+  });
+
+  test("a stray chat channel from an old page is dropped, never forwarded", async () => {
+    // The package id alone says which channels a clinic has; a field beside it
+    // could only ever disagree with it.
+    const response = await post({ ...VALID, plan: "web-voice", chatChannelChoice: "meta" });
     expect(response.status).toBe(201);
     const sent = forwarded(0);
     expect(sent.chatChannelChoice).toBeUndefined();
-    expect(sent.plan).toBe("complete");
+    expect(sent.plan).toBe("web-voice");
   });
 
   test("refuses a checkout with no signed agreement before anything is created", async () => {

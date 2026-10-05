@@ -13,11 +13,7 @@ import { eq, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import { organization } from "@/db/auth-schema";
-import {
-  clinics,
-  provisioningAttempts,
-  type ChatChannelChoice,
-} from "@/db/schema";
+import { clinics, provisioningAttempts } from "@/db/schema";
 
 import { bindAgreement } from "./agreements";
 import { AuditRecorder } from "./audit";
@@ -25,7 +21,7 @@ import { seedAgentConfig } from "./onboarding/agent-config";
 import { addRecipient } from "./reporting/recipients";
 import { recordSecurityEvent } from "./audit";
 import type { RequestContext } from "./audit";
-import { isChatChannelChoice, seedEntitlements } from "./billing/entitlements";
+import { seedEntitlements } from "./billing/entitlements";
 import { replayParkedBillingEvents } from "./billing/events";
 
 /**
@@ -132,12 +128,6 @@ export type ProvisionRequest = {
    * caller that predates annual pricing sends.
    */
   billingInterval?: BillingInterval;
-  /**
-   * For a "Web OR Meta" package, which chat channel the buyer picked. Ignored
-   * for packages that do not offer the choice; defaulted to web when the
-   * package does and nothing was sent (see lib/billing/entitlements.ts).
-   */
-  chatChannelChoice?: ChatChannelChoice;
   timezone?: string;
 
   /**
@@ -242,12 +232,6 @@ export function validateProvisionRequest(
     !isBillingInterval(body.billingInterval)
   ) {
     throw new ProvisioningError("Invalid billing interval.", "billingInterval");
-  }
-  if (
-    body.chatChannelChoice !== undefined &&
-    !isChatChannelChoice(body.chatChannelChoice)
-  ) {
-    throw new ProvisioningError("Invalid chat channel choice.", "chatChannelChoice");
   }
   // Shape only. Whether they name a real customer is Stripe's business; the
   // partial unique indexes on entitlements refuse a second clinic on the same
@@ -527,7 +511,6 @@ async function provisionOnce({
     const billingStatus = await seedEntitlements(tx, clinicId, {
       plan: getPlan(request.plan)!,
       interval: request.billingInterval ?? "month",
-      chatChannelChoice: request.chatChannelChoice,
       stripeCustomerId: request.stripeCustomerId,
       stripeSubscriptionId: request.stripeSubscriptionId,
     });

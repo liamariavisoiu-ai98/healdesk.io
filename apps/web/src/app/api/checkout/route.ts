@@ -9,7 +9,6 @@ import {
 import { createCheckout, isBillingConfigured, isProductionDeployment } from "@/lib/billing";
 import { isCampaignCode } from "@/lib/attribution";
 import { cohortCreditLive, findLeadById, markCheckoutStarted } from "@/lib/leads";
-import { type ChatChannelChoice, isChatChannelChoice } from "@/lib/pricing";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 
 /**
@@ -89,8 +88,8 @@ export async function POST(request: Request): Promise<Response> {
   /**
    * The billing terms, validated here on BOTH paths.
    *
-   * apps/app validates the plan again, but the interval and the chat-channel
-   * choice decide what Stripe charges and what provisioning enables, and the
+   * apps/app validates the plan again, but the package and the interval
+   * decide what Stripe charges and what provisioning enables, and the
    * place to refuse a value the catalog does not know is before either of
    * those has happened. A missing interval is monthly, which is what every
    * button that does not say otherwise has always meant; a wrong one is an
@@ -112,28 +111,14 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  // Only a package sold as "Web OR Meta" carries a choice. For every other
-  // package the field is dropped rather than validated, so a stray value can
-  // never reach provisioning and enable a channel the package does not include.
-  let chatChannelChoice: ChatChannelChoice | undefined;
-  if (plan.chatChannelChoice) {
-    const chosen = payload.chatChannelChoice ?? "web";
-    if (!isChatChannelChoice(chosen)) {
-      return Response.json(
-        { error: "Unknown chat channel.", field: "chatChannelChoice" },
-        { status: 422 },
-      );
-    }
-    chatChannelChoice = chosen;
-  }
-
   // The browser's spelling is replaced by the validated terms under the names
   // provisioning reads, so the paid path (via Session metadata) and the unpaid
-  // path below deliver the same shape.
+  // path below deliver the same shape. The package id alone says which
+  // channels it includes, so nothing else about channels is passed on, and a
+  // stray `chatChannelChoice` from an old page is dropped rather than trusted.
   delete payload.interval;
   delete payload.chatChannelChoice;
   payload.billingInterval = chosenInterval;
-  if (chatChannelChoice) payload.chatChannelChoice = chatChannelChoice;
 
   /**
    * The signed agreement, required before anybody can pay.
@@ -194,7 +179,6 @@ export async function POST(request: Request): Promise<Response> {
       const checkout = await createCheckout({
         plan,
         interval: chosenInterval,
-        chatChannelChoice,
         clinicName: String(payload.clinicName ?? ""),
         contactEmail,
         provisionPayload: payload,

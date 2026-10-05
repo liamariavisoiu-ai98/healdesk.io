@@ -12,7 +12,6 @@ import {
   entitlements,
   type BillingStatus,
   type ChannelsEnabled,
-  type ChatChannelChoice,
   type Entitlements,
 } from "@/db/schema";
 
@@ -65,13 +64,6 @@ import {
  * annual renewal invoice re-anchors the window from the invoice.
  */
 
-/** Which chat channel a "Web OR Meta" package enables when the buyer did not say. */
-const DEFAULT_CHAT_CHOICE: ChatChannelChoice = "web";
-
-export function isChatChannelChoice(value: unknown): value is ChatChannelChoice {
-  return value === "web" || value === "meta";
-}
-
 /**
  * Thrown when a write finds no row for the clinic. Under RLS this is also
  * what a write aimed at the WRONG clinic looks like — zero rows updated — so
@@ -85,35 +77,22 @@ export class EntitlementsNotFoundError extends Error {
 }
 
 /**
- * The channels a package turns on, honouring the chat-channel choice.
+ * The channels a package turns on: exactly the ones the catalog lists for it.
  *
- * A `chatChannelChoice` package lists both web and meta in the catalog because
- * either CAN be provisioned; the buyer picked one at checkout and only that
- * one is enabled. When no choice reached us, web: it needs nothing from the
- * clinic to switch on, where Meta needs a Business connection that is set up
- * after payment, and an agent that answers on the website from day one is a
- * better default than one that waits on Meta's approval queue.
+ * There is no choice to honour any more. Website chat or the Meta bot, where a
+ * buyer picks one, is two packages since 5 October 2026 (catalog header), so
+ * the package id alone decides, and a plan change through Stripe's Customer
+ * Portal between the two moves the channel with it.
  */
-export function channelsFor(
-  plan: Plan,
-  chatChannelChoice?: ChatChannelChoice | null,
-): ChannelsEnabled {
+export function channelsFor(plan: Plan): ChannelsEnabled {
   const enabled: ChannelsEnabled = { web: false, meta: false, voice: false };
   for (const channel of channelList(plan)) enabled[channel] = true;
-
-  if (plan.chatChannelChoice) {
-    const chosen = chatChannelChoice ?? DEFAULT_CHAT_CHOICE;
-    enabled.web = chosen === "web";
-    enabled.meta = chosen === "meta";
-  }
   return enabled;
 }
 
 export type SeedEntitlementsInput = {
   plan: Plan;
   interval: BillingInterval;
-  /** Only honoured for a `chatChannelChoice` package; ignored otherwise. */
-  chatChannelChoice?: ChatChannelChoice | null;
   stripeCustomerId?: string | null;
   stripeSubscriptionId?: string | null;
 };
@@ -135,9 +114,6 @@ export async function seedEntitlements(
   const status: BillingStatus = input.stripeSubscriptionId
     ? "provisioning"
     : "active";
-  const chatChannelChoice = input.plan.chatChannelChoice
-    ? (input.chatChannelChoice ?? DEFAULT_CHAT_CHOICE)
-    : null;
 
   await db.insert(entitlements).values({
     clinicId,
@@ -146,8 +122,7 @@ export async function seedEntitlements(
     planCode: input.plan.id,
     billingInterval: input.interval,
     status,
-    channelsEnabled: channelsFor(input.plan, chatChannelChoice),
-    chatChannelChoice,
+    channelsEnabled: channelsFor(input.plan),
     includedVoiceMinutes: input.plan.includedVoiceMinutes,
     includedChatConversations: input.plan.includedChatConversations,
   });
@@ -355,15 +330,10 @@ export async function applyPlanChange(
     current.planCode !== plan.id || current.billingInterval !== interval;
   if (!changed) return { changed: false };
 
-  const chatChannelChoice = plan.chatChannelChoice
-    ? (current.chatChannelChoice ?? DEFAULT_CHAT_CHOICE)
-    : null;
-
   await updateOrThrow(db, clinicId, {
     planCode: plan.id,
     billingInterval: interval,
-    channelsEnabled: channelsFor(plan, chatChannelChoice),
-    chatChannelChoice,
+    channelsEnabled: channelsFor(plan),
     includedVoiceMinutes: plan.includedVoiceMinutes,
     includedChatConversations: plan.includedChatConversations,
   });

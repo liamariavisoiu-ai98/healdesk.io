@@ -9,7 +9,6 @@ import {
 } from "@healdesk/catalog";
 import Stripe from "stripe";
 
-import type { ChatChannelChoice } from "@/lib/pricing";
 import { normalizeSiteUrl } from "@/lib/site";
 
 /**
@@ -93,8 +92,8 @@ import { normalizeSiteUrl } from "@/lib/site";
  * customer, which is under the limit only until someone signs up with a long
  * practice name and a hyphenated surname. Per-field, the largest value is
  * `clinicName` at 120 and `contactEmail` at 254, both with room to spare, and
- * 14 keys against a limit of 50 now that `billingInterval` and
- * `chatChannelChoice` ride along with `plan`.
+ * 13 keys against a limit of 50 now that `billingInterval` rides along with
+ * `plan`. Which chat channel a clinic has is part of the package id itself.
  *
  * It is business contact data, a clinic's name, its owner's work email, not
  * patient data, and Stripe already receives the email as the customer record.
@@ -108,7 +107,7 @@ import { normalizeSiteUrl } from "@/lib/site";
  * events, both verified in app/api/webhooks/stripe and relayed to apps/app:
  *
  *   1. `checkout.session.completed` records the account. The webhook forwards
- *      this metadata, `billingInterval` and `chatChannelChoice` included, to
+ *      this metadata, `billingInterval` included, to
  *      apps/app, which creates the clinic in the `provisioning` billing state.
  *      Nothing is active at this point.
  *   2. The first invoice's `invoice.paid` (`billing_reason:
@@ -128,12 +127,6 @@ import { normalizeSiteUrl } from "@/lib/site";
 export type CheckoutIntent = {
   plan: Plan;
   interval: BillingInterval;
-  /**
-   * Only meaningful for a package with `chatChannelChoice`, where the buyer
-   * picked which chat channel provisioning should enable. Omitted otherwise,
-   * so the metadata never carries a choice the package does not offer.
-   */
-  chatChannelChoice?: ChatChannelChoice;
   clinicName: string;
   contactEmail: string;
   /** Field-per-key on the Session; read back by the webhook. */
@@ -269,7 +262,6 @@ export async function createCheckout(
     ...intent.provisionPayload,
     plan: intent.plan.id,
     billingInterval: intent.interval,
-    chatChannelChoice: intent.chatChannelChoice,
   });
 
   // All looked up by the stable keys the setup script writes, so pricing lives

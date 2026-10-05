@@ -1,7 +1,7 @@
 /**
  * Billing packages.
  *
- * Five packages, priced by CHANNEL rather than by minutes alone, because the
+ * Seven packages, priced by CHANNEL rather than by minutes alone, because the
  * cost driver differs per channel: voice minutes are metered by the vendor,
  * chat conversations are metered by LLM tokens. Each package therefore carries
  * two allowances and two overage rates, and a package with no voice has a zero
@@ -30,7 +30,7 @@
  * ## Overage rates are a judgement until measured
  *
  * Past the allowance a package bills $0.80 a voice minute, and $0.40 a chat
- * conversation on the single-channel chat package (`chat-single`) or $0.30 on
+ * conversation on the single-channel chat packages (`chat-web`, `chat-meta`) or $0.30 on
  * every other package with chat. The owner set these on 5 October 2026,
  * replacing the $0.35 and $0.25 signed off on 21 September, before any cost
  * had been measured. They are still a judgement, not a measurement: the spec
@@ -109,6 +109,20 @@
  * (docs/handover.md), and the pricing page makes no promise about it either
  * way.
  *
+ * ## Seven packages, five cards
+ *
+ * Two price points sell either website chat or the Meta bot, the buyer's
+ * pick: $397 for chat alone and $897 with the phone. Since 5 October 2026
+ * each pick is its own package — Web Chatbot and Meta Chatbot, Web + Voice
+ * and Meta + Voice — with its own Stripe product, rather than one package
+ * carrying a separate "which chat channel" field. The package id alone then
+ * says which channels a clinic has, so nothing can disagree with it: a switch
+ * between the two in Stripe's Customer Portal is a plan change like any
+ * other, where a field beside the plan would have kept the old channel. The
+ * twins are priced identically (plans.test.ts holds them to it), and the
+ * pricing page still shows five cards; `pricingCards` groups each pair into
+ * one, and checkout's chat-channel question picks the package within it.
+ *
  * See docs/v1-product-spec.md → "Unit economics and infrastructure".
  */
 
@@ -135,12 +149,6 @@ export type Plan = {
    * two. Meta bills the clinic directly for WhatsApp; see the header.
    */
   channels: { web: boolean; meta: boolean; voice: boolean };
-  /**
-   * True when the package includes ONE of web or meta and the buyer chooses
-   * which at onboarding ("Web OR Meta"). `channels` then lists both as
-   * available and provisioning enables only the one chosen.
-   */
-  chatChannelChoice: boolean;
   monthlyUsd: number;
   /** Per-month price when billed annually. The annual invoice is 12× this. */
   annualMonthlyUsd: number;
@@ -159,7 +167,6 @@ export type Plan = {
    * exists yet, so nobody can buy a second location at checkout.
    */
   locations: number;
-  highlight?: string;
 };
 
 /**
@@ -181,10 +188,10 @@ const CHAT_OVERAGE = 0.3;
  *
  * Offered in the Day 7 nurture email and honoured at checkout as one Stripe
  * coupon per package whose `amount_off` is that package's own setup fee, so
- * the credit IS the fee ($497 for the single-channel chat package, $997 for
+ * the credit IS the fee ($497 for the single-channel chat packages, $997 for
  * the rest) and the subscription is untouched. The copy therefore says "the
  * setup fee in full" and quotes the range, never one round number that is
- * right for one package and wrong for four. It is valid for the fourteen
+ * right for some packages and wrong for the others. It is valid for the fourteen
  * days after the email that offers it, tied to the lead it was sent to, and
  * never applied from a URL parameter alone.
  */
@@ -198,10 +205,22 @@ export const COHORT_SETUP_CREDIT = {
 
 export const plans: readonly Plan[] = [
   {
-    id: "chat-single",
-    name: "Web OR Meta Chatbot",
-    channels: { web: true, meta: true, voice: false },
-    chatChannelChoice: true,
+    id: "chat-web",
+    name: "Web Chatbot",
+    channels: { web: true, meta: false, voice: false },
+    monthlyUsd: 397,
+    annualMonthlyUsd: 317,
+    setupFeeUsd: 497,
+    includedVoiceMinutes: 0,
+    includedChatConversations: 1_000,
+    overagePerVoiceMinuteUsd: 0,
+    overagePerChatConversationUsd: CHAT_OVERAGE_SINGLE_CHANNEL,
+    locations: 1,
+  },
+  {
+    id: "chat-meta",
+    name: "Meta Chatbot",
+    channels: { web: false, meta: true, voice: false },
     monthlyUsd: 397,
     annualMonthlyUsd: 317,
     setupFeeUsd: 497,
@@ -215,7 +234,6 @@ export const plans: readonly Plan[] = [
     id: "voice",
     name: "AI Voice Agent Alone",
     channels: { web: false, meta: false, voice: true },
-    chatChannelChoice: false,
     monthlyUsd: 797,
     annualMonthlyUsd: 637,
     setupFeeUsd: 997,
@@ -229,7 +247,6 @@ export const plans: readonly Plan[] = [
     id: "chat-dual",
     name: "Web + Meta Chatbot",
     channels: { web: true, meta: true, voice: false },
-    chatChannelChoice: false,
     monthlyUsd: 597,
     annualMonthlyUsd: 477,
     setupFeeUsd: 997,
@@ -240,10 +257,9 @@ export const plans: readonly Plan[] = [
     locations: 1,
   },
   {
-    id: "chat-voice",
-    name: "Web OR Meta + Voice",
-    channels: { web: true, meta: true, voice: true },
-    chatChannelChoice: true,
+    id: "web-voice",
+    name: "Web + Voice",
+    channels: { web: true, meta: false, voice: true },
     monthlyUsd: 897,
     annualMonthlyUsd: 717,
     setupFeeUsd: 997,
@@ -252,13 +268,24 @@ export const plans: readonly Plan[] = [
     overagePerVoiceMinuteUsd: VOICE_OVERAGE,
     overagePerChatConversationUsd: CHAT_OVERAGE,
     locations: 1,
-    highlight: "Most clinics",
+  },
+  {
+    id: "meta-voice",
+    name: "Meta + Voice",
+    channels: { web: false, meta: true, voice: true },
+    monthlyUsd: 897,
+    annualMonthlyUsd: 717,
+    setupFeeUsd: 997,
+    includedVoiceMinutes: 1_000,
+    includedChatConversations: 1_000,
+    overagePerVoiceMinuteUsd: VOICE_OVERAGE,
+    overagePerChatConversationUsd: CHAT_OVERAGE,
+    locations: 1,
   },
   {
     id: "complete",
     name: "Complete FrontDesk AI",
     channels: { web: true, meta: true, voice: true },
-    chatChannelChoice: false,
     monthlyUsd: 1_197,
     annualMonthlyUsd: 957,
     setupFeeUsd: 997,
@@ -276,6 +303,83 @@ export function getPlan(id: string): Plan | undefined {
 
 export function isPlanId(id: unknown): id is string {
   return typeof id === "string" && plans.some((p) => p.id === id);
+}
+
+/** The chat channel a buyer picks on a card that sells one or the other. */
+export type ChatChannel = Exclude<Channel, "voice">;
+
+export function isChatChannel(value: unknown): value is ChatChannel {
+  return value === "web" || value === "meta";
+}
+
+/**
+ * One card on the pricing page and in checkout: a package, or a pair of
+ * packages that differ only in which chat channel they include.
+ *
+ * The pair is offered as one card ("Web OR Meta Chatbot") because the buyer
+ * is choosing a price point first and a channel second, and two cards with
+ * the same price and the same allowances read as a mistake. A card's id is
+ * what a `?plan=` link may carry, alongside a package id; the two twin cards
+ * keep the ids their packages had before the split, so links already sent
+ * still land on the right card. A card id is never stored and never reaches
+ * Stripe or apps/app: checkout resolves it to a package with
+ * `planForCard()` first.
+ */
+export type PricingCard = {
+  id: string;
+  name: string;
+  /** One package, or two: the web twin first, then the Meta twin. */
+  planIds: readonly [string] | readonly [string, string];
+  highlight?: string;
+};
+
+export const pricingCards: readonly PricingCard[] = [
+  { id: "chat-single", name: "Web OR Meta Chatbot", planIds: ["chat-web", "chat-meta"] },
+  { id: "voice", name: "AI Voice Agent Alone", planIds: ["voice"] },
+  { id: "chat-dual", name: "Web + Meta Chatbot", planIds: ["chat-dual"] },
+  {
+    id: "chat-voice",
+    name: "Web OR Meta + Voice",
+    planIds: ["web-voice", "meta-voice"],
+    highlight: "Most clinics",
+  },
+  { id: "complete", name: "Complete FrontDesk AI", planIds: ["complete"] },
+] as const;
+
+export function getPricingCard(id: string): PricingCard | undefined {
+  return pricingCards.find((c) => c.id === id);
+}
+
+/** The card a package is sold from. Every package is on exactly one. */
+export function cardForPlan(plan: Plan): PricingCard {
+  const card = pricingCards.find((c) => c.planIds.includes(plan.id));
+  if (!card) throw new Error(`Package ${plan.id} is on no pricing card.`);
+  return card;
+}
+
+/** Whether the buyer picks website chat or the Meta bot on this card. */
+export function offersChatChoice(card: PricingCard): boolean {
+  return card.planIds.length === 2;
+}
+
+/**
+ * The package a card sells, given the chat channel picked. A card without the
+ * choice ignores `chat`; one with it defaults to the website, which goes live
+ * without waiting on anything from Meta.
+ */
+export function planForCard(card: PricingCard, chat: ChatChannel = "web"): Plan {
+  const id = card.planIds.length === 2 && chat === "meta" ? card.planIds[1] : card.planIds[0];
+  const plan = getPlan(id);
+  if (!plan) throw new Error(`Pricing card ${card.id} names unknown package ${id}.`);
+  return plan;
+}
+
+/**
+ * The chat channel a package stands for on its card: `meta` for the Meta twin
+ * of a pair, `web` for everything else.
+ */
+export function chatChannelOf(plan: Plan): ChatChannel {
+  return plan.channels.meta && !plan.channels.web ? "meta" : "web";
 }
 
 /** The recurring amount for one billing period, in whole dollars. */
@@ -335,7 +439,7 @@ export function stripeLookupKey(plan: Plan, kind: PriceKind): string {
  * The two account-wide meters. Each counts one unit past the allowance, by
  * Stripe customer, and backs one metered price per distinct overage rate:
  * today one voice price ($0.80) and two chat prices ($0.40 on the
- * single-channel chat package, $0.30 on the rest). A subscription carries the
+ * single-channel chat packages, $0.30 on the rest). A subscription carries the
  * price for its own package's rate, so the usage reporter sends every event
  * to the meter by `eventName` and never has to know the rate.
  */

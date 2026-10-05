@@ -64,6 +64,21 @@ const MODEL = "claude-5.5-sonnet";
 const VOICE_ID = "retell-Cimo";
 
 /**
+ * The smile, and only the smile. Expressive Mode with sighs, pauses and
+ * filler words was heard as "drunk"; with it off, steady settings were heard
+ * as "sleepy". So it is on with one tag, used where a hostess smiles, and an
+ * instruction that rules out everything that went wrong before.
+ */
+const EXPRESSIVE_TAGS = ["happy"];
+const EXPRESSIVE_GUIDANCE =
+  "Speak with a gentle, warm smile throughout, calm and bright. Use [happy] only on a greeting, a thank-you " +
+  "or good news, at most once every few turns. Never sigh, never pause for effect, never whisper, never sound " +
+  "excited, and never tag a price, a number or a name.";
+
+/** The opening is spoken with that smile; the tag is never read aloud. */
+const SMILE = "[happy] ";
+
+/**
  * Where Retell posts request_follow_up. The deployed site, never
  * NEXT_PUBLIC_SITE_URL: a local .env points that at localhost, which Retell's
  * servers cannot reach, and a tool that silently fails would leave AYA giving
@@ -146,7 +161,7 @@ function llmConfig(direction: VoiceDemoDirection) {
     // 3.7 seconds, and a demo call is the one place that cannot afford it.
     model_high_priority: true,
     start_speaker: "agent",
-    begin_message: llm.beginMessage,
+    begin_message: SMILE + llm.beginMessage,
     // One prompt, no states: a state change is a second model call on the
     // turn that crosses it (see the module header).
     general_prompt: llm.prompt,
@@ -164,17 +179,16 @@ function agentConfig(llmId: string, direction: VoiceDemoDirection) {
     response_engine: { type: "retell-llm", llm_id: llmId },
     voice_id: VOICE_ID,
     fallback_voice_ids: null,
-    // Off. Expressive Mode's sighs and pauses, with filler words and a speed
-    // that followed the caller, were heard as "drunk". A hostess is even.
-    enable_expressive_mode: false,
-    expressive_emotion_tags: [],
+    enable_expressive_mode: true,
+    expressive_emotion_tags: EXPRESSIVE_TAGS,
+    expressive_mode_prompt: EXPRESSIVE_GUIDANCE,
     language: "en-US",
-    // Steady and even. Full variation (temperature 1) and a speed that
-    // followed the caller made her sound unsteady; 0.6 kept her flat with the
-    // old voice. 0.75 sits between, at a constant natural speed.
-    voice_speed: 1,
-    volume: 0.9,
-    voice_temperature: 0.75,
+    // Between the two failures: temperature 1 with a caller-following speed
+    // was "drunk", 0.75 at speed 1 was "sleepy". A little brighter and a
+    // touch quicker than neutral, at a constant speed.
+    voice_speed: 1.06,
+    volume: 1,
+    voice_temperature: 0.9,
     enable_dynamic_voice_speed: false,
     // 1 is Retell's fastest: reply as soon as the turn is judged over. 0.8
     // added a wait that measured calls showed as about 0.4s of every pause.

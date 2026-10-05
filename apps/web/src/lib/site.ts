@@ -51,27 +51,12 @@ export const site = {
   agent: "AYA",
 
   /**
-   * The hero's headline and its supporting line. One claim each, and both
-   * have to survive the footer's commitments. In v1 AYA books: she writes the
-   * appointment into the clinic's Google Calendar during the conversation,
-   * and "Auto-confirm bookings" is on by default. A clinic that turns it off,
-   * or whose booking system does not read Google for conflicts, gets each
-   * booking as a request its staff approve instead (docs/v1-product-spec.md,
-   * "Every switch in the portal"). So the copy says "books", and says where.
-   * Deposits are taken in chat, never on the phone, so the deposit clause
-   * says "in chat". The supporting line carries who answers, when, what she
-   * handles, what she books, and where she sends the rest, after the
-   * reception.ai hero of 23 September 2026. The headline itself is the
-   * owner's: reliability is the promise, and the paragraph under it is the
-   * evidence.
+   * The hero's headline. One claim, and it has to survive the footer's
+   * commitments. The headline is the owner's: reliability is the promise. The
+   * supporting paragraph that sat under it was removed on the owner's word on
+   * 5 October 2026, so the hero makes this one claim and nothing else.
    */
   tagline: "An AI front desk you can rely on.",
-  subtitle:
-    "AYA answers your phone, website chat, Instagram, Messenger and WhatsApp, " +
-    "day or night. She knows your services, prices and hours, books patients " +
-    "straight into your calendar during the conversation, takes the deposit in " +
-    "chat where you want one, and routes anything clinical to the right person " +
-    "on your team.",
 
   /**
    * The site-wide meta description, the Open Graph and Twitter description,

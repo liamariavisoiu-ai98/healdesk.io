@@ -4,7 +4,7 @@ import { BuyButton, useBuy } from "@/components/BuyModal";
 import { site } from "@/lib/site";
 
 /**
- * The banner: the claim, one supporting line, and the two ways in.
+ * The banner: the claim and the two ways in.
  *
  * ## What it replaced, and why
  *
@@ -17,10 +17,11 @@ import { site } from "@/lib/site";
  *
  * What is left follows the references the owner chose, reception.ai for
  * structure and jasper.ai for identity: an announcement bar, the claim in one
- * serif heading, one supporting paragraph and two buttons, centred because
- * there is no second column to balance it. The heading and paragraph are
- * `site.tagline` and `site.subtitle`, which the <title> and the share card
- * also use, so the page and its preview always make the same claim.
+ * serif heading and two buttons, centred because there is no second column to
+ * balance it. On 5 October 2026 the owner removed the supporting paragraph
+ * that sat under the heading. The heading is `site.tagline`, which the <title>
+ * and the share card also use, so the page and its preview always make the
+ * same claim.
  */
 export function HeroStage() {
   const buy = useBuy();
@@ -67,11 +68,7 @@ export function HeroStage() {
           {site.tagline}
         </h1>
 
-        <p className="text-muted mx-auto mt-6 max-w-[60ch] text-[clamp(17px,1.3vw,19.5px)] leading-[1.55] font-medium">
-          {site.subtitle}
-        </p>
-
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-3 lg:mt-10">
           <BuyButton className="px-6 py-3.5 text-base" />
           <a href={site.cta.secondary.href} className="btn-outline px-6 py-3.5 text-base">
             {site.cta.secondary.label}

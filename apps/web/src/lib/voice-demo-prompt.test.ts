@@ -3,10 +3,12 @@ import { describe, expect, test } from "vitest";
 
 import {
   VOICE_DEMO_GENERAL_PROMPT,
+  VOICE_DEMO_INBOUND_OPENING,
   VOICE_DEMO_OPENING,
   VOICE_DEMO_PRICES,
   VOICE_DEMO_STATES,
   VOICE_DEMO_VARIABLES,
+  voiceDemoLlm,
   voiceDemoPromptText,
   voiceDemoVariables,
 } from "./voice-demo-prompt";
@@ -47,15 +49,49 @@ describe("the demo call opens the way the product must", () => {
   });
 });
 
-describe("the stages", () => {
-  test("every variable has a value on every call, including dashboard tests", () => {
-    const used = [...voiceDemoPromptText().matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]!);
-    expect(used.length).toBeGreaterThan(0);
-    for (const name of used) {
-      if (SYSTEM_VARIABLES.has(name)) continue;
-      expect(Object.keys(VOICE_DEMO_VARIABLES)).toContain(name);
-    }
+describe("the demo line, when an owner calls her", () => {
+  test("its opening says AI assistant, healdesk and transcribed, and nothing more", () => {
+    expect(VOICE_DEMO_INBOUND_OPENING).toMatch(/^Thanks for calling healdesk\. I'm \w+, an AI assistant\./);
+    expect(VOICE_DEMO_INBOUND_OPENING).toMatch(/This call is transcribed/);
+    expect(VOICE_DEMO_INBOUND_OPENING.split(/\s+/).length).toBeLessThanOrEqual(20);
+    expect(VOICE_DEMO_INBOUND_OPENING).not.toMatch(/record|AYA/);
   });
+
+  test("it opens the inbound agent, and the outbound agent keeps its own", () => {
+    expect(voiceDemoLlm("inbound").beginMessage).toBe(VOICE_DEMO_INBOUND_OPENING);
+    expect(voiceDemoLlm("outbound").beginMessage).toBe(VOICE_DEMO_OPENING);
+    const inbound = flat(voiceDemoPromptText("inbound"));
+    expect(inbound).not.toContain("Did you ask for a demo?");
+    expect(inbound).toContain("A patient trying to reach their own clinic");
+  });
+
+  test("it carries every rule the outbound call does", () => {
+    const inbound = flat(voiceDemoPromptText("inbound"));
+    for (const line of [
+      "I'll take you off. Sorry to have bothered you.",
+      "Never invent or hint at a discount, credit, guarantee or contract term.",
+      "unless request_follow_up said it was sent.",
+      "Never call anything revenue.",
+    ]) {
+      expect(inbound).toContain(line);
+    }
+    expect(inbound).not.toContain("!");
+  });
+});
+
+describe("the stages", () => {
+  test.each(["outbound", "inbound"] as const)(
+    "every variable has a value on every %s call, including dashboard tests",
+    (direction) => {
+      const used = [...voiceDemoPromptText(direction).matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]!);
+      expect(used.length).toBeGreaterThan(0);
+      const defaults = Object.keys(voiceDemoLlm(direction).defaults);
+      for (const name of used) {
+        if (SYSTEM_VARIABLES.has(name)) continue;
+        expect(defaults).toContain(name);
+      }
+    },
+  );
 
   test("the close receives what discovery found", () => {
     const into = VOICE_DEMO_STATES.find((s) => s.name === "discovery")!.edges.find((e) => e.to === "close")!;

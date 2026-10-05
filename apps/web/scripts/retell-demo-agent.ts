@@ -1,13 +1,21 @@
 /**
- * Create or update AYA's demo-call agent in Retell from the repo.
+ * Create or update AYA's two demo agents in Retell from the repo, and bind
+ * the demo number to them.
  *
  *   npm run retell:demo -w @healdesk/web -- --dry-run   # print, no calls
  *   npm run retell:demo -w @healdesk/web                # create, then update
  *
- * With RETELL_DEMO_AGENT_ID unset it creates a Retell LLM and an agent and
- * prints the agent id to set. With it set it updates that agent's draft and
- * its LLM in place, so a catalog price change reaches the call by re-running
- * this, not by editing a prompt in the dashboard (see lib/voice-demo-prompt.ts).
+ * Two agents from one prompt module (lib/voice-demo-prompt.ts):
+ *
+ *   - outbound, RETELL_DEMO_AGENT_ID: the call an owner asks for on the site.
+ *   - inbound, RETELL_DEMO_INBOUND_AGENT_ID: the demo line printed on the
+ *     site (site.demoLine), which owners dial themselves.
+ *
+ * An unset id creates that agent and prints the id to set; a set one updates
+ * the agent's draft and its LLM in place, so a catalog price change reaches
+ * both calls by re-running this, not by editing a prompt in the dashboard.
+ * With RETELL_DEMO_FROM_NUMBER set it also binds the number: answered by the
+ * inbound agent, dialling out as the outbound one, US and Canada only.
  *
  * ## This is the marketing demo, not the product
  *
@@ -29,16 +37,17 @@
  *     "um" is performing being human.
  */
 
-import {
-  VOICE_DEMO_GENERAL_PROMPT,
-  VOICE_DEMO_OPENING,
-  VOICE_DEMO_STATES,
-  VOICE_DEMO_VARIABLES,
-  type VoiceDemoState,
-} from "../src/lib/voice-demo-prompt";
+import { type VoiceDemoDirection, type VoiceDemoState, voiceDemoLlm } from "../src/lib/voice-demo-prompt";
 
 const API = "https://api.retellai.com";
-const AGENT_NAME = "healdesk demo call (AYA)";
+const AGENT_NAME: Record<VoiceDemoDirection, string> = {
+  outbound: "healdesk demo call (AYA)",
+  inbound: "healdesk demo line (AYA, inbound)",
+};
+const AGENT_ID_VAR: Record<VoiceDemoDirection, string> = {
+  outbound: "RETELL_DEMO_AGENT_ID",
+  inbound: "RETELL_DEMO_INBOUND_AGENT_ID",
+};
 
 /**
  * Claude, as the chat demo is. Sonnet rather than Opus because a phone turn
@@ -141,27 +150,31 @@ function edge(e: VoiceDemoState["edges"][number]) {
   };
 }
 
-const llmConfig = {
-  model: MODEL,
-  model_temperature: 0.2,
-  start_speaker: "agent",
-  begin_message: VOICE_DEMO_OPENING,
-  general_prompt: VOICE_DEMO_GENERAL_PROMPT,
-  general_tools: [END_CALL],
-  starting_state: "greeting",
-  states: VOICE_DEMO_STATES.map((state) => ({
-    name: state.name,
-    state_prompt: state.prompt,
-    edges: state.edges.map(edge),
-    // Only the close can pass anything on, so only the close has the tool.
-    tools: state.name === "close" ? [REQUEST_FOLLOW_UP] : [],
-  })),
-  default_dynamic_variables: VOICE_DEMO_VARIABLES,
-};
-
-function agentConfig(llmId: string) {
+function llmConfig(direction: VoiceDemoDirection) {
+  const llm = voiceDemoLlm(direction);
   return {
-    agent_name: AGENT_NAME,
+    model: MODEL,
+    model_temperature: 0.2,
+    start_speaker: "agent",
+    begin_message: llm.beginMessage,
+    general_prompt: llm.generalPrompt,
+    general_tools: [END_CALL],
+    starting_state: "greeting",
+    states: llm.states.map((state) => ({
+      name: state.name,
+      state_prompt: state.prompt,
+      edges: state.edges.map(edge),
+      // Only the close can pass anything on, so only the close has the tool.
+      tools: state.name === "close" ? [REQUEST_FOLLOW_UP] : [],
+    })),
+    default_dynamic_variables: llm.defaults,
+  };
+}
+
+function agentConfig(llmId: string, direction: VoiceDemoDirection) {
+  const outbound = direction === "outbound";
+  return {
+    agent_name: AGENT_NAME[direction],
     response_engine: { type: "retell-llm", llm_id: llmId },
     voice_id: VOICE_ID,
     fallback_voice_ids: FALLBACK_VOICE_IDS,
@@ -175,7 +188,9 @@ function agentConfig(llmId: string) {
     interruption_sensitivity: 0.8,
     enable_backchannel: true,
     backchannel_frequency: 0.3,
-    begin_message_delay_ms: 800,
+    // Outbound waits for the callee to get the phone to their ear; the demo
+    // line answers as a front desk would, at once.
+    begin_message_delay_ms: outbound ? 800 : 0,
     reminder_trigger_ms: 8_000,
     reminder_max_count: 1,
     end_call_after_silence_ms: 20_000,
@@ -183,8 +198,9 @@ function agentConfig(llmId: string) {
     // wraps up from about nine minutes, so the cap never cuts a sentence on a
     // call that is going well; it only ends one that has gone wrong.
     max_call_duration_ms: 12 * 60_000,
-    voicemail_option: { action: { type: "hangup" } },
-    enable_dnc_detection: true,
+    // Only an outbound call can reach a voicemail or a "stop calling me".
+    voicemail_option: outbound ? { action: { type: "hangup" } } : null,
+    enable_dnc_detection: outbound,
     data_storage_setting: "basic_attributes_only",
     data_storage_retention_days: 30,
     opt_in_signed_url: true,
@@ -218,26 +234,18 @@ async function retell<T>(path: string, method: "GET" | "POST" | "PATCH", body?: 
   return JSON.parse(text) as T;
 }
 
-async function main(): Promise<void> {
-  if (dryRun) {
-    console.log(JSON.stringify({ llm: llmConfig, agent: agentConfig("<llm_id>") }, null, 2));
-    for (const state of llmConfig.states) {
-      const words = (llmConfig.general_prompt + state.state_prompt).split(/\s+/).length;
-      console.log(`Stage ${state.name}: about ${words} words a turn.`);
-    }
-    console.log("Nothing was sent.");
-    return;
-  }
-  if (!process.env.RETELL_API_KEY) throw new Error("RETELL_API_KEY is not set.");
-  if (!TOOL_ORIGIN.startsWith("https://")) throw new Error(`RETELL_DEMO_TOOL_ORIGIN must be https: ${TOOL_ORIGIN}`);
+const DIRECTIONS: readonly VoiceDemoDirection[] = ["outbound", "inbound"];
 
-  const agentId = process.env.RETELL_DEMO_AGENT_ID;
+/** Create or update one direction's LLM and agent. Returns the agent id. */
+async function upsert(direction: VoiceDemoDirection): Promise<string> {
+  const llm = llmConfig(direction);
+  const agentId = process.env[AGENT_ID_VAR[direction]];
   if (!agentId) {
-    const llm = await retell<{ llm_id: string }>("/create-retell-llm", "POST", llmConfig);
-    const agent = await retell<{ agent_id: string }>("/create-agent", "POST", agentConfig(llm.llm_id));
-    console.log(`Created LLM ${llm.llm_id} and agent ${agent.agent_id}.`);
-    console.log(`Set RETELL_DEMO_AGENT_ID=${agent.agent_id} to update it in place next time.`);
-    return;
+    const created = await retell<{ llm_id: string }>("/create-retell-llm", "POST", llm);
+    const agent = await retell<{ agent_id: string }>("/create-agent", "POST", agentConfig(created.llm_id, direction));
+    console.log(`Created ${direction} LLM ${created.llm_id} and agent ${agent.agent_id}.`);
+    console.log(`Set ${AGENT_ID_VAR[direction]}=${agent.agent_id} to update it in place next time.`);
+    return agent.agent_id;
   }
 
   const existing = await retell<{ response_engine?: { type?: string; llm_id?: string } }>(
@@ -248,9 +256,46 @@ async function main(): Promise<void> {
   if (existing.response_engine?.type !== "retell-llm" || !llmId) {
     throw new Error(`Agent ${agentId} does not run on a Retell LLM; refusing to overwrite it.`);
   }
-  await retell(`/update-retell-llm/${llmId}`, "PATCH", llmConfig);
-  await retell(`/update-agent/${agentId}`, "PATCH", agentConfig(llmId));
-  console.log(`Updated LLM ${llmId} and agent ${agentId} (draft).`);
+  await retell(`/update-retell-llm/${llmId}`, "PATCH", llm);
+  await retell(`/update-agent/${agentId}`, "PATCH", agentConfig(llmId, direction));
+  console.log(`Updated ${direction} LLM ${llmId} and agent ${agentId} (draft).`);
+  return agentId;
+}
+
+async function main(): Promise<void> {
+  if (dryRun) {
+    for (const direction of DIRECTIONS) {
+      const llm = llmConfig(direction);
+      console.log(`\n== ${direction}: ${llm.begin_message}`);
+      for (const state of llm.states) {
+        const words = (llm.general_prompt + state.state_prompt).split(/\s+/).length;
+        console.log(`Stage ${state.name}: about ${words} words a turn.`);
+      }
+    }
+    console.log("\nNothing was sent.");
+    return;
+  }
+  if (!process.env.RETELL_API_KEY) throw new Error("RETELL_API_KEY is not set.");
+  if (!TOOL_ORIGIN.startsWith("https://")) throw new Error(`RETELL_DEMO_TOOL_ORIGIN must be https: ${TOOL_ORIGIN}`);
+
+  const outbound = await upsert("outbound");
+  const inbound = await upsert("inbound");
+
+  const number = process.env.RETELL_DEMO_FROM_NUMBER;
+  if (!number) {
+    console.log("RETELL_DEMO_FROM_NUMBER is unset; no number bound.");
+    return;
+  }
+  await retell(`/update-phone-number/${encodeURIComponent(number)}`, "PATCH", {
+    nickname: "healdesk demo line (AYA)",
+    inbound_agents: [{ agent_id: inbound, weight: 1 }],
+    outbound_agents: [{ agent_id: outbound, weight: 1 }],
+    // A toll-free demo line answered by an AI is a target for pumped
+    // international traffic; owners who would buy are in the US and Canada.
+    allowed_inbound_country_list: ["US", "CA"],
+    allowed_outbound_country_list: ["US"],
+  });
+  console.log(`Bound ${number}: answered by ${inbound}, dialling as ${outbound}.`);
 }
 
 main().catch((error: unknown) => {

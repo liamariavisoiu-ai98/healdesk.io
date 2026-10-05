@@ -133,6 +133,26 @@ export const VOICE_DEMO_OPENING =
   `Hi {{prospect_name}}, it's ${AGENT_SPOKEN}, healdesk's AI assistant. ` +
   "This call is transcribed. Did you just ask for a demo?";
 
+/**
+ * The demo line's opening, when an owner calls the number on the website.
+ *
+ * Same three facts, said first and not left to the model. It opens the way
+ * the product opens a clinic's call ("Thanks for calling"), so the first five
+ * seconds are themselves the demonstration, and it ends on the first
+ * discovery question rather than "how can I help", because the person who
+ * dials a demo line has already told us why they are calling.
+ */
+export const VOICE_DEMO_INBOUND_OPENING =
+  `Thanks for calling healdesk. I'm ${AGENT_SPOKEN}, an AI assistant. This call ` +
+  "is transcribed. What kind of clinic do you run?";
+
+/**
+ * Which way the call goes. "outbound" is the call an owner asked for on the
+ * website (/api/callback); "inbound" is an owner dialling the demo line
+ * printed on the website (site.demoLine).
+ */
+export type VoiceDemoDirection = "outbound" | "inbound";
+
 // ─── Prices, from the catalog ───────────────────────────────────────────────
 
 function usd(amount: number): string {
@@ -202,14 +222,24 @@ export const VOICE_DEMO_PRICES = [
 
 // ─── The prompt ─────────────────────────────────────────────────────────────
 
-/** Every turn, every stage. Kept to what holds all call long. */
-export const VOICE_DEMO_GENERAL_PROMPT = `
-WHO YOU ARE
-  You are ${AGENT_SPOKEN}, healdesk's AI assistant, on a phone call with someone
+const WHO_IS_ON_THE_LINE: Record<VoiceDemoDirection, string> = {
+  outbound: `You are ${AGENT_SPOKEN}, healdesk's AI assistant, on a phone call with someone
   who typed this number into ${SITE_SPOKEN} a minute ago and asked for a demo
   call. Probably a clinic owner or someone on their team. First name, if given:
   {{prospect_name}}. The kind of practice they were looking at:
-  {{practice_type}}.
+  {{practice_type}}.`,
+  inbound: `You are ${AGENT_SPOKEN}, healdesk's AI assistant, answering healdesk's demo line:
+  the number on ${SITE_SPOKEN} that clinic owners call to hear you. The caller
+  dialled you, so they want to be here. Probably a clinic owner or someone on
+  their team. You don't know their name or their kind of practice until they
+  tell you.`,
+};
+
+/** Every turn, every stage. Kept to what holds all call long. */
+function generalPrompt(direction: VoiceDemoDirection): string {
+  return `
+WHO YOU ARE
+  ${WHO_IS_ON_THE_LINE[direction]}
 
   This call is the demo: the best pitch is the call going well. You are a
   calm, experienced consultant who has spent years around clinics like
@@ -287,6 +317,10 @@ ENDING THE CALL
   You end every call yourself with end_call, straight after your last line.
   "End the call" anywhere in this prompt means: say the line, then end_call.
 `.trim();
+}
+
+/** The outbound call's general prompt, as the tests and the push script read it. */
+export const VOICE_DEMO_GENERAL_PROMPT = generalPrompt("outbound");
 
 const GREETING = `
 STAGE: WHO ANSWERED
@@ -314,6 +348,28 @@ STAGE: WHO ANSWERED
     you: say nothing more and end the call. Never leave a message.
 `.trim();
 
+const GREETING_INBOUND = `
+STAGE: WHO CALLED
+  Your opening has already played: "${VOICE_DEMO_INBOUND_OPENING}"
+  Do not greet them again or repeat it, unless they talked over it. Then
+  repeat all of it, briefly: "Sorry, so you know: I'm an AI from healdesk,
+  and this call is transcribed. What kind of clinic do you run?"
+
+  · A clinic owner or someone on their team, curious about healdesk: take
+    their answer as the first discovery answer and move to discovery straight
+    away.
+  · A patient trying to reach their own clinic: "This is healdesk. We make
+    phone assistants for clinics, so I can't reach your clinic or your
+    appointment from here. Best to call the clinic directly." Nothing clinical,
+    nothing else. End the call.
+  · Someone selling to us, or a job seeker: "Thanks. The best route is the
+    contact page on ${SITE_SPOKEN}." End the call.
+  · Clearly a wrong number, or sounds like a child: "Sorry, you've reached
+    healdesk, not who you were after. Have a good day." End the call.
+  · Not English: "I can only do this in English. Sorry." End the call.
+  · Silence, or a recording: "Hello?" once, then end the call.
+`.trim();
+
 const DISCOVERY = `
 STAGE: UNDERSTAND, THEN SHOW
   Understand first, then show, then let them decide. They should leave the
@@ -328,10 +384,10 @@ STAGE: UNDERSTAND, THEN SHOW
   · Never pushy: no urgency, no "limited spots", no asking twice. A no is a
     fine outcome.
 
-  1. Ask permission, in one line: "Thanks for asking for the call. So I show
-     you what's actually relevant, can I ask you a couple of quick questions
-     first?" If they would rather go straight to the demo or the price,
-     follow them at once and fold the questions in later.
+  1. Ask permission, in one line: "{{thanks_line}} So I show you what's
+     actually relevant, can I ask you a couple of quick questions first?" If
+     they would rather go straight to the demo or the price, follow them at
+     once and fold the questions in later.
   2. Two to four questions, one at a time, choosing what fits. Acknowledge
      each answer specifically before the next, and follow up when something
      is interesting. It is a conversation, not a form; stop once you have the
@@ -423,8 +479,9 @@ STAGE: THE CLOSE
      back with it.
 
 TAKING THEIR DETAILS, only once they say yes
-  The team replies by email; this number was given for the demo call only,
-  so never offer to have anyone ring it.
+  The team replies by email. Never offer to have anyone ring them: on a demo
+  call the number was given for that call only, and the demo line is not a
+  way to collect numbers.
   1. Ask for the best email for the team to use.
   2. Ask them to spell it. Read it back once, slowly, in pieces:
      "s, a, m, at radiance, dot com. Got that right?" Fix it if not.
@@ -463,14 +520,18 @@ export type VoiceDemoState = {
   }[];
 };
 
-export const VOICE_DEMO_STATES: readonly VoiceDemoState[] = [
+function states(direction: VoiceDemoDirection): VoiceDemoState[] {
+  return [
   {
     name: "greeting",
-    prompt: GREETING,
+    prompt: direction === "outbound" ? GREETING : GREETING_INBOUND,
     edges: [
       {
         to: "discovery",
-        when: "They confirmed they asked for the demo, or are clearly the person who did, and are happy to talk.",
+        when:
+          direction === "outbound"
+            ? "They confirmed they asked for the demo, or are clearly the person who did, and are happy to talk."
+            : "They are a clinic owner or someone on a clinic's team, curious about healdesk.",
       },
     ],
   },
@@ -502,10 +563,28 @@ export const VOICE_DEMO_STATES: readonly VoiceDemoState[] = [
     ],
   },
 ];
+}
 
-/** Everything the model can ever read, for tests. */
-export function voiceDemoPromptText(): string {
-  return [VOICE_DEMO_GENERAL_PROMPT, ...VOICE_DEMO_STATES.map((state) => state.prompt)].join("\n\n");
+/** The outbound call's stages, as the tests read them. */
+export const VOICE_DEMO_STATES: readonly VoiceDemoState[] = states("outbound");
+
+/** Everything one direction's agent is given, for the push script. */
+export function voiceDemoLlm(direction: VoiceDemoDirection) {
+  return {
+    beginMessage: direction === "outbound" ? VOICE_DEMO_OPENING : VOICE_DEMO_INBOUND_OPENING,
+    generalPrompt: generalPrompt(direction),
+    states: states(direction),
+    defaults: {
+      ...VOICE_DEMO_VARIABLES,
+      thanks_line: direction === "outbound" ? "Thanks for asking for the call." : "Thanks for calling.",
+    },
+  };
+}
+
+/** Everything the model can ever read, in either direction, for tests. */
+export function voiceDemoPromptText(direction: VoiceDemoDirection = "outbound"): string {
+  const llm = voiceDemoLlm(direction);
+  return [llm.beginMessage, llm.generalPrompt, ...llm.states.map((state) => state.prompt)].join("\n\n");
 }
 
 function indent(text: string): string {

@@ -105,7 +105,7 @@ This is also the honest way to sell the product to a clinic with a full-time rec
 5. The caller picks one. The slot is locked for 60 seconds before the agent says anything confirming.
 6. The agent collects name and callback number, reading the number back digit by digit.
 7. The booking is written to the calendar. A short filler line plays while the write runs so the line never goes silent.
-8. The agent confirms date, time, service and provider, and tells the caller the clinic's system will send the confirmation.
+8. The agent confirms date, time and service, and says the booking is in the clinic's calendar.
 
 ### Failure behaviour
 

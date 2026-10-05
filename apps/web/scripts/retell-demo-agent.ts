@@ -32,10 +32,9 @@
  *   - voicemail: hang up. The brief allows no voicemail until counsel rules.
  *   - DNC detection on, paired with `honor_internal_dnc` on every call
  *     /api/callback places, so "stop calling me" outlives this call.
- *   - Retell's "professional call center rep" preset off: it fights the
- *     peer register the prompt asks for. Natural filler words on: owners
- *     heard the call without them as robotic, and the opening line has
- *     already said it is an AI, so sounding human misleads nobody.
+ *   - Retell's "professional call center rep" preset off: the prompt sets
+ *     its own register, a gracious hostess. Filler words and Expressive Mode
+ *     off: together they made her sound unsteady.
  */
 
 import { type VoiceDemoDirection, voiceDemoLlm } from "../src/lib/voice-demo-prompt";
@@ -57,20 +56,12 @@ const AGENT_ID_VAR: Record<VoiceDemoDirection, string> = {
 const MODEL = "claude-5.5-sonnet";
 
 /**
- * A Retell platform voice: tuned for phone audio (pacing, fillers, clarity at
- * telephone bitrates) and the only kind that supports Expressive Mode. The
- * ElevenLabs voice before it was judged robotic on test calls. Platform
- * voices fail over to another provider on their own, so there is no fallback
- * list. Change by ear in the dashboard's voice picker, then here.
+ * Cimo, as a Retell platform voice: tuned for phone audio, and it fails over
+ * to another provider on its own, so there is no fallback list. The owner
+ * chose it for a serious, friendly, luxury register, a hostess rather than a
+ * buddy. Change by ear in the dashboard's voice picker, then here.
  */
-const VOICE_ID = "retell-Grace";
-
-/**
- * Expressive Mode's palette: the agent may add one of these where it fits,
- * most lines have none, and it never tags a price or a number. No "excited":
- * owners heard the earlier voice as loud, and a consultant is not excited.
- */
-const EXPRESSIVE_TAGS = ["curious", "empathetic", "pause", "emphasis"];
+const VOICE_ID = "retell-Cimo";
 
 /**
  * Where Retell posts request_follow_up. The deployed site, never
@@ -173,23 +164,25 @@ function agentConfig(llmId: string, direction: VoiceDemoDirection) {
     response_engine: { type: "retell-llm", llm_id: llmId },
     voice_id: VOICE_ID,
     fallback_voice_ids: null,
-    enable_expressive_mode: true,
-    expressive_emotion_tags: EXPRESSIVE_TAGS,
+    // Off. Expressive Mode's sighs and pauses, with filler words and a speed
+    // that followed the caller, were heard as "drunk". A hostess is even.
+    enable_expressive_mode: false,
+    expressive_emotion_tags: [],
     language: "en-US",
-    // Natural speed and variation. The slower, steadier settings tried for
-    // "calm" (0.95 speed, 0.6 temperature) made the voice flatter, which
-    // owners heard as robotic; calm now comes from the wording. Dynamic speed
-    // matches the caller's own pace.
+    // Steady and even. Full variation (temperature 1) and a speed that
+    // followed the caller made her sound unsteady; 0.6 kept her flat with the
+    // old voice. 0.75 sits between, at a constant natural speed.
     voice_speed: 1,
     volume: 0.9,
-    voice_temperature: 1,
-    enable_dynamic_voice_speed: true,
+    voice_temperature: 0.75,
+    enable_dynamic_voice_speed: false,
     // 1 is Retell's fastest: reply as soon as the turn is judged over. 0.8
     // added a wait that measured calls showed as about 0.4s of every pause.
     responsiveness: 1,
     interruption_sensitivity: 0.8,
+    // Rare: a hostess listens quietly.
     enable_backchannel: true,
-    backchannel_frequency: 0.3,
+    backchannel_frequency: 0.2,
     // Outbound waits for the callee to get the phone to their ear; the demo
     // line answers as a front desk would, at once.
     begin_message_delay_ms: outbound ? 800 : 0,
@@ -208,13 +201,13 @@ function agentConfig(llmId: string, direction: VoiceDemoDirection) {
     opt_in_signed_url: true,
     // None: Retell lists boosted keywords as a cost to transcription latency.
     boosted_keywords: null,
-    // Every preset adds tokens to every turn. Only the one the prompt cannot
-    // do itself stays on: light, natural fillers. The disclosure, numbers
-    // read aloud and staying in scope are all in the prompt already.
+    // Every preset adds tokens to every turn, and the prompt already covers
+    // the disclosure, numbers read aloud and staying in scope, so all are off.
+    // Filler words were on briefly and were part of what sounded "drunk".
     handbook_config: {
       default_personality: false,
       conversational_personality: false,
-      natural_filler_words: true,
+      natural_filler_words: false,
       high_empathy: false,
       echo_verification: false,
       nato_phonetic_alphabet: false,

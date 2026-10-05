@@ -79,6 +79,21 @@ describe("one question at a time", () => {
   });
 });
 
+describe("her register: a gracious hostess", () => {
+  test.each(DIRECTIONS)("%s: no line she is given to say is slang or a filler", (direction) => {
+    // Casual wording and filler words, with Expressive Mode, were heard as
+    // "drunk". The quoted lines are what she imitates.
+    for (const line of quotedLines(direction)) {
+      expect(line, line).not.toMatch(/\b(yeah|huh|okay|gonna|um|nice|honestly|no problem)\b/i);
+    }
+  });
+
+  test("both openings are courteous and complete", () => {
+    expect(VOICE_DEMO_OPENING).toMatch(/^Hello \{\{prospect_name\}\}, this is \w+, healdesk's AI assistant\./);
+    expect(VOICE_DEMO_INBOUND_OPENING).toMatch(/^Thank you for calling healdesk\. This is \w+, an AI assistant\./);
+  });
+});
+
 describe("how she sells", () => {
   test.each(DIRECTIONS)("%s: CLOSER, in order, and the close asks for the decision", (direction) => {
     const prompt = text(direction);

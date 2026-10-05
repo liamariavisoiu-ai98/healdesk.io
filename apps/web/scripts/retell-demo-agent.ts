@@ -56,12 +56,13 @@ const AGENT_ID_VAR: Record<VoiceDemoDirection, string> = {
 const MODEL = "claude-5.5-sonnet";
 
 /**
- * Cimo, as a Retell platform voice: tuned for phone audio, and it fails over
- * to another provider on its own, so there is no fallback list. The owner
- * chose it for a serious, friendly, luxury register, a hostess rather than a
- * buddy. Change by ear in the dashboard's voice picker, then here.
+ * Sloane, as a Retell platform voice: tuned for phone audio, and it fails
+ * over to another provider on its own, so there is no fallback list. The
+ * owner's choice by ear, after Grace and Cimo, for a serious, friendly,
+ * luxury register: a hostess rather than a buddy. Platform voices are the
+ * only ones that support the Expressive Mode smile below.
  */
-const VOICE_ID = "retell-Cimo";
+const VOICE_ID = "retell-Sloane";
 
 /**
  * The smile, and only the smile. Expressive Mode with sighs, pauses and

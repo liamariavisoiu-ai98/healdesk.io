@@ -765,14 +765,19 @@ function isRecurringLine(line: unknown): boolean {
 }
 
 /**
- * The setup fee is the line whose price key ends in `_setup`. When the price
- * is not expanded on the payload — the current API version sends an id — it
- * is the one-time invoice item, because a subscription-mode Session only ever
- * puts one one-time line on the first invoice and that is the fee.
+ * The setup fee is the line whose price key parses as a `setup` price
+ * (`healdesk_<plan>_setup_<cents>`). When the price is not expanded on the
+ * payload — the current API version sends an id — it is the one-time invoice
+ * item, because a subscription-mode Session only ever puts one one-time line
+ * on the first invoice and that is the fee.
+ *
+ * Parsed, not matched on a suffix: the key ends in the amount, so an
+ * `endsWith("_setup")` test never matched a real key and recorded a paid $997
+ * fee as $0 whenever the price arrived expanded.
  */
 function isSetupLine(line: unknown): boolean {
   const key = lookupKeyOf(line);
-  if (key) return key.endsWith("_setup");
+  if (key) return parseLookupKey(key)?.kind === "setup";
   return (
     prop(prop(line, "parent"), "type") === "invoice_item_details" ||
     prop(line, "type") === "invoiceitem"

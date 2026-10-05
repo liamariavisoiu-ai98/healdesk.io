@@ -1,5 +1,5 @@
 <!-- Source of truth. Exported verbatim from the "Healdesk v1: Products, Behaviour and Limits" doc,
-     tab 1 (https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ), on 2026-10-01.
+     tab 1 (https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ), on 2026-10-05.
      Do not edit this copy: change the doc, then re-export. The "Launch plan" it links to is
      tab 2 of the same doc, and is the only live task list. -->
 
@@ -884,10 +884,10 @@ One correction on the zero-PHI idea that gets suggested around this: routing tra
 | --- | --- | --- |
 | Voice cost per minute | Retell's own share with a custom LLM is about $0.085 to $0.12 a minute, plus $2 per number a month and $8 a month per concurrent call beyond 20. These are pricing-page figures, unconfirmed. Pay-as-you-go now runs on prepaid credits, and calls stop at a $0 balance | The Claude cost per minute, which is separate and must be measured, then the blended figure on the actual configuration |
 | PII redaction | About a penny a minute | Whether it is on for every clinic or only covered ones |
-| Chat cost per conversation | Not established | The largest unknown in the product. The clinic profile rides in the system prompt on every turn, so a long conversation is not cheap. Needs measuring on real traffic before the top tier's 4,000 included conversations can be priced |
+| Chat cost per conversation | Not established | The largest unknown in the product. The clinic profile rides in the system prompt on every turn, so a long conversation is not cheap. Needs measuring on real traffic before the top tier's 2,000 included conversations can be priced |
 | Concurrency | 20 concurrent calls included on the voice platform's pay-as-you-go, extra slots about $8 each a month | Whether 20 is enough at 15 to 20 clinics |
 | WhatsApp | From 1 October 2026, service messages cost $0.0034 per delivered message in North America, after 1,000 free per number each month | A per-clinic counter to track it |
-| Overage prices | Still unset | Cannot ship a pricing page without them. Set from measured cost times target margin |
+| Overage prices | Set provisionally by the owner on 5 October 2026: $0.80 a voice minute; $0.40 a chat conversation on the single-channel chat package and $0.30 on the rest. Included allowances cut the same day: chat to 1,000 / 2,000 / 1,000 / 2,000 conversations and the top tier's voice to 1,000 minutes | Measured cost times target margin, from pilot traffic (launch step 3.5). Until then the rates are a judgement, and the pricing page marks them provisional |
 
 ### The exercise to run
 

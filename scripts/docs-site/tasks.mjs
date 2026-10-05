@@ -75,19 +75,20 @@ export const TASKS = [
     plain:
       "Checkout is built and your Stripe keys work, but your Stripe account has none of " +
       "the catalog in it yet: five packages, each with a monthly, an annual and a one-time " +
-      "setup price, plus two Billing Meters with a metered overage price each — 17 price " +
-      "objects. Right now the first customer who tries to pay gets an error.",
+      "setup price, plus two Billing Meters carrying three metered overage prices (one voice " +
+      "rate, two chat rates) — 18 price objects. Right now the first customer who tries to pay " +
+      "gets an error.",
     why:
       "createCheckout() looks up every price by a stable lookup_key derived from the " +
       "package, the kind and the amount. No price, no checkout — it throws rather than " +
       "guessing, so nobody is ever charged an amount the site did not quote. The meters " +
       "are what let overage minutes and conversations land on the invoice at all.",
     steps: [
-      "Preview first, with no key and no calls: npm run stripe:setup -w @healdesk/web -- --dry-run. It lists the 17 prices and 2 meters it would create.",
+      "Preview first, with no key and no calls: npm run stripe:setup -w @healdesk/web -- --dry-run. It lists the 18 prices and the 2 meters they sit on.",
       "Run it for real against the test key: npm run stripe:setup -w @healdesk/web. It prints one line per object — a + means created, a ✓ means already correct, STALE means a superseded price still active for old subscriptions.",
       "If it reports DRIFT, Stripe and packages/catalog/src/plans.ts disagree on an amount — fix the catalog or add a new price, never edit a live one. The script never updates or deletes anything.",
       "Run it again with the live key when you go to production. It is idempotent by lookup_key, so re-running after any catalog change is the normal way to apply it.",
-      "Then the Dashboard settings the script cannot set: configure the Customer Portal (card update, plan change, cancel at period end).",
+      "Then the Dashboard settings the script cannot set: configure the Customer Portal (card update, invoice history, cancel at period end; plan change OFF, because Stripe's portal cannot update a subscription that carries metered prices).",
       "Turn Stripe Tax on so the checkout collects sales tax where SaaS is taxable.",
       "Under Subscriptions settings set \"on payment failure\" to do not cancel — the app suspends the agent itself after the grace period and needs the subscription left standing to resume it.",
     ],
@@ -1175,12 +1176,12 @@ export const TASKS = [
     effort: "3 days",
     blockedBy: null,
     plain:
-      "packages/catalog/src/plans.ts sells five packages with included voice minutes and chat conversations and a provisional overage rate for each (OVERAGE_RATES_PROVISIONAL is still true), and stripe:setup creates two Billing Meters for them. Nothing counts anything: there is no usage table in apps/app/src/db/schema.ts, no call duration recorded, and no meter event ever sent to Stripe. The other side of the same number — what a minute costs healdesk in voice-vendor, telephony and model fees — is also measured nowhere.",
+      "packages/catalog/src/plans.ts sells five packages with included voice minutes and chat conversations and an overage rate for each, set by the owner on 5 October 2026 and still provisional ($0.80 a voice minute; $0.40 a chat conversation on the single-channel chat package, $0.30 on the rest), and stripe:setup creates two Billing Meters for them. Nothing counts anything: there is no usage table in apps/app/src/db/schema.ts, no call duration recorded, and no meter event ever sent to Stripe. The other side of the same number — what a minute costs healdesk in voice-vendor, telephony and model fees — is also measured nowhere.",
     why:
       "Two failures at once. A busy clinic on the $797 voice package can burn 3,000 minutes against a 1,000-minute allowance and never be billed the overage the package promises, which is revenue you have already sold. And docs/launch-plan.md calls the per-minute cost \"⚠️ The number that decides everything\" for break-even — without measurement you will not notice a negative-margin customer until the vendor invoice arrives.",
     steps: [
       "Add a duration field to the conversations write path in apps/app/src/lib/voice/ingest.ts (the vendor payload carries it) and a monthly per-clinic usage rollup, computed in the clinic's own timezone so it lines up with the billing period.",
-      "Send one Stripe meter event per unit consumed against the meters stripe:setup created (METERS in packages/catalog/src/plans.ts names the event keys), then sign off the overage rates and flip OVERAGE_RATES_PROVISIONAL to false.",
+      "Send one Stripe meter event per unit consumed against the meters stripe:setup created (METERS in packages/catalog/src/plans.ts names the event keys), then replace the provisional rates with measured ones after the pilot (launch step 3.5); OVERAGE_RATES_PROVISIONAL is already false.",
       "Show minutes used against minutes included in the console at /c/[clinicSlug] so the clinic is never surprised by an overage line, and warn by email at 80%.",
       "Record vendor cost per clinic per month next to the revenue: voice vendor, telephony, and Anthropic. Compare against docs/launch-plan.md \"Cost breakdown — per clinic, per month\".",
       "Set hard spend alarms on the accounts that can run away: an AWS Budgets alert, an Anthropic org spend limit, and a telephony balance alert. A prompt-injection loop or a runaway retry is a five-figure bill with no ceiling.",
@@ -1252,7 +1253,7 @@ export const TASKS = [
     effort: "1 day",
     blockedBy: null,
     plain:
-      "The overage rates are confirmed ($0.35 a voice minute, $0.25 a chat conversation past the allowance) and a monthly subscription now carries the metered prices. But nothing sends usage to Stripe yet, so every meter reads zero and overage bills zero. The product already records the usage (call minutes on conversations, chat threads on the web and Meta channels); what is missing is the nightly job that turns it into meter events.",
+      "The overage rates are set, provisionally ($0.80 a voice minute; $0.40 a chat conversation on the single-channel chat package and $0.30 on the rest, past the allowance) and a monthly subscription now carries the metered prices. But nothing sends usage to Stripe yet, so every meter reads zero and overage bills zero. The product already records the usage (call minutes on conversations, chat threads on the web and Meta channels); what is missing is the nightly job that turns it into meter events.",
     why:
       "A package sold with an allowance and a rate above it is a promise in both directions: the clinic is told what overage costs, and healdesk is paid for it. Until the events flow, heavy users are free, and the first invoice that suddenly carries three months of caught-up overage is a support ticket and a chargeback risk. Better to bill it from the first month.",
     steps: [

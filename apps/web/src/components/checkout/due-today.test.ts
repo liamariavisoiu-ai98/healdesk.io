@@ -126,12 +126,21 @@ describe("package cards", () => {
     ]);
     expect(allowanceRows(getPlan("chat-single")!)).toEqual([
       { label: "Included voice minutes", value: "—" },
-      { label: "Included chat conversations", value: "1,500/mo" },
+      { label: "Included chat conversations", value: "1,000/mo" },
     ]);
     expect(allowanceRows(getPlan("complete")!)).toEqual([
-      { label: "Included voice minutes", value: "1,500/mo" },
-      { label: "Included chat conversations", value: "4,000/mo" },
+      { label: "Included voice minutes", value: "1,000/mo" },
+      { label: "Included chat conversations", value: "2,000/mo" },
     ]);
+  });
+
+  test("the overage line quotes each package's own rate", () => {
+    if (OVERAGE_RATES_PROVISIONAL) return;
+    expect(overageLine(getPlan("chat-single")!)).toContain("$0.40/conversation");
+    expect(overageLine(getPlan("chat-dual")!)).toContain("$0.30/conversation");
+    expect(overageLine(getPlan("voice")!)).toContain("$0.80/min");
+    expect(overageLine(getPlan("complete")!)).toContain("$0.80/min");
+    expect(overageLine(getPlan("complete")!)).toContain("$0.30/conversation");
   });
 
   test("no overage number is printed while the rates are provisional", () => {

@@ -2197,7 +2197,7 @@ export const entitlements = pgTable(
     /**
      * `allow` meters overage to Stripe; `hard_cap` stops answering at the
      * allowance. Allow by default: a clinic whose agent goes silent on the
-     * 1,501st conversation has a worse month than one with an overage line.
+     * 1,001st conversation has a worse month than one with an overage line.
      */
     overageMode: text("overage_mode")
       .$type<"allow" | "hard_cap">()

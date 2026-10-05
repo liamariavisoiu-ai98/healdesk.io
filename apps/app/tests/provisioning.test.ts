@@ -506,7 +506,7 @@ describeDb("provisioning", () => {
     expect(row.stripe_customer_id).toBe("cus_provisioned");
     expect(row.stripe_subscription_id).toBe("sub_provisioned");
     expect(row.included_voice_minutes).toBe(1_000);
-    expect(row.included_chat_conversations).toBe(1_500);
+    expect(row.included_chat_conversations).toBe(1_000);
     // "Web OR Meta + Voice", and the buyer chose Meta.
     expect(row.chat_channel_choice).toBe("meta");
     expect(row.channels_enabled).toEqual({ web: false, meta: true, voice: true });
@@ -532,7 +532,7 @@ describeDb("provisioning", () => {
     expect(row.stripe_customer_id).toBeNull();
     expect(row.stripe_subscription_id).toBeNull();
     expect(row.included_voice_minutes).toBe(0);
-    expect(row.included_chat_conversations).toBe(1_500);
+    expect(row.included_chat_conversations).toBe(1_000);
     // A choice package with no choice sent defaults to web.
     expect(row.chat_channel_choice).toBe("web");
     expect(row.channels_enabled).toEqual({ web: true, meta: false, voice: false });

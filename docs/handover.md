@@ -127,8 +127,8 @@ key and a local webhook signing secret are in `apps/web/.env.local`. What is lef
 1. **Create the products, prices and meters.** `npm run stripe:setup -w @healdesk/web`
    (add `--dry-run` to see the plan with no key and no calls). The catalog
    (`packages/catalog/src/plans.ts`) has **five packages**, each with a monthly, an annual
-   and a one-time setup price, plus two metered overage prices and **two Billing Meters**
-   (voice minutes, chat conversations). Until it runs, `createCheckout` throws a "run the
+   and a one-time setup price, plus three metered overage prices on **two Billing Meters**
+   (voice minutes at $0.80; chat conversations at $0.40 or $0.30 by package). Until it runs, `createCheckout` throws a "run the
    setup script" error. Run it against the test key, then the live key: it is idempotent
    by `lookup_key`, never edits a price, and reports drift against the catalog. It has
    never been run against a live-mode key.
@@ -369,7 +369,10 @@ The owner's decisions from 21 September onwards and what each became in code, re
 with the spec on 1 October 2026. Each says whether it still holds. Reopen one by changing
 the code, not by re-asking.
 
-1. **Overage rates — $0.35 a voice minute, $0.25 a chat conversation. Holds, amended.**
+1. **Overage rates — re-set on 5 October 2026: $0.80 a voice minute; $0.40 a chat
+   conversation on the single-channel chat package, $0.30 on the rest** (replacing $0.35
+   and $0.25), with the chat allowances cut to 1,000 / 2,000 / 1,000 / 2,000 and the top
+   tier's voice to 1,000 minutes. Still provisional until measured (launch step 3.5).
    The billing mechanics stand: a monthly subscription carries the metered prices; an
    annual one carries none and its overage is invoiced by hand, monthly in arrears,
    until `annual-overage-invoicing` is built. Nothing bills against the meters until

@@ -871,8 +871,8 @@ needs a second account; both are solved below.
 ### What one run of the setup script creates
 
 Five packages, from `packages/catalog/src/plans.ts`. Three prices each — monthly,
-annual, and a **one-time setup fee** billed on the first invoice only — plus two
-account-wide metered prices.
+annual, and a **one-time setup fee** billed on the first invoice only — plus three
+metered overage prices on two meters (below).
 
 | Package | `id` | Monthly | Annual (per mo) | Setup fee |
 |---|---|---|---|---|
@@ -903,10 +903,15 @@ Because the key encodes the amount, a catalog price change cannot silently resol
 old price — it fails loudly with `No active Stripe price with lookup_key "…"` until the
 script is re-run.
 
-The two metered overage prices (`healdesk_meter_voice_minutes`,
-`healdesk_meter_chat_conversations`) are created unconditionally but **not attached** to
-any subscription while `OVERAGE_RATES_PROVISIONAL` is true. The rates are placeholders
-nobody signed; attaching them would bill a number the buyer was never shown.
+The metered overage prices are one per distinct rate on each meter — since 5 October
+2026, three prices on two meters: `healdesk_meter_voice_minutes_80` ($0.80 a minute),
+`healdesk_meter_chat_conversations_40` ($0.40 a conversation, the single-channel chat
+package) and `healdesk_meter_chat_conversations_30` ($0.30, every other package with
+chat). Like the package keys, each metered key encodes its rate, so a rate change makes a
+new price and the old one is reported STALE. They are created unconditionally; checkout
+attaches a package's own metered prices to a monthly Session unless
+`OVERAGE_RATES_PROVISIONAL` is set back to true. After the 5 October change, re-run the
+script before the next checkout: the new keys do not exist in Stripe until it has run.
 
 ### Steps
 
@@ -1001,8 +1006,11 @@ nobody signed; attaching them would bill a number the buyer was never shown.
    optional:
    - **Customer Portal** (Settings → Billing → Customer portal): payment method and
      invoice history ON; cancel subscription ON but **"at end of billing period" only**;
-     switch plan ON, limited to the five healdesk products, monthly and annual prices only
-     — never the setup or metered prices. Pause subscription OFF. Cancel immediately OFF.
+     switch plan **OFF** — Stripe's portal cannot update a subscription that carries metered
+     prices, and a plan change must swap the metered items to the new package's rates too
+     (`planMeteredPrices` in the catalog). Until healdesk's own Billing screen changes plans,
+     change a package by hand in the Dashboard: swap the package price **and** the metered
+     prices. Pause subscription OFF. Cancel immediately OFF.
    - **Stripe Tax** (Settings → Tax): enable and set a default tax behavior. Prices are
      created without `tax_behavior` and inherit it.
    - **Failed payments** (Subscriptions → Manage failed payments): must **not** cancel the

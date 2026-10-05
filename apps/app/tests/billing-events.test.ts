@@ -130,7 +130,7 @@ function subscription(
           id: "si_metered",
           price: {
             id: "price_meter",
-            lookup_key: "healdesk_meter_voice_minutes",
+            lookup_key: "healdesk_meter_voice_minutes_80",
             recurring: { usage_type: "metered" },
           },
         },
@@ -169,6 +169,8 @@ describe("parseLookupKey", () => {
 
   test("returns null for anything that is not a package price", () => {
     expect(parseLookupKey("healdesk_meter_voice_minutes")).toBeNull();
+    expect(parseLookupKey("healdesk_meter_voice_minutes_80")).toBeNull();
+    expect(parseLookupKey("healdesk_meter_chat_conversations_30")).toBeNull();
     expect(parseLookupKey("scalabid_pro_month_9900")).toBeNull();
     expect(parseLookupKey("healdesk_chat-voice_weekly_100")).toBeNull();
     expect(parseLookupKey("")).toBeNull();

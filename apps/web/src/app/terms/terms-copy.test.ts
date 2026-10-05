@@ -186,7 +186,7 @@ describe("the first-month guarantee", () => {
   });
 
   test("the page carries the version that introduced it", () => {
-    expect(LEGAL_VERSION).toBe("2026-10-03.2");
+    expect(LEGAL_VERSION).toBe("2026-10-05.1");
     expect(text).toContain(`Version ${LEGAL_VERSION}`);
   });
 });

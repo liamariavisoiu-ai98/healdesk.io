@@ -16,30 +16,47 @@ import {
  * metered price is attached while the rates are provisional.
  */
 describe("overage prices on a Session", () => {
-  test("each package gets the meters for the channels it sells", () => {
-    expect(overageLookupKeys(getPlan("voice")!)).toEqual([
-      METERS.voiceMinutes.lookupKey,
-    ]);
+  test("each package gets the meters for the channels it sells, at its own rate", () => {
+    // The rates the owner set on 5 October 2026: $0.80 a voice minute, $0.40
+    // a chat conversation on the single-channel chat package, $0.30 on the
+    // rest. Spelled out rather than derived, so a catalog edit that changes
+    // what a clinic is billed has to change this line too.
+    expect(overageLookupKeys(getPlan("voice")!)).toEqual(["healdesk_meter_voice_minutes_80"]);
     expect(overageLookupKeys(getPlan("chat-single")!)).toEqual([
-      METERS.chatConversations.lookupKey,
+      "healdesk_meter_chat_conversations_40",
     ]);
     expect(overageLookupKeys(getPlan("chat-dual")!)).toEqual([
-      METERS.chatConversations.lookupKey,
+      "healdesk_meter_chat_conversations_30",
+    ]);
+    expect(overageLookupKeys(getPlan("chat-voice")!)).toEqual([
+      "healdesk_meter_voice_minutes_80",
+      "healdesk_meter_chat_conversations_30",
     ]);
     expect(overageLookupKeys(getPlan("complete")!)).toEqual([
-      METERS.voiceMinutes.lookupKey,
-      METERS.chatConversations.lookupKey,
+      "healdesk_meter_voice_minutes_80",
+      "healdesk_meter_chat_conversations_30",
     ]);
   });
 
   test("a package never gets a meter for a channel it lacks", () => {
     for (const plan of plans) {
       const keys = overageLookupKeys(plan);
-      expect(keys.includes(METERS.voiceMinutes.lookupKey)).toBe(plan.channels.voice);
-      expect(keys.includes(METERS.chatConversations.lookupKey)).toBe(
+      expect(keys.some((k) => k.startsWith(METERS.voiceMinutes.lookupKeyPrefix))).toBe(
+        plan.channels.voice,
+      );
+      expect(keys.some((k) => k.startsWith(METERS.chatConversations.lookupKeyPrefix))).toBe(
         plan.channels.web || plan.channels.meta,
       );
     }
+  });
+
+  test("three metered prices on two meters cover every package", () => {
+    const keys = new Set(plans.flatMap((plan) => overageLookupKeys(plan)));
+    expect([...keys].sort()).toEqual([
+      "healdesk_meter_chat_conversations_30",
+      "healdesk_meter_chat_conversations_40",
+      "healdesk_meter_voice_minutes_80",
+    ]);
   });
 
   test("the monthly Session carries the package's meters; the annual one carries none", () => {

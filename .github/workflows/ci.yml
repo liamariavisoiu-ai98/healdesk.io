@@ -104,6 +104,12 @@ jobs:
       - name: Test — packages/connectors
         run: npm test -w @healdesk/connectors
 
+      # The catalog's own tests pin what each package includes and what its
+      # overage costs. No other suite fails when a rate lands on a package
+      # without the channel, so they run here rather than only by hand.
+      - name: Test — packages/catalog
+        run: npm test -w @healdesk/catalog
+
       - name: Test — apps/web
         run: npm test -w @healdesk/web
 

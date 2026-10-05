@@ -829,9 +829,11 @@ function invoicePeriod(invoice: unknown): { start: Date; end: Date } {
 
 /**
  * The package a subscription is on: the first item whose price is ours and
- * not metered. The metered overage prices, when apps/web attaches them (only
- * once the rates stop being provisional — see its lib/billing.ts), are the
- * same two on every subscription and say nothing about the package.
+ * not metered. The metered overage items are skipped here, but they DO depend
+ * on the package since 5 October 2026 (the chat rate is $0.40 on chat-single
+ * and $0.30 elsewhere; packages/catalog `planMeteredPrices`), so a plan change
+ * must also swap them — reading the package from the licensed item alone
+ * says nothing about whether the metered items still match it.
  */
 function planFromSubscription(
   subscription: unknown,

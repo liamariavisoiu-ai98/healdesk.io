@@ -1,117 +1,114 @@
 import { plans } from "@healdesk/catalog";
 import { describe, expect, test } from "vitest";
 
+import { GUARANTEE_TEXT, POLICY } from "./legal";
 import {
-  VOICE_DEMO_GENERAL_PROMPT,
   VOICE_DEMO_INBOUND_OPENING,
   VOICE_DEMO_OPENING,
   VOICE_DEMO_PRICES,
-  VOICE_DEMO_STATES,
+  VOICE_DEMO_RISK_REVERSAL,
   VOICE_DEMO_VARIABLES,
+  type VoiceDemoDirection,
   voiceDemoLlm,
   voiceDemoPromptText,
   voiceDemoVariables,
 } from "./voice-demo-prompt";
 
 /**
- * The demo call's prompt is pushed to Retell by scripts/retell-demo-agent.ts,
+ * The demo agents' prompt is pushed to Retell by scripts/retell-demo-agent.ts,
  * so a wrong sentence here is spoken to a real person on the next call. These
  * pin the lines the call cannot lose. Whitespace is collapsed before matching,
  * so re-wrapping a paragraph does not break a test.
  */
 
 const flat = (text: string) => text.replace(/\s+/g, " ");
-const all = flat(voiceDemoPromptText());
-const stage = (name: string) => flat(VOICE_DEMO_STATES.find((s) => s.name === name)!.prompt);
+const DIRECTIONS: readonly VoiceDemoDirection[] = ["outbound", "inbound"];
+const text = (direction: VoiceDemoDirection) => flat(voiceDemoPromptText(direction));
 
 /** Retell's own variables, filled on every call without being declared. */
 const SYSTEM_VARIABLES = new Set(["session_duration", "current_time"]);
 
-describe("the demo call opens the way the product must", () => {
-  test("the fixed opening says AI assistant, healdesk and transcribed, and nothing more", () => {
-    expect(VOICE_DEMO_OPENING).toMatch(/healdesk's AI assistant/);
-    expect(VOICE_DEMO_OPENING).toMatch(/This call is transcribed/);
-    // About five seconds spoken. Anything longer is an AI talking at someone
-    // who just picked up.
-    expect(VOICE_DEMO_OPENING.split(/\s+/).length).toBeLessThanOrEqual(20);
-    // No audio is kept, so the call never says it is recorded.
-    expect(VOICE_DEMO_OPENING).not.toMatch(/record/i);
+/** Every line the prompt quotes for AYA to say, as written. */
+function quotedLines(direction: VoiceDemoDirection): string[] {
+  return [...voiceDemoLlm(direction).prompt.matchAll(/"([^"]{12,})"/g)].map((m) => flat(m[1]!));
+}
+
+describe("the openings say what the product must, and nothing more", () => {
+  test.each([
+    ["outbound", VOICE_DEMO_OPENING],
+    ["inbound", VOICE_DEMO_INBOUND_OPENING],
+  ])("%s: AI assistant, healdesk, transcribed, in five seconds", (_direction, opening) => {
+    expect(opening).toMatch(/AI assistant/);
+    expect(opening).toMatch(/healdesk/);
+    expect(opening).toMatch(/This call is transcribed/);
+    expect(opening.split(/\s+/).length).toBeLessThanOrEqual(20);
+    // No audio is kept, so a call never says it is recorded.
+    expect(opening).not.toMatch(/record|AYA|healdesk\.io|!/);
+    // One question, at the end.
+    expect(opening.match(/\?/g)).toHaveLength(1);
+    expect(opening).toMatch(/\?$/);
   });
 
-  test("the opening asks who answered rather than asserting they asked", () => {
-    expect(VOICE_DEMO_OPENING).toMatch(/\?$/);
+  test("the outbound call asks who answered rather than asserting they asked", () => {
     expect(VOICE_DEMO_OPENING).not.toMatch(/you asked/i);
   });
 
-  test("names and the site are written the way they are said", () => {
-    expect(VOICE_DEMO_OPENING).not.toMatch(/AYA|healdesk\.io/);
-    expect(all).not.toMatch(/healdesk\.io/);
-  });
-});
-
-describe("the demo line, when an owner calls her", () => {
-  test("its opening says AI assistant, healdesk and transcribed, and nothing more", () => {
-    expect(VOICE_DEMO_INBOUND_OPENING).toMatch(/^Thanks for calling healdesk\. I'm \w+, an AI assistant\./);
-    expect(VOICE_DEMO_INBOUND_OPENING).toMatch(/This call is transcribed/);
-    expect(VOICE_DEMO_INBOUND_OPENING.split(/\s+/).length).toBeLessThanOrEqual(20);
-    expect(VOICE_DEMO_INBOUND_OPENING).not.toMatch(/record|AYA/);
-  });
-
-  test("it opens the inbound agent, and the outbound agent keeps its own", () => {
-    expect(voiceDemoLlm("inbound").beginMessage).toBe(VOICE_DEMO_INBOUND_OPENING);
+  test("each agent opens with its own line", () => {
     expect(voiceDemoLlm("outbound").beginMessage).toBe(VOICE_DEMO_OPENING);
-    const inbound = flat(voiceDemoPromptText("inbound"));
-    expect(inbound).not.toContain("Did you ask for a demo?");
-    expect(inbound).toContain("A patient trying to reach their own clinic");
-  });
-
-  test("it carries every rule the outbound call does", () => {
-    const inbound = flat(voiceDemoPromptText("inbound"));
-    for (const line of [
-      "I'll take you off. Sorry to have bothered you.",
-      "Never invent or hint at a discount, credit, guarantee or contract term.",
-      "unless request_follow_up said it was sent.",
-      "Never call anything revenue.",
-    ]) {
-      expect(inbound).toContain(line);
-    }
-    expect(inbound).not.toContain("!");
+    expect(voiceDemoLlm("inbound").beginMessage).toBe(VOICE_DEMO_INBOUND_OPENING);
+    expect(text("inbound")).not.toContain("Did you ask for a demo?");
+    expect(text("inbound")).toContain("A patient trying to reach their own clinic");
   });
 });
 
-describe("the stages", () => {
-  test.each(["outbound", "inbound"] as const)(
-    "every variable has a value on every %s call, including dashboard tests",
-    (direction) => {
-      const used = [...voiceDemoPromptText(direction).matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]!);
-      expect(used.length).toBeGreaterThan(0);
-      const defaults = Object.keys(voiceDemoLlm(direction).defaults);
-      for (const name of used) {
-        if (SYSTEM_VARIABLES.has(name)) continue;
-        expect(defaults).toContain(name);
-      }
-    },
-  );
-
-  test("the close receives what discovery found", () => {
-    const into = VOICE_DEMO_STATES.find((s) => s.name === "discovery")!.edges.find((e) => e.to === "close")!;
-    expect(Object.keys(into.carry ?? {})).toEqual(["discovery_summary", "recommended_package"]);
-    expect(stage("close")).toContain("{{discovery_summary}}");
+describe("one question at a time", () => {
+  test.each(DIRECTIONS)("%s: the rule is stated before the selling, as the one that matters most", (direction) => {
+    const prompt = flat(voiceDemoLlm(direction).prompt);
+    expect(prompt).toContain("THE RULE THAT MATTERS MOST: ONE QUESTION A TURN");
+    expect(prompt).toContain("ends with at most ONE question. Never two questions.");
+    expect(prompt.indexOf("ONE QUESTION A TURN")).toBeLessThan(prompt.indexOf("HOW YOU SELL"));
   });
 
-  test("the price list is read only in the close, keeping every other turn short", () => {
-    expect(stage("close")).toContain(flat(VOICE_DEMO_PRICES));
-    expect(flat(VOICE_DEMO_GENERAL_PROMPT)).not.toContain("THE PRICE LIST");
-    expect(stage("discovery")).not.toContain("THE PRICE LIST");
-    for (const state of VOICE_DEMO_STATES) {
-      const words = (VOICE_DEMO_GENERAL_PROMPT + state.prompt).split(/\s+/).length;
-      expect(words, state.name).toBeLessThan(2_800);
+  test.each(DIRECTIONS)("%s: no example line the prompt gives her breaks it", (direction) => {
+    for (const line of quotedLines(direction)) {
+      const questions = line.match(/\?/g)?.length ?? 0;
+      expect(questions, line).toBeLessThanOrEqual(1);
+      // A question is the end of a turn: nothing said after it.
+      if (questions === 1) expect(line.trim().endsWith("?"), line).toBe(true);
     }
   });
+});
 
-  test("on the call, 'it'll sound robotic' is answered by the call, not by placing one", () => {
-    expect(stage("discovery")).not.toContain("phone panel");
-    expect(stage("discovery")).toContain("let this call answer it");
+describe("how she sells", () => {
+  test.each(DIRECTIONS)("%s: CLOSER, in order, and the close asks for the decision", (direction) => {
+    const prompt = text(direction);
+    const steps = [
+      "C · Clarify why",
+      "L · Label the problem",
+      "O · Overview what",
+      "S · Sell the outcome",
+      "E · Explain away",
+      "R · Reinforce",
+    ];
+    const at = steps.map((step) => prompt.indexOf(step));
+    expect(at.every((i) => i >= 0), JSON.stringify(at)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect(prompt).toContain('"What made you look at this now?"');
+    expect(prompt).toContain("Want me to email you the link to set it up?");
+  });
+
+  test("the risk reversal is the contract's words, not a paraphrase", () => {
+    expect(flat(VOICE_DEMO_RISK_REVERSAL)).toContain(GUARANTEE_TEXT.paragraphs[0]!.body);
+    expect(flat(VOICE_DEMO_RISK_REVERSAL)).toContain(`Within ${POLICY.refundWindowDays} days of paying`);
+    expect(flat(VOICE_DEMO_RISK_REVERSAL)).toContain(`${POLICY.setupFeeRefundNotLiveDays} days after they`);
+    expect(flat(VOICE_DEMO_RISK_REVERSAL)).toContain("Never add to it.");
+  });
+
+  test.each(DIRECTIONS)("%s: no discount, no invented urgency, no invented proof", (direction) => {
+    const prompt = text(direction);
+    expect(prompt).toContain("Never discount and never hint at one.");
+    expect(prompt).toContain("Don't invent urgency");
+    expect(prompt).toContain("Never invent a statistic, a customer, a result or a testimonial.");
   });
 });
 
@@ -131,51 +128,62 @@ describe("price, precisely", () => {
     expect(flat(VOICE_DEMO_PRICES)).toContain("each extra location is quoted by the team");
   });
 
+  test.each(DIRECTIONS)("%s: no real price appears as an example figure, where she would anchor on it", (direction) => {
+    // Real figures live only in THE PRICE LIST, as dollars. Spoken-form
+    // examples ("eight ninety-seven") once surfaced as the wrong package's
+    // price mid-sentence.
+    const outsideList = text(direction).replace(flat(VOICE_DEMO_PRICES), "");
+    const spoken = /\b(three|four|five|six|seven|eight|nine|eleven) (ninety-seven|seventeen|thirty-seven|fifty-seven|seventy-seven)\b/i;
+    expect(outsideList).not.toMatch(spoken);
+  });
+
   test("overage is called provisional, as copy must", () => {
     expect(flat(VOICE_DEMO_PRICES)).toContain("These overage rates are provisional");
   });
 
-  test("it never invents a discount, and asks before passing details on", () => {
-    expect(all).toContain("Never invent or hint at a discount, credit, guarantee or contract term.");
-    expect(all).toContain("it's fine for the team to get in touch about this?");
+  test.each(DIRECTIONS)("%s: the price list and the risk reversal are both in the prompt", (direction) => {
+    expect(text(direction)).toContain(flat(VOICE_DEMO_PRICES));
+    expect(text(direction)).toContain(flat(VOICE_DEMO_RISK_REVERSAL));
   });
 });
 
-describe("the conversation", () => {
-  test("it asks about their clinic before it pitches, and checks it understood", () => {
-    expect(all).toContain("can I ask you a couple of quick questions first?");
-    expect(all).toContain('"What made you look at this now?"');
-    expect(all).toContain("Have I got that right?");
-    expect(all).toContain("follow them at once");
+describe("the rules every call keeps", () => {
+  test.each(DIRECTIONS)("%s: every variable has a value, including on dashboard tests", (direction) => {
+    const used = [...voiceDemoPromptText(direction).matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]!);
+    expect(used.length).toBeGreaterThan(0);
+    for (const name of used) {
+      if (SYSTEM_VARIABLES.has(name)) continue;
+      expect(Object.keys(voiceDemoLlm(direction).defaults)).toContain(name);
+    }
   });
 
-  test("it knows how long the call has run, and wraps up before the cut", () => {
-    expect(all).toContain("{{session_duration}}");
-    expect(all).toContain("From about nine minutes, wrap up within two turns");
+  test.each(DIRECTIONS)("%s: stops, ends, and promises only what was sent", (direction) => {
+    const prompt = text(direction);
+    expect(prompt).toContain("I'll take you off. Sorry to have bothered you.");
+    expect(prompt).toContain("end_call");
+    expect(prompt).toContain("unless request_follow_up said it was sent.");
+    expect(prompt).toContain("don't claim anything was sent");
+    expect(prompt).toContain("Never offer to have anyone phone them. Email only.");
+    expect(prompt).not.toMatch(/someone (from healdesk )?will (call|ring|text)/i);
   });
 
-  test("its register is calm: nothing in it is exclaimed", () => {
-    expect(all).not.toContain("!");
-    expect(VOICE_DEMO_OPENING).not.toContain("!");
+  test.each(DIRECTIONS)("%s: a BAA, never a certification, never revenue, never a '!'", (direction) => {
+    const prompt = text(direction);
+    expect(prompt).toContain("we sign a business associate agreement with every clinic");
+    expect(prompt).toContain('Never say healdesk is "HIPAA compliant"');
+    expect(prompt).toContain("Never call anything revenue.");
+    expect(prompt).not.toContain("!");
+    expect(prompt).not.toMatch(/healdesk\.io/);
   });
 
-  test("it ends calls itself, and handles a request to stop", () => {
-    expect(all).toContain("end_call");
-    expect(all).toContain("I'll take you off. Sorry to have bothered you.");
-    expect(all).toContain("Never leave a message");
+  test.each(DIRECTIONS)("%s: it knows the time, and wraps up before the cut", (direction) => {
+    expect(text(direction)).toContain("{{session_duration}}");
+    expect(text(direction)).toContain("From about nine minutes, wrap up within two turns.");
   });
 
-  test("it promises a follow-up only when the tool says it was sent", () => {
-    expect(all).not.toMatch(/someone (from healdesk )?will (call|ring|email|text)/i);
-    expect(all).not.toMatch(/I'll (text|email|send) you/i);
-    expect(all).toContain("unless request_follow_up said it was sent.");
-    expect(all).toContain("do not claim anything was passed on");
-  });
-
-  test("it claims a BAA, never a certification, and never revenue", () => {
-    expect(all).toContain("we sign a business associate agreement with every clinic");
-    expect(all).toContain('Never say healdesk is "HIPAA compliant"');
-    expect(all).toContain("Never call anything revenue.");
+  test("on the call, 'it'll sound robotic' is answered by the call, not by placing one", () => {
+    expect(text("outbound")).not.toContain("phone panel");
+    expect(text("outbound")).toContain("let this call answer it");
   });
 });
 
@@ -189,11 +197,7 @@ describe("per-call variables", () => {
   });
 
   test("nothing known falls back to defaults rather than an empty prompt", () => {
-    expect(voiceDemoVariables({})).toEqual({
-      prospect_name: VOICE_DEMO_VARIABLES.prospect_name,
-      practice_type: VOICE_DEMO_VARIABLES.practice_type,
-      practice_notes: VOICE_DEMO_VARIABLES.practice_notes,
-    });
+    expect(voiceDemoVariables({})).toEqual(VOICE_DEMO_VARIABLES);
     expect(voiceDemoVariables({ name: "  ", specialtyId: "nope" }).prospect_name).toBe("there");
   });
 });

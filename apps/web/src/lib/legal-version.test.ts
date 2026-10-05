@@ -39,7 +39,7 @@ const PINNED = {
   lastUpdated: "5 October 2026",
   sha256: {
     "/terms": "b709d8ddbcbbffd513564bcd361ba0bf07d9e151f3817fb21b21c198f5087487",
-    "/privacy": "01dfbecefe66f2e5e0fea531ddfeab44f7e8f3ccbad4caad74b1175126937f33",
+    "/privacy": "3ead82cc3790c78127313fe35deff5334d3d88438ab37bb86f133b8d91b6b782",
     "/subprocessors": "0c4649214d14394aabbedd9dc365d4409635a54cd1c57cdeaaa9a445547acd5d",
     "/trust": "e7cb2522546abf916df67e04325b124df11884d64dd7cb2cff625256b6990324",
     "/data-deletion": "c176eca3132e36d15ee7924b829b7d8c70c30e655bb1a068606d10289b1531be",

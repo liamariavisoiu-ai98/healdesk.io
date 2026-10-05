@@ -37,7 +37,7 @@
  *     "um" is performing being human.
  */
 
-import { type VoiceDemoDirection, type VoiceDemoState, voiceDemoLlm } from "../src/lib/voice-demo-prompt";
+import { type VoiceDemoDirection, voiceDemoLlm } from "../src/lib/voice-demo-prompt";
 
 const API = "https://api.retellai.com";
 const AGENT_NAME: Record<VoiceDemoDirection, string> = {
@@ -93,8 +93,10 @@ const REQUEST_FOLLOW_UP = {
     properties: {
       topic: {
         type: "string",
-        enum: ["pricing", "discount", "terms", "sales_session", "other"],
-        description: "What they want from the team.",
+        enum: ["start", "pricing", "discount", "terms", "sales_session", "other"],
+        description:
+          "start: they said yes in the close, and are emailed the setup link for the package. " +
+          "Anything else goes to the team, who reply by email.",
       },
       name: { type: "string", description: "Their name, as they gave it." },
       clinic: { type: "string", description: "Their clinic's name, if they gave it." },
@@ -132,41 +134,25 @@ const REQUEST_FOLLOW_UP = {
   max_retry: 0,
 };
 
-function edge(e: VoiceDemoState["edges"][number]) {
-  return {
-    destination_state_name: e.to,
-    description: e.when,
-    ...(e.carry
-      ? {
-          parameters: {
-            type: "object",
-            properties: Object.fromEntries(
-              Object.entries(e.carry).map(([key, description]) => [key, { type: "string", description }]),
-            ),
-            required: Object.keys(e.carry),
-          },
-        }
-      : {}),
-  };
-}
-
 function llmConfig(direction: VoiceDemoDirection) {
   const llm = voiceDemoLlm(direction);
   return {
     model: MODEL,
-    model_temperature: 0.2,
+    // Retell's guidance for sales calls is 0.5 to 0.7; lower here because
+    // the prices, the refunds and the disclosure must come out exactly.
+    model_temperature: 0.3,
+    // Retell's fast tier: dedicated capacity, 1.5x the model's rate. The
+    // measured cost of the standard pool was the variance, turns of 2.5 to
+    // 3.7 seconds, and a demo call is the one place that cannot afford it.
+    model_high_priority: true,
     start_speaker: "agent",
     begin_message: llm.beginMessage,
-    general_prompt: llm.generalPrompt,
-    general_tools: [END_CALL],
-    starting_state: "greeting",
-    states: llm.states.map((state) => ({
-      name: state.name,
-      state_prompt: state.prompt,
-      edges: state.edges.map(edge),
-      // Only the close can pass anything on, so only the close has the tool.
-      tools: state.name === "close" ? [REQUEST_FOLLOW_UP] : [],
-    })),
+    // One prompt, no states: a state change is a second model call on the
+    // turn that crosses it (see the module header).
+    general_prompt: llm.prompt,
+    general_tools: [END_CALL, REQUEST_FOLLOW_UP],
+    states: [],
+    starting_state: null,
     default_dynamic_variables: llm.defaults,
   };
 }
@@ -184,7 +170,9 @@ function agentConfig(llmId: string, direction: VoiceDemoDirection) {
     voice_speed: 0.95,
     volume: 0.85,
     voice_temperature: 0.6,
-    responsiveness: 0.8,
+    // 1 is Retell's fastest: reply as soon as the turn is judged over. 0.8
+    // added a wait that measured calls showed as about 0.4s of every pause.
+    responsiveness: 1,
     interruption_sensitivity: 0.8,
     enable_backchannel: true,
     backchannel_frequency: 0.3,
@@ -267,10 +255,7 @@ async function main(): Promise<void> {
     for (const direction of DIRECTIONS) {
       const llm = llmConfig(direction);
       console.log(`\n== ${direction}: ${llm.begin_message}`);
-      for (const state of llm.states) {
-        const words = (llm.general_prompt + state.state_prompt).split(/\s+/).length;
-        console.log(`Stage ${state.name}: about ${words} words a turn.`);
-      }
+      console.log(`Prompt: about ${llm.general_prompt.split(/\s+/).length} words a turn.`);
     }
     console.log("\nNothing was sent.");
     return;

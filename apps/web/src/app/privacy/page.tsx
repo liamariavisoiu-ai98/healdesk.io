@@ -128,13 +128,14 @@ export default function PrivacyPage() {
             line is never used to call you back.
           </li>
           <li>
-            <strong>If you ask {site.agent}, on either call, for our team to get back to you.</strong>{" "}
-            Only if you ask about pricing, terms or a session with our team and say yes when she
-            asks whether we may contact you. She then emails us your name, your clinic, the email
-            address you spelled out, a time that suits you, and a short summary of what you told
-            her about your phones, so we do not ask twice. We reply by email to that request and
-            use it for nothing else: it is not added to a marketing list, and we never phone the
-            number you called from or were called on.
+            <strong>If you ask {site.agent}, on either call, to email you.</strong> Only if you
+            ask to get started, or ask about pricing, terms or a session with our team, and say yes
+            when she asks whether we may email you. If you are getting started, we email you the
+            link to set up the package you discussed, once. Either way, she emails us your name,
+            your clinic, the email address you spelled out, a time that suits you, and a short
+            summary of what you told her about your phones, so we do not ask twice. We use it to
+            answer that request and for nothing else: it is not added to a marketing list, and we
+            never phone the number you called from or were called on.
           </li>
           <li>
             <strong>If we contacted you first.</strong> We research practices before we send a

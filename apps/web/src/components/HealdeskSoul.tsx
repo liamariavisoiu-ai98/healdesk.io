@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * The soul: the orb that stands in for the agent in each demo panel header.
@@ -55,10 +55,43 @@ const MODE_CLASS: Record<SoulMode, string> = {
   voice: "soul--voice",
 };
 
+/**
+ * Two encodes of one clip, the same artwork played forward and back.
+ *
+ * `panel` is 384px and about 40KB, right for the demo headers. `hero` is
+ * 640px, cut from the 2886px source the panel clip was made from, because the
+ * orb plays at 1.35x its box: a 384px clip covers a box of about 140 CSS px
+ * on a retina screen, and the hero's box is wider than that, where the panel
+ * clip's compression blocking shows (the complaint in the 29 September
+ * commit).
+ *
+ * The hero cut also fixes three things the panel clip still has. It runs at
+ * the source's own 30fps, where dropping to 24 left every fourth step twice
+ * the size. It starts four source frames later, past the end of the fade in
+ * from white that made the panel loop pale for an instant each time round.
+ * And it starts at its far turnaround, the fullest orb, so its first frame
+ * is its poster and the swap from the still is seamless; the panel's poster
+ * is that same full orb, but the panel clip opens on its palest frame.
+ */
+const CLIPS = {
+  panel: {
+    poster: "/brand/healdesk-soul.png",
+    webm: "/brand/healdesk-soul.webm",
+    mp4: "/brand/healdesk-soul.mp4",
+  },
+  hero: {
+    poster: "/brand/healdesk-soul-hero.webp",
+    webm: "/brand/healdesk-soul-hero.webm",
+    mp4: "/brand/healdesk-soul-hero.mp4",
+  },
+} as const;
+
 export function HealdeskSoul({
   mode = "idle",
   beatMs,
   size = 26,
+  clip = "panel",
+  paused = false,
   className = "",
   label,
 }: {
@@ -70,8 +103,21 @@ export function HealdeskSoul({
    * Supplied while she is working, from whatever the panel can measure.
    */
   beatMs?: number;
-  /** Rendered size in px. The asset is 160, so anything up to 80 is crisp. */
-  size?: number;
+  /**
+   * Rendered size: a number of px, or any CSS length. The hero passes a
+   * percentage of its orbit so the soul scales with the column. A length
+   * leaves the aura's blur to the stylesheet (`--soul-aura-blur`), because a
+   * blur cannot be a percentage.
+   */
+  size?: number | string;
+  /** Which encode to play. See CLIPS. */
+  clip?: keyof typeof CLIPS;
+  /**
+   * Hold the clip and every loop where they are, for a page that offers a
+   * pause control (the hero's, see HeroOrbit.tsx). "Always alive" above is
+   * the default, not a promise the reader cannot opt out of.
+   */
+  paused?: boolean;
   className?: string;
   /**
    * What a screen reader should hear, if anything.
@@ -89,8 +135,8 @@ export function HealdeskSoul({
    * Two reasons, and only one of them is reduced motion. The other is that the
    * server has no idea what the reader prefers, so rendering the <video> in
    * the markup would mean tearing it out again on hydration for anyone who
-   * asked for less. The poster is what the video would show anyway, so the
-   * swap is invisible.
+   * asked for less. The hero clip opens on its poster, so its swap is
+   * invisible; the panel clip does not quite (see CLIPS).
    */
   const [still, setStill] = useState(true);
 
@@ -102,14 +148,35 @@ export function HealdeskSoul({
     return () => query.removeEventListener("change", sync);
   }, []);
 
+  /**
+   * The CSS loops pause through the class; the clip has to be told. The
+   * effect runs again when the clip mounts after hydration, so a reader who
+   * paused before then does not get it starting behind their back.
+   */
+  const video = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const clipEl = video.current;
+    if (!clipEl) return;
+    if (paused) clipEl.pause();
+    else clipEl.play().catch(() => {});
+  }, [paused, still]);
+
+  const media = CLIPS[clip];
+  // The attributes only reserve space before the stylesheet arrives, and
+  // they take pixels, so a CSS length leaves them to the stylesheet.
+  const px = typeof size === "number" ? size : undefined;
+
   return (
     <span
-      className={`soul ${MODE_CLASS[mode]} ${className}`}
+      className={`soul ${MODE_CLASS[mode]} ${paused ? "soul--paused" : ""} ${className}`}
       style={{
         width: size,
         height: size,
         // Proportional, so the edge is equally soft at 26px and at 72px.
-        ["--soul-aura-blur" as string]: `${Math.max(3, size * 0.16).toFixed(1)}px`,
+        ...(px === undefined
+          ? {}
+          : { ["--soul-aura-blur" as string]: `${Math.max(3, px * 0.16).toFixed(1)}px` }),
         ...(beatMs ? { ["--soul-beat" as string]: `${Math.round(beatMs)}ms` } : {}),
       }}
       role={label ? "status" : undefined}
@@ -127,29 +194,30 @@ export function HealdeskSoul({
       <span className="soul__beat soul__edge">
         {still ? (
           <img
-            src="/brand/healdesk-soul.png"
+            src={media.poster}
             alt=""
-            width={size}
-            height={size}
+            width={px}
+            height={px}
             decoding="async"
             className="soul__orb"
           />
         ) : (
           <video
+            ref={video}
             className="soul__orb"
-            width={size}
-            height={size}
+            width={px}
+            height={px}
             autoPlay
             muted
             loop
             playsInline
             preload="auto"
-            poster="/brand/healdesk-soul.png"
+            poster={media.poster}
             aria-hidden
             tabIndex={-1}
           >
-            <source src="/brand/healdesk-soul.webm" type="video/webm" />
-            <source src="/brand/healdesk-soul.mp4" type="video/mp4" />
+            <source src={media.webm} type="video/webm" />
+            <source src={media.mp4} type="video/mp4" />
           </video>
         )}
       </span>

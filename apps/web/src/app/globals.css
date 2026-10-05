@@ -853,6 +853,300 @@
   animation: soul-emit 1.7s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
 }
 
+/* --- paused: held where it is, by a page's pause control ----------------- */
+/*
+ * The component pauses the clip; this holds every loop drawn here, mid-beat
+ * rather than back at rest, so pausing does not itself make the orb jump.
+ * Doubled up with `.soul` to match the mode rules above, which are two
+ * classes deep too, and placed after them so it wins.
+ */
+.soul.soul--paused *,
+.soul.soul--paused *::before,
+.soul.soul--paused *::after {
+  animation-play-state: paused;
+}
+
+/* =============================================================================
+   The hero orbit
+   =============================================================================
+   The soul in the middle of the hero's right-hand column, with the logos of
+   the tools AYA works through floating round it, each on a hairline. See
+   HeroOrbit.tsx for what is on the ring and in what order.
+
+   ## Shares of the orbit, in percentages
+
+   Every length is a share of the orbit's own box, so the composition is the
+   same at 320px on a phone and at 520px on a desktop and nothing re-lays out
+   in between. They are percentages, not container units: Safari applies the
+   site's 0.9 zoom to `cqw` twice, once to the container's width and again to
+   the result, and drew the whole ring 10% small from 640px up, where Chrome
+   and Firefox drew it as designed. Percentages come out the same in all
+   three. The one `cqw` left is the aura's blur, which a percentage cannot
+   express and where 10% does not show.
+
+   ## What moves
+
+   At rest, two things per logo, both transforms, so both on the compositor:
+
+     the spoke    a box the size of the orbit, swinging a degree and a half
+                  either way about its centre, carrying a hairline and a logo
+                  together so the two cannot come apart
+     the bounce   the logo's own small hop and rebound, then a long rest:
+                  slow, short, and never in step with its neighbours
+
+   On hover the logo slides outward along its own bearing, away from the
+   soul, by a quarter of its size. Each hairline already runs on under its
+   logo by that quarter, so it still meets the logo's centre when it is out.
+   The hover is caught by the node, which does not move and reaches a quarter
+   past the logo on every side, so a logo can slide out from under a pointer
+   resting on its inner edge without losing the hover and sliding straight
+   back. Devices without hover never get it: on a phone a tap would leave the
+   logo stuck out.
+
+   The line is turned to its bearing inside the spoke; the logo is not. It
+   is placed on the bearing with sin() and cos(), so it stays upright apart
+   from the swing, rather than being turned out and back, which would
+   resample it twice and soften the small wordmarks in Stripe's and Cal.com's
+   logos. Placement is in the inset properties, `rotate` and `translate`,
+   because an element gets one `transform` and an animation would replace it.
+
+   Reduced motion: the global rule runs every animation and transition once in
+   0.01ms. With no fill mode each logo comes to rest exactly on its spoke, and
+   a hover moves it out without the slide. The hero's pause button holds the
+   swing and the bounce where they are (`data-paused`, below); a hover still
+   slides, because that motion is the reader's own.
+   ============================================================================= */
+
+.orbit {
+  position: relative;
+  aspect-ratio: 1;
+  /* For the aura's blur, below, and nothing else. */
+  container-type: inline-size;
+  /*
+   * The spokes and arms are boxes the size of the orbit turned to their
+   * bearings, and a turned square reaches past its own box: without this a
+   * 360px phone page came out about 50px wide of the screen. The soul's
+   * aura, two rotating square boxes, did the same by up to 9px. Everything
+   * visible, a hovered logo and its shadow included, sits inside this box,
+   * so clipping takes nothing away.
+   */
+  overflow: clip;
+  /* The soul's box. Its aura reaches about twice this. */
+  --orbit-soul: 38%;
+  /* From the centre of the soul to the centre of each logo. */
+  --orbit-radius: 38.5%;
+  /*
+   * Where each hairline starts: inside the soul's soft rim, so the line rises
+   * out of the glow rather than stopping at an edge that is not there.
+   */
+  --orbit-line-start: 15.5%;
+  --orbit-logo: clamp(38px, 11.5%, 60px);
+  /* How far each spoke swings either side of its bearing. */
+  --orbit-sway: 1.6deg;
+  /* How far a hovered logo slides out, as a share of its own size. */
+  --orbit-reach: 0.25;
+  /*
+   * The soul is sized by `--orbit-soul`, a percentage, so HealdeskSoul leaves
+   * its blur to the stylesheet: this is 0.16 of the soul's width, the share
+   * the component uses for a soul sized in pixels.
+   */
+  --soul-aura-blur: 6.08cqw;
+}
+
+.orbit__core {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+/*
+ * The soul's aura, faded out before it reaches the logos. At hero size its
+ * drifting masses spread past the ring, tinted the ground behind whichever
+ * logos they reached, drew a faint arc where their boxes ended, and would
+ * give the discs under the open marks (below) something to show against.
+ * The stops are shares of the aura's box, which is nearly twice the soul's
+ * width: the glow is untouched to about a third past the sphere's rim and
+ * gone before the logos' inner edges, even at the top of a heartbeat, when
+ * the aura is 10% larger.
+ */
+.orbit .soul__aura {
+  -webkit-mask-image: radial-gradient(closest-side, #000 68%, transparent 81%);
+  mask-image: radial-gradient(closest-side, #000 68%, transparent 81%);
+}
+
+.orbit__ring {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  /* A box the size of the orbit per logo overlaps in here. Only the logos
+     take the pointer, or the last spoke would catch every hover. */
+  pointer-events: none;
+}
+
+/* The size of the orbit, so the percentages inside it are shares of the orbit. */
+.orbit__spoke {
+  position: absolute;
+  inset: 0;
+  animation: orbit-sway var(--sway-time) ease-in-out var(--drift-delay) infinite alternate;
+}
+
+/* The spoke again, turned to its logo's bearing. */
+.orbit__arm {
+  position: absolute;
+  inset: 0;
+  rotate: var(--angle);
+}
+
+/*
+ * Straight up the arm, from inside the soul to a quarter of a logo past the
+ * logo's centre: the distance a hover slides it out.
+ *
+ * Laid out 4px wide and drawn at 1px by the transform. A box 1px wide went
+ * missing from every rotated arm from 640px up, at device pixel ratios 1 and
+ * 2 alike: the site's 0.9 zoom makes it 0.9px, and Chrome painted nothing
+ * for a turned box that thin, while the unturned vertical one still showed.
+ * A wider box scaled down to the same width paints in every engine.
+ */
+.orbit__line {
+  position: absolute;
+  bottom: calc(50% + var(--orbit-line-start));
+  left: calc(50% - 2px);
+  width: 4px;
+  height: calc(
+    var(--orbit-radius) - var(--orbit-line-start) + var(--orbit-logo) * var(--orbit-reach)
+  );
+  transform: scaleX(0.25);
+  background: linear-gradient(
+    to top,
+    rgb(23 42 58 / 0),
+    rgb(23 42 58 / 0.18) 40%,
+    rgb(23 42 58 / 0.24)
+  );
+}
+
+/* Where the logo sits, and the hover target. It never moves. */
+.orbit__node {
+  position: absolute;
+  top: calc(50% - cos(var(--angle)) * var(--orbit-radius));
+  left: calc(50% + sin(var(--angle)) * var(--orbit-radius));
+  width: var(--orbit-logo);
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  pointer-events: auto;
+}
+
+/* The target reaches past the logo by as far as the logo slides. */
+.orbit__node::before {
+  content: "";
+  position: absolute;
+  inset: calc(var(--orbit-reach) * -100%);
+}
+
+.orbit__reach {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transition: transform 550ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (hover: hover) {
+  /* Out along the bearing. The percentages are of the logo's own size. */
+  .orbit__node:hover .orbit__reach {
+    transform: translate(
+      calc(sin(var(--angle)) * var(--orbit-reach) * 100%),
+      calc(cos(var(--angle)) * var(--orbit-reach) * -100%)
+    );
+  }
+}
+
+.orbit__bounce {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  animation: orbit-bounce var(--bounce-time) linear var(--drift-delay) infinite;
+}
+
+/*
+ * A disc of the page's own colour under an open mark. The hairline runs on
+ * beneath its logo so it stays attached through the bounce and the hover,
+ * and a solid icon hides it, but HighLevel's arrows and the ring of
+ * Calendly's "C" have gaps it showed through, drawing a line across the
+ * mark. `--disc` is the share of the logo's half-width the mark reaches
+ * along its spoke (lib/integrations.ts), so the line stops where the mark
+ * starts. Only those two get one: under every logo, a disc the size of the
+ * box stopped the line a few pixels short of the solid tiles, whose artwork
+ * ends inside it. It is the colour of the ground, which the soul's glow is
+ * kept off (above), so the disc itself never shows.
+ */
+.orbit__bounce--disc::before {
+  content: "";
+  position: absolute;
+  inset: calc((1 - var(--disc)) * 50%);
+  border-radius: 50%;
+  background: var(--color-paper);
+}
+
+.orbit[data-paused] .orbit__spoke,
+.orbit[data-paused] .orbit__bounce {
+  animation-play-state: paused;
+}
+
+.orbit__logo {
+  /* Positioned, so it paints over the disc rather than under it. */
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* It follows the logo's own alpha, which is why the backgrounds were cut
+     out: a logo on a white square casts a square shadow. */
+  filter: drop-shadow(0 6px 9px rgb(23 42 58 / 0.16));
+  user-select: none;
+}
+
+@keyframes orbit-sway {
+  from {
+    transform: rotate(calc(var(--orbit-sway) * -1));
+  }
+  to {
+    transform: rotate(var(--orbit-sway));
+  }
+}
+
+/*
+ * A hop, a smaller one, and a long rest: alive, not busy.
+ *
+ * Each step carries its own easing, slowing into the top of a hop and
+ * speeding into the landing, which is what makes it read as a bounce rather
+ * than a float. Heights are shares of the logo's own, so a phone's smaller
+ * logos hop less.
+ */
+@keyframes orbit-bounce {
+  0% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
+  }
+  10% {
+    transform: translateY(-12%);
+    animation-timing-function: cubic-bezier(0.32, 0, 0.67, 0);
+  }
+  20% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
+  }
+  25% {
+    transform: translateY(-3.5%);
+    animation-timing-function: cubic-bezier(0.32, 0, 0.67, 0);
+  }
+  30%,
+  100% {
+    transform: translateY(0);
+  }
+}
+
 /* =============================================================================
    Share your experience, the disclosure
    =============================================================================

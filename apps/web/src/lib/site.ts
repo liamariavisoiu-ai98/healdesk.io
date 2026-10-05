@@ -54,7 +54,7 @@ export const site = {
    * The hero's headline. One claim, and it has to survive the footer's
    * commitments. The headline is the owner's: reliability is the promise. The
    * supporting paragraph that sat under it was removed on the owner's word on
-   * 5 October 2026, so the hero makes this one claim and nothing else.
+   * 5 October 2026, so the heading makes this one claim and nothing else.
    */
   tagline: "An AI front desk you can rely on.",
 

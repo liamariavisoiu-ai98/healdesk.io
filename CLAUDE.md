@@ -294,34 +294,54 @@ precedent.
 # The clinic portal (v1)
 
 Clinics sign in. v1 has a clinic portal and an onboarding wizard, served by
-`apps/app` because they show transcripts and bookings. Neither is built yet.
-Build them from the spec's "Account access and credentials", "Portal map",
-"Every switch in the portal" and "What the portal does not have".
+`apps/app` because they show transcripts and bookings. They are being built to
+the plan the owner approved on 6 October 2026,
+`docs/design/funnel-onboarding-portal-2026-10-06.md`, from the spec's "Account
+access and credentials", "Portal map", "Every switch in the portal" and "What
+the portal does not have". Where the plan and the spec differ, the plan records
+the spec edits the owner approved.
 
-- **Seven screens, nothing nested more than one level deep:** Home, Channels,
-  Behaviour, Knowledge, Conversations, Bookings, Billing. Invoices, the payment
-  method and cancellation deep-link into Stripe's own portal.
-- **Getting in.** Payment creates the account against the billing email and
-  lands the buyer in the wizard, already signed in through a one-time link. The
-  welcome email carries a sign-in link, never credentials. Setting a password is
-  optional; the magic link alone is enough.
-- **A second factor before any transcript opens**, and every open writes an
-  access-log row. Toggles, billing and knowledge edits do not need it.
-- **Three roles:** owner (everything, including billing and cancellation),
-  manager (everything except billing), billing contact (invoices and payment
-  method only; never transcripts). Dunning goes to the owner and the billing
-  contact, never to the clinic's public inbox.
+- **Six screens, nothing nested more than one level deep:** Home, Settings,
+  Knowledge, Conversations, Bookings, Billing. Settings holds every switch on one
+  page, in cards. Invoices and the payment method deep-link into Stripe's own
+  portal.
+- **One email address per clinic** (a shared inbox such as info@ is fine). It is
+  the clinic's only sign-in, the Stripe billing email, the agreement's notice
+  address and where every notification goes, dunning included. That address
+  overrides the spec's "never the public inbox", by the owner's decision of
+  6 October 2026.
+- **One shared sign-in in v1.** The spec's three roles (owner, manager, billing
+  contact) are deferred: `requirePortal(slug)` checks membership only.
+- **Getting in.** Payment creates the account against the clinic's address and
+  lands the buyer on `/welcome`, signed in through a one-time link. There are no
+  passwords anywhere. Every later sign-in is an expiring email link.
+- **A passkey per device, with an authenticator-app backup, before any
+  transcript or booking opens.** Every open writes an access-log row naming the
+  device's passkey. Toggles, billing and knowledge edits need no step-up, except
+  where calls and money go: the direct line, the transfer number, the clinic's
+  address, the payment account and exports.
 - **The wizard is four steps:** confirm the pre-filled basics; set behaviour
-  (tone, greeting, deposit toggles and the gateway, voice coverage mode,
-  escalation contacts); connect Google Calendar; connect the channels bought.
-  Every step saves as it completes, and a clinic resumes from the link in its
-  welcome email.
+  (tone, greeting, voice coverage mode, the direct line, deposits and the
+  gateway, the urgent-help number); connect Google Calendar; connect the
+  channels bought. Every step saves as it completes, and a clinic resumes from
+  the link in its welcome email.
+- **Email** (the plan's Annex X):
+  - patient-related mail is a pointer into the portal: never a name, number,
+    time, service or any text from a conversation;
+  - one Resend account sends product mail from hello@healdesk.io and marketing
+    from noreply@healdesk.io, and every email can be replied to;
+  - F0's `billing_notices` is the one outbox and `report_deliveries` the ledger.
+- **Billing starts the day AYA first answers a patient, with no Stripe trial**:
+  a $0 monthly line until then, and a subscription schedule
+  (`docs/design/funnel-portal-contracts-2026-10-06.md` §2). Never reintroduce
+  `trial_end`.
 - **Every connection is a login button:** Google Calendar OAuth, Facebook
   login, WhatsApp embedded signup, the gateway's own connect flow. A clinic never
   pastes a key or a credential. The single-use `/connect/[token]` credential
   handover in `apps/app` today belongs to the phase-two read-back.
 - **The support chat** carries a permanent line telling staff not to paste
-  patient information, and is retained as a non-patient channel.
+  patient information, and stores nothing: the browser holds the conversation,
+  and an escalation emails hello@ structured fields, never chat text.
 - **It must never grow** prompt or script editing, a flow builder, per-channel
   behaviour differences, a live staff inbox, outbound campaigns, raw analytics
   dashboards, immediate in-app cancellation, or direct calendar or EMR

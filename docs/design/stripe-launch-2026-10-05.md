@@ -1,5 +1,20 @@
 # The remaining Stripe launch work: design (5 October 2026)
 
+> **Superseded in part, 6 October 2026.** The owner approved the funnel,
+> onboarding and portal plan (`docs/design/funnel-onboarding-portal-2026-10-06.md`).
+> It supersedes A1, A2 and E's portal screens below. B, C and D are built to
+> `docs/design/funnel-portal-contracts-2026-10-06.md`, which wins wherever it
+> and this design differ. The changes that matter most here:
+> - **No Stripe trial.** Billing starts the day AYA first answers a patient,
+>   through a $0 monthly line and a subscription schedule (contracts §2). Visa's
+>   trial rules apply only to free trials and introductory promotions, and
+>   Stripe would print "TRIAL OVER" on a trial's first charge.
+> - **One email address and one sign-in per clinic.** §6's roles are deferred,
+>   and one Stripe billing-portal configuration is enough.
+> - **The plan builds the email sender.** Package C supplies kinds, payloads and
+>   templates (contracts §3 and §4).
+> - **The portal has Settings, not Behaviour.**
+
 > **Status, 5 October 2026.** Package **F0 (foundation) is built and on main**
 > (commits 27fad5c, 385e2a8 and 1fc4494):
 > migration `0043_stripe_launch` (checkout intents, sign-in links, clinic settings,

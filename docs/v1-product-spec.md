@@ -564,7 +564,7 @@ What the AI booked, with deposit status, and the queue of anything flagged for m
 
 ### 6. Billing
 
-Current plan, channels included, renewal date, next invoice amount, and before the plan starts, the latest date it starts. Until every channel in the package is in service, the plan is billed at the price of the channels that are. Usage meters: minutes used against included, conversations used against included, any overage in dollars, days left in the cycle. Overage handling switch. Upgrade and add capacity here. Invoices, payment method and cancellation deep-link into Stripe's own portal rather than being rebuilt.
+Current plan, channels included, renewal date, next invoice amount, and before the plan starts, the latest date it starts. Until every channel in the package is in service, the plan is billed at the price of the channels that are. Usage meters: minutes used against included, conversations used against included, any overage in dollars, days left in the cycle. Overage handling switch. Upgrade and add capacity here. Invoices and the payment method deep-link into Stripe's own portal rather than being rebuilt. Cancellation is the Auto-renew switch, not Stripe's portal: off cancels at period end, and before the plan starts it means the plan never starts and nothing more is charged.
 
 ## Every switch in the portal
 

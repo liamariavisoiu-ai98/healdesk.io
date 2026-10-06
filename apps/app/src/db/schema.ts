@@ -2457,6 +2457,10 @@ export type CheckoutIntentPayload = {
   agreementId: string;
 };
 
+/** Whether the website was read at checkout: read, tried and failed, or there was none. */
+export const CHECKOUT_PROFILE_STATUSES = ["read", "failed", "none"] as const;
+export type CheckoutProfileStatus = (typeof CHECKOUT_PROFILE_STATUSES)[number];
+
 /**
  * A purchase waiting on its first paid invoice.
  *
@@ -2488,9 +2492,43 @@ export const checkoutIntents = pgTable(
     provisionedClinicId: uuid("provisioned_clinic_id"),
     /** When the paying browser was handed its one-time sign-in link. */
     handoffIssuedAt: timestamp("handoff_issued_at", { withTimezone: true }),
+    /**
+     * The website read at checkout (plan Part B), validated on the way in,
+     * and whether there was one: 'read', 'failed' (we tried; setup asks three
+     * questions instead) or 'none' (no website, or none given).
+     */
+    profile: jsonb("profile"),
+    profileStatus: text("profile_status").$type<CheckoutProfileStatus>().notNull().default("none"),
+    /**
+     * The setup request whose link opened this purchase, while purchases are
+     * by invitation. Unique: one intent per setup link, which a cancelled and
+     * retried payment reuses, and which a second purchase cannot.
+     */
+    inviteRef: text("invite_ref").unique(),
+    /** How many times Pay was pressed for this intent; each press is one Checkout Session. */
+    attempt: integer("attempt").notNull().default(0),
+    /** The Checkout Session of the latest attempt, expired when another replaces it. */
+    openSessionId: text("open_session_id"),
+    /**
+     * SHA-256 of the nonce cookie set on the paying browser. /welcome hands the
+     * sign-in link only to the browser that holds the nonce.
+     */
+    nonceHash: bytea("nonce_hash"),
+    /** The owner's sign-in, created at provisioning (design D3). */
+    provisionedUserId: text("provisioned_user_id"),
+    /** Provisioning refused this intent: /welcome says so instead of waiting. */
+    provisionFailedAt: timestamp("provision_failed_at", { withTimezone: true }),
   },
   (t) => [
     check("checkout_intents_interval_check", sql`${t.billingInterval} in ('month', 'year')`),
+    check(
+      "checkout_intents_profile_status_check",
+      sql`${t.profileStatus} in (${sqlList(CHECKOUT_PROFILE_STATUSES)})`,
+    ),
+    check(
+      "checkout_intents_nonce_hash_length",
+      sql`${t.nonceHash} is null or octet_length(${t.nonceHash}) = 32`,
+    ),
     index("checkout_intents_expires_idx").on(t.expiresAt),
   ],
 );

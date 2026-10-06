@@ -43,6 +43,13 @@
  *     both in connect-src). Nothing else; docs/architecture.md's "No conversion
  *     attribution to ad platforms" is enforced here as much as in layout.tsx:
  *     a tag manager or pixel added without touching this file is blocked.
+ *   - Scheduling: "Get in touch" in the navbar frames Calendly's booking page
+ *     (calendly.com) in a modal, on every page that has the navbar, so
+ *     calendly.com is the one origin frame-src allows site-wide. The frame is
+ *     built by GetInTouch.tsx, not by Calendly's widget.js, so script-src gains
+ *     nothing; what Calendly's page loads inside the frame is under its own
+ *     policy, not this one. The origin must match site.meeting.url, and a test
+ *     holds the two together.
  *   - The voice demo: scripted playback plus a POST to /api/callback that has
  *     AYA ring the visitor. It never opens the microphone, which is why
  *     Permissions-Policy says `microphone=()` rather than `(self)`.
@@ -146,10 +153,12 @@ export const POSTHOG_ASSETS_ORIGIN = "https://us-assets.i.posthog.com";
 export const POSTHOG_INGEST_ORIGIN = "https://us.i.posthog.com";
 /**
  * Google Sheets, framed by /admin/crm and by nothing else. The public site
- * keeps `frame-src 'none'`; next.config.ts applies this to `/admin/:path*`
- * only, through the `frameSources` option below.
+ * does not frame it; next.config.ts applies this to `/admin/:path*` only,
+ * through the `frameSources` option below.
  */
 export const GOOGLE_DOCS_ORIGIN = "https://docs.google.com";
+/** Calendly's booking page, framed by "Get in touch" on every page with the navbar. */
+export const CALENDLY_ORIGIN = "https://calendly.com";
 /** Stripe-hosted Checkout, the only place a form on this site may ever post besides itself. */
 export const STRIPE_CHECKOUT_ORIGIN = "https://checkout.stripe.com";
 
@@ -200,10 +209,11 @@ export type CspDirective = (typeof CSP_DIRECTIVES)[number];
 /**
  * Per-route variations of the policy. Only one exists: the operator console
  * frames the marketing Sheet at /admin/crm, so that route family may frame
- * docs.google.com. Everything else on the site embeds nothing.
+ * docs.google.com. Everything else on the site frames Calendly and nothing
+ * more.
  */
 export type CspOptions = {
-  /** Extra `frame-src` origins. Empty or absent keeps `frame-src 'none'`. */
+  /** Extra `frame-src` origins, beside Calendly's. */
   frameSources?: readonly string[];
 };
 
@@ -219,7 +229,11 @@ export function cspDirectives(
 ): Record<CspDirective, readonly string[]> {
   const dev = env.nodeEnv === "development";
   const preview = env.vercelEnv === "preview";
-  const frames = [...(preview ? VERCEL_TOOLBAR.frame : []), ...(options.frameSources ?? [])];
+  const frames = [
+    ...(preview ? VERCEL_TOOLBAR.frame : []),
+    CALENDLY_ORIGIN,
+    ...(options.frameSources ?? []),
+  ];
 
   const self = "'self'";
 
@@ -248,9 +262,10 @@ export function cspDirectives(
       POSTHOG_ASSETS_ORIGIN,
       ...(preview ? VERCEL_TOOLBAR.connect : []),
     ],
-    // The site embeds nothing. Stripe Checkout is a redirect, not an iframe.
-    // The one exception is opt-in per route (`frameSources`): /admin/crm.
-    "frame-src": frames.length > 0 ? frames : ["'none'"],
+    // Calendly's booking page, in the "Get in touch" modal, and nothing else.
+    // Stripe Checkout is a redirect, not an iframe. One route family adds an
+    // origin of its own (`frameSources`): /admin/crm.
+    "frame-src": frames,
     "object-src": ["'none'"],
     "base-uri": [self],
     "form-action": [self, STRIPE_CHECKOUT_ORIGIN],

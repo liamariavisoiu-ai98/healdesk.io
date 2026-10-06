@@ -216,6 +216,17 @@ export const COHORT_SETUP_CREDIT = {
   validDays: 14,
 } as const;
 
+/**
+ * The days a clinic has to finish its own setup (the owner's decision of
+ * 6 October 2026). While no channel is answering patients it gets a reminder
+ * every five days, six in all; at the end of the last day an account with
+ * nothing live is closed, and the setup fee, which is never refunded, is kept.
+ * Provisioning stamps the deadline on the clinic, so changing these moves
+ * only clinics bought afterwards.
+ */
+export const SETUP_WINDOW_DAYS = 30;
+export const SETUP_REMINDER_EVERY_DAYS = 5;
+
 export const plans: readonly Plan[] = [
   {
     id: "chat-web",

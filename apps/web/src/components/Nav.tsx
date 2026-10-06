@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 
 import { BuyButton } from "@/components/BuyModal";
+import { GetInTouch } from "@/components/GetInTouch";
 import { WordmarkGlyphs } from "@/components/Wordmark";
 import { site } from "@/lib/site";
 
@@ -40,6 +41,12 @@ export function Brand({ className = "" }: { className?: string }) {
  * exists on /pricing, so a prospect she had just convinced had to find the
  * footer to buy.
  *
+ * "Get in touch" (6 October 2026, the owner's) sits beside it as the outlined
+ * secondary button, opening a call booking over the page (GetInTouch.tsx).
+ * It shows from 700px. At 640px, where the text links appear, a row with it
+ * in is exactly full, so a font that sets a little wider wraps both buttons
+ * onto two lines; at 700 there are about 60px to spare.
+ *
  * Client component because both CTAs behave differently by route.
  */
 export function Nav() {
@@ -76,6 +83,7 @@ export function Nav() {
           </span>
         </a>
 
+        <GetInTouch className="hidden min-[700px]:inline-flex" />
         <BuyButton className="ml-auto sm:ml-0" />
       </div>
     </header>

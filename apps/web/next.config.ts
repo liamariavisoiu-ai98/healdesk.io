@@ -33,11 +33,12 @@ const nextConfig: NextConfig = {
    *
    * The second entry is the one per-route variation: /admin/crm frames the
    * marketing Sheet, so `/admin/:path*` (which also matches `/admin` itself)
-   * gets a CSP whose frame-src allows docs.google.com and nothing else. It
-   * MUST come after the generic entry. Next's documented rule (headers.md,
-   * "Header Overriding Behavior") is that when two entries match the same
-   * path and set the same key, the last one wins; put this first and the
-   * generic `frame-src 'none'` would override it on every admin page.
+   * gets a CSP whose frame-src allows docs.google.com beside the Calendly
+   * every page frames, and nothing else. It MUST come after the generic
+   * entry. Next's documented rule (headers.md, "Header Overriding Behavior")
+   * is that when two entries match the same path and set the same key, the
+   * last one wins; put this first and the generic frame-src, Calendly's
+   * alone, would override it on every admin page.
    */
   async headers() {
     const env = readSecurityHeadersEnv(process.env);

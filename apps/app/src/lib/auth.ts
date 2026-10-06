@@ -1,4 +1,6 @@
-import { betterAuth } from "better-auth";
+import { betterAuth, type BetterAuthPlugin } from "better-auth";
+import { APIError, createAuthEndpoint } from "better-auth/api";
+import { setSessionCookie } from "better-auth/cookies";
 // better-auth 1.6 moved the adapter into its own package and only re-exports
 // it from "better-auth/adapters/drizzle". npm hoists that package under
 // better-auth's own node_modules, where this workspace cannot resolve it, so
@@ -35,6 +37,60 @@ import { describeError, log } from "@/lib/log";
  * so it cannot be bypassed by hitting the endpoint directly.
  */
 
+/**
+ * The one way a clinic session starts: a sign-in link, consumed by a server
+ * action (lib/sign-in/links.ts, design D4).
+ *
+ * Server-only, so it has no HTTP route at all: nothing on the internet can ask
+ * for a session for a user id. The only caller is our own server action,
+ * after it has spent a single-use link in the same request. It creates the
+ * session and sets the cookie the way Better Auth's own sign-in endpoints do;
+ * `nextCookies()` below carries the cookie onto the action's response.
+ */
+/**
+ * `{ userId }` as a Standard Schema, the interface Better Auth's endpoints
+ * validate bodies with, written out so the body is typed and checked without
+ * adding a validation library for one field.
+ */
+type LinkSessionBody = { userId: string };
+const linkSessionBody: {
+  readonly "~standard": {
+    readonly version: 1;
+    readonly vendor: string;
+    readonly validate: (
+      value: unknown,
+    ) => { value: LinkSessionBody; issues?: undefined } | { issues: readonly { message: string }[] };
+    readonly types?: { readonly input: LinkSessionBody; readonly output: LinkSessionBody };
+  };
+} = {
+  "~standard": {
+    version: 1,
+    vendor: "healdesk",
+    validate(value) {
+      const userId = (value as { userId?: unknown } | null)?.userId;
+      return typeof userId === "string" && userId.length > 0
+        ? { value: { userId } }
+        : { issues: [{ message: "A user id is required." }] };
+    },
+  },
+};
+
+const linkSession = {
+  id: "healdesk-link-session",
+  endpoints: {
+    startLinkSession: createAuthEndpoint.serverOnly(
+      { method: "POST", requireHeaders: true, body: linkSessionBody },
+      async (ctx) => {
+        const found = await ctx.context.internalAdapter.findUserById(ctx.body.userId);
+        if (!found) throw new APIError("NOT_FOUND", { message: "No such user." });
+        const session = await ctx.context.internalAdapter.createSession(found.id);
+        await setSessionCookie(ctx, { session, user: found });
+        return ctx.json({ ok: true });
+      },
+    ),
+  },
+} satisfies BetterAuthPlugin;
+
 export const auth = betterAuth({
   secret: env.betterAuthSecret(),
   baseURL: env.betterAuthUrl(),
@@ -45,7 +101,14 @@ export const auth = betterAuth({
   }),
 
   emailAndPassword: {
-    enabled: true,
+    /**
+     * Off: there is no password anywhere (plan Part D1). The clinic portal is
+     * entered by single-use link only, through `startLinkSession` above, and
+     * the console these settings were written for was deleted on 12 September.
+     * The notes below stay because they say what must be true if passwords
+     * ever come back.
+     */
+    enabled: false,
     /**
      * FALSE, and that is not a relaxation.
      *
@@ -69,8 +132,15 @@ export const auth = betterAuth({
   },
 
   session: {
-    expiresIn: 60 * 60 * 8, // 8 hours — a console holding PHI, not a consumer app
-    updateAge: 60 * 60, // refresh at most hourly
+    /**
+     * Fourteen days, absolute (plan Part D1). A session is never extended by
+     * use, so a sign-in link's reach ends on a fixed day whatever happens in
+     * between. Patient pages ask for the device's passkey on top, and that
+     * step-up lapses after 15 minutes idle (lib/portal/step-up.ts), so the
+     * long session guards settings and billing, never transcripts.
+     */
+    expiresIn: 60 * 60 * 24 * 14,
+    disableSessionRefresh: true,
   },
 
   advanced: {
@@ -170,6 +240,7 @@ export const auth = betterAuth({
       disableOrganizationDeletion: true,
       creatorRole: "owner",
     }),
+    linkSession,
     // Must be last: it wraps the handler to set cookies in Next server actions.
     nextCookies(),
   ],

@@ -9,6 +9,11 @@
  *   STRIPE_SECRET_KEY=rk_... npx tsx apps/web/scripts/stripe-account-settings.ts --dry-run
  *   STRIPE_SECRET_KEY=rk_... npx tsx apps/web/scripts/stripe-account-settings.ts
  *
+ * and, once apps/app has a public origin, the Connect webhook endpoint too:
+ *
+ *   STRIPE_SECRET_KEY=rk_... HEALDESK_APP_PUBLIC_URL=https://app.example \
+ *     npx tsx apps/web/scripts/stripe-account-settings.ts --connect-endpoint
+ *
  * The key needs Write on Products, Webhook Endpoints and Customer Portal and
  * nothing else. A section the key cannot reach is reported, not skipped
  * silently, and the run exits non-zero. `--dry-run` reads everything and
@@ -26,12 +31,25 @@
  *
  * ## What the portal offers
  *
- * Payment method, invoice history, and cancellation at the end of the
- * period. Plan switching is OFF: the portal cannot update a subscription that
- * carries metered prices, and a package change must swap the metered items
- * to the new package's rates (catalog header, `planMeteredPrices`). There is
- * no pause, and no immediate cancellation (docs/v1-product-spec.md, "What the
- * portal does not have").
+ * The payment method and the invoice history, and nothing else (build spec
+ * BD15, BD29). Cancellation is OFF: auto-renew is the app's own switch in
+ * Billing (apps/app `setAutoRenew`), which stamps the closing date at once
+ * and handles the account that has not started its plan yet; a cancel in
+ * Stripe's portal would bypass both. Plan switching is OFF too: the portal
+ * cannot update a subscription that carries metered prices, and a package
+ * change must swap the metered items to the new package's rates (apps/app
+ * `changePlan`). There is no pause (docs/v1-product-spec.md, "What the portal
+ * does not have").
+ *
+ * ## The Connect webhook endpoint (opt-in)
+ *
+ * Deposits are paid on each clinic's own connected Stripe account, and the
+ * events for them come to apps/app's `/api/webhooks/stripe-connect` from a
+ * separate, `connect: true` endpoint with its own signing secret
+ * (`STRIPE_CONNECT_WEBHOOK_SECRET` on apps/app). It is created only with
+ * `--connect-endpoint` and `HEALDESK_APP_PUBLIC_URL`, apps/app's PUBLIC origin:
+ * never the marketing site (which has no such route), and https only, because
+ * a Connect endpoint receives payment events for every connected account.
  *
  * ## Not settable here
  *
@@ -42,7 +60,7 @@
  * 5 October 2026.
  */
 
-import { chmodSync, existsSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -78,6 +96,29 @@ const WEBHOOK_EVENTS = [
   "invoice.payment_action_required",
   "invoice.payment_failed",
 ] as const satisfies readonly Stripe.WebhookEndpointCreateParams.EnabledEvent[];
+
+/**
+ * What the Connect endpoint subscribes to: the deposit Checkout Session's
+ * outcomes on a clinic's account, and the clinic disconnecting us. Never
+ * `invoice.created`: a connected account's own invoices wait on every
+ * platform endpoint that subscribes to it, so a failing endpoint of ours
+ * would stall the clinic's invoicing.
+ */
+export const CONNECT_WEBHOOK_EVENTS = [
+  "account.application.deauthorized",
+  "checkout.session.async_payment_failed",
+  "checkout.session.async_payment_succeeded",
+  "checkout.session.completed",
+  "checkout.session.expired",
+] as const satisfies readonly Stripe.WebhookEndpointCreateParams.EnabledEvent[];
+
+export const CONNECT_WEBHOOK_META = { healdesk: "connect-webhook" } as const;
+
+/** Pinned, so the payloads apps/app reads cannot change shape under it. */
+const CONNECT_API_VERSION = "2026-08-26.dahlia" as const;
+
+/** The route on apps/app the Connect endpoint posts to. */
+export const CONNECT_WEBHOOK_PATH = "/api/webhooks/stripe-connect";
 
 const LIVE_SITE = "https://healdesk.io";
 
@@ -145,7 +186,7 @@ async function syncStatementDescriptors(stripe: Stripe, dryRun: boolean): Promis
 // 2. The Customer Portal, as its own configuration.
 // ---------------------------------------------------------------------------
 
-function desiredPortal(site: string): Stripe.BillingPortal.ConfigurationCreateParams {
+export function desiredPortal(site: string): Stripe.BillingPortal.ConfigurationCreateParams {
   return {
     name: "healdesk",
     metadata: { ...PORTAL_META },
@@ -158,18 +199,20 @@ function desiredPortal(site: string): Stripe.BillingPortal.ConfigurationCreatePa
       customer_update: { enabled: false },
       invoice_history: { enabled: true },
       payment_method_update: { enabled: true },
-      subscription_cancel: {
-        enabled: true,
-        mode: "at_period_end",
-        proration_behavior: "none",
-      },
+      // Off: auto-renew is the app's own switch (see the header).
+      subscription_cancel: { enabled: false },
       subscription_update: { enabled: false },
     },
   };
 }
 
-/** Where an existing configuration differs from what we want; empty when it matches. */
-function portalProblems(
+/**
+ * Where an existing configuration differs from what we want; empty when it
+ * matches. Cancellation is checked as switched off and nothing more: Stripe
+ * keeps the old mode and proration on a disabled feature, and they no longer
+ * mean anything.
+ */
+export function portalProblems(
   have: Stripe.BillingPortal.Configuration,
   want: Stripe.BillingPortal.ConfigurationCreateParams,
 ): string[] {
@@ -181,9 +224,7 @@ function portalProblems(
   check("customer_update", f.customer_update.enabled, false);
   check("invoice_history", f.invoice_history.enabled, true);
   check("payment_method_update", f.payment_method_update.enabled, true);
-  check("subscription_cancel", f.subscription_cancel.enabled, true);
-  check("subscription_cancel.mode", f.subscription_cancel.mode, "at_period_end");
-  check("subscription_cancel.proration_behavior", f.subscription_cancel.proration_behavior, "none");
+  check("subscription_cancel", f.subscription_cancel.enabled, false);
   check("subscription_update", f.subscription_update.enabled, false);
   check("privacy_policy_url", have.business_profile.privacy_policy_url, want.business_profile?.privacy_policy_url);
   check("terms_of_service_url", have.business_profile.terms_of_service_url, want.business_profile?.terms_of_service_url);
@@ -202,7 +243,7 @@ async function syncPortal(stripe: Stripe, site: string, dryRun: boolean): Promis
 
   if (!found) {
     if (dryRun) {
-      line("·", "configuration  would create: payment method + invoice history ON, cancel at period end ON, plan switch OFF");
+      line("·", "configuration  would create: payment method + invoice history ON, cancellation OFF, plan switch OFF");
       return;
     }
     const created = await stripe.billingPortal.configurations.create(want);
@@ -307,6 +348,133 @@ async function syncWebhook(stripe: Stripe, url: string, live: boolean, dryRun: b
 }
 
 // ---------------------------------------------------------------------------
+// 4. The Connect webhook endpoint (opt-in).
+// ---------------------------------------------------------------------------
+
+/**
+ * The Connect endpoint's URL from apps/app's public origin, or why not
+ * (R23). https only: the endpoint receives payment events for every
+ * connected account. Never the marketing site: apps/web has no Connect
+ * route, and an endpoint there would fail every delivery until Stripe
+ * disabled it. A path prefix (apps/app mounted under one) is kept; a query,
+ * a fragment or credentials are refused rather than dropped silently.
+ */
+export function connectEndpointUrl(
+  raw: string | undefined,
+  marketingSite: string = LIVE_SITE,
+): { url: string } | { error: string } {
+  const value = raw?.trim();
+  if (!value) return { error: "HEALDESK_APP_PUBLIC_URL is not set: give apps/app's public origin." };
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return { error: "HEALDESK_APP_PUBLIC_URL is not a URL." };
+  }
+  if (parsed.protocol !== "https:") return { error: "HEALDESK_APP_PUBLIC_URL must be https." };
+  if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+    return { error: "HEALDESK_APP_PUBLIC_URL must be a bare origin, with no credentials, query or fragment." };
+  }
+  const marketing = new URL(marketingSite).hostname.replace(/^www\./, "");
+  if (parsed.hostname.replace(/^www\./, "") === marketing) {
+    return { error: `HEALDESK_APP_PUBLIC_URL is the marketing site (${marketing}); the Connect webhook is apps/app's.` };
+  }
+  return { url: `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}${CONNECT_WEBHOOK_PATH}` };
+}
+
+/** Where a new Connect endpoint's signing secret is written: the same git-ignored pattern as the platform's. */
+export function connectSecretFile(live: boolean): string {
+  return join(HERE, "..", `.env.stripe-connect-webhook-${live ? "live" : "test"}.local`);
+}
+
+/**
+ * Where a found endpoint at our URL differs from the Connect endpoint we
+ * want; empty when it matches. `connect` and the API version cannot be
+ * changed on an existing endpoint, so either being wrong means deleting it
+ * and running again. An endpoint this script did not create (no tag) is
+ * treated the same way: it may be an account endpoint at the same URL, and
+ * Stripe's object does not always say.
+ */
+export function connectEndpointProblems(
+  endpoint: Pick<Stripe.WebhookEndpoint, "enabled_events" | "status" | "metadata"> & {
+    connect?: boolean;
+    api_version?: string | null;
+  },
+): { fatal: string[]; fixable: string[] } {
+  const fatal: string[] = [];
+  const fixable: string[] = [];
+  if (endpoint.connect === false) fatal.push("it is an account endpoint, not a Connect one");
+  if (endpoint.metadata?.healdesk !== CONNECT_WEBHOOK_META.healdesk) {
+    fatal.push("it was not created by this script as the Connect endpoint");
+  }
+  if (endpoint.api_version && endpoint.api_version !== CONNECT_API_VERSION) {
+    fatal.push(`its API version is ${endpoint.api_version}, want ${CONNECT_API_VERSION}`);
+  }
+  const want = [...CONNECT_WEBHOOK_EVENTS].sort();
+  const have = [...endpoint.enabled_events].sort();
+  if (have.length !== want.length || have.some((event, i) => event !== want[i])) {
+    fixable.push(`events are [${have.join(", ")}]`);
+  }
+  if (endpoint.status !== "enabled") fixable.push(`status is ${endpoint.status}`);
+  return { fatal, fixable };
+}
+
+async function syncConnectWebhook(stripe: Stripe, url: string, live: boolean, dryRun: boolean): Promise<void> {
+  let found: Stripe.WebhookEndpoint | undefined;
+  for await (const endpoint of stripe.webhookEndpoints.list({ limit: 100 })) {
+    if (endpoint.url === url) {
+      found = endpoint;
+      break;
+    }
+  }
+
+  if (!found) {
+    if (dryRun) {
+      line("·", `connect endpoint  would create ${url} for ${CONNECT_WEBHOOK_EVENTS.length} events (connect: true)`);
+      return;
+    }
+    const file = connectSecretFile(live);
+    if (existsSync(file)) {
+      throw new Error(`${relative(process.cwd(), file)} already exists. Move it aside before creating a new endpoint.`);
+    }
+    const created = await stripe.webhookEndpoints.create({
+      url,
+      connect: true,
+      api_version: CONNECT_API_VERSION,
+      enabled_events: [...CONNECT_WEBHOOK_EVENTS].sort(),
+      description: "healdesk: deposits on clinics' connected accounts, and disconnections",
+      metadata: { ...CONNECT_WEBHOOK_META },
+    });
+    writeFileSync(file, `STRIPE_CONNECT_WEBHOOK_SECRET=${created.secret}\n`, { mode: 0o600 });
+    chmodSync(file, 0o600);
+    tally.created += 1;
+    line("+", `connect endpoint  ${created.id}  ${url}`);
+    line(" ", `signing secret written to ${relative(process.cwd(), file)} (not printed); set it on apps/app`);
+    return;
+  }
+
+  const { fatal, fixable } = connectEndpointProblems(found as Stripe.WebhookEndpoint & { connect?: boolean });
+  if (fatal.length > 0) {
+    tally.unreachable += 1;
+    line("✗", `connect endpoint  ${found.id} at ${url} can't be used: ${fatal.join("; ")}. Delete it in the Dashboard, then run again.`);
+    return;
+  }
+  if (fixable.length === 0) {
+    tally.verified += 1;
+    line("✓", `connect endpoint  ${found.id}  ${url}`);
+    return;
+  }
+  if (dryRun) {
+    line("·", `connect endpoint  ${found.id}  would update: ${fixable.join("; ")}`);
+    return;
+  }
+  await stripe.webhookEndpoints.update(found.id, { enabled_events: [...CONNECT_WEBHOOK_EVENTS].sort(), disabled: false });
+  tally.updated += 1;
+  line("~", `connect endpoint  ${found.id}  updated: ${fixable.join("; ")}`);
+  line(" ", "its signing secret is unchanged; Stripe shows it only at creation");
+}
+
+// ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
   const dryRun = process.argv.includes("--dry-run");
@@ -335,6 +503,23 @@ async function main(): Promise<void> {
     );
   }
 
+  if (process.argv.includes("--connect-endpoint")) {
+    const target = connectEndpointUrl(process.env.HEALDESK_APP_PUBLIC_URL);
+    if ("error" in target) {
+      console.log(`\nConnect webhook endpoint\n  ✗ ${target.error}`);
+      tally.unreachable += 1;
+    } else {
+      await section("Connect webhook endpoint", "Webhook Endpoints", () =>
+        syncConnectWebhook(stripe, target.url, live, dryRun),
+      );
+    }
+  } else {
+    console.log(
+      "\nConnect webhook endpoint\n  · not asked for: once apps/app has a public origin, run with\n" +
+        "    --connect-endpoint and HEALDESK_APP_PUBLIC_URL=<apps/app's origin>",
+    );
+  }
+
   console.log(
     `\n${tally.created} created, ${tally.updated} updated, ${tally.verified} verified, ` +
       `${tally.unreachable} not checked.`,
@@ -346,7 +531,23 @@ async function main(): Promise<void> {
   if (tally.unreachable > 0) process.exitCode = 1;
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+/**
+ * Run only when executed as a script, so a test can import the pure parts
+ * above without the run starting (and asking for a key).
+ */
+function isMain(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isMain()) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

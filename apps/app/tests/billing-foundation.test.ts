@@ -367,9 +367,10 @@ describeDb("billing foundation", () => {
       // while its switch, the billing-notices job row, is off.
       expect(await runBillingNoticesJob({ now })).toEqual({ status: "disabled" });
       expect(await sendPendingNotices({ now })).toEqual({ sent: 0, failed: 0, skipped: 0, held: 0 });
+      // Real now (Package C-actions): a clinic with no billing row is skipped.
       expect(await reconcileMeteredItems(randomUUID())).toEqual({
         status: "skipped",
-        reason: "Not built yet.",
+        reason: "no_entitlements",
       });
       // The Stripe build's stubs (S0), each behind its switch.
       expect(await runBillingRequestsJob({ now })).toEqual({ status: "disabled" });

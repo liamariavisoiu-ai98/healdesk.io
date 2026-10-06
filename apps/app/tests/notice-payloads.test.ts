@@ -164,16 +164,12 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
 
 /**
  * The keys R31 adds for the undo-forwarding steps and L4's outstanding action.
- * The funnel session adds them to lint.ts's category keys; until that is on
- * this branch the kinds carrying them are typed and kept out of the allowlist
- * check, and they join it once it is.
+ * They are category keys in lint.ts now, and lint.ts checks category keys
+ * before its "…At/…On" date rule, so `waitingOn` is no longer read as a date.
+ * Holding these kinds out of the check is what had hidden that bug, so every
+ * kind is checked.
  */
-const PENDING_LINT_KEYS = ["carrier", "phoneSystem", "routing", "waitingOn"];
-const PENDING_LINT_KINDS: readonly BillingNoticeKind[] = [
-  "suspended",
-  "canceled",
-  "step_up_reminder",
-];
+const R31_KEYS = ["carrier", "phoneSystem", "routing", "waitingOn"];
 
 beforeEach(() => {
   vi.stubEnv("BETTER_AUTH_URL", "https://app.healdesk.test");
@@ -191,16 +187,18 @@ describe("the notice payloads", () => {
 
   test("every payload passes the email platform's allowlist", () => {
     for (const kind of BILLING_NOTICE_KINDS) {
-      if (PENDING_LINT_KINDS.includes(kind)) continue;
       expect(() => assertPayloadAllowed(FIXTURES[kind], kind), kind).not.toThrow();
     }
   });
 
-  test("only the kinds held out of the allowlist check carry the keys it does not know yet", () => {
-    for (const kind of BILLING_NOTICE_KINDS) {
-      const carries = Object.keys(FIXTURES[kind]).some((key) => PENDING_LINT_KEYS.includes(key));
-      expect(carries, kind).toBe(PENDING_LINT_KINDS.includes(kind));
+  test("the R31 keys are read as categories, never as dates", () => {
+    // waitingOn ends in "On"; before lint.ts checked category keys first it was
+    // classed as a date and every step-up reminder was refused when sent.
+    for (const key of R31_KEYS) {
+      expect(() => assertPayloadAllowed({ [key]: "voice" }), key).not.toThrow();
     }
+    expect(() => assertPayloadAllowed({ waitingOn: "2026-10-08" })).not.toThrow();
+    expect(() => assertPayloadAllowed({ waitingOn: "a sentence" })).toThrow();
   });
 
   test("no payload carries a field the allowlist would read as free text", () => {

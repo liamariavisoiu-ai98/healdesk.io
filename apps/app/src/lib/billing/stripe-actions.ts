@@ -47,6 +47,8 @@ import {
   setCancelAt,
   setLocations,
   setMeteredPriceKeys,
+  refundEligibleUntil,
+  refundWindowOpen,
 } from "./entitlements";
 import {
   currentPeriodEndOf,
@@ -1646,34 +1648,7 @@ export async function setAutoRenew(
  */
 export const REFUND_ELIGIBLE_METADATA_KEY = "hd_refund_eligible_until";
 
-/**
- * The last day of the first-period refund window (ISO date), while it is
- * open and no refund under § 5 has been issued; null otherwise. The same
- * rule `refundWindowOpen` applies, for the `cancel_scheduled` payload.
- */
-export function refundEligibleUntil(
-  row: Pick<Entitlements, "planStartedAt" | "planStartAppliedAt" | "firstPeriodRefundedAt">,
-  now: Date,
-): string | null {
-  if (!refundWindowOpen(row, now)) return null;
-  const start = (row.planStartedAt ?? row.planStartAppliedAt) as Date;
-  return isoDay(new Date(start.getTime() + FIRST_PERIOD_REFUND_DAYS * 24 * 60 * 60 * 1000));
-}
-
-/**
- * Inside the first-period refund window (R15): the plan has started, it is
- * no more than FIRST_PERIOD_REFUND_DAYS since it did, and no refund under
- * Terms § 5 has been issued. The window runs from the paid start, or from the
- * moment the start was applied while its invoice is still being paid.
- */
-export function refundWindowOpen(
-  row: Pick<Entitlements, "planStartedAt" | "planStartAppliedAt" | "firstPeriodRefundedAt">,
-  now: Date,
-): boolean {
-  const start = row.planStartedAt ?? row.planStartAppliedAt;
-  if (!start || row.firstPeriodRefundedAt) return false;
-  return now.getTime() <= start.getTime() + FIRST_PERIOD_REFUND_DAYS * 24 * 60 * 60 * 1000;
-}
+export { refundEligibleUntil, refundWindowOpen };
 
 // -----------------------------------------------------------------------------
 // createPortalSession (BD15)

@@ -2874,7 +2874,8 @@ export type UsageSource = "voice_call" | "meta" | "web_chat";
  * The usage ledger: one row per billed call or chat conversation, the source
  * of truth behind the entitlements counters (design D10). The tenant is the
  * BILLING clinic whose allowance was used; `location_clinic_id` says which
- * location answered. `source_ref` is a sha256 hex, never a raw vendor id, and
+ * location answered. `source_ref` is an identifierRef (lib/identifier-ref.ts:
+ * a keyed HMAC, never a raw vendor id), and
  * the unique index makes a redelivered webhook a no-op. Append-only apart
  * from the three Stripe reporting columns.
  */
@@ -2925,8 +2926,9 @@ export type ChatThreadChannel = "messenger" | "instagram" | "whatsapp" | "web_ch
 /**
  * One person's thread on one channel, for counting chat conversations (owner
  * decision 3): a conversation starts at their first message and ends when 24
- * hours pass with no message from them. `party_ref` is sha256 hex of the
- * platform sender id; `conversation_id` is regenerated when a new
+ * hours pass with no message from them. `party_ref` is the identifierRef of
+ * the platform sender id (a keyed HMAC: a WhatsApp id is a phone number, which
+ * a plain hash would not hide); `conversation_id` is regenerated when a new
  * conversation starts. Tenant plane.
  */
 export const chatThreads = pgTable(
@@ -2953,7 +2955,8 @@ export const chatThreads = pgTable(
 
 /**
  * Meta message ids already handled, so a redelivered webhook is skipped
- * entirely (no second answer, no second count). sha256 hex of the message id;
+ * entirely (no second answer, no second count). The identifierRef of the
+ * message id;
  * purged after 7 days by the billing-housekeeping job. Tenant plane.
  */
 export const metaInboundMessages = pgTable(

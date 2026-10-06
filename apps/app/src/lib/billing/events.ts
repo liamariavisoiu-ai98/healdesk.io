@@ -1,7 +1,6 @@
 import {
   CHANNELS,
   channelList,
-  FIRST_PERIOD_REFUND_DAYS,
   FORWARDING_PASS_THROUGH_DAYS,
   getPlan,
   isCarrier,
@@ -41,6 +40,7 @@ import {
   getEntitlements,
   getEntitlementsForUpdate,
   hasPlanStarted,
+  refundEligibleUntil,
   markFirstPlanInvoice,
   markPlanStartApplied,
   markPlanStarted,
@@ -1572,11 +1572,10 @@ function cancelScheduledPayload(
     !started && row.setupDeadlineAt && row.setupDeadlineAt.getTime() < endsAt.getTime()
       ? row.setupDeadlineAt
       : endsAt;
-  let refundWindowEndsOn: string | null = null;
-  if (started && row.planStartedAt && !row.firstPeriodRefundedAt) {
-    const windowEnd = new Date(row.planStartedAt.getTime() + FIRST_PERIOD_REFUND_DAYS * DAY_MS);
-    if (scheduledAt.getTime() < windowEnd.getTime()) refundWindowEndsOn = isoDay(windowEnd);
-  }
+  // One rule with setAutoRenew's (entitlements.refundEligibleUntil): the window
+  // runs from the paid start, or from the applied start while its first
+  // invoice is still being paid.
+  const refundWindowEndsOn = started ? refundEligibleUntil(row, scheduledAt) : null;
   return { endsAt: closes.toISOString(), isBeforeStart: !started, refundWindowEndsOn };
 }
 

@@ -14,6 +14,7 @@ import { unsafeDb } from "@/db";
 import {
   billingNotices,
   billingRequests,
+  clinics,
   entitlements,
   type BillingRequest,
   type BillingRequestKind,
@@ -28,8 +29,10 @@ import {
   hasPlanStarted,
   releaseStripeMutationLease,
 } from "@/lib/billing/entitlements";
+import { disconnectStripeConnect } from "@/lib/billing/connect";
 import { enqueueNotice } from "@/lib/billing/notices";
 import {
+  billingGroupClinicIds,
   closeUnfinishedSetup,
   readBillingGroupChannels,
   rearmBillingRequest,
@@ -333,6 +336,7 @@ export type ReconcileSummary = {
   stuck: number;
   locationsResumed: number;
   locationsHeld: number;
+  connectsDisconnected: number;
   failures: number;
 };
 
@@ -604,6 +608,58 @@ export async function resumePendingLocation(
   return "resumed";
 }
 
+/**
+ * How long a billing group stays connected after its service ends (R12): a
+ * deposit's Checkout Session lasts at most 24 hours, so a day after the end
+ * every link the clinic sent has been paid or has expired, and nothing a
+ * patient could still pay is cut off.
+ */
+const CONNECT_KEPT_AFTER_END_MS = DAY_MS;
+
+/**
+ * R12's last step: healdesk's access to a clinic's Stripe account ends with the
+ * service. A day after a billing group was canceled or purged (clinics.
+ * offboarding_started_at, which the deletion webhook stamps), every clinic of
+ * the group still holding a connected account is disconnected as
+ * "offboarding". disconnectStripeConnect revokes only an account no other
+ * clinic uses, so a sibling elsewhere keeps its deposits; and a group whose
+ * service has not ended is never touched. Returns how many it disconnected.
+ */
+async function disconnectEndedAccounts(billingClinicId: string, now: Date): Promise<number> {
+  const endedAt = await withTenant({ clinicId: billingClinicId, actor: ACTOR }, async (tx) => {
+    const row = await getEntitlements(tx.db, billingClinicId);
+    if (!row || (row.status !== "canceled" && row.status !== "purged")) return null;
+    const [clinic] = await tx.db
+      .select({ offboardingStartedAt: clinics.offboardingStartedAt })
+      .from(clinics)
+      .where(eq(clinics.id, billingClinicId))
+      .limit(1);
+    return clinic?.offboardingStartedAt ?? null;
+  });
+  if (!endedAt || now.getTime() - endedAt.getTime() < CONNECT_KEPT_AFTER_END_MS) return 0;
+
+  let disconnected = 0;
+  for (const clinicId of await billingGroupClinicIds(billingClinicId)) {
+    const isConnected = await withTenant({ clinicId, actor: ACTOR }, async (tx) => {
+      const [clinic] = await tx.db
+        .select({ account: clinics.stripeConnectAccountId })
+        .from(clinics)
+        .where(eq(clinics.id, clinicId))
+        .limit(1);
+      return Boolean(clinic?.account);
+    });
+    if (!isConnected) continue;
+    const result = await disconnectStripeConnect({
+      clinicId,
+      actorLabel: "offboarding",
+      source: "ops",
+      now,
+    });
+    if (result.status === "disconnected") disconnected += 1;
+  }
+  return disconnected;
+}
+
 /** One pass over every billing clinic. Exported without the job wrapper for tests and operators. */
 export async function reconcileBilling(now: Date = new Date()): Promise<ReconcileSummary> {
   const summary: ReconcileSummary = {
@@ -614,12 +670,14 @@ export async function reconcileBilling(now: Date = new Date()): Promise<Reconcil
     stuck: 0,
     locationsResumed: 0,
     locationsHeld: 0,
+    connectsDisconnected: 0,
     failures: 0,
   };
   const setupClosureOn = (await getJob(JOB_SETUP_CLOSURE))?.enabled === true;
   for (const billingClinicId of await billingClinicIds()) {
     try {
       await reconcileClinic(billingClinicId, now, setupClosureOn, summary);
+      summary.connectsDisconnected += await disconnectEndedAccounts(billingClinicId, now);
     } catch (error) {
       // One clinic's failure must not stop the reconcile for the rest.
       summary.failures += 1;
@@ -648,6 +706,9 @@ export async function runBillingReconcileJob(options: { now?: Date } = {}): Prom
         `${s.reminders} step-up reminders queued, ${s.stuck} stuck` +
         (s.locationsResumed ? `, ${s.locationsResumed} locations resumed` : "") +
         (s.locationsHeld ? `, ${s.locationsHeld} locations still pending` : "") +
+        (s.connectsDisconnected
+          ? `, ${s.connectsDisconnected} Stripe accounts disconnected after the end`
+          : "") +
         (s.failures ? `, ${s.failures} failed` : "") +
         "."
       );

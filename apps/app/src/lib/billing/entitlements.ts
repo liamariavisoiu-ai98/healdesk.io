@@ -1,6 +1,7 @@
 import {
   type BillingInterval,
   channelList,
+  FIRST_PERIOD_REFUND_DAYS,
   getPlan,
   type Plan,
 } from "@healdesk/catalog";
@@ -814,3 +815,34 @@ export async function releaseStripeMutationLease(
  * actions need it too. Re-exported here so existing imports keep working.
  */
 export { parseLookupKey, type ParsedLookupKey } from "@healdesk/catalog";
+
+/**
+ * The last day of the first-period refund window (ISO date), while it is
+ * open and no refund under § 5 has been issued; null otherwise. The same
+ * rule `refundWindowOpen` applies, for the `cancel_scheduled` payload.
+ */
+export function refundEligibleUntil(
+  row: Pick<Entitlements, "planStartedAt" | "planStartAppliedAt" | "firstPeriodRefundedAt">,
+  now: Date,
+): string | null {
+  if (!refundWindowOpen(row, now)) return null;
+  const start = (row.planStartedAt ?? row.planStartAppliedAt) as Date;
+  return new Date(start.getTime() + FIRST_PERIOD_REFUND_DAYS * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+}
+
+/**
+ * Inside the first-period refund window (R15): the plan has started, it is
+ * no more than FIRST_PERIOD_REFUND_DAYS since it did, and no refund under
+ * Terms § 5 has been issued. The window runs from the paid start, or from the
+ * moment the start was applied while its invoice is still being paid.
+ */
+export function refundWindowOpen(
+  row: Pick<Entitlements, "planStartedAt" | "planStartAppliedAt" | "firstPeriodRefundedAt">,
+  now: Date,
+): boolean {
+  const start = row.planStartedAt ?? row.planStartAppliedAt;
+  if (!start || row.firstPeriodRefundedAt) return false;
+  return now.getTime() <= start.getTime() + FIRST_PERIOD_REFUND_DAYS * 24 * 60 * 60 * 1000;
+}

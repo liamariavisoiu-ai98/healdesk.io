@@ -409,14 +409,20 @@ describeDb("deposits on the phone", DB_TEST_OPTIONS, () => {
 
   test("the gate runs after the replay: a booked call's retry still answers, a new call is refused", async () => {
     const c = await clinic("vd-gate");
+    // Both slots are offered while the clinic still answers: Package B gates
+    // `slots` too, so a slot can't be asked for once the gate refuses.
     const chosen = await slot(c.clinicId, "call_gate_1");
+    const later = await slot(c.clinicId, "call_gate_2", 1);
+
+    const beforeBook = state.gateCalls;
     const booked = await post("book", c.clinicId, {
       call_id: "call_gate_1",
       first_name: "Gus",
       at: chosen.at,
     });
     expect(booked.status).toBe(200);
-    expect(state.gateCalls).toBe(1);
+    // A new booking asks the gate once.
+    expect(state.gateCalls - beforeBook).toBe(1);
 
     state.gate = {
       decision: "pass_through",
@@ -424,6 +430,7 @@ describeDb("deposits on the phone", DB_TEST_OPTIONS, () => {
       fallback: "direct_line",
       directLine: "+14155550100",
     };
+    const beforeRetry = state.gateCalls;
     const retry = await post("book", c.clinicId, {
       call_id: "call_gate_1",
       first_name: "Gus",
@@ -431,9 +438,10 @@ describeDb("deposits on the phone", DB_TEST_OPTIONS, () => {
     });
     expect(retry.status).toBe(200);
     expect(await retry.json()).toMatchObject({ booked: true, when_spoken: chosen.spoken });
-    expect(state.gateCalls).toBe(1);
+    // The retry of a booking that already went through answers from the
+    // replay, before the gate is asked anything.
+    expect(state.gateCalls - beforeRetry).toBe(0);
 
-    const later = await slot(c.clinicId, "call_gate_2", 1);
     const refused = await post("book", c.clinicId, {
       call_id: "call_gate_2",
       first_name: "Hal",

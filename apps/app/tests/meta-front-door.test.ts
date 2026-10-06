@@ -349,6 +349,9 @@ describeDb("the front door, end to end", () => {
     const pageId = "423456789012345";
     const c = await seedClinic("meta-names");
     await getMigratorPool().query(`update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`, [c.clinicId]);
+    // A production clinic answers only with a billing row and a live Meta
+    // channel: the answer gate fails closed without them.
+    await seedEntitled(c.clinicId, { channelRows: [{ channel: "meta", liveAt: new Date() }] });
     const config = {
       greeting: "Hi",
       services: [{ name: "Lip filler", priceFromUsd: 300, priceToUsd: 600, durationMinutes: 30 }],

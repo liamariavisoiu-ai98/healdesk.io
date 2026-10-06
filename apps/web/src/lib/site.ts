@@ -69,16 +69,19 @@ export const site = {
 
   /**
    * The line in the bar above the hero headline, after jasper.ai's "NEW"
-   * announcement. One claim, and it has to be true on the day it ships. It
-   * says "launching with" rather than "now answers": Meta Business
-   * Verification and App Review are still open gates, and "now" is only true
-   * once Meta has approved the messaging permissions. Switch the wording on
-   * the day it is, and leave WhatsApp out if it is not live with the other
-   * two (docs/v1-product-spec.md, "External gates on the launch date").
+   * announcement. One claim, and it has to be true on the day it ships.
+   *
+   * The owner's wording of 6 October 2026, replacing "Launching with…",
+   * which read as a company that is new rather than a feature that is. It
+   * rests on the owner's rule from the same day: a channel is sold only once
+   * it is ready, and one that isn't comes off the product list. So if Meta's
+   * approvals are not in by launch, the Meta channels come out of this line
+   * too, WhatsApp on its own if only it lags (docs/v1-product-spec.md,
+   * "External gates on the launch date").
    */
   announcement: {
     tag: "New",
-    text: "Launching with Instagram, Messenger and WhatsApp, alongside your phone and website chat.",
+    text: "Instagram, Messenger and WhatsApp, now available alongside your phone and website chat.",
     cta: "Get started",
   },
 

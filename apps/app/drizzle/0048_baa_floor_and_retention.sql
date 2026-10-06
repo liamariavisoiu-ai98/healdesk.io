@@ -1,7 +1,7 @@
 ALTER TABLE "clinics" ALTER COLUMN "retention_record_days" SET DEFAULT 90;--> statement-breakpoint
 
 -- =============================================================================
--- Two decisions of 3 October 2026, made with BAA 1.3.0. The line above was
+-- Two decisions of 3 October 2026, taken with the BAA work. The line above was
 -- generated from schema.ts; everything below is the part drizzle cannot
 -- express.
 --
@@ -17,7 +17,7 @@ ALTER TABLE "clinics" ALTER COLUMN "retention_record_days" SET DEFAULT 90;--> st
 -- -----------------------------------------------------------------------------
 -- 1. Records are kept for the 90 days the agreement states
 -- -----------------------------------------------------------------------------
--- BAA 1.2.1 and 1.3.0 both say "healdesk keeps transcripts and conversation
+-- BAA 1.2.1 and the 1.3.0 draft both say "healdesk keeps transcripts and conversation
 -- records for 90 days, which Practice may shorten in its portal". The purge
 -- (lib/retention/purge.ts) deletes conversation, appointment and transaction
 -- rows only at clinics.retention_record_days, which 0032 defaulted to 730 for
@@ -38,9 +38,10 @@ COMMENT ON COLUMN clinics.retention_record_days IS
 -- Provisioning binds whichever acceptance the purchase names, and
 -- app_mark_clinic_production took the newest bound, unterminated row with no
 -- predicate on its version, so an account bound to 1.0.0, or to an
--- unapproved draft, could be flipped to production. 1.3.0 is the first
--- version with the Payments clause and the clause for a practice that is not
--- a covered entity; an account on anything older has neither.
+-- unapproved draft, could be flipped to production. The floor is 1.2.1, the
+-- version being signed, while 1.3.0 is a draft; whether releasing 1.3.0
+-- raises it is decided with that release, in the migration that adds 1.3.0
+-- to the list below.
 --
 -- "Acceptable" is the catalog's isBaaVersionAcceptable(): a registered
 -- template, approved for release, no older than MIN_ACCEPTABLE_BAA_VERSION.
@@ -56,7 +57,7 @@ LANGUAGE sql
 IMMUTABLE
 SET search_path = public, pg_temp
 AS $$
-  SELECT coalesce(version = ANY (ARRAY['1.3.0']), false)
+  SELECT coalesce(version = ANY (ARRAY['1.2.1']), false)
 $$;--> statement-breakpoint
 
 COMMENT ON FUNCTION app_baa_version_acceptable(text) IS

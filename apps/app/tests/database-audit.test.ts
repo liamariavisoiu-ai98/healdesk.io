@@ -201,8 +201,9 @@ describeDb("database audit (0031)", () => {
 
   test("app_mark_clinic_production refuses a superseded agreement, names its version, and writes nothing (0048)", async () => {
     // Until 0048 any bound version went live, 1.0.0 and unapproved drafts
-    // included. Everything else is ready here, so the version is the refusal.
-    for (const [i, version] of ["1.2.1", "1.0.0", "0.1.0-draft"].entries()) {
+    // included. Everything else is ready here, so the version is the refusal: a
+    // superseded release, the 1.3.0 draft, and older drafts and releases.
+    for (const [i, version] of ["1.2.0", "1.3.0", "1.0.0", "0.1.0-draft"].entries()) {
       const { clinicId, organizationId } = await seedClinic(`superseded${i}`);
       await readyForGoLive(clinicId);
       await seedAcceptance(organizationId, version);

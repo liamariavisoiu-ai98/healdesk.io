@@ -1,6 +1,25 @@
 import { createHash } from "node:crypto";
 
+import {
+  bookingSyncFor,
+  bookingSystemName,
+  isBookingSystemId,
+  type BookingSystemId,
+} from "./booking-systems";
+import {
+  CALENDAR_CLAUSE_HEADING,
+  CALENDAR_CLAUSE_IDS,
+  CALENDAR_LOCATION_PARAGRAPH,
+  calendarClauseBody,
+  calendarTermsKind,
+  isCalendarAccount,
+  type CalendarAccount,
+  type CalendarClauseId,
+  type CalendarTermsKind,
+} from "./calendar-terms";
 import { DIRECT_BOOKING_CLAUSE_BODY, DIRECT_BOOKING_CLAUSE_HEADING } from "./direct-booking-addendum";
+import type { BookingSync } from "./platforms";
+import { subprocessorNoticeClauseBody } from "./subprocessor-notice";
 import { wrap } from "./wrap";
 
 /**
@@ -27,7 +46,7 @@ import { wrap } from "./wrap";
  *     In 1.0.0 it also decided whether reactivation messaging could be
  *     switched on at all — the TCPA healthcare exemption is available only to
  *     a covered entity or its business associate. v1 has no outbound of any
- *     kind, so no version since 1.2.0 carries a clause keyed to it.
+ *     kind, so 1.2.0 carries no clause keyed to it.
  *
  * So a template is a PREAMBLE plus a library of CLAUSES, each of which knows
  * when it applies. Rendering assembles the clauses that apply to this clinic,
@@ -54,14 +73,15 @@ import { wrap } from "./wrap";
  * server-side, and the client sends back a hash of what it displayed so a
  * mismatch is refused rather than recorded.
  *
- * ⚖️ Version 1.3.0 is the current template and is what clinics now sign. It
- * was released on 2026-10-03 by the owner without external counsel review;
- * the doc comment on `approvedByCounsel` records exactly what that flag now
- * means. 1.2.1 and 1.2.0, released the same way on 2026-10-01, 1.0.0, which
- * counsel approved in September 2026, 1.1.0-draft, which was never offered,
- * and 0.1.0-draft are retained below it and never offered again: accounts
- * created against 1.0.0 and 0.1.0-draft signed that exact text, anything
- * signed against a 1.2 version did too, and the stored hash has to keep
+ * ⚖️ Version 1.2.1 is the current template and is what clinics now sign. It
+ * was released on 2026-10-01 by the owner, on the owner's own review and
+ * without external counsel, replacing 1.2.0 the same day; the doc comment on
+ * `approvedByCounsel` records exactly what that flag now means. 1.3.0, the
+ * calendar-dependent version, is drafted at BAA_TEMPLATES[1] and not offered
+ * until it is released. 1.2.0, 1.0.0, which counsel approved in September
+ * 2026, 1.1.0-draft, which was never offered, and 0.1.0-draft are retained
+ * below them and never offered again: accounts created against 1.0.0 and
+ * 0.1.0-draft signed that exact text, and their stored hash has to keep
  * reproducing from it. That reproducibility is the whole reason the ASSEMBLED
  * document is hashed rather than the template.
  *
@@ -95,6 +115,11 @@ export type BaaSelections = {
    * Present even when attribution is estimated — a clinic can name its platform
    * and still decline the connection, and the agreement should not imply we
    * hold credentials we don't.
+   *
+   * From 1.3.0 on it is the booking system's name (`bookingSystemName`), or
+   * null where the answer names no product, and 1.3.0's render guard refuses
+   * anything else; earlier versions name the phase-two platform, as they
+   * always have (baa-selections.ts).
    */
   connectedPlatform: string | null;
   /**
@@ -115,9 +140,9 @@ export type BaaSelections = {
    * an obligation on the CLINIC, kept because signed 1.0.0 agreements contain
    * it. In 1.1.0-draft that clause is gone: healdesk captures callback consent
    * itself (`consented-callbacks`, always present), and the field keys only
-   * `reactivation-gate`, which therefore never renders. No clause of 1.2.0 or
-   * later reads it at all: v1 is inbound only, neither `outbound-consent` nor
-   * `reactivation-gate` is registered there, and such a document is
+   * `reactivation-gate`, which therefore never renders. No 1.2.0 clause reads
+   * it at all: v1 is inbound only, neither `outbound-consent` nor
+   * `reactivation-gate` is registered there, and a 1.2.0 document is
    * byte-identical whatever it holds.
    */
   outboundMessaging: boolean;
@@ -131,10 +156,10 @@ export type BaaSelections = {
    * keep compiling in this wave; both signing paths are expected to pass it
    * explicitly (checkout does not ask, so both pass "desk_confirms"). The
    * election itself is evidenced by the standalone addendum's hash
-   * (direct-booking-addendum.ts), never by this field. No clause of 1.2.0 or
-   * later reads it either: v1 books into the clinic's own Google Calendar
-   * under an unconditional clause, with auto-confirm on by default, and the
-   * agreement carries no direct-booking election.
+   * (direct-booking-addendum.ts), never by this field. No 1.2.0 clause reads
+   * it either: v1 books into the clinic's own Google Calendar under an
+   * unconditional clause, with auto-confirm on by default, and the agreement
+   * carries no direct-booking election.
    */
   bookingMode?: "desk_confirms" | "direct";
   /**
@@ -144,10 +169,27 @@ export type BaaSelections = {
    * `data-sources-calendar-only` over `data-sources-none`. Optional,
    * defaulting to null, for the same reason as `bookingMode`. Both signing
    * paths now pass null, identically: Cal.com is not a v1 write target, and
-   * no clause of 1.2.0 or later reads this — the Google Calendar clause is
-   * unconditional.
+   * no 1.2.0 clause reads this — its Google Calendar clause is unconditional.
    */
   calendarWrite?: { platform: string } | null;
+  /**
+   * The booking system the practice named at checkout (booking-systems.ts).
+   * Read from 1.3.0 on, where it decides the calendar clause through its sync
+   * direction: only a system that reads Google Calendar for conflicts books
+   * live. The sync itself is never a selection; it is derived from this
+   * (`bookingSyncOf`), so nobody can sign "live" for a one-way system. No
+   * earlier template reads it, so their documents are byte-identical
+   * whatever it holds. buildBaaSelections sets it only for a template that
+   * reads it.
+   */
+  bookingSystem?: BookingSystemId;
+  /**
+   * The kind of Google account that holds the calendar the assistant books
+   * into: Workspace with Google's business associate agreement, Workspace
+   * without it (or not sure), or a personal account. Read from 1.3.0 on,
+   * like `bookingSystem`, and kept for a manual system in case that changes.
+   */
+  calendarAccount?: CalendarAccount;
 };
 
 export type BaaVariables = BaaSelections & {
@@ -185,14 +227,22 @@ export type BaaTemplate = {
    * screen flags one as a draft.
    *
    * The name predates the decision it now records. 1.0.0 was approved by
-   * counsel; 1.2.0 and 1.2.1 were released on 2026-10-01, and 1.3.0 on
-   * 2026-10-03, by the owner without external counsel review, and this flag
-   * is what records each release. Not renamed, because provisioning,
-   * agreements, AgreementStep and the tests all read it by this name.
+   * counsel; version 1.2.0 was released on 2026-10-01 on the owner's own
+   * review without external counsel, and this flag is what records that
+   * release. Not renamed, because provisioning, agreements, AgreementStep and
+   * the tests all read it by this name.
    */
   approvedByCounsel: boolean;
   preamble: (v: BaaVariables) => string;
   clauses: readonly BaaClause[];
+  /**
+   * The render guard: called first by renderBaa, and throws BaaRenderError
+   * when the variables cannot produce an honest document of this version.
+   * Clause predicates must stay total and never throw, so a selection a
+   * version cannot do without is refused here, before any clause is chosen.
+   * Templates before 1.3.0 have none, so nothing about them changes.
+   */
+  validate?: (v: BaaVariables) => void;
 };
 
 export class BaaRenderError extends Error {
@@ -1311,7 +1361,7 @@ function draftPreamble110(v: BaaVariables): string {
 }
 
 // -----------------------------------------------------------------------------
-// Version 1.2.0 — released 2026-10-01, replaced by 1.2.1 the same day.
+// Version 1.2.0 — the offered template. Released 2026-10-01.
 // -----------------------------------------------------------------------------
 
 /**
@@ -1865,7 +1915,7 @@ function preamble(v: BaaVariables): string {
 }
 
 // -----------------------------------------------------------------------------
-// Version 1.2.1 — five accuracy fixes to 1.2.0. Replaced by 1.3.0 on 2026-10-03.
+// Version 1.2.1 — the offered version. Five accuracy fixes to 1.2.0.
 // -----------------------------------------------------------------------------
 
 /**
@@ -1912,11 +1962,7 @@ function byId120(id: string): BaaClause {
   return clause;
 }
 
-/**
- * The retention the agreement states, and the code's default for both clocks
- * in apps/app: clinics.retention_media_days for transcripts, and
- * clinics.retention_record_days for conversation, appointment and contact rows.
- */
+/** The transcript retention the agreement states; the code's default (apps/app clinics.retention_media_days). */
 export const TRANSCRIPT_RETENTION_DAYS = 90;
 
 const CLAUSES_1_2_1: readonly BaaClause[] = [
@@ -2121,74 +2167,66 @@ function preamble121(v: BaaVariables): string {
 }
 
 // -----------------------------------------------------------------------------
-// Version 1.3.0 — the offered version. Released 2026-10-03.
+// Version 1.3.0 — DRAFT. The calendar-dependent agreement. Not offered.
 // -----------------------------------------------------------------------------
 
 /**
- * 1.3.0 closes the gaps an adversarial review of the counsel documents found
- * in 1.2.1, on the owner's instruction of 1 October 2026 to fix them and pass
- * the result as final without counsel review. Two clauses are new; five more
- * change wording, each as a new object so that 1.2.1's stay frozen.
+ * ⚖️ 1.2.1 has one Google Calendar clause, unconditional, which tells every
+ * practice that healdesk adds appointments to its calendar. That is untrue
+ * for a practice whose booking system does not read Google Calendar (it runs
+ * manual booking, and healdesk connects to nothing), and it says nothing
+ * about who answers for a calendar Google's business associate agreement
+ * does not cover. 1.3.0 asks both questions at checkout and lets the answers
+ * choose the clause (plan §2.1–§2.5, owner decisions 2 and 3 of 5 October
+ * 2026). Clause by clause, against 1.2.1:
  *
- *   payments          NEW, after google-calendar, and unconditional: deposits
- *                     are switched on in the portal after signing, so the
- *                     condition is in the text, not the predicate. A link to
- *                     a page Practice's own processor hosts, in a website chat
- *                     or a message conversation the patient started, never on
- *                     a call. To create it healdesk sends an amount, a generic
- *                     description and a reference code derived from nothing
- *                     about the patient: the minimum necessary (164.502(b)).
- *                     The payment lands in Practice's own account under its
- *                     own agreement, so the processor is not healdesk's
- *                     subcontractor (160.103); without that sentence a
- *                     processor that signs no BAA would put healdesk in breach
- *                     of the Subcontractors clause.
- *   data sources      `data-sources-none` begins "Apart from the payment-link
- *                     access the Payments clause describes" and counts payment
- *                     status among what healdesk receives. 1.2.1's "reads
- *                     nothing from one" turns false the day a clinic connects
- *                     a processor that is also its point of sale.
- *   own use           De-identify under 45 CFR 164.514(b) first, then
- *                     combine. 1.2.1 combined practices' PHI, which is data
- *                     aggregation (164.501) and may serve only the practices'
- *                     own health care operations (164.504(e)(2)(i)(B));
- *                     statistics about the Services serve healdesk's. Adds a
- *                     covenant not to re-identify (164.502(d)(2)(ii)) and
- *                     "where necessary" (164.504(e)(4)(i)). The heading
- *                     follows, because no data aggregation is granted.
- *   safeguards        The telephone exception bars "card or bank details"
- *                     where 1.2.1 said "payment information", which also read
- *                     on the clinic's deposit rule the voice agent states.
- *   acting in place   "replying in Practice's name to a patient who writes",
- *                     where 1.0.0's "sending messages in its name" read as
- *                     permission for outbound messages v1 never sends.
- *   term              The return-or-destroy sentence says what
- *                     apps/app lib/offboarding/offboarding.ts does: an export
- *                     within thirty days, destruction at day thirty if it was
- *                     delivered by then, otherwise on delivery, and never
- *                     later than day ninety. 1.2.1 promised destruction within
- *                     thirty days and an export only on request, while the job
- *                     waits up to ninety days for an undelivered export. Every
- *                     other sentence is 1.1.0's, the infeasibility one too.
- *   state privacy law NEW, after records-to-hhs, and unconditional: the text
- *                     limits itself to any period in which Practice is not a
- *                     covered entity, whatever it said at signing. A predicate
- *                     on isCoveredEntity would hang the processor terms on the
- *                     buyer's own self-diagnosis, which is why patient-rights
- *                     is unconditional too, and a clinic that signed "not yet
- *                     determined" goes live on that text. healdesk becomes
- *                     Practice's service provider and processor under the
- *                     CCPA, Washington's My Health My Data Act, Nevada's
- *                     consumer health data law and the Connecticut Data
- *                     Privacy Act, with the purposes, data, duration and
- *                     duties their processor contracts require. Every clause
- *                     it names is a heading in this version.
+ *   preamble         1.2.1's, with the version line. "executed electronically"
+ *                    from the first draft, so releasing it moves no hash.
+ *   state-law        NEW, after permitted-uses (owner, Q8): the terms state
+ *                    law requires of a processor or service provider, for a
+ *                    practice that is not a covered entity. Verbatim from
+ *                    docs/counsel/agreement-changes.md §9, drafted for 1.2.1
+ *                    and never shipped. Unconditional: the heading limits it,
+ *                    and the practice's own status answer does not decide
+ *                    whether it is in the document, for the reason 1.0.0's
+ *                    patient-rights clause is unconditional.
+ *   data sources     `data-sources-none` is a new object (plan §2.4). Its
+ *                    first sentence is 1.2.1's; the "calendar access" ending
+ *                    appears only where the calendar clause grants some.
+ *   google-calendar  REPLACED by three clauses, exactly one of which renders:
+ *                    covered, uncovered or not-used. Their bodies are
+ *                    calendar-terms.ts's, shared with the calendar election,
+ *                    each followed here by the location paragraph.
+ *   payments         NEW (owner, Q8), verbatim from agreement-changes.md §6:
+ *                    a payment link through Practice's own processor, carrying
+ *                    nothing clinical; no card numbers.
+ *   own-use          New object: the aggregation sentence cites the
+ *                    de-identification standard, 45 CFR 164.514(b) (owner,
+ *                    Q8; agreement-changes.md §3, clause 6).
+ *   subcontractors   New object: 24 hours' notice by email before a new
+ *                    subcontractor handles PHI, with the right to object kept
+ *                    (owner, 6 October 2026). The notice sentence is
+ *                    subprocessor-notice.ts's, which the funnel's DPA is to
+ *                    share.
  *
- * Everything else is 1.2.1's, by lookup. That includes minimum-necessary,
- * whose 90 days is now the code's default for conversation, appointment and
- * contact rows as well as transcripts (clinics.retention_record_days, which
- * stood at 730 days for a phase-two revenue report). 1.2.1 stays registered
- * and frozen below, as every earlier version does.
+ * Everything else is 1.2.1's, by lookup. 23 clauses are registered and 20
+ * render: one data-sources clause of two and one calendar clause of three.
+ *
+ * The render guard (`validate130`) refuses a document without a known booking
+ * system and Google account kind, and one whose `connectedPlatform` names
+ * anything but that booking system, so the agreement and the system it was
+ * signed with can never disagree.
+ *
+ * Drafted, not released: it sits at [1] with approvedByCounsel false, so
+ * nothing offers it, and signing refuses it, because validateSignRequest
+ * (apps/app/src/lib/agreements.ts) accepts only BAA_TEMPLATES[0].
+ * Provisioning does not check it: its approval gate reads
+ * currentBaaTemplate(), not the bound acceptance's version, until plan C15
+ * makes it read the bound one, and C15 must land before the release. The
+ * owner releases it after an adversarial audit of the full text (owner, Q2;
+ * plan C19), when it moves to [0]. Its golden hashes are the record from the
+ * first draft; an edit before release regenerates them in the same commit
+ * and is noted in agreement-changes.md §12.
  */
 function byId121(id: string): BaaClause {
   const clause = CLAUSES_1_2_1.find((c) => c.id === id);
@@ -2196,219 +2234,99 @@ function byId121(id: string): BaaClause {
   return clause;
 }
 
+/**
+ * The two selections 1.3.0 reads, through accessors so no predicate sees
+ * undefined. Both defaults are the most restrictive answer: a calendar no
+ * agreement with Google covers, and manual booking. The render guard means a
+ * 1.3.0 document never actually renders on a default.
+ */
+export function calendarAccountOf(v: BaaVariables): CalendarAccount {
+  return isCalendarAccount(v.calendarAccount) ? v.calendarAccount : "workspace_no_baa";
+}
+
+/** Derived from the booking system, never selected: only "yes" is live. */
+export function bookingSyncOf(v: BaaVariables): BookingSync {
+  return bookingSyncFor(v.bookingSystem);
+}
+
+function calendarKindOf(v: BaaVariables): CalendarTermsKind {
+  return calendarTermsKind(bookingSyncOf(v), calendarAccountOf(v));
+}
+
+/**
+ * The state-law processor terms, verbatim from agreement-changes.md §9. The
+ * funnel's data protection agreement is to share the Payments clause and
+ * this one (docs/design/funnel-onboarding-portal-2026-10-06.md, Part L); it
+ * says "PHI" in its last sentence, which a document without PHI has to word
+ * for itself. In the BAA it is the second paragraph of the fuller clause in
+ * CLAUSES_1_3. Frozen with 1.3.0's golden hashes.
+ */
+export const STATE_LAW_CLAUSE_HEADING = "Where Practice is not a covered entity";
+export const STATE_LAW_CLAUSE_BODY =
+  "healdesk processes patient information only on Practice's documented instructions, which " +
+  "are the Terms and Practice's portal settings, and for no other purpose. It does not sell or " +
+  "share it, does not retain, use or disclose it outside the direct business relationship with " +
+  "Practice or for any purpose other than providing the Services, and does not combine it with " +
+  "information from any other source except as the Services require. healdesk will give " +
+  "Practice the information it needs to answer a consumer's access, deletion or correction " +
+  "request within ten business days; will tell Practice if it can no longer meet these " +
+  "obligations; will let Practice take reasonable steps to stop and remedy any unauthorised " +
+  "use; and will provide, on request, the documents Practice reasonably needs to verify " +
+  "compliance. The reporting, subcontractor, security and return-or-destroy clauses of this " +
+  "agreement apply to that information as they apply to PHI.";
+
+/**
+ * The Payments clause, verbatim from agreement-changes.md §6: the spec's rule
+ * that nothing clinical reaches a payment artifact, in the description, the
+ * statement descriptor or metadata, put into the agreement. Unconditional;
+ * "where Practice takes deposits" limits it. The funnel's DPA is to share it.
+ * No code creates the link yet (package D); agreement-changes.md §12.11,
+ * item 9, holds the release on that.
+ */
+export const PAYMENTS_CLAUSE_HEADING = "Payments";
+export const PAYMENTS_CLAUSE_BODY =
+  "Where Practice takes deposits, healdesk creates a payment link through Practice's own " +
+  "payment processor. The link and the payment carry an amount, a generic description and a " +
+  "reference number, and no service name or clinical detail, including in metadata and the " +
+  "statement descriptor. healdesk never takes card numbers.";
+
+/** One clause object per calendar kind; the predicates partition every input. */
+function calendarClause(kind: CalendarTermsKind): BaaClause {
+  return {
+    id: CALENDAR_CLAUSE_IDS[kind],
+    heading: CALENDAR_CLAUSE_HEADING,
+    appliesWhen: (v) => calendarKindOf(v) === kind,
+    body: (v) =>
+      calendarClauseBody({
+        kind,
+        account: calendarAccountOf(v),
+        connectedPlatform: v.connectedPlatform,
+      }) +
+      "\n\n" +
+      wrap(CALENDAR_LOCATION_PARAGRAPH),
+  };
+}
+
 const CLAUSES_1_3: readonly BaaClause[] = [
   byId121("definitions"),
   byId121("practice-status"),
   byId121("permitted-uses"),
-  byId121("data-sources-verified"),
-
-  // The payment-link access is the one exception to "reads nothing".
-  {
-    id: "data-sources-none",
-    heading: "What healdesk reads from your systems",
-    appliesWhen: (v) => v.attributionMode !== "verified",
-    body: (v) =>
-      wrap(
-        (v.connectedPlatform
-          ? `Apart from the payment-link access the Payments clause describes, healdesk ` +
-            `holds no credentials to ${v.connectedPlatform}, or to any other ` +
-            `practice-management or point-of-sale system, and reads nothing from them. `
-          : `Apart from the payment-link access the Payments clause describes, healdesk ` +
-            `holds no credentials to any practice-management or point-of-sale system and ` +
-            `reads nothing from one. `) +
-          `The only patient information healdesk receives is what patients themselves ` +
-          `give it during a call or chat, together with the calendar access the Google ` +
-          `Calendar clause describes and the payment status the Payments clause ` +
-          `describes.`,
-      ),
-  },
-
-  byId121("google-calendar"),
 
   /**
-   * The second of Practice's own systems healdesk is given access to, on the
-   * Google Calendar clause's pattern: Practice's own vendor, under Practice's
-   * own agreement, an honest read scope, and not healdesk's subcontractor.
-   * It sits before Subcontractors so the carve-out is read before that
-   * clause's flow-down promise. What crosses is an upper bound the deposit
-   * code has to keep: a direct charge on the clinic's connected account
-   * (lib/billing/connect.ts), a constant generic item name, an opaque
-   * reference, and no customer, invoice or saved card.
-   */
-  {
-    id: "payments",
-    heading: "Payments",
-    appliesWhen: ALWAYS,
-    body: () =>
-      wrap(
-        `healdesk never takes a patient's payment or card number itself. Where Practice ` +
-          `has connected its own payment processor and switched deposits on, healdesk may ` +
-          `send a patient a link to a payment page that processor hosts, during a website ` +
-          `chat or in a message conversation the patient started. It sends no link on a ` +
-          `call; there it follows Practice's deposit settings and leaves any deposit for ` +
-          `Practice's staff to collect. The patient enters card or bank details on the ` +
-          `processor's page, and they never reach healdesk. The payment is made into ` +
-          `Practice's own account with the processor, under Practice's own agreement with ` +
-          `it, and the processor is not healdesk's subcontractor.`,
-      ) +
-      "\n\n" +
-      wrap(
-        `To create a link, healdesk sends the processor an amount, a generic description ` +
-          `such as "Appointment deposit" and a reference code that is not derived from ` +
-          `anything about the patient, and nothing else about the patient or the ` +
-          `appointment: no name, telephone number or email address, appointment date or ` +
-          `time, practitioner, service name or clinical detail, whether in the description, ` +
-          `an item name, metadata or any statement-descriptor text healdesk sets. That is ` +
-          `the minimum necessary for Practice's payment, the only purpose for which ` +
-          `healdesk makes the disclosure. 45 CFR 164.502(b) and 164.506(c)(1).`,
-      ) +
-      "\n\n" +
-      wrap(
-        `healdesk uses its access to Practice's account with the processor only to create ` +
-          `those links and to learn whether and when each was paid, and keeps nothing else ` +
-          `about the payment. It creates no customer record or invoice in that account and ` +
-          `saves no card. Where the processor's permission model also gives healdesk access ` +
-          `to Practice's other payments, healdesk does not look them up or keep them.`,
-      ),
-  },
-
-  // De-identify first, then combine: no PHI is aggregated across practices.
-  {
-    id: "own-use",
-    heading: "healdesk's own use, and de-identified statistics",
-    appliesWhen: ALWAYS,
-    body: () =>
-      wrap(
-        `healdesk may use PHI where necessary for its own proper management and ` +
-          `administration and to carry out its legal responsibilities, and may disclose it ` +
-          `for those purposes only where the law requires the disclosure, or where healdesk ` +
-          `has obtained reasonable assurances from the recipient that the PHI will be held ` +
-          `confidentially, used or further disclosed only as required by law or for the ` +
-          `purpose it was disclosed for, and that the recipient will notify healdesk of any ` +
-          `breach of its confidentiality. 45 CFR 164.504(e)(4).`,
-      ) +
-      "\n\n" +
-      wrap(
-        `healdesk may de-identify Practice's PHI in accordance with 45 CFR 164.514(b), ` +
-          `and combine the de-identified information with de-identified information from ` +
-          `other practices, only to produce aggregate statistics about the Services (for ` +
-          `example, what fraction of after-hours calls are answered). It will not ` +
-          `re-identify, or try to re-identify, any individual from that information. It ` +
-          `will not use PHI to train, fine-tune or evaluate any model, and nothing in this ` +
-          `clause permits it to.`,
-      ),
-  },
-
-  byId121("practice-duties"),
-
-  // 1.2.1's text, with "card or bank details" in the telephone exception.
-  {
-    id: "safeguards",
-    heading: "Safeguards",
-    appliesWhen: ALWAYS,
-    body: () =>
-      wrap(
-        `healdesk will use appropriate administrative, physical and technical ` +
-          `safeguards to prevent any use or disclosure of PHI this agreement does not ` +
-          `permit, and will comply with Subpart C of 45 CFR Part 164 — the HIPAA ` +
-          `Security Rule — in respect of electronic PHI.`,
-      ) +
-      "\n\n" +
-      wrap(
-        `PHI is held on United States infrastructure and encrypted at rest. In transit ` +
-          `it is encrypted wherever healdesk controls both ends, and healdesk will not ` +
-          `transmit PHI over a channel that cannot negotiate encryption. An email whose ` +
-          `receiving server will not negotiate encryption is failed, not sent, and ` +
-          `healdesk tells Practice rather than send it in the clear; the list of ` +
-          `individuals in a breach report travels by secure transfer, never in the email ` +
-          `itself.`,
-      ) +
-      "\n\n" +
-      wrap(
-        `One narrow exception: a patient who telephones has chosen the telephone, and a ` +
-          `telephone call is not end-to-end encrypted. healdesk may answer such a call, ` +
-          `limited to the minimum necessary and never including clinical detail, test ` +
-          `results or card or bank details. healdesk places no calls and sends no SMS. ` +
-          `This exception does not extend to any other channel or content.`,
-      ),
-  },
-
-  byId121("minimum-necessary"),
-  byId121("reporting"),
-  byId121("subcontractors"),
-  byId121("patient-rights"),
-
-  // Replying to a patient who writes, not "sending messages": v1 is inbound only.
-  {
-    id: "acting-in-your-place",
-    heading: "Where healdesk acts in your place",
-    appliesWhen: ALWAYS,
-    body: (v) =>
-      wrap(
-        `Some of what healdesk does is ${v.clinicLegalName} carrying out its own duties ` +
-          `through healdesk, rather than healdesk doing something of its own — ` +
-          `answering a patient who calls, and replying in ${v.clinicLegalName}'s name ` +
-          `to a patient who writes, are both of those. Where healdesk carries out ` +
-          `an obligation the HIPAA Privacy Rule places on ${v.clinicLegalName}, ` +
-          `healdesk will meet the requirements that Rule places on ` +
-          `${v.clinicLegalName} in performing it, and not only the lighter ones it ` +
-          `places on a business associate. 45 CFR 164.504(e)(2)(ii)(H).`,
-      ),
-  },
-
-  byId121("prohibited"),
-
-  // 1.1.0's term clause, with the return-or-destroy sentence the offboarding job keeps.
-  {
-    id: "term",
-    heading: "Term, termination, and what happens to the information",
-    appliesWhen: ALWAYS,
-    body: () =>
-      wrap(
-        `This agreement takes effect on the effective date and continues for as long as ` +
-          `healdesk holds any PHI for Practice. Either party may terminate it on written ` +
-          `notice if the other materially breaches it and does not cure the breach within ` +
-          `thirty days of being told of it in writing; where cure is not possible, on ` +
-          `notice. Practice may also terminate under the subcontractor-objection right ` +
-          `above. Ending the Services ends this agreement, subject to the rest of this ` +
-          `clause.`,
-      ) +
-      "\n\n" +
-      wrap(
-        `Within thirty days of termination healdesk will deliver to Practice an export of ` +
-          `the PHI it holds for Practice, in a usable electronic form, and will then ` +
-          `destroy that PHI and retain no copies: at the end of those thirty days if the ` +
-          `export has been delivered by then, and otherwise as soon as it is delivered, but ` +
-          `in no case later than ninety days after termination. Until then this agreement ` +
-          `continues to protect it. Where return or destruction is not feasible, healdesk ` +
-          `will say why in writing, extend the protections of this agreement to that PHI ` +
-          `for as long as it is held, and limit further use to what makes return or ` +
-          `destruction infeasible.`,
-      ) +
-      "\n\n" +
-      wrap(
-        `Two records survive termination: the signed copy of this agreement, and the ` +
-          `record of disclosures needed to answer an accounting request, each kept for ` +
-          `six years from termination as 45 CFR 164.530(j) and 164.528 require. Neither ` +
-          `contains more PHI than the record itself needs.`,
-      ),
-  },
-
-  byId121("liability"),
-  byId121("records-to-hhs"),
-
-  /**
-   * The processor terms a practice outside HIPAA needs, carried in the
-   * agreement rather than a separate DPA. Every variant renders it and its
-   * first sentence limits it: a practice that really is covered gets nothing
+   * Q8: the processor terms state consumer-health-privacy law asks for. The
+   * shared paragraph (STATE_LAW_CLAUSE_BODY, which the funnel's DPA also
+   * carries) sits inside the fuller clause the 3 October branch drafted:
+   * when it applies, what "patient information" then means, the laws it
+   * names, the purposes, the data, the assessment rights and the CMIA
+   * sentence (owner, 6 October 2026). Every variant renders it and its first
+   * sentence limits it, so a practice that really is covered gets nothing
    * from it, and one that is not cannot lose it by ticking the wrong box. It
-   * names other clauses only by their headings here — Term, Subcontractors,
-   * Own use, Notices, Reporting and Patient access — and where it and another
+   * names other clauses only by their headings, and where it and another
    * clause differ about patient information, it governs.
    */
   {
-    id: "state-privacy-law",
-    heading: "Where Practice is not a covered entity",
+    id: "state-law",
+    heading: STATE_LAW_CLAUSE_HEADING,
     appliesWhen: ALWAYS,
     body: () =>
       wrap(
@@ -2420,6 +2338,8 @@ const CLAUSES_1_3: readonly BaaClause[] = [
           `PHI if Practice were a covered entity, and everything this agreement says about ` +
           `PHI applies to it.`,
       ) +
+      "\n\n" +
+      wrap(STATE_LAW_CLAUSE_BODY) +
       "\n\n" +
       wrap(
         `healdesk is Practice's service provider and processor under the California ` +
@@ -2601,8 +2521,8 @@ const CLAUSES_1_3: readonly BaaClause[] = [
       ) +
       "\n\n" +
       wrap(
-        `The Subcontractors clause applies to patient information: its fifteen days' ` +
-          `notice is Practice's opportunity to object, and the written agreement it ` +
+        `The Subcontractors clause applies to patient information: its 24 hours' notice ` +
+          `is Practice's opportunity to object, and the written agreement it ` +
           `requires binds each subcontractor to the obligations of this clause. Google ` +
           `Calendar, Instagram, Messenger, WhatsApp and Practice's payment processor are ` +
           `services Practice connects under its own accounts with their providers. They are ` +
@@ -2630,6 +2550,171 @@ const CLAUSES_1_3: readonly BaaClause[] = [
       ),
   },
 
+  byId121("data-sources-verified"),
+
+  /**
+   * 1.2.1's object ends every variant with "the calendar access the Google
+   * Calendar clause describes", which the not-used clause denies. The first
+   * sentence is 1.2.1's, word for word; the ending follows the sync.
+   */
+  {
+    id: "data-sources-none",
+    heading: "What healdesk reads from your systems",
+    appliesWhen: (v) => v.attributionMode !== "verified",
+    body: (v) =>
+      wrap(
+        (v.connectedPlatform
+          ? `healdesk holds no credentials to ${v.connectedPlatform}, or to any other ` +
+            `practice-management or point-of-sale system, and reads nothing from them. `
+          : `healdesk holds no credentials to any practice-management or point-of-sale ` +
+            `system and reads nothing from one. `) +
+          `The only patient information healdesk receives is what patients themselves ` +
+          `give it during a call or chat` +
+          (bookingSyncOf(v) === "live"
+            ? `, together with the calendar access the Google Calendar clause describes.`
+            : `.`),
+      ),
+  },
+
+  calendarClause("covered"),
+  calendarClause("uncovered"),
+  calendarClause("not_used"),
+
+  // Q8: a payment link through Practice's own processor, nothing clinical on it.
+  {
+    id: "payments",
+    heading: PAYMENTS_CLAUSE_HEADING,
+    appliesWhen: ALWAYS,
+    body: () => wrap(PAYMENTS_CLAUSE_BODY),
+  },
+
+  // De-identify first, then combine, and never re-identify: no PHI is
+  // aggregated across practices (owner, 6 October 2026).
+  {
+    id: "own-use",
+    heading: "healdesk's own use, and de-identified statistics",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `healdesk may use PHI where necessary for its own proper management and ` +
+          `administration and to carry out its legal responsibilities, and may disclose it ` +
+          `for those purposes only where the law requires the disclosure, or where healdesk ` +
+          `has obtained reasonable assurances from the recipient that the PHI will be held ` +
+          `confidentially, used or further disclosed only as required by law or for the ` +
+          `purpose it was disclosed for, and that the recipient will notify healdesk of any ` +
+          `breach of its confidentiality. 45 CFR 164.504(e)(4).`,
+      ) +
+      "\n\n" +
+      wrap(
+        `healdesk may de-identify Practice's PHI in accordance with 45 CFR 164.514(b), ` +
+          `and combine the de-identified information with de-identified information from ` +
+          `other practices, only to produce aggregate statistics about the Services (for ` +
+          `example, what fraction of after-hours calls are answered). It will not ` +
+          `re-identify, or try to re-identify, any individual from that information. It ` +
+          `will not use PHI to train, fine-tune or evaluate any model, and nothing in this ` +
+          `clause permits it to.`,
+      ),
+  },
+
+  byId121("practice-duties"),
+  byId121("safeguards"),
+  byId121("minimum-necessary"),
+  byId121("reporting"),
+
+  // 1.2.1's first two paragraphs, word for word; the notice is 24 hours.
+  {
+    id: "subcontractors",
+    heading: "Subcontractors",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `healdesk uses subcontractors to deliver the Services — telephony, speech ` +
+          `recognition, language models, hosting and email among them. healdesk will ` +
+          `ensure that any subcontractor that creates, receives, maintains or transmits ` +
+          `PHI on healdesk's behalf agrees in writing, before it does so, to the same ` +
+          `restrictions and conditions this agreement places on healdesk, and to comply ` +
+          `with the HIPAA Security Rule, under a contract meeting 45 CFR 164.314(a) and ` +
+          `164.504(e)(5). healdesk remains answerable to Practice for its ` +
+          `subcontractors' acts and omissions with that PHI.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Language models are used to understand a patient and answer them during a ` +
+          `conversation. healdesk's language-model provider is Anthropic, which receives ` +
+          `the content of each conversation to generate the assistant's replies, under a ` +
+          `business associate agreement with healdesk. Under that agreement Anthropic ` +
+          `retains conversation content for 30 days, for abuse detection and security, ` +
+          `and then deletes it, except content its automated trust-and-safety systems ` +
+          `flag or the law requires it to keep, which it may retain for up to two years; ` +
+          `its covered service cannot run with shorter retention. Anthropic never trains ` +
+          `on that content, and healdesk may not use PHI to train, fine-tune or evaluate ` +
+          `any model, its own or a third party's.`,
+      ) +
+      "\n\n" +
+      wrap(subprocessorNoticeClauseBody()),
+  },
+
+  byId121("patient-rights"),
+  // Replying to a patient who writes, not "sending messages": v1 is inbound only.
+  {
+    id: "acting-in-your-place",
+    heading: "Where healdesk acts in your place",
+    appliesWhen: ALWAYS,
+    body: (v) =>
+      wrap(
+        `Some of what healdesk does is ${v.clinicLegalName} carrying out its own duties ` +
+          `through healdesk, rather than healdesk doing something of its own — ` +
+          `answering a patient who calls, and replying in ${v.clinicLegalName}'s name ` +
+          `to a patient who writes, are both of those. Where healdesk carries out ` +
+          `an obligation the HIPAA Privacy Rule places on ${v.clinicLegalName}, ` +
+          `healdesk will meet the requirements that Rule places on ` +
+          `${v.clinicLegalName} in performing it, and not only the lighter ones it ` +
+          `places on a business associate. 45 CFR 164.504(e)(2)(ii)(H).`,
+      ),
+  },
+
+  byId121("prohibited"),
+
+  // 1.2.1's term clause, with a ninety-day limit on destruction where an
+  // export was asked for and not yet delivered (owner, 6 October 2026).
+  {
+    id: "term",
+    heading: "Term, termination, and what happens to the information",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `This agreement takes effect on the effective date and continues for as long as ` +
+          `healdesk holds any PHI for Practice. Either party may terminate it on written ` +
+          `notice if the other materially breaches it and does not cure the breach within ` +
+          `thirty days of being told of it in writing; where cure is not possible, on ` +
+          `notice. Practice may also terminate under the subcontractor-objection right ` +
+          `above. Ending the Services ends this agreement, subject to the rest of this ` +
+          `clause.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Within thirty days of termination healdesk will return or destroy all PHI it ` +
+          `holds for Practice and retain no copies, and will give Practice, on request ` +
+          `before that date, an export of the PHI it holds in a usable electronic form. ` +
+          `Where Practice has asked for an export that has not been delivered by then, ` +
+          `healdesk will destroy the PHI as soon as the export is delivered, and in no case ` +
+          `later than ninety days after termination; until then this agreement continues ` +
+          `to protect it. Where return or destruction is not feasible, healdesk will say ` +
+          `why in writing, extend the protections of this agreement to that PHI for as ` +
+          `long as it is held, and limit further use to what makes return or destruction ` +
+          `infeasible.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Two records survive termination: the signed copy of this agreement, and the ` +
+          `record of disclosures needed to answer an accounting request, each kept for ` +
+          `six years from termination as 45 CFR 164.530(j) and 164.528 require. Neither ` +
+          `contains more PHI than the record itself needs.`,
+      ),
+  },
+
+  byId121("liability"),
+  byId121("records-to-hhs"),
   byId121("notices-and-law"),
 ];
 
@@ -2657,33 +2742,62 @@ function preamble130(v: BaaVariables): string {
   ].join("\n");
 }
 
+/**
+ * 1.3.0's render guard. The clause predicates default a missing answer to
+ * the most restrictive one, which is right for a predicate and wrong for a
+ * signature: a practice that was never asked would sign "manual booking, no
+ * agreement with Google" without having said either. So both answers are
+ * required, and `connectedPlatform` must be exactly the name the booking
+ * system renders as (null for Google Calendar alone, something else, or
+ * none), which buildBaaSelections always produces.
+ */
+function validate130(v: BaaVariables): void {
+  if (!isBookingSystemId(v.bookingSystem)) {
+    throw new BaaRenderError(
+      `Version 1.3.0 needs the practice's booking system; got ${JSON.stringify(v.bookingSystem ?? null)}.`,
+    );
+  }
+  if (!isCalendarAccount(v.calendarAccount)) {
+    throw new BaaRenderError(
+      `Version 1.3.0 needs the kind of Google account that holds the calendar; got ${JSON.stringify(v.calendarAccount ?? null)}.`,
+    );
+  }
+  const named = bookingSystemName(v.bookingSystem);
+  if ((v.connectedPlatform ?? null) !== named) {
+    throw new BaaRenderError(
+      `The agreement must name the practice's booking system as ${JSON.stringify(named)}, not ${JSON.stringify(v.connectedPlatform ?? null)}.`,
+    );
+  }
+}
+
 export const BAA_TEMPLATES: readonly BaaTemplate[] = [
   // Newest RELEASED first — CURRENT_BAA_VERSION and currentBaaTemplate() both
   // read [0], so a version stays at [0] until its successor is approved for
   // release too.
   {
-    version: "1.3.0",
-    publishedOn: "2026-10-03",
-    // Approved for release by the owner on 2026-10-03 without external
-    // counsel review, as 1.2.1 was: the owner's instruction of 1 October 2026
-    // was to fix what an adversarial review of the counsel documents found
-    // and pass the result as final. The field's doc comment on BaaTemplate
-    // says what the flag means.
-    approvedByCounsel: true,
-    preamble: preamble130,
-    clauses: CLAUSES_1_3,
-  },
-  // Approved for release by the owner on 2026-10-01, on the owner's own
-  // review and without external counsel, after the adversarial review of
-  // 1.2.0 the same day, and offered until 1.3.0 replaced it on 2026-10-03.
-  // Retained and frozen: anything signed against it must keep reproducing.
-  // Not at [0], so never offered again.
-  {
     version: "1.2.1",
     publishedOn: "2026-10-01",
+    // Approved for release by the owner on 2026-10-01, on the owner's own
+    // review and without external counsel, after the adversarial review of
+    // 1.2.0 the same day. The field's doc comment on BaaTemplate says what
+    // the flag means; this is the entry it describes.
     approvedByCounsel: true,
     preamble: preamble121,
     clauses: CLAUSES_1_2_1,
+  },
+  // ⚖️ Drafted on 2026-10-06; not released, so not at [0], and signing
+  // refuses it: validateSignRequest accepts only [0]. Provisioning's approval
+  // gate reads [0] too, not the bound acceptance's version, until plan C15,
+  // which must land before the release. Released by the owner after an audit
+  // of the full text (plan C19): it then moves to [0] with a release date,
+  // and 1.2.1 stays signable until the deadline in BAA_RELEASE_OVERLAP.
+  {
+    version: "1.3.0",
+    publishedOn: "2026-10-06",
+    approvedByCounsel: false,
+    preamble: preamble130,
+    clauses: CLAUSES_1_3,
+    validate: validate130,
   },
   // Offered for part of 1 October 2026, then replaced by 1.2.1 for the five
   // accuracy fixes listed above it. Retained and frozen: anything signed
@@ -2742,30 +2856,68 @@ export const CURRENT_BAA_VERSION = BAA_TEMPLATES[0]!.version;
  * judgement made at each release, and a floor makes it a constant raised on
  * purpose rather than a side effect of publishing.
  *
- * 1.3.0 because it is the first version with the Payments clause and the
- * clause for a practice that is not a covered entity; an account bound to
- * anything older has neither. apps/app has never been deployed, so no real
- * account is bound below it.
+ * 1.2.1, the version being signed, while 1.3.0 is a draft. It refuses 1.0.0,
+ * 1.2.0 and every unreleased draft. Whether releasing 1.3.0 raises it is part
+ * of that release (plan C19): 1.3.0 is the first version with the Payments
+ * clause and the clause for a practice that is not a covered entity.
  *
  * At each release: decide whether the new version raises the floor, and add
  * every acceptable version to app_baa_version_acceptable() in a migration.
  * Go-live refuses any version that SQL list leaves out, and the parity test
  * in apps/app/tests/database-audit.test.ts fails until the two agree.
  */
-export const MIN_ACCEPTABLE_BAA_VERSION = "1.3.0";
+export const MIN_ACCEPTABLE_BAA_VERSION = "1.2.1";
 
 /**
  * Whether a clinic may go live under an agreement of this version: the
  * template is registered, approved for release, and no older than
  * MIN_ACCEPTABLE_BAA_VERSION. "Older" is position in BAA_TEMPLATES, which is
- * ordered newest released first; publishedOn cannot decide it, because 1.2.0
- * and 1.2.1 share a date.
+ * ordered newest released first, with a draft after the release it follows;
+ * publishedOn cannot decide it, because 1.2.0 and 1.2.1 share a date. A draft
+ * is never acceptable, wherever it sits: it is not approved for release.
  */
 export function isBaaVersionAcceptable(version: string): boolean {
   const at = BAA_TEMPLATES.findIndex((t) => t.version === version);
   const floor = BAA_TEMPLATES.findIndex((t) => t.version === MIN_ACCEPTABLE_BAA_VERSION);
   return at !== -1 && floor !== -1 && at <= floor && BAA_TEMPLATES[at]!.approvedByCounsel;
 }
+
+/**
+ * The calendar clause ids of 1.3.0. An acceptance whose `appliedClauses`
+ * holds one of them carries calendar terms for the location provisioned
+ * against it; one that holds none (every earlier version) leaves the location
+ * to its first calendar election.
+ */
+export const CALENDAR_CLAUSE_IDS_1_3: readonly CalendarClauseId[] = [
+  CALENDAR_CLAUSE_IDS.covered,
+  CALENDAR_CLAUSE_IDS.uncovered,
+  CALENDAR_CLAUSE_IDS.not_used,
+];
+
+/**
+ * Whether a template asks the two calendar questions: the booking system and
+ * the kind of Google account. True exactly when it registers a calendar
+ * clause that depends on them, so the signing screens ask the questions
+ * only for a document that reads the answers, and buildBaaSelections passes
+ * them only to one.
+ */
+export function templateReadsCalendarAccount(template: BaaTemplate): boolean {
+  return template.clauses.some((clause) =>
+    (CALENDAR_CLAUSE_IDS_1_3 as readonly string[]).includes(clause.id),
+  );
+}
+
+/**
+ * Versions that stay signable for a short while after their successor is
+ * released, mapped to the ISO time they stop. A release reaches apps/app and
+ * apps/web in two deploys, and a buyer who loaded the agreement before the
+ * second one would otherwise be refused mid-checkout. Empty until 1.3.0 is
+ * released: the release (plan C19) sets 1.2.1 to the release time plus 72
+ * hours, and plan C20 empties it once both production deployments are
+ * verified. Nothing reads it yet: validateSignRequest in apps/app is to read
+ * it from plan C3, which must land before the release sets it.
+ */
+export const BAA_RELEASE_OVERLAP: Readonly<Record<string, string>> = {};
 
 /**
  * The words on the button that signs the agreement.
@@ -2840,6 +2992,10 @@ export function renderBaa(
   template: BaaTemplate,
   variables: BaaVariables,
 ): string {
+  // The version's own guard first: a selection the version cannot do
+  // without is a refusal, never a clause chosen on a default.
+  template.validate?.(variables);
+
   requireField(variables.clinicLegalName, "clinicLegalName");
   requireField(variables.signatoryName, "signatoryName");
   requireField(variables.signatoryEmail, "signatoryEmail");

@@ -1,5 +1,5 @@
 import { CONNECTION_GUIDES, NO_PLATFORM_ID, platforms } from "@healdesk/catalog";
-import { isImplemented } from "@healdesk/connectors";
+import { getAdapter, GOOGLE_CALENDAR_PROVIDER, isImplemented } from "@healdesk/connectors";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -33,6 +33,28 @@ describe("platform coverage", () => {
         // and the checkout must not imply a working sync.
         expect(isImplemented(platform.id)).toBe(false);
       }
+    }
+  });
+
+  /**
+   * Google Calendar is where v1 writes bookings, not a booking system a
+   * clinic picks at checkout. A checkout platform id that resolved to the
+   * Google adapter would send that platform's credential handover (the
+   * phase-two connect link) to the v1 write adapter, and the write path would
+   * take the row it saved for a booking target.
+   */
+  test("the Google Calendar adapter is registered under an id no checkout platform uses", () => {
+    expect(getAdapter(GOOGLE_CALENDAR_PROVIDER)?.id).toBe(GOOGLE_CALENDAR_PROVIDER);
+    expect(isImplemented(GOOGLE_CALENDAR_PROVIDER)).toBe(true);
+    expect(NO_PLATFORM_ID).not.toBe(GOOGLE_CALENDAR_PROVIDER);
+    for (const platform of platforms) {
+      expect(platform.id, `${platform.id} is the Google Calendar adapter's id`).not.toBe(
+        GOOGLE_CALENDAR_PROVIDER,
+      );
+      expect(
+        getAdapter(platform.id)?.id,
+        `${platform.id} resolves to the Google Calendar adapter`,
+      ).not.toBe(GOOGLE_CALENDAR_PROVIDER);
     }
   });
 });

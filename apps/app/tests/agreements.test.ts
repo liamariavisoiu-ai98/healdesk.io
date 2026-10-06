@@ -2,6 +2,9 @@ import {
   applicableClauses,
   BaaRenderError,
   BAA_EXPLAINER,
+  buildBaaSelections,
+  CALENDAR_ACCOUNTS,
+  CALENDAR_CLAUSE_IDS_1_3,
   currentBaaTemplate,
   CURRENT_BAA_VERSION,
   getBaaTemplate,
@@ -152,8 +155,8 @@ describe("rendering", () => {
 
     expect(yes).toMatch(/is\s+therefore\s+a\s+covered\s+entity/);
     expect(no).toMatch(/may\s+therefore\s+not\s+be\s+a\s+covered\s+entity/i);
-    // Since 1.2.0 (1.1.0's practice-status wording): the practice NOTIFIES
-    // its status; healdesk no longer "determines" or "confirms" it.
+    // 1.2.0 (via 1.1.0's practice-status clause): the practice NOTIFIES its
+    // status; healdesk no longer "determines" or "confirms" it.
     expect(unwrap(unknown)).toContain(
       "has not yet notified healdesk whether it is a covered entity",
     );
@@ -189,15 +192,15 @@ describe("rendering", () => {
   });
 
   test("the offered template is released, says so, and carries no draft wording", () => {
-    // 1.3.0 was released on 2026-10-03 by the owner, without external
-    // counsel review (the doc comment on approvedByCounsel in
+    // 1.2.1 was released on 2026-10-01 on the owner's own review, without
+    // external counsel (the doc comment on approvedByCounsel in
     // packages/catalog/src/baa.ts records that). The document itself must
     // read as executable: a DRAFT line, or the 1.1.0 acceptance placeholder,
     // in an offered agreement is the draft preamble leaking into production.
-    expect(CURRENT_BAA_VERSION).toBe("1.3.0");
+    expect(CURRENT_BAA_VERSION).toBe("1.2.1");
     expect(currentBaaTemplate().approvedByCounsel).toBe(true);
     const text = renderBaa(currentBaaTemplate(), VARS);
-    expect(text).toContain("Version 1.3.0 — executed electronically");
+    expect(text).toContain("Version 1.2.1 — executed electronically");
     expect(text).not.toMatch(/DRAFT|NOT FOR EXECUTION|\[NAME, TITLE\]/);
     // The party is the legal entity, not the trade name alone.
     expect(unwrap(text)).toContain('Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates ("healdesk")');
@@ -234,10 +237,9 @@ describe("the assent sentence", () => {
  */
 describe("every variant the funnel can produce", () => {
   // outboundMessaging is not an axis any more. In 1.0.0 it keyed the consent
-  // warranty and the reactivation gate; no version since 1.2.0 has either
-  // clause, so the field has no contractual consequence and a variant per
-  // value would be two names for one document. The test below pins that it
-  // stays that way.
+  // warranty and the reactivation gate; 1.2.0 has neither clause, so the
+  // field has no contractual consequence and a variant per value would be
+  // two names for one document. The test below pins that it stays that way.
   const AXES = {
     isCoveredEntity: [true, false, null] as const,
     attributionMode: ["estimated", "verified"] as const,
@@ -289,7 +291,6 @@ describe("every variant the funnel can produce", () => {
         "practice-status",
         "permitted-uses",
         "google-calendar",
-        "payments",
         "own-use",
         "practice-duties",
         "safeguards",
@@ -302,9 +303,6 @@ describe("every variant the funnel can produce", () => {
         "term",
         "liability",
         "records-to-hhs",
-        // Covered or not: the clause's own first sentence limits it to any
-        // period in which the practice is not a covered entity.
-        "state-privacy-law",
         "notices-and-law",
       ]) {
         expect(
@@ -363,11 +361,10 @@ describe("every variant the funnel can produce", () => {
 
   test("outbound messaging has no contractual consequence, and no outbound clause is reachable", () => {
     // v1 is inbound only. 1.0.0 keyed the consent warranty and the
-    // reactivation gate to outboundMessaging; no version since 1.2.0
-    // registers either clause, so flipping the field must change nothing —
-    // which is why it is no longer an axis above. A variant that DID change
-    // would mean an outbound clause had found its way back into the offered
-    // template.
+    // reactivation gate to outboundMessaging; 1.2.0 registers neither clause,
+    // so flipping the field must change nothing — which is why it is no
+    // longer an axis above. A variant that DID change would mean an outbound
+    // clause had found its way back into the offered template.
     for (const variables of variants) {
       const off = prepareBaa(currentBaaTemplate(), variables);
       const on = prepareBaa(currentBaaTemplate(), { ...variables, outboundMessaging: true });
@@ -401,6 +398,150 @@ function describeVariant(v: BaaVariables): string {
     v.connectedPlatform ?? "no-platform",
   ].join("/");
 }
+
+/**
+ * 1.3.0, enumerated the same way. It is drafted at BAA_TEMPLATES[1] and not
+ * offered, but every document it can produce is walked now, so the audit
+ * before its release reads the whole matrix rather than a sample. The
+ * variables are built by buildBaaSelections, the one builder both signing
+ * paths will call, so this is the set the funnel can actually produce.
+ *
+ * Two answers join the axes: the booking system, of which one live system
+ * (no booking system) and one manual one (Boulevard, which the phase-two
+ * read-back can also verify) stand for the rest, and the kind of Google
+ * account. Whether the practice declared itself a covered entity does not
+ * limit the calendar kind (owner, Q3), so the axes are crossed in full.
+ */
+describe("every 1.3.0 variant the funnel will produce", () => {
+  const DRAFT = "1.3.0";
+  const draft = () => getBaaTemplate(DRAFT)!;
+  const SIGNER = {
+    clinicLegalName: VARS.clinicLegalName,
+    signatoryName: VARS.signatoryName,
+    signatoryTitle: VARS.signatoryTitle,
+    signatoryEmail: VARS.signatoryEmail,
+    effectiveDate: VARS.effectiveDate,
+  };
+
+  const inputs: { label: string; variables: BaaVariables }[] = [];
+  for (const isCoveredEntity of [true, false, null] as const) {
+    for (const attributionMode of ["estimated", "verified"] as const) {
+      for (const bookingSystem of ["none", "boulevard"] as const) {
+        // Verified needs a system to read from; no booking system has none.
+        if (attributionMode === "verified" && bookingSystem === "none") continue;
+        for (const calendarAccount of CALENDAR_ACCOUNTS) {
+          const selections = buildBaaSelections({
+            specialtyId: "med-spa",
+            attributionMode,
+            bookingSystem,
+            isCoveredEntity,
+            calendarAccount,
+            template: draft(),
+          });
+          inputs.push({
+            label: [
+              `ce=${String(isCoveredEntity)}`,
+              attributionMode,
+              bookingSystem,
+              calendarAccount,
+            ].join("/"),
+            variables: { ...selections, ...SIGNER },
+          });
+        }
+      }
+    }
+  }
+
+  /** One input per distinct document, in enumeration order. */
+  const documents = [
+    ...new Map(
+      inputs.map((input) => [hashBaaText(renderBaa(draft(), input.variables)), input]),
+    ).values(),
+  ];
+
+  test("there are exactly as many documents as the axes predict", () => {
+    // 3 covered-entity answers × 3 account kinds × (live estimated, manual
+    // estimated, manual verified) = 27 inputs. A manual system connects to no
+    // calendar, so its account answer is kept and changes nothing: 3 × (3
+    // live documents + 1 manual estimated + 1 manual verified) = 15.
+    expect(inputs).toHaveLength(27);
+    expect(documents).toHaveLength(15);
+  });
+
+  test.each(documents.map((d) => [d.label, d.variables] as const))(
+    "%s renders a complete agreement",
+    (_label, variables) => {
+      const text = renderBaa(draft(), variables);
+      const ids = applicableClauses(draft(), variables).map((c) => c.id);
+      expect(text).toContain(variables.clinicLegalName);
+      expect(text).toContain("Version 1.3.0 — executed electronically");
+      expect(text).not.toMatch(/\{\{|undefined|\[object/);
+      for (const required of [
+        "definitions",
+        "practice-status",
+        "permitted-uses",
+        "state-law",
+        "payments",
+        "own-use",
+        "practice-duties",
+        "safeguards",
+        "minimum-necessary",
+        "reporting",
+        "subcontractors",
+        "patient-rights",
+        "acting-in-your-place",
+        "prohibited",
+        "term",
+        "liability",
+        "records-to-hhs",
+        "notices-and-law",
+      ]) {
+        expect(ids).toContain(required);
+      }
+      // Exactly one data-sources clause and exactly one calendar clause.
+      expect(ids.filter((id) => id.startsWith("data-sources-"))).toHaveLength(1);
+      expect(
+        ids.filter((id) => (CALENDAR_CLAUSE_IDS_1_3 as readonly string[]).includes(id)),
+      ).toHaveLength(1);
+      const numbers = [...text.matchAll(/^(\d+)\. [A-Z]/gm)].map((m) => Number(m[1]));
+      expect(numbers).toEqual(Array.from({ length: ids.length }, (_, i) => i + 1));
+    },
+  );
+
+  test("the calendar clause follows the two answers, and nothing else", () => {
+    for (const { label, variables } of inputs) {
+      const ids = applicableClauses(draft(), variables).map((c) => c.id);
+      const expected =
+        variables.bookingSystem === "boulevard"
+          ? "google-calendar-not-used"
+          : variables.calendarAccount === "workspace_baa"
+            ? "google-calendar-covered"
+            : "google-calendar-uncovered";
+      expect(ids, label).toContain(expected);
+    }
+  });
+
+  test("only a verified clinic's agreement describes reading its systems, and none claims revenue otherwise", () => {
+    for (const { label, variables } of documents) {
+      const text = renderBaa(draft(), variables);
+      if (variables.attributionMode === "verified") {
+        expect(text, label).toMatch(/READ-ONLY access/);
+      } else {
+        expect(text, label).toMatch(/holds no\s+credentials/);
+        expect(text, label).not.toMatch(/READ-ONLY access|revenue/i);
+      }
+    }
+  });
+
+  test("is not signable while it is a draft", () => {
+    // The signing endpoint accepts the current template only; 1.3.0 is
+    // offered from its release (plan C3 and C19), never before.
+    expect(() => validateSignRequest(validSignRequest({ templateVersion: DRAFT }))).toThrow(
+      AgreementError,
+    );
+    expect(draft().approvedByCounsel).toBe(false);
+  });
+});
 
 describe("the explainer shown before payment", () => {
   test("pin-cites every claim it makes to its own subparagraph", () => {
@@ -464,9 +605,10 @@ describe("the go-live floor", () => {
   });
 
   test("refuses every superseded version, every draft, and anything unregistered", () => {
-    // 1.2.1 and earlier lack the Payments clause and the clause for a
-    // practice that is not a covered entity; the drafts were never executable.
-    for (const version of ["1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft", "1.3", "9.9.9", ""]) {
+    // 1.3.0 is a draft until the owner releases it (agreement-changes.md
+    // §12), and the other drafts were never executable. Releasing 1.3.0
+    // changes this list along with the floor, on purpose.
+    for (const version of ["1.3.0", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft", "1.3", "9.9.9", ""]) {
       expect(isBaaVersionAcceptable(version), version).toBe(false);
     }
   });

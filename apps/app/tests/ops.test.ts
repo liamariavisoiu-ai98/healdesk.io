@@ -112,12 +112,12 @@ describe("clinic blockers", () => {
 
   test("a live clinic on a superseded agreement is told to re-accept, not shown as broken", () => {
     const blockers = blockersFor(
-      clinic({ dataClassification: "production", baaSignedAt: new Date(), baaVersion: "1.2.1" }),
+      clinic({ dataClassification: "production", baaSignedAt: new Date(), baaVersion: "1.2.0" }),
     );
     expect(blockers).toEqual([
       {
         level: "attention",
-        message: `Live under BAA v1.2.1, which has been superseded: have the practice accept v${CURRENT_BAA_VERSION}.`,
+        message: `Live under BAA v1.2.0, which has been superseded: have the practice accept v${CURRENT_BAA_VERSION}.`,
       },
     ]);
   });

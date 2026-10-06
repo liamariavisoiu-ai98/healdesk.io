@@ -25,8 +25,7 @@ are kept current against the spec.
 | [on-call.md](./on-call.md) | The processes that matter, their signals, what to check first, and what the operator watches. |
 | [policies/](./policies/) | The administrative safeguards a business associate must have on paper: the named Security Official, access control (including the clinic portal), sanctions, the training/access/review log, and the AWS HIPAA Account record. |
 | [counsel-audit.md](./counsel-audit.md) | Legal questions answered with the statute behind each. |
-| [baa-v1.3.0.txt](./baa-v1.3.0.txt) | The BAA clinics sign from 3 October 2026, rendered as a clinic sees it. Source of truth is `packages/catalog/src/baa.ts`, template 1.3.0; released by the owner without external counsel review, after an adversarial review of the counsel documents (see [counsel/](./counsel/)). Adds the Payments clause and the processor terms for a practice outside HIPAA, and corrects own use, the end-of-term timeline and three sentences. |
-| [baa-v1.2.1.txt](./baa-v1.2.1.txt) | Superseded by 1.3.0 on 3 October 2026. Offered from 1 October 2026, after correcting five sentences of 1.2.0 the same day; kept frozen for anything signed against it. |
+| [baa-v1.2.1.txt](./baa-v1.2.1.txt) | The BAA clinics sign from 1 October 2026, rendered as a clinic sees it. Source of truth is `packages/catalog/src/baa.ts`, template 1.2.1; released by the owner without external counsel after an adversarial review the same day (see [counsel/](./counsel/)). |
 | [baa-v1.2.0.txt](./baa-v1.2.0.txt) | The version offered for part of 1 October 2026 before 1.2.1 corrected five sentences; kept frozen for anything signed against it. |
 | [baa-v1.1.0-draft.txt](./baa-v1.1.0-draft.txt) | The superseded 1.1.0 revision, never offered; kept because the counsel notes cite it. |
 | [handover.md](./handover.md) | Engineering handover notes. Not the task list: that is the Launch plan tab. |

@@ -46,6 +46,12 @@ export const DIRECT_KIND_REGISTRY = {
   sign_in_link: direct("B2", "transactional", "plan", { linkEmail: true, locksOut: true }),
   /** O6: the sign-in link sent from /sign-in/help. */
   sign_in_help_link: direct("O6", "transactional", "plan", { linkEmail: true, locksOut: true }),
+  /**
+   * O3: a device was added to the sign-in, removed from it, or code entry
+   * locked. About the sign-in, not a clinic: factors belong to the user, and
+   * one sign-in can open several locations.
+   */
+  device_changed: direct("O3", "transactional", "plan", { linkEmail: false, locksOut: false }),
   /** B3: "Your order is confirmed: one step on our side", when provisioning failed. */
   order_confirmed_delayed: direct("B3", "transactional", "plan", {
     linkEmail: false,

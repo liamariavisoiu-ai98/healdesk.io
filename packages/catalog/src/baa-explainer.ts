@@ -1,3 +1,5 @@
+import { SUBPROCESSOR_NOTICE_HOURS } from "./subprocessor-notice";
+
 /**
  * Why a BAA exists, explained to the person about to sign one.
  *
@@ -129,47 +131,45 @@ export const BAA_EXPLAINER = {
     "covered entity, and what HIPAA requires of you, are questions for your own counsel.",
 } as const;
 
-/** The clauses of the current version (1.3.0) that have a note below. */
+/** The clauses that have a note below. */
 export type ExplainedClauseId =
   | "data-sources-none"
   | "google-calendar"
-  | "payments"
-  | "own-use"
-  | "safeguards"
+  | "google-calendar-covered"
+  | "google-calendar-uncovered"
+  | "google-calendar-not-used"
   | "minimum-necessary"
-  | "subcontractors"
-  | "acting-in-your-place"
-  | "term"
-  | "state-privacy-law";
+  | "subcontractors";
 
 /**
- * Plain-English notes for the clauses of the current version that describe
- * what the product does, or what 1.3.0 changed, rather than paraphrase the
- * regulation, keyed by clause id, for the signing screen to show beside the
- * clause. Kept separate from `BAA_EXPLAINER.terms` deliberately: those are
- * pin-cited to 45 CFR 164.504(e), whereas these are facts about the service —
- * what healdesk reads, the Google Calendar and payment access, what the
- * assistant collects, the model provider's retention, and what happens at the
- * end — which the spec says a clinic must not have to discover from its own
- * counsel. The same rules apply — descriptive, never "you need this", and the
- * agreement governs.
+ * Plain-English notes for the clauses that describe what the product does
+ * rather than paraphrase the regulation, keyed by clause id, for the signing
+ * screen to show beside the clause. Kept separate from `BAA_EXPLAINER.terms`
+ * deliberately: those are pin-cited to 45 CFR 164.504(e), whereas these are
+ * facts about the service — what healdesk reads, the Google Calendar access,
+ * what the assistant collects, and the model provider's retention, which the
+ * spec says a clinic must not have to discover from its own counsel. The same
+ * rules apply — descriptive, never "you need this", and the agreement governs.
  *
- * ⚖️ Every note here must stay true to the clause it explains, and promise
- * nothing the clause does not. The golden test in apps/app freezes the 1.3.0
- * bytes, and the clause body is the thing to read if a note and a clause ever
- * seem to disagree. Most of these ids were also used by earlier versions with
- * different bodies; the notes describe the 1.3.0 body, and the signing screen
- * only ever renders the current template, so no earlier body is shown beside
- * them.
+ * ⚖️ Every note here must stay true to the clause it explains, in every
+ * version that renders that clause id. The signing screen renders only the
+ * current template (1.2.1 today, 1.3.0 once released), and two ids carry a
+ * different body in each. The data-sources note is worded to hold for both:
+ * it does not promise calendar access a manual booking system never grants.
+ * The subcontractors note cannot be, because the notice period is the point
+ * of it (fifteen days in 1.2.1, 24 hours in 1.3.0), so this map keeps
+ * 1.2.1's note, word for word what the live checkout shows, and 1.3.0's is
+ * in BAA_CLAUSE_EXPLAINERS_BY_VERSION; `clauseExplainer` picks between them.
+ * The three calendar ids exist only in 1.3.0. The golden test in apps/app
+ * freezes every version's bytes, and the clause body is the thing to read if
+ * a note and a clause ever seem to disagree.
  */
 export const BAA_CLAUSE_EXPLAINERS: Readonly<Record<ExplainedClauseId, BaaExplainerTerm>> = {
   "data-sources-none": {
     plain:
-      "Apart from the payment-link access the Payments clause describes, healdesk holds no " +
-      "credentials to any practice-management or point-of-sale system and reads nothing " +
-      "from one. The only patient information it receives is what patients give it in a " +
-      "call or chat, plus the calendar access the Google Calendar clause describes and the " +
-      "payment status the Payments clause describes",
+      "healdesk connects to no practice-management or point-of-sale system and holds no " +
+      "credentials to one. The only patient information it receives is what patients give " +
+      "it in a call or chat, plus whatever Google Calendar access the calendar clause describes",
     citation: "164.504(e)(2)(i)",
   },
   "google-calendar": {
@@ -182,42 +182,39 @@ export const BAA_CLAUSE_EXPLAINERS: Readonly<Record<ExplainedClauseId, BaaExplai
       "only where your Workspace administrator has accepted it",
     citation: "164.502(b), 164.504(e)(2)(i)",
   },
-  payments: {
+  // 1.3.0: exactly one of the next three renders, chosen by the booking
+  // system and the kind of Google account the practice named (calendar-terms.ts).
+  // Both connected kinds name the calendar-list read beside the free/busy
+  // one, as the clause does since the calendar-list permission was included
+  // (owner, 6 October 2026).
+  "google-calendar-covered": {
     plain:
-      "healdesk never takes a patient's card number. If you connect your own payment " +
-      "processor and switch deposits on, it may send a patient a link to a payment page " +
-      "your processor hosts, in a website chat or a message conversation the patient " +
-      "started — never on a call, where any deposit is left for your staff. The payment " +
-      "goes into your own account, under your own agreement with the processor, which is " +
-      "not healdesk's subcontractor. To make a link healdesk sends the processor an amount, " +
-      "a generic description and a reference code, and nothing else about the patient or " +
-      "the appointment, and it uses its access only to create links and learn whether they " +
-      "were paid. It creates no customer record or invoice and saves no card",
-    citation: "164.502(b), 164.506(c)(1)",
+      "You connect your own Google Calendar with a Google login, and you've told us your " +
+      "Workspace administrator has accepted Google's business associate agreement — we can't " +
+      "check that, so it is your statement. healdesk reads the names of your calendars, so you " +
+      "can choose the one it books into, and when that calendar is free or busy; it adds each " +
+      "booking (made by the assistant or confirmed by your staff) as a private event with a " +
+      "first name, the service and the time — never a phone number, an email address or " +
+      "anything clinical — and never touches anything it didn't create",
+    citation: "164.502(b), 164.504(e)(2)(i)",
   },
-  "own-use": {
+  "google-calendar-uncovered": {
     plain:
-      "healdesk may use patient information where necessary for its own proper management " +
-      "and administration and its legal duties, and disclose it for those purposes only " +
-      "where the law requires it or the recipient has assured healdesk it will keep it " +
-      "confidential, use it only for that purpose or as the law requires, and report any " +
-      "breach. It may de-identify your patients' information to the HIPAA standard and " +
-      "combine it with other practices' de-identified information only to produce " +
-      "aggregate statistics about the service. It will not re-identify, or try to " +
-      "re-identify, anyone from it, and never uses patient information to train, fine-tune " +
-      "or evaluate a model",
-    citation: "164.504(e)(4), 164.514(b)",
+      "Google's agreement doesn't cover this calendar (a personal Gmail account can't have " +
+      "one). You are telling us to add bookings anyway — a first name, the service and the " +
+      "time, as private events — and that disclosure to Google is yours to answer for. " +
+      "healdesk reads the names of your calendars, so you can choose the one it books into, " +
+      "and when that calendar is free or busy; it sends nothing else and stops adding " +
+      "bookings as soon as you disconnect",
+    citation: "164.502(a), 164.504(e)(2)(i)",
   },
-  safeguards: {
+  "google-calendar-not-used": {
     plain:
-      "Patient information is encrypted at rest, and in transit wherever healdesk controls " +
-      "both ends. An email whose receiving server will not negotiate encryption is not sent, " +
-      "and you are told; the list of patients in a breach report goes by secure transfer, " +
-      "never in the email. The one exception is a patient who telephones: a phone call is " +
-      "not end-to-end encrypted, so healdesk answers it with the minimum necessary, never " +
-      "including clinical detail, test results or card or bank details. healdesk places no " +
-      "calls and sends no SMS",
-    citation: "164.312(a)(2)(iv), (e)(2)(ii)",
+      "Your booking system doesn't read Google Calendar, or we haven't confirmed that it does, " +
+      "so healdesk doesn't connect to your calendar at all. The assistant takes each booking as " +
+      "a request and your staff confirm it in your own system. Switching later means recording " +
+      "a short calendar election",
+    citation: "164.502(b)",
   },
   "minimum-necessary": {
     plain:
@@ -239,36 +236,53 @@ export const BAA_CLAUSE_EXPLAINERS: Readonly<Record<ExplainedClauseId, BaaExplai
       "reasonable grounds",
     citation: "164.504(e)(2)(ii)(D), 164.308(b)(2)",
   },
-  "acting-in-your-place": {
-    plain:
-      "Answering a patient who calls, and replying in your name to a patient who writes, " +
-      "are your practice's own duties carried out through healdesk. Where healdesk carries " +
-      "out an obligation the HIPAA Privacy Rule places on you, it meets the requirements " +
-      "the Rule places on you, not only the lighter ones it places on a business associate",
-    citation: "164.504(e)(2)(ii)(H)",
-  },
-  term: {
-    plain:
-      "Within thirty days of the agreement ending, healdesk delivers you an export of the " +
-      "patient information it holds for you, then destroys that information and keeps no " +
-      "copies: at day thirty if the export has been delivered by then, otherwise as soon " +
-      "as it is, and never later than ninety days after the end. Until then the agreement " +
-      "still protects it. Where destruction is not feasible, healdesk says why in writing, " +
-      "keeps protecting what it holds and uses it only for what makes destruction " +
-      "infeasible. The signed agreement and the record of disclosures are kept for six years",
-    citation: "164.504(e)(2)(ii)(J), 164.530(j)",
-  },
-  "state-privacy-law": {
-    plain:
-      "Applies for any period in which your practice is not a HIPAA covered entity, " +
-      "whatever you told healdesk when you signed. healdesk is then your service provider " +
-      "and processor under the California, Washington, Nevada and Connecticut privacy " +
-      "laws, to the extent each applies: it uses your patients' information only for the " +
-      "purposes the clause lists, never sells or shares it as California defines those " +
-      "words, gives you what you need to answer people's requests within ten business " +
-      "days, deletes what you tell it to within ten business days (from backups within six " +
-      "months), and tells you of a breach immediately following discovery where a state law " +
-      "requires that",
-    citation: "Cal. Civ. Code 1798.100(d); RCW 19.373.060",
+};
+
+/**
+ * Notes for a clause id whose body says something different in one version
+ * than in the one BAA_CLAUSE_EXPLAINERS describes, keyed by template version
+ * and then clause id. 1.3.0's subcontractors clause gives 24 hours' notice
+ * where 1.2.1's gives fifteen days, and its objection has to come before the
+ * change takes effect, which in a day is the part that matters.
+ */
+export const BAA_CLAUSE_EXPLAINERS_BY_VERSION: Readonly<
+  Record<string, Partial<Record<ExplainedClauseId, BaaExplainerTerm>>>
+> = {
+  "1.3.0": {
+    subcontractors: {
+      plain:
+        "Every vendor that handles patient information signs the same obligations with " +
+        "healdesk before it does. The language model is Anthropic's: under its agreement with " +
+        "healdesk it keeps conversation content for 30 days, for abuse detection and security, " +
+        "then deletes it (content its safety systems flag, or the law requires it to keep, may " +
+        "be held for up to two years), and never trains on it. You're told by email at least " +
+        `${SUBPROCESSOR_NOTICE_HOURS} hours before a new vendor handles patient information, ` +
+        "and may end the agreement without penalty if you object on reasonable grounds before " +
+        "the change takes effect",
+      citation: "164.504(e)(2)(ii)(D), 164.308(b)(2)",
+    },
   },
 };
+
+/**
+ * The note to show beside one clause of one version, or undefined when that
+ * clause has none. The signing screen is to look notes up through this, with
+ * the version it renders. AgreementStep reads BAA_CLAUSE_EXPLAINERS directly
+ * today, which is right only while it renders 1.2.1; it has to switch before
+ * 1.3.0 is released (docs/counsel/agreement-changes.md §12.11).
+ */
+export function clauseExplainer(
+  templateVersion: string,
+  clauseId: string,
+): BaaExplainerTerm | undefined {
+  // Own keys only: "toString" is no clause.
+  if (!Object.prototype.hasOwnProperty.call(BAA_CLAUSE_EXPLAINERS, clauseId)) return undefined;
+  const id = clauseId as ExplainedClauseId;
+  const forVersion = Object.prototype.hasOwnProperty.call(
+    BAA_CLAUSE_EXPLAINERS_BY_VERSION,
+    templateVersion,
+  )
+    ? BAA_CLAUSE_EXPLAINERS_BY_VERSION[templateVersion]
+    : undefined;
+  return forVersion?.[id] ?? BAA_CLAUSE_EXPLAINERS[id];
+}

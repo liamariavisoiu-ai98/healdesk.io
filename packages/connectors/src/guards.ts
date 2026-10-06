@@ -95,6 +95,25 @@ export function assertNoTreatmentName(text: string, serviceNames: readonly strin
 }
 
 /**
+ * The first phone-shaped key anywhere in the value, a few levels deep.
+ *
+ * Write adapters run their input through this before any request. The input
+ * type has no phone field, which stops a contributor; this stops a cast, so
+ * a number smuggled in at runtime is refused rather than forwarded. Only key
+ * names are looked at, never values, so the result is safe to put in an
+ * error message.
+ */
+export function phoneShapedKey(value: unknown, depth = 0): string | undefined {
+  if (depth > 3 || typeof value !== "object" || value === null) return undefined;
+  for (const [key, nested] of Object.entries(value)) {
+    if (/phone|mobile|^tel|sms/i.test(key)) return key;
+    const found = phoneShapedKey(nested, depth + 1);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/**
  * Best-effort E.164.
  *
  * Returns undefined rather than guessing when the input isn't recognisably a US

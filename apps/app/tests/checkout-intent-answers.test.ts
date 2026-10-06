@@ -68,7 +68,8 @@ function profile(overrides: Partial<ClinicProfile> = {}): ClinicProfile {
 /** A purchase as the four-step funnel sends it, before the agreement id is known. */
 function order(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    clinicName: "Glow Med Spa",
+    // As the agreement signedOrder signs names it, with its covered answer.
+    clinicName: "Glow Med Spa LLC",
     specialty: "med-spa",
     platform: "none",
     plan: "web-voice",
@@ -76,6 +77,7 @@ function order(overrides: Record<string, unknown> = {}): Record<string, unknown>
     contactName: "Laura Owner",
     contactEmail: "info@glowspa.test",
     agreementId: randomUUID(),
+    isCoveredEntity: false,
     bookingSystem: "calendly",
     calendarAccount: "workspace_baa",
     website: "glowmedspa.com",

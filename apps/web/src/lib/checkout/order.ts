@@ -1,15 +1,18 @@
 import {
   agreementKindFor,
   agreementPlatformFor,
+  asksCoveredQuestion,
   type BillingInterval,
   type BookingSystemId,
   type CalendarAccount,
   cleanWebsite,
   type ClinicProfile,
+  type CoveredAnswer,
   getPlan,
   isBillingInterval,
   isBookingSystemId,
   isCalendarAccount,
+  isCoveredAnswer,
   isSpecialtyId,
   META_SOLD_ALONE,
   parseClinicProfile,
@@ -55,6 +58,13 @@ export type Order = {
   contactEmail: string;
   contactTitle: string | null;
   agreementId: string;
+  /**
+   * The covered-entity answer, as the agreement records it: true for "Yes",
+   * false for "No", null for "Not sure", and false for a practice never asked
+   * (agreementKindFor's own reading). apps/app checks it against the signed
+   * agreement before anyone pays.
+   */
+  isCoveredEntity: boolean | null;
   profile: ClinicProfile | null;
   profileStatus: ProfileStatus;
   /** The browser's own time zone, a fallback for the clinic's; dropped when it is not one. */
@@ -117,6 +127,21 @@ export function validateOrder(
   if (!isSpecialtyId(body.specialty) || !specialtyOffered(body.specialty)) {
     return refuse("specialty", "Choose your specialty.");
   }
+  const specialty: SpecialtyId = body.specialty;
+
+  // The covered-entity answer selects a paragraph of the agreement, so it
+  // travels with the purchase and apps/app matches it against what was
+  // signed. Asked only where it can matter; never sent where it was not.
+  const asked = asksCoveredQuestion(specialty);
+  const covered = body.covered ?? null;
+  if (asked ? !isCoveredAnswer(covered) : covered !== null) {
+    return refuse(
+      "covered",
+      "Answer whether your practice bills any health insurance electronically.",
+    );
+  }
+  const agreement = agreementKindFor({ specialty, covered: asked ? (covered as CoveredAnswer) : null });
+  if (!agreement.ok) return refuse("specialty", "Choose your specialty.");
 
   // Present, always: a website, or null for none. Absent is a page that never
   // asked, and guessing which would decide whether web chat may be sold.
@@ -203,7 +228,7 @@ export function validateOrder(
       plan,
       interval,
       clinicName,
-      specialty: body.specialty,
+      specialty,
       website,
       bookingSystem: body.bookingSystem,
       calendarAccount: body.calendarAccount,
@@ -212,6 +237,7 @@ export function validateOrder(
       contactEmail: email,
       contactTitle,
       agreementId: body.agreementId,
+      isCoveredEntity: agreement.isCoveredEntity,
       profile,
       profileStatus: profileStatus as ProfileStatus,
       timezone: isTimeZone(body.timezone) ? body.timezone : null,
@@ -236,6 +262,7 @@ export function intentFields(order: Order): Record<string, unknown> {
     contactEmail: order.contactEmail,
     ...(order.contactTitle ? { contactTitle: order.contactTitle } : {}),
     agreementId: order.agreementId,
+    isCoveredEntity: order.isCoveredEntity,
     bookingSystem: order.bookingSystem,
     calendarAccount: order.calendarAccount,
     website: order.website,

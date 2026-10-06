@@ -1,32 +1,41 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
 import {
+  agreementKindOfVersion,
   agreementPlatformFor,
   type BookingSystemId,
   type CalendarAccount,
   cleanWebsite,
   type ClinicProfile,
+  getBaaTemplate,
   getPlan,
+  getPlatform,
   isBookingSystemId,
   isCalendarAccount,
+  isSpecialtyId,
   META_SOLD_ALONE,
+  NO_PLATFORM_ID,
   parseClinicProfile,
   planNeedsWebsite,
+  regimeFor,
   screenClinicProfile,
   sellsMetaAlone,
+  specialties,
   type SpecialtyId,
   specialtyOffered,
+  templateReadsCalendarAccount,
 } from "@healdesk/catalog";
 import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import {
+  baaAcceptances,
   CHECKOUT_PROFILE_STATUSES,
   checkoutIntents,
   type CheckoutIntentPayload,
   type CheckoutProfileStatus,
 } from "@/db/schema";
-import { getAgreement } from "@/lib/agreements";
+import { agreementKindSufficient, agreementTemplateReleased } from "@/lib/agreements/kind";
 import { getStripe, stripeConfigured } from "@/lib/billing/stripe-client";
 import { describeError, log } from "@/lib/log";
 import { ProvisioningError, validateProvisionRequest, type ProvisionRequest } from "@/lib/provisioning";
@@ -40,7 +49,8 @@ import { ProvisioningError, validateProvisionRequest, type ProvisionRequest } fr
  * terms of that press of Pay (`{ app, ref, plan, billingInterval, attempt }`).
  * Everything provisioning will need is checked now, before anyone pays, which
  * is what removes the "paid, then provisioning refused the form" case: the
- * agreement must exist, be unbound and have been signed by the buying address.
+ * agreement must exist, be unbound, have been signed by the buying address,
+ * and be the document this purchase describes (checkIntentAgreement).
  *
  * While purchases are by invitation, one setup link makes one intent
  * (`invite_ref` is unique). Pressing Pay again after cancelling at Stripe
@@ -68,6 +78,12 @@ export type IntentRequest = Omit<ProvisionRequest, "idempotencyKey" | "stripeCus
   inviteRef: string | null;
   /** SHA-256 hex of the nonce cookie apps/web sets on the paying browser. */
   nonceHash: string;
+  /**
+   * The covered-entity answer, as the agreement records it: true ("Yes"),
+   * false ("No", and a practice never asked), null ("Not sure"). Matched
+   * against the signed agreement (checkIntentAgreement); never assumed.
+   */
+  isCoveredEntity: boolean | null;
   /** "Where do bookings live today?" Absent only on a request from before the four-step funnel. */
   bookingSystem?: BookingSystemId;
   /** "Which Google account will bookings go into?" Sent with the booking system, or not at all. */
@@ -136,6 +152,14 @@ export function validateIntentRequest(
   }
   if (typeof body.nonceHash !== "string" || !SHA256_HEX.test(body.nonceHash)) {
     throw new IntentError("Invalid nonce.", "nonceHash");
+  }
+  // Required, because the agreement is matched against it before payment.
+  const isCoveredEntity = body.isCoveredEntity;
+  if (isCoveredEntity !== true && isCoveredEntity !== false && isCoveredEntity !== null) {
+    throw new IntentError(
+      "Answer whether the practice bills any health insurance electronically.",
+      "covered",
+    );
   }
 
   // The calendar answers travel together, and the platform the released
@@ -214,19 +238,104 @@ export function validateIntentRequest(
 }
 
 /**
- * The agreement must exist, be unbound, and have been signed by the address
- * that is buying. Checked before payment: after it, a refusal would mean a
- * charge with no account behind it.
+ * The agreement must exist, be unbound, have been signed by the address that
+ * is buying, and be the document this purchase describes (agreementMismatch,
+ * plan Part A4). Checked before payment: after it, a refusal would mean a
+ * charge with no account behind it. The browser compares the same answers to
+ * decide whether a signature still holds (sameAgreementInputs); this is the
+ * comparison a changed request cannot skip. Every refusal of the document
+ * names `agreementId`, which sends the buyer back to sign again.
  */
-export async function checkIntentAgreement(agreementId: string, contactEmail: string): Promise<void> {
-  const agreement = await getAgreement(agreementId);
+export async function checkIntentAgreement(input: IntentRequest): Promise<void> {
+  const [agreement] = UUID.test(input.agreementId)
+    ? await unsafeDb
+        .select({
+          version: baaAcceptances.documentVersion,
+          variables: baaAcceptances.variables,
+          organizationId: baaAcceptances.organizationId,
+          acceptedByEmail: baaAcceptances.acceptedByEmail,
+        })
+        .from(baaAcceptances)
+        .where(eq(baaAcceptances.id, input.agreementId))
+        .limit(1)
+    : [];
   if (!agreement) throw new IntentError("That agreement wasn't found. Please sign it again.", "agreementId");
   if (agreement.organizationId !== null) {
     throw new IntentError("That agreement already belongs to an account. Please sign it again.", "agreementId");
   }
-  if (agreement.acceptedByEmail.trim().toLowerCase() !== contactEmail) {
+  if (agreement.acceptedByEmail.trim().toLowerCase() !== input.contactEmail) {
     throw new IntentError("The agreement was signed with a different email address.", "contactEmail");
   }
+  const mismatch = agreementMismatch(agreement.version, agreement.variables, input);
+  if (mismatch) throw new IntentError(mismatch, "agreementId");
+}
+
+/**
+ * Why a signed agreement is not the document this purchase describes, or
+ * null when it is. Pure, so every rule is testable without a database.
+ *
+ * - Its template must be one that may be put in force
+ *   (agreementTemplateReleased): a released DPA, or a BAA go-live accepts.
+ * - Its kind must cover the practice, by the rule the PHI gate applies
+ *   (agreementKindSufficient): a veterinary practice never pays on a BAA
+ *   only for provisioning to refuse it afterwards.
+ * - Every answer that names or selects the document must be the one signed:
+ *   the legal name, the specialty, the covered-entity answer, and the booking
+ *   system, as the platform it names before 1.3.0, and with the kind of
+ *   Google account from 1.3.0 on (and always on a DPA), which read both.
+ *
+ * Each side is compared as signAgreement wrote it: the name trimmed, a BAA's
+ * specialty by the catalogue's name (a DPA's by its id), and a DPA's covered
+ * answer as "No", the only one a DPA is signed on.
+ */
+export function agreementMismatch(
+  version: string,
+  variables: unknown,
+  purchase: Pick<
+    IntentRequest,
+    "clinicName" | "specialty" | "platform" | "isCoveredEntity" | "bookingSystem" | "calendarAccount"
+  >,
+): string | null {
+  if (!agreementTemplateReleased(version)) {
+    return "That agreement's version can no longer be used for a new account. Please sign it again.";
+  }
+  if (!isSpecialtyId(purchase.specialty)) {
+    return "The agreement you signed is for a different kind of practice. Please sign it again.";
+  }
+  const kind = agreementKindOfVersion(version);
+  const signed = (variables ?? {}) as Record<string, unknown>;
+
+  if (!agreementKindSufficient(regimeFor(purchase.specialty), kind, purchase.isCoveredEntity)) {
+    return "That agreement doesn't cover this practice. Please sign the one for it.";
+  }
+  if (signed.clinicLegalName !== purchase.clinicName.trim()) {
+    return "The agreement you signed names a different practice. Please sign it again.";
+  }
+  const specialty =
+    kind === "dpa"
+      ? purchase.specialty
+      : (specialties.find((s) => s.id === purchase.specialty)?.name ?? purchase.specialty);
+  if (signed.specialty !== specialty) {
+    return "The agreement you signed is for a different kind of practice. Please sign it again.";
+  }
+  const covered = kind === "dpa" ? (signed.isCoveredEntity ?? false) : signed.isCoveredEntity;
+  if (covered !== purchase.isCoveredEntity) {
+    return "The agreement you signed has a different answer about billing insurance. Please sign it again.";
+  }
+
+  const readsCalendar = kind === "dpa" || templateReadsCalendarAccount(getBaaTemplate(version)!);
+  if (readsCalendar) {
+    if (signed.bookingSystem !== purchase.bookingSystem || signed.calendarAccount !== purchase.calendarAccount) {
+      return "The agreement you signed names a different booking system or Google account. Please sign it again.";
+    }
+  } else {
+    const platform =
+      purchase.platform === NO_PLATFORM_ID ? null : (getPlatform(purchase.platform)?.name ?? null);
+    if ((signed.connectedPlatform ?? null) !== platform) {
+      return "The agreement you signed names a different booking system. Please sign it again.";
+    }
+  }
+  return null;
 }
 
 export type IntentResult = {
@@ -258,6 +367,8 @@ export async function saveIntent(input: IntentRequest): Promise<IntentResult> {
     ...(input.phoneSystemType ? { phoneSystemType: input.phoneSystemType } : {}),
     ...(input.callRouting ? { callRouting: input.callRouting } : {}),
     agreementId: input.agreementId,
+    // As checked against the agreement; provisioning reads the agreement's own.
+    isCoveredEntity: input.isCoveredEntity,
     ...(input.attributionMode ? { attributionMode: input.attributionMode } : {}),
     ...(input.averageTreatmentValueUsd !== undefined ? { averageTreatmentValueUsd: input.averageTreatmentValueUsd } : {}),
     ...(input.timezone ? { timezone: input.timezone } : {}),

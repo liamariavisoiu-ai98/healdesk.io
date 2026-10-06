@@ -13,6 +13,7 @@ import {
 } from "@/lib/agreement-recovery";
 import {
   agreementInputs,
+  asksCovered,
   chooseCard,
   chooseChat,
   choosePlan,
@@ -129,6 +130,7 @@ const FIELD_STEP: Record<string, StepNumber> = {
   bookingSystem: 2,
   calendarAccount: 2,
   agreementId: 3,
+  covered: 3,
   contactName: 3,
   contactEmail: 3,
   contactTitle: 3,
@@ -344,8 +346,11 @@ export function CheckoutFlow({
           contactName: state.contactName.trim(),
           contactEmail: (lockedEmail ?? state.contactEmail).trim(),
           contactTitle: state.contactTitle.trim() || undefined,
-          // The signature itself, not a claim about it.
+          // The signature itself, not a claim about it, and the answer that
+          // chose its covered-entity paragraph, which apps/app matches
+          // against what was signed.
           agreementId: validAgreement.agreementId,
+          covered: asksCovered(state) ? state.covered : null,
           profile,
           profileStatus,
           // A fallback for the clinic's own time zone, which setup confirms.

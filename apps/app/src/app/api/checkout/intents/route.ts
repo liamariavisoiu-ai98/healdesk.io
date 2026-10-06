@@ -37,7 +37,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const input = validateIntentRequest(read.body);
     await assertInviteOpen(input.inviteRef);
-    await checkIntentAgreement(input.agreementId, input.contactEmail);
+    await checkIntentAgreement(input);
     const saved = await saveIntent(input);
     return Response.json(
       {

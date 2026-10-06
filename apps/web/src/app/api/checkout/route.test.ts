@@ -52,6 +52,7 @@ const VALID = {
   contactName: "Alex Chen",
   contactEmail: "alex@example.com",
   agreementId: "6f1f7c1e-2f0e-4d2b-9a0a-3f5e2c1d4b7a",
+  covered: "no",
   profile: null,
   profileStatus: "failed",
   timezone: "America/Chicago",
@@ -300,6 +301,7 @@ describe("POST /api/checkout validates the billing terms", () => {
         "contactEmail",
         "contactName",
         "inviteRef",
+        "isCoveredEntity",
         "nonceHash",
         "plan",
         "platform",
@@ -313,6 +315,30 @@ describe("POST /api/checkout validates the billing terms", () => {
     );
     expect(sent).toMatchObject({ platform: "mindbody", bookingSystem: "mindbody", calendarAccount: "workspace_baa" });
     expect((sent.terms as { version: string }).version).toBe(LEGAL_VERSION);
+  });
+
+  test("the covered-entity answer travels as the agreement records it, and must be given where it is asked", async () => {
+    // apps/app matches it against the signed agreement before anyone pays.
+    const answers = [
+      ["yes", true],
+      ["no", false],
+      ["not_sure", null],
+    ] as const;
+    for (const [covered, recorded] of answers) {
+      fetchMock.mockClear();
+      expect((await post({ ...VALID, covered })).status, covered).toBe(201);
+      expect(forwarded(0).isCoveredEntity, covered).toBe(recorded);
+      expect(forwarded(0).covered, covered).toBeUndefined();
+    }
+
+    fetchMock.mockClear();
+    const { covered: _unanswered, ...silent } = VALID;
+    for (const body of [silent, { ...VALID, covered: "maybe" }, { ...VALID, covered: true }]) {
+      const response = await post(body);
+      expect(response.status).toBe(422);
+      expect(((await response.json()) as { field: string }).field).toBe("covered");
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test("the browser's time zone is kept when it is one, and dropped when it is not", async () => {

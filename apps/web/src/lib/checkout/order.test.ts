@@ -21,6 +21,7 @@ const ORDER = {
   contactName: "Laura Owner",
   contactEmail: "info@glowmedspa.com",
   agreementId: "6f1f7c1e-2f0e-4d2b-9a0a-3f5e2c1d4b7a",
+  covered: "no",
   profile: null,
   profileStatus: "none",
   termsAccepted: true,

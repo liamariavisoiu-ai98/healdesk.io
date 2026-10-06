@@ -88,7 +88,9 @@ async function purchase(overrides: Record<string, unknown> = {}) {
     agreementId,
     nonce: n,
     body: {
-      clinicName: "Glow Med Spa",
+      // The agreement's own answers: the legal name it names and its
+      // covered-entity answer, which the intent is matched against.
+      clinicName: "Glow Med Spa LLC",
       specialty: "med-spa",
       platform: "none",
       plan: "web-voice",
@@ -96,6 +98,7 @@ async function purchase(overrides: Record<string, unknown> = {}) {
       contactName: "Laura Owner",
       contactEmail: email.toUpperCase(),
       agreementId,
+      isCoveredEntity: false,
       inviteRef: null,
       nonceHash: n.hash,
       profileStatus: "none",
@@ -172,6 +175,38 @@ describeDb("checkout intents", () => {
     const p = await purchase();
     expect((await intent({ ...p.body, agreementId: randomUUID() })).json.field).toBe("agreementId");
     expect((await intent({ ...p.body, contactEmail: "someone@else.test" })).json.field).toBe("contactEmail");
+  });
+
+  test("the agreement must be the document the purchase describes, or the buyer signs again", async () => {
+    // Signed for "Glow Med Spa LLC", a med spa, "No" to billing insurance,
+    // and no booking platform. A request changed after signing is refused
+    // under `agreementId`, which sends the funnel back to the signature.
+    const p = await purchase();
+    const changed: [string, Record<string, unknown>][] = [
+      ["another legal name", { clinicName: "Other Spa LLC" }],
+      ["another specialty", { specialty: "dental" }],
+      ["another covered answer", { isCoveredEntity: true }],
+      ["not sure, after signing no", { isCoveredEntity: null }],
+      ["another booking platform", { bookingSystem: "mindbody", calendarAccount: "workspace_baa", platform: "mindbody" }],
+    ];
+    for (const [label, overrides] of changed) {
+      const refused = await intent({ ...p.body, ...overrides });
+      expect(refused.status, label).toBe(422);
+      expect(refused.json.field, label).toBe("agreementId");
+      expect(refused.json.error, label).toMatch(/sign it again/);
+    }
+    const { rows } = await getMigratorPool().query(`select 1 from checkout_intents`);
+    expect(rows).toHaveLength(0);
+
+    // The name is compared as signed: trimmed.
+    expect((await intent({ ...p.body, clinicName: "  Glow Med Spa LLC " })).status).toBe(201);
+  });
+
+  test("the covered-entity answer is required on an intent", async () => {
+    const p = await purchase();
+    const { isCoveredEntity: _missing, ...without } = p.body;
+    expect((await intent(without)).json.field).toBe("covered");
+    expect((await intent({ ...p.body, isCoveredEntity: "no" })).json.field).toBe("covered");
   });
 
   test("a press of Pay after the previous one was paid moves nothing: the paid Session keeps its terms", async () => {

@@ -2706,6 +2706,12 @@ export type CheckoutIntentPayload = {
   callRouting?: "conditional" | "always";
   agreementId: string;
   /**
+   * The covered-entity answer the purchase was checked against the signed
+   * agreement with (true, false, or null for "Not sure"). Provisioning takes
+   * the determination from the agreement itself, never from here.
+   */
+  isCoveredEntity?: boolean | null;
+  /**
    * The funnel's answers (plan Part A3), absent on an intent from before it:
    * where bookings live today, and the kind of Google account they would go
    * into, which together select the agreement's calendar terms; and the

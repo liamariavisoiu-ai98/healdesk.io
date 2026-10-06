@@ -101,7 +101,8 @@ export async function truncateAll(): Promise<void> {
       ('billing-requests', 'Every minute from the billing-minute queue, and hourly from the tick as a backstop; carries out recorded plan starts, step-ups and immediate cancellations on Stripe, and setup closures while setup-closure is on', false),
       ('setup-closure', 'A switch, not a schedule: while on, the billing-requests worker closes accounts left with nothing live at the end of their 30-day setup window', false),
       ('billing-reconcile', 'Hourly; records any plan start, step-up or setup closure that is due but missing, steps up waiting channels after 30 days with a reminder a week before, and re-arms requests that can now go through', false),
-      ('card-expiring', 'Daily at 07 UTC; queues the card-expiring email when the card on file expires before a renewal due within 30 days', false)
+      ('card-expiring', 'Daily at 07 UTC; queues the card-expiring email when the card on file expires before a renewal due within 30 days', false),
+      ('dmarc-review', 'Daily at 08 UTC; on the 14th day after Resend first sent as healdesk.io, raises one ops alert, ever, to read the DMARC reports and move the record from p=none to p=quarantine', false)
     on conflict (name) do update set enabled = (excluded.name = 'heartbeat'), updated_by = null
   `);
 }

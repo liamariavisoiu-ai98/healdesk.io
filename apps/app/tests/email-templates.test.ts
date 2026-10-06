@@ -39,6 +39,7 @@ import {
   ORDER_REASON,
   SIGN_IN_REASON,
 } from "@/lib/email/templates/context";
+import { renderOpsAlert } from "@/lib/email/templates/ops_alert";
 import { PENDING_TEMPLATES, TEMPLATES, templateFor } from "@/lib/email/templates/registry";
 import type { EmailAudience, TemplateContext } from "@/lib/email/templates/types";
 import {
@@ -207,6 +208,20 @@ describe("each template's output", () => {
       });
     });
   }
+});
+
+describe("ops alerts beyond the fixture", () => {
+  // The registry's fixture is one event. An alert whose wording is an
+  // instruction someone acts on once, unprompted, gets a snapshot of its own,
+  // so a change to what it tells ops to do shows up in review.
+  test("the DMARC review reminder: the snapshot", () => {
+    expect(
+      renderOpsAlert(
+        { event: "dmarc_review_due", windowStart: "2026-10-06" },
+        contextFor("ops_alert"),
+      ),
+    ).toMatchSnapshot();
+  });
 });
 
 describe("CAN-SPAM", () => {

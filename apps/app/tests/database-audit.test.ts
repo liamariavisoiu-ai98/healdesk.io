@@ -254,7 +254,7 @@ describeDb("database audit (0031)", () => {
 
   test("the identity plane's records of who got in, and with what, cannot be erased by the runtime role", async () => {
     // security_events (0003), sign_in_links (0043), and the portal's second
-    // factors and step-ups (0046): which device's passkey could open patient
+    // factors and step-ups (0047): which device's passkey could open patient
     // data, and when. A new table of this kind belongs on this list.
     for (const table of [
       "security_events",

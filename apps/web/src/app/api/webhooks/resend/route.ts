@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
+import { relayEmailEvent, type EmailEventRelay } from "@/lib/admin/ops-client";
 import { markDeliveryFailure } from "@/lib/leads";
 
 export const runtime = "nodejs";
@@ -22,6 +23,20 @@ export const dynamic = "force-dynamic";
  * Resend's documentation names only the branded ones, so a delivery carrying
  * just those could never verify, and its bounce or complaint never reached
  * the lead. Both spellings are accepted now, the branded one first.
+ *
+ * ## One webhook, two apps
+ *
+ * The one Resend account sends both this site's mail and apps/app's, and
+ * Resend's free plan documents one webhook endpoint, so every event arrives
+ * here (Annex X3 of docs/design/funnel-onboarding-portal-2026-10-06.md). Each
+ * app tags its own mail with `app`. An `app=web` event, or one with no tag
+ * (mail sent before the tags existed), is this site's and is handled below as
+ * it always was. An `app=app` event is relayed to apps/app as the signed ops
+ * operation `emailEvent`, carrying its type, its timestamp and the tags
+ * apps/app put on it (a clinic id, a ledger row id, a kind), and nothing
+ * else: never the address, the subject or anything else in Resend's payload.
+ * If apps/app cannot be reached the answer is a 503, so Resend retries the
+ * delivery rather than the event being lost.
  */
 const TOLERANCE_S = 5 * 60;
 
@@ -58,12 +73,15 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid signature." }, { status: 400 });
   }
 
-  let event: { type?: string; data?: { to?: string[] | string; bounce?: { type?: string } } };
+  let event: ResendEvent;
   try {
     event = JSON.parse(body) as typeof event;
   } catch {
     return NextResponse.json({ error: "Invalid body." }, { status: 400 });
   }
+
+  const tags = tagsOf(event);
+  if (tags.app === "app") return relayToApp(event, tags);
 
   const to = Array.isArray(event.data?.to) ? event.data?.to[0] : event.data?.to;
   if (!to) return NextResponse.json({ received: true });
@@ -77,6 +95,91 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (!kind || kind.includes("perm") || kind.includes("hard")) {
       await markDeliveryFailure(to, "bounce");
     }
+  }
+  return NextResponse.json({ received: true });
+}
+
+type ResendEvent = {
+  type?: string;
+  created_at?: string;
+  data?: {
+    to?: string[] | string;
+    bounce?: { type?: string };
+    tags?: Record<string, unknown> | { name?: unknown; value?: unknown }[];
+  };
+};
+
+/**
+ * The event's tags as a map. Resend's webhook sends an object; the array form
+ * the send API takes is read too, so a change of shape cannot route apps/app's
+ * mail into this site's lead handling.
+ */
+function tagsOf(event: ResendEvent): Record<string, string> {
+  const raw = event.data?.tags;
+  const out: Record<string, string> = {};
+  if (Array.isArray(raw)) {
+    for (const tag of raw) {
+      if (typeof tag?.name === "string" && typeof tag.value === "string") out[tag.name] = tag.value;
+    }
+  } else if (raw && typeof raw === "object") {
+    for (const [name, value] of Object.entries(raw)) {
+      if (typeof value === "string") out[name] = value;
+    }
+  }
+  return out;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const KIND = /^[a-z0-9_]{1,64}$/;
+
+/**
+ * Resend's event type in the ledger's vocabulary, or null for an event the
+ * ledger does not record (opens and clicks are off; scheduled and received
+ * mail are not deliveries). A bounce is `bounced` only when it is permanent,
+ * as this route has always read it for leads: a soft bounce is recorded as
+ * `delayed`, because `bounced` is what makes a clinic's address undeliverable.
+ */
+function relayTypeOf(event: ResendEvent): EmailEventRelay["type"] | null {
+  switch (event.type) {
+    case "email.sent":
+      return "sent";
+    case "email.delivered":
+      return "delivered";
+    case "email.delivery_delayed":
+      return "delayed";
+    case "email.complained":
+      return "complained";
+    case "email.suppressed":
+      return "suppressed";
+    case "email.bounced": {
+      const kind = String(event.data?.bounce?.type ?? "").toLowerCase();
+      return !kind || kind.includes("perm") || kind.includes("hard") ? "bounced" : "delayed";
+    }
+    default:
+      return null;
+  }
+}
+
+async function relayToApp(event: ResendEvent, tags: Record<string, string>): Promise<NextResponse> {
+  const type = relayTypeOf(event);
+  if (!type) return NextResponse.json({ received: true });
+
+  const at =
+    typeof event.created_at === "string" && !Number.isNaN(Date.parse(event.created_at))
+      ? event.created_at
+      : new Date().toISOString();
+  const relay: EmailEventRelay = {
+    type,
+    at,
+    ...(tags.clinic && UUID.test(tags.clinic) ? { clinic: tags.clinic } : {}),
+    ...(tags.delivery && UUID.test(tags.delivery) ? { delivery: tags.delivery } : {}),
+    ...(tags.kind && KIND.test(tags.kind) ? { kind: tags.kind } : {}),
+  };
+
+  const relayed = await relayEmailEvent(relay);
+  if (!relayed.ok) {
+    console.error(`[healdesk] resend webhook: relay to apps/app failed (${relayed.code})`);
+    return NextResponse.json({ error: "Relay failed." }, { status: 503 });
   }
   return NextResponse.json({ received: true });
 }

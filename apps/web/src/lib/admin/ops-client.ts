@@ -218,7 +218,22 @@ type PreSessionOp =
   | "burnRecoveryCode"
   | "sendSignInAlert";
 
-type OpName = OperatorOp | PreSessionOp;
+/**
+ * The operations a MACHINE asks for, with no browser behind them, and there is
+ * exactly one: relaying a Resend webhook event for mail apps/app sent.
+ *
+ * The account has one webhook, on this app, and it sees both apps' mail
+ * (Annex X3 of docs/design/funnel-onboarding-portal-2026-10-06.md). The route
+ * verifies Resend's Svix signature before it relays anything, which is the
+ * authority here, as the HMAC is for the sign-in operations; there is no
+ * operator session to check. What crosses is an event type, a timestamp and
+ * the tags apps/app put on its own email (ids and a kind), never an address,
+ * so the worst a forged call could do is mark one of apps/app's ledger rows,
+ * and a forged call needs HEALDESK_PROVISION_SECRET.
+ */
+type RelayOp = "emailEvent";
+
+type OpName = OperatorOp | PreSessionOp | RelayOp;
 
 /** Why a call did not produce data. Never the upstream body, never the URL. */
 export type OpsErrorCode =
@@ -920,6 +935,43 @@ export function sendSignInAlert(args: {
 }
 
 // -----------------------------------------------------------------------------
+// The webhook relay
+// -----------------------------------------------------------------------------
+
+/** A Resend event for mail apps/app sent, in the ledger's vocabulary. */
+export type EmailEventRelay = {
+  type: "sent" | "delivered" | "delayed" | "bounced" | "complained" | "suppressed";
+  /** The event's own ISO timestamp. */
+  at: string;
+  /** The tags apps/app put on the email: a clinic id, a ledger row id, a kind. */
+  clinic?: string;
+  delivery?: string;
+  kind?: string;
+};
+
+/**
+ * Hand one `app=app` delivery event to apps/app, which updates its ledger and
+ * alerts ops when a clinic's address cannot be reached. No session (see
+ * RelayOp), and no browser context: the request on this side came from Resend,
+ * and recording Resend's address as the actor's would be untrue.
+ */
+export function relayEmailEvent(
+  event: EmailEventRelay,
+): Promise<OpsResult<{ recorded: boolean }>> {
+  const args: Record<string, unknown> = { type: event.type, at: event.at };
+  if (event.clinic) args.clinic = event.clinic;
+  if (event.delivery) args.delivery = event.delivery;
+  if (event.kind) args.kind = event.kind;
+  return send(
+    "emailEvent",
+    "write",
+    (value) => ({ recorded: bool(object(value, "emailEvent").recorded, "emailEvent.recorded") }),
+    args,
+    { context: false },
+  );
+}
+
+// -----------------------------------------------------------------------------
 // Transport
 // -----------------------------------------------------------------------------
 
@@ -992,6 +1044,7 @@ async function send<T>(
   kind: CallKind,
   read: (value: unknown) => T,
   args: Record<string, unknown>,
+  options: { context?: boolean } = {},
 ): Promise<OpsResult<T>> {
   const secret = process.env.HEALDESK_PROVISION_SECRET;
   const target = process.env.HEALDESK_APP_URL;
@@ -1010,7 +1063,11 @@ async function send<T>(
   // `{ op, args, context }` is the whole envelope the ops API reads. The op is
   // in the signed body and not only in a path, so a captured pair of headers
   // cannot be replayed against a different operation inside the skew window.
-  const body = JSON.stringify({ op, args, context: await browser() });
+  const body = JSON.stringify({
+    op,
+    args,
+    ...(options.context === false ? {} : { context: await browser() }),
+  });
   const timestamp = Math.floor(Date.now() / 1000).toString();
 
   let upstream: Response;

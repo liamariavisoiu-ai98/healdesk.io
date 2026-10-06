@@ -8,8 +8,18 @@ import { site } from "@/lib/site";
 /**
  * "Get in touch": the navbar's way to book a call with us, in Calendly's
  * scheduler opened over the page. The copy here names no length: the event's
- * own page says how long the call is (it was 15 minutes on 6 October 2026,
- * whatever its link says), and it stays right when that changes.
+ * own page says how long the call is (15 minutes on 6 October 2026), and it
+ * stays right when that changes.
+ *
+ * ## On a phone it is an icon
+ *
+ * Below 480px the button is a calendar in the same outlined square, named
+ * "Get in touch" for assistive technology. A phone's navbar holds the
+ * wordmark and "Get AYA" with about 50px to spare; the worded button needs
+ * 135px, and making it fit meant shrinking the logo and both buttons below
+ * their sizes everywhere else. From 480px it carries its words. Either way it
+ * is exactly as tall as "Get AYA", which its border used to make it 2px
+ * taller than.
  *
  * ## Calendly's page, framed, without Calendly's script
  *
@@ -36,18 +46,28 @@ import { site } from "@/lib/site";
  */
 export function GetInTouch({ className = "" }: { className?: string }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
   /** Where focus returns on close. showModal does not restore it. */
   const openerRef = useRef<HTMLElement | null>(null);
 
   /** Built on the first open: it needs this page's host, which only the browser knows. */
   const [src, setSrc] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
+  /** The frame's load event: Calendly's page has arrived, not yet drawn. */
   const [loaded, setLoaded] = useState(false);
+  /** Calendly's page is on screen, so the loading panel can go. */
+  const [drawn, setDrawn] = useState(false);
 
   const open = useCallback(() => {
-    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    openerRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setSrc((current) => current ?? embedUrl());
     if (!dialogRef.current?.open) dialogRef.current?.showModal();
+    // showModal focuses the first link in the dialog, "Open the calendar in a
+    // new tab", and Safari rings it in orange even when the button was tapped.
+    // The title takes focus instead: a screen reader starts from the dialog's
+    // name, and Tab still reaches the link next.
+    titleRef.current?.focus();
     setIsOpen(true);
     track("meeting_opened");
   }, []);
@@ -77,36 +97,70 @@ export function GetInTouch({ className = "" }: { className?: string }) {
     return undefined;
   }, [isOpen]);
 
-  // A booking, as Calendly reports it to the page that framed it. Only the
-  // fact is counted: the payload names the invitee and is never read.
+  // What Calendly reports to the page that framed it. Its page fires the
+  // frame's load event two or three seconds before it has drawn anything, so
+  // "event_type_viewed", sent as the calendar appears, is what lifts the
+  // loading panel over the frame; until then the frame is a blank white
+  // sheet. A booking is counted as a fact only: the payload names the invitee
+  // and is never read.
   useEffect(() => {
     if (!src) return;
     const origin = new URL(site.meeting.url).origin;
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== origin) return;
       const data: unknown = event.data;
-      if (data && typeof data === "object" && "event" in data && data.event === "calendly.event_scheduled") {
-        track("meeting_booked");
-      }
+      if (!data || typeof data !== "object" || !("event" in data)) return;
+      if (data.event === "calendly.event_type_viewed") setDrawn(true);
+      if (data.event === "calendly.event_scheduled") track("meeting_booked");
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, [src]);
+
+  // Should Calendly stop sending that message, the panel still goes, a little
+  // after the page has loaded.
+  useEffect(() => {
+    if (!loaded || drawn) return;
+    const timer = window.setTimeout(() => setDrawn(true), 4000);
+    return () => window.clearTimeout(timer);
+  }, [loaded, drawn]);
 
   return (
     <>
       <a
         href={site.meeting.url}
         aria-haspopup="dialog"
+        aria-label={site.meeting.label}
         onClick={(event) => {
           // A modified click (new tab, new window) keeps the plain link.
           if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
           event.preventDefault();
           open();
         }}
-        className={`border-line-strong text-ink hover:border-ink items-center justify-center gap-2 rounded-[6px] border-[1.5px] bg-white px-5 py-2.5 text-sm font-semibold transition-colors duration-200 ${className}`}
+        className={`border-line-strong text-ink hover:border-ink inline-flex size-11 shrink-0 items-center justify-center rounded-[6px] border-[1.5px] bg-white text-sm font-semibold whitespace-nowrap transition-colors duration-200 min-[480px]:w-auto min-[480px]:px-5 ${className}`}
       >
-        {site.meeting.label}
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+          className="size-5 min-[480px]:hidden"
+        >
+          <path d="M8 2v4" />
+          <path d="M16 2v4" />
+          <rect width="18" height="18" x="3" y="4" rx="2" />
+          <path d="M3 10h18" />
+          <path d="M8 14h.01" />
+          <path d="M12 14h.01" />
+          <path d="M16 14h.01" />
+          <path d="M8 18h.01" />
+          <path d="M12 18h.01" />
+          <path d="M16 18h.01" />
+        </svg>
+        <span className="hidden min-[480px]:inline">{site.meeting.label}</span>
       </a>
 
       <dialog
@@ -121,7 +175,12 @@ export function GetInTouch({ className = "" }: { className?: string }) {
         <div className="hd-meeting">
           <header className="border-line flex items-start gap-4 border-b px-5 py-4 sm:px-7 sm:py-5">
             <div className="min-w-0 flex-1">
-              <h2 id="meeting-title" className="font-display text-ink text-2xl leading-tight font-normal">
+              <h2
+                id="meeting-title"
+                ref={titleRef}
+                tabIndex={-1}
+                className="font-display text-ink text-2xl leading-tight font-normal outline-none"
+              >
                 {site.meeting.label}
               </h2>
               <p className="text-muted mt-1 text-sm">
@@ -154,8 +213,11 @@ export function GetInTouch({ className = "" }: { className?: string }) {
                 onLoad={() => setLoaded(true)}
               />
             ) : null}
-            {loaded ? null : (
-              <p className="text-muted absolute inset-0 grid place-items-center text-sm font-semibold" role="status">
+            {drawn ? null : (
+              <p
+                className="bg-paper text-muted absolute inset-0 grid place-items-center text-sm font-semibold"
+                role="status"
+              >
                 Loading the calendar…
               </p>
             )}

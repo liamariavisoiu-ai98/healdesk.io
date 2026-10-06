@@ -975,8 +975,43 @@ export const reportRecipients = pgTable(
 );
 
 /**
+ * The ledger's kinds: the four the report mailers have always written, then
+ * every outbox kind, because each send from the outbox (billing_notices)
+ * writes one ledger row per recipient (Annex X3 of
+ * docs/design/funnel-onboarding-portal-2026-10-06.md). Built from the kind
+ * registry like the outbox's own CHECK, so a kind added there widens both.
+ */
+export const REPORT_DELIVERY_KINDS = [
+  "monthly",
+  "weekly",
+  "alert",
+  "renewal",
+  ...NOTICE_KINDS,
+] as const;
+export type ReportDeliveryKind = (typeof REPORT_DELIVERY_KINDS)[number];
+
+/**
+ * What Resend's webhook last said about one message. `bounced` means a
+ * PERMANENT bounce: the relay records a transient or undetermined one as
+ * `delayed`, because the one decision this column drives, whether the
+ * clinic's address is undeliverable, must not be taken on a soft bounce.
+ */
+export const DELIVERY_STATUSES = [
+  "sent",
+  "delivered",
+  "bounced",
+  "complained",
+  "suppressed",
+  "delayed",
+] as const;
+export type DeliveryStatus = (typeof DELIVERY_STATUSES)[number];
+
+/**
  * One row per (clinic, kind, period, recipient). The unique index is what
- * makes a re-run a conflict rather than a second email.
+ * makes a re-run a conflict rather than a second email. Since the email
+ * platform (Annex X3) it is the ledger of every email to a clinic: an outbox
+ * send uses the notice's id as the period key, and the row's id travels as
+ * the `delivery` tag so Resend's webhook can find it again.
  */
 export const reportDeliveries = pgTable(
   "report_deliveries",
@@ -985,21 +1020,98 @@ export const reportDeliveries = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
-    /** "monthly" | "weekly" | "alert" | "renewal" */
-    kind: text("kind").notNull(),
-    /** e.g. "2026-08" for monthly, "2026-W37" for weekly, an event id for alerts. */
+    /** A report kind ("monthly" | "weekly" | "alert" | "renewal") or an outbox kind. */
+    kind: text("kind").$type<ReportDeliveryKind>().notNull(),
+    /**
+     * e.g. "2026-08" for monthly, "2026-W37" for weekly, an event id for
+     * alerts, the billing_notices row id for an outbox send.
+     */
     periodKey: text("period_key").notNull(),
     recipient: text("recipient").notNull(),
-    /** "sent" | "skipped" | "failed" */
+    /** "sent" | "skipped" | "failed": what the API said when we sent. */
     status: text("status").notNull(),
     messageId: text("message_id"),
     reason: text("reason"),
     attemptedAt: timestamp("attempted_at", { withTimezone: true }).notNull().defaultNow(),
     sentAt: timestamp("sent_at", { withTimezone: true }),
+    /** What the mail provider reported afterwards, through the webhook relay. Null until then. */
+    deliveryStatus: text("delivery_status").$type<DeliveryStatus>(),
+    /** When the provider's event happened (the event's own timestamp, not ours). */
+    deliveryAt: timestamp("delivery_at", { withTimezone: true }),
   },
   (t) => [
     uniqueIndex("report_deliveries_once_idx").on(t.clinicId, t.kind, t.periodKey, t.recipient),
+    check("report_deliveries_kind_check", sql`${t.kind} in (${sqlList(REPORT_DELIVERY_KINDS)})`),
+    check(
+      "report_deliveries_delivery_status_check",
+      sql`${t.deliveryStatus} is null or ${t.deliveryStatus} in (${sqlList(DELIVERY_STATUSES)})`,
+    ),
   ],
+);
+
+/**
+ * The ops log: one row per alert notifyOps raised (I1 in Annex X5), with no
+ * clinic_id column because ops alerts are ours, not a tenant's. Two jobs:
+ *
+ *   - dedupe. Identical alerts, the same event about the same ids, within an
+ *     hour, are one email: a later one bumps `repeats` instead of mailing
+ *     again. Every process (web tier, worker, voice) shares the answer, which
+ *     an in-memory map could not give, and the free plan's 100 emails a day
+ *     cannot be spent on one stuck notice;
+ *   - the state row I1 keys on. A kind with no clinic keeps its state on its
+ *     own row and uses that row's id in Resend's idempotency key (Annex X3).
+ *
+ * `fields` holds ids, counts and categories only, as lib/log.ts allows them;
+ * never an address, a name or free text.
+ */
+export const opsAlerts = pgTable(
+  "ops_alerts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** An OPS_EVENTS name (lib/ops/notify.ts). */
+    event: text("event").notNull(),
+    /** The ids and categories that make two alerts "the same", serialised. */
+    dedupeKey: text("dedupe_key").notNull(),
+    fields: jsonb("fields")
+      .$type<Record<string, string | number | boolean | null>>()
+      .notNull()
+      .default({}),
+    raisedAt: timestamp("raised_at", { withTimezone: true }).notNull().defaultNow(),
+    /** The last time the same alert was raised again inside its window. */
+    lastRaisedAt: timestamp("last_raised_at", { withTimezone: true }).notNull().defaultNow(),
+    repeats: integer("repeats").notNull().default(0),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    messageId: text("message_id"),
+    lastError: text("last_error"),
+  },
+  (t) => [
+    index("ops_alerts_dedupe_idx").on(t.event, t.dedupeKey, t.raisedAt),
+    check("ops_alerts_event_check", sql`${t.event} ~ '^[a-z0-9]+(_[a-z0-9]+)*$'`),
+    check("ops_alerts_dedupe_key_check", sql`char_length(${t.dedupeKey}) <= 400`),
+  ],
+);
+
+export type OpsAlertRow = typeof opsAlerts.$inferSelect;
+
+/**
+ * Resend's daily count, one row per UTC day, as its `x-resend-daily-quota`
+ * response header last reported it. The header counts every email the
+ * account sent that day, apps/web's included, so the highest value seen is
+ * the day's count. The free plan stops at 100 a day, sign-in links and
+ * urgent alerts included, so notifyOps fires once at 70 (`alerted_at`) and
+ * the 07:00 ops digest (I2) reads the count from here.
+ */
+export const emailDailyQuota = pgTable(
+  "email_daily_quota",
+  {
+    /** The UTC calendar day, which is Resend's quota day. */
+    day: date("day").primaryKey(),
+    used: integer("used").notNull(),
+    observedAt: timestamp("observed_at", { withTimezone: true }).notNull().defaultNow(),
+    /** When notifyOps was told the count reached 70. Set once per day. */
+    alertedAt: timestamp("alerted_at", { withTimezone: true }),
+  },
+  (t) => [check("email_daily_quota_used_check", sql`${t.used} >= 0`)],
 );
 
 // -----------------------------------------------------------------------------
@@ -3123,7 +3235,7 @@ export const clinicClosures = pgTable(
 );
 
 // -----------------------------------------------------------------------------
-// The portal's second factors and step-up (drizzle/0046). Identity plane, like
+// The portal's second factors and step-up (drizzle/0047). Identity plane, like
 // sign_in_links: a factor belongs to the clinic's one sign-in, not to a clinic,
 // and is read before any tenant is known, so no clinic_id and no RLS.
 // -----------------------------------------------------------------------------

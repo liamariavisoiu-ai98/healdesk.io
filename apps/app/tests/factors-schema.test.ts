@@ -14,7 +14,7 @@ import {
 } from "./setup/db";
 
 /**
- * drizzle/0046 (the portal's second factors and step-up), asserted.
+ * drizzle/0047 (the portal's second factors and step-up), asserted.
  *
  * The factor tables are the record of which device could open patient data,
  * and when, so what matters is what the runtime role cannot do to them: no
@@ -93,7 +93,7 @@ async function seedPasskey(userId: string, counter = 3): Promise<string> {
   return rows[0]!.id;
 }
 
-describeDb("drizzle/0046: the portal's second factors and step-up", () => {
+describeDb("drizzle/0047: the portal's second factors and step-up", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();

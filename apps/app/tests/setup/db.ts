@@ -94,7 +94,7 @@ export async function truncateAll(): Promise<void> {
       ('usage-meter-report', 'Hourly; reports overage on monthly plans to Stripe''s meters', false),
       ('annual-overage-invoice', 'Daily at 05 UTC; invoices annual plans'' overage per closed month', false),
       ('usage-alerts', 'Hourly; queues the 80% and 100% allowance emails', false),
-      ('billing-notices', 'Hourly backstop; sends queued billing emails to owners and billing contacts', false),
+      ('billing-notices', 'Every minute, from the notices queue; sends due email notices and retries, and holds kinds with no template yet', false),
       ('billing-housekeeping', 'Daily at 06 UTC; purges expired checkout intents and Meta message refs', false)
     on conflict (name) do update set enabled = (excluded.name = 'heartbeat'), updated_by = null
   `);

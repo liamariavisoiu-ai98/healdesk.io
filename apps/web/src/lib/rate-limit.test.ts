@@ -57,12 +57,14 @@ describe("rateLimit (per-instance keys)", () => {
 
   it("starts a fresh window once the old one has closed", async () => {
     const k = key();
-    // A 1ms window closes before the second call arrives.
-    expect((await rateLimit(k, 1, 1)).ok).toBe(true);
-    await new Promise((r) => setTimeout(r, 15));
-    expect((await rateLimit(k, 1, 1)).ok).toBe(true);
+    // A 200ms window, waited out by 250ms. It used to be 1ms, which the check
+    // straight after the second call had to land inside: on a busy test
+    // runner it sometimes didn't, and the test failed for timing, not logic.
+    expect((await rateLimit(k, 1, 200)).ok).toBe(true);
+    await new Promise((r) => setTimeout(r, 250));
+    expect((await rateLimit(k, 1, 200)).ok).toBe(true);
     expect(await isOverLimit(k, 1)).toBe(true);
-    await new Promise((r) => setTimeout(r, 15));
+    await new Promise((r) => setTimeout(r, 250));
     expect(await isOverLimit(k, 1)).toBe(false);
   });
 
@@ -84,8 +86,12 @@ describe("rateLimit (per-instance keys)", () => {
 });
 
 describe("rateLimit (the global daily caps)", () => {
-  it("names exactly the two spend caps the routes use", () => {
-    expect([...GLOBAL_CAP_KEYS].sort()).toEqual(["callback:global:day", "chat:global:day"]);
+  it("names exactly the three spend caps the routes use", () => {
+    expect([...GLOBAL_CAP_KEYS].sort()).toEqual([
+      "callback:global:day",
+      "chat:global:day",
+      "site-read:global:day",
+    ]);
   });
 
   it("goes through the counters tab and survives a fresh instance", async () => {

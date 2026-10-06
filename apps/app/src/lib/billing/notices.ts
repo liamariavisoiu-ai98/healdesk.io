@@ -1,8 +1,6 @@
 import type { BillingInterval } from "@healdesk/catalog";
 
 import { billingNotices, BILLING_NOTICE_KINDS, type BillingNoticeKind } from "@/db/schema";
-import type { EmailTransport } from "@/lib/reporting/deliver";
-import { JOB_BILLING_NOTICES, runJob, type JobOutcome } from "@/lib/scheduler/jobs";
 import type { TenantTx } from "@/lib/tenant";
 
 /**
@@ -19,9 +17,9 @@ import type { TenantTx } from "@/lib/tenant";
  * (lib/billing/recipients.ts) and never to report_recipients.
  *
  * F0 writes the types and the enqueue. The kinds come from the registry in
- * lib/email/kinds.ts; the email platform replaces the sender stubs at the
- * bottom of this file in M2, and Package C writes payloads and templates, not
- * a sender (funnel and portal contracts §4).
+ * lib/email/kinds.ts; the email platform's sender (lib/email/outbox.ts,
+ * re-exported at the bottom of this file) delivers them, and Package C writes
+ * payloads and templates, not a sender (funnel and portal contracts §4).
  */
 
 export { BILLING_NOTICE_KINDS, type BillingNoticeKind };
@@ -140,29 +138,17 @@ export async function enqueueNotice<K extends BillingNoticeKind>(
   return inserted.length > 0;
 }
 
-export type SendPendingNoticesOptions = {
-  /** Only this billing clinic's notices (the immediate send after an event). */
-  clinicId?: string;
-  now?: Date;
-  transport?: EmailTransport;
-  limit?: number;
-};
-
 /**
- * STUB (the email platform replaces it in M2). Deliver due notices outside
- * any transaction. Never throws; returns counts.
+ * The sender, which replaced F0's stubs here in M2. It lives with the email
+ * platform (lib/email/outbox.ts) and is re-exported under F0's names, so a
+ * caller written against F0 (`sendPendingNotices({ clinicId })` after a Stripe
+ * event, `runBillingNoticesJob`) keeps working unchanged.
  */
-export async function sendPendingNotices(
-  options: SendPendingNoticesOptions = {},
-): Promise<{ sent: number; failed: number; skipped: number }> {
-  void options;
-  return { sent: 0, failed: 0, skipped: 0 };
-}
-
-/** STUB (the email platform replaces it in M2). The hourly backstop sender, through its switch. */
-export async function runBillingNoticesJob(
-  options: { now?: Date; transport?: EmailTransport } = {},
-): Promise<JobOutcome> {
-  const now = options.now ?? new Date();
-  return runJob(JOB_BILLING_NOTICES, async () => "Not built yet.", now);
-}
+export {
+  deliverCriticalAfterCommit,
+  runBillingNoticesJob,
+  sendCriticalNotices,
+  sendPendingNotices,
+  type NoticeRunSummary,
+  type SendPendingNoticesOptions,
+} from "@/lib/email/outbox";

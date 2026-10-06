@@ -132,11 +132,16 @@ describeDb("delivery", () => {
       expect(broken.failed).toBe(1);
       expect((await ledger(c.clinicId)).map((r) => r.status)).toEqual(["failed"]);
 
-      // The slot is claimed; a retry does not double up, and this run does
-      // not resend because the claim row exists. The operator clears it from
-      // the console; the test proves the ledger says "failed", not "sent".
+      // The slot was claimed and never sent, so the next run claims it again
+      // and sends it (Annex X3: a row claimed but never sent is retried, not
+      // skipped). The same row is reused: one ledger row, now "sent".
       const retry = await sendDueReports(now, new FakeTransport());
-      expect(retry.sent).toBe(0);
+      expect(retry.sent).toBe(1);
+      expect((await ledger(c.clinicId)).map((r) => r.status)).toEqual(["sent"]);
+
+      // And once sent, never again.
+      const again = await sendDueReports(now, new FakeTransport());
+      expect(again.sent).toBe(0);
     });
   });
 
@@ -347,9 +352,10 @@ describeDb("delivery", () => {
           "nightly-sync",
           "weekly-recap",
           // The Stripe launch's hourly jobs (drizzle/0043), each behind its switch.
+          // billing-notices left the tick: the email platform sends notices
+          // every minute from the `notices` queue (lib/email/outbox.ts).
           "usage-meter-report",
           "usage-alerts",
-          "billing-notices",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;

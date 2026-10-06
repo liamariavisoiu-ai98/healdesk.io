@@ -1,5 +1,5 @@
 {
-  "id": "79e75c8b-6f80-4559-807d-ddb77fe79b14",
+  "id": "fad65485-f268-4755-83ea-a303328cf4cb",
   "prevId": "b6acaabb-91b6-47d3-b521-8b8db2eabd38",
   "version": "7",
   "dialect": "postgresql",
@@ -3846,6 +3846,49 @@
       },
       "isRLSEnabled": false
     },
+    "public.email_daily_quota": {
+      "name": "email_daily_quota",
+      "schema": "",
+      "columns": {
+        "day": {
+          "name": "day",
+          "type": "date",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "used": {
+          "name": "used",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "observed_at": {
+          "name": "observed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "alerted_at": {
+          "name": "alerted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "email_daily_quota_used_check": {
+          "name": "email_daily_quota_used_check",
+          "value": "\"email_daily_quota\".\"used\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.entitlements": {
       "name": "entitlements",
       "schema": "",
@@ -4133,70 +4176,6 @@
         "entitlements_locations_check": {
           "name": "entitlements_locations_check",
           "value": "\"entitlements\".\"locations\" >= 1"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.factor_lockouts": {
-      "name": "factor_lockouts",
-      "schema": "",
-      "columns": {
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "failures": {
-          "name": "failures",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "window_started_at": {
-          "name": "window_started_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "locked_until": {
-          "name": "locked_until",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "factor_lockouts_user_id_user_id_fk": {
-          "name": "factor_lockouts_user_id_user_id_fk",
-          "tableFrom": "factor_lockouts",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "factor_lockouts_failures_check": {
-          "name": "factor_lockouts_failures_check",
-          "value": "\"factor_lockouts\".\"failures\" >= 0"
         }
       },
       "isRLSEnabled": false
@@ -4530,6 +4509,121 @@
         "meta_inbound_messages_platform_check": {
           "name": "meta_inbound_messages_platform_check",
           "value": "\"meta_inbound_messages\".\"platform\" in ('messenger', 'instagram', 'whatsapp')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.ops_alerts": {
+      "name": "ops_alerts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "event": {
+          "name": "event",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dedupe_key": {
+          "name": "dedupe_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fields": {
+          "name": "fields",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "raised_at": {
+          "name": "raised_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "last_raised_at": {
+          "name": "last_raised_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "repeats": {
+          "name": "repeats",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "sent_at": {
+          "name": "sent_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "ops_alerts_dedupe_idx": {
+          "name": "ops_alerts_dedupe_idx",
+          "columns": [
+            {
+              "expression": "event",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "dedupe_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "raised_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "ops_alerts_event_check": {
+          "name": "ops_alerts_event_check",
+          "value": "\"ops_alerts\".\"event\" ~ '^[a-z0-9]+(_[a-z0-9]+)*$'"
+        },
+        "ops_alerts_dedupe_key_check": {
+          "name": "ops_alerts_dedupe_key_check",
+          "value": "char_length(\"ops_alerts\".\"dedupe_key\") <= 400"
         }
       },
       "isRLSEnabled": false
@@ -5151,6 +5245,18 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "delivery_status": {
+          "name": "delivery_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "delivery_at": {
+          "name": "delivery_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -5206,7 +5312,16 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "report_deliveries_kind_check": {
+          "name": "report_deliveries_kind_check",
+          "value": "\"report_deliveries\".\"kind\" in ('monthly', 'weekly', 'alert', 'renewal', 'payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected')"
+        },
+        "report_deliveries_delivery_status_check": {
+          "name": "report_deliveries_delivery_status_check",
+          "value": "\"report_deliveries\".\"delivery_status\" is null or \"report_deliveries\".\"delivery_status\" in ('sent', 'delivered', 'bounced', 'complained', 'suppressed', 'delayed')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.report_recipients": {
@@ -5695,159 +5810,6 @@
         "sign_in_links_consumed_ip_check": {
           "name": "sign_in_links_consumed_ip_check",
           "value": "\"sign_in_links\".\"consumed_ip\" is null or \"sign_in_links\".\"used_at\" is not null"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.step_ups": {
-      "name": "step_ups",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "session_token_hash": {
-          "name": "session_token_hash",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "factor_id": {
-          "name": "factor_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "device_label": {
-          "name": "device_label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "last_activity_at": {
-          "name": "last_activity_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "step_ups_session_idx": {
-          "name": "step_ups_session_idx",
-          "columns": [
-            {
-              "expression": "session_token_hash",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"step_ups\".\"revoked_at\" is null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "step_ups_factor_idx": {
-          "name": "step_ups_factor_idx",
-          "columns": [
-            {
-              "expression": "factor_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "step_ups_user_idx": {
-          "name": "step_ups_user_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "step_ups_user_id_user_id_fk": {
-          "name": "step_ups_user_id_user_id_fk",
-          "tableFrom": "step_ups",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "step_ups_factor_id_user_factors_id_fk": {
-          "name": "step_ups_factor_id_user_factors_id_fk",
-          "tableFrom": "step_ups",
-          "tableTo": "user_factors",
-          "columnsFrom": [
-            "factor_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "step_ups_session_hash_length": {
-          "name": "step_ups_session_hash_length",
-          "value": "octet_length(\"step_ups\".\"session_token_hash\") = 32"
-        },
-        "step_ups_activity_window": {
-          "name": "step_ups_activity_window",
-          "value": "\"step_ups\".\"last_activity_at\" >= \"step_ups\".\"created_at\" and \"step_ups\".\"last_activity_at\" <= \"step_ups\".\"created_at\" + interval '8 hours'"
         }
       },
       "isRLSEnabled": false
@@ -6697,436 +6659,6 @@
         "usage_events_over_check": {
           "name": "usage_events_over_check",
           "value": "\"usage_events\".\"over_allowance\" >= 0"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.user_backup_codes": {
-      "name": "user_backup_codes",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "code_hash": {
-          "name": "code_hash",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "used_at": {
-          "name": "used_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "user_backup_codes_live_idx": {
-          "name": "user_backup_codes_live_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "code_hash",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"user_backup_codes\".\"used_at\" is null and \"user_backup_codes\".\"revoked_at\" is null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "user_backup_codes_user_id_user_id_fk": {
-          "name": "user_backup_codes_user_id_user_id_fk",
-          "tableFrom": "user_backup_codes",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "user_backup_codes_hash_length": {
-          "name": "user_backup_codes_hash_length",
-          "value": "octet_length(\"user_backup_codes\".\"code_hash\") = 32"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.user_factors": {
-      "name": "user_factors",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "device_label": {
-          "name": "device_label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "credential_id": {
-          "name": "credential_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "public_key": {
-          "name": "public_key",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "counter": {
-          "name": "counter",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "transports": {
-          "name": "transports",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "backed_up": {
-          "name": "backed_up",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "secret_sealed": {
-          "name": "secret_sealed",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_step": {
-          "name": "last_step",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "last_used_at": {
-          "name": "last_used_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "user_factors_credential_id_idx": {
-          "name": "user_factors_credential_id_idx",
-          "columns": [
-            {
-              "expression": "credential_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"user_factors\".\"credential_id\" is not null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "user_factors_one_totp_idx": {
-          "name": "user_factors_one_totp_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"user_factors\".\"kind\" = 'totp' and \"user_factors\".\"revoked_at\" is null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "user_factors_user_idx": {
-          "name": "user_factors_user_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "user_factors_user_id_user_id_fk": {
-          "name": "user_factors_user_id_user_id_fk",
-          "tableFrom": "user_factors",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "user_factors_kind_check": {
-          "name": "user_factors_kind_check",
-          "value": "\"user_factors\".\"kind\" in ('passkey', 'totp')"
-        },
-        "user_factors_passkey_columns": {
-          "name": "user_factors_passkey_columns",
-          "value": "\"user_factors\".\"kind\" <> 'passkey' or (\"user_factors\".\"credential_id\" is not null and \"user_factors\".\"public_key\" is not null and \"user_factors\".\"counter\" is not null and \"user_factors\".\"device_label\" is not null and \"user_factors\".\"backed_up\" is not null and \"user_factors\".\"secret_sealed\" is null and \"user_factors\".\"last_step\" is null)"
-        },
-        "user_factors_totp_columns": {
-          "name": "user_factors_totp_columns",
-          "value": "\"user_factors\".\"kind\" <> 'totp' or (\"user_factors\".\"secret_sealed\" is not null and \"user_factors\".\"last_step\" is not null and \"user_factors\".\"credential_id\" is null and \"user_factors\".\"public_key\" is null and \"user_factors\".\"counter\" is null and \"user_factors\".\"transports\" is null and \"user_factors\".\"backed_up\" is null)"
-        },
-        "user_factors_device_label_check": {
-          "name": "user_factors_device_label_check",
-          "value": "\"user_factors\".\"device_label\" is null or (char_length(\"user_factors\".\"device_label\") between 1 and 60 and \"user_factors\".\"device_label\" = btrim(\"user_factors\".\"device_label\") and \"user_factors\".\"device_label\" !~ '[[:cntrl:]]')"
-        },
-        "user_factors_credential_id_format": {
-          "name": "user_factors_credential_id_format",
-          "value": "\"user_factors\".\"credential_id\" is null or (\"user_factors\".\"credential_id\" ~ '^[A-Za-z0-9_-]+$' and char_length(\"user_factors\".\"credential_id\") <= 1364)"
-        },
-        "user_factors_counter_check": {
-          "name": "user_factors_counter_check",
-          "value": "\"user_factors\".\"counter\" is null or \"user_factors\".\"counter\" >= 0"
-        },
-        "user_factors_last_step_check": {
-          "name": "user_factors_last_step_check",
-          "value": "\"user_factors\".\"last_step\" is null or \"user_factors\".\"last_step\" >= 0"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.webauthn_challenges": {
-      "name": "webauthn_challenges",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "session_token_hash": {
-          "name": "session_token_hash",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "purpose": {
-          "name": "purpose",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "challenge": {
-          "name": "challenge",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "enrol_basis": {
-          "name": "enrol_basis",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "used_at": {
-          "name": "used_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "webauthn_challenges_challenge_idx": {
-          "name": "webauthn_challenges_challenge_idx",
-          "columns": [
-            {
-              "expression": "challenge",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "webauthn_challenges_user_idx": {
-          "name": "webauthn_challenges_user_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "webauthn_challenges_user_id_user_id_fk": {
-          "name": "webauthn_challenges_user_id_user_id_fk",
-          "tableFrom": "webauthn_challenges",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "webauthn_challenges_purpose_check": {
-          "name": "webauthn_challenges_purpose_check",
-          "value": "\"webauthn_challenges\".\"purpose\" in ('register', 'authenticate')"
-        },
-        "webauthn_challenges_basis_check": {
-          "name": "webauthn_challenges_basis_check",
-          "value": "(\"webauthn_challenges\".\"purpose\" = 'register') = (\"webauthn_challenges\".\"enrol_basis\" is not null) and (\"webauthn_challenges\".\"enrol_basis\" is null or \"webauthn_challenges\".\"enrol_basis\" in ('first_passkey', 'step_up', 'code'))"
-        },
-        "webauthn_challenges_challenge_format": {
-          "name": "webauthn_challenges_challenge_format",
-          "value": "\"webauthn_challenges\".\"challenge\" ~ '^[A-Za-z0-9_-]{16,128}$'"
-        },
-        "webauthn_challenges_session_hash_length": {
-          "name": "webauthn_challenges_session_hash_length",
-          "value": "octet_length(\"webauthn_challenges\".\"session_token_hash\") = 32"
-        },
-        "webauthn_challenges_expiry_check": {
-          "name": "webauthn_challenges_expiry_check",
-          "value": "\"webauthn_challenges\".\"expires_at\" > \"webauthn_challenges\".\"created_at\" and \"webauthn_challenges\".\"expires_at\" <= \"webauthn_challenges\".\"created_at\" + interval '5 minutes'"
         }
       },
       "isRLSEnabled": false

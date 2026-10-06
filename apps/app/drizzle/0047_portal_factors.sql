@@ -347,7 +347,7 @@ BEGIN
      OR has_table_privilege('healdesk_app'::name, 'webauthn_challenges'::regclass, 'DELETE')
      OR has_table_privilege('healdesk_app'::name, 'step_ups'::regclass, 'DELETE')
      OR has_table_privilege('healdesk_app'::name, 'factor_lockouts'::regclass, 'DELETE') THEN
-    RAISE EXCEPTION 'healdesk_app can DELETE from a table 0046 keeps as history.';
+    RAISE EXCEPTION 'healdesk_app can DELETE from a table 0047 keeps as history.';
   END IF;
   IF has_column_privilege('healdesk_app'::name, 'user_factors'::regclass, 'user_id', 'UPDATE')
      OR has_column_privilege('healdesk_app'::name, 'user_factors'::regclass, 'kind', 'UPDATE')
@@ -367,7 +367,7 @@ BEGIN
      OR has_column_privilege('healdesk_app'::name, 'step_ups'::regclass, 'device_label', 'UPDATE')
      OR has_column_privilege('healdesk_app'::name, 'step_ups'::regclass, 'created_at', 'UPDATE')
      OR has_column_privilege('healdesk_app'::name, 'factor_lockouts'::regclass, 'user_id', 'UPDATE') THEN
-    RAISE EXCEPTION 'healdesk_app can UPDATE a column 0046 froze.';
+    RAISE EXCEPTION 'healdesk_app can UPDATE a column 0047 froze.';
   END IF;
 END;
 $$;

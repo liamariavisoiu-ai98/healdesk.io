@@ -1,12 +1,15 @@
 import { plans } from "@healdesk/catalog";
 import { describe, expect, test } from "vitest";
 
+import { PRACTICES } from "./knowledge";
 import { GUARANTEE_TEXT, POLICY } from "./legal";
 import {
   VOICE_DEMO_INBOUND_OPENING,
   VOICE_DEMO_OPENING,
   VOICE_DEMO_PRICES,
   VOICE_DEMO_RISK_REVERSAL,
+  VOICE_DEMO_SPECIALTIES,
+  SPECIALTY_CUES,
   VOICE_DEMO_VARIABLES,
   type VoiceDemoDirection,
   voiceDemoLlm,
@@ -125,7 +128,7 @@ describe("how she sells", () => {
     expect(prompt).toContain("Don't invent urgency");
     expect(prompt).toContain("Never invent a statistic, a customer, a result or a testimonial");
     // She once opened with "Many clinics find that...": proof nobody measured.
-    expect(prompt).toContain('never say what "many clinics" or "most owners" find');
+    expect(prompt).toContain('never say what "many clinics", "most owners" or "most practices" find');
   });
 });
 
@@ -204,11 +207,40 @@ describe("the rules every call keeps", () => {
   });
 
   test.each(DIRECTIONS)("%s: short enough to answer fast", (direction) => {
-    // The model reads all of it before every reply. At about 3,400 words
-    // its median was 1.3 seconds of a 1.5-second budget; see the header.
+    // The model reads all of it before every reply. On Sonnet, about 3,400
+    // words put its median at 1.3 seconds of a 1.5-second budget. On Haiku,
+    // measured at 0.63s with about 2,300 words, the cap moved to 2,800 to
+    // carry the specialty knowledge and the pain questions; see the header.
     const words = voiceDemoLlm(direction).prompt.split(/\s+/).length;
     const notes = voiceDemoVariables({ specialtyId: "med-spa" }).practice_notes.split(/\s+/).length;
-    expect(words + notes).toBeLessThan(2_400);
+    expect(words + notes).toBeLessThan(2_800);
+  });
+
+  test("every practice type has a specialty line, so she sounds like a peer in all of them", () => {
+    for (const practice of Object.values(PRACTICES)) {
+      expect(SPECIALTY_CUES[practice.id], practice.id).toBeTruthy();
+      expect(VOICE_DEMO_SPECIALTIES).toContain(`${practice.label}: ${SPECIALTY_CUES[practice.id]}`);
+    }
+  });
+
+  test.each(DIRECTIONS)("%s: she quantifies the pain, offers time back, bridges once and steers to a close", (direction) => {
+    const prompt = text(direction);
+    for (const line of [
+      "QUANTIFY THE PAIN",
+      // On Haiku she got the sums wrong twice ("two a week at a thousand is
+      // two thousand a month"), so the line needs no arithmetic at all.
+      "If even one of those books each week, that's",
+      "Never multiply, never turn weeks into months, never total it up",
+      "Never ask again for a number they've given.",
+      "How many hours a week they or their team spend on the phone.",
+      "Offer the time back as the outcome",
+      "ONE PERSONAL BRIDGE, early, once",
+      "Never invent memories or experiences; you're an AI.",
+      "FIND WHAT THEY'RE AFTER, AND STEER THERE",
+      "never more than about fifteen words",
+    ]) {
+      expect(prompt).toContain(line);
+    }
   });
 
   test.each(DIRECTIONS)("%s: the facts that must not drift are there", (direction) => {
@@ -230,7 +262,7 @@ describe("per-call variables", () => {
     const vars = voiceDemoVariables({ name: "Sam Rivera", specialtyId: "med-spa" });
     expect(vars.prospect_name).toBe("Sam");
     expect(vars.practice_type).toMatch(/Med Spa/);
-    expect(vars.practice_notes).toContain("Who calls:");
+    expect(vars.practice_notes).toContain("They were looking at: Med spa / aesthetics.");
     expect(vars.practice_notes).toContain("One booking is worth about $550");
   });
 

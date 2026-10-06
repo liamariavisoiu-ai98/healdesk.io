@@ -76,11 +76,13 @@ const VOICE_ID = "retell-Sloane";
  * hostess would smile or sympathise, and an instruction that rules out
  * everything that went wrong before.
  */
-const EXPRESSIVE_TAGS = ["happy", "empathetic"];
+const EXPRESSIVE_TAGS = ["happy", "empathetic", "emphasis"];
 const EXPRESSIVE_GUIDANCE =
-  "Speak with a gentle, warm smile throughout, calm and bright. Use [happy] only on a greeting, a thank-you " +
-  "or good news, and [empathetic] only when they describe something hard, each at most once every few turns. " +
-  "Never sigh, never pause for effect, never whisper, never sound excited, and never tag a price, a number or a name.";
+  "Speak with a gentle, warm smile throughout, calm and bright, with natural rise and fall, never monotone. " +
+  "Use [emphasis] on the one word that carries the point, at most once a turn. Use [happy] only on a greeting, " +
+  "a thank-you or good news, and [empathetic] only when they describe something hard, each at most once every " +
+  "few turns. Never sigh, never pause for effect, never whisper, never sound excited, and never tag a price, a " +
+  "number or a name.";
 
 /** The opening is spoken with that smile; the tag is never read aloud. */
 const SMILE = "[happy] ";
@@ -193,9 +195,12 @@ function agentConfig(llmId: string, direction: VoiceDemoDirection) {
     // Between the two failures: temperature 1 with a caller-following speed
     // was "drunk", 0.75 at speed 1 was "sleepy". A little brighter and a
     // touch quicker than neutral, at a constant speed.
-    voice_speed: 1.06,
+    // Speed back to neutral, because she must be easy to follow; 1.06 was a
+    // touch quick. A little more variation than 0.9, which was heard as
+    // monotone, and the emphasis tag puts the weight on the right word.
+    voice_speed: 1,
     volume: 1,
-    voice_temperature: 0.9,
+    voice_temperature: 0.95,
     enable_dynamic_voice_speed: false,
     // 1 is Retell's fastest: reply as soon as the turn is judged over. 0.8
     // added a wait that measured calls showed as about 0.4s of every pause.

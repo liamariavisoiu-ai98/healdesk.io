@@ -470,11 +470,12 @@ veterinary practice or pet spa"):
 
 2. PRACTICE'S STATUS
 
-  Practice is a veterinary practice. HIPAA protects health information about
-  individuals, and an animal is not an individual under 45 CFR 160.103, so
-  Practice is not a covered entity in respect of the animals in its care, the
-  Client Information healdesk handles for it is not protected health
-  information, and this agreement is not a business associate agreement.
+  Practice is a veterinary practice or pet spa: it cares for animals. HIPAA
+  protects health information about individuals, and an animal is not an
+  individual under 45 CFR 160.103, so Practice is not a covered entity in
+  respect of the animals in its care, the Client Information healdesk handles
+  for it is not protected health information, and this agreement is not a
+  business associate agreement.
 
   healdesk nonetheless protects Client Information under this agreement with
   the safeguards it uses for protected health information. State privacy,
@@ -511,8 +512,8 @@ veterinary practice or pet spa"):
   people who need Client Information to provide the Services see it, and will
   bind each of them to keep it confidential.
 
-  Practice is a veterinary practice, and state law may require it to keep what
-  it knows about the animals in its care, and about their owners,
+  Where Practice is a veterinary practice, state law may require it to keep
+  what it knows about the animals in its care, and about their owners,
   confidential. healdesk treats everything a client tells the assistant about
   an animal, including its name and species and anything said about its
   health, as Client Information, and keeps it as confidential as anything else

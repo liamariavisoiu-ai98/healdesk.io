@@ -3,9 +3,18 @@
 > **Drafted 6 October 2026. Not released, not offered, not legal advice.**
 > The owner releases it at launch (Gate A) by setting `approvedByCounsel` to
 > true on `DPA_TEMPLATES[0]` in `packages/catalog/src/dpa.ts`, after reading
-> [`docs/dpa-v1.0.0.txt`](../dpa-v1.0.0.txt). Nothing else changes at the
-> release and no hash moves. Drafted by an AI assistant, as the rest of this
-> folder was; the primary sources are linked so anyone can check the reading.
+> [`docs/dpa-v1.0.0.txt`](../dpa-v1.0.0.txt), once the rest of § 9's checklist
+> is done: the flag alone does not let a DPA practice go live (gap 11).
+> Drafted by an AI assistant, as the rest of this folder was; the primary
+> sources are linked so anyone can check the reading.
+>
+> **Counsel, 6 October 2026:** the owner sent counsel the DPA's clauses, the
+> plan-start and refund terms and the notice a practice gives if it starts
+> billing insurance, and recorded that counsel "approved them all to go ahead
+> and implement" (the launch open-items page). One wording change followed,
+> from the adversarial review of the same day: the veterinary variant no
+> longer states that every signer is a veterinary practice, because the
+> specialty is "Veterinary & Pet Spas" and a grooming spa signs it too.
 
 ## 1. What it is, and who signs it
 
@@ -138,7 +147,8 @@ Read in the code on 6 October 2026, at origin/main d652a0b.
    the catalogue also lets a practice ask whether the caller has been before,
    whether it is a consultation or a treatment, and a preferred practitioner,
    and excludes email. The DPA states the catalogue as a ceiling.
-5. **No retention period during the term.** See § 6, gap 2.
+5. **No retention period during the term.** See § 6, gap 2: whether to
+   state one is now the owner's decision, the code's default being 90 days.
 6. **The Term clause describes the clock as the daily job runs it** ("once
    thirty days have passed", "the first run after"), because `destroy_after`
    is an instant thirty days after the end and destruction happens at the
@@ -164,16 +174,17 @@ Read in the code on 6 October 2026, at origin/main d652a0b.
    before the first clinic's offboarding.
 2. **Retention during the term.** BAA 1.2.1 (A5) says healdesk "keeps
    transcripts and conversation records for 90 days, which Practice may
-   shorten in its portal". The code keeps conversation, appointment and
-   contact rows for `clinics.retention_record_days`, **730 days** by default;
-   the 90 days (`retention_media_days`) only clears a transcript reference;
-   nothing in the application can change either setting (no portal control,
-   no ops operation); and the `retention-purge` job is seeded off. The plan
-   wants 90 days, shortenable to 30 or 7. The DPA therefore states no period
-   during the term, only "no call audio is kept at all". Either the code
-   moves to the plan's numbers before the DPA's release and a sentence is
-   added (regenerating the hashes), or the DPA ships without one. BAA 1.2.1's
-   sentence is inaccurate today.
+   shorten in its portal". Since main's 0048 the code agrees on the number:
+   `clinics.retention_record_days` defaults to 90, and every clinic left at
+   the old 730 was moved to 90. What is still untrue: nothing in the
+   application can shorten either setting (no portal control, no ops
+   operation), and the `retention-purge` job is seeded off, so nothing is
+   deleted at 90 days either. The DPA states no period during the term, only
+   "no call audio is kept at all", although the spec wants a stated period
+   for data handled as PHI. Before the release the owner decides: state "90
+   days" once the purge runs for live clinics (and "which Practice may
+   shorten" only once the portal control exists), regenerating the hashes,
+   or release without a period.
 3. **Deletion on request has no operator path.** `eraseContact` exists and is
    tested, but no script or ops operation runs it, and it leaves a client's
    half-finished Meta booking draft (`meta_booking_drafts`) in place. The
@@ -208,10 +219,18 @@ Read in the code on 6 October 2026, at origin/main d652a0b.
     plan's "Data Agreement" definition (A6) is what makes them read for a DPA
     practice; until it lands, Terms § 7's "destroy … when and as the Business
     Associate Agreement says" points a DPA practice at the wrong document.
-11. **Go-live does not ask the sufficiency rule yet.**
-    `app_mark_clinic_production` and `goLivePreconditions` are to be
-    rewritten together (plan Part J); a TODO is in both places. The PHI gate
-    asks it on every write, so an uncovered clinic's data is refused anyway.
+11. **Go-live refuses every DPA practice today.** Main's 0048 made
+    `app_mark_clinic_production` accept only the BAA versions on
+    `app_baa_version_acceptable()`'s allow-list, and `goLivePreconditions`
+    and the ops card read `isBaaVersionAcceptable()`, which knows only BAA
+    templates. A practice bound to `dpa/1.0.0` therefore reads as superseded,
+    and the console tells the operator to have it sign the BAA, which
+    provisioning and the supersede both refuse for a vet. Releasing the DPA
+    needs a migration that leaves 0048's BAA floor intact and accepts a
+    released `dpa/*` version where `app_agreement_kind_sufficient` holds,
+    with the TypeScript checks to match and tests that take a vet and a "No"
+    practice live (TODO in 0051 and in `goLivePreconditions`). The PHI gate
+    asks the sufficiency rule on every write already.
 12. **The "United States infrastructure" and "no call audio" sentences**
     depend on Retell's region and recording settings, which are unconfirmed
     (agreement-changes.md R6), exactly as in 1.2.1.
@@ -285,3 +304,28 @@ its trigger.
 - [ ] Gaps 2, 3 and 5 resolved, or the text changed to match.
 - [ ] `offboarding-destroy` and `retention-purge` switched on for live
       clinics (gap 1).
+- [ ] Go-live admits a released DPA (gap 11): the migration, the TypeScript
+      checks and the tests that take a vet and a "No" practice live.
+- [ ] The covered-entity notice has code behind it. Clause 2 promises that
+      from the practice's notice the assistant pauses until the BAA is
+      signed, with forwarded calls passing to the direct line. Nothing
+      implements that yet: build it as one audited operator action, in this
+      order: pause (`ai_paused_at`), record `is_covered_entity`, send the
+      re-sign link, then `supersedeAgreement`. Or change clause 2 to match.
+- [ ] Destruction works for a practice with a confirmed booking request.
+      `destroyClinicData`, `eraseContact` and the purge delete appointments
+      before booking requests, and a confirmed request's
+      `appointment_id ON DELETE SET NULL` collides with its shape CHECK and
+      its no-rewrite trigger, so the delete fails. This breaks clause 13's
+      and clause 17's promises, and the BAA's identical ones.
+- [ ] Decide whether the DPA carries BAA 1.3.0's fuller state-law clause:
+      the specified business purposes, the data categories, the service
+      provider designation, the deletion deadlines, immediate breach notice
+      and the assessment right. Today it quotes only the shared paragraph,
+      whose generic purposes 11 CCR § 7051(a)(2) does not accept, for exactly
+      the practices that clause exists for.
+- [ ] The Terms read for a DPA practice (A6, "Data Agreement"): §§ 1, 7, 9,
+      11, 12, 14 and 19, Privacy § 12 and `/data-deletion` name only the BAA
+      today, and a vet's clients are called patients.
+- [ ] `/subprocessors` and `/trust` say the same notice period as the
+      agreements in force (gap 14).

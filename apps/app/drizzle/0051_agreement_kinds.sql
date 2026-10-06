@@ -129,8 +129,12 @@ GRANT EXECUTE ON FUNCTION app_agreement_kind_sufficient(text, text, boolean) TO 
 -- write the database refuses its client data until app_supersede_agreement()
 -- puts it under a BAA.
 --
--- An unrecorded kind keeps 0001's rule, so nothing that passed the gate before
--- this migration fails it now. After the backfill the kind is NULL only where
+-- An unrecorded kind keeps 0001's rule. One clinic that passed the gate before
+-- fails it now: a veterinary clinic under a BAA, which a BAA cannot cover.
+-- Provisioning refuses that pairing from this migration on, and apps/app has
+-- never been deployed or held anything but synthetic data, so no such clinic
+-- exists outside tests; one that did would need its practice to sign the DPA
+-- and an operator to rebind it. After the backfill the kind is NULL only where
 -- the clinic's organisation holds no agreement in force, which
 -- app_mark_clinic_production() refuses to take to production; every clinic
 -- provisioned from here on records it. Synthetic clinics are untouched.
@@ -200,11 +204,12 @@ $$;--> statement-breakpoint
 -- organisation holds. A production clinic's baa_signed_at becomes the new
 -- agreement's acceptance, the date app_mark_clinic_production() would copy.
 --
--- What the signing path checks first, and this function cannot: that the new
--- agreement's template is released (the TypeScript wrapper,
--- apps/app/src/lib/agreements/kind.ts, refuses an unreleased one). It writes
--- its own security event, in the same transaction as the change, so a
--- supersede without a record cannot happen.
+-- The new agreement's version must be one go-live accepts
+-- (app_baa_version_acceptable, 0048), so neither a draft nor a superseded
+-- version can be put in force by calling this directly; the TypeScript
+-- wrapper (apps/app/src/lib/agreements/kind.ts) checks the same list first,
+-- for a readable refusal. It writes its own security event, in the same
+-- transaction as the change, so a supersede without a record cannot happen.
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION app_supersede_agreement(target_clinic uuid, superseding uuid, actor text)
 RETURNS jsonb
@@ -280,6 +285,14 @@ BEGIN
       USING ERRCODE = 'check_violation',
             HINT = 'Only a business associate agreement supersedes: a DPA by a BAA, or a BAA by a later BAA.';
   END IF;
+  -- The same allow-list go-live reads (0048), so a supersede can never put a
+  -- clinic, a production one included, under a draft or a version go-live
+  -- would refuse.
+  IF NOT app_baa_version_acceptable(new_version) THEN
+    RAISE EXCEPTION 'Agreement % is version %, which is not released for signing; refusing to supersede.', superseding, new_version
+      USING ERRCODE = 'check_violation',
+            HINT = 'A supersede binds only a version app_baa_version_acceptable() accepts.';
+  END IF;
 
   SELECT string_agg(c.slug, ', ' ORDER BY c.slug) INTO uncovered
     FROM clinics c
@@ -342,11 +355,13 @@ GRANT EXECUTE ON FUNCTION app_supersede_agreement(uuid, uuid, text) TO healdesk_
 
 -- TODO(go-live, plan Part J "Go-live"): app_mark_clinic_production() and
 -- goLivePreconditions() do not ask app_agreement_kind_sufficient() yet. Wiring
--- it in means restating 0040's whole function and recreating
--- app_clinics_overview() for the two new columns, which the plan does when it
--- rewrites both together (M6). Until then a DPA clinic whose covered status
--- has flipped can still be marked production, and the PHI gate above refuses
--- its data from the first write.
+-- it in means restating 0048's definition (app_agreement_in_effect() and
+-- app_baa_version_acceptable()) and recreating app_clinics_overview() for the
+-- two new columns, which the plan does when it rewrites both together (M6).
+-- Until then go-live refuses every DPA clinic outright: 0048's allow-list
+-- names BAA versions only, so a 'dpa/...' agreement reads as superseded.
+-- Releasing the DPA therefore needs a kind-aware acceptable-version rule first
+-- (Gate A; docs/counsel/dpa.md).
 
 -- -----------------------------------------------------------------------------
 -- Comments

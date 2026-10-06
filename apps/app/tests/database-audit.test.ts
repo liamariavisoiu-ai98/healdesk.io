@@ -224,6 +224,22 @@ describeDb("database audit (0031)", () => {
     }
   });
 
+  test("app_mark_clinic_production refuses a DPA clinic until the DPA's release gives go-live a kind-aware rule (0051)", async () => {
+    // 0048's allow-list names BAA versions only, so a practice under the DPA
+    // reads as superseded and cannot go live. That is the safe way round while
+    // the DPA is a draft; releasing it has to change go-live on purpose, and
+    // this test is what makes that change deliberate.
+    const { clinicId, organizationId } = await seedClinic("dpagolive");
+    await readyForGoLive(clinicId);
+    await seedAcceptance(organizationId, "dpa/1.0.0");
+    await expect(
+      getAppPool().query(`select app_mark_clinic_production($1::uuid)`, [clinicId]),
+    ).rejects.toMatchObject({
+      code: "23514",
+      message: expect.stringContaining("version dpa/1.0.0, which has been superseded"),
+    });
+  });
+
   test("the SQL allow-list is the catalog's floor, version for version", async () => {
     // app_baa_version_acceptable() is isBaaVersionAcceptable() written out,
     // because SQL cannot read the catalog. A release that becomes current

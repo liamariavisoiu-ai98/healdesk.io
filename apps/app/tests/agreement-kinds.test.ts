@@ -483,6 +483,31 @@ describeDb("agreement kinds in the database (0051)", () => {
         dpaOffer,
       ]),
     ).rejects.toMatchObject({ code: "23514" });
+    // The case only the guard can refuse: a practice a DPA would cover (not
+    // a covered entity), on a BAA, offered a later DPA. Coverage and the
+    // clinic CHECK both allow it; the guard alone says no.
+    const coverable = await seedUnder("baadpa", {
+      regime: "hipaa-if-covered",
+      kind: "baa",
+      covered: false,
+      agreementVersion: "1.2.1",
+    });
+    const laterDpa = await seedAcceptance({ version: "dpa/1.0.0" });
+    await expect(
+      getAppPool().query(`select app_supersede_agreement($1::uuid, $2::uuid, 'ops')`, [
+        coverable.clinicId,
+        laterDpa,
+      ]),
+    ).rejects.toMatchObject({
+      code: "23514",
+      message: expect.stringMatching(/never replaced by a data protection agreement/),
+    });
+    const { rows: kept } = await getMigratorPool().query(
+      `select c.agreement_kind, a.organization_id as dpa_bound_to
+         from clinics c, baa_acceptances a where c.id = $1 and a.id = $2`,
+      [coverable.clinicId, laterDpa],
+    );
+    expect(kept[0]).toEqual({ agreement_kind: "baa", dpa_bound_to: null });
     const later = await seedAcceptance({ version: CURRENT_BAA_VERSION });
     const { rows } = await getAppPool().query<{ result: Record<string, string> }>(
       `select app_supersede_agreement($1::uuid, $2::uuid, 'ops') as result`,
@@ -578,6 +603,42 @@ describeDb("agreement kinds in the database (0051)", () => {
       [dpa.organizationId],
     );
     expect(rows[0]!.n).toBe(0);
+  });
+
+  test("a supersede never binds a version go-live would refuse, even when called directly", async () => {
+    // The runtime role can insert an acceptance and call the function, so
+    // the version check has to be in the function, not only in the wrapper.
+    const live = await seedUnder("livesup", {
+      regime: "hipaa",
+      kind: "baa",
+      covered: true,
+      production: true,
+      agreementVersion: "1.2.1",
+    });
+    for (const version of ["1.3.0", "1.2.0"]) {
+      const offer = await seedAcceptance({ version });
+      await expect(
+        getAppPool().query(`select app_supersede_agreement($1::uuid, $2::uuid, 'ops')`, [
+          live.clinicId,
+          offer,
+        ]),
+      ).rejects.toMatchObject({
+        code: "23514",
+        message: expect.stringMatching(/not released for signing/),
+      });
+    }
+    const { rows } = await getMigratorPool().query<{ baa_signed_at: Date; agreement_kind: string }>(
+      `select baa_signed_at, agreement_kind from clinics where id = $1`,
+      [live.clinicId],
+    );
+    expect(rows[0]!.agreement_kind).toBe("baa");
+    expect(rows[0]!.baa_signed_at.toISOString()).toBe(live.acceptedAt.toISOString());
+    // And the wrapper refuses a released but superseded version up front.
+    const superseded = await seedAcceptance({ version: "1.2.0" });
+    expect(getBaaTemplate("1.2.0")!.approvedByCounsel).toBe(true);
+    await expect(supersedeAgreement(live.clinicId, superseded, "ops")).rejects.toBeInstanceOf(
+      SupersedeError,
+    );
   });
 
   test("the TypeScript wrapper puts nothing in force under an unreleased template", async () => {

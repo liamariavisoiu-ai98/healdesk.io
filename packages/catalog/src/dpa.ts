@@ -356,8 +356,9 @@ const CLAUSES_1_0: readonly DpaClause[] = [
     appliesWhen: (v) => isVeterinaryPractice(v),
     body: () =>
       wrap(
-        `Practice is a veterinary practice. HIPAA protects health information about ` +
-          `individuals, and an animal is not an individual under 45 CFR 160.103, so Practice is ` +
+        `Practice is a veterinary practice or pet spa: it cares for animals. HIPAA ` +
+          `protects health information about individuals, and an animal is not an individual ` +
+          `under 45 CFR 160.103, so Practice is ` +
           `not a covered entity in respect of the animals in its care, the Client Information ` +
           `healdesk handles for it is not protected health information, and this agreement is ` +
           `not a business associate agreement.`,
@@ -677,7 +678,7 @@ const CLAUSES_1_0: readonly DpaClause[] = [
       (isVeterinaryPractice(v)
         ? "\n\n" +
           wrap(
-            `Practice is a veterinary practice, and state law may require it to keep what it ` +
+            `Where Practice is a veterinary practice, state law may require it to keep what it ` +
               `knows about the animals in its care, and about their owners, confidential. ` +
               `healdesk treats everything a client tells the assistant about an animal, including ` +
               `its name and species and anything said about its health, as Client Information, ` +

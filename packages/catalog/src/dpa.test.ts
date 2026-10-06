@@ -96,9 +96,9 @@ const GOLDEN: Record<string, string> = {
   notcovered_live_uncovered: "2a4cb0c9f3961dee6cb68dee30c40b0f96af1e2ce23d11f4a1fa62cf560c5806",
   notcovered_live_personal: "d53e5a4518ec3bf6c0e8b406d128064108f27e5f551826e9a59ece1abbe1e42c",
   notcovered_notused_other: "70c6c967944dd65b293752df2b53898eb0ead1c16d5ef04042225426ddac5573",
-  vet_live_covered: "3a1555a704910bb8eb8da2411fa50f4fd0341457095de2245052947313405e45",
-  vet_live_personal: "3aadeed89cb3a7d7fb0a0617f0cebd9c0766563f7dce3dafd8e7ae0f9fdec682",
-  vet_notused_mindbody: "6071f5a14d7c4b377b4592f5466772cd24a44779a79940a75083465fbe1a3758",
+  vet_live_covered: "8d6b55b91f1e29d9e8548eb907fe9af54f63d01d00d4932defc198663e6e1a75",
+  vet_live_personal: "273a2f69ea5b080fa5a740f5e1dbea7b024173fb54da927826b3c6dc1cfaf51e",
+  vet_notused_mindbody: "759839ef6f1352ba6de1a3578dbd9439d756218454c6c74bf93d3ccca2a98b59",
 };
 
 const template = () => currentDpaTemplate();
@@ -326,13 +326,16 @@ describe("what the DPA says", () => {
     }
     const vet = unwrap(render(VARIANTS.vet_live_covered!).text);
     expect(vet).toContain(
-      "Practice is a veterinary practice. HIPAA protects health information about individuals, and an animal is not an individual under 45 CFR 160.103",
+      "Practice is a veterinary practice or pet spa: it cares for animals. HIPAA protects health information about individuals, and an animal is not an individual under 45 CFR 160.103",
     );
+    // The specialty is "Veterinary & Pet Spas": a grooming-only pet spa signs
+    // this too, so nothing may state that every signer is a veterinary practice.
+    expect(vet).not.toMatch(/(?<!Where )Practice is a veterinary practice[.,]/);
     expect(vet).toContain("the animal's owner or keeper. An animal is never a client.");
     expect(vet).toContain("Each appointment carries the client's first name");
     expect(vet).toContain("and the name and species of the animal.");
     expect(vet).toContain(
-      "Practice is a veterinary practice, and state law may require it to keep what it knows about the animals in its care",
+      "Where Practice is a veterinary practice, state law may require it to keep what it knows about the animals in its care",
     );
     // The not-covered warranty, and the pause until a BAA replaces it, are not a vet's.
     const status = unwrap(section(render(VARIANTS.vet_live_covered!).text, "Practice's status"));

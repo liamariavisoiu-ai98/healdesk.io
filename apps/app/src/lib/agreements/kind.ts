@@ -1,7 +1,7 @@
 import {
   agreementKindOfVersion,
-  getBaaTemplate,
   getDpaTemplate,
+  isBaaVersionAcceptable,
   type AgreementKind,
   type RegulatoryRegime,
 } from "@healdesk/catalog";
@@ -41,11 +41,17 @@ export function agreementKindSufficient(
   return false;
 }
 
-/** Whether a stored acceptance's template is released for signing: the BAA's flag or the DPA's. */
+/**
+ * Whether a stored acceptance may be put in force: a released DPA template,
+ * or a BAA version go-live accepts (isBaaVersionAcceptable, the TypeScript
+ * twin of 0048's app_baa_version_acceptable), so released but superseded BAA
+ * versions are refused as the database refuses them.
+ */
 export function agreementTemplateReleased(version: string): boolean {
-  const template =
-    agreementKindOfVersion(version) === "dpa" ? getDpaTemplate(version) : getBaaTemplate(version);
-  return template?.approvedByCounsel === true;
+  if (agreementKindOfVersion(version) === "dpa") {
+    return getDpaTemplate(version)?.approvedByCounsel === true;
+  }
+  return isBaaVersionAcceptable(version);
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

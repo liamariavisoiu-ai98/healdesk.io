@@ -58,6 +58,11 @@
  *   - Stripe is our own billing only. A deposit is taken through the clinic's
  *     own payment processor account, so that leg left the register for a
  *     note above it.
+ *
+ * Change of 6 October 2026: Calendly is a row. "Get in touch" in the navbar
+ * books a call with us in its scheduler, framed on our page, so a visitor's
+ * name and email reach it from this website. It handles no patient
+ * information, so it needed no notice to clinics (LEGAL_VERSION 2026-10-06.2).
  */
 
 export type BaaStatus =
@@ -167,6 +172,15 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
       state: "not-needed",
       because: "Demo calls to clinic owners and staff who asked for one; never a patient call.",
     },
+    scope: "marketing-site",
+  },
+  {
+    name: "Calendly",
+    purpose: "Books the call a visitor asks for through \"Get in touch\" on this website, in Calendly's scheduler shown on our page",
+    data: "The name and email you give when booking, anything you add in its form, and the time you pick; Calendly also records your visit to its scheduling page",
+    region: "United States",
+    handlesPhi: false,
+    baa: { state: "not-needed", because: "Calls with clinic owners and staff who asked for one; it asks for no patient information and needs none." },
     scope: "marketing-site",
   },
   {

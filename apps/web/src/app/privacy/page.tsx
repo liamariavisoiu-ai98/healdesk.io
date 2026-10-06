@@ -144,6 +144,14 @@ export default function PrivacyPage() {
             of our follow-up emails, asking for setup stops them.
           </li>
           <li>
+            {/* Added 6 Oct 2026 with "Get in touch" (LEGAL_VERSION
+                2026-10-06.2). */}
+            <strong>Calls you book</strong> ("Get in touch") — the booking form is Calendly's,
+            shown on our page. The name and email you give, anything you add in its form and the
+            time you pick go to Calendly, which passes the booking to us so we can hold the call.
+            Nothing of Calendly's loads until you open it.
+          </li>
+          <li>
             {/* Adopted 3 Oct 2026 by the owner without external counsel review:
                 the field list, updated to what the checkout asks after the 30
                 September changes. */}
@@ -207,6 +215,11 @@ export default function PrivacyPage() {
             <strong>Analytics cookies</strong> — set by PostHog only after you accept the notice, to
             tell one visit from another. Withdraw with the button above; analytics stops on the
             next page load and the notice asks again.
+          </li>
+          <li>
+            <strong>Calendly's cookies</strong> — only if you open "Get in touch": Calendly may set
+            its own cookies inside its booking window. They are Calendly's, under its own cookie
+            policy, and we do not read them.
           </li>
         </ul>
       </Section>

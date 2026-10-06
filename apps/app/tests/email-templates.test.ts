@@ -32,6 +32,7 @@ import {
   REPLY_LINE,
 } from "@/lib/email/templates/compose";
 import {
+  ACCOUNT_REASON,
   audienceFor,
   clinicReason,
   OPS_REASON,
@@ -80,7 +81,10 @@ afterEach(() => {
 function contextFor(kind: EmailKind, audience: EmailAudience = "patients"): TemplateContext {
   const scope = carriesUnsubscribe(kind) ? "commercial" : null;
   return {
-    clinicName: kind === "ops_alert" || kind === "sign_in_link" ? null : "Radiance Med Spa",
+    clinicName:
+      kind === "ops_alert" || kind === "sign_in_link" || kind === "device_changed"
+        ? null
+        : "Radiance Med Spa",
     audience,
     reason:
       kind === "ops_alert"
@@ -89,7 +93,9 @@ function contextFor(kind: EmailKind, audience: EmailAudience = "patients"): Temp
           ? SIGN_IN_REASON
           : kind === "order_confirmed_delayed"
             ? ORDER_REASON
-            : clinicReason("Radiance Med Spa"),
+            : kind === "device_changed"
+              ? ACCOUNT_REASON
+              : clinicReason("Radiance Med Spa"),
     ...(scope ? { unsubscribeUrl: unsubscribeUrl(CLINIC_ID, scope) } : {}),
     raisedAt: new Date("2026-10-06T14:32:00Z"),
     timeZone: "America/New_York",
@@ -128,8 +134,13 @@ describe("the template registry", () => {
     }
   });
 
-  test("the templates shipped so far: I1, B2 and B3", () => {
-    expect(Object.keys(TEMPLATES)).toEqual(["ops_alert", "sign_in_link", "order_confirmed_delayed"]);
+  test("the templates shipped so far: I1, B2, B3 and O3", () => {
+    expect(Object.keys(TEMPLATES)).toEqual([
+      "ops_alert",
+      "sign_in_link",
+      "order_confirmed_delayed",
+      "device_changed",
+    ]);
   });
 
   test("every template's fixture passes the payload allowlist", () => {

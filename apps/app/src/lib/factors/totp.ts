@@ -490,7 +490,7 @@ export async function checkSecondFactorCode(
       // assertNoPhi, and the event's own time says when it began.
       metadata: { lockedForMinutes: LOCKOUT_MS / 60_000 },
     });
-    await notifyDeviceChange({ userId, kind: "locked" });
+    await notifyDeviceChange({ userId, kind: "locked", lockedUntil: counted.lockedUntil });
     return { ok: false, reason: "locked", lockedUntil: counted.lockedUntil };
   }
   return { ok: false, reason: "incorrect" };

@@ -29,7 +29,7 @@ import { spokenPhone, spokenSlot } from "@/lib/voice/spoken";
 import { __resetVoiceToolLimitsForTests, __setVoiceToolRuntimeForTests, callRefOf, depositLine, VOICE_TOOL_LIMITS } from "@/lib/voice/tools";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedClinic } from "./setup/factories";
+import { inTenant, seedClinic, seedEntitled } from "./setup/factories";
 
 /**
  * Direct booking by the phone assistant (design of 23 September 2026, §E),
@@ -116,6 +116,9 @@ describeDb("the direct-booking tools", () => {
       `update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now(), specialty = $2, timezone = $3 where id = $1`,
       [c.clinicId, opts.specialty ?? "med-spa", TZ],
     );
+    // A production clinic answers only with a billing row and a live voice
+    // channel: the answer gate in front of the tools fails closed without them.
+    await seedEntitled(c.clinicId, { channelRows: [{ channel: "voice", liveAt: new Date() }] });
     await inTenant(c.clinicId, (client) => client.query(`insert into report_recipients (clinic_id, email, added_by) values ($1, $2, 'test')`, [c.clinicId, "desk@example-clinic.test"]));
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
       await setPhoneSettings(tx, { publishedPhoneE164: "+14155550199" });
@@ -170,6 +173,8 @@ describeDb("the direct-booking tools", () => {
       booking_mode: "desk_confirms",
       deposit_line: expect.stringMatching(/^A deposit of 100 dollars/),
       clinic_phone_spoken: "four one five — five five five — oh one nine nine",
+      answer_mode: "assistant",
+      transfer_number: null,
     });
     const refused = await post("slots", desk.clinicId, call("ctx1"));
     expect(refused.status).toBe(403);

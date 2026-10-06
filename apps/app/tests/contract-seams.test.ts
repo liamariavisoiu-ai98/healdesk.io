@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { Transaction } from "@/db";
+import { createLocationClinic, LOCATION_CLINICS_READY } from "@/lib/location-clinic";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { notifyCalendarState } from "@/lib/notices/calendar-state";
 import { notifyOps, OPS_EVENTS } from "@/lib/ops/notify";
@@ -96,5 +97,22 @@ describe("the portal guards", () => {
         "patient_pages",
       ),
     ).rejects.toThrow(/^NEXT_REDIRECT \/c\/any-clinic\/step-up\?next=%2Fc%2Fany-clinic$/);
+  });
+});
+
+describe("extra locations", () => {
+  // addLocation charges before it creates the clinic, and refuses while this
+  // flag is false. The flag and the real body must change together: a true
+  // flag over the stub would take a clinic's money for a location that then
+  // fails to exist.
+  test("are refused while createLocationClinic is still a stub", async () => {
+    expect(LOCATION_CLINICS_READY).toBe(false);
+    await expect(
+      createLocationClinic({
+        billingClinicId: CLINIC,
+        locationNumber: 2,
+        actor: { type: "service", serviceName: "test" },
+      }),
+    ).rejects.toThrow(/provisioning rewrite/);
   });
 });

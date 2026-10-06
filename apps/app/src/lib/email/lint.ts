@@ -102,6 +102,14 @@ const CATEGORY_KEYS: ReadonlySet<string> = new Set([
   "interval",
   "overageMode",
   "mode",
+  // How a clinic's calls reach us, so a suspension, an end of service or a
+  // plan change that drops voice can print the steps for undoing forwarding
+  // from catalog forwardingInstructions(...).undo; and the one action a
+  // waiting channel needs (L4). Catalog ids, never words.
+  "carrier",
+  "phoneSystem",
+  "routing",
+  "waitingOn",
 ]);
 
 /** The class a key's value must belong to, or null when the key is not on the list. */

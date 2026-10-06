@@ -68,6 +68,9 @@ describe("every sentence the generator can produce", () => {
     }
   });
 
+  // Every combination the generator can produce, thousands of rows: seconds
+  // of work, which a loaded machine stretches past vitest's five-second
+  // default. The bound is a minute so a real hang still fails.
   test("every outreach row is clean", () => {
     const platforms = [null, "gohighlevel", "mindbody", "booker", "boulevard", "calendly", "zenoti"];
     const hoursShapes = [
@@ -122,7 +125,7 @@ describe("every sentence the generator can produce", () => {
       }
     }
     expect(checked).toBeGreaterThan(1_000);
-  });
+  }, 60_000);
 
   test("every unreadable-site row is clean", () => {
     for (const reason of ["no pages fetched", "too little text"] as const) {

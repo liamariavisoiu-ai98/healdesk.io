@@ -12,6 +12,7 @@ import type Stripe from "stripe";
 
 import { APP_MARKER, isBillingConfigured, stripeClient } from "@/lib/billing";
 import { markCheckoutAbandoned, markConverted } from "@/lib/leads";
+import { updateSetupRequest } from "@/lib/setup-requests";
 
 /**
  * POST /api/webhooks/stripe — every Stripe event we act on, verified here and
@@ -285,6 +286,7 @@ async function provision(event: Stripe.Event, relay: Relay): Promise<Response> {
       // completes, which for a delayed payment method is before the first
       // invoice is paid and before the clinic is `active`.
       await recordConversion(session);
+      await markSetupLinkUsed(session);
       return Response.json({ received: true });
 
     case "unreachable":
@@ -549,6 +551,8 @@ export function provisionRequestFromMetadata(
     // Attribution rides on the Session for the lead store, never for apps/app.
     campaign: _campaign,
     leadId: _leadId,
+    offer: _offer,
+    setupRequest: _setupRequest,
     averageTreatmentValueUsd,
     billingInterval,
     chatChannelChoice,
@@ -573,6 +577,26 @@ export function provisionRequestFromMetadata(
     request.billingInterval = billingInterval;
   }
   return request;
+}
+
+/**
+ * The setup link that opened this purchase is spent: the checkout refuses it
+ * from now on (lib/setup-gate.ts). Never throws, and runs after the account is
+ * recorded, like the conversion: a Sheet outage must not fail a provisioning.
+ * A link left unstamped could open a second purchase until it expires, which
+ * is why M2 also binds the link to the checkout intent with a unique
+ * `invite_ref`, so the database refuses the second one.
+ */
+async function markSetupLinkUsed(session: Stripe.Checkout.Session): Promise<void> {
+  const id = session.metadata?.setupRequest;
+  if (!id) return;
+  try {
+    await updateSetupRequest(id, { status: "paid", paidAt: new Date() });
+  } catch (error) {
+    console.error("[healdesk] could not mark the setup link used", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 /** The lead store's view of a completed purchase. Never throws. */

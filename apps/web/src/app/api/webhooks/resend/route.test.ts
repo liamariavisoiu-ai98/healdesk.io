@@ -25,6 +25,19 @@ describe("Resend (Svix) signature verification", () => {
     expect(verifySvix(headers, body, SECRET, now)).toBe(true);
   });
 
+  test("accepts the svix-* headers Resend documents, and prefers them", () => {
+    const headers = new Headers({
+      "svix-id": "msg_1",
+      "svix-timestamp": String(ts),
+      "svix-signature": sign("msg_1", ts, body),
+      // A stale unbranded copy must not be what gets checked.
+      "webhook-id": "msg_old",
+      "webhook-timestamp": String(ts - 3600),
+      "webhook-signature": "v1,garbage",
+    });
+    expect(verifySvix(headers, body, SECRET, now)).toBe(true);
+  });
+
   test("rejects a wrong secret, a tampered body, and a stale timestamp", () => {
     const good = sign("msg_1", ts, body);
     expect(

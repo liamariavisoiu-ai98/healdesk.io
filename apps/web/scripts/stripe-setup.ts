@@ -526,9 +526,9 @@ async function syncPackage(
 }
 
 // ---------------------------------------------------------------------------
-// The founding-cohort setup credit: one coupon per package.
+// The setup credit: one coupon per package.
 //
-// Day 7 of the nurture sequence offers the first cohort their setup fee back
+// Day 7 of the nurture sequence offers the setup fee back
 // (catalog COHORT_SETUP_CREDIT). Checkout honours it by naming the coupon on
 // the Session (`discounts`, lib/billing.ts), and Stripe refuses a Session
 // that names a coupon it does not have — so this runs before any of those
@@ -554,9 +554,20 @@ async function syncCohortCoupons(stripe: Stripe): Promise<void> {
       if (existing.currency !== "usd") problems.push(`currency is ${existing.currency}`);
       if (existing.duration !== "once") problems.push(`duration is ${existing.duration}, want once`);
       if (!existing.valid) problems.push("coupon is no longer valid");
-      if (problems.length === 0) verified(`${label}  ${existing.id}`);
-      // A coupon's amount cannot be changed in place: delete it and re-run.
-      else drift(`${label}  ${existing.id}: ${problems.join("; ")}`);
+      if (problems.length > 0) {
+        // A coupon's amount cannot be changed in place: delete it and re-run.
+        drift(`${label}  ${existing.id}: ${problems.join("; ")}`);
+        continue;
+      }
+      // The name can, and Stripe prints it on Checkout and the invoice, so it
+      // follows the catalog (it lost "Founding-cohort" on 6 October 2026).
+      if (existing.name !== COHORT_SETUP_CREDIT.name) {
+        await stripe.coupons.update(existing.id, { name: COHORT_SETUP_CREDIT.name });
+        tally.updated += 1;
+        line("~", `UPDATED: ${label}  ${existing.id}  (name now matches the catalog)`);
+        continue;
+      }
+      verified(`${label}  ${existing.id}`);
       continue;
     }
     const coupon = await stripe.coupons.create({

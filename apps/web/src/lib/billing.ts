@@ -142,6 +142,12 @@ export type CheckoutIntent = {
     leadId: string | null;
     /** "cohort-setup" when the lead was offered the founding-cohort credit inside its window. */
     offer?: "cohort-setup" | null;
+    /**
+     * The setup request whose link opened this purchase, while purchases are
+     * by invitation. The webhook stamps the request paid, which is what
+     * makes the link single-use (lib/setup-gate.ts).
+     */
+    setupRequestId?: string | null;
   };
 };
 
@@ -324,6 +330,7 @@ export async function createCheckout(
       ...(intent.attribution?.campaign ? { campaign: intent.attribution.campaign } : {}),
       ...(intent.attribution?.leadId ? { leadId: intent.attribution.leadId } : {}),
       ...(intent.attribution?.offer ? { offer: intent.attribution.offer } : {}),
+      ...(intent.attribution?.setupRequestId ? { setupRequest: intent.attribution.setupRequestId } : {}),
     },
     // Surfaces in the Dashboard next to the payment, so support can find a
     // clinic without opening metadata.

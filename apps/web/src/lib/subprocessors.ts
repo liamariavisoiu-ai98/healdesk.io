@@ -189,8 +189,8 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   },
   {
     name: "Google (Google Sheets / Drive)",
-    purpose: "The marketing site's lead register: demo leads, funnel events and the demo-call consent record, in a Google Sheet",
-    data: "Work email, business or personal domain, specialty demoed, referrer host, campaign code, the marketing-consent record",
+    purpose: "The marketing site's lead register: demo leads, funnel events, the demo-call consent record and setup requests, in a Google Sheet",
+    data: "Work email, business or personal domain, specialty demoed, referrer host, campaign code, the marketing-consent record; for a setup request, the requester's name, the clinic's name, website and email, the channels wanted, and the IP address it came from",
     region: "United States (Google Cloud; not region-pinned for a Google account)",
     handlesPhi: false,
     baa: { state: "not-needed", because: "Business contact data only; a separate store from the product's; no patient information ever reaches it." },

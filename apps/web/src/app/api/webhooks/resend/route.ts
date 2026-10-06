@@ -11,12 +11,17 @@ export const dynamic = "force-dynamic";
  * Resend's delivery webhook: bounces and complaints come back here and
  * become a flag on the lead, before the next send rather than after.
  *
- * Resend signs with Svix: `webhook-id`, `webhook-timestamp` and
- * `webhook-signature` headers, HMAC-SHA256 over `${id}.${timestamp}.${body}`
- * with the base64 secret after the `whsec_` prefix, compared to any of the
- * space-separated `v1,<base64>` values. Verified here without the svix
- * package — it is thirty lines and one fewer dependency on the marketing
- * site. Five-minute tolerance on the timestamp.
+ * Resend signs with Svix: `svix-id`, `svix-timestamp` and `svix-signature`
+ * headers (Resend's "Verify webhook requests"), HMAC-SHA256 over
+ * `${id}.${timestamp}.${body}` with the base64 secret after the `whsec_`
+ * prefix, compared to any of the space-separated `v1,<base64>` values.
+ * Verified here without the svix package — it is thirty lines and one fewer
+ * dependency on the marketing site. Five-minute tolerance on the timestamp.
+ *
+ * This read only the unbranded `webhook-*` names until 6 October 2026.
+ * Resend's documentation names only the branded ones, so a delivery carrying
+ * just those could never verify, and its bounce or complaint never reached
+ * the lead. Both spellings are accepted now, the branded one first.
  */
 const TOLERANCE_S = 5 * 60;
 
@@ -26,9 +31,9 @@ export function verifySvix(
   secret: string,
   now: number = Date.now(),
 ): boolean {
-  const id = headers.get("webhook-id");
-  const timestamp = headers.get("webhook-timestamp");
-  const signature = headers.get("webhook-signature");
+  const id = headers.get("svix-id") ?? headers.get("webhook-id");
+  const timestamp = headers.get("svix-timestamp") ?? headers.get("webhook-timestamp");
+  const signature = headers.get("svix-signature") ?? headers.get("webhook-signature");
   if (!id || !timestamp || !signature) return false;
   const ts = Number(timestamp);
   if (!Number.isFinite(ts) || Math.abs(now / 1000 - ts) > TOLERANCE_S) return false;

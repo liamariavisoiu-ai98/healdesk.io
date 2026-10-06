@@ -7,6 +7,7 @@ import {
   CALL_CONSENTS,
   LEADS,
   LEAD_EVENTS,
+  SETUP_REQUESTS,
   cellRange,
   dataRange,
   ensureSheetSchema,
@@ -17,6 +18,7 @@ import {
   type CallConsent,
   type Lead,
   type LeadEvent,
+  type SetupRequest,
   type Tab,
 } from "@/lib/sheets/schema";
 
@@ -173,7 +175,7 @@ async function appendEvent(
 }
 
 /** Delete rows by sheet row number, highest first so nothing shifts under a later delete. */
-async function deleteRows(client: SheetsClient, tab: Tab, rows: number[]): Promise<void> {
+export async function deleteRows(client: SheetsClient, tab: Tab, rows: number[]): Promise<void> {
   if (rows.length === 0) return;
   const sheetId = await client.getSheetId(tab.title);
   if (sheetId === null) throw new Error(`The "${tab.title}" tab is missing from the marketing Sheet.`);
@@ -336,6 +338,15 @@ export async function purgeStaleLeads(months: number): Promise<number> {
   for (const consent of consents) {
     if (consent.value.leadId && ids.has(consent.value.leadId)) {
       await client.updateRange(cellRange(CALL_CONSENTS, consent.row, "lead_id"), [[""]]);
+    }
+  }
+
+  // The same for a setup request that came from one of these leads: the
+  // request has its own retention clock (setup-requests.ts).
+  const requests = await readRows(client, SETUP_REQUESTS, (cells) => rowToRecord(SETUP_REQUESTS, cells) as SetupRequest);
+  for (const request of requests) {
+    if (request.value.leadId && ids.has(request.value.leadId)) {
+      await client.updateRange(cellRange(SETUP_REQUESTS, request.row, "lead_id"), [[""]]);
     }
   }
 

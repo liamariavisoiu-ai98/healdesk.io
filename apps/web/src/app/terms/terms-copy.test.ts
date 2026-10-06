@@ -185,8 +185,10 @@ describe("the first-month guarantee", () => {
     expect(text).toContain("Sections 5, 7 and 9 to 20 survive termination");
   });
 
-  test("the page carries the version that introduced it", () => {
-    expect(LEGAL_VERSION).toBe("2026-10-05.2");
+  test("has been in the terms since the version that introduced it, and the page prints its version", () => {
+    // Introduced in 2026-10-05.2. Versions are dated, so later ones sort after
+    // it; legal-version.test.ts is what pins each version's exact text.
+    expect(LEGAL_VERSION >= "2026-10-05.2").toBe(true);
     expect(text).toContain(`Version ${LEGAL_VERSION}`);
   });
 });

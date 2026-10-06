@@ -13,7 +13,7 @@ import {
 import { inTenant, seedClinic } from "./setup/factories";
 
 /**
- * drizzle/0045 (the email platform), asserted: the ledger's widened kinds and
+ * drizzle/0046 (the email platform), asserted: the ledger's widened kinds and
  * its delivery columns, what the runtime role may do to the ledger and the two
  * ops tables, and the outbox's tenant walk.
  */
@@ -60,7 +60,7 @@ async function updatableColumns(table: string): Promise<string[]> {
   return rows.map((r) => r.attname);
 }
 
-describeDb("drizzle/0045: the email platform's schema", () => {
+describeDb("drizzle/0046: the email platform's schema", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();

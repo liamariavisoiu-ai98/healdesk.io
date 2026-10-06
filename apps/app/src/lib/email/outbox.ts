@@ -554,7 +554,7 @@ export type PendingNotice = {
 
 /**
  * Unsent, not-dead notices of these kinds, across every clinic, through the
- * tenant walk in drizzle/0045 (billing_notices forces row-level security, and
+ * tenant walk in drizzle/0046 (billing_notices forces row-level security, and
  * the sender has no tenant until it has chosen a notice). Ids and kinds only.
  */
 export async function pendingNotices(

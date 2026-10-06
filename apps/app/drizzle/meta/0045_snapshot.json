@@ -1,5 +1,5 @@
 {
-  "id": "6b26113a-e27d-43e9-a25d-1016beb77b44",
+  "id": "b6acaabb-91b6-47d3-b521-8b8db2eabd38",
   "prevId": "4d70c8f9-0e9d-4aab-9d88-a709a17f77c9",
   "version": "7",
   "dialect": "postgresql",
@@ -1943,6 +1943,56 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "profile": {
+          "name": "profile",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "profile_status": {
+          "name": "profile_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'none'"
+        },
+        "invite_ref": {
+          "name": "invite_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attempt": {
+          "name": "attempt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "open_session_id": {
+          "name": "open_session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "nonce_hash": {
+          "name": "nonce_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provisioned_user_id": {
+          "name": "provisioned_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provision_failed_at": {
+          "name": "provision_failed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -1971,6 +2021,13 @@
           "columns": [
             "stripe_subscription_id"
           ]
+        },
+        "checkout_intents_invite_ref_unique": {
+          "name": "checkout_intents_invite_ref_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "invite_ref"
+          ]
         }
       },
       "policies": {},
@@ -1978,6 +2035,14 @@
         "checkout_intents_interval_check": {
           "name": "checkout_intents_interval_check",
           "value": "\"checkout_intents\".\"billing_interval\" in ('month', 'year')"
+        },
+        "checkout_intents_profile_status_check": {
+          "name": "checkout_intents_profile_status_check",
+          "value": "\"checkout_intents\".\"profile_status\" in ('read', 'failed', 'none')"
+        },
+        "checkout_intents_nonce_hash_length": {
+          "name": "checkout_intents_nonce_hash_length",
+          "value": "\"checkout_intents\".\"nonce_hash\" is null or octet_length(\"checkout_intents\".\"nonce_hash\") = 32"
         }
       },
       "isRLSEnabled": false
@@ -3781,49 +3846,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.email_daily_quota": {
-      "name": "email_daily_quota",
-      "schema": "",
-      "columns": {
-        "day": {
-          "name": "day",
-          "type": "date",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "used": {
-          "name": "used",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "observed_at": {
-          "name": "observed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "alerted_at": {
-          "name": "alerted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "email_daily_quota_used_check": {
-          "name": "email_daily_quota_used_check",
-          "value": "\"email_daily_quota\".\"used\" >= 0"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.entitlements": {
       "name": "entitlements",
       "schema": "",
@@ -4448,121 +4470,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.ops_alerts": {
-      "name": "ops_alerts",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "event": {
-          "name": "event",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "dedupe_key": {
-          "name": "dedupe_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "fields": {
-          "name": "fields",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "raised_at": {
-          "name": "raised_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "last_raised_at": {
-          "name": "last_raised_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "repeats": {
-          "name": "repeats",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "sent_at": {
-          "name": "sent_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "message_id": {
-          "name": "message_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_error": {
-          "name": "last_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "ops_alerts_dedupe_idx": {
-          "name": "ops_alerts_dedupe_idx",
-          "columns": [
-            {
-              "expression": "event",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "dedupe_key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "raised_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "ops_alerts_event_check": {
-          "name": "ops_alerts_event_check",
-          "value": "\"ops_alerts\".\"event\" ~ '^[a-z0-9]+(_[a-z0-9]+)*$'"
-        },
-        "ops_alerts_dedupe_key_check": {
-          "name": "ops_alerts_dedupe_key_check",
-          "value": "char_length(\"ops_alerts\".\"dedupe_key\") <= 400"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.overage_invoices": {
       "name": "overage_invoices",
       "schema": "",
@@ -5180,18 +5087,6 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
-        },
-        "delivery_status": {
-          "name": "delivery_status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "delivery_at": {
-          "name": "delivery_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -5247,16 +5142,7 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "report_deliveries_kind_check": {
-          "name": "report_deliveries_kind_check",
-          "value": "\"report_deliveries\".\"kind\" in ('monthly', 'weekly', 'alert', 'renewal', 'payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected')"
-        },
-        "report_deliveries_delivery_status_check": {
-          "name": "report_deliveries_delivery_status_check",
-          "value": "\"report_deliveries\".\"delivery_status\" is null or \"report_deliveries\".\"delivery_status\" in ('sent', 'delivered', 'bounced', 'complained', 'suppressed', 'delayed')"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.report_recipients": {

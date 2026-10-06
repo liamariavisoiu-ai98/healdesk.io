@@ -320,8 +320,15 @@
     {
       "idx": 45,
       "version": "7",
-      "when": 1791275446709,
-      "tag": "0045_email_platform",
+      "when": 1791274802932,
+      "tag": "0045_checkout_intents_funnel",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1791279431789,
+      "tag": "0046_email_platform",
       "breakpoints": true
     }
   ]

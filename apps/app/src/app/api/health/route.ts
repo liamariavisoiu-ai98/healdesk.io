@@ -73,7 +73,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     } catch {
       queue = null;
     }
-    // The email platform. Unreadable (a database without 0045 yet) reads as
+    // The email platform. Unreadable (a database without 0046 yet) reads as
     // null, like the queue above, rather than as a red the deploy caused.
     try {
       const late = await lateCriticalNotices();

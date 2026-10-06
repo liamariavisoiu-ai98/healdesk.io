@@ -220,8 +220,8 @@ RDS instance, not after, because the first item cannot be added later.
 - *KMS:* one customer-managed key; a task-role policy limited to `GenerateDataKey`,
   `Decrypt` and `Encrypt` on it; `HEALDESK_KMS_PROVIDER`, `HEALDESK_KMS_KEY_ID` and
   `AWS_REGION` in every task definition (the KMS client has no region fallback);
-  `@aws-sdk/client-kms` in the image once the bundler inlining in CLAUDE.md is fixed; a
-  rotation runbook.
+  `@aws-sdk/client-kms` is a dependency of apps/app and ships in the image (fixed 6 October
+  2026); a rotation runbook.
 - *S3:* a bucket in the designated region; SSE-KMS with our key; a policy denying non-TLS
   requests; Block Public Access; versioning; lifecycle expiry matched to
   `clinics.retention_media_days`; Config rule `s3-bucket-ssl-requests-only`; no patient

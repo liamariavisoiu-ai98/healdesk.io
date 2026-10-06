@@ -523,10 +523,11 @@ function required(name: string, hint: string): string {
 /**
  * The SDK, imported lazily and the client memoised.
  *
- * Same shape as the SES client and crypto/kms.ts. `resend` IS a dependency of
- * this app, so unlike @aws-sdk/client-sesv2 this import cannot fail — the
- * laziness is only to keep the mail SDK out of every bundle that touches
- * deliver.ts, which by now is most of the console.
+ * Same shape as the SES client and crypto/kms.ts. `resend` is a dependency of
+ * this app and is bundled, so unlike the AWS SDKs, which are external and must
+ * be in node_modules at run time, this import cannot fail — the laziness is
+ * only to keep the mail SDK out of every bundle that touches deliver.ts, which
+ * by now is most of the console.
  *
  * Keyed by API key for the same reason the TLS memo is keyed by configuration
  * set name: a rotated key must not be answered from a memo about the previous

@@ -36,7 +36,7 @@ days, Connect OAuth states older than a day). The usage jobs and the annual invo
 stubs until their work packages land, and switched on early they record "Not built
 yet." and do nothing.
 
-The fifth, `billing-notices`, is the email platform's sender (drizzle/0045,
+The fifth, `billing-notices`, is the email platform's sender (drizzle/0046,
 `lib/email/outbox.ts`). It runs every minute from its own pg-boss queue, `notices`, not
 from the tick, and its job row is its switch: off, no clinic email is sent. Each notice
 is leased for two minutes while it sends and retried at 1, 5, 30, 120 and 360 minutes;

@@ -1,3 +1,5 @@
+import { isSpecialtyId, regimeFor, type SpecialtyId } from "./specialties";
+
 /**
  * The deterministic guard against clinical text in the agent's configuration.
  *
@@ -24,8 +26,14 @@
  * pregnant, which is the one claim the insurance excludes.
  */
 
-const CLINICAL_PATTERNS: { pattern: RegExp; label: string; allowPriceUnits?: boolean }[] = [
-  { pattern: /\b(safe|safely|safety)\b/i, label: "a safety claim" },
+/**
+ * `claim` marks the three patterns that are promises rather than clinical
+ * vocabulary: that a treatment is safe, that its results are guaranteed, that
+ * it is proven. They hold for every practice. The rest is the vocabulary of
+ * human medicine. See `ClinicalScreen`.
+ */
+const CLINICAL_PATTERNS: { pattern: RegExp; label: string; allowPriceUnits?: boolean; claim?: true }[] = [
+  { pattern: /\b(safe|safely|safety)\b/i, label: "a safety claim", claim: true },
   { pattern: /\b(side[- ]?effects?|risks?|complications?|contraindicat\w*)\b/i, label: "side effects or risks" },
   { pattern: /\b(pregnan\w*|breastfeed\w*|nursing mothers?)\b/i, label: "pregnancy or breastfeeding" },
   { pattern: /\b(dos(e|age|ing)|units?|mg\b|milligrams?|ml\b)\b/i, label: "dosing", allowPriceUnits: true },
@@ -34,9 +42,32 @@ const CLINICAL_PATTERNS: { pattern: RegExp; label: string; allowPriceUnits?: boo
   { pattern: /\b(recover\w* (time|period)|downtime|healing|aftercare|post[- ]?op\w*)\b/i, label: "recovery or aftercare" },
   { pattern: /\b(interact\w* with|blood thinners?|medications?|prescri\w*)\b/i, label: "medication or interactions" },
   { pattern: /\b(condition|disease|disorder|infection|allerg\w*)\b/i, label: "a medical condition" },
-  { pattern: /\b(results? (are|is) guaranteed|guaranteed results?|permanent(ly)? (removal|results?))\b/i, label: "a results guarantee" },
-  { pattern: /\b(FDA[- ]approved|clinically proven|medically proven)\b/i, label: "an efficacy claim" },
+  { pattern: /\b(results? (are|is) guaranteed|guaranteed results?|permanent(ly)? (removal|results?))\b/i, label: "a results guarantee", claim: true },
+  { pattern: /\b(FDA[- ]approved|clinically proven|medically proven)\b/i, label: "an efficacy claim", claim: true },
 ];
+
+/**
+ * Which patterns a field is screened against: `clinical`, the default, is all
+ * of them; `claims` is only the three claims.
+ *
+ * `claims` exists for one field, a veterinary practice's service names. The
+ * vocabulary above is written for human medicine, and a vet's menu is made of
+ * it ("Allergy testing", "Senior diagnostics", "Post-op check", "Heartworm
+ * medication"), so screening those names in full would refuse the menu
+ * itself. Everything else a vet writes, its policies, its answers and its
+ * greeting, is still screened in full: advice about an animal's dose or
+ * recovery is still advice the assistant must not give.
+ */
+export type ClinicalScreen = "clinical" | "claims";
+
+/**
+ * How a practice's service names are screened, by its specialty's regime:
+ * `claims` where HIPAA cannot apply because the patient is an animal, the full
+ * screen everywhere else, and the full screen when the specialty is unknown.
+ */
+export function serviceNameScreen(specialty: SpecialtyId | null | undefined): ClinicalScreen {
+  return isSpecialtyId(specialty) && regimeFor(specialty) === "non-hipaa" ? "claims" : "clinical";
+}
 
 /**
  * How a menu quotes a price by the unit: "$14 per unit", "$650/ml".
@@ -60,11 +91,15 @@ export type ClinicalFinding = { field: string; label: string; excerpt: string };
  * the match, enough to find it and short enough not to be the clinical copy
  * reproduced in a log.
  */
-export function findClinicalContent(fields: Record<string, string | null | undefined>): ClinicalFinding[] {
+export function findClinicalContent(
+  fields: Record<string, string | null | undefined>,
+  screen: ClinicalScreen = "clinical",
+): ClinicalFinding[] {
   const findings: ClinicalFinding[] = [];
   for (const [field, value] of Object.entries(fields)) {
     if (!value) continue;
-    for (const { pattern, label, allowPriceUnits } of CLINICAL_PATTERNS) {
+    for (const { pattern, label, allowPriceUnits, claim } of CLINICAL_PATTERNS) {
+      if (screen === "claims" && !claim) continue;
       const text = allowPriceUnits ? value.replace(PRICE_UNIT, (unit) => " ".repeat(unit.length)) : value;
       const match = pattern.exec(text);
       if (match) {

@@ -93,7 +93,7 @@ describeDb("database audit (0031)", () => {
     });
   });
 
-  test("every clinics column except the two gate columns stays updatable (a new column needs its GRANT)", async () => {
+  test("every clinics column except the gate columns stays updatable (a new column needs its GRANT)", async () => {
     const { rows } = await getMigratorPool().query<{ attname: string; ok: boolean }>(`
       select a.attname,
              has_column_privilege('healdesk_app'::name, a.attrelid, a.attnum, 'UPDATE') as ok
@@ -101,7 +101,8 @@ describeDb("database audit (0031)", () => {
        where a.attrelid = 'clinics'::regclass and a.attnum > 0 and not a.attisdropped
     `);
     const locked = rows.filter((r) => !r.ok).map((r) => r.attname).sort();
-    expect(locked).toEqual(["baa_signed_at", "data_classification"]);
+    // The BAA gate's two (0031), and the agreement-kind gate's two (0048).
+    expect(locked).toEqual(["agreement_kind", "baa_signed_at", "data_classification", "regulatory_regime"]);
   });
 
   test("app_mark_clinic_production refuses without a bound agreement and copies its date with one", async () => {

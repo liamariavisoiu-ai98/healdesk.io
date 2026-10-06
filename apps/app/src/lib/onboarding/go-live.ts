@@ -19,6 +19,13 @@ import { listClinics, type ClinicOverview } from "@/lib/ops/clinics";
 export type GoLiveCheck = { ok: true } | { ok: false; missing: string[] };
 
 export function goLivePreconditions(clinic: ClinicOverview): GoLiveCheck {
+  // TODO(plan Part J "Go-live", with app_mark_clinic_production): ask whether
+  // the agreement covers the clinic (agreementKindSufficient in
+  // lib/agreements/kind.ts, over clinics.regulatory_regime and
+  // clinics.agreement_kind, drizzle/0048). The overview does not project those
+  // columns yet, and recreating app_clinics_overview() for them belongs to the
+  // rewrite of both checks. Meanwhile the PHI gate refuses an uncovered
+  // clinic's data on every write.
   const missing: string[] = [];
   if (clinic.isCoveredEntity === null) missing.push("Covered-entity status is undetermined.");
   if (!clinic.baaSignedAt && !clinic.wentLiveAt) {

@@ -1,20 +1,26 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  agreementKindOfVersion,
+  type AgreementKind,
   type BillingInterval,
   CHANNELS,
   currentBaaTemplate,
+  getDpaTemplate,
   getPlan,
   getPlatform,
   isBillingInterval,
   isSpecialtyId,
   NO_PLATFORM_ID,
+  regimeFor,
+  type RegulatoryRegime,
   supportsVerifiedAttribution, emptyOnboarding } from "@healdesk/catalog";
 import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { unsafeDb, type Transaction } from "@/db";
 import { member, organization, user } from "@/db/auth-schema";
 import {
+  baaAcceptances,
   checkoutIntents,
   clinicChannels,
   clinicMemberships,
@@ -24,6 +30,7 @@ import {
 } from "@/db/schema";
 
 import { bindAgreement } from "./agreements";
+import { agreementKindSufficient } from "./agreements/kind";
 import { AuditRecorder } from "./audit";
 import { seedAgentConfig } from "./onboarding/agent-config";
 import { addRecipient } from "./reporting/recipients";
@@ -399,6 +406,10 @@ export async function provisionClinic(
     return { ...seen[0], replayed: true };
   }
 
+  // Which paper the clinic is under, and whether it may be provisioned
+  // against it (plan Part L), decided before anything is written.
+  const agreement = await agreementForProvisioning(request);
+
   const baseSlug = slugify(request.clinicName);
 
   // Retry on slug collision rather than checking first. Under RLS a
@@ -410,7 +421,7 @@ export async function provisionClinic(
     const slug =
       attempt === 0 ? baseSlug : `${baseSlug}-${randomUUID().slice(0, 6)}`;
     try {
-      return await provisionOnce({ request, context, options, email, platform, slug });
+      return await provisionOnce({ request, context, options, email, platform, slug, agreement });
     } catch (error) {
       if (attempt < 4 && isSlugCollision(error)) continue;
       throw error;
@@ -425,6 +436,7 @@ async function provisionOnce({
   email,
   platform,
   slug,
+  agreement,
 }: {
   request: ProvisionRequest;
   context: RequestContext;
@@ -432,6 +444,7 @@ async function provisionOnce({
   email: string;
   platform: { id: string };
   slug: string;
+  agreement: ProvisionedAgreement;
 }): Promise<ProvisionResult> {
   let ownerUserId = "";
   const organizationId = `org_${randomUUID().replace(/-/g, "").slice(0, 20)}`;
@@ -479,8 +492,9 @@ async function provisionOnce({
     });
 
     // Bind the agreement they already signed, rather than recording a new one —
-    // and do it BEFORE the clinic row, because the clinic needs the
-    // covered-entity determination out of the signed document.
+    // and do it BEFORE the clinic row, which takes its covered-entity
+    // determination and agreement kind from that same signed row (read by
+    // agreementForProvisioning before this transaction opened).
     //
     // If this fails the whole provision fails, and that is the correct
     // behaviour: an account whose agreement could not be attached is an account
@@ -512,7 +526,7 @@ async function provisionOnce({
         ...(request.phoneSystemType && request.phoneSystemType !== "unknown"
           ? { phone_type_confirmed: new Date().toISOString() }
           : {}),
-        ...(signed.isCoveredEntity !== null && signed.isCoveredEntity !== undefined
+        ...(agreement.isCoveredEntity !== null
           ? { covered_entity_confirmed: new Date().toISOString() }
           : {}),
       },
@@ -523,8 +537,14 @@ async function provisionOnce({
       // Taken from the signed agreement, never re-asked. This one determination
       // decides the contract, the consent standard, the state-law exposure and
       // the TCPA defence, so it must be the answer that is actually in the
-      // document — `null` where the buyer said they did not know.
-      isCoveredEntity: signed.isCoveredEntity ?? null,
+      // document — `null` where the buyer said they did not know, and false
+      // under a DPA, which only a practice outside HIPAA signs.
+      isCoveredEntity: agreement.isCoveredEntity,
+      // The gate columns (drizzle/0048): the specialty's regime and the kind of
+      // the agreement just bound, which the PHI gate reads with the line above.
+      // Written here, on insert; the runtime role cannot update either.
+      regulatoryRegime: agreement.regime,
+      agreementKind: agreement.kind,
       // Always synthetic at creation, whatever the buyer selected. Moving a
       // clinic to 'production' requires a signed BAA and is a deliberate,
       // separate act — until then the database refuses PHI writes entirely
@@ -625,6 +645,8 @@ async function provisionOnce({
         billingStatus,
         attributionMode: request.attributionMode,
         agreementId: request.agreementId,
+        agreementKind: agreement.kind,
+        regulatoryRegime: agreement.regime,
       },
     });
 
@@ -651,6 +673,88 @@ async function provisionOnce({
     ownerUserId,
     replayed: false,
   };
+}
+
+/** The agreement a clinic is provisioned under, as read from the signed row. */
+type ProvisionedAgreement = {
+  kind: AgreementKind;
+  regime: RegulatoryRegime;
+  /** The determination that goes on the clinic row: the signed answer under a BAA, false under a DPA. */
+  isCoveredEntity: boolean | null;
+};
+
+/**
+ * Read the signed agreement before anything is written, and refuse a clinic
+ * its agreement cannot cover (plan Part L, "Hand-offs").
+ *
+ * The kind comes from the row's own version (`agreementKindOfVersion`, the
+ * mirror of the generated `baa_acceptances.agreement_kind`), never from the
+ * request. A DPA is provisioned only under a released DPA template: the bound
+ * row's own template, as the plan asks, where the BAA gate above still reads
+ * the current BAA template until plan C15 changes it. A DPA is signed only by
+ * a practice outside HIPAA, so it must name this specialty and record no
+ * covered answer but "No", and the clinic is stored as not covered. Last, the
+ * kind must cover the specialty's regime with that answer, by the rule the PHI
+ * gate applies (app_agreement_kind_sufficient, drizzle/0048): a BAA at a
+ * veterinary practice, or a DPA at a practice HIPAA always reaches, never
+ * becomes an account.
+ */
+async function agreementForProvisioning(request: ProvisionRequest): Promise<ProvisionedAgreement> {
+  // validateProvisionRequest has already refused it on the route; this keeps
+  // a direct caller from reaching regimeFor() with an id it would throw on.
+  if (!isSpecialtyId(request.specialty)) {
+    throw new ProvisioningError("Unknown specialty.", "specialty");
+  }
+  const [row] = await unsafeDb
+    .select({ version: baaAcceptances.documentVersion, variables: baaAcceptances.variables })
+    .from(baaAcceptances)
+    .where(eq(baaAcceptances.id, request.agreementId))
+    .limit(1);
+  if (!row) {
+    throw new ProvisioningError(
+      "That agreement could not be attached — it may already belong to another account.",
+      "agreementId",
+    );
+  }
+
+  const kind = agreementKindOfVersion(row.version);
+  const regime = regimeFor(request.specialty);
+  const signed = (row.variables ?? {}) as { isCoveredEntity?: unknown; specialty?: unknown };
+
+  let isCoveredEntity: boolean | null;
+  if (kind === "dpa") {
+    if (getDpaTemplate(row.version)?.approvedByCounsel !== true) {
+      throw new Error(
+        `Data protection agreement ${row.version} is not released. Refusing to provision a ` +
+          `clinic against it: nothing may be signed under an unreleased template.`,
+      );
+    }
+    if (signed.specialty !== request.specialty) {
+      throw new ProvisioningError(
+        "The signed agreement was written for a different kind of practice.",
+        "specialty",
+      );
+    }
+    if (signed.isCoveredEntity !== undefined && signed.isCoveredEntity !== false) {
+      throw new ProvisioningError(
+        "A data protection agreement is only for a practice outside HIPAA.",
+        "agreementId",
+      );
+    }
+    isCoveredEntity = false;
+  } else {
+    isCoveredEntity = typeof signed.isCoveredEntity === "boolean" ? signed.isCoveredEntity : null;
+  }
+
+  if (!agreementKindSufficient(regime, kind, isCoveredEntity)) {
+    throw new ProvisioningError(
+      kind === "baa"
+        ? "A veterinary practice signs the data protection agreement, not the business associate agreement."
+        : "This practice signs the business associate agreement, not the data protection agreement.",
+      "agreementId",
+    );
+  }
+  return { kind, regime, isCoveredEntity };
 }
 
 /**

@@ -22,10 +22,12 @@ import {
 } from "drizzle-orm/pg-core";
 
 import {
+  type AgreementKind,
   type BillingInterval,
   type Channel,
   CHANNELS,
   type OnboardingState,
+  type RegulatoryRegime,
 } from "@healdesk/catalog";
 
 import type { OpeningHours } from "../lib/clinic/opening-hours";
@@ -326,6 +328,27 @@ export const clinics = pgTable(
     baaSignedAt: timestamp("baa_signed_at", { withTimezone: true }),
 
     /**
+     * The regime of the clinic's specialty when it was provisioned
+     * (`regimeFor` in @healdesk/catalog): 'hipaa', 'hipaa-if-covered' or
+     * 'non-hipaa'. With `agreementKind` and `isCoveredEntity` it is what
+     * app_agreement_kind_sufficient() reads (drizzle/0048) to decide whether
+     * the agreement in force covers this clinic's data, which the PHI gate
+     * asks on every write. A gate column: provisioning writes it on insert and
+     * the runtime role holds no UPDATE on it, so a later edit of `specialty`
+     * does not move it.
+     */
+    regulatoryRegime: text("regulatory_regime").$type<RegulatoryRegime>(),
+    /**
+     * The kind of data agreement the clinic is under, 'baa' or 'dpa', taken at
+     * provisioning from the bound acceptance's version and moved afterwards
+     * only by app_supersede_agreement(), from a DPA to a BAA (drizzle/0048).
+     * A gate column like `regulatoryRegime`. Null only on a clinic created
+     * before 0048 whose organisation held no bound agreement, which the PHI
+     * gate treats as it always has.
+     */
+    agreementKind: text("agreement_kind").$type<AgreementKind>(),
+
+    /**
      * The retention clocks, in days, per clinic. Two, because the two kinds
      * of data have different value and different risk:
      *
@@ -475,6 +498,19 @@ export const clinics = pgTable(
     check(
       "clinics_billing_clinic_not_self",
       sql`${t.billingClinicId} is null or ${t.billingClinicId} <> ${t.id}`,
+    ),
+    check(
+      "clinics_regulatory_regime_check",
+      sql`${t.regulatoryRegime} is null or ${t.regulatoryRegime} in ('hipaa', 'hipaa-if-covered', 'non-hipaa')`,
+    ),
+    check(
+      "clinics_agreement_kind_check",
+      sql`${t.agreementKind} is null or ${t.agreementKind} in ('baa', 'dpa')`,
+    ),
+    // A specialty HIPAA always reaches never holds a DPA, whatever else is true.
+    check(
+      "clinics_dpa_never_hipaa",
+      sql`${t.agreementKind} is distinct from 'dpa' or ${t.regulatoryRegime} is distinct from 'hipaa'`,
     ),
   ],
 );
@@ -1482,6 +1518,20 @@ export const baaAcceptances = pgTable(
     documentHash: text("document_hash").notNull(),
 
     /**
+     * Which kind of agreement the row is: 'dpa' when the version is in the
+     * DPA's namespace ("dpa/1.0.0"), 'baa' for every other version. GENERATED
+     * ALWAYS from the version, like `retentionEligibleAt`, so no writer can
+     * label a signature with a kind its document does not have; a CHECK in
+     * 0048 keeps any other namespace out of `documentVersion`.
+     * `agreementKindOfVersion` in @healdesk/catalog is the TypeScript mirror,
+     * and tests/agreement-kinds.test.ts runs both over the same versions.
+     */
+    agreementKind: text("agreement_kind")
+      .$type<AgreementKind>()
+      .notNull()
+      .generatedAlwaysAs(sql`case when document_version like 'dpa/%' then 'dpa' else 'baa' end`),
+
+    /**
      * The exact document this person was shown, rendered.
      *
      * Stored in full rather than reconstructed on demand. Re-rendering from the
@@ -1605,6 +1655,13 @@ export const baaAcceptances = pgTable(
     check(
       "baa_acceptances_copy_hash_format",
       sql`${t.copyDocumentSha256} is null or ${t.copyDocumentSha256} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check("baa_acceptances_agreement_kind_check", sql`${t.agreementKind} in ('baa', 'dpa')`),
+    // A namespaced version is a DPA's; no other namespace may be stored, so
+    // the generated kind can never call an unknown document a BAA.
+    check(
+      "baa_acceptances_version_namespace",
+      sql`${t.documentVersion} not like '%/%' or ${t.documentVersion} like 'dpa/%'`,
     ),
   ],
 );

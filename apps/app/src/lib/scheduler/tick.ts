@@ -1,6 +1,5 @@
 import { runAnnualOverageJob } from "@/lib/billing/annual-overage";
 import { runBillingHousekeepingJob } from "@/lib/billing/housekeeping";
-import { runBillingNoticesJob } from "@/lib/billing/notices";
 import { runUsageAlertsJob } from "@/lib/billing/usage-alerts";
 import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
 import { expireLapsedRequests } from "@/lib/meta/booking-requests";
@@ -51,13 +50,12 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   await record("billing-sweep", () => runBillingSweepJob({ now }));
   // The Stripe launch (drizzle/0043). Hourly because each is a pure function
   // of rows that already exist and decides for itself what is due: the meter
-  // report sends unreported overage, the alerts job queues each threshold
-  // once per window, and the notices job is the backstop for any billing
-  // email the immediate send after a Stripe event did not deliver. Alerts run
-  // before notices so a threshold crossed this hour is mailed this hour.
+  // report sends unreported overage, and the alerts job queues each threshold
+  // once per window. The notices it queues are sent from the `notices` queue,
+  // every minute (lib/email/outbox.ts), which replaced the hourly
+  // billing-notices backstop that used to run here.
   await record("usage-meter-report", () => runUsageMeterReportJob({ now }));
   await record("usage-alerts", () => runUsageAlertsJob({ now }));
-  await record("billing-notices", () => runBillingNoticesJob({ now }));
   // Phase two: runJob() reports it "disabled" in v1 whatever its switch says.
   await record("monthly-report", () => runMonthlyReportJob({ now, send: true }));
   await record("weekly-recap", () => runWeeklyRecapJob({ now }));

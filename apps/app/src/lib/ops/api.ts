@@ -57,6 +57,8 @@ import {
   type IncidentClass,
 } from "@/lib/incidents/incidents";
 import { connectAuthorizeUrl } from "@/lib/billing/connect";
+import { applyEmailEvent, isDeliveryStatus } from "@/lib/email/events";
+import { KIND_SHAPE } from "@/lib/email/kind-rules";
 import { markExportDelivered, startOffboarding } from "@/lib/offboarding/offboarding";
 import { startForwardingTest } from "@/lib/onboarding/forwarding-test";
 import { listConnections } from "@/lib/connections/store";
@@ -265,6 +267,12 @@ const OPERATIONS = [
   "issueSetupLink",
   "retryCalendarWrite",
   "listCalendarWrites",
+  // The email platform (Annex X3): a Resend webhook event for mail this app
+  // sent, relayed by apps/web's one webhook. Machine to machine: the relay's
+  // caller verified Resend's signature, and the event carries ids, a status and
+  // a timestamp, never an address. It writes the delivery ledger, which is its
+  // record, and no audit row, so it is not in MUTATING_OPERATIONS.
+  "emailEvent",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -798,6 +806,8 @@ export async function runOperation(
       return opRetryCalendarWrite(args, operator);
     case "listCalendarWrites":
       return opListCalendarWrites(args, operator);
+    case "emailEvent":
+      return opEmailEvent(args);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The
@@ -3582,4 +3592,45 @@ async function opListCalendarWrites(
     },
   );
   return ok({ writes });
+}
+
+// -----------------------------------------------------------------------------
+// The email platform: Resend's webhook, relayed (Annex X3)
+// -----------------------------------------------------------------------------
+
+/**
+ * One delivery event for mail this app sent, as apps/web relays it: the type
+ * in the ledger's vocabulary, the event's timestamp, and the tags this app put
+ * on the email (clinic, delivery, kind). Every value is checked for shape
+ * before anything is opened; nothing else in `args` is read, so an address
+ * that strayed into the envelope goes nowhere.
+ */
+async function opEmailEvent(args: Record<string, unknown>): Promise<OpsOutcome> {
+  const type = stringArg(args, "type", 32);
+  if (!type || !isDeliveryStatus(type)) {
+    return opsProblem("A delivery event type is required.", 400, "invalid_args");
+  }
+  const atRaw = stringArg(args, "at", 40);
+  const at = atRaw ? new Date(atRaw) : null;
+  if (!at || Number.isNaN(at.getTime())) {
+    return opsProblem("The event's timestamp is required.", 400, "invalid_args");
+  }
+  const clinic = stringArg(args, "clinic", 64);
+  const delivery = stringArg(args, "delivery", 64);
+  const kind = stringArg(args, "kind", 64);
+  if (
+    (clinic && !UUID_SHAPED.test(clinic)) ||
+    (delivery && !UUID_SHAPED.test(delivery)) ||
+    (kind && !KIND_SHAPE.test(kind))
+  ) {
+    return opsProblem("The event's tags are not ids.", 400, "invalid_args");
+  }
+  const result = await applyEmailEvent({
+    type,
+    at,
+    ...(clinic ? { clinic } : {}),
+    ...(delivery ? { delivery } : {}),
+    ...(kind ? { kind } : {}),
+  });
+  return ok(result);
 }

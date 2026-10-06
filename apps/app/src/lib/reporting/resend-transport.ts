@@ -245,17 +245,27 @@ export class ResendTransport implements EmailTransport {
 
     let attachments: ResendAttachment[];
     let to: string;
+    let replyTo: string | undefined;
+    let headers: Record<string, string> | undefined;
     try {
       assertHeaderSafe(target.to, message.subject);
       to = sendableRecipient(target.to);
+      replyTo = message.replyTo === undefined ? undefined : sendableRecipient(message.replyTo);
+      headers = safeHeaders(message.headers);
+      if (message.from !== undefined && /[\r\n\0]/.test(message.from)) {
+        throw new ResendMessageError(
+          "Refusing to send: the sender address contains a line break or null byte.",
+        );
+      }
       attachments = encodeAttachments(message.attachments ?? []);
     } catch (error) {
       // An unusable header value, or a file too large, empty or unusably named,
       // is a fact about this one message rather than a misconfiguration, so it
       // is reported and the rest of a batch carries on — the same split
-      // SesTransport makes.
+      // SesTransport makes. Named, because sending it again cannot help: the
+      // outbox treats it as final rather than retrying it.
       if (error instanceof ResendMessageError) {
-        return { status: "failed", reason: error.message };
+        return { status: "failed", reason: error.message, errorName: "invalid_message" };
       }
       throw error;
     }
@@ -264,33 +274,54 @@ export class ResendTransport implements EmailTransport {
 
     let response: Awaited<ReturnType<typeof resend.emails.send>>;
     try {
+      const payload = {
+        from: message.from ?? from,
+        // The transmitted form, not the typed one — trimmed, checked for a
+        // line break, and with an internationalised domain already converted
+        // to its A-label. See sendableRecipient() for why that conversion
+        // happens here rather than being left to the API.
+        to,
+        subject: message.subject,
+        text: message.text,
+        // Omitted rather than sent empty: an empty text/html alternative is
+        // rendered as a blank message by the clients that prefer HTML, which
+        // is how a report becomes "healdesk sent me nothing".
+        ...(message.html ? { html: message.html } : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
+        // The email platform's fields, each omitted when absent so a message
+        // that never set them goes out exactly as it did before they existed.
+        ...(replyTo ? { replyTo } : {}),
+        ...(headers ? { headers } : {}),
+        ...(message.tags && message.tags.length > 0 ? { tags: [...message.tags] } : {}),
+      };
+      // The key travels as the Idempotency-Key header (the SDK's second
+      // argument). Resend keeps a key and its body for 24 hours, so a retry
+      // with the same key and the same bytes is answered with the first
+      // send's result instead of a second email.
       response = await withTimeout(
-        resend.emails.send({
-          from,
-          // The transmitted form, not the typed one — trimmed, checked for a
-          // line break, and with an internationalised domain already converted
-          // to its A-label. See sendableRecipient() for why that conversion
-          // happens here rather than being left to the API.
-          to,
-          subject: message.subject,
-          text: message.text,
-          // Omitted rather than sent empty: an empty text/html alternative is
-          // rendered as a blank message by the clients that prefer HTML, which
-          // is how a report becomes "healdesk sent me nothing".
-          ...(message.html ? { html: message.html } : {}),
-          ...(attachments.length > 0 ? { attachments } : {}),
-        }),
+        message.idempotencyKey
+          ? resend.emails.send(payload, { idempotencyKey: message.idempotencyKey })
+          : resend.emails.send(payload),
         RESEND_REQUEST_TIMEOUT_MS,
       );
     } catch (error) {
       // The SDK turns a network failure into an error VALUE and does not throw,
       // so this catches the timeout above and anything genuinely unexpected.
+      // A timeout is named as one, because the outbox retries it under the same
+      // idempotency key; anything else carries no detail, which it reads the
+      // same way.
       return {
         status: "failed",
         reason:
           error instanceof Error ? error.message : "Resend request failed.",
+        ...(error instanceof ResendTimeoutError ? { statusCode: null, errorName: "timeout" } : {}),
       };
     }
+
+    // Every answer, accepted or refused, carries the account's count for the
+    // UTC day on the free plan. lib/email/send.ts records it; the 70 alarm and
+    // the ops digest read it from there.
+    const quota = dailyQuotaFrom(response.headers);
 
     /**
      * The whole reason this transport is not a three-line wrapper.
@@ -306,6 +337,11 @@ export class ResendTransport implements EmailTransport {
       return {
         status: "failed",
         reason: `Resend refused the message (${response.error.name}): ${response.error.message}`,
+        // What the outbox decides on: a 429, a 5xx or no answer is retried, a
+        // daily quota waits for the next UTC day, and any other 4xx is final.
+        statusCode: response.error.statusCode ?? null,
+        errorName: response.error.name,
+        ...(quota === undefined ? {} : { quota }),
       };
     }
 
@@ -320,8 +356,51 @@ export class ResendTransport implements EmailTransport {
       };
     }
 
-    return { status: "sent", messageId: response.data.id };
+    return {
+      status: "sent",
+      messageId: response.data.id,
+      ...(quota === undefined ? {} : { quota }),
+    };
   }
+}
+
+/**
+ * Resend's `x-resend-daily-quota` response header as a count, or undefined
+ * when it is absent (paid plans do not send it) or not a whole number.
+ */
+function dailyQuotaFrom(headers: Record<string, string> | null | undefined): number | undefined {
+  const raw = headers?.["x-resend-daily-quota"];
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  return Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
+/**
+ * RFC 7230 token characters: what a header NAME may be made of. A name with a
+ * colon or a space in it is not a header we meant to add.
+ */
+const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,64}$/;
+
+/**
+ * The caller's extra headers, refused whole if any one is unsafe. Resend writes
+ * them into the message itself, by code we cannot read, so a line break in a
+ * value is treated as an injected header, the same as in the subject.
+ */
+function safeHeaders(
+  headers: Readonly<Record<string, string>> | undefined,
+): Record<string, string> | undefined {
+  if (!headers) return undefined;
+  const entries = Object.entries(headers);
+  if (entries.length === 0) return undefined;
+  for (const [name, value] of entries) {
+    if (!HEADER_NAME.test(name) || typeof value !== "string" || /[\r\n\0]/.test(value)) {
+      throw new ResendMessageError(
+        "Refusing to send: an extra header has an unusable name, or a value with a " +
+          "line break or null byte, which in a mail header means an injected header.",
+      );
+    }
+  }
+  return Object.fromEntries(entries);
 }
 
 /**
@@ -466,6 +545,14 @@ async function client(apiKey: string): Promise<ResendClient> {
   return instance;
 }
 
+/** Our own deadline passed before Resend answered. Named so the outbox can retry it. */
+class ResendTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ResendTimeoutError";
+  }
+}
+
 /**
  * Bound the wait on a promise that has no deadline of its own.
  *
@@ -482,7 +569,7 @@ async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
         timer = setTimeout(
           () =>
             reject(
-              new Error(
+              new ResendTimeoutError(
                 `Resend did not respond within ${ms}ms. The message may still ` +
                   `have been sent — nothing here can cancel a request the API ` +
                   `has already accepted — so it is reported as failed and needs ` +

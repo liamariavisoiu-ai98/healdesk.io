@@ -38,6 +38,13 @@ export const QUEUE_RECONCILE_CLINIC = "reconcile-clinic";
 export const QUEUE_PROCESS_WEBHOOK = "process-webhook";
 /** The clock. pg-boss's cron sends one empty job here every hour; the worker's tick handler drains it. */
 export const QUEUE_TICK = "tick-hourly";
+/**
+ * The email outbox's minute clock (lib/email/outbox.ts): every due notice and
+ * every retry. pg-boss's cron sends one empty job here every minute. A queue of
+ * its own rather than the hourly tick, because a retry promised for one minute
+ * later cannot wait for the top of the hour.
+ */
+export const QUEUE_NOTICES = "notices";
 
 /**
  * scripts/install-queue.ts creates exactly these, and pg-boss v10 refuses to
@@ -51,6 +58,7 @@ export const QUEUES = [
   QUEUE_RECONCILE_CLINIC,
   QUEUE_PROCESS_WEBHOOK,
   QUEUE_TICK,
+  QUEUE_NOTICES,
 ] as const;
 
 export type QueueName = (typeof QUEUES)[number];

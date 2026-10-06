@@ -1,7 +1,9 @@
 import { reconcilePeriod } from "@/lib/sync/reconcile-store";
 import { monthContaining, previousMonth } from "@/lib/attribution/period";
+import { runBillingNoticesJob } from "@/lib/email/outbox";
 import {
   getBoss,
+  QUEUE_NOTICES,
   QUEUE_PROCESS_WEBHOOK,
   QUEUE_RECONCILE_CLINIC,
   QUEUE_SYNC_CONNECTION,
@@ -116,6 +118,17 @@ async function main(): Promise<void> {
     log.info("tick", {
       status: outcomes.map((o) => `${o.job}=${o.status}`).join(" "),
     });
+  });
+
+  // The email outbox's clock: every minute, every due notice and every retry,
+  // behind the billing-notices job row's switch (lib/email/outbox.ts). Each
+  // notice is leased by its own conditional UPDATE, so a run that overlaps the
+  // next, or a second worker, never sends one twice. A failed run throws so
+  // pg-boss records it; the next minute's run starts fresh either way.
+  await boss.schedule(QUEUE_NOTICES, "* * * * *", {}, { tz: "UTC" });
+  await boss.work(QUEUE_NOTICES, { batchSize: 1 }, async () => {
+    const outcome = await runBillingNoticesJob();
+    if (outcome.status === "failed") throw new Error(`notices: ${outcome.note}`);
   });
 
   // No outbound clock. The call-back dialer of 23 September 2026 was removed

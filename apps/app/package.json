@@ -15,6 +15,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "queue:install": "tsx --env-file-if-exists=.env.local scripts/install-queue.ts",
+    "email:seed": "tsx --env-file-if-exists=.env.local scripts/email-seed.ts",
     "worker": "tsx --env-file-if-exists=.env.local src/workers/index.ts",
     "patient-export": "tsx --env-file-if-exists=.env.local scripts/patient-export.ts",
     "qa:meta": "tsx --env-file-if-exists=.env.local scripts/meta-qa-gate.ts",

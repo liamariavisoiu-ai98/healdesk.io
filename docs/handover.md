@@ -234,8 +234,10 @@ RDS instance, not after, because the first item cannot be added later.
   default because `lib/queue/boss.ts` passes no `timeout`; a two-minute drain needs
   `timeout: 120_000` there and a `stopTimeout` above it, and Fargate's maximum is 120 s.
 - *Load balancer:* an HTTPS listener with an ACM certificate, HTTP redirected, WebSocket
-  upgrades allowed through to the voice endpoint, the health check on `GET /api/health`
-  status only, rate limiting on the host.
+  upgrades allowed through to the voice endpoint, the health check on
+  `GET /api/health?probe=liveness` (200 whenever the process is up; the plain path answers
+  503 while a critical email is late, which is the uptime check's alarm, not a reason to
+  replace a task), rate limiting on the host.
 - *CloudTrail:* on and kept, encrypted with our key, log-file validation, S3 data events
   on for the PHI bucket, Config rule `cloud-trail-encryption-enabled`.
 - *CloudWatch Logs:* every log group encrypted with our key and set to "Never expire"

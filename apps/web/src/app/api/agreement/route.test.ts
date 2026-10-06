@@ -43,7 +43,19 @@ afterEach(() => {
   __resetSheetSchemaForTests();
 });
 
-function sign(token: string | null, signatoryEmail: string): Promise<Response> {
+/** What the agreement step sends, minus what apps/app alone checks (the hash, the label, the version). */
+const SIGNATURE = {
+  clinicLegalName: "Radiance Med Spa LLC",
+  specialty: "med-spa",
+  isCoveredEntity: false,
+  attributionMode: "estimated",
+  bookingSystem: "mindbody",
+  calendarAccount: "workspace_no_baa",
+  platform: "mindbody",
+  signatoryName: "Alex Chen",
+} as const;
+
+function sign(token: string | null, signatoryEmail: string, overrides: Record<string, unknown> = {}): Promise<Response> {
   counter += 1;
   return POST(
     new Request("http://localhost/api/agreement", {
@@ -53,7 +65,7 @@ function sign(token: string | null, signatoryEmail: string): Promise<Response> {
         "x-forwarded-for": `10.3.0.${counter}`,
         ...(token ? { cookie: `hd_setup=${encodeURIComponent(token)}` } : {}),
       },
-      body: JSON.stringify({ clinicLegalName: "Radiance Med Spa LLC", signatoryName: "Alex Chen", signatoryEmail }),
+      body: JSON.stringify({ ...SIGNATURE, signatoryEmail, ...overrides }),
     }),
   );
 }
@@ -103,5 +115,68 @@ describe("POST /api/agreement, while the purchase is by setup link", () => {
     const response = await sign(null, "anyone@clinic.com");
     expect(response.status).toBe(201);
     expect(app).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The calendar answers travel with the signature (bookingSystem and
+ * calendarAccount, by those names), and the platform the released agreement
+ * still renders from must be the one the booking system implies. apps/app's
+ * signing path does not read the first two yet, so this is where a mismatch
+ * is stopped before it becomes a row.
+ */
+describe("POST /api/agreement checks the calendar answers before anything is signed", () => {
+  beforeEach(() => {
+    vi.stubEnv("HEALDESK_CHECKOUT_MODE", "public");
+  });
+
+  async function refusal(response: Response) {
+    return { status: response.status, field: ((await response.json()) as { field: string }).field };
+  }
+
+  test("an unknown booking system, or none, is refused", async () => {
+    expect(await refusal(await sign(null, "a@clinic.com", { bookingSystem: "zenoti" }))).toEqual({
+      status: 422,
+      field: "bookingSystem",
+    });
+    expect(await refusal(await sign(null, "a@clinic.com", { bookingSystem: undefined }))).toEqual({
+      status: 422,
+      field: "bookingSystem",
+    });
+    expect(app).not.toHaveBeenCalled();
+  });
+
+  test("an unknown Google account kind is refused", async () => {
+    expect(await refusal(await sign(null, "a@clinic.com", { calendarAccount: "gmail" }))).toEqual({
+      status: 422,
+      field: "calendarAccount",
+    });
+    expect(app).not.toHaveBeenCalled();
+  });
+
+  test("a platform the booking system doesn't imply is refused", async () => {
+    // Mindbody's agreement names Mindbody; Calendly has no phase-two platform, so "none".
+    expect(await refusal(await sign(null, "a@clinic.com", { platform: "boulevard" }))).toEqual({
+      status: 422,
+      field: "platform",
+    });
+    expect(await refusal(await sign(null, "a@clinic.com", { bookingSystem: "calendly", platform: "calcom" }))).toEqual({
+      status: 422,
+      field: "platform",
+    });
+    expect(app).not.toHaveBeenCalled();
+
+    const calendly = await sign(null, "a@clinic.com", { bookingSystem: "calendly", platform: "none" });
+    expect(calendly.status).toBe(201);
+    const forwarded = JSON.parse(String(app.mock.calls[0]![1]!.body)) as Record<string, unknown>;
+    expect(forwarded).toMatchObject({ bookingSystem: "calendly", calendarAccount: "workspace_no_baa", platform: "none" });
+  });
+
+  test("a practice with no agreement to sign here, a veterinary one while the DPA is unreleased, is refused", async () => {
+    expect(await refusal(await sign(null, "a@clinic.com", { specialty: "veterinary" }))).toEqual({
+      status: 422,
+      field: "specialty",
+    });
+    expect(app).not.toHaveBeenCalled();
   });
 });

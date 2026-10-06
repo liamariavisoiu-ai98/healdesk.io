@@ -1,26 +1,23 @@
 "use client";
 
 import {
-  applicableClauses,
-  assentSentence,
-  BAA_ACTION_LABEL,
-  BAA_ASSENT_LABEL,
-  BAA_CLAUSE_EXPLAINERS,
-  BAA_EXPLAINER,
-  type BaaVariables,
-  currentBaaTemplate,
-  CURRENT_BAA_VERSION,
-  type ExplainedClauseId,
-  renderBaa,
+  agreementKindFor,
+  agreementPlatformFor,
+  asksCoveredQuestion,
+  type BookingSystemId,
+  type CalendarAccount,
+  type CoveredAnswer,
+  type SpecialtyId,
 } from "@healdesk/catalog";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, type Ref, useEffect, useMemo, useRef, useState } from "react";
 
 import { site } from "@/lib/site";
 
-import { ChoiceCard, PrimaryButton, StepShell } from "./StepShell";
+import { agreementCopyFor, effectiveDateToday } from "./agreement-kinds";
+import { FIELD_LABEL, PrimaryButton, RadioGroup, type RadioOption, StepShell, TextField } from "./StepShell";
 
 /**
- * Signing the business associate agreement, its own step, before payment.
+ * Signing the agreement, its own step, before payment.
  *
  * The ordering is the requirement. A healthcare provider may not hand patient
  * information to a supplier without a written contract first, so the contract
@@ -29,44 +26,39 @@ import { ChoiceCard, PrimaryButton, StepShell } from "./StepShell";
  * with its own screen, and the record is written to the database here, before
  * anyone sees a payment form.
  *
+ * ## Which agreement
+ *
+ * Never chosen here. `agreementKindFor` decides from the specialty and the
+ * covered-entity answer (plan Part L), and the document, its explainer and its
+ * assent wording come from AGREEMENT_COPY for that kind. Today every practice
+ * offered signs the Business Associate Agreement.
+ *
  * ## Why this is heavier than a checkbox
  *
- * The previous version was one checkbox next to a price. Everything extra here
- * is doing evidentiary work:
- *
  *   - **The explanation** sits above the document, not behind a link.
- *     Conspicuous, plain-language terms adjacent to the assent action are what
- *     make click-through assent hold up, and a signature from someone who
- *     understood what they signed is worth more than one from someone who
- *     didn't.
- *   - **The covered-entity question** decides which paragraph of the agreement
- *     applies, so it is asked rather than assumed. "I don't know" is a real
- *     answer and is offered as one.
- *   - **The typed name is the signature**, not a checkbox. It is rendered into
- *     the document itself, which is why the preview refreshes as they type.
- *   - **Scrolling to the end is required** before the signature block unlocks.
- *     It is a small friction that makes "I never saw it" a much harder claim.
+ *   - **The covered-entity question** decides a paragraph of the agreement,
+ *     so it is asked rather than assumed, worded around what decides it: how
+ *     the practice bills. "Not sure" is a real answer.
+ *   - **The typed name is the signature**, rendered into the document itself,
+ *     which is why the preview refreshes as it is typed.
+ *   - **Reading to the end is required** before the signature unlocks: the
+ *     end of a scroll box on a wider screen, and below 640px, where a box in
+ *     a page is a trap, the end of the agreement inline in the page. Either
+ *     way a marker after the last line is what unlocks it, and a change to
+ *     the document (another answer, another kind) locks it again.
  *
- * The document shown here is rendered by the server on submit and hashed there.
- * This preview is a courtesy; the stored text is the authority.
+ * The document shown here is rendered by the same catalog function the server
+ * uses, and hashed; the server renders its own and refuses a mismatch. The
+ * preview is a courtesy; the stored text is the authority.
  */
 
 /**
- * What the server says became of the copy it emails the signer.
- *
- * Optional, and an absent field means "we were not told" rather than either
- * answer. /api/agreements sends it on every signature, so absence is a version
- * skew between this bundle and the app, and filling that silence in would
- * either alarm a buyer whose copy is already in their inbox or reassure one
- * whose copy is nowhere. Neither is a thing we know.
+ * What the server says became of the copy it emails the signer. An absent
+ * field means "we were not told", never either answer.
  */
 export type CopyDelivery =
   | { status: "sent" }
   | { status: "not_sent"; reason: string };
-
-function isExplainedClauseId(id: string): id is ExplainedClauseId {
-  return id in BAA_CLAUSE_EXPLAINERS;
-}
 
 export type AgreementResult = {
   agreementId: string;
@@ -78,63 +70,93 @@ export type AgreementResult = {
   copy?: CopyDelivery;
 };
 
+const COVERED_OPTIONS: readonly RadioOption<CoveredAnswer>[] = [
+  {
+    id: "yes",
+    label: "Yes",
+    description:
+      "We, or a billing service for us, send claims, eligibility checks or prior authorisations to insurers, Medicare or Medicaid electronically.",
+  },
+  {
+    id: "no",
+    label: "No",
+    description:
+      "Patients pay us directly and nobody bills an insurer for us. A receipt a patient claims with themselves doesn't count.",
+  },
+  {
+    id: "not_sure",
+    label: "Not sure",
+    description: "The agreement applies the full safeguards either way, and setup asks you again.",
+  },
+];
+
 export function AgreementStep({
   step,
   totalSteps,
-  clinicName,
-  specialty,
-  specialtyId,
-  attributionMode,
-  platformId,
-  platformName,
-  contactName,
-  contactEmail,
-  contactTitle,
   onBack,
   onClose,
+  headingRef,
+  clinicName,
+  specialty,
+  bookingSystem,
+  calendarAccount,
+  covered,
+  onCovered,
+  contactName,
+  contactTitle,
+  contactEmail,
+  onContact,
+  lockedEmail,
+  signed,
+  copyLink,
+  notice,
   onSigned,
+  onContinue,
+  onResign,
 }: {
   step: number;
   totalSteps: number;
-  clinicName: string;
-  /** Display name, for the document. */
-  specialty: string;
-  /** Catalog id, for the API. */
-  specialtyId: string;
-  /**
-   * The two funnel choices that change the AGREEMENT rather than the product.
-   * See packages/catalog/src/baa.ts, verified means we hold credentials to
-   * their booking system, estimated means we hold none, and the permitted-uses
-   * clause differs accordingly.
-   */
-  attributionMode: "estimated" | "verified";
-  platformId: string;
-  platformName: string | null;
-  contactName: string;
-  contactEmail: string;
-  contactTitle?: string;
   onBack: () => void;
   /** Present only when hosted in a modal. See StepShell. */
   onClose?: () => void;
+  headingRef?: Ref<HTMLHeadingElement>;
+  clinicName: string;
+  specialty: SpecialtyId;
+  bookingSystem: BookingSystemId;
+  calendarAccount: CalendarAccount;
+  covered: CoveredAnswer | null;
+  onCovered: (answer: CoveredAnswer) => void;
+  contactName: string;
+  contactTitle: string;
+  contactEmail: string;
+  onContact: (field: "contactName" | "contactTitle" | "contactEmail", value: string) => void;
+  /** The address a setup link was sent to: the only one the purchase may use. */
+  lockedEmail?: string;
+  /** A signature whose answers still match this purchase, or null. */
+  signed: AgreementResult | null;
+  /** The download for a signed agreement, rendered by the flow, which owns the PDF fallback. */
+  copyLink?: ReactNode;
+  /** Said at the top of the step, such as why an earlier signature no longer applies. */
+  notice?: string | null;
   onSigned: (result: AgreementResult) => void;
+  onContinue: () => void;
+  onResign: () => void;
 }) {
-  const [coveredEntity, setCoveredEntity] = useState<boolean | null | undefined>(
-    undefined,
-  );
-  const [signature, setSignature] = useState(contactName);
-  const [title, setTitle] = useState(contactTitle ?? "");
+  const asks = asksCoveredQuestion(specialty);
+  const choice = agreementKindFor({ specialty, covered: asks ? covered : null });
+  const kind = choice.ok ? choice.kind : null;
+  const isCoveredEntity = choice.ok ? choice.isCoveredEntity : null;
+  const copy = kind ? agreementCopyFor(kind) : null;
+  const unanswered = asks && covered === null;
+
   const [agreed, setAgreed] = useState(false);
   const [readToEnd, setReadToEnd] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /**
-   * A signature that succeeded while its copy did not go out.
-   *
-   * Kept here instead of being handed straight to `onSigned`, because
-   * `onSigned` moves the buyer to the payment step, and a notice on a screen
-   * nobody stops at is the same as no notice. So the step holds, says plainly
-   * what happened, and continues on a click. The server's whole answer is kept
-   * so that continuing passes on exactly what it sent, not a reconstruction.
+   * A signature that succeeded while its copy did not go out. Held here
+   * rather than passed straight on, because passing it on moves the buyer to
+   * the next step, and a notice on a screen nobody stops at is no notice.
    */
   const [signedWithoutCopy, setSignedWithoutCopy] = useState<{
     result: AgreementResult;
@@ -142,181 +164,125 @@ export function AgreementStep({
   } | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
   const noticeRef = useRef<HTMLDivElement>(null);
 
-  /**
-   * Move focus to the notice when it appears.
-   *
-   * The button that was just pressed is the thing being replaced, so without
-   * this the browser drops focus to the top of the document: a keyboard user
-   * loses their place and a screen reader is told nothing at all. Focusing the
-   * notice puts them on the sentence that explains what happened, next to the
-   * only control that remains.
-   */
   useEffect(() => {
     if (signedWithoutCopy) noticeRef.current?.focus();
   }, [signedWithoutCopy]);
 
+  const today = effectiveDateToday();
+  const email = (lockedEmail ?? contactEmail).trim().toLowerCase();
+
   /**
-   * The preview is rendered from the REAL template, by the same function the
-   * server uses.
-   *
-   * Reimplementing the document in the component would be easier and is the
-   * obvious thing to reach for, and it would give a contract two sources of
-   * truth that drift silently. So `renderBaa` is shared code, and the only
-   * difference between this and the stored copy is that the server renders it
-   * again from the submitted values and hashes that.
-   *
-   * Placeholders stand in for fields still empty, so the document is readable
-   * before it is complete without ever rendering a blank party name.
+   * The preview, from the real template and the catalog's one renderer, with
+   * placeholders for what is still empty so the document reads before it is
+   * complete without ever naming a blank party.
    */
-  const variables = useMemo<BaaVariables | null>(() => {
-    if (coveredEntity === undefined) return null;
-    return {
-      clinicLegalName: clinicName.trim() || "[your practice]",
-      signatoryName: signature.trim() || "[your name]",
-      signatoryTitle: title.trim() || undefined,
-      // Lower-cased here because the server lower-cases it before rendering
-      // its copy; a mixed-case address would otherwise hash differently on
-      // the two sides and fail the displayed-hash check with no way out.
-      signatoryEmail: contactEmail.trim().toLowerCase() || "[your email]",
-      effectiveDate: new Date().toISOString().slice(0, 10),
-      specialty: specialty || "healthcare",
-      isCoveredEntity: coveredEntity,
-      attributionMode,
-      connectedPlatform: platformName,
-      // v1 is inbound only, so this stays false. No 1.2.0 clause reads it,
-      // and no consent warranty is asked of the clinic.
-      outboundMessaging: false,
-      // Neither selection reaches the 1.2.0 document: v1 books into the
-      // clinic's own Google Calendar under an unconditional clause, with
-      // auto-confirm on by default, and Cal.com is not a write target. Both
-      // are passed as the fixed values apps/app's signing path passes
-      // (lib/agreements.ts), because the rendered text is hashed on both
-      // sides and must come out byte-identical; neither side may change one
-      // alone.
-      bookingMode: "desk_confirms",
-      calendarWrite: null,
-    };
-  }, [
-    clinicName,
-    signature,
-    title,
-    contactEmail,
+  const preview = useMemo(() => {
+    if (!copy || unanswered) return null;
+    try {
+      return copy.render({
+        clinicLegalName: clinicName.trim() || "[your practice]",
+        specialty,
+        isCoveredEntity,
+        bookingSystem,
+        calendarAccount,
+        signatoryName: contactName.trim() || "[your name]",
+        signatoryTitle: contactTitle.trim() || undefined,
+        signatoryEmail: email || "[your email]",
+        effectiveDate: today,
+      });
+    } catch {
+      return null;
+    }
+  }, [copy, unanswered, isCoveredEntity, clinicName, specialty, bookingSystem, calendarAccount, contactName, contactTitle, email, today]);
+
+  /**
+   * What the document says apart from its signature block. When this changes
+   * (another covered-entity answer, another kind of agreement), the reader
+   * has not read the document in front of them, so "read to the end" and the
+   * assent tick both reset. Typing the signature does not count: it changes
+   * only the signature block, below the line the reader already reached.
+   */
+  const documentKey = JSON.stringify([
+    kind,
+    copy?.version ?? null,
+    clinicName.trim(),
     specialty,
-    coveredEntity,
-    attributionMode,
-    platformName,
+    asks ? covered : null,
+    bookingSystem,
+    calendarAccount,
   ]);
 
-  const documentText = useMemo(
-    () => (variables ? renderBaa(currentBaaTemplate(), variables) : null),
-    [variables],
-  );
+  useEffect(() => {
+    setReadToEnd(false);
+    setAgreed(false);
+    scrollRef.current?.scrollTo?.({ top: 0 });
+  }, [documentKey]);
+
+  // After the recorded text replaces the preview, it is what is shown.
+  const shownText = signedWithoutCopy?.result.text ?? preview?.text ?? null;
+  const hasDocument = shownText !== null;
 
   /**
-   * Plain-English notes for the clauses of the current version that describe
-   * what the product does rather than paraphrase the regulation (what
-   * healdesk reads, the Google Calendar access, what the assistant collects,
-   * the model provider's retention), shown only for a clause that actually
-   * renders in THIS clinic's variant.
-   */
-  const clauseNotes = useMemo(() => {
-    if (!variables) return [];
-    return applicableClauses(currentBaaTemplate(), variables).flatMap((clause) =>
-      isExplainedClauseId(clause.id)
-        ? [{ id: clause.id, heading: clause.heading, ...BAA_CLAUSE_EXPLAINERS[clause.id] }]
-        : [],
-    );
-  }, [variables]);
-
-  /**
-   * What the document panel shows: the preview until it is signed, the text the
-   * SERVER recorded afterwards.
-   *
-   * The swap is invisible. A 201 is only issued when the hash of the displayed
-   * document matches the one the server rendered, so the two strings are equal
-   * by construction. What it buys is that they stay equal: this step now stays
-   * on screen after signing, and a panel still wired to the inputs would let a
-   * keystroke rewrite an agreement that is already in the database.
-   */
-  const shownText = signedWithoutCopy?.result.text ?? documentText;
-
-  /**
-   * Inert once the agreement is recorded.
-   *
-   * The answer decides which clause the contract carries, and that contract is
-   * now a row in an append-only table. Letting the card change afterwards would
-   * only make the screen disagree with the record.
-   */
-  function chooseCoveredEntity(value: boolean | null) {
-    if (signedWithoutCopy) return;
-    setCoveredEntity(value);
-  }
-
-  // The signature must match the name they gave us. Not a legal requirement,
-  // an evidentiary one: a mismatch is the first thing anyone disputing this
-  // would point at, and it is trivially avoidable.
-  const signatureOk = signature.trim().length >= 2;
-  const canSign =
-    coveredEntity !== undefined && readToEnd && signatureOk && agreed;
-
-  /**
-   * Mark the agreement read when there is nothing to scroll.
-   *
-   * `readToEnd` is only ever set by a scroll event, so a box that is taller
-   * than its own content never fires one and the Sign button stays disabled
-   * forever, under a hint telling the buyer to scroll a document that is
-   * already fully visible. That cannot happen at `max-h-80` with the current
-   * template, but it is one CSS edit away, and the failure mode is a purchase
-   * that silently cannot complete. Measuring on mount removes the trap instead
-   * of documenting it.
+   * The end marker. One observer covers both layouts: inside the scroll box
+   * the marker is clipped until the box is scrolled to it, and inline it
+   * enters the viewport when the page is. A browser with no observer is let
+   * through rather than left with a Sign button that can never unlock.
    */
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el || readToEnd) return;
-    if (el.scrollHeight <= el.clientHeight + 24) setReadToEnd(true);
-  }, [readToEnd, shownText]);
-
-  function onScroll() {
-    const el = scrollRef.current;
-    if (!el || readToEnd) return;
-    // 24px of slack: a scroll container that demands the exact final pixel is
-    // unreachable on some trackpads and zoom levels, and the requirement then
-    // silently blocks the purchase instead of documenting comprehension.
-    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) {
+    if (!hasDocument || readToEnd) return;
+    const end = endRef.current;
+    if (!end) return;
+    if (typeof IntersectionObserver === "undefined") {
       setReadToEnd(true);
+      return;
     }
-  }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) setReadToEnd(true);
+    });
+    observer.observe(end);
+    return () => observer.disconnect();
+  }, [hasDocument, readToEnd, documentKey]);
+
+  const nameOk = contactName.trim().length >= 2;
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
+  const canSign = Boolean(copy) && !unanswered && readToEnd && nameOk && emailOk && agreed;
 
   async function sign() {
+    if (!copy || !preview) return;
     setSubmitting(true);
     setError(null);
 
     try {
       // Hash exactly what this browser rendered. The server renders its own
-      // copy and refuses if they differ, which turns "we believe the screen
-      // showed X" into something demonstrable. Optional by necessity:
-      // crypto.subtle only exists in a secure context, so a developer on plain
-      // http gets an unverified signature rather than a broken checkout.
-      const displayedHash = await sha256(documentText);
+      // copy and refuses if they differ. Optional by necessity: crypto.subtle
+      // exists only in a secure context.
+      const displayedHash = await sha256(preview.text);
 
       const response = await fetch("/api/agreement", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           clinicLegalName: clinicName.trim(),
-          specialty: specialtyId,
-          attributionMode,
-          platform: platformId,
-          signatoryName: signature.trim(),
-          signatoryTitle: title.trim() || undefined,
-          signatoryEmail: contactEmail.trim().toLowerCase(),
-          isCoveredEntity: coveredEntity ?? null,
+          specialty,
+          // Phase two is fenced out of v1: no clinic gives us credentials.
+          attributionMode: "estimated",
+          // The released agreement still names the phase-two platform, and
+          // apps/app still requires it; derived from the booking system, the
+          // same way the preview derives it.
+          platform: agreementPlatformFor(bookingSystem),
+          bookingSystem,
+          calendarAccount,
+          signatoryName: contactName.trim(),
+          signatoryTitle: contactTitle.trim() || undefined,
+          signatoryEmail: email,
+          isCoveredEntity,
           // The fixed half of the sentence, as proof this UI showed it. The
           // server stores the full sentence it derives itself, never this.
-          assentLabel: BAA_ASSENT_LABEL,
-          templateVersion: CURRENT_BAA_VERSION,
+          assentLabel: copy.assentLabel,
+          templateVersion: copy.version,
           displayedHash,
         }),
       });
@@ -330,13 +296,10 @@ export function AgreementStep({
         return;
       }
 
-      // Signed. Whether the copy went out decides only whether we stop to say
-      // so; it never decides whether the signature counts.
       if (data.copy?.status === "not_sent") {
         setSignedWithoutCopy({ result: data, reason: data.copy.reason });
         return;
       }
-
       onSigned(data);
     } catch {
       setError("Network error. Your agreement was not recorded, please try again.");
@@ -345,47 +308,98 @@ export function AgreementStep({
     }
   }
 
-  return (
+  const shell = (children: ReactNode) => (
     <StepShell
       step={step}
       totalSteps={totalSteps}
       eyebrow={site.cta.primary.label}
-      title="The agreement, before anything else"
-      subtitle="Nothing is charged on this step. You'll see the plan and price next."
+      title="Your agreement"
+      subtitle="Signed before anything is charged. You'll review the price next."
       onBack={onBack}
       onClose={onClose}
+      headingRef={headingRef}
     >
+      {notice ? (
+        <p className="border-red/30 bg-red/[0.06] mb-6 rounded-xl border px-4 py-3 text-[15.6px] font-semibold">
+          {notice}
+        </p>
+      ) : null}
+      {children}
+      <p className="text-muted mt-10 text-center text-xs">
+        No payment on this step · No access to your clinical records
+      </p>
+    </StepShell>
+  );
+
+  if (!choice.ok || !copy) {
+    return shell(
+      <p className="border-line rounded-2xl border bg-white px-5 py-6 text-[15.6px]">
+        We can&apos;t offer an agreement for this practice here. Go back and check your
+        specialty, or email{" "}
+        <a href={`mailto:${site.email}`} className="font-semibold underline underline-offset-4">
+          {site.email}
+        </a>
+        .
+      </p>,
+    );
+  }
+
+  // ---------------- Already signed, for these very answers ----------------
+  if (signed && !signedWithoutCopy) {
+    return shell(
+      <section className="border-line rounded-2xl border bg-white">
+        <div className="border-line flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3">
+          <span className="text-sm font-bold">
+            <span aria-hidden className="text-red-deep">✓ </span>
+            {copy.title} signed
+          </span>
+          <span className="text-muted text-xs font-semibold">Version {signed.version}</span>
+        </div>
+        <div className="scroll-subtle px-5 py-4 sm:max-h-80 sm:overflow-y-auto" tabIndex={0} role="region" aria-label={`${copy.title} you signed`}>
+          <pre className="text-muted font-sans text-[15.6px] leading-relaxed whitespace-pre-wrap">{signed.text}</pre>
+        </div>
+        <div className="border-line border-t px-5 py-3">{copyLink}</div>
+        <div className="border-line flex flex-wrap items-center gap-4 border-t px-5 py-5">
+          <PrimaryButton onClick={onContinue}>Continue to review</PrimaryButton>
+          <button
+            type="button"
+            onClick={onResign}
+            className="text-muted hover:text-ink min-h-11 text-sm font-semibold underline underline-offset-4"
+          >
+            Sign again with different answers
+          </button>
+        </div>
+      </section>,
+    );
+  }
+
+  return shell(
+    <>
       {/* ---------------- Why ---------------- */}
       <section className="border-line bg-paper-2/50 rounded-2xl border p-5 sm:p-6">
         <h2 className="font-display text-[22.8px] leading-tight font-medium">
-          {BAA_EXPLAINER.heading}
+          {copy.explainer.heading}
         </h2>
-        <p className="text-muted mt-3 text-sm leading-relaxed font-medium">
-          {BAA_EXPLAINER.lead}
-        </p>
-        <p className="text-muted mt-3 text-sm leading-relaxed font-medium">
-          {BAA_EXPLAINER.objection}
-        </p>
+        <p className="text-muted mt-3 text-sm leading-relaxed font-medium">{copy.explainer.lead}</p>
+        <p className="text-muted mt-3 text-sm leading-relaxed font-medium">{copy.explainer.objection}</p>
 
         <ul className="mt-4 grid gap-2.5">
-          {BAA_EXPLAINER.terms.map((term) => (
+          {copy.explainer.terms.map((term) => (
             <li key={term.citation} className="flex gap-2.5 text-sm">
               <span aria-hidden className="text-red-deep mt-px shrink-0 font-bold">
                 ·
               </span>
               <span>
                 <span className="font-medium">{term.plain}</span>{" "}
-                <span className="text-muted text-xs whitespace-nowrap">
-                  {term.citation}
-                </span>
+                <span className="text-muted text-xs whitespace-nowrap">{term.citation}</span>
               </span>
             </li>
           ))}
         </ul>
 
-        {clauseNotes.length > 0 ? (
+        {preview && preview.notes.length > 0 ? (
           <ul className="mt-4 grid gap-2.5">
-            {clauseNotes.map((note) => (
+            {preview.notes.map((note) => (
               <li key={note.id} className="flex gap-2.5 text-sm">
                 <span aria-hidden className="text-red-deep mt-px shrink-0 font-bold">
                   ·
@@ -393,199 +407,151 @@ export function AgreementStep({
                 <span>
                   <span className="font-medium">{note.heading}: </span>
                   <span className="font-medium">{note.plain}</span>{" "}
-                  <span className="text-muted text-xs whitespace-nowrap">
-                    {note.citation}
-                  </span>
+                  <span className="text-muted text-xs whitespace-nowrap">{note.citation}</span>
                 </span>
               </li>
             ))}
           </ul>
         ) : null}
 
-        <p className="text-muted mt-4 text-xs leading-relaxed">
-          {BAA_EXPLAINER.disclaimer}
-        </p>
+        <p className="text-muted mt-4 text-xs leading-relaxed">{copy.explainer.disclaimer}</p>
       </section>
 
       {/* ---------------- Covered entity ---------------- */}
-      <section className="mt-8">
-        <h2 className="text-[15.6px] font-bold tracking-[0.04em] uppercase">
-          Does {clinicName || "your practice"} send health information electronically to
-          insurers or payers?
-        </h2>
-        <p className="text-muted mt-1.5 text-sm">
-          This is the legal test for whether HIPAA applies to you as a "covered
-          entity": any claim, eligibility check, prior authorisation or claim-status
-          enquiry sent electronically — by you, by a billing service on your
-          behalf, or through a clearinghouse — makes the answer yes. Cash-pay only,
-          with no electronic transactions to any payer, is a no, and it is
-          completely normal here. It changes the wording of the agreement, not
-          the protection.
-        </p>
+      {asks ? (
+        <section className="mt-8">
+          <RadioGroup<CoveredAnswer>
+            name="covered"
+            layout="cards"
+            label="Do you bill any health insurance electronically, yourself or through a clearinghouse?"
+            hint="That is what makes a practice a covered entity under HIPAA. Cash-pay only is a no, and common here. It changes the wording of the agreement, not the protection."
+            // Fixed once a signature is on its way or recorded: the answer is in the document.
+            options={COVERED_OPTIONS.map((option) => ({
+              ...option,
+              disabled: signedWithoutCopy !== null || submitting,
+            }))}
+            value={covered}
+            onChange={onCovered}
+          />
+        </section>
+      ) : null}
 
-        <div className="mt-4 grid gap-3">
-          <ChoiceCard
-            selected={coveredEntity === true}
-            onSelect={() => chooseCoveredEntity(true)}
-            title="Yes — we, or a billing service for us, do"
-            description="Claims, eligibility checks, prior authorisations or claim status, sent electronically to any insurer, Medicare, Medicaid or a clearinghouse."
-          />
-          <ChoiceCard
-            selected={coveredEntity === false}
-            onSelect={() => chooseCoveredEntity(false)}
-            title="No — cash-pay only, nothing electronic to any payer"
-            description="Patients pay us directly. Nobody submits anything to insurers on our behalf. (Giving a patient a receipt to claim themselves does not count.)"
-          />
-          <ChoiceCard
-            selected={coveredEntity === null}
-            onSelect={() => chooseCoveredEntity(null)}
-            title="I'm not sure"
-            description="We apply the full safeguards either way. We will confirm the answer with you during onboarding, and the agent is not switched on for real patients until it is confirmed."
-          />
-        </div>
-      </section>
-
-      {/* ---------------- The document ---------------- */}
-      {/* Hidden until the covered-entity question is answered, because the
-          answer changes a paragraph of the contract. Showing a document and
-          then silently rewriting it under the reader is worse than waiting. */}
-      {shownText === null ? (
+      {/* ---------------- The document ----------------
+          Hidden until the question is answered, because the answer changes a
+          paragraph of the contract. Inline below 640px, in a scroll box above. */}
+      {!hasDocument ? (
         <p className="border-line text-muted mt-8 rounded-2xl border border-dashed px-5 py-6 text-center text-sm">
           Answer the question above and your agreement will appear here.
         </p>
       ) : (
-      <section className="mt-8">
-        <div className="border-line rounded-2xl border bg-white">
-          <div className="border-line flex items-center justify-between gap-3 border-b px-5 py-3">
-            <span className="text-sm font-bold">
-              Business Associate Agreement
-            </span>
-            <span className="text-muted text-xs font-semibold">
-              Version {CURRENT_BAA_VERSION}
-            </span>
-          </div>
+        <section className="mt-8">
+          <div className="border-line rounded-2xl border bg-white">
+            <div className="border-line flex items-center justify-between gap-3 border-b px-5 py-3">
+              <span className="text-sm font-bold">{copy.title}</span>
+              <span className="text-muted text-xs font-semibold">Version {copy.version}</span>
+            </div>
 
-          <div
-            ref={scrollRef}
-            onScroll={onScroll}
-            tabIndex={0}
-            role="region"
-            aria-label="Business Associate Agreement text"
-            className="scroll-subtle max-h-80 overflow-y-auto px-5 py-4"
-          >
-            <pre className="text-muted font-sans text-[15.6px] leading-relaxed whitespace-pre-wrap">
-              {shownText}
-            </pre>
-          </div>
-
-          <div className="border-line border-t px-5 py-3">
-            <p
-              className={[
-                "text-xs font-semibold transition-colors",
-                readToEnd ? "text-muted" : "text-red-deep",
-              ].join(" ")}
+            <div
+              ref={scrollRef}
+              tabIndex={0}
+              role="region"
+              aria-label={`${copy.title} text`}
+              className="scroll-subtle px-5 py-4 sm:max-h-80 sm:overflow-y-auto"
             >
-              {readToEnd
-                ? "✓ You've read to the end."
-                : "Scroll to the end of the agreement to continue."}
-            </p>
+              <pre className="text-muted font-sans text-[15.6px] leading-relaxed whitespace-pre-wrap">
+                {shownText}
+              </pre>
+              <div ref={endRef} aria-hidden className="h-px" data-agreement-end />
+            </div>
+
+            <div className="border-line border-t px-5 py-3">
+              <p
+                role="status"
+                aria-live="polite"
+                className={["text-xs font-semibold", readToEnd ? "text-muted" : "text-red-deep"].join(" ")}
+              >
+                {readToEnd ? "✓ You've read to the end." : "Read to the end of the agreement to sign it."}
+              </p>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
       )}
 
-      {/* ---------------- Signature ---------------- */}
-      {/* `inert`, not just aria-hidden. The section holds four focusable
-          controls, two inputs, the assent checkbox and the Sign button, and
-          neither `pointer-events-none` nor `aria-hidden` takes anything out of
-          the tab order. On a full page a keyboard user tabbed through them and
-          out into the document; inside a modal focus trap they cycle forever
-          through controls that announce nothing. `inert` removes them from
-          hit-testing, the accessibility tree and the tab order together, which
-          is what the other two were each half-doing. */}
+      {/* ---------------- Signature ----------------
+          `inert` until read: it takes the fields, the tick and the button out
+          of hit-testing, the accessibility tree and the tab order together. */}
       <section
-        className={[
-          "mt-8 transition-opacity",
-          readToEnd ? "opacity-100" : "opacity-40",
-        ].join(" ")}
+        className={["mt-8 transition-opacity", readToEnd ? "opacity-100" : "opacity-40"].join(" ")}
         inert={!readToEnd}
       >
-        <h2 className="text-[15.6px] font-bold tracking-[0.04em] uppercase">
-          Sign
-        </h2>
+        <h2 className={FIELD_LABEL}>Sign</h2>
 
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <label className="block">
-            <span className="text-muted text-xs font-semibold">
-              Type your full name
-            </span>
-            <input
-              value={signature}
-              onChange={(e) => setSignature(e.target.value)}
-              placeholder="Alex Chen"
-              autoComplete="name"
-              /* Same reason as the covered-entity cards: the name in the
-                 recorded document cannot be edited after the fact, so the
-                 field that renders it must not look as though it can. */
-              disabled={signedWithoutCopy !== null}
-              className="border-line focus:border-orange text-ink mt-2 w-full rounded-xl border bg-white px-4 py-3 font-serif text-[21.6px] italic outline-none transition-colors disabled:opacity-60"
+          <TextField
+            label="Your full name"
+            value={contactName}
+            onChange={(value) => onContact("contactName", value)}
+            placeholder="Alex Chen"
+            autoComplete="name"
+            maxLength={120}
+            disabled={signedWithoutCopy !== null || submitting}
+            inputClassName="font-serif text-[21.6px] italic"
+          />
+          <TextField
+            label="Your title at the practice"
+            value={contactTitle}
+            onChange={(value) => onContact("contactTitle", value)}
+            placeholder="Owner"
+            autoComplete="organization-title"
+            maxLength={120}
+            disabled={signedWithoutCopy !== null || submitting}
+          />
+        </div>
+        <div className="mt-4">
+          {lockedEmail ? (
+            <TextField
+              label="Your clinic's email"
+              type="email"
+              value={lockedEmail}
+              onChange={() => undefined}
+              readOnly
+              hint="This is where healdesk signs you in and sends everything. Your setup link is for this address; to use another, reply to the email your link came in."
             />
-          </label>
-          <label className="block">
-            <span className="text-muted text-xs font-semibold">
-              Your title at the practice
-            </span>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Owner"
-              autoComplete="organization-title"
-              disabled={signedWithoutCopy !== null}
-              className="border-line focus:border-orange text-ink mt-2 w-full rounded-xl border bg-white px-4 py-3 text-[19.2px] outline-none transition-colors disabled:opacity-60"
+          ) : (
+            <TextField
+              label="Your clinic's email"
+              type="email"
+              value={contactEmail}
+              onChange={(value) => onContact("contactEmail", value)}
+              placeholder="info@glowmedspa.com"
+              autoComplete="email"
+              inputMode="email"
+              disabled={signedWithoutCopy !== null || submitting}
+              hint="This is where healdesk signs you in and sends everything. One address for the whole clinic; a shared inbox such as info@ is fine."
             />
-          </label>
+          )}
         </div>
 
-        {/* ---------------- Inbound only, stated plainly ----------------
-            This box used to restate a consent warranty for reminders and
-            win-backs, and then (from 23 September 2026) described consented
-            call-backs. v1 has neither: every product is inbound only, and
-            nothing contacts a patient first or after a conversation ends
-            (docs/v1-product-spec.md, "Scope and locked decisions"). Nothing is
-            placed in the clinic's name, so there is nothing for it to warrant,
-            and the box says exactly that. It is interface copy beside the
-            agreement, not part of it: the BAA text is unchanged. Conspicuous
-            beside the button for the same reason the warranty was: a scroll
-            box and "they saw it" is the reading that fails. */}
+        {/* Interface copy beside the agreement, not part of it: v1 only
+            answers, so nothing is placed in the clinic's name and there is
+            nothing for it to warrant. */}
         <div className="border-line bg-paper-2/50 mt-6 rounded-xl border p-4">
           <p className="text-[15.6px] font-bold">Inbound only</p>
           <p className="text-muted mt-1.5 text-[15.6px] leading-relaxed">
-            healdesk only answers. It never calls or texts your patients, and
-            sends no reminders, follow-ups, win-backs or call-backs: every
-            conversation it has is one a patient started. It says it is an AI
-            assistant first, on every channel. You give no consent warranty,
-            because nothing is ever placed in your name.
+            healdesk only answers. It never calls or texts your patients, and sends no
+            reminders, follow-ups, win-backs or call-backs: every conversation it has is one a
+            patient started. It says it is an AI assistant first, on every channel. You give no
+            consent warranty, because nothing is ever placed in your name.
           </p>
         </div>
 
-        {/* ---------------- Signed, but the copy did not go out ----------------
-            Replaces the assent block rather than sitting under it. Everything
-            in that block is an offer to sign, and the moment there is a
-            signature the offer is history: the "a copy is emailed to you" line
-            in particular has just been contradicted by the server, and leaving
-            it on screen above this would make the page argue with itself.
+        {!copy.released ? (
+          <p className="border-red/30 bg-red/[0.06] mt-4 rounded-xl border px-4 py-3 text-[15.6px] font-semibold">
+            This agreement is a draft pending legal review. Until it is finalised, accounts are
+            created for synthetic data only and cannot receive real patient information.
+          </p>
+        ) : null}
 
-            The order of the two sentences is the whole design. Signing
-            SUCCEEDED, and that is said first, because a buyer who reads this as
-            a failure signs again, and the acceptance table is append-only, so
-            a second signature is a second row for one act of assent and a
-            record with two answers to "when did they agree".
-
-            Second, and plainly, that the copy is not coming. Until a transport
-            is configured this is not the unhappy path, it is the only path, and
-            the alternative to saying so here is a clinic that believes it holds
-            its own agreement and finds out otherwise on the day someone asks
-            for it. */}
         {signedWithoutCopy ? (
           <div
             ref={noticeRef}
@@ -593,25 +559,17 @@ export function AgreementStep({
             role="status"
             className="border-line bg-paper-2/50 mt-5 rounded-2xl border p-5 outline-none"
           >
-            <p className="text-[15.6px] font-bold">
-              ✓ Your agreement is signed and on file.
-            </p>
-
+            <p className="text-[15.6px] font-bold">✓ Your agreement is signed and on file.</p>
             <div className="mt-3 flex gap-2.5">
               <span aria-hidden className="text-red-deep mt-px shrink-0 font-bold">
                 ·
               </span>
-              <p className="text-[15.6px] leading-relaxed font-semibold">
-                {signedWithoutCopy.reason}
-              </p>
+              <p className="text-[15.6px] leading-relaxed font-semibold">{signedWithoutCopy.reason}</p>
             </div>
-
             <p className="text-muted mt-3 text-[15.6px] leading-relaxed">
-              This changes nothing about your signature. We recorded the
-              agreement exactly as it appears above, and it stands whether or
-              not the email reaches you.
+              This changes nothing about your signature. We recorded the agreement exactly as it
+              appears above, and it stands whether or not the email reaches you.
             </p>
-
             <p className="text-muted mt-3 text-[15.6px] leading-relaxed">
               We have a record that your copy is outstanding. Email{" "}
               <a
@@ -620,77 +578,55 @@ export function AgreementStep({
               >
                 hello@healdesk.io
               </a>{" "}
-              and a person will get it to you, at{" "}
-              {contactEmail || "the address you signed with"} or at a different
-              one.
+              and a person will get it to you, at {email || "the address you signed with"} or at a
+              different one.
             </p>
-
             <div className="mt-5">
-              <PrimaryButton onClick={() => onSigned(signedWithoutCopy.result)}>
-                Continue to plans
-              </PrimaryButton>
+              <PrimaryButton onClick={() => onSigned(signedWithoutCopy.result)}>Continue to review</PrimaryButton>
             </div>
           </div>
         ) : (
           <>
             <p className="text-muted mt-5 text-xs">
-              Signing as {contactEmail.trim().toLowerCase() || "your work email"} · {today()} · A copy
-              is emailed to you.
+              Signing as {email || "your clinic's email"} · {signingDate()} · A copy is emailed to you.
             </p>
 
-            <label className="mt-4 flex cursor-pointer items-start gap-3">
+            <label className="mt-4 flex min-h-11 cursor-pointer items-start gap-3">
               <input
                 type="checkbox"
                 checked={agreed}
                 onChange={(e) => setAgreed(e.target.checked)}
-                /* Never restored from autofill or a back-navigation cache. An
-                   assent box that arrives pre-ticked because the browser
-                   remembered it is not assent. */
+                // Never restored from autofill or a back-navigation cache: an
+                // assent box that arrives ticked is not assent.
                 autoComplete="off"
-                className="accent-red mt-1 size-4 shrink-0"
+                className="accent-red mt-1 size-5 shrink-0"
               />
-              {/* The authority attestation is the point of this sentence. Whether the
-                  person clicking can bind the practice is ordinary contract law, and
-                  asking them to say so is the cheapest thing that helps. */}
-              {/* Rendered from the same function the server stores, so the
-                  words on screen and the words in the record are one string. */}
-              <span className="text-sm font-medium">{assentSentence(clinicName)}</span>
+              {/* From the same function the server stores, so the words on
+                  screen and the words in the record are one string. */}
+              <span className="text-sm font-medium">{copy.assentSentence(clinicName)}</span>
             </label>
 
             {error ? (
-              <p className="text-red-deep mt-4 text-sm font-semibold">{error}</p>
+              <p className="text-red-deep mt-4 text-sm font-semibold" role="alert">
+                {error}
+              </p>
             ) : null}
 
-            {/* Nothing may render between the checkbox and the button. What makes a
-                click-through hold up is that the assent sentence and the action it
-                describes are visible together, so the "signing as…" line sits
-                above the checkbox, not between it and the button. */}
+            {/* Nothing between the tick and the button: the assent sentence
+                and the action it describes are seen together. */}
             <div className="mt-6">
-              <PrimaryButton
-                onClick={() => void sign()}
-                disabled={!canSign || submitting}
-              >
-                {submitting ? "Recording…" : BAA_ACTION_LABEL}
+              <PrimaryButton onClick={() => void sign()} disabled={!canSign || submitting}>
+                {submitting ? "Recording…" : copy.actionLabel}
               </PrimaryButton>
             </div>
           </>
         )}
       </section>
-
-      <p className="text-muted mt-10 text-center text-xs">
-        No payment on this step · Calendar access only · We never see clinical notes
-      </p>
-    </StepShell>
+    </>,
   );
 }
 
-/**
- * SHA-256 of the displayed text, hex, or undefined where unavailable.
- *
- * Undefined rather than throwing: `crypto.subtle` is absent outside a secure
- * context, and a developer on plain http should get an unverified signature
- * with that fact recorded, not a checkout that cannot complete.
- */
+/** SHA-256 of the displayed text, hex, or undefined outside a secure context. */
 async function sha256(text: string | null): Promise<string | undefined> {
   if (!text || typeof globalThis.crypto?.subtle?.digest !== "function") {
     return undefined;
@@ -698,23 +634,18 @@ async function sha256(text: string | null): Promise<string | undefined> {
   try {
     const bytes = new TextEncoder().encode(text);
     const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
-    return [...new Uint8Array(digest)]
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
+    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
   } catch {
     return undefined;
   }
 }
 
 /**
- * The date shown beside "Signing as", in UTC.
- *
- * The document's own effective date is the UTC date (agreements.ts sets it
- * from toISOString), so this must be too: formatted in local time, a signer on
- * the US west coast after 5pm saw one date on this line and another inside
- * the agreement they were signing.
+ * The date beside "Signing as", in UTC, because the document's own effective
+ * date is the UTC date: in local time a signer on the US west coast after 5pm
+ * saw one date here and another inside the agreement.
  */
-function today(): string {
+function signingDate(): string {
   return new Intl.DateTimeFormat("en-GB", {
     day: "numeric",
     month: "long",

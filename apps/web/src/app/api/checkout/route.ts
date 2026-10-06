@@ -1,11 +1,12 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { getPlan, isBillingInterval, WELCOME_NONCE_COOKIE } from "@healdesk/catalog";
+import { WELCOME_NONCE_COOKIE } from "@healdesk/catalog";
 import { NextResponse } from "next/server";
 
 import { createCheckout, isBillingConfigured, isProductionDeployment } from "@/lib/billing";
 import { isCampaignCode } from "@/lib/attribution";
 import { postToApp, welcomeCookieOptions, type AppAnswer } from "@/lib/checkout/app-client";
+import { intentFields, validateOrder } from "@/lib/checkout/order";
 import { LEGAL_VERSION } from "@/lib/legal";
 import { cohortCreditLive, findLeadById, markCheckoutStarted, normalizeEmail } from "@/lib/leads";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
@@ -15,14 +16,17 @@ import { readCookie, SETUP_COOKIE } from "@/lib/setup-link";
 /**
  * POST /api/checkout, start a purchase.
  *
- * The browser's checkout step calls this, once the buyer has signed the
- * agreement; the Stripe webhook never does. It validates the billing terms,
- * hands the purchase to apps/app as a checkout intent (which checks everything
- * provisioning will), and only then sends the buyer to a Stripe-hosted
- * Checkout Session that carries the intent's ref. The account is made on the
- * first paid invoice, from that intent, in app/api/webhooks/stripe
- * (src/lib/billing.ts explains it), and Stripe brings the buyer back to
- * apps/app's /welcome, which this response's nonce cookie lets in.
+ * The browser's Review and pay step calls this, once the buyer has signed the
+ * agreement; the Stripe webhook never does. It validates the purchase against
+ * an allowlist (lib/checkout/order.ts: the package and its terms, the clinic,
+ * its booking system and Google account, the website rule, the website read's
+ * shape and the terms tick-box), hands it to apps/app as a checkout intent
+ * (which checks everything provisioning will), and only then sends the buyer
+ * to a Stripe-hosted Checkout Session that carries the intent's ref. The
+ * account is made on the first paid invoice, from that intent, in
+ * app/api/webhooks/stripe (src/lib/billing.ts explains it), and Stripe brings
+ * the buyer back to apps/app's /welcome, which this response's nonce cookie
+ * lets in.
  *
  * The marketing site never talks to the product database. What it sends is
  * signed and carried to apps/app, which owns every write. That keeps exactly
@@ -36,14 +40,16 @@ import { readCookie, SETUP_COOKIE } from "@/lib/setup-link";
  * the guard in front of it.
  */
 
-/** The shape apps/app issues agreement ids in, and checks again at provisioning. */
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const RATE_LIMIT = 10;
 const RATE_WINDOW_MS = 60 * 60 * 1000;
+/**
+ * The purchase plus the website read, whose own caps (ClinicProfile's) bound
+ * it well under this. apps/app refuses an intent over 256 kB in any case.
+ */
+const MAX_BODY_CHARS = 300_000;
 
 export async function POST(request: Request): Promise<Response> {
   const secret = process.env.HEALDESK_PROVISION_SECRET;
@@ -69,24 +75,28 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const raw = await request.text();
+  if (raw.length > MAX_BODY_CHARS) {
+    return Response.json({ error: "Request too large." }, { status: 413 });
+  }
 
   let payload: Record<string, unknown>;
   try {
-    payload = JSON.parse(raw) as Record<string, unknown>;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+    payload = parsed as Record<string, unknown>;
   } catch {
     return Response.json({ error: "Invalid request body." }, { status: 400 });
   }
 
-  /**
-   * Whatever the browser sent for `idempotencyKey`, drop it.
-   *
-   * The HMAC below authenticates apps/web, not the buyer, so a key chosen by
-   * the client would be signed and trusted, and apps/app answers a known key by
-   * replaying the stored organizationId, clinicId and invitationId. That turns
-   * a dedupe key into an object-reference oracle. It is set server-side, here
-   * or in the Stripe webhook, and nowhere else.
+  /*
+   * Nothing the browser sends is forwarded as sent. What reaches apps/app is
+   * built field by field from the validated order (intentFields), so a key
+   * the client invents never travels. That matters most for one key: an
+   * `idempotencyKey` chosen by the client would be signed and trusted, and
+   * apps/app answers a known key by replaying the stored ids, which would
+   * turn a dedupe key into an object-reference oracle. It is set server-side,
+   * here or in the Stripe webhook, and nowhere else.
    */
-  delete payload.idempotencyKey;
 
   /**
    * The setup link, while the purchase is by invitation (lib/checkout-mode.ts).
@@ -106,71 +116,24 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   /**
-   * The billing terms, validated here on BOTH paths.
+   * The order, validated here on BOTH paths and before anything upstream.
    *
-   * apps/app validates the plan again, but the package and the interval
-   * decide what Stripe charges and what provisioning enables, and the
-   * place to refuse a value the catalog does not know is before either of
-   * those has happened. A missing interval is monthly, which is what every
-   * button that does not say otherwise has always meant; a wrong one is an
-   * error, not a silent fallback to the cheaper option.
+   * apps/app validates it again, but the package and the interval decide
+   * what Stripe charges, the website rule decides whether web chat may be
+   * sold at all, and the signed agreement is required before anybody can
+   * pay (docs/v1-product-spec.md, "Who is what"). The place to refuse a value
+   * the catalog does not know is before any of that has happened, under the
+   * field name the form uses to send the buyer back to the right step.
+   * The agreement is checked for shape only here; apps/app checks it exists,
+   * is unbound and was signed by this address before the Session exists.
    */
-  const plan = getPlan(String(payload.plan ?? ""));
-  if (!plan) {
-    return Response.json(
-      { error: "Unknown plan.", field: "plan" },
-      { status: 422 },
-    );
+  const validated = validateOrder(payload);
+  if (!validated.ok) {
+    return Response.json(validated.refusal, { status: 422 });
   }
-
-  const chosenInterval: unknown = payload.interval ?? "month";
-  if (!isBillingInterval(chosenInterval)) {
-    return Response.json(
-      { error: "Unknown billing interval.", field: "interval" },
-      { status: 422 },
-    );
-  }
-
-  // The browser's spelling is replaced by the validated terms under the names
-  // provisioning reads, so the paid path (via Session metadata) and the unpaid
-  // path below deliver the same shape. The package id alone says which
-  // channels it includes, so nothing else about channels is passed on, and a
-  // stray `chatChannelChoice` from an old page is dropped rather than trusted.
-  delete payload.interval;
-  delete payload.chatChannelChoice;
-  payload.billingInterval = chosenInterval;
-
-  /**
-   * The signed agreement, required before anybody can pay.
-   *
-   * The business associate agreement is a blocking step: checkout does not
-   * complete without it (docs/v1-product-spec.md, "Who is what"). apps/app
-   * refuses to provision without an agreement id of exactly this shape, but
-   * it only finds out after the webhook, which on the paid path is after the
-   * card was charged. Checked here, a buyer who skipped the signature step is
-   * stopped before a Session exists, under the same field name, so the form
-   * can send them back to the step they missed.
-   *
-   * This is a shape check, not proof of a signature. Whether the id names an
-   * acceptance of the current BAA version, signed by this buyer and not yet
-   * bound to an account, is only knowable in apps/app, and asking it before
-   * the Session is created needs a signed endpoint that does not exist yet.
-   */
-  if (typeof payload.agreementId !== "string" || !UUID.test(payload.agreementId)) {
-    return Response.json(
-      { error: "Sign the Business Associate Agreement before paying.", field: "agreementId" },
-      { status: 422 },
-    );
-  }
-
-  // `attributionMode` and `averageTreatmentValueUsd` pass through untouched,
-  // and only because apps/app provisioning still refuses a signup without
-  // `attributionMode`. Revenue attribution is phase two, not v1: v1 reports
-  // booked value from the clinic's own configured prices, never revenue
-  // (docs/v1-product-spec.md, "What v1 can prove, and what it cannot"). Once
-  // provisioning stops requiring them, drop both here the way `campaign` and
-  // `leadId` are dropped below. The webhook keeps coercing them for Sessions
-  // already in flight.
+  const order = validated.order;
+  const plan = order.plan;
+  const chosenInterval = order.interval;
 
   /**
    * Attribution, treated like idempotencyKey: whatever the browser claims is
@@ -185,9 +148,7 @@ export async function POST(request: Request): Promise<Response> {
   const setupRequest = gate.mode === "pilot" && gate.link === "valid" ? gate.request : null;
   const leadSource = setupRequest ? setupRequest.leadId : payload.leadId;
   const claimedLead = typeof leadSource === "string" && leadSource ? await findLeadById(leadSource) : null;
-  delete payload.campaign;
-  delete payload.leadId;
-  const contactEmail = String(payload.contactEmail ?? "");
+  const contactEmail = order.contactEmail;
   // The founding-cohort credit is a fact about the lead row, never a claim
   // from the browser: offered by the Day 7 email and still inside its window.
   const attribution = {
@@ -221,12 +182,9 @@ export async function POST(request: Request): Promise<Response> {
   const saved = await postToApp(
     "/api/checkout/intents",
     {
-      ...payload,
-      plan: plan.id,
-      contactEmail,
+      ...intentFields(order),
       inviteRef: setupRequest?.id ?? null,
       nonceHash: createHash("sha256").update(nonce).digest("hex"),
-      profileStatus: "none",
       // The terms tick-box, as accepted: which text, when, and from where.
       terms: { version: LEGAL_VERSION, acceptedAt: new Date().toISOString(), ip: forwardedFor },
     },
@@ -261,8 +219,8 @@ export async function POST(request: Request): Promise<Response> {
         // button click: a lead row is created here if the demo never made one.
         await markCheckoutStarted({
           email: contactEmail,
-          clinicName: typeof payload.clinicName === "string" ? payload.clinicName : undefined,
-          specialty: typeof payload.specialty === "string" ? payload.specialty : undefined,
+          clinicName: order.clinicName,
+          specialty: order.specialty,
           plan: plan.id,
           interval: chosenInterval,
           campaign,

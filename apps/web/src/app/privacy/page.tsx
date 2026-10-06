@@ -152,13 +152,18 @@ export default function PrivacyPage() {
             Nothing of Calendly's loads until you open it.
           </li>
           <li>
-            {/* Adopted 3 Oct 2026 by the owner without external counsel review:
-                the field list, updated to what the checkout asks after the 30
-                September changes. */}
-            <strong>What you enter at checkout.</strong> Your clinic's legal name, its specialty,
-            the booking system it uses, the typical value of one booked appointment, which calls you
-            want answered, your work email, and — to sign the Business Associate Agreement — your
-            name and your title at the practice. Card
+            {/* Adopted 3 Oct 2026 by the owner without external counsel review;
+                the field list updated 7 Oct 2026 (LEGAL_VERSION 2026-10-07.2)
+                to what the four-step checkout asks: the website or none, the
+                kind of Google account and the browser's time zone are new,
+                and the appointment value and the calls question are gone. */}
+            <strong>What you enter at checkout.</strong> Your clinic's legal name, its website or
+            that it has none, its specialty, where its bookings live today, which kind of Google
+            account its calendar is on, and the email address your clinic will use with us; to sign
+            the agreement, your name and your title at the practice; and, when you tick the box
+            beside Pay, which version of these terms you accepted, when, and the IP address you
+            accepted from. Your browser's time zone is sent with them, as a starting point for your
+            clinic's own until you confirm it in setup. Card
             details go directly to Stripe and never touch our servers. If you reach the payment
             page and stop, we send one email about it, an hour later, and no more; it carries the
             same one-click unsubscribe.

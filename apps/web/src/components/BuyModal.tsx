@@ -14,7 +14,7 @@ import {
 import {
   CheckoutFlow,
   type CheckoutProgress,
-  type State as CheckoutState,
+  type CheckoutSeed,
 } from "@/components/checkout/CheckoutFlow";
 import { type LinkNotice, SetupRequestForm } from "@/components/checkout/SetupRequestForm";
 import { replyByDate } from "@/lib/reply-by";
@@ -43,7 +43,7 @@ import { site } from "@/lib/site";
  * unconditionally.
  *
  * That last default is the dangerous one here. The buyer signs a legally
- * binding agreement at step 5, and until it is paired with a payment its id
+ * binding agreement at step 3, and until it is paired with a payment its id
  * lives only in the browser. Escape is a key people press to dismiss an
  * autocomplete dropdown, in a signature field, of all places. So dismissal is
  * refused from the moment a signature exists, and CheckoutFlow additionally
@@ -51,9 +51,17 @@ import { site } from "@/lib/site";
  *
  * ## Why the flow stays mounted
  *
- * Unmounting on close would reset a six-step form to step 1, so the dialog is
+ * Unmounting on close would cost the step the buyer is on, so the dialog is
  * rendered once opened and then kept. A closed dialog is `display: none`, so
- * the cost is a hidden subtree, not a running one.
+ * the cost is a hidden subtree, not a running one. (The answers themselves
+ * are also kept in sessionStorage, which is what brings a reload or Stripe's
+ * cancel page back to them.)
+ *
+ * ## Nothing is preselected from here
+ *
+ * The package is preselected only from a pricing card or a `?plan` link
+ * (plan Part A3), and both of those reach /get-started. Opened from the
+ * navbar or a demo, the flow starts with the buyer's own choice.
  */
 
 /**
@@ -61,12 +69,13 @@ import { site } from "@/lib/site";
  * modal are static, so they can't read the setup cookie themselves.
  */
 type ModeAnswer =
-  | { mode: "public" }
+  | { mode: "public"; salesTax?: boolean }
   | {
       mode: "pilot";
       link: "valid";
       setup: { name: string; clinicName: string; email: string; website: string | null };
       creditUntil: string | null;
+      salesTax?: boolean;
     }
   | { mode: "pilot"; link: "none" | LinkNotice; replyBy: string };
 
@@ -76,7 +85,7 @@ function fallbackAnswer(): ModeAnswer {
 }
 
 export type BuyPrefill = {
-  /** The specialty the visitor was demoing, so step 1 arrives answered. */
+  /** The specialty the visitor was demoing, so "Your clinic" arrives answered. */
   specialty?: string;
   /** Captured by the chat gate, the best prefill available. */
   email?: string;
@@ -95,11 +104,9 @@ export function useBuy(): BuyCtx | null {
 
 export function BuyModalProvider({
   children,
-  initialPlan,
   initialInterval = "month",
 }: {
   children: React.ReactNode;
-  initialPlan: string;
   /** Monthly unless the page hosting the modal was opened on annual terms. */
   initialInterval?: BillingInterval;
 }) {
@@ -192,8 +199,8 @@ export function BuyModalProvider({
     return undefined;
   }, [isOpen]);
 
-  // Each step starts at the top of its own screen. Without this, step 5 opens
-  // scrolled to wherever step 4 was left, in the middle of the agreement.
+  // Each step starts at the top of its own screen. Without this, step 3 opens
+  // scrolled to wherever step 2 was left, in the middle of the agreement.
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, [progress.step]);
@@ -231,14 +238,18 @@ export function BuyModalProvider({
             />
           ) : (
             <CheckoutFlow
-              initialPlan={initialPlan}
               initialInterval={initialInterval}
               initialState={
                 answer.mode === "pilot"
-                  ? { ...prefillToState(prefill), clinicName: answer.setup.clinicName }
+                  ? {
+                      ...prefillToState(prefill),
+                      clinicName: answer.setup.clinicName,
+                      website: answer.setup.website,
+                    }
                   : prefillToState(prefill)
               }
               lockedEmail={answer.mode === "pilot" ? answer.setup.email : undefined}
+              salesTax={answer.salesTax === true}
               onClose={close}
               onProgress={setProgress}
               downloadHost={() => dialogRef.current}
@@ -258,8 +269,8 @@ export function BuyModalProvider({
  * the agreement, and "Alex" executed on a business associate contract is worse
  * than an empty field. It stays blank so the signature is entered on purpose.
  */
-function prefillToState(prefill: BuyPrefill): Partial<CheckoutState> {
-  const seed: Partial<CheckoutState> = {};
+function prefillToState(prefill: BuyPrefill): CheckoutSeed {
+  const seed: CheckoutSeed = {};
   if (prefill.specialty) seed.specialty = prefill.specialty;
   if (prefill.email) seed.contactEmail = prefill.email;
   return seed;

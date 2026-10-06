@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf .next .turbo node_modules",
     "stripe:setup": "tsx --env-file-if-exists=.env.local scripts/stripe-setup.ts",
+    "stripe:settings": "tsx scripts/stripe-account-settings.ts",
     "test": "vitest run",
     "qa:gate": "tsx --env-file-if-exists=.env.local scripts/qa-gate.ts",
     "sheets:init": "tsx --env-file-if-exists=.env.local scripts/sheets-init.ts"

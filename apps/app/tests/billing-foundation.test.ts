@@ -371,14 +371,15 @@ describeDb("billing foundation", () => {
         status: "skipped",
         reason: "Not built yet.",
       });
-      // The Stripe build's stubs (S0), each behind its switch.
+      // The Stripe build's jobs (S0's entry points, C-requests' bodies), each
+      // behind its switch.
       expect(await runBillingRequestsJob({ now })).toEqual({ status: "disabled" });
       expect(await runBillingReconcileJob({ now })).toEqual({ status: "disabled" });
       expect(await runCardExpiringJob({ now })).toEqual({ status: "disabled" });
       expect(await drainBillingRequests({ now })).toEqual({ processed: 0, deferred: 0, failed: 0 });
     });
 
-    test("the Stripe build's job stubs record their runs once switched on, and leave no lock behind", async () => {
+    test("the Stripe build's jobs record their runs once switched on, and leave no lock behind", async () => {
       const now = new Date("2026-10-05T07:00:00Z");
       const ops = await seedOpsUser();
       for (const [name, run] of [
@@ -387,7 +388,7 @@ describeDb("billing foundation", () => {
         [JOB_CARD_EXPIRING, () => runCardExpiringJob({ now })],
       ] as const) {
         await setJobEnabled(name, true, ops);
-        expect(await run(), name).toEqual({ status: "ok", note: "Not built yet." });
+        expect(await run(), name).toMatchObject({ status: "ok" });
         const job = await getJob(name);
         expect(job?.lastRunStatus, name).toBe("ok");
         expect(job?.runningSince, name).toBeNull();
@@ -400,7 +401,7 @@ describeDb("billing foundation", () => {
         JOB_BILLING_REQUESTS,
         new Date(now.getTime() - 60_000),
       ]);
-      expect(await runBillingRequestsJob({ now })).toEqual({ status: "ok", note: "Not built yet." });
+      expect(await runBillingRequestsJob({ now })).toMatchObject({ status: "ok" });
       await setJobEnabled(JOB_BILLING_REQUESTS, false, ops);
     });
   });

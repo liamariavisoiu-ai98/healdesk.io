@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { getPlan } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
@@ -5,12 +7,15 @@ import {
   addMonthsUtc,
   allowanceWindow,
   recordFirstInvoice,
+  recordOpenInvoice,
   rollAllowancePeriod,
   seedEntitlements,
   setGrace,
 } from "@/lib/billing/entitlements";
 import { transition } from "@/lib/billing/state-machine";
-import { runBillingSweepJob, sweepBilling } from "@/lib/scheduler/billing-sweep";
+import type { NoticeKind } from "@/lib/email/kinds";
+import { assertPayloadAllowed } from "@/lib/email/lint";
+import { GRACE_ENDING_NOTICE_MS, runBillingSweepJob, sweepBilling } from "@/lib/scheduler/billing-sweep";
 import { JOB_BILLING_SWEEP, getJob, setJobEnabled } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
 
@@ -21,7 +26,7 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import { inTenant, seedClinic } from "./setup/factories";
+import { inTenant, seedClinic, seedEntitled } from "./setup/factories";
 
 /**
  * The two clocks Stripe does not run: grace expiry and the annual clinic's
@@ -164,10 +169,18 @@ describeDb("billing sweep", () => {
     );
   });
 
-  test("past_due with an expired grace window is suspended, once", async () => {
+  test("past_due with an expired grace window is suspended, once, and told so", async () => {
     // Suspended by the previous run (its `now` is after the grace ended).
     expect((await row(lapsed)).status).toBe("suspended");
     expect(await reasons(lapsed)).toEqual(["provisioned", "test", "test", "grace_expired"]);
+    const { rows: notices } = await inTenant(lapsed, (client) =>
+      client.query<{ kind: string; dedupe_key: string }>(
+        `select kind, dedupe_key from billing_notices where clinic_id = $1`,
+        [lapsed],
+      ),
+    );
+    const graceEnded = new Date(yearStart.getTime() - DAY_MS).toISOString();
+    expect(notices).toEqual([{ kind: "suspended", dedupe_key: `grace_expired:${graceEnded}` }]);
 
     // A second sweep finds nothing to do for it: not past_due any more. At a
     // pinned `now`, like every other sweep here: run at the wall clock, this
@@ -239,5 +252,171 @@ describeDb("billing sweep", () => {
     expect(job?.lastRunStatus).toBe("ok");
     expect(job?.lastRunNote).toMatch(/^Swept 2 clinics: 0 suspended, \d+ allowances rolled\.$/);
     expect(job?.runningSince).toBeNull();
+  });
+});
+
+describeDb("grace: the warning, the suspension and the lock (BD18, R21)", () => {
+  const graceEnds = new Date("2026-11-10T15:00:00.000Z");
+
+  function letters(): string {
+    return randomUUID().replace(/-/g, "").replace(/\d/g, "x");
+  }
+
+  /** A clinic whose plan has started, moved to `status` with grace running to `until`. */
+  async function inGrace(
+    label: string,
+    status: "past_due" | "canceling" | "paused",
+    until: Date,
+  ): Promise<string> {
+    const { clinicId } = await seedClinic(label);
+    await seedEntitled(clinicId, {
+      planStartedAt: new Date("2026-10-01T15:00:00.000Z"),
+      stripe: { customerId: `cus_${letters()}`, subscriptionId: `sub_${letters()}` },
+    });
+    await withTenant({ clinicId, actor: { type: "system" } }, async (tx) => {
+      await transition(tx, status, { actor: "system", reason: "test" });
+      await setGrace(tx.db, clinicId, until);
+      await recordOpenInvoice(tx.db, clinicId, {
+        invoiceId: `in_${letters()}`,
+        url: `https://invoice.stripe.com/i/acct_fixture/in_${letters()}`,
+        amountDueCents: 119_700,
+      });
+    });
+    return clinicId;
+  }
+
+  async function notices(
+    clinicId: string,
+    kind: NoticeKind,
+  ): Promise<{ dedupe_key: string; payload: Record<string, unknown> }[]> {
+    const { rows } = await inTenant(clinicId, (client) =>
+      client.query<{ dedupe_key: string; payload: Record<string, unknown> }>(
+        `select dedupe_key, payload from billing_notices where clinic_id = $1 and kind = $2 order by created_at`,
+        [clinicId, kind],
+      ),
+    );
+    return rows;
+  }
+
+  async function statusOf(clinicId: string): Promise<string> {
+    const { rows } = await inTenant(clinicId, (client) =>
+      client.query<{ status: string }>(`select status from entitlements where clinic_id = $1`, [clinicId]),
+    );
+    return rows[0]!.status;
+  }
+
+  beforeAll(async () => {
+    await runMigrations();
+    await truncateAll();
+  }, 60_000);
+
+  afterAll(async () => {
+    await closePools();
+  });
+
+  test("past due and cancelling clinics are warned once a day before grace ends, then suspended", async () => {
+    const pastDue = await inGrace("warnpastdue", "past_due", graceEnds);
+    const canceling = await inGrace("warncanceling", "canceling", graceEnds);
+    // Collection paused: grace is recorded, but there is no edge to suspended.
+    const paused = await inGrace("warnpaused", "paused", graceEnds);
+    const later = await inGrace("warnlater", "past_due", new Date(graceEnds.getTime() + 3 * DAY_MS));
+
+    const early = await sweepBilling(new Date(graceEnds.getTime() - GRACE_ENDING_NOTICE_MS - 60_000));
+    expect(early.graceWarned).toEqual([]);
+    expect(await notices(pastDue, "grace_ending")).toEqual([]);
+
+    const due = await sweepBilling(new Date(graceEnds.getTime() - GRACE_ENDING_NOTICE_MS + 60_000));
+    expect(due.graceWarned.sort()).toEqual([pastDue, canceling].sort());
+    expect(due.suspended).toEqual([]);
+    for (const clinicId of [pastDue, canceling]) {
+      const warned = await notices(clinicId, "grace_ending");
+      expect(warned).toEqual([
+        {
+          dedupe_key: `grace:${graceEnds.toISOString()}`,
+          payload: {
+            graceEndsAt: graceEnds.toISOString(),
+            hostedInvoiceUrl: expect.stringMatching(/^https:\/\/invoice\.stripe\.com\//),
+            amountDueCents: 119_700,
+          },
+        },
+      ]);
+      expect(() => assertPayloadAllowed(warned[0]!.payload, "grace_ending")).not.toThrow();
+    }
+
+    // The next hour's run warns nobody twice.
+    const again = await sweepBilling(new Date(graceEnds.getTime() - 60_000));
+    expect(again.graceWarned).toEqual([]);
+    expect(await notices(pastDue, "grace_ending")).toHaveLength(1);
+
+    const expired = await sweepBilling(new Date(graceEnds.getTime() + 60_000));
+    expect(expired.suspended.sort()).toEqual([pastDue, canceling].sort());
+    for (const clinicId of [pastDue, canceling]) {
+      expect(await statusOf(clinicId)).toBe("suspended");
+      const suspended = await notices(clinicId, "suspended");
+      expect(suspended).toEqual([
+        {
+          dedupe_key: `grace_expired:${graceEnds.toISOString()}`,
+          payload: {
+            hostedInvoiceUrl: expect.stringMatching(/^https:\/\/invoice\.stripe\.com\//),
+            amountDueCents: 119_700,
+            carrier: null,
+            phoneSystem: "unknown",
+            routing: "overflow_after_hours",
+          },
+        },
+      ]);
+      expect(() => assertPayloadAllowed(suspended[0]!.payload, "suspended")).not.toThrow();
+    }
+    expect(await statusOf(paused)).toBe("paused");
+    expect(await notices(paused, "grace_ending")).toEqual([]);
+    expect(await statusOf(later)).toBe("past_due");
+    expect(await notices(later, "grace_ending")).toEqual([]);
+
+    // Suspended once: the next run has nothing left to do for them.
+    const after = await sweepBilling(new Date(graceEnds.getTime() + 2 * 60_000));
+    expect(after.suspended).toEqual([]);
+    expect(await notices(pastDue, "suspended")).toHaveLength(1);
+  });
+
+  test("decides under the row lock: a renewal paid while the sweep waits is not undone (R21)", async () => {
+    const clinicId = await inGrace("racing", "past_due", new Date(graceEnds.getTime() - DAY_MS));
+    const holder = await getMigratorPool().connect();
+    try {
+      await holder.query("begin");
+      await holder.query(`select set_config('app.clinic_id', $1, true)`, [clinicId]);
+      await holder.query(`select status from entitlements where clinic_id = $1 for update`, [clinicId]);
+      // The renewal is paid in this transaction: grace over, back to active.
+      await holder.query(
+        `update entitlements set status = 'active', grace_ends_at = null where clinic_id = $1`,
+        [clinicId],
+      );
+      const { rows } = await holder.query<{ xid: string }>(
+        `select (pg_current_xact_id()::text::bigint & 4294967295)::text as xid`,
+      );
+      const xid = rows[0]!.xid;
+
+      const sweep = sweepBilling(graceEnds);
+      // Wait until the sweep is queued behind this transaction's row lock.
+      const deadline = Date.now() + 10_000;
+      for (;;) {
+        const { rows: waiting } = await getMigratorPool().query<{ n: number }>(
+          `select count(*)::int as n from pg_locks
+            where locktype = 'transactionid' and not granted and transactionid::text = $1`,
+          [xid],
+        );
+        if (waiting[0]!.n > 0) break;
+        if (Date.now() > deadline) throw new Error("the sweep never waited on the row lock");
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      await holder.query("commit");
+
+      const result = await sweep;
+      expect(result.failures).toEqual([]);
+      expect(result.suspended).not.toContain(clinicId);
+    } finally {
+      holder.release();
+    }
+    expect(await statusOf(clinicId)).toBe("active");
+    expect(await notices(clinicId, "suspended")).toEqual([]);
   });
 });

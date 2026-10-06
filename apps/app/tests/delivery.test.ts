@@ -1,9 +1,13 @@
+import { annualTotalUsd, getPlan } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
+import { setCancelAt } from "@/lib/billing/entitlements";
+import { transition } from "@/lib/billing/state-machine";
+import { assertPayloadAllowed } from "@/lib/email/lint";
 import { sendLiveAlert } from "@/lib/reporting/alerts";
 import type { DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
-import { sendRenewalReminders } from "@/lib/scheduler/annual-renewal-reminder";
+import { renewalNoticeDue, sendRenewalReminders } from "@/lib/scheduler/annual-renewal-reminder";
 import { findUnhealthyConnections, runConnectionHealthJob } from "@/lib/scheduler/connection-health";
 import { JOB_CONNECTION_HEALTH, heartbeatAgeSeconds, setJobEnabled } from "@/lib/scheduler/jobs";
 import { sendDueReports } from "@/lib/scheduler/monthly-report";
@@ -12,7 +16,7 @@ import { sendDueRecaps, weekKey } from "@/lib/scheduler/weekly-recap";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedClinic, seedConversation } from "./setup/factories";
+import { inTenant, seedClinic, seedConversation, seedEntitled } from "./setup/factories";
 
 /**
  * The delivery layer: who gets mail, and the ledger that makes every mailer
@@ -44,6 +48,24 @@ async function makeProduction(clinicId: string, wentLiveAt: Date): Promise<void>
     `update clinics set data_classification = 'production', baa_signed_at = $2, went_live_at = $2 where id = $1`,
     [clinicId, wentLiveAt],
   );
+}
+
+async function paidThrough(clinicId: string): Promise<Date> {
+  const { rows } = await inTenant(clinicId, (client) =>
+    client.query<{ paid_through: Date }>(`select paid_through from entitlements where clinic_id = $1`, [clinicId]),
+  );
+  return rows[0]!.paid_through;
+}
+
+async function renewalNotices(clinicId: string): Promise<{ dedupe_key: string; payload: Record<string, unknown> }[]> {
+  const { rows } = await inTenant(clinicId, (client) =>
+    client.query<{ dedupe_key: string; payload: Record<string, unknown> }>(
+      `select dedupe_key, payload from billing_notices
+        where clinic_id = $1 and kind = 'renewal_upcoming' order by created_at`,
+      [clinicId],
+    ),
+  );
+  return rows;
 }
 
 async function ledger(clinicId: string): Promise<{ kind: string; period_key: string; recipient: string; status: string }[]> {
@@ -206,41 +228,89 @@ describeDb("delivery", () => {
     });
   });
 
-  describe("annual renewal reminder", () => {
-    test("an annual clinic 30 days from renewal is told once; monthly and cancelling clinics are not", async () => {
-      const now = new Date("2026-09-14T09:00:00Z");
-      const annual = await seedClinic("renew-annual");
-      const monthly = await seedClinic("renew-monthly");
-      const cancelling = await seedClinic("renew-cancel");
-      const periodEnd = new Date(now.getTime() + 30 * DAY + 3600_000);
-      const entitle = (clinicId: string, interval: string, status: string) =>
-        inTenant(clinicId, async (client) => {
-          await client.query(
-            `insert into entitlements (clinic_id, plan_code, billing_interval, status, current_period_end)
-             values ($1, 'voice', $2, $3::billing_status, $4)`,
-            [clinicId, interval, status, periodEnd],
-          );
+  describe("annual renewal reminder (BD17, R32)", () => {
+    test("each notice has a window, so a missed run is caught up and a late 30-day one is never sent", () => {
+      const renews = new Date("2026-12-01T12:00:00Z");
+      const at = (days: number) => new Date(renews.getTime() - days * DAY);
+      expect(renewalNoticeDue(renews, at(40))).toBeNull();
+      expect(renewalNoticeDue(renews, at(31.5))).toBeNull();
+      expect(renewalNoticeDue(renews, at(30.5))).toBe(30);
+      expect(renewalNoticeDue(renews, at(22.5))).toBe(30);
+      expect(renewalNoticeDue(renews, at(21.5))).toBe(21);
+      expect(renewalNoticeDue(renews, at(1))).toBe(21);
+      expect(renewalNoticeDue(renews, at(0))).toBeNull();
+      expect(renewalNoticeDue(renews, at(-3))).toBeNull();
+    });
+
+    test("an annual plan is told 30 and 21 days ahead, once each; nobody else is", async () => {
+      // Annual plans started a year before the renewal: paid_through is the
+      // end of the year paid for, 14 September 2026 at 21:00.
+      const startedAt = new Date("2025-09-14T21:00:00Z");
+      const renewsAt = new Date("2026-09-14T21:00:00Z");
+      const entitle = async (label: string, options: Parameters<typeof seedEntitled>[1]) => {
+        const c = await seedClinic(label);
+        await seedEntitled(c.clinicId, {
+          stripe: { customerId: `cus_${label.replace(/[^a-z]/g, "")}`, subscriptionId: `sub_${label.replace(/[^a-z]/g, "")}` },
+          ...options,
         });
-      await entitle(annual.clinicId, "year", "active");
-      await entitle(monthly.clinicId, "month", "active");
-      await entitle(cancelling.clinicId, "year", "canceling");
-      for (const c of [annual, monthly, cancelling]) {
-        await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-          addRecipient(tx, { email: `${c.slug}@example-clinic.test`, addedBy: "test" }),
-        );
+        return c;
+      };
+      const annual = await entitle("renew-annual", { interval: "year", planStartedAt: startedAt, locations: 2 });
+      // A monthly plan renewing the same day is told nothing: its renewal is
+      // its ordinary monthly invoice.
+      const monthly = await entitle("renew-monthly", {
+        interval: "month",
+        planStartedAt: new Date("2026-08-14T21:00:00Z"),
+      });
+      const cancelling = await entitle("renew-cancelling", { interval: "year", planStartedAt: startedAt });
+      const autoRenewOff = await entitle("renew-autorenew-off", { interval: "year", planStartedAt: startedAt });
+      // Bought annual but not started: the placeholder sets no paid_through.
+      const waiting = await entitle("renew-waiting", { interval: "year" });
+      await withTenant({ clinicId: cancelling.clinicId, actor: ACTOR }, (tx) =>
+        transition(tx, "canceling", { actor: "client", reason: "cancel_at_period_end" }),
+      );
+      await withTenant({ clinicId: autoRenewOff.clinicId, actor: ACTOR }, (tx) =>
+        setCancelAt(tx.db, autoRenewOff.clinicId, renewsAt),
+      );
+
+      expect((await paidThrough(annual.clinicId)).getTime()).toBe(renewsAt.getTime());
+      expect((await paidThrough(monthly.clinicId)).getTime()).toBe(renewsAt.getTime());
+      const renewsOn = "2026-09-14";
+      const before = new Date(renewsAt.getTime() - 30.5 * DAY);
+      await sendRenewalReminders(before);
+      const complete = getPlan("complete")!;
+      expect(await renewalNotices(annual.clinicId)).toEqual([
+        {
+          dedupe_key: `renewal:${renewsOn}:30`,
+          payload: {
+            renewsOn,
+            amountCents: annualTotalUsd(complete) * 100 * 2,
+            planName: complete.name,
+            locations: 2,
+            noticeDays: 30,
+          },
+        },
+      ]);
+
+      // The next day's run finds the same notice already queued.
+      await sendRenewalReminders(new Date(before.getTime() + DAY));
+      expect(await renewalNotices(annual.clinicId)).toHaveLength(1);
+
+      const later = new Date(renewsAt.getTime() - 21.5 * DAY);
+      await sendRenewalReminders(later);
+      await sendRenewalReminders(new Date(later.getTime() + DAY));
+      const queued = await renewalNotices(annual.clinicId);
+      expect(queued.map((n) => n.dedupe_key)).toEqual([`renewal:${renewsOn}:30`, `renewal:${renewsOn}:21`]);
+      expect(queued[1]!.payload.noticeDays).toBe(21);
+      for (const notice of queued) {
+        expect(() => assertPayloadAllowed(notice.payload, "renewal_upcoming")).not.toThrow();
       }
 
-      const transport = new FakeTransport();
-      const run = await sendRenewalReminders(now, transport);
-      expect(run.sent).toBe(1);
-      expect(transport.sent).toHaveLength(1);
-      expect(transport.sent[0]!.target.to).toBe(`${annual.slug}@example-clinic.test`);
-      expect(transport.sent[0]!.message.subject).toContain(periodEnd.toISOString().slice(0, 10));
-      expect(transport.sent[0]!.message.text).toMatch(/\$[\d,]+/);
-
-      // The next day's run finds the same renewal and does not repeat itself.
-      expect((await sendRenewalReminders(new Date(now.getTime() + 12 * 3600_000), transport)).sent).toBe(0);
-      expect(transport.sent).toHaveLength(1);
+      for (const c of [monthly, cancelling, autoRenewOff, waiting]) {
+        expect(await renewalNotices(c.clinicId)).toEqual([]);
+      }
+      // Nothing goes through the old path any more: no report recipients, no ledger.
+      expect(await ledger(annual.clinicId)).toEqual([]);
     });
   });
 

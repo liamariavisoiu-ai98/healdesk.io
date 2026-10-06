@@ -28,6 +28,19 @@ export type { Channel };
 export type CoverageMode = "all_calls" | "overflow_after_hours" | "after_hours_only";
 
 /**
+ * The clinic's coverage mode (BD23): `always` is every call, `conditional`
+ * the calls staff miss plus everything after hours. Nothing maps to after
+ * hours only until `clinic_settings.coverage_mode` lands.
+ *
+ * Added by Package C-events for the forwarding facts in its suspension and
+ * end notices (R31); Package B owns this file and its version replaces this
+ * one at the merge.
+ */
+export function coverageModeOf(clinic: { callRouting: "conditional" | "always" }): CoverageMode {
+  return clinic.callRouting === "always" ? "all_calls" : "overflow_after_hours";
+}
+
+/**
  * Why the assistant passes a call or conversation through instead of
  * answering, in the order BD22 checks them: billing (BD9, R21), not bought,
  * the channel row, the pause, voice coverage, the allowance cap.

@@ -21,7 +21,6 @@ import {
   planMeteredPrices,
   plans,
   pricingCards,
-  SETUP_FEE_REFUND_NOT_LIVE_DAYS,
   stripeLookupKey,
   type PriceKind,
 } from "./plans";
@@ -271,9 +270,8 @@ describe("an extra location", () => {
   });
 });
 
-describe("refund windows", () => {
-  test("carry the numbers the terms quote", () => {
-    expect(SETUP_FEE_REFUND_NOT_LIVE_DAYS).toBe(30);
+describe("the refund window", () => {
+  test("carries the number the terms quote", () => {
     expect(FIRST_PERIOD_REFUND_DAYS).toBe(14);
   });
 });

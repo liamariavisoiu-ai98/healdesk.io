@@ -638,22 +638,14 @@ export function additionalLocationChargeUsd(
 }
 
 // -----------------------------------------------------------------------------
-// Refund windows (terms § 3), here so apps/web's terms and apps/app's refund
-// actions read the same two numbers
+// The refund window (terms § 5), here so apps/web's terms and apps/app's refund
+// actions read the same number
 // -----------------------------------------------------------------------------
 
 /**
- * The one exception to the non-refundable setup fee: refunded when none of the
- * practice's channels has gone live this many days after its payment, unless
- * the delay is something still waiting on the practice. Adopted 3 October 2026
- * (docs/counsel/guarantee-and-refund.md decision 5).
- */
-export const SETUP_FEE_REFUND_NOT_LIVE_DAYS = 30;
-
-/**
- * Days after purchase within which the first period's subscription fee is
- * refundable in full. The setup fee is never refunded under this window
- * (decision of 21 September 2026).
+ * Days after the plan start (the day AYA first answers a patient) within
+ * which the first period's subscription fee is refundable in full. The setup
+ * fee is never refunded (owner, 6 October 2026).
  */
 export const FIRST_PERIOD_REFUND_DAYS = 14;
 

@@ -53,6 +53,15 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * section 3, the annual-plan refunds in section 4, the export in section 7,
  * the handover duty in section 8); docs/counsel/agreement-changes.md § 7 and
  * guarantee-and-refund.md record what changed and the choices made.
+ *
+ * Revised 7 October 2026 to the owner's decisions of 6 October, recorded in
+ * docs/v1-product-spec.md ("Stage 1, payment" and "The guarantee"): billing
+ * starts on the plan start, the day the agent first answers a patient, and
+ * renewal, the first-period refund and the guarantee's first month all run
+ * from it (sections 3 to 5); the setup fee is never refunded, which ends the
+ * 3 October exception, and an account with nothing live 30 days after
+ * payment is closed (section 3); a failed payment is emailed to the
+ * account's one address (section 6).
  */
 export default function TermsPage() {
   const packages = packagesForTerms();
@@ -168,13 +177,32 @@ export default function TermsPage() {
         </p>
         <p>
           <strong>The setup fee</strong> is charged once, on your first invoice, and pays for
-          building, configuring and testing your agent. It is not refundable, except in one case.
-          If none of your channels has gone live within {POLICY.setupFeeRefundNotLiveDays} days of
-          your payment, and the delay is not caused by something still waiting on you (such as
-          connecting your calendar or a channel, or setting up call forwarding), we refund the
-          setup fee. Moving to a package with a higher setup fee charges only the difference.
-          Where a founding-cohort credit was offered to you by email, it is applied to the setup
-          fee at checkout and to nothing else.
+          building, configuring and testing your agent. That work starts as soon as it is paid,
+          so the setup fee is never refunded. Moving to a package with a higher setup fee charges
+          only the difference. Where a setup credit was offered to you by email, it is applied to
+          the setup fee at checkout and to nothing else.
+        </p>
+        <p>
+          <strong>Your plan starts the day the agent first answers a patient.</strong> Until
+          then your subscription carries a $0 monthly line, and the setup fee is all you have
+          paid. On that day, your plan start, the package price replaces the $0 line and your
+          first period is charged, monthly or yearly as you chose. If your package has more than
+          one channel and only some of them are answering patients, the price is that of the
+          package made up of those channels. Each further channel's price applies from the day it
+          first answers, prorated: on your next invoice for a monthly package, and at once for the
+          rest of the year for an annual one. A channel that is ready but still waiting on a step
+          of yours, such as setting up call forwarding or adding the chat snippet to your
+          website, is added at its price 30 days after it became ready or after your plan
+          started, whichever is later, and we email you a week before.
+        </p>
+        <p>
+          <strong>You have 30 days to finish setup.</strong> Some steps only you can take, such as
+          connecting your calendar and channels and setting up call forwarding. While none of
+          your channels is answering patients, we email you a reminder every five days. If at the
+          end of the 30th day after your payment none of them is, your subscription is cancelled
+          and your account closed: nothing more is charged, nothing is refunded, and we keep only
+          the signed Business Associate Agreement and the billing records the law requires us to
+          keep.
         </p>
         <p>
           Payments are processed through our Stripe account, which is linked to our operating
@@ -185,7 +213,7 @@ export default function TermsPage() {
       <Section id="renewal" title="4. Automatic renewal, and how to cancel">
         <p>
           <strong>Your subscription renews automatically.</strong> A monthly package renews every
-          month and an annual package every year, on the anniversary of your first payment, at
+          month and an annual package every year, counted from your plan start (section 3), at
           the package price in force on that date, and your payment method on file is charged on
           that date. It continues to renew until you cancel.
         </p>
@@ -197,7 +225,11 @@ export default function TermsPage() {
           </a>{" "}
           from the address on the account. Cancellation takes effect at the end of the period you
           have paid for; the agent keeps working until then; nothing further is charged. You can
-          reverse a cancellation any time before that date.
+          reverse a cancellation any time before that date. If you cancel before your plan
+          starts, it never starts: the agent does not begin answering patients, nothing more is
+          charged, the setup fee is not refunded, and your account closes at the end of the
+          current month of your subscription, or when your 30 days to finish setup end if that is
+          sooner.
         </p>
         <p>
           <strong>Annual plans.</strong> We email you at least 30 days before an annual renewal
@@ -206,7 +238,7 @@ export default function TermsPage() {
             ? "If you cancel an annual plan mid-term we refund the unused whole months."
             : "If you cancel an annual plan mid-term the service continues to the end of the term you paid for and no refund is made for the unused part."}{" "}
           {POLICY.refundWindowDays > 0
-            ? `Under section 5 an annual plan is refunded in one of two amounts: the whole first year's subscription fee if you cancel within ${POLICY.refundWindowDays} days of your first payment, or, under the first-month guarantee, one month at your plan's annual per-month price.`
+            ? `Under section 5 an annual plan is refunded in one of two amounts: the whole first year's subscription fee if you cancel within ${POLICY.refundWindowDays} days of your plan start, or, under the first-month guarantee, one month at your plan's annual per-month price.`
             : "Under the first-month guarantee in section 5, an annual plan is refunded one month at your plan's annual per-month price, not the year's fee."}
         </p>
         <p>
@@ -218,8 +250,8 @@ export default function TermsPage() {
       <Section id="refunds" title="5. Refunds and the first-month guarantee">
         <p>
           {POLICY.refundWindowDays > 0
-            ? `If you cancel within ${POLICY.refundWindowDays} days of your first payment we refund the first period's subscription fee in full. The setup fee is not refundable, except as section 3 says.`
-            : "Subscription fees are not refundable except where these terms or the law say otherwise. The setup fee is not refundable, except as section 3 says."}{" "}
+            ? `If you cancel within ${POLICY.refundWindowDays} days of your plan start we refund the first period's subscription fee in full. The setup fee is never refunded (section 3).`
+            : "Subscription fees are not refundable except where these terms or the law say otherwise. The setup fee is never refunded (section 3)."}{" "}
           Where a refund other than under the guarantee below is due to a Practice that is
           staying, it is applied as a credit to the next invoice; where the Practice is leaving,
           it is returned to the payment method you paid with.
@@ -238,8 +270,8 @@ export default function TermsPage() {
 
       <Section id="payment" title="6. Late and failed payment">
         <p>
-          If a renewal payment fails we retry it and email the owner and your billing contact,
-          never your Practice's public inbox. The service stays fully on for seven days. If the
+          If a subscription payment fails we retry it and email the address on your account. The
+          service stays fully on for seven days. If the
           invoice is still unpaid after that, the service is suspended: the agent stops answering
           on every channel, forwarded calls are passed straight through to your direct line
           (section 8) rather than answered, website chat becomes a contact form, we tell you how
@@ -306,9 +338,10 @@ export default function TermsPage() {
             to patients about the use of automated systems.
           </li>
           <li>
-            <strong>Your account.</strong> You choose who at your Practice holds the owner,
-            manager and billing-contact roles, keep your sign-in links and any password
-            confidential, and tell us promptly if you believe they have been compromised.
+            <strong>Your account.</strong> Your Practice has one sign-in, the email address on
+            your account, which is also where we send everything about it. You keep that inbox and
+            your sign-in links confidential, and tell us promptly if you believe they have been
+            compromised.
           </li>
           <li>
             <strong>Lawful use.</strong> You will not use the service for emergencies, for
@@ -445,7 +478,7 @@ export default function TermsPage() {
       <Section id="changes" title="16. Changes to these terms">
         <p>
           We may update these terms. A change that affects your rights or your fees is emailed to
-          your billing contact at least 30 days before it applies and takes effect at your next
+          the address on your account at least 30 days before it applies and takes effect at your next
           renewal; continuing past that renewal accepts it. The version and date appear at the foot
           of this page.
         </p>
@@ -467,7 +500,7 @@ export default function TermsPage() {
           <a href={`mailto:${ENTITY.noticesEmail}`} className="underline underline-offset-2">
             {ENTITY.noticesEmail}
           </a>
-          . Notices to you go to the billing email on your account. A notice is effective when
+          . Notices to you go to the email address on your account. A notice is effective when
           delivered.
         </p>
       </Section>

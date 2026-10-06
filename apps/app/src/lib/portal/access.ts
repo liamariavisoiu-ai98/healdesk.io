@@ -1,7 +1,17 @@
+import { sql } from "drizzle-orm";
+import { headers } from "next/headers";
+import { notFound, redirect } from "next/navigation";
+import { cache } from "react";
+
+import { unsafeDb } from "@/db";
+import { auth } from "@/lib/auth";
+
 /**
- * The clinic portal's door (plan Part D4). A signature until sign-in lands,
- * so pages, server actions and Package C and D's portal actions are written
- * against it now.
+ * The clinic portal's door (plan Part D4).
+ *
+ * Every portal page and server action calls `requirePortal(slug)` itself,
+ * never once in a layout: a layout does not re-run on client navigation and
+ * never runs for a route handler.
  */
 
 /** Who is asking, about which clinic. v1 has one sign-in per clinic and no roles. */
@@ -11,21 +21,42 @@ export type PortalContext = {
   clinicSlug: string;
 };
 
+export type PortalGrant = { clinicId: string; slug: string; name: string };
+
 /**
- * The signed-in user's context on clinic `slug`, or "not found".
+ * The clinics a user may open, through `app_user_clinic_grants` (0043): active
+ * memberships in the user's own organisations, nothing else. A definer
+ * function, because clinic_memberships forces row-level security and the
+ * question is asked before any tenant is known.
+ */
+export async function portalGrants(userId: string): Promise<PortalGrant[]> {
+  const result = await unsafeDb.execute<{ clinic_id: string; slug: string; name: string }>(
+    sql`select clinic_id, slug, name from app_user_clinic_grants(${userId})`,
+  );
+  return result.rows.map((r) => ({ clinicId: r.clinic_id, slug: r.slug, name: r.name }));
+}
+
+/** The signed-in user's id, or null. Deduplicated across one render. */
+export const currentUserId = cache(async (): Promise<string | null> => {
+  const result = await auth.api.getSession({ headers: await headers() });
+  return result?.user?.id ?? null;
+});
+
+/**
+ * The signed-in user's context on clinic `slug`.
  *
- * It runs on every portal page and server action, never once in a layout:
- * a layout does not re-run on client navigation and never runs for a route
- * handler. Membership is checked through `app_user_clinic_grants` (0043)
- * alone, with no roles: the clinic's one sign-in can do everything, and
- * patient pages also need `requireStepUp` (step-up.ts). Any other user, and
- * a request with no session, gets the same "not found" as a slug that does
- * not exist, so the portal cannot be used to list clinics.
+ * - No session: off to /sign-in, for any slug, so the redirect says nothing
+ *   about whether a clinic exists.
+ * - Signed in without a grant on this slug: "not found", exactly like a slug
+ *   that does not exist, so the portal cannot be used to list clinics.
  *
- * Lands with sign-in in M2. Until then it throws, so nothing can be built on
- * a guard that lets everyone in.
+ * Membership is the whole check: the clinic's one sign-in can do everything.
+ * Patient pages also need `requireStepUp` (step-up.ts).
  */
 export async function requirePortal(slug: string): Promise<PortalContext> {
-  void slug;
-  throw new Error("requirePortal lands with sign-in (M2)");
+  const userId = await currentUserId();
+  if (!userId) redirect(`/sign-in?next=${encodeURIComponent(`/c/${slug}`)}`);
+  const grant = (await portalGrants(userId)).find((g) => g.slug === slug);
+  if (!grant) notFound();
+  return { userId, clinicId: grant.clinicId, clinicSlug: grant.slug };
 }

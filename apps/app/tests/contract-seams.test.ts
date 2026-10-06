@@ -4,7 +4,6 @@ import type { Transaction } from "@/db";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { notifyCalendarState } from "@/lib/notices/calendar-state";
 import { notifyOps, OPS_EVENTS } from "@/lib/ops/notify";
-import { requirePortal } from "@/lib/portal/access";
 import { requireStepUp } from "@/lib/portal/step-up";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -74,10 +73,9 @@ describe("the notice seams", () => {
 });
 
 describe("the portal guards", () => {
-  test("refuse until sign-in and the factors land", async () => {
-    await expect(requirePortal("any-clinic")).rejects.toThrow(
-      "requirePortal lands with sign-in (M2)",
-    );
+  // requirePortal is real since sign-in landed; tests/portal-access.test.ts
+  // holds it. The step-up still refuses until the factors land.
+  test("the step-up refuses until the factors land", async () => {
     await expect(
       requireStepUp(
         { userId: "usr_1", clinicId: CLINIC, clinicSlug: "any-clinic" },

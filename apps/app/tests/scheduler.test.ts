@@ -119,9 +119,13 @@ describeDb("scheduler", () => {
     await setJobEnabled(JOB_WEEKLY_RECAP, true, opsUser);
 
     let started = 0;
+    // Long enough that the second runner asks for the lock while the first
+    // still holds it. At 60ms a loaded test machine sometimes let the first
+    // run finish before the second asked, and both ran one after the other:
+    // a correct result that failed the test.
     const work = async () => {
       started += 1;
-      await new Promise((resolve) => setTimeout(resolve, 60));
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
       return "done";
     };
 

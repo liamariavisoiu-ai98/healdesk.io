@@ -292,6 +292,10 @@ describeDb("provisioning from a paid intent, and /welcome", () => {
     const token = (ready as { url: string }).url.split("/link/")[1]!;
     const consumed = await consumeSignInLink(token, null);
     expect(consumed).toMatchObject({ ok: true, purpose: "checkout" });
+    // The plan's first screen after /welcome: "Protect patient details", then the clinic.
+    expect((consumed as { redirectTo: string }).redirectTo).toMatch(
+      /^\/c\/([a-z0-9-]+)\/protect\?next=%2Fc%2F\1$/,
+    );
 
     // Polled again (a reload, a second tab): the link was already handed out.
     expect(await welcomeState(asPayer)).toMatchObject({ status: "use_email" });

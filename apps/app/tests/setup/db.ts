@@ -75,6 +75,7 @@ export async function truncateAll(): Promise<void> {
       conversations, contacts, provider_connections, clinic_touches,
       clinic_memberships, clinics, baa_acceptances,
       checkout_intents, sign_in_links, stripe_connect_events, stripe_connect_states,
+      step_ups, webauthn_challenges, user_backup_codes, user_factors, factor_lockouts,
       invitation, member, organization, session, account, verification, "user"
     restart identity cascade
   `);

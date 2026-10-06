@@ -3,6 +3,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 
 import { auth } from "@/lib/auth";
+import { hashSessionToken } from "@/lib/factors/step-ups";
 import {
   consumeSignInLink,
   isSafeRedirect,
@@ -206,6 +207,44 @@ describeDb("the session a spent link starts", () => {
       }),
     );
     expect(response.status).not.toBe(200);
+  });
+
+  test("signing out ends the session's passkey step-ups (plan Part D2)", async () => {
+    const owner = await seedUser();
+    const pool = getMigratorPool();
+    const started = await auth.api.startLinkSession({
+      body: { userId: owner.id },
+      headers: new Headers(),
+      asResponse: true,
+    });
+    const cookie = started.headers
+      .getSetCookie()
+      .find((c) => c.startsWith("hd.session_token="))!
+      .split(";")[0]!;
+    const { rows } = await pool.query<{ token: string }>(
+      `select token from session where user_id = $1`,
+      [owner.id],
+    );
+    const factor = await pool.query<{ id: string }>(
+      `insert into user_factors (user_id, kind, device_label, credential_id, public_key, counter, backed_up)
+       values ($1, 'passkey', 'Front desk Mac', $2, '\\x01', 0, true) returning id`,
+      [owner.id, randomBytes(16).toString("base64url")],
+    );
+    await pool.query(
+      `insert into step_ups (session_token_hash, user_id, factor_id, device_label) values ($1, $2, $3, 'Front desk Mac')`,
+      [hashSessionToken(rows[0]!.token), owner.id, factor.rows[0]!.id],
+    );
+
+    await auth.api.signOut({ headers: new Headers({ cookie }) });
+
+    expect(
+      (await pool.query(`select 1 from session where user_id = $1`, [owner.id])).rows,
+    ).toHaveLength(0);
+    const after = await pool.query<{ revoked_at: Date | null }>(
+      `select revoked_at from step_ups where user_id = $1`,
+      [owner.id],
+    );
+    expect(after.rows[0]!.revoked_at).not.toBeNull();
   });
 
   test("refuses a user that doesn't exist", async () => {

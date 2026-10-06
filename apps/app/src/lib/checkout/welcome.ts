@@ -62,7 +62,10 @@ export async function welcomeState(input: {
     purpose: "checkout",
     // One checkout link per purchase, however often this is polled.
     sourceRef: createHash("sha256").update(intent.ref).digest("hex"),
-    redirectTo: `/c/${clinic.slug}`,
+    // The plan's first screen after /welcome is "Protect patient details:
+    // use Face ID" (Part D3), then the clinic. Nothing patient-facing exists
+    // yet, so the paying browser may add the sign-in's first passkey.
+    redirectTo: `/c/${clinic.slug}/protect?next=${encodeURIComponent(`/c/${clinic.slug}`)}`,
     issuedBy: "welcome",
   });
   if (!link) return { status: "use_email", email };

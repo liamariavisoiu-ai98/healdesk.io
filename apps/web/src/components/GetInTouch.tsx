@@ -53,7 +53,10 @@ export function GetInTouch({ className = "" }: { className?: string }) {
   /** Built on the first open: it needs this page's host, which only the browser knows. */
   const [src, setSrc] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
+  /** The frame's load event: Calendly's page has arrived, not yet drawn. */
   const [loaded, setLoaded] = useState(false);
+  /** Calendly's page is on screen, so the loading panel can go. */
+  const [drawn, setDrawn] = useState(false);
 
   const open = useCallback(() => {
     openerRef.current =
@@ -94,26 +97,33 @@ export function GetInTouch({ className = "" }: { className?: string }) {
     return undefined;
   }, [isOpen]);
 
-  // A booking, as Calendly reports it to the page that framed it. Only the
-  // fact is counted: the payload names the invitee and is never read.
+  // What Calendly reports to the page that framed it. Its page fires the
+  // frame's load event two or three seconds before it has drawn anything, so
+  // "event_type_viewed", sent as the calendar appears, is what lifts the
+  // loading panel over the frame; until then the frame is a blank white
+  // sheet. A booking is counted as a fact only: the payload names the invitee
+  // and is never read.
   useEffect(() => {
     if (!src) return;
     const origin = new URL(site.meeting.url).origin;
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== origin) return;
       const data: unknown = event.data;
-      if (
-        data &&
-        typeof data === "object" &&
-        "event" in data &&
-        data.event === "calendly.event_scheduled"
-      ) {
-        track("meeting_booked");
-      }
+      if (!data || typeof data !== "object" || !("event" in data)) return;
+      if (data.event === "calendly.event_type_viewed") setDrawn(true);
+      if (data.event === "calendly.event_scheduled") track("meeting_booked");
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, [src]);
+
+  // Should Calendly stop sending that message, the panel still goes, a little
+  // after the page has loaded.
+  useEffect(() => {
+    if (!loaded || drawn) return;
+    const timer = window.setTimeout(() => setDrawn(true), 4000);
+    return () => window.clearTimeout(timer);
+  }, [loaded, drawn]);
 
   return (
     <>
@@ -203,9 +213,9 @@ export function GetInTouch({ className = "" }: { className?: string }) {
                 onLoad={() => setLoaded(true)}
               />
             ) : null}
-            {loaded ? null : (
+            {drawn ? null : (
               <p
-                className="text-muted absolute inset-0 grid place-items-center text-sm font-semibold"
+                className="bg-paper text-muted absolute inset-0 grid place-items-center text-sm font-semibold"
                 role="status"
               >
                 Loading the calendar…

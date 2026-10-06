@@ -295,6 +295,27 @@
       "when": 1790835556105,
       "tag": "0041_inbound_only",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1791013273065,
+      "tag": "0042_baa_floor_and_retention",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1791175603563,
+      "tag": "0043_meta_channel_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1791184068622,
+      "tag": "0044_split_chat_packages",
+      "breakpoints": true
     }
   ]
 }

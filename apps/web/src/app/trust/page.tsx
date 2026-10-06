@@ -6,6 +6,7 @@ import { site } from "@/lib/site";
 import { PHI_SUBPROCESSORS, SCOPED_SUBPROCESSORS, SUBPROCESSORS } from "@/lib/subprocessors";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/trust" },
   title: "Trust and security",
   description:
     "How healdesk protects patient information: the boundary, the controls, the vendors, and what we do not claim.",
@@ -25,10 +26,18 @@ export const metadata: Metadata = {
  * publishes; the counts below are computed from it so the two pages cannot
  * disagree.
  *
- * Section 4, on the vendors in the patient's path that sign nothing (Meta,
- * Stripe), Anthropic's 30-day retention and the clinic's own Google Calendar,
- * was added on 30 September 2026 from docs/v1-product-spec.md ("HIPAA and
- * BAA position"). DRAFT pending counsel review (2026-09-30).
+ * Section 4, on the parts of the patient's path with no agreement (Meta, the
+ * clinic's own payment processor), Anthropic's 30-day retention and the
+ * clinic's own Google Calendar, was added on 30 September 2026 from
+ * docs/v1-product-spec.md ("HIPAA and BAA position"). Adopted 3 Oct 2026 by
+ * the owner without external counsel review, with every claim cut back to
+ * what is decided (docs/counsel/agreement-changes.md § 8): encryption in
+ * transit only where we control both ends, with the telephone and Meta
+ * exceptions; email as the BAA describes it; the hosting region that is
+ * decided, and the voice provider's as not yet confirmed; the model
+ * provider's two-year exception; and the vendor check before production
+ * described as the operator's check it is, not as something the software
+ * enforces.
  */
 /** Small counts read better as words in prose. Past ten, the digit is fine. */
 const WORDS: Record<number, string> = {
@@ -75,9 +84,20 @@ export default function TrustPage() {
             transcript.
           </li>
           <li>
-            <strong>Encryption.</strong> At rest in the database and object store, in transit
-            wherever we control both ends. Patient information is never sent over email; a report
-            that would carry it fails rather than sends.
+            <strong>Encryption.</strong> At rest in the database and object store, and in transit
+            wherever we control both ends. Two routes are outside that: a phone call is not
+            end-to-end encrypted, and a patient who telephones has chosen the telephone, which is
+            the exception the Business Associate Agreement makes; and a message on Instagram,
+            Messenger or WhatsApp travels through Meta&apos;s systems, which we do not control.
+            Email that would carry patient information goes only over an encrypted connection, and
+            is not sent if the receiving server cannot accept one.
+          </li>
+          <li>
+            <strong>Where it runs.</strong> The product&apos;s servers and its database run in
+            Amazon Web Services&apos; US East region. The voice provider&apos;s region is being
+            confirmed in writing, and appears on{" "}
+            <a href="/subprocessors" className="underline underline-offset-2">/subprocessors</a>{" "}
+            once it is.
           </li>
           <li>
             <strong>Every access is recorded.</strong> Reads and writes of patient information
@@ -112,8 +132,10 @@ export default function TrustPage() {
           receives and the status of each agreement, is at{" "}
           <a href="/subprocessors" className="underline underline-offset-2">/subprocessors</a>, and
           we tell every customer at least {POLICY.subprocessorNoticeDays} days before a vendor is
-          added. {SCOPED_SUBPROCESSORS.length} more sit in the patient&apos;s path with no agreement
-          possible, and are kept away from clinical content by design (section 4).{" "}
+          added.{" "}
+          {SCOPED_SUBPROCESSORS.length === 1
+            ? "One more sits in the patient's path with no agreement possible, and is kept away from clinical content by design (section 4)."
+            : `${SCOPED_SUBPROCESSORS.length} more sit in the patient's path with no agreement possible, and are kept away from clinical content by design (section 4).`}{" "}
           {SUBPROCESSORS.length - PHI_SUBPROCESSORS.length - SCOPED_SUBPROCESSORS.length} further
           vendors serve this website, the demo and billing and never receive patient information.
         </p>
@@ -131,16 +153,19 @@ export default function TrustPage() {
             route and says why in one sentence. Replies never name a treatment.
           </li>
           <li>
-            <strong>Deposits.</strong> Stripe signs no agreement on any tier. A deposit link
-            carries only an amount, a generic descriptor and an opaque reference: no treatment
-            name, not in the description, the statement descriptor or the metadata.
+            <strong>Deposits.</strong> A deposit is taken through your own payment processor
+            account, under your own agreement with it, and Stripe, for one, signs no agreement on
+            any tier. So a deposit link carries only an amount, a generic description and a
+            reference code: no treatment name, not in the description, the statement descriptor or
+            the metadata.
           </li>
           <li>
             <strong>The AI model keeps inputs for 30 days.</strong> Our model provider covers its
             API under its own Business Associate Agreement, but the models it covers require 30
-            days of data retention and cannot run with none. Everywhere else we push retention
-            down; this one we cannot, so we say so here rather than leave it for your counsel to
-            find.
+            days of data retention and cannot run with none. Even under that agreement it may keep
+            content its automated trust-and-safety systems flag, or that the law requires it to
+            keep, for up to two years. Everywhere else we push retention down; this one we cannot,
+            so we say so here rather than leave it for your counsel to find.
           </li>
           <li>
             <strong>Your calendar is yours.</strong> Bookings are written into your own Google
@@ -190,8 +215,10 @@ export default function TrustPage() {
                   : `${WORDS[pending] ?? String(pending)} of the agreements above are`}{" "}
                 not yet countersigned.
               </strong>{" "}
-              Until every vendor in the patient-information path has signed, no clinic is moved to
-              production. The register says which.
+              Until every vendor in the patient-information path has signed, our operator moves no
+              clinic to production. That is a check a person makes before switching a clinic over,
+              not one the software enforces yet. The register says which agreements are
+              outstanding.
             </li>
           ) : null}
         </ul>

@@ -13,15 +13,18 @@ import { plans, type Plan } from "@healdesk/catalog";
  * facts was empty every legal page rendered a visible "draft" banner
  * (`legalFactsComplete()`, read by components/LegalPage.tsx); they have all
  * been supplied, so the banner no longer renders, and nothing was invented in
- * the meantime. The registered street address is still empty and is the one
- * fact that renders only once filled.
+ * the meantime. The registered street address was the last one outstanding
+ * and came in on 3 October 2026; it prints on the legal pages, not in the
+ * footer, and the comment on it says why.
  *
  * Bump `VERSION` and `LAST_UPDATED` together whenever any page's text
- * changes; the footer of each page prints both.
+ * changes; the footer of each page prints both. src/lib/legal-version.test.ts
+ * pins a hash of each page's text to the version, so a change that forgets
+ * the bump fails the build.
  */
 
-export const LEGAL_VERSION = "2026-10-01.2";
-export const LEGAL_LAST_UPDATED = "1 October 2026";
+export const LEGAL_VERSION = "2026-10-05.3";
+export const LEGAL_LAST_UPDATED = "5 October 2026";
 
 export const ENTITY = {
   /** Full legal name, e.g. "Healdesk, Inc." Empty until the founder supplies it. */
@@ -37,14 +40,22 @@ export const ENTITY = {
   formation: "a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates",
   /**
    * The registered street address, exactly as it appears on the trade
-   * licence. Empty until the founder supplies it: it is never guessed, and
-   * nothing renders it while it is empty. Meta's Business Verification
-   * compares this address with the licence, so when it is filled it must match
-   * the licence character for character (docs/v1-product-spec.md,
-   * "Verification details that decide pass or fail"). It is a different thing
-   * from `postalAddress` below, which is a US correspondence mailbox.
+   * licence. Supplied by the owner on 3 October 2026. Meta's Business
+   * Verification compares this address with the licence, so it must match the
+   * licence character for character (docs/v1-product-spec.md, "Verification
+   * details that decide pass or fail"). It is a different thing from
+   * `postalAddress` below, which is a US correspondence mailbox.
+   *
+   * It renders on the legal pages only — terms § 20 and privacy § 10, where a
+   * reader is looking for the contracting entity and the surrounding clauses
+   * can say what the address is. It is deliberately NOT in the site footer:
+   * `entityLine()` ends at the formation, and the footer prints
+   * `postalAddress` instead, which is the address the business actually rents
+   * for correspondence (owner's decision, 3 October 2026). Business
+   * Verification reads the legal name off the website, not the address, so
+   * nothing in that gate needs it in the footer.
    */
-  registeredAddress: "",
+  registeredAddress: "Business Center, Sharjah Publishing City Free Zone, Sharjah, United Arab Emirates",
   /**
    * A registered-agent mailbox in Delaware — the same one as
    * packages/leadgen/src/enrich/footer.ts POSTAL_ADDRESS and the Scalabid
@@ -78,18 +89,29 @@ export const ENTITY = {
 export const POLICY = {
   /**
    * Days after purchase within which the first period is refundable in full.
-   * 0 = no refund window. The setup fee is never refundable, regardless of
-   * this value (decision of 21 September 2026).
+   * 0 = no refund window. The setup fee is not refunded under this window,
+   * whatever its value (decision of 21 September 2026); its one exception is
+   * `setupFeeRefundNotLiveDays` below.
    */
   refundWindowDays: 14,
+  /**
+   * The one exception to the non-refundable setup fee (terms § 3): it is
+   * refunded when none of the Practice's channels has gone live this many days
+   * after its payment, unless the delay is something still waiting on the
+   * Practice. docs/counsel/guarantee-and-refund.md decision 5, adopted on 3
+   * October 2026. Provisioning starts on the first paid invoice, so it should
+   * never have to be paid; a flat "never refundable" for a service never
+   * delivered is the term the FTC Act and a card dispute both reach.
+   */
+  setupFeeRefundNotLiveDays: 30,
   /** Whether an annual plan cancelled mid-term is refunded pro rata. */
   annualProRataRefund: false,
   /**
    * The first-month guarantee (terms § 5, rendered from GUARANTEE_TEXT below).
    * A call counts as answered when the assistant's opening line starts within
    * this many seconds of the call reaching us; a message when the first reply
-   * is sent within this many seconds of arriving; a call that ends sooner than
-   * the abandoned threshold is a hang-up or a pocket dial, not a miss. Set by
+   * is sent within this many seconds of arriving; a call the caller ends sooner
+   * than the abandoned threshold is a hang-up or a pocket dial, not a miss. Set by
    * the owner on 1 October 2026, adopting docs/counsel/guarantee-and-refund.md
    * without external counsel review and ahead of measured latency. Revisit
    * once the routed/answered counter in apps/app exists; the guarantee text
@@ -98,10 +120,20 @@ export const POLICY = {
   guaranteeCallAnswerSeconds: 10,
   guaranteeMessageAnswerSeconds: 60,
   guaranteeAbandonedCallSeconds: 5,
+  /** The guarantee's first month, in days from the day the first channel goes live. */
+  guaranteeFirstMonthDays: 30,
   /** Days after the first month ends within which the account owner may claim. */
   guaranteeClaimWindowDays: 30,
-  /** Days after a claim that shows a miss within which the refund is made. */
+  /** Business days after a claim within which we tell the account owner our finding. */
+  guaranteeFindingBusinessDays: 10,
+  /** Days after our finding of a miss within which the refund is made. */
   guaranteeRefundWithinDays: 14,
+  /**
+   * Days after our own records show a miss within which we tell the account
+   * owner, whether or not they have claimed: only we can see the counter, so a
+   * claim window with no duty to speak would be a trap.
+   */
+  guaranteeMissNoticeDays: 7,
   /**
    * Days after the service ends for which forwarded calls are still passed
    * straight through to the Practice's direct line (terms § 7). The spec's
@@ -151,11 +183,15 @@ export const POLICY = {
  * and that force majeure does not excuse a miss — is contract mechanics and
  * stays in the terms, where the section numbers mean something.
  *
- * Adopted by the owner on 1 October 2026 from the draft in
- * docs/counsel/guarantee-and-refund.md, without external counsel review:
- * claim-based, one refund per practice, one month at the annual per-month
- * price on annual plans, our records plus any carrier record the Practice
- * sends, and a failure of our own systems or suppliers counts as ours.
+ * The adopted text of docs/counsel/guarantee-and-refund.md ("The adopted
+ * text"), word for word, adopted by the owner on 1 October 2026 without
+ * external counsel review: claim-based, one refund per practice, one month at
+ * the annual per-month price on annual plans, our records plus any record the
+ * Practice sends, and a failure of our own systems or suppliers counts as
+ * ours. One sentence was added to "How to claim" on 3 October 2026, the one
+ * after the records we check: the claim goes to a mailbox on the no-PHI side,
+ * so a carrier record or an inbox screenshot must arrive with the patients'
+ * numbers blacked out and without a transcript.
  */
 export const GUARANTEE_TEXT = {
   heading: "Our first-month guarantee",
@@ -163,37 +199,37 @@ export const GUARANTEE_TEXT = {
     {
       lead: "Our first-month guarantee.",
       body:
-        "If, during your first month, the assistant fails to answer any call or message routed to it, we refund your first month's subscription fee.",
+        "If, during your first month, the assistant fails to answer a call or message routed to it, we refund your first month's subscription fee. The setup fee is not part of this guarantee.",
     },
     {
       lead: "Your first month",
       body:
-        "is the 30 days that start on the day your first channel goes live, as shown in your portal.",
+        `is the ${POLICY.guaranteeFirstMonthDays} days that start on the day your first channel goes live, as shown in your portal. A channel that goes live later is covered from the day it goes live until the end of those ${POLICY.guaranteeFirstMonthDays} days. A channel that goes live after your first month ends is not covered.`,
     },
     {
       lead: "Routed to it",
       body:
-        "means: a phone call that reaches the healdesk number assigned to your practice; a website chat message that reaches our servers from the widget on your site; and an Instagram, Messenger or WhatsApp message that Meta delivers to us from an account you connected.",
+        "means: a phone call your carrier forwards to the healdesk number assigned to your practice, from the moment your carrier's record or ours shows the forward; a message a visitor sends from the healdesk widget on your website; and an Instagram, Messenger or WhatsApp message sent to an account you connected while that channel was switched on. A call or message that was routed to us and that our systems or our suppliers failed to receive still counts as routed.",
     },
     {
       lead: "Answered",
       body:
-        `means: on a call, the assistant speaks its opening line within ${POLICY.guaranteeCallAnswerSeconds} seconds of the call reaching us; on a message, the assistant's first reply is sent within ${POLICY.guaranteeMessageAnswerSeconds} seconds of the message reaching us. A fixed safety reply, such as the one given when someone reports an urgent symptom, counts as an answer.`,
+        `means: on a call, the assistant starts its opening line within ${POLICY.guaranteeCallAnswerSeconds} seconds of the call reaching us and the call is not later cut off by our systems or our suppliers; on a message, the assistant's first reply is sent within ${POLICY.guaranteeMessageAnswerSeconds} seconds of the message reaching us. A fixed safety reply, such as the one given when someone reports an urgent symptom, counts as an answer. A fixed line sent only because our systems or our suppliers had failed does not.`,
     },
     {
       lead: "What does not count:",
       body:
-        `calls and messages that reach us while you have paused the assistant or switched that channel off; while your service is suspended for non-payment; or after your monthly allowance has run out and your setting is "Stop and fall back". Calls that end within ${POLICY.guaranteeAbandonedCallSeconds} seconds of reaching us. Calls and messages that never reach us because of your phone carrier, your call-forwarding settings, your website, or Meta. A call or message that reaches us and is not answered because our systems or one of our suppliers failed does count as missed, even if it then forwards to your own line, and an event outside our control does not excuse it.`,
+        `calls and messages that reach us while you have paused the assistant or switched that channel off, while your service is suspended for non-payment, or after your monthly allowance has run out and your setting is "Stop and fall back"; calls the caller ends within ${POLICY.guaranteeAbandonedCallSeconds} seconds of reaching us; and calls and messages that never reach us because of your phone carrier, your call-forwarding settings, your website, the visitor's connection, or Meta. A call the caller ends after ${POLICY.guaranteeAbandonedCallSeconds} seconds and before the opening line has started does count as missed. A call or message that reaches us and is not answered because our systems or one of our suppliers failed counts as missed whatever the cause of that failure, even if the call then forwards to your own line; an event outside our control does not excuse it. Our suppliers are the companies we choose to run the service: telephony and speech, the language model, and hosting. Your carrier, Google and Meta are not our suppliers.`,
     },
     {
       lead: "How to claim.",
       body:
-        `Within ${POLICY.guaranteeClaimWindowDays} days after your first month ends, the account owner emails ${ENTITY.supportEmail} from the owner's address and asks us to check, giving the date, time and channel of any call or message you believe was missed, if you have one. We check our own records and any call record from your phone carrier that you send us. If one call or message was missed, we refund your first month's subscription fee to the card you paid with, within ${POLICY.guaranteeRefundWithinDays} days of your claim, and tell you what failed.`,
+        `Within ${POLICY.guaranteeClaimWindowDays} days after your first month ends, the account owner emails ${ENTITY.supportEmail} from the owner's address and asks us to check, giving the date, time and channel of any call or message you believe was missed, if you have one. We check our own records and any record you send us: a call record from your phone carrier, or a screenshot of an unanswered message in your Instagram, Messenger or WhatsApp inbox. Send dates and times, not names: black out every phone number on a carrier record or screenshot except its last four digits, and never send a transcript. A call your carrier's record shows forwarded to your healdesk number, or a message your inbox shows with no reply from us within the time above, counts as missed unless our records show it was answered, or show that it never left your carrier or Meta. We tell you our finding within ${POLICY.guaranteeFindingBusinessDays} business days of your claim. If one call or message was missed, we refund your first month's subscription fee to the payment method you paid with, within ${POLICY.guaranteeRefundWithinDays} days of that finding, and tell you what failed. If our own records show a miss, we tell the account owner by email within ${POLICY.guaranteeMissNoticeDays} days of recording it, whether or not you have claimed.`,
     },
     {
       lead: "Limits.",
       body:
-        "One refund per practice. On an annual plan, the refund is one month at your plan's annual per-month price. The setup fee is not refundable under this guarantee or otherwise. You do not have to cancel to claim; if you stay, the service continues as normal. This refund is the only remedy for a call or message missed during your first month.",
+        "One refund per practice, meaning one account, however many locations or channels it has. On an annual plan, the refund is one month at your plan's annual per-month price, meaning the annual fee divided by twelve. You do not have to cancel to claim; if you stay, the service continues as normal. This refund is your only remedy for a call or message missed during your first month. It does not limit your rights under the Business Associate Agreement, or for anything other than the missed call or message itself.",
     },
   ],
 } as const;
@@ -219,15 +255,18 @@ export function entityDisplayName(): string {
  * The entity line the site footer prints on every page, worded as the spec
  * requires it in the footer and on the Terms and Privacy pages: "healdesk is a
  * service of Viixi FZC, a company registered under the Sharjah Publishing City
- * Free Zone, United Arab Emirates". The registered address follows only once
- * `ENTITY.registeredAddress` is filled in; until then the line ends at the
- * formation rather than printing a placeholder.
+ * Free Zone, United Arab Emirates".
+ *
+ * The line ends at the formation and never carries `ENTITY.registeredAddress`.
+ * The registered address is a legal fact, and it belongs where a reader has
+ * the clauses around it to tell it apart from a place of business: terms § 20
+ * and privacy § 10 print it, and the footer prints `ENTITY.postalAddress`, the
+ * US mailbox the business rents, under its own label. Owner's decision, 3
+ * October 2026. What Meta's Business Verification needs from the website is
+ * the legal name, which this line carries.
  */
 export function entityLine(): string {
-  const address = ENTITY.registeredAddress
-    ? `, registered address ${ENTITY.registeredAddress}`
-    : "";
-  return `healdesk is a service of ${entityDisplayName()}, ${ENTITY.formation}${address}.`;
+  return `healdesk is a service of ${entityDisplayName()}, ${ENTITY.formation}.`;
 }
 
 export function packagesForTerms(): readonly Plan[] {

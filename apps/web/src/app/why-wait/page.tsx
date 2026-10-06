@@ -9,6 +9,7 @@ import { WhyWaitExperience } from "@/components/WhyWaitExperience";
 import { site } from "@/lib/site";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/why-wait" },
   title: "Why wait?",
   description:
     "Work out what the calls your practice never hears about are worth, with your " +

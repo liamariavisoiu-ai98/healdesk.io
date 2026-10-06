@@ -19,8 +19,8 @@ import type { TenantTx } from "@/lib/tenant";
  * Until this existed nothing in the product deleted anything. Every
  * conversation, transcript reference and appointment accumulated for as long
  * as the database did, which meant a breach in year five disclosed five years
- * of calls instead of two, and the BAA's "return or destroy" clause had no
- * code behind it.
+ * of calls instead of the last ninety days, and the BAA's "return or destroy"
+ * clause had no code behind it.
  *
  * ## Two clocks, per clinic
  *
@@ -33,10 +33,14 @@ import type { TenantTx } from "@/lib/tenant";
  * pointing at it again; it is not, and does not claim to be, the deletion of
  * the bytes.
  *
- * `clinics.retention_record_days` (default 730) deletes the conversation,
+ * `clinics.retention_record_days` (default 90) deletes the conversation,
  * appointment and transaction rows themselves, and then any contact that no
- * longer has a row of any kind. Two years is what a year-over-year revenue
- * report needs and no more.
+ * longer has a row of any kind. 90 days because the BAA says "healdesk keeps
+ * transcripts and conversation records for 90 days, which Practice may
+ * shorten in its portal" (TRANSCRIPT_RETENTION_DAYS in @healdesk/catalog).
+ * Until 0042 the default was 730, for a year-over-year revenue report that
+ * is phase two, so every clinic left at the default kept its records eight
+ * times as long as its agreement said.
  *
  * ## What is never purged, and why
  *

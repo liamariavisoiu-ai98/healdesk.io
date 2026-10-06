@@ -45,8 +45,22 @@ describe("the first-month guarantee reads the same on the pricing page and in th
     // is advertised. The "what does not count" and "limits" paragraphs are the
     // conditions, and a reader of /pricing must not need /terms to find them.
     expect(pricing).toContain("What does not count:");
-    expect(pricing).toContain("One refund per practice.");
-    expect(pricing).toContain("The setup fee is not refundable under this guarantee or otherwise.");
+    expect(pricing).toContain("One refund per practice, meaning one account");
+    // The setup fee sits outside the guarantee, said in its first paragraph,
+    // which is why the block is never a "money-back guarantee" (16 CFR
+    // 239.3(a)).
+    expect(pricing).toContain("The setup fee is not part of this guarantee.");
+    expect(pricing).toContain("This refund is your only remedy for a call or message missed during your first month.");
+  });
+
+  test("nothing above the block says more than its first sentence", () => {
+    // docs/counsel/guarantee-and-refund.md, "Advertising the guarantee", rule
+    // 1. The eyebrow "If she misses one, the month is on us" dropped the
+    // first-month, routed and setup-fee conditions, so it is gone; the heading
+    // is the guarantee's name and claims nothing.
+    const beforeBlock = pricing.slice(0, pricing.indexOf(GUARANTEE_TEXT.paragraphs[0].lead));
+    expect(beforeBlock.trim()).toBe(GUARANTEE_TEXT.heading);
+    expect(pricing).not.toMatch(/month is on us/i);
   });
 
   test("the guarantee text carries no unfilled placeholder", () => {

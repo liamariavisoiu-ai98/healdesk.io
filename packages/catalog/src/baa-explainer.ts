@@ -129,38 +129,47 @@ export const BAA_EXPLAINER = {
     "covered entity, and what HIPAA requires of you, are questions for your own counsel.",
 } as const;
 
-/** The 1.2.0 clauses that have a note below. */
+/** The clauses of the current version (1.3.0) that have a note below. */
 export type ExplainedClauseId =
   | "data-sources-none"
   | "google-calendar"
+  | "payments"
+  | "own-use"
+  | "safeguards"
   | "minimum-necessary"
-  | "subcontractors";
+  | "subcontractors"
+  | "acting-in-your-place"
+  | "term"
+  | "state-privacy-law";
 
 /**
- * Plain-English notes for the clauses of 1.2.0 that describe what the product
- * does rather than paraphrase the regulation, keyed by clause id, for the
- * signing screen to show beside the clause. Kept separate from
- * `BAA_EXPLAINER.terms` deliberately: those are pin-cited to 45 CFR 164.504(e),
- * whereas these are facts about the service — what healdesk reads, the Google
- * Calendar access, what the assistant collects, and the model provider's
- * retention, which the spec says a clinic must not have to discover from its
- * own counsel. The same rules apply — descriptive, never "you need this", and
- * the agreement governs.
+ * Plain-English notes for the clauses of the current version that describe
+ * what the product does, or what 1.3.0 changed, rather than paraphrase the
+ * regulation, keyed by clause id, for the signing screen to show beside the
+ * clause. Kept separate from `BAA_EXPLAINER.terms` deliberately: those are
+ * pin-cited to 45 CFR 164.504(e), whereas these are facts about the service —
+ * what healdesk reads, the Google Calendar and payment access, what the
+ * assistant collects, the model provider's retention, and what happens at the
+ * end — which the spec says a clinic must not have to discover from its own
+ * counsel. The same rules apply — descriptive, never "you need this", and the
+ * agreement governs.
  *
- * ⚖️ Every note here must stay true to the clause it explains. The golden
- * test in apps/app freezes the 1.2.0 bytes, and the clause body is the thing
- * to read if a note and a clause ever seem to disagree. Three of these ids
- * (data-sources-none, minimum-necessary, subcontractors) were also used by
- * earlier versions with different bodies; the notes describe the 1.2.0 body,
- * and the signing screen only ever renders the current template, so no
- * earlier body is shown beside them.
+ * ⚖️ Every note here must stay true to the clause it explains, and promise
+ * nothing the clause does not. The golden test in apps/app freezes the 1.3.0
+ * bytes, and the clause body is the thing to read if a note and a clause ever
+ * seem to disagree. Most of these ids were also used by earlier versions with
+ * different bodies; the notes describe the 1.3.0 body, and the signing screen
+ * only ever renders the current template, so no earlier body is shown beside
+ * them.
  */
 export const BAA_CLAUSE_EXPLAINERS: Readonly<Record<ExplainedClauseId, BaaExplainerTerm>> = {
   "data-sources-none": {
     plain:
-      "healdesk connects to no practice-management or point-of-sale system and holds no " +
-      "credentials to one. The only patient information it receives is what patients give " +
-      "it in a call or chat, plus the Google Calendar access the next clause describes",
+      "Apart from the payment-link access the Payments clause describes, healdesk holds no " +
+      "credentials to any practice-management or point-of-sale system and reads nothing " +
+      "from one. The only patient information it receives is what patients give it in a " +
+      "call or chat, plus the calendar access the Google Calendar clause describes and the " +
+      "payment status the Payments clause describes",
     citation: "164.504(e)(2)(i)",
   },
   "google-calendar": {
@@ -172,6 +181,43 @@ export const BAA_CLAUSE_EXPLAINERS: Readonly<Record<ExplainedClauseId, BaaExplai
       "edits or cancels anything it did not create. Google's own agreement covers Calendar " +
       "only where your Workspace administrator has accepted it",
     citation: "164.502(b), 164.504(e)(2)(i)",
+  },
+  payments: {
+    plain:
+      "healdesk never takes a patient's card number. If you connect your own payment " +
+      "processor and switch deposits on, it may send a patient a link to a payment page " +
+      "your processor hosts, in a website chat or a message conversation the patient " +
+      "started — never on a call, where any deposit is left for your staff. The payment " +
+      "goes into your own account, under your own agreement with the processor, which is " +
+      "not healdesk's subcontractor. To make a link healdesk sends the processor an amount, " +
+      "a generic description and a reference code, and nothing else about the patient or " +
+      "the appointment, and it uses its access only to create links and learn whether they " +
+      "were paid. It creates no customer record or invoice and saves no card",
+    citation: "164.502(b), 164.506(c)(1)",
+  },
+  "own-use": {
+    plain:
+      "healdesk may use patient information where necessary for its own proper management " +
+      "and administration and its legal duties, and disclose it for those purposes only " +
+      "where the law requires it or the recipient has assured healdesk it will keep it " +
+      "confidential, use it only for that purpose or as the law requires, and report any " +
+      "breach. It may de-identify your patients' information to the HIPAA standard and " +
+      "combine it with other practices' de-identified information only to produce " +
+      "aggregate statistics about the service. It will not re-identify, or try to " +
+      "re-identify, anyone from it, and never uses patient information to train, fine-tune " +
+      "or evaluate a model",
+    citation: "164.504(e)(4), 164.514(b)",
+  },
+  safeguards: {
+    plain:
+      "Patient information is encrypted at rest, and in transit wherever healdesk controls " +
+      "both ends. An email whose receiving server will not negotiate encryption is not sent, " +
+      "and you are told; the list of patients in a breach report goes by secure transfer, " +
+      "never in the email. The one exception is a patient who telephones: a phone call is " +
+      "not end-to-end encrypted, so healdesk answers it with the minimum necessary, never " +
+      "including clinical detail, test results or card or bank details. healdesk places no " +
+      "calls and sends no SMS",
+    citation: "164.312(a)(2)(iv), (e)(2)(ii)",
   },
   "minimum-necessary": {
     plain:
@@ -192,5 +238,37 @@ export const BAA_CLAUSE_EXPLAINERS: Readonly<Record<ExplainedClauseId, BaaExplai
       "vendor handles patient information, and may end the agreement if you object on " +
       "reasonable grounds",
     citation: "164.504(e)(2)(ii)(D), 164.308(b)(2)",
+  },
+  "acting-in-your-place": {
+    plain:
+      "Answering a patient who calls, and replying in your name to a patient who writes, " +
+      "are your practice's own duties carried out through healdesk. Where healdesk carries " +
+      "out an obligation the HIPAA Privacy Rule places on you, it meets the requirements " +
+      "the Rule places on you, not only the lighter ones it places on a business associate",
+    citation: "164.504(e)(2)(ii)(H)",
+  },
+  term: {
+    plain:
+      "Within thirty days of the agreement ending, healdesk delivers you an export of the " +
+      "patient information it holds for you, then destroys that information and keeps no " +
+      "copies: at day thirty if the export has been delivered by then, otherwise as soon " +
+      "as it is, and never later than ninety days after the end. Until then the agreement " +
+      "still protects it. Where destruction is not feasible, healdesk says why in writing, " +
+      "keeps protecting what it holds and uses it only for what makes destruction " +
+      "infeasible. The signed agreement and the record of disclosures are kept for six years",
+    citation: "164.504(e)(2)(ii)(J), 164.530(j)",
+  },
+  "state-privacy-law": {
+    plain:
+      "Applies for any period in which your practice is not a HIPAA covered entity, " +
+      "whatever you told healdesk when you signed. healdesk is then your service provider " +
+      "and processor under the California, Washington, Nevada and Connecticut privacy " +
+      "laws, to the extent each applies: it uses your patients' information only for the " +
+      "purposes the clause lists, never sells or shares it as California defines those " +
+      "words, gives you what you need to answer people's requests within ten business " +
+      "days, deletes what you tell it to within ten business days (from backups within six " +
+      "months), and tells you of a breach immediately following discovery where a state law " +
+      "requires that",
+    citation: "Cal. Civ. Code 1798.100(d); RCW 19.373.060",
   },
 };

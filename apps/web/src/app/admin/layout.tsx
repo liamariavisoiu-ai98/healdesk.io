@@ -96,13 +96,15 @@ export const metadata: Metadata = {
 };
 
 /**
- * The four surfaces this console has, in the order somebody uses them: what
- * changed, what is running, who is in the funnel, and what has been signed.
+ * The surfaces this console has, in the order somebody uses them: what
+ * changed, what is running, who is in the funnel, the personalised demos
+ * built for them, and what has been signed.
  */
 const SECTIONS = [
   { href: "/admin", label: "Changes" },
   { href: "/admin/ops", label: "Ops" },
   { href: "/admin/crm", label: "CRM" },
+  { href: "/admin/demos", label: "Demos" },
   { href: "/admin/agreements", label: "Agreements" },
 ] as const;
 

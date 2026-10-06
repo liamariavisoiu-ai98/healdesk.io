@@ -23,8 +23,11 @@ export const metadata: Metadata = {
  * something that promised a product, so this page has to look like the
  * product, with the same navbar and the same footer as everywhere else, and
  * offer the three places they were most likely trying to reach. The tone is
- * AYA's: the whole pitch is that she never misses a call, so the one thing
- * this page must not do is sound like a machine that has given up.
+ * AYA's: the whole pitch is that she picks up, so the one thing this page
+ * must not do is sound like a machine that has given up. The headline is not
+ * an absolute: until 3 October 2026 it said she "never misses a call", a
+ * promise broader than the first-month guarantee, which provides for a miss
+ * (docs/counsel/guarantee-and-refund.md, "Advertising the guarantee").
  *
  * The navbar's "Get Started" button falls back to a link here because there
  * is no BuyModalProvider on this route. That is deliberate: the modal's
@@ -41,7 +44,7 @@ export default function NotFound() {
             404
           </p>
           <h1 className="font-display mt-3 text-[clamp(40.8px,6vw,69.6px)] leading-[1.03] font-medium tracking-[-0.028em]">
-            {site.agent} never misses a call. This page, she can&rsquo;t find.
+            {site.agent} picks up when your desk can&rsquo;t. This page, she can&rsquo;t find.
           </h1>
           <p className="text-muted mt-5 text-[20.4px] font-medium">
             The link you followed is missing a piece, or points somewhere that

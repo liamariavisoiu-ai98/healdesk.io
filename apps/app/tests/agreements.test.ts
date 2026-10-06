@@ -4,7 +4,10 @@ import {
   BAA_EXPLAINER,
   currentBaaTemplate,
   CURRENT_BAA_VERSION,
+  getBaaTemplate,
   hashBaaText,
+  isBaaVersionAcceptable,
+  MIN_ACCEPTABLE_BAA_VERSION,
   prepareBaa,
   renderBaa,
   type BaaVariables,
@@ -149,8 +152,8 @@ describe("rendering", () => {
 
     expect(yes).toMatch(/is\s+therefore\s+a\s+covered\s+entity/);
     expect(no).toMatch(/may\s+therefore\s+not\s+be\s+a\s+covered\s+entity/i);
-    // 1.2.0 (via 1.1.0's practice-status clause): the practice NOTIFIES its
-    // status; healdesk no longer "determines" or "confirms" it.
+    // Since 1.2.0 (1.1.0's practice-status wording): the practice NOTIFIES
+    // its status; healdesk no longer "determines" or "confirms" it.
     expect(unwrap(unknown)).toContain(
       "has not yet notified healdesk whether it is a covered entity",
     );
@@ -186,15 +189,15 @@ describe("rendering", () => {
   });
 
   test("the offered template is released, says so, and carries no draft wording", () => {
-    // 1.2.1 was released on 2026-10-01 on the owner's own review, without
-    // external counsel (the doc comment on approvedByCounsel in
+    // 1.3.0 was released on 2026-10-03 by the owner, without external
+    // counsel review (the doc comment on approvedByCounsel in
     // packages/catalog/src/baa.ts records that). The document itself must
     // read as executable: a DRAFT line, or the 1.1.0 acceptance placeholder,
     // in an offered agreement is the draft preamble leaking into production.
-    expect(CURRENT_BAA_VERSION).toBe("1.2.1");
+    expect(CURRENT_BAA_VERSION).toBe("1.3.0");
     expect(currentBaaTemplate().approvedByCounsel).toBe(true);
     const text = renderBaa(currentBaaTemplate(), VARS);
-    expect(text).toContain("Version 1.2.1 — executed electronically");
+    expect(text).toContain("Version 1.3.0 — executed electronically");
     expect(text).not.toMatch(/DRAFT|NOT FOR EXECUTION|\[NAME, TITLE\]/);
     // The party is the legal entity, not the trade name alone.
     expect(unwrap(text)).toContain('Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates ("healdesk")');
@@ -231,9 +234,10 @@ describe("the assent sentence", () => {
  */
 describe("every variant the funnel can produce", () => {
   // outboundMessaging is not an axis any more. In 1.0.0 it keyed the consent
-  // warranty and the reactivation gate; 1.2.0 has neither clause, so the
-  // field has no contractual consequence and a variant per value would be
-  // two names for one document. The test below pins that it stays that way.
+  // warranty and the reactivation gate; no version since 1.2.0 has either
+  // clause, so the field has no contractual consequence and a variant per
+  // value would be two names for one document. The test below pins that it
+  // stays that way.
   const AXES = {
     isCoveredEntity: [true, false, null] as const,
     attributionMode: ["estimated", "verified"] as const,
@@ -285,6 +289,7 @@ describe("every variant the funnel can produce", () => {
         "practice-status",
         "permitted-uses",
         "google-calendar",
+        "payments",
         "own-use",
         "practice-duties",
         "safeguards",
@@ -297,6 +302,9 @@ describe("every variant the funnel can produce", () => {
         "term",
         "liability",
         "records-to-hhs",
+        // Covered or not: the clause's own first sentence limits it to any
+        // period in which the practice is not a covered entity.
+        "state-privacy-law",
         "notices-and-law",
       ]) {
         expect(
@@ -355,10 +363,11 @@ describe("every variant the funnel can produce", () => {
 
   test("outbound messaging has no contractual consequence, and no outbound clause is reachable", () => {
     // v1 is inbound only. 1.0.0 keyed the consent warranty and the
-    // reactivation gate to outboundMessaging; 1.2.0 registers neither clause,
-    // so flipping the field must change nothing — which is why it is no
-    // longer an axis above. A variant that DID change would mean an outbound
-    // clause had found its way back into the offered template.
+    // reactivation gate to outboundMessaging; no version since 1.2.0
+    // registers either clause, so flipping the field must change nothing —
+    // which is why it is no longer an axis above. A variant that DID change
+    // would mean an outbound clause had found its way back into the offered
+    // template.
     for (const variables of variants) {
       const off = prepareBaa(currentBaaTemplate(), variables);
       const on = prepareBaa(currentBaaTemplate(), { ...variables, outboundMessaging: true });
@@ -434,6 +443,32 @@ describe("the explainer shown before payment", () => {
     expect(BAA_EXPLAINER.disclaimer).toMatch(/not\s+legal advice/i);
     expect(BAA_EXPLAINER.disclaimer).toMatch(/not your lawyer/i);
     expect(BAA_EXPLAINER.disclaimer).toMatch(/agreement governs/i);
+  });
+});
+
+/**
+ * The go-live floor (docs/counsel/agreement-changes.md §10).
+ *
+ * Go-live refuses an account whose agreement in effect is older than
+ * MIN_ACCEPTABLE_BAA_VERSION; the database holds the same set as an
+ * allow-list, and tests/database-audit.test.ts proves the two agree.
+ */
+describe("the go-live floor", () => {
+  test("is a released version, and a fresh signature always clears it", () => {
+    // Signing only ever produces the current version, so if the current
+    // version were below the floor, no new clinic could go live at all.
+    const floor = getBaaTemplate(MIN_ACCEPTABLE_BAA_VERSION);
+    expect(floor?.approvedByCounsel).toBe(true);
+    expect(isBaaVersionAcceptable(CURRENT_BAA_VERSION)).toBe(true);
+    expect(isBaaVersionAcceptable(MIN_ACCEPTABLE_BAA_VERSION)).toBe(true);
+  });
+
+  test("refuses every superseded version, every draft, and anything unregistered", () => {
+    // 1.2.1 and earlier lack the Payments clause and the clause for a
+    // practice that is not a covered entity; the drafts were never executable.
+    for (const version of ["1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft", "1.3", "9.9.9", ""]) {
+      expect(isBaaVersionAcceptable(version), version).toBe(false);
+    }
   });
 });
 

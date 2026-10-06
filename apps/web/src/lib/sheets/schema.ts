@@ -227,7 +227,82 @@ export const COUNTERS: Tab = {
   ],
 };
 
-export const TABS: readonly Tab[] = [LEADS, LEAD_EVENTS, CALL_CONSENTS, COUNTERS];
+/**
+ * One personalised demo: a private page that answers as one prospect's clinic
+ * (src/lib/demo). Built from the clinic's public website on an operator's
+ * request, after the prospect asked for it.
+ *
+ * Business data only. `profile` is the clinic's own published services,
+ * prices, hours and FAQs; `lead_email` and `phone_e164` are the owner's work
+ * contact details. Nothing a visitor types into the demo is ever written
+ * here: the chat and the calls are not stored on our side at all.
+ *
+ * `slug` is the capability: knowing it is what lets a browser use the demo,
+ * so it carries a random suffix and is never listed anywhere public.
+ */
+export type DemoSessionStatus = "building" | "ready" | "failed";
+
+export type DemoSession = {
+  id: string;
+  slug: string;
+  status: DemoSessionStatus;
+  leadEmail: string | null;
+  clinicName: string;
+  websiteUrl: string;
+  /** The owner's number from the request, to prefill "call me". Never dialled without a fresh consent tick. */
+  phoneE164: string | null;
+  /** The niche as the operator or the webhook gave it, verbatim. */
+  niche: string | null;
+  /** SpecialtyId, from the extraction or the niche. */
+  specialty: string | null;
+  brandName: string | null;
+  logoUrl: string | null;
+  brandColor: string | null;
+  /** The ClinicProfile, as JSON. */
+  profile: Record<string, unknown> | null;
+  scrapeSource: string | null;
+  /** Why a build failed, or what it had to skip. Operator-facing. */
+  buildNote: string | null;
+  createdBy: string | null;
+  createdAt: Date;
+  readyAt: Date | null;
+  expiresAt: Date;
+  claimed: boolean;
+  claimedAt: Date | null;
+  claimedPlan: string | null;
+  emailSentAt: Date | null;
+};
+
+export const DEMO_SESSIONS: Tab = {
+  title: "demo_sessions",
+  columns: [
+    col("id", "id", "text"),
+    col("slug", "slug", "text"),
+    col("status", "status", "text"),
+    col("lead_email", "leadEmail", "text"),
+    col("clinic_name", "clinicName", "text"),
+    col("website_url", "websiteUrl", "text"),
+    col("phone_e164", "phoneE164", "text"),
+    col("niche", "niche", "text"),
+    col("specialty", "specialty", "text"),
+    col("brand_name", "brandName", "text"),
+    col("logo_url", "logoUrl", "text"),
+    col("brand_color", "brandColor", "text"),
+    col("profile", "profile", "json"),
+    col("scrape_source", "scrapeSource", "text"),
+    col("build_note", "buildNote", "text"),
+    col("created_by", "createdBy", "text"),
+    col("created_at", "createdAt", "timestamp"),
+    col("ready_at", "readyAt", "timestamp"),
+    col("expires_at", "expiresAt", "timestamp"),
+    col("claimed_status", "claimed", "bool"),
+    col("claimed_at", "claimedAt", "timestamp"),
+    col("claimed_plan", "claimedPlan", "text"),
+    col("email_sent_at", "emailSentAt", "timestamp"),
+  ],
+};
+
+export const TABS: readonly Tab[] = [LEADS, LEAD_EVENTS, CALL_CONSENTS, COUNTERS, DEMO_SESSIONS];
 
 // -----------------------------------------------------------------------------
 // Ranges

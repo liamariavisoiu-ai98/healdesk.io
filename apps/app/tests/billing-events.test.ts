@@ -34,7 +34,7 @@ import { inTenant, seedClinic } from "./setup/factories";
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 
-const chatVoice = getPlan("chat-voice")!;
+const webVoice = getPlan("web-voice")!;
 const complete = getPlan("complete")!;
 
 const DAY = 24 * 60 * 60;
@@ -70,7 +70,7 @@ function invoice(
   const lines: Record<string, unknown>[] = [
     {
       id: "il_recurring",
-      amount: chatVoice.monthlyUsd * 100,
+      amount: webVoice.monthlyUsd * 100,
       period: { start: options.periodStart, end: options.periodEnd },
       parent: { type: "subscription_item_details" },
       pricing: { type: "price_details", price_details: { price: "price_recurring" } },
@@ -170,7 +170,7 @@ describe("parseLookupKey", () => {
   test("returns null for anything that is not a package price", () => {
     expect(parseLookupKey("healdesk_meter_voice_minutes")).toBeNull();
     expect(parseLookupKey("scalabid_pro_month_9900")).toBeNull();
-    expect(parseLookupKey("healdesk_chat-voice_weekly_100")).toBeNull();
+    expect(parseLookupKey("healdesk_web-voice_weekly_100")).toBeNull();
     expect(parseLookupKey("")).toBeNull();
   });
 });
@@ -185,9 +185,8 @@ describeDb("handleStripeEvent", () => {
     clinicId = (await seedClinic("evt")).clinicId;
     await withTenant({ clinicId, actor: { type: "system" } }, (tx) =>
       seedEntitlements(tx.db, clinicId, {
-        plan: chatVoice,
+        plan: webVoice,
         interval: "month",
-        chatChannelChoice: "web",
         stripeCustomerId: ids.customer,
         stripeSubscriptionId: ids.subscription,
       }),
@@ -250,7 +249,7 @@ describeDb("handleStripeEvent", () => {
       invoice(ids, "subscription_create", {
         periodStart: start,
         periodEnd: end,
-        setupCents: chatVoice.setupFeeUsd * 100,
+        setupCents: webVoice.setupFeeUsd * 100,
       }),
     );
 
@@ -335,6 +334,24 @@ describeDb("handleStripeEvent", () => {
     expect(r.current_period_end?.getTime()).toBe(end * 1000);
     // The setup fee is not touched by a renewal.
     expect(r.setup_fee_paid_usd).toBe("997.00");
+  });
+
+  test("a switch between twins in the Customer Portal moves the chat channel", async () => {
+    // Web + Voice → Meta + Voice: same price, same allowances, different
+    // channel. Before the split this was one package with the channel in a
+    // field beside it, and a portal switch could not reach that field.
+    const metaVoice = getPlan("meta-voice")!;
+    const e = event(
+      "customer.subscription.updated",
+      subscription(ids, { lookupKey: stripeLookupKey(metaVoice, "month") }),
+    );
+    await handleStripeEvent(e);
+
+    const r = await row();
+    expect(r.plan_code).toBe("meta-voice");
+    expect(r.billing_interval).toBe("month");
+    expect(r.channels_enabled).toEqual({ web: false, meta: true, voice: true });
+    expect(await transitionsFor(e.id)).toBe(1);
   });
 
   test("(e) a subscription update onto an annual price changes interval and allowances", async () => {
@@ -556,7 +573,7 @@ describeDb("handleStripeEvent", () => {
     const notYet = (await seedClinic("notyet")).clinicId;
     await withTenant({ clinicId: notYet, actor: { type: "system" } }, (tx) =>
       seedEntitlements(tx.db, notYet, {
-        plan: chatVoice,
+        plan: webVoice,
         interval: "month",
         stripeCustomerId: "cus_notyet",
         stripeSubscriptionId: "sub_notyet",

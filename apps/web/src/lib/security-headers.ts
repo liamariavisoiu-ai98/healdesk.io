@@ -51,7 +51,7 @@
  *   - The voice demo: scripted playback plus a POST to /api/callback that has
  *     AYA ring the visitor. It never opens the microphone, which is why
  *     Permissions-Policy says `microphone=()` rather than `(self)`.
- *   - Server-side fetches (Resend, Synthflow, GitHub, Anthropic) happen in
+ *   - Server-side fetches (Resend, Retell, GitHub, Anthropic) happen in
  *     route handlers and are invisible to a browser CSP. Do not add them.
  *
  * ## The trade-off: `'unsafe-inline'` instead of nonces
@@ -159,6 +159,16 @@ export const GOOGLE_DOCS_ORIGIN = "https://docs.google.com";
 export const STRIPE_CHECKOUT_ORIGIN = "https://checkout.stripe.com";
 
 /**
+ * The personalised demo's browser call (src/app/demo, retell-client-js-sdk 3).
+ * The SDK's WebRTC signalling goes to api.retellai.com (`/webrtc-proxy/…`)
+ * with the call's short-lived access token, and its LiveKit transport, the
+ * fallback when Retell answers with `transport: "livekit"`, opens a websocket
+ * to a *.livekit.cloud room. The audio itself is WebRTC, which CSP does not
+ * govern. next.config.ts applies these to `/demo/:path*` only.
+ */
+export const RETELL_CALL_ORIGINS = ["https://api.retellai.com", "wss://*.livekit.cloud", "https://*.livekit.cloud"] as const;
+
+/**
  * The Vercel Toolbar that Vercel injects into PREVIEW deployments for
  * logged-in team members. It is not part of the site, but with a report-only
  * CSP on the preview URL its violations would drown out the real ones, and
@@ -210,6 +220,15 @@ export type CspDirective = (typeof CSP_DIRECTIVES)[number];
 export type CspOptions = {
   /** Extra `frame-src` origins. Empty or absent keeps `frame-src 'none'`. */
   frameSources?: readonly string[];
+  /** Extra `connect-src` origins: the personalised demo's browser call. */
+  connectSources?: readonly string[];
+  /**
+   * Extra `img-src` sources. The personalised demo shows the clinic's own
+   * logo from the clinic's own site, which can be any https host.
+   */
+  imageSources?: readonly string[];
+  /** Allow the microphone for this route family (`microphone=(self)`). */
+  microphone?: boolean;
 };
 
 /**
@@ -242,7 +261,7 @@ export function cspDirectives(
     ],
     "style-src": [self, "'unsafe-inline'", ...(preview ? VERCEL_TOOLBAR.style : [])],
     // data: for the inline SVGs the components build, blob: for canvas exports.
-    "img-src": [self, "data:", "blob:", ...(preview ? VERCEL_TOOLBAR.img : [])],
+    "img-src": [self, "data:", "blob:", ...(preview ? VERCEL_TOOLBAR.img : []), ...(options.imageSources ?? [])],
     // next/font and the local Ashford woff2. No CDN.
     "font-src": [self, ...(preview ? VERCEL_TOOLBAR.font : [])],
     // The hero and niche videos from /public; blob: for MediaSource playback.
@@ -262,6 +281,7 @@ export function cspDirectives(
       POSTHOG_INGEST_ORIGIN,
       POSTHOG_ASSETS_ORIGIN,
       ...(preview ? VERCEL_TOOLBAR.connect : []),
+      ...(options.connectSources ?? []),
     ],
     // The site embeds nothing. Stripe Checkout is a redirect, not an iframe.
     // The one exception is opt-in per route (`frameSources`): /admin/crm.
@@ -302,8 +322,11 @@ export const STRICT_TRANSPORT_SECURITY = "max-age=63072000; includeSubDomains; p
 
 /**
  * Nothing on the site needs any of these. The voice demo is scripted playback
- * and the live call is placed by Synthflow to the visitor's PHONE, so the
- * browser never opens a microphone. Payment is Stripe-hosted, so the Payment
+ * and the live call is placed by Retell to the visitor's PHONE, so the
+ * browser never opens a microphone. The one exception is opt-in per route:
+ * a personalised demo page (/demo/…) lets its visitor talk to the clinic's
+ * assistant from the browser, so that route family alone gets
+ * `microphone=(self)` (`permissionsPolicy({ microphone: true })`). Payment is Stripe-hosted, so the Payment
  * Request API is never used here either.
  *
  * `interest-cohort=()` (FLoC opt-out) is deliberately not included: Chrome
@@ -311,6 +334,10 @@ export const STRICT_TRANSPORT_SECURITY = "max-age=63072000; includeSubDomains; p
  * noise in exactly the console session the report-only rollout depends on.
  */
 export const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=()";
+
+export function permissionsPolicy(options: CspOptions = {}): string {
+  return options.microphone ? PERMISSIONS_POLICY.replace("microphone=()", "microphone=(self)") : PERMISSIONS_POLICY;
+}
 
 /**
  * The full header list for `headers()` in next.config.ts.
@@ -331,7 +358,7 @@ export function securityHeaders(env: SecurityHeadersEnv, options: CspOptions = {
     { key: "Strict-Transport-Security", value: STRICT_TRANSPORT_SECURITY },
     { key: "X-Content-Type-Options", value: "nosniff" },
     { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-    { key: "Permissions-Policy", value: PERMISSIONS_POLICY },
+    { key: "Permissions-Policy", value: permissionsPolicy(options) },
     // Superseded by frame-ancestors, kept for the scanners that still look.
     { key: "X-Frame-Options", value: "DENY" },
     // Nothing here opens a window it needs a handle to; Stripe is a full

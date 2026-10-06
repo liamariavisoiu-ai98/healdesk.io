@@ -7,6 +7,7 @@ import {
   notifyDeadline,
   openIncident,
   overdueIncidents,
+  ownerNotifyDeadline,
   resolveIncident,
 } from "@/lib/incidents/incidents";
 import {
@@ -42,10 +43,27 @@ describe("incident clocks", () => {
 
   test("each class gets the deadline the agreement names", () => {
     const friday = new Date("2026-09-11T15:00:00Z");
-    expect(notifyDeadline("breach", friday).toISOString()).toBe("2026-09-16T15:00:00.000Z"); // 5 calendar days
-    expect(notifyDeadline("security_incident", friday).toISOString().slice(0, 10)).toBe("2026-09-18");
-    expect(notifyDeadline("improper_use_or_disclosure", friday).toISOString().slice(0, 10)).toBe("2026-09-18");
-    expect(notifyDeadline("service_complaint", friday).toISOString().slice(0, 10)).toBe("2026-09-15");
+    expect(notifyDeadline("breach", friday, true).toISOString()).toBe("2026-09-16T15:00:00.000Z"); // 5 calendar days
+    expect(notifyDeadline("security_incident", friday, true).toISOString().slice(0, 10)).toBe("2026-09-18");
+    expect(notifyDeadline("improper_use_or_disclosure", friday, true).toISOString().slice(0, 10)).toBe("2026-09-18");
+    expect(notifyDeadline("service_complaint", friday, true).toISOString().slice(0, 10)).toBe("2026-09-15");
+  });
+
+  test("a breach at a clinic outside HIPAA is told within 24 hours, and the clinic's own 30-day clock runs beside it", () => {
+    // BAA 1.3.0's state-law clause: "immediately following discovery", as
+    // Cal. Civ. Code 1798.82(b) requires of a business holding data for its
+    // owner. The second clock is the owner's, 1798.82(a)(2)(A): 30 days.
+    const friday = new Date("2026-09-11T15:00:00Z");
+    expect(notifyDeadline("breach", friday, false).toISOString()).toBe("2026-09-12T15:00:00.000Z");
+    expect(ownerNotifyDeadline("breach", friday, false)?.toISOString()).toBe("2026-10-11T15:00:00.000Z");
+    // Only a breach changes; the other classes keep the agreement's clocks.
+    expect(notifyDeadline("security_incident", friday, false).toISOString().slice(0, 10)).toBe("2026-09-18");
+    expect(ownerNotifyDeadline("security_incident", friday, false)).toBeNull();
+    // A covered clinic keeps the BAA's clocks and gets no second one, and an
+    // undetermined one cannot have gone live, so it has no real data to breach.
+    expect(ownerNotifyDeadline("breach", friday, true)).toBeNull();
+    expect(notifyDeadline("breach", friday, null).toISOString()).toBe("2026-09-16T15:00:00.000Z");
+    expect(ownerNotifyDeadline("breach", friday, null)).toBeNull();
   });
 });
 
@@ -89,9 +107,10 @@ describeDb("incidents, exports and offboarding", () => {
         isCoveredEntity: false,
       }),
     );
-    expect(opened.notifyBy.toISOString()).toBe("2026-09-16T15:00:00.000Z");
-    // Not a covered entity: the FTC clock runs beside the BAA's.
-    expect(opened.ftcNotifyBy?.toISOString().slice(0, 10)).toBe("2026-11-10");
+    // Not a covered entity: the clinic is told within 24 hours, and its own
+    // 30-day clock to tell the people affected is stored beside it.
+    expect(opened.notifyBy.toISOString()).toBe("2026-09-12T15:00:00.000Z");
+    expect(opened.ftcNotifyBy?.toISOString()).toBe("2026-10-11T15:00:00.000Z");
 
     const overdue = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
       overdueIncidents(tx, new Date("2026-09-17T00:00:00Z")),
@@ -125,12 +144,13 @@ describeDb("incidents, exports and offboarding", () => {
     }
   });
 
-  test("a covered entity's breach has no FTC clock; a complaint has a two-day reply clock", async () => {
+  test("a covered entity's breach keeps the five-day clock and has no second one; a complaint has a two-day reply clock", async () => {
     const c = await seedClinic("incident-ce");
     const rows = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => [
       await openIncident(tx, { class: "breach", summary: "x", openedBy: "test", isCoveredEntity: true, discoveredAt: new Date("2026-09-11T15:00:00Z") }),
       await openIncident(tx, { class: "service_complaint", summary: "y", openedBy: "test", isCoveredEntity: true, discoveredAt: new Date("2026-09-11T15:00:00Z") }),
     ]);
+    expect(rows[0]!.notifyBy.toISOString()).toBe("2026-09-16T15:00:00.000Z");
     expect(rows[0]!.ftcNotifyBy).toBeNull();
     expect(rows[1]!.notifyBy.toISOString().slice(0, 10)).toBe("2026-09-15");
   });

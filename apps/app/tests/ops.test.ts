@@ -1,4 +1,4 @@
-import { ONBOARDING_STEPS } from "@healdesk/catalog";
+import { CURRENT_BAA_VERSION, ONBOARDING_STEPS } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { agreementCarriesCalendarWrite, isIanaTimeZone, isOpName, runOperation, type Operator } from "@/lib/ops/api";
@@ -53,6 +53,7 @@ const clinic = (over: Partial<ClinicOverview> = {}): ClinicOverview => ({
   bookingRequirements: null,
   bookingRequirementsConfirmedAt: null,
   bookingRequirementsSource: null,
+  baaVersion: CURRENT_BAA_VERSION,
   ...over,
 });
 
@@ -90,6 +91,42 @@ describe("clinic blockers", () => {
       }),
     );
     expect(blockers).toEqual([]);
+  });
+
+  test("a superseded agreement is the first thing a synthetic clinic's card says, naming both versions", () => {
+    // The card shows the first blocker when none is "blocked", and go-live
+    // refuses this one outright (0042), so it goes ahead of the covered-entity
+    // line and the onboarding steps.
+    const blockers = blockersFor(clinic({ baaVersion: "1.0.0", isCoveredEntity: null, agentApprovedAt: null }));
+    const superseded = blockers.filter((b) => b.message.includes("superseded"));
+    expect(superseded).toEqual([
+      {
+        level: "attention",
+        message: `BAA v1.0.0 has been superseded: the practice accepts v${CURRENT_BAA_VERSION} before go-live.`,
+      },
+    ]);
+    expect(blockers[0]).toEqual(superseded[0]);
+  });
+
+  test("a live clinic on a superseded agreement is told to re-accept, not shown as broken", () => {
+    const blockers = blockersFor(
+      clinic({ dataClassification: "production", baaSignedAt: new Date(), baaVersion: "1.2.1" }),
+    );
+    expect(blockers).toEqual([
+      {
+        level: "attention",
+        message: `Live under BAA v1.2.1, which has been superseded: have the practice accept v${CURRENT_BAA_VERSION}.`,
+      },
+    ]);
+  });
+
+  test("the current version, or no agreement at all, adds nothing about the version", () => {
+    // No agreement at all is go-live's to report ("No signed business
+    // associate agreement is in effect…"); this item is only about a version
+    // that has been replaced.
+    for (const baaVersion of [CURRENT_BAA_VERSION, null]) {
+      expect(blockersFor(clinic({ baaVersion })).some((b) => b.message.includes("superseded"))).toBe(false);
+    }
   });
 });
 
@@ -132,6 +169,7 @@ describeDb("ops clinic listing", () => {
         "agentApprovedAt",
         "attributionMode",
         "baaSignedAt",
+        "baaVersion",
         "bookingMode",
         "bookingRequirements",
         "bookingRequirementsConfirmedAt",
@@ -185,6 +223,31 @@ describeDb("ops clinic listing", () => {
     expect(found?.baaSignedAt).toBeInstanceOf(Date);
     expect(found?.dataClassification).toBe("production");
     expect(blockersFor(found!)).toEqual([]);
+  });
+
+  test("reports the version of the agreement in effect: the newest bound, unterminated one (0042)", async () => {
+    const { clinicId, organizationId } = await seedClinic("ops-version");
+    const version = async () => (await listClinics()).find((c) => c.id === clinicId)!.baaVersion;
+    expect(await version()).toBeNull();
+
+    // Two bound rows for one organisation is a state only the migrator can
+    // produce today; it is the one a re-acceptance will leave behind.
+    const bind = (v: string, acceptedAgo: string) =>
+      getMigratorPool().query(
+        `insert into baa_acceptances (organization_id, document_version, document_hash, rendered_text, variables, assent_label, accepted_by_name, accepted_by_email, accepted_at, bound_at)
+         values ($1, $2, repeat('e', 64), 'BAA', '{}'::jsonb, 'I agree', 'Alex', 'alex@version.test', now() - $3::interval, now() - $3::interval)`,
+        [organizationId, v, acceptedAgo],
+      );
+    await bind("1.0.0", "40 days");
+    expect(await version()).toBe("1.0.0");
+    await bind(CURRENT_BAA_VERSION, "1 day");
+    expect(await version()).toBe(CURRENT_BAA_VERSION);
+
+    await getMigratorPool().query(
+      `update baa_acceptances set terminated_at = now() where organization_id = $1 and document_version = $2`,
+      [organizationId, CURRENT_BAA_VERSION],
+    );
+    expect(await version()).toBe("1.0.0");
   });
 });
 

@@ -280,9 +280,12 @@ precedent.
   and Messenger once the clinic connects them; WhatsApp once its WhatsApp
   account has a payment method; phone once call forwarding is set, usually the
   same day. Never "live in two minutes".
-- The overage rates ($0.35 a voice minute, $0.25 a chat conversation) are
-  placeholders until measured. Copy says so; the billing mechanics stay as they
-  are.
+- The overage rates ($0.80 a voice minute; $0.40 a chat conversation on the
+  single-channel package, $0.30 on the rest) were re-set by the owner on
+  5 October 2026 and are still unmeasured. Copy says they are provisional, and
+  the pilot replaces them. The chat rate varies by package, so a metered price
+  is keyed by its rate and a package asks for the one matching its own row —
+  never pick a metered price by channel alone.
 - "healdesk is a service of Viixi FZC, a company registered under the Sharjah
   Publishing City Free Zone, United Arab Emirates" appears in the site footer
   and on the Terms and Privacy pages. The registered street address is not

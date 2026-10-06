@@ -322,9 +322,13 @@ export const clinics = pgTable(
      *
      *   media   — transcript references. Pure liability after the dispute
      *             window closes; 90 days by default. (No audio is kept.)
-     *   records — the conversation, appointment and transaction rows the
-     *             revenue report is built from. Two years by default, so a
-     *             year-over-year comparison is possible and no longer.
+     *   records — the conversation, appointment and transaction rows. 90
+     *             days by default too, because the BAA says "healdesk keeps
+     *             transcripts and conversation records for 90 days"
+     *             (TRANSCRIPT_RETENTION_DAYS in @healdesk/catalog). It was
+     *             730 until 0042, for a year-over-year revenue report that
+     *             is phase two, and a default the agreement contradicts is
+     *             wrong for every clinic that keeps it.
      *
      * Consent records, suppressions and contact attempts are NOT on either
      * clock: they are the evidence that a call was lawful and that an
@@ -332,7 +336,7 @@ export const clinics = pgTable(
      * The purge job (lib/retention/purge.ts) is the only reader.
      */
     retentionMediaDays: integer("retention_media_days").notNull().default(90),
-    retentionRecordDays: integer("retention_record_days").notNull().default(730),
+    retentionRecordDays: integer("retention_record_days").notNull().default(90),
 
     // --- Onboarding: the road from payment to the first answered call. ---
     /**
@@ -1018,16 +1022,23 @@ export const incidents = pgTable(
     /** A conversation id, never its transcript. */
     conversationId: uuid("conversation_id"),
     discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull(),
-    /** From the class: 5 business days, or 5 calendar days for a breach. */
+    /**
+     * From the class: 5 business days, or 5 calendar days for a breach, and
+     * 24 hours for a breach at a clinic that is not a covered entity (the
+     * BAA's state-law clause: "immediately following discovery").
+     */
     notifyBy: timestamp("notify_by", { withTimezone: true }).notNull(),
     notifiedAt: timestamp("notified_at", { withTimezone: true }),
     notifiedHow: text("notified_how"),
     /**
-     * For non-covered clinics, a second clock 60 days from discovery. Named
-     * for the FTC Health Breach Notification Rule, which on a closer reading
-     * (1 October 2026) does not reach a clinic's booking records: 16 CFR 318.2
-     * covers vendors of personal health records. Kept as a conservative floor
-     * under state breach-notification law; see lib/incidents/incidents.ts.
+     * For a breach at a non-covered clinic, a second clock 30 days from
+     * discovery: California's deadline for the clinic, as owner of the data,
+     * to notify the people affected (Cal. Civ. Code 1798.82(a)(2)(A)), the
+     * strictest owner clock among the states. 60 days until 3 October 2026.
+     * Named for the FTC Health Breach Notification Rule, which on a closer
+     * reading (1 October 2026) does not reach a clinic's booking records:
+     * 16 CFR 318.2 covers vendors of personal health records. The name is
+     * kept; see lib/incidents/incidents.ts.
      */
     ftcNotifyBy: timestamp("ftc_notify_by", { withTimezone: true }),
     openedBy: text("opened_by").notNull(),
@@ -1975,7 +1986,7 @@ export const connectionLinks = pgTable(
      * unknown token. Set at issue, never updated (the UPDATE grant is used_at
      * and consumed_ip only).
      */
-    purpose: text("purpose").$type<"connect" | "setup">().notNull().default("connect"),
+    purpose: text("purpose").$type<"connect" | "setup" | "meta" | "whatsapp">().notNull().default("connect"),
 
     /**
      * The ops user who issued it, as an immutable snapshot rather than an FK —
@@ -2122,8 +2133,6 @@ export type BillingStatus = (typeof billingStatusEnum.enumValues)[number];
 /** Which channels the agent may answer on. Keys match the catalog's `Channel`. */
 export type ChannelsEnabled = Record<Channel, boolean>;
 
-export type ChatChannelChoice = "web" | "meta";
-
 /** Who asked for a status change. Support acts through the ops console. */
 export type BillingActor = "system" | "client" | "support";
 
@@ -2180,9 +2189,6 @@ export const entitlements = pgTable(
       .$type<ChannelsEnabled>()
       .notNull()
       .default({ web: false, meta: false, voice: false }),
-    /** Only set for a "Web OR Meta" package; which one the buyer picked. */
-    chatChannelChoice: text("chat_channel_choice").$type<ChatChannelChoice>(),
-
     includedVoiceMinutes: integer("included_voice_minutes").notNull().default(0),
     includedChatConversations: integer("included_chat_conversations")
       .notNull()
@@ -2233,10 +2239,6 @@ export const entitlements = pgTable(
     check(
       "entitlements_interval_check",
       sql`${t.billingInterval} in ('month', 'year')`,
-    ),
-    check(
-      "entitlements_chat_choice_check",
-      sql`${t.chatChannelChoice} is null or ${t.chatChannelChoice} in ('web', 'meta')`,
     ),
     check(
       "entitlements_overage_mode_check",

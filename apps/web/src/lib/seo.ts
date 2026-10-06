@@ -23,7 +23,8 @@ import { site } from "@/lib/site";
  * per-page noindex only works once the page has been crawled, and until then
  * a link-tracking rewrite from a cold email is enough to get the URL into an
  * index. The robots disallow stops the crawl before that. /admin and /claim
- * are private surfaces, and /api is not a page at all.
+ * are private surfaces, /demo holds one prospect's personalised demo per
+ * unguessable link, and /api is not a page at all.
  *
  * Paths are absolute so the same list builds URLs from every base.
  */
@@ -45,7 +46,7 @@ export const PUBLIC_ROUTES = [
   priority: number;
 }>;
 
-export const CRAWL_DISALLOW = ["/admin", "/api", "/get-started", "/claim"] as const;
+export const CRAWL_DISALLOW = ["/admin", "/api", "/get-started", "/claim", "/demo"] as const;
 
 /**
  * `site.url` is read at call time rather than captured at import, so a test

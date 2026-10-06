@@ -2,11 +2,19 @@ import {
   annualTotalUsd,
   type BillingInterval,
   type Channel,
+  type ChatChannel,
   channelList,
+  cardForPlan,
+  chatChannelOf,
   firstInvoiceUsd,
+  getPlan,
+  getPricingCard,
+  offersChatChoice,
   OVERAGE_RATES_PROVISIONAL,
   type Plan,
+  planForCard,
   plans,
+  type PricingCard,
   recurringUsd,
 } from "@healdesk/catalog";
 
@@ -14,7 +22,7 @@ import {
  * How a package is described wherever a price is shown.
  *
  * /pricing, the checkout's package cards and the closing CTA all render the
- * same five packages, and before this file each of them did its own arithmetic
+ * same five cards, and before this file each of them did its own arithmetic
  * and its own labelling. That is how a site ends up saying "$317/mo" on one
  * page and "$3,800 a year" on the next for the same package: the numbers are
  * both true and they still do not agree. So the arithmetic is delegated to the
@@ -36,15 +44,28 @@ export const CHANNEL_LABELS: Record<Channel, string> = {
   voice: "Phone",
 };
 
-export const CHAT_CHANNEL_CHOICES = [
+export const CHAT_CHANNEL_CHOICES: readonly { id: ChatChannel; label: string }[] = [
   { id: "web", label: "Website" },
   { id: "meta", label: "Instagram, Messenger + WhatsApp" },
-] as const;
+];
 
-export type ChatChannelChoice = (typeof CHAT_CHANNEL_CHOICES)[number]["id"];
-
-export function isChatChannelChoice(value: unknown): value is ChatChannelChoice {
-  return value === "web" || value === "meta";
+/**
+ * Where checkout opens for a `?plan=` value, which may name a pricing card or
+ * a package. A package opens its own card with its own chat channel already
+ * picked, so a link to Meta + Voice lands on Meta + Voice; a card opens on
+ * the website, checkout's default. Null for anything else, and the caller
+ * falls back to the entry package: a stale link should land on the flow, not
+ * on an error.
+ */
+export function checkoutStart(
+  id: unknown,
+): { card: PricingCard; chat: ChatChannel } | null {
+  if (typeof id !== "string") return null;
+  const card = getPricingCard(id);
+  if (card) return { card, chat: "web" };
+  const plan = getPlan(id);
+  if (plan) return { card: cardForPlan(plan), chat: chatChannelOf(plan) };
+  return null;
 }
 
 /** Whole dollars, with a thousands separator: "$1,197". */
@@ -55,14 +76,15 @@ export const usd = new Intl.NumberFormat("en-US", {
 });
 
 /**
- * The channel chips on a package card.
+ * The channel chips on a pricing card.
  *
- * A "Web OR Meta" package lists both channels in the catalog because either can
- * be provisioned, but a card that shows two chips promises two channels. It
- * gets one chip that says "or", and the choice is made at checkout.
+ * A "Web OR Meta" card sells two packages, one per chat channel, but two chips
+ * would promise both channels. It gets one chip that says "or", and the
+ * choice is made at checkout.
  */
-export function channelChips(plan: Plan): string[] {
-  const chat = plan.chatChannelChoice
+export function channelChips(card: PricingCard): string[] {
+  const plan = planForCard(card);
+  const chat = offersChatChoice(card)
     ? [`${CHANNEL_LABELS.web} or ${CHANNEL_LABELS.meta}`]
     : channelList(plan)
         .filter((channel) => channel !== "voice")

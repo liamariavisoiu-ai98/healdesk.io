@@ -2,6 +2,7 @@ import {
   type BillingInterval,
   METERS,
   COHORT_SETUP_CREDIT,
+  meterPriceLookupKey,
   OVERAGE_RATES_PROVISIONAL,
   type Plan,
   type PriceKind,
@@ -9,7 +10,6 @@ import {
 } from "@healdesk/catalog";
 import Stripe from "stripe";
 
-import type { ChatChannelChoice } from "@/lib/pricing";
 
 /**
  * Billing, behind an interface.
@@ -90,8 +90,8 @@ import type { ChatChannelChoice } from "@/lib/pricing";
  * customer, which is under the limit only until someone signs up with a long
  * practice name and a hyphenated surname. Per-field, the largest value is
  * `clinicName` at 120 and `contactEmail` at 254, both with room to spare, and
- * 14 keys against a limit of 50 now that `billingInterval` and
- * `chatChannelChoice` ride along with `plan`.
+ * 13 keys against a limit of 50 now that `billingInterval` rides along with
+ * `plan`. Which chat channel a clinic has is part of the package id itself.
  *
  * It is business contact data, a clinic's name, its owner's work email, not
  * patient data, and Stripe already receives the email as the customer record.
@@ -105,7 +105,7 @@ import type { ChatChannelChoice } from "@/lib/pricing";
  * events, both verified in app/api/webhooks/stripe and relayed to apps/app:
  *
  *   1. `checkout.session.completed` records the account. The webhook forwards
- *      this metadata, `billingInterval` and `chatChannelChoice` included, to
+ *      this metadata, `billingInterval` included, to
  *      apps/app, which creates the clinic in the `provisioning` billing state.
  *      Nothing is active at this point.
  *   2. The first invoice's `invoice.paid` (`billing_reason:
@@ -125,12 +125,6 @@ import type { ChatChannelChoice } from "@/lib/pricing";
 export type CheckoutIntent = {
   plan: Plan;
   interval: BillingInterval;
-  /**
-   * Only meaningful for a package with `chatChannelChoice`, where the buyer
-   * picked which chat channel provisioning should enable. Omitted otherwise,
-   * so the metadata never carries a choice the package does not offer.
-   */
-  chatChannelChoice?: ChatChannelChoice;
   clinicName: string;
   contactEmail: string;
   /** Field-per-key on the Session; read back by the webhook. */
@@ -146,6 +140,8 @@ export type CheckoutIntent = {
     leadId: string | null;
     /** "cohort-setup" when the lead was offered the founding-cohort credit inside its window. */
     offer?: "cohort-setup" | null;
+    /** The personalised demo's slug, when the buyer came from its "Book Onboarding" (lib/demo). */
+    demo?: string | null;
   };
 };
 
@@ -266,7 +262,6 @@ export async function createCheckout(
     ...intent.provisionPayload,
     plan: intent.plan.id,
     billingInterval: intent.interval,
-    chatChannelChoice: intent.chatChannelChoice,
   });
 
   // All looked up by the stable keys the setup script writes, so pricing lives
@@ -329,6 +324,7 @@ export async function createCheckout(
       ...(intent.attribution?.campaign ? { campaign: intent.attribution.campaign } : {}),
       ...(intent.attribution?.leadId ? { leadId: intent.attribution.leadId } : {}),
       ...(intent.attribution?.offer ? { offer: intent.attribution.offer } : {}),
+      ...(intent.attribution?.demo ? { demo: intent.attribution.demo } : {}),
     },
     // Surfaces in the Dashboard next to the payment, so support can find a
     // clinic without opening metadata.
@@ -349,12 +345,23 @@ export async function createCheckout(
  * package with voice, the chat meter for one with web or Meta. Pure, so the
  * pairing is testable without Stripe. Which of these a Session actually
  * attaches is `meteredLookupKeysFor()`'s decision.
+ *
+ * The price is chosen by the package's OWN rate, not by the channel alone.
+ * Since 5 October 2026 the single-channel chat package bills $0.40 a
+ * conversation and the multi-channel ones $0.30, and both rates live on the
+ * one chat meter as separate prices (catalog `meterPriceLookupKey`). Picking
+ * by channel alone would attach whichever price was created first and
+ * over- or under-bill the rest by a third.
  */
 export function overageLookupKeys(plan: Plan): string[] {
   const keys: string[] = [];
-  if (plan.channels.voice) keys.push(METERS.voiceMinutes.lookupKey);
+  if (plan.channels.voice) {
+    keys.push(meterPriceLookupKey(METERS.voiceMinutes, plan.overagePerVoiceMinuteUsd));
+  }
   if (plan.channels.web || plan.channels.meta) {
-    keys.push(METERS.chatConversations.lookupKey);
+    keys.push(
+      meterPriceLookupKey(METERS.chatConversations, plan.overagePerChatConversationUsd),
+    );
   }
   return keys;
 }

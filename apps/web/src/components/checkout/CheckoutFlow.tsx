@@ -2,11 +2,19 @@
 
 import {
   type BillingInterval,
-  type Plan,
-  getPlan,
+  cardForPlan,
+  type ChatChannel,
+  chatChannelOf,
+  getPricingCard,
+  META_SOLD_ALONE,
   NO_PLATFORM_ID,
-  plans,
+  offersChatChoice,
+  type Plan,
+  planForCard,
   platforms,
+  type PricingCard,
+  pricingCards,
+  sellsMetaAlone,
   specialties,
   supportsVerifiedAttribution,
 } from "@healdesk/catalog";
@@ -23,9 +31,9 @@ import {
   allowanceRows,
   annualSavingsPercent,
   channelChips,
-  cheapestPlan,
   CHAT_CHANNEL_CHOICES,
-  type ChatChannelChoice,
+  checkoutStart,
+  cheapestPlan,
   dueToday,
   monthlyFigureUsd,
   usd,
@@ -172,16 +180,19 @@ export function CheckoutFlow({
 }) {
   const [step, setStep] = useState(1);
   const [state, setState] = useState<State>(() => ({ ...INITIAL, ...initialState }));
-  const [planId, setPlanId] = useState(initialPlan);
+  // `initialPlan` may name a card or a package; see checkoutStart.
+  const [start] = useState(
+    () => checkoutStart(initialPlan) ?? { card: cardForPlan(cheapestPlan()), chat: "web" as const },
+  );
+  const [cardId, setCardId] = useState(start.card.id);
   const [interval, setBillingInterval] = useState<BillingInterval>(initialInterval);
   /**
-   * Which chat channel a "Web OR Meta" package enables. Defaults to the
-   * website, because a web widget is live the day provisioning finishes while
-   * a Meta connection waits on the clinic's Business account, and a default
-   * that cannot stall setup is the right one. Sent only for packages that
-   * offer the choice; the route drops it for the rest.
+   * Which twin a "Web OR Meta" card sells. Defaults to the website, because a
+   * web widget is live the day provisioning finishes while a Meta connection
+   * waits on the clinic's Business account, and a default that cannot stall
+   * setup is the right one. Ignored on a card without the choice.
    */
-  const [chatChannel, setChatChannel] = useState<ChatChannelChoice>("web");
+  const [chatChannel, setChatChannel] = useState<ChatChannel>(start.chat);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorField, setErrorField] = useState<string | null>(null);
@@ -231,7 +242,17 @@ export function CheckoutFlow({
     onProgress?.({ step, signed: Boolean(agreement), done: Boolean(done) });
   }, [step, agreement, done, onProgress]);
 
-  const plan = getPlan(planId) ?? cheapestPlan();
+  const card = getPricingCard(cardId) ?? cardForPlan(cheapestPlan());
+  /**
+   * The package actually bought. Meta on its own is not sold until Meta's App
+   * Review passes, so on the "Web OR Meta Chatbot" card the website is the
+   * only answer; a "meta" picked on the card with the phone and carried over
+   * by switching cards must not reach the route, which would refuse it.
+   */
+  const picked = planForCard(card, chatChannel);
+  const plan =
+    !META_SOLD_ALONE && sellsMetaAlone(picked) ? planForCard(card, "web") : picked;
+  const chatChoice = chatChannelOf(plan);
 
   // Funnel step, with the package and interval — never a form field. Fires
   // only once analytics is live (consent given), no-op otherwise.
@@ -269,7 +290,6 @@ export function CheckoutFlow({
               : undefined,
           plan: plan.id,
           interval,
-          chatChannelChoice: plan.chatChannelChoice ? chatChannel : undefined,
           contactName: state.contactName.trim(),
           contactEmail: state.contactEmail.trim(),
           contactTitle: state.contactTitle.trim() || undefined,
@@ -817,55 +837,22 @@ export function CheckoutFlow({
       <IntervalToggle value={interval} onChange={setBillingInterval} />
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        {plans.map((p) => (
+        {pricingCards.map((c) => (
           <PackageCard
-            key={p.id}
-            plan={p}
+            key={c.id}
+            card={c}
             interval={interval}
-            selected={p.id === plan.id}
-            onSelect={() => setPlanId(p.id)}
+            selected={c.id === card.id}
+            onSelect={() => setCardId(c.id)}
           />
         ))}
       </div>
 
-      {/* Only a "Web OR Meta" package asks. The others either include both
+      {/* Only a "Web OR Meta" card asks. The others either include both
           chat channels or neither, and a question with one answer is noise on
           the screen where the buyer is about to pay. */}
-      {plan.chatChannelChoice ? (
-        <fieldset className="border-line mt-6 rounded-2xl border bg-white p-5">
-          <legend className="text-[15.6px] font-bold tracking-[0.04em] uppercase">
-            Which chat channel?
-          </legend>
-          <p className="text-muted mt-1.5 text-sm">
-            {plan.name} includes one. Website chat goes live once its one-line
-            snippet is on your site. Instagram and Messenger go live as soon as
-            you connect them during setup; WhatsApp once your WhatsApp account
-            has a payment method on it, because Meta bills you directly for
-            WhatsApp messages.
-          </p>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            {CHAT_CHANNEL_CHOICES.map((option) => (
-              <label
-                key={option.id}
-                className={[
-                  "flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition-colors",
-                  chatChannel === option.id
-                    ? "border-red bg-red/[0.04]"
-                    : "border-line hover:border-line-strong",
-                ].join(" ")}
-              >
-                <input
-                  type="radio"
-                  name="chatChannelChoice"
-                  checked={chatChannel === option.id}
-                  onChange={() => setChatChannel(option.id)}
-                  className="accent-red size-4 shrink-0"
-                />
-                <span className="text-sm font-semibold">{option.label}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
+      {offersChatChoice(card) ? (
+        <ChatChannelField card={card} value={chatChoice} onChange={setChatChannel} />
       ) : null}
 
       <DueTodayBreakdown plan={plan} interval={interval} />
@@ -961,7 +948,8 @@ function IntervalToggle({
 }
 
 /**
- * One package, as a selectable card.
+ * One pricing card, as a selectable card. A twin card shows the web package's
+ * figures, which its Meta twin shares (the catalog test holds them to it).
  *
  * The price shown is always per month, even on annual, because that is how
  * the pricing page quotes it and a buyer who arrives from there must see the
@@ -969,16 +957,17 @@ function IntervalToggle({
  * where it is the amount actually charged.
  */
 function PackageCard({
-  plan,
+  card,
   interval,
   selected,
   onSelect,
 }: {
-  plan: Plan;
+  card: PricingCard;
   interval: BillingInterval;
   selected: boolean;
   onSelect: () => void;
 }) {
+  const plan = planForCard(card);
   return (
     <button
       type="button"
@@ -993,17 +982,17 @@ function PackageCard({
     >
       <span className="flex flex-wrap items-center gap-2">
         <span className="font-display text-[20.4px] leading-tight font-medium">
-          {plan.name}
+          {card.name}
         </span>
-        {plan.highlight ? (
+        {card.highlight ? (
           <span className="bg-sun text-ink rounded-full px-2 py-0.5 text-[11px] font-bold tracking-[0.06em] uppercase">
-            {plan.highlight}
+            {card.highlight}
           </span>
         ) : null}
       </span>
 
       <span className="mt-2 flex flex-wrap gap-1.5">
-        {channelChips(plan).map((chip) => (
+        {channelChips(card).map((chip) => (
           <span
             key={chip}
             className="bg-paper-2 text-muted rounded-full px-2 py-0.5 text-[12px] font-bold"
@@ -1034,6 +1023,73 @@ function PackageCard({
         <span>Setup {usd.format(plan.setupFeeUsd)} once</span>
       </span>
     </button>
+  );
+}
+
+/**
+ * Which twin a "Web OR Meta" card sells: website chat or the Meta bot.
+ *
+ * Exported so a test can render it on its own, as AgreementCopyLink is. While
+ * Meta is not sold on its own (catalog, META_SOLD_ALONE), the choice that
+ * would leave Meta as the clinic's only channel stays on screen, disabled,
+ * with one line saying why: the card's name still says "or Meta", and an
+ * option that silently vanished would read as a mistake.
+ */
+export function ChatChannelField({
+  card,
+  value,
+  onChange,
+}: {
+  card: PricingCard;
+  value: ChatChannel;
+  onChange: (choice: ChatChannel) => void;
+}) {
+  const closed = (choice: ChatChannel) =>
+    !META_SOLD_ALONE && sellsMetaAlone(planForCard(card, choice));
+  return (
+    <fieldset className="border-line mt-6 rounded-2xl border bg-white p-5">
+      <legend className="text-[15.6px] font-bold tracking-[0.04em] uppercase">
+        Which chat channel?
+      </legend>
+      <p className="text-muted mt-1.5 text-sm">
+        {card.name} includes one. Website chat goes live once its one-line
+        snippet is on your site. Instagram and Messenger go live as soon as
+        you connect them during setup; WhatsApp once your WhatsApp account
+        has a payment method on it, because Meta bills you directly for
+        WhatsApp messages.
+      </p>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        {CHAT_CHANNEL_CHOICES.map((option) => (
+          <label
+            key={option.id}
+            className={[
+              "flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors",
+              closed(option.id)
+                ? "border-line cursor-not-allowed opacity-50"
+                : value === option.id
+                  ? "border-red bg-red/[0.04] cursor-pointer"
+                  : "border-line hover:border-line-strong cursor-pointer",
+            ].join(" ")}
+          >
+            <input
+              type="radio"
+              name="chatChannelChoice"
+              checked={value === option.id}
+              disabled={closed(option.id)}
+              onChange={() => onChange(option.id)}
+              className="accent-red size-4 shrink-0"
+            />
+            <span className="text-sm font-semibold">{option.label}</span>
+          </label>
+        ))}
+      </div>
+      {CHAT_CHANNEL_CHOICES.some((option) => closed(option.id)) ? (
+        <p className="text-muted mt-3 text-xs">
+          On its own, Instagram, Messenger + WhatsApp waits for Meta to approve
+          our app, so this package is website chat for now.
+        </p>
+      ) : null}
+    </fieldset>
   );
 }
 

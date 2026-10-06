@@ -17,6 +17,7 @@ import {
 } from "@/lib/pricing";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/pricing" },
   title: "Pricing",
   description:
     "What healdesk costs, and what it replaces. Five packages, monthly or " +

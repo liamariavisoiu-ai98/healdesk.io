@@ -74,18 +74,23 @@ describe("what the model may hand over", () => {
     expect(cleanBookingFields(null)).toEqual({ firstName: null, phone: null, preferredWindow: null, alternativeWindows: [] });
   });
 
-  test("every fixed line passes the guard, hands off to the phone and names no time", () => {
-    for (const line of [
-      requestReceivedLine("Radiance", "Maria"),
-      followUpLine("Radiance", "accepted"),
-      followUpLine("Radiance", "declined"),
-      followUpLine("Radiance", "confirmed"),
-      followUpLine("Radiance", "rescheduling"),
-      collectingLine({ clinicName: "Radiance" }, ["your first name", "a number the practice can call"]),
-    ]) {
-      expect(guardReply(line), line).toEqual({ ok: true });
-      expect(probeVerdict(line).ok, line).toBe(true);
-      expect(line).not.toMatch(/\b\d{1,2}(:\d{2})?\s?(am|pm)\b/i);
+  test("every fixed line passes the guard, service names and promotions included, hands off to the phone and names no time", () => {
+    // A practice named after what it sells, with a menu that covers the
+    // words a fixed line might plausibly use.
+    for (const clinicName of ["Radiance", "Lip Filler Lounge"]) {
+      const context = { clinicName, serviceNames: ["Botox", "Lip filler", "Consultation", "Facial or skin treatment"] };
+      for (const line of [
+        requestReceivedLine(clinicName, "Maria"),
+        followUpLine(clinicName, "accepted"),
+        followUpLine(clinicName, "declined"),
+        followUpLine(clinicName, "confirmed"),
+        followUpLine(clinicName, "rescheduling"),
+        collectingLine({ clinicName }, ["your first name", "a number the practice can call"]),
+      ]) {
+        expect(guardReply(line, context), line).toEqual({ ok: true });
+        expect(probeVerdict(line, context).ok, line).toBe(true);
+        expect(line).not.toMatch(/\b\d{1,2}(:\d{2})?\s?(am|pm)\b/i);
+      }
     }
     expect(followUpLine("Radiance", "rescheduling")).not.toMatch(/monday|tuesday|wednesday|thursday|friday|saturday|sunday|dr\b/i);
   });

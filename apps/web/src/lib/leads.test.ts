@@ -44,7 +44,7 @@ const PHI_SHAPED = [
 
 describe("marketing sheet schema", () => {
   it("has no patient-shaped columns on any tab", () => {
-    expect(TABS.map((t) => t.title)).toEqual(["leads", "lead_events", "call_consents", "counters"]);
+    expect(TABS.map((t) => t.title)).toEqual(["leads", "lead_events", "call_consents", "counters", "demo_sessions"]);
     for (const tab of TABS) {
       for (const column of tab.columns) {
         for (const pattern of PHI_SHAPED) {
@@ -72,9 +72,9 @@ describe("the lead store over the Sheet", () => {
     __resetSheetSchemaForTests();
   });
 
-  it("provisions the four tabs with their header rows on first use, and leaves the owner's tabs alone", async () => {
+  it("provisions the five tabs with their header rows on first use, and leaves the owner's tabs alone", async () => {
     await recordDemoUnlock({ email: "a@b.co", isBusinessEmail: true });
-    expect([...sheets.tabs.keys()]).toEqual(["Sheet1", "leads", "lead_events", "call_consents", "counters"]);
+    expect([...sheets.tabs.keys()]).toEqual(["Sheet1", "leads", "lead_events", "call_consents", "counters", "demo_sessions"]);
     expect(sheets.tabs.get("leads")![0]).toEqual(LEADS.columns.map((c) => c.header));
     expect(sheets.tabs.get("lead_events")![0]).toEqual(LEAD_EVENTS.columns.map((c) => c.header));
     expect(sheets.tabs.get("call_consents")![0]).toEqual(CALL_CONSENTS.columns.map((c) => c.header));

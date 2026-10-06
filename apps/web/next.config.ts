@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 // A relative import on purpose: next.config.ts is transpiled by Next's own
 // loader outside the app bundle, where the "@/…" alias does not exist.
-import { GOOGLE_DOCS_ORIGIN, readSecurityHeadersEnv, securityHeaders } from "./src/lib/security-headers";
+import { GOOGLE_DOCS_ORIGIN, RETELL_CALL_ORIGINS, readSecurityHeadersEnv, securityHeaders } from "./src/lib/security-headers";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -38,6 +38,11 @@ const nextConfig: NextConfig = {
    * "Header Overriding Behavior") is that when two entries match the same
    * path and set the same key, the last one wins; put this first and the
    * generic `frame-src 'none'` would override it on every admin page.
+   *
+   * The third is the personalised demo (`/demo/:path*`): its visitor can
+   * talk to the clinic's assistant from the browser, so it alone gets the
+   * microphone and Retell's call origins, plus `https:` images for the
+   * clinic's own logo. Same ordering rule, and it does not match /admin.
    */
   async headers() {
     const env = readSecurityHeadersEnv(process.env);
@@ -49,6 +54,14 @@ const nextConfig: NextConfig = {
       {
         source: "/admin/:path*",
         headers: securityHeaders(env, { frameSources: [GOOGLE_DOCS_ORIGIN] }),
+      },
+      {
+        source: "/demo/:path*",
+        headers: securityHeaders(env, {
+          connectSources: RETELL_CALL_ORIGINS,
+          imageSources: ["https:"],
+          microphone: true,
+        }),
       },
     ];
   },

@@ -1,5 +1,7 @@
 import {
+  CURRENT_BAA_VERSION,
   emptyOnboarding,
+  isBaaVersionAcceptable,
   ONBOARDING_LABELS,
   openRequiredSteps,
   type OnboardingState,
@@ -62,6 +64,13 @@ export type ClinicOverview = {
   bookingRequirements: string[] | null;
   bookingRequirementsConfirmedAt: Date | null;
   bookingRequirementsSource: "practice" | "operator" | "defaults" | null;
+  /**
+   * 0042: the version of the agreement in effect (app_agreement_in_effect),
+   * or null when none is bound and unterminated. Contract metadata, never
+   * patient data. Read outside a tenant, as every caller here does; inside
+   * one, RLS hides every other organisation's agreement and this reads null.
+   */
+  baaVersion: string | null;
 };
 
 /** Something an operator has to act on before this clinic can go live. */
@@ -80,7 +89,8 @@ export async function listClinics(): Promise<ClinicOverview[]> {
                stripe_connect_account_id, stripe_connect_connected_at, meta_front_door_enabled,
                booking_mode, direct_booking_elected_at, direct_booking_withdrawn_at,
                timezone_confirmed_at,
-               booking_requirements, booking_requirements_confirmed_at, booking_requirements_source
+               booking_requirements, booking_requirements_confirmed_at, booking_requirements_source,
+               baa_version
           from app_clinics_overview()`,
   );
 
@@ -134,6 +144,7 @@ export async function listClinics(): Promise<ClinicOverview[]> {
       ? new Date(row.booking_requirements_confirmed_at as string)
       : null,
     bookingRequirementsSource: (["practice", "operator", "defaults"] as const).find((s) => s === row.booking_requirements_source) ?? null,
+    baaVersion: (row.baa_version as string | null) ?? null,
   }));
 }
 
@@ -152,6 +163,21 @@ export function blockersFor(clinic: ClinicOverview): ClinicBlocker[] {
       level: "blocked",
       message:
         "Marked production with no signed BAA — the database is refusing all patient data.",
+    });
+  }
+
+  if (clinic.baaVersion !== null && !isBaaVersionAcceptable(clinic.baaVersion)) {
+    // Before the covered-entity line on purpose: when nothing is blocked the
+    // clinic card shows the first item, and on a synthetic clinic this one
+    // decides whether it can go live at all (app_mark_clinic_production
+    // refuses it, 0042). Not "blocked": a live clinic keeps running under
+    // the agreement it signed while the practice accepts the current one.
+    blockers.push({
+      level: "attention",
+      message:
+        clinic.dataClassification === "production"
+          ? `Live under BAA v${clinic.baaVersion}, which has been superseded: have the practice accept v${CURRENT_BAA_VERSION}.`
+          : `BAA v${clinic.baaVersion} has been superseded: the practice accepts v${CURRENT_BAA_VERSION} before go-live.`,
     });
   }
 

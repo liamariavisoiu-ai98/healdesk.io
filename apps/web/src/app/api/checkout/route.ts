@@ -1,15 +1,18 @@
 import {
   getPlan,
   isBillingInterval,
+  META_SOLD_ALONE,
   SIGNATURE_HEADER,
   TIMESTAMP_HEADER,
+  sellsMetaAlone,
   sign,
 } from "@healdesk/catalog";
 
 import { createCheckout, isBillingConfigured, isProductionDeployment } from "@/lib/billing";
 import { isCampaignCode } from "@/lib/attribution";
+import { demoSlugFromCookieHeader } from "@/lib/demo/attribution";
+import { getDemoSession } from "@/lib/demo/sessions";
 import { cohortCreditLive, findLeadById, markCheckoutStarted } from "@/lib/leads";
-import { type ChatChannelChoice, isChatChannelChoice } from "@/lib/pricing";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 
 /**
@@ -89,8 +92,8 @@ export async function POST(request: Request): Promise<Response> {
   /**
    * The billing terms, validated here on BOTH paths.
    *
-   * apps/app validates the plan again, but the interval and the chat-channel
-   * choice decide what Stripe charges and what provisioning enables, and the
+   * apps/app validates the plan again, but the package and the interval
+   * decide what Stripe charges and what provisioning enables, and the
    * place to refuse a value the catalog does not know is before either of
    * those has happened. A missing interval is monthly, which is what every
    * button that does not say otherwise has always meant; a wrong one is an
@@ -112,28 +115,28 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  // Only a package sold as "Web OR Meta" carries a choice. For every other
-  // package the field is dropped rather than validated, so a stray value can
-  // never reach provisioning and enable a channel the package does not include.
-  let chatChannelChoice: ChatChannelChoice | undefined;
-  if (plan.chatChannelChoice) {
-    const chosen = payload.chatChannelChoice ?? "web";
-    if (!isChatChannelChoice(chosen)) {
-      return Response.json(
-        { error: "Unknown chat channel.", field: "chatChannelChoice" },
-        { status: 422 },
-      );
-    }
-    chatChannelChoice = chosen;
+  // Meta as the only channel waits for Meta's App Review (catalog,
+  // META_SOLD_ALONE). The checkout UI already disables that choice; this is
+  // the refusal a request from anywhere else meets, before Stripe is involved.
+  if (!META_SOLD_ALONE && sellsMetaAlone(plan)) {
+    return Response.json(
+      {
+        error:
+          "Instagram, Messenger + WhatsApp is not sold on its own until Meta approves our app. Choose Website, or a package with website chat or the phone.",
+        field: "plan",
+      },
+      { status: 422 },
+    );
   }
 
   // The browser's spelling is replaced by the validated terms under the names
   // provisioning reads, so the paid path (via Session metadata) and the unpaid
-  // path below deliver the same shape.
+  // path below deliver the same shape. The package id alone says which
+  // channels it includes, so nothing else about channels is passed on, and a
+  // stray `chatChannelChoice` from an old page is dropped rather than trusted.
   delete payload.interval;
   delete payload.chatChannelChoice;
   payload.billingInterval = chosenInterval;
-  if (chatChannelChoice) payload.chatChannelChoice = chatChannelChoice;
 
   /**
    * The signed agreement, required before anybody can pay.
@@ -178,6 +181,12 @@ export async function POST(request: Request): Promise<Response> {
   const claimedLead = typeof payload.leadId === "string" ? await findLeadById(payload.leadId) : null;
   delete payload.campaign;
   delete payload.leadId;
+  // The personalised demo the buyer came from, from the cookie its "Book
+  // Onboarding" set, never from the body: a slug the browser sends is dropped.
+  // Kept only if the row exists, like the lead id above.
+  delete payload.demo;
+  const demoSlug = demoSlugFromCookieHeader(request.headers.get("cookie"));
+  const demo = demoSlug ? await getDemoSession(demoSlug) : null;
   const contactEmail = String(payload.contactEmail ?? "");
   // The founding-cohort credit is a fact about the lead row, never a claim
   // from the browser: offered by the Day 7 email and still inside its window.
@@ -185,6 +194,7 @@ export async function POST(request: Request): Promise<Response> {
     campaign,
     leadId: claimedLead?.id ?? null,
     offer: claimedLead && cohortCreditLive(claimedLead) ? ("cohort-setup" as const) : null,
+    demo: demo?.slug ?? null,
   };
 
   // Paid path: hand off to Stripe. The webhook records the account when the
@@ -194,7 +204,6 @@ export async function POST(request: Request): Promise<Response> {
       const checkout = await createCheckout({
         plan,
         interval: chosenInterval,
-        chatChannelChoice,
         clinicName: String(payload.clinicName ?? ""),
         contactEmail,
         provisionPayload: payload,

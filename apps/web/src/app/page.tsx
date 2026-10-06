@@ -1,4 +1,5 @@
 import { plans } from "@healdesk/catalog";
+import type { Metadata } from "next";
 
 import { BuyModalProvider } from "@/components/BuyModal";
 import { Footer } from "@/components/Footer";
@@ -7,6 +8,19 @@ import { HomeExperience } from "@/components/HomeExperience";
 import { KnowMore } from "@/components/KnowMore";
 import { LeaveReview } from "@/components/LeaveReview";
 import { Nav } from "@/components/Nav";
+
+/**
+ * The homepage is the one page with no metadata of its own, so it declares a
+ * canonical here rather than inheriting one from the layout: a canonical set
+ * in the layout would be inherited by every route that does not override it,
+ * including /get-started and the 404, and point them all at the homepage.
+ * healdesk.io without the www is the canonical origin (owner's decision, 3
+ * October 2026); `metadataBase` in app/layout.tsx resolves this path against
+ * it, and Vercel's own domain settings redirect www there.
+ */
+export const metadata: Metadata = {
+  alternates: { canonical: "/" },
+};
 
 /**
  * The homepage, and the whole site's argument.

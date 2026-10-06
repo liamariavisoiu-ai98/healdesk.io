@@ -81,7 +81,7 @@ const WHEN_SHE_IS_YOURS = [
   },
   {
     title: "A signed BAA",
-    body: "We sign a business associate agreement and handle patient data under it, on US infrastructure. The only system she writes to is the Google Calendar you connect.",
+    body: "We sign a business associate agreement and handle patient data under it. The only system she writes to is the Google Calendar you connect.",
   },
 ] as const;
 

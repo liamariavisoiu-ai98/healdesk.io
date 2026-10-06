@@ -113,7 +113,7 @@ describeDb("billing sweep", () => {
     lapsed = (await seedClinic("lapsed")).clinicId;
     await withTenant({ clinicId: lapsed, actor: { type: "system" } }, async (tx) => {
       await seedEntitlements(tx.db, lapsed, {
-        plan: getPlan("chat-voice")!,
+        plan: getPlan("web-voice")!,
         interval: "month",
         stripeCustomerId: "cus_lapsed",
         stripeSubscriptionId: "sub_lapsed",

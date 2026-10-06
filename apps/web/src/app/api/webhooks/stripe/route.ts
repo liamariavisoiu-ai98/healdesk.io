@@ -1,6 +1,9 @@
 import {
   getPlan,
+  getPricingCard,
   isBillingInterval,
+  isChatChannel,
+  planForCard,
   SIGNATURE_HEADER,
   TIMESTAMP_HEADER,
   sign,
@@ -8,8 +11,9 @@ import {
 import type Stripe from "stripe";
 
 import { APP_MARKER, isBillingConfigured, stripeClient } from "@/lib/billing";
+import { postInternalAlert } from "@/lib/demo/alert";
+import { displayName, markDemoClaimed } from "@/lib/demo/sessions";
 import { markCheckoutAbandoned, markConverted } from "@/lib/leads";
-import { isChatChannelChoice } from "@/lib/pricing";
 
 /**
  * POST /api/webhooks/stripe — every Stripe event we act on, verified here and
@@ -526,13 +530,18 @@ function refId(
  * what it cannot"). /api/checkout still forwards them only because apps/app
  * provisioning still refuses a signup without `attributionMode`.
  *
- * `billingInterval` and `chatChannelChoice` are checked against the catalog
- * rather than passed through as whatever string was stored: provisioning
- * validates them too, but a bad value there is a 422 on a paid sale, and the
- * only way one gets into the metadata is a bug in createCheckout(). Dropping
- * an unrecognised value falls back to provisioning's own defaults (monthly,
- * web), which is a wrong allowance that support can fix, rather than no
- * account at all.
+ * `billingInterval` is checked against the catalog rather than passed
+ * through as whatever string was stored: provisioning validates it too, but a
+ * bad value there is a 422 on a paid sale, and the only way one gets into the
+ * metadata is a bug in createCheckout(). Dropping an unrecognised value falls
+ * back to provisioning's own default (monthly), which is a wrong allowance
+ * that support can fix, rather than no account at all.
+ *
+ * A Session created before 5 October 2026 names a "Web OR Meta" package by
+ * its old id — now the id of the pricing card both twins are sold from — with
+ * the chat channel in `chatChannelChoice` beside it. That pair is translated
+ * to the twin it meant, because apps/app no longer knows the old id and would
+ * refuse a sale that has already been paid for.
  */
 export function provisionRequestFromMetadata(
   metadata: Stripe.Metadata,
@@ -542,6 +551,7 @@ export function provisionRequestFromMetadata(
     // Attribution rides on the Session for the lead store, never for apps/app.
     campaign: _campaign,
     leadId: _leadId,
+    demo: _demo,
     averageTreatmentValueUsd,
     billingInterval,
     chatChannelChoice,
@@ -550,14 +560,20 @@ export function provisionRequestFromMetadata(
 
   const request: Record<string, unknown> = { ...rest };
 
+  const legacyCard =
+    rest.plan !== undefined && !getPlan(rest.plan) ? getPricingCard(rest.plan) : undefined;
+  if (legacyCard) {
+    request.plan = planForCard(
+      legacyCard,
+      isChatChannel(chatChannelChoice) ? chatChannelChoice : "web",
+    ).id;
+  }
+
   if (averageTreatmentValueUsd !== undefined) {
     request.averageTreatmentValueUsd = Number(averageTreatmentValueUsd);
   }
   if (isBillingInterval(billingInterval)) {
     request.billingInterval = billingInterval;
-  }
-  if (isChatChannelChoice(chatChannelChoice)) {
-    request.chatChannelChoice = chatChannelChoice;
   }
   return request;
 }
@@ -573,6 +589,33 @@ async function recordConversion(session: Stripe.Checkout.Session): Promise<void>
     await markConverted({ email, plan: plan?.id ?? "unknown", mrrUsd: mrr });
   } catch (error) {
     console.error("[healdesk] could not record conversion in the lead store", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  await recordDemoClaim(session);
+}
+
+/**
+ * A purchase that came from a personalised demo: mark the demo claimed and
+ * tell the team. Best effort and never throws, like the conversion above.
+ * The prospect's own receipt, agreement copy and setup link are not sent
+ * from here: Stripe sends the receipt, and apps/app sends the agreement copy
+ * and the setup link once /api/provision has recorded the account, because
+ * every clinic-facing link is composed there (root CLAUDE.md).
+ */
+async function recordDemoClaim(session: Stripe.Checkout.Session): Promise<void> {
+  const slug = session.metadata?.demo;
+  if (!slug) return;
+  try {
+    const plan = getPlan(String(session.metadata?.plan ?? ""));
+    const claimed = await markDemoClaimed(slug, plan?.id ?? "unknown");
+    if (!claimed?.newly) return;
+    await postInternalAlert(
+      `Demo claimed: ${displayName(claimed.session)} bought ${plan?.name ?? "a package"} from their personalised demo (${slug}).`,
+    );
+  } catch (error) {
+    console.error("[healdesk] could not mark the demo claimed", {
+      slug,
       error: error instanceof Error ? error.message : String(error),
     });
   }

@@ -73,7 +73,7 @@ describeDb("transition()", () => {
     clinicId = (await seedClinic("sm")).clinicId;
     await withTenant({ clinicId, actor: { type: "system" } }, (tx) =>
       seedEntitlements(tx.db, clinicId, {
-        plan: getPlan("chat-single")!,
+        plan: getPlan("chat-web")!,
         interval: "month",
         stripeCustomerId: "cus_sm",
         stripeSubscriptionId: "sub_sm",

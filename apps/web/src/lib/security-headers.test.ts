@@ -173,7 +173,7 @@ describe("securityHeaders", () => {
   });
 
   // The voice demo is scripted playback; the live call goes to the visitor's
-  // phone via Synthflow. Nothing in the browser may ask for a microphone.
+  // phone via Retell. Nothing in the browser may ask for a microphone.
   it("denies camera, microphone, geolocation and payment", () => {
     const policy = header(production, "Permissions-Policy") ?? "";
     for (const feature of ["camera", "microphone", "geolocation", "payment"]) {

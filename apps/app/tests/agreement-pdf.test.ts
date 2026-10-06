@@ -784,8 +784,8 @@ describe("renderAgreementPdf", () => {
 
   test("names the file by version and date, and by nothing else", async () => {
     const pdf = await renderAgreementPdf(acceptance());
-    // The record's version, which is the current template's — 1.2.1 today.
-    expect(SIGNED.version).toBe("1.2.1");
+    // The record's version, which is the current template's — 1.3.0 today.
+    expect(SIGNED.version).toBe("1.3.0");
     expect(pdf.filename).toBe(`healdesk-baa-${SIGNED.version}-2026-08-18.pdf`);
     expect(pdf.filename).not.toContain("Radiance");
     expect(pdf.filename).not.toContain("Alex");

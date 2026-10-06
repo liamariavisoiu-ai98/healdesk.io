@@ -24,7 +24,8 @@
 9. [Clinics outside HIPAA: state-law terms instead of a separate DPA](#9-clinics-outside-hipaa)
 10. [Existing signers and subprocessor notice](#10-existing-signers-and-subprocessor-notice)
 11. [How a change ships (for the engineer)](#11-how-a-change-ships-for-the-engineer)
-12. [Review log](#review-log-2026-10-01)
+12. [BAA 1.3.0 (draft): calendar terms, the Q8 clauses and 24 hours' notice](#12-baa-130-draft-calendar-terms-the-q8-clauses-and-24-hours-notice)
+13. [Review log](#review-log-2026-10-01)
 
 ---
 
@@ -366,7 +367,9 @@ nothing and removes the argument.
   golden hash for 1.2.0 (`apps/app/tests/baa-golden.test.ts`) must keep
   reproducing.
 - **1.2.1 carries findings A1–A5, the Payments clause, the state-law clause,
-  and the § 164.514(b) citation.** Add it below 1.2.0 with
+  and the § 164.514(b) citation.** (As shipped on 1 October 2026, 1.2.1
+  carries A1–A5 only. The other three are in the 1.3.0 draft; see § 12.6.)
+  Add it below 1.2.0 with
   `approvedByCounsel: false` until the owner approves it the same way, then
   move it to `[0]`. Publish it before the first real clinic signs if at all
   possible; A3 is a misstatement of a vendor's terms in a signed document.
@@ -383,6 +386,489 @@ nothing and removes the argument.
   `META_CHANNEL_PROHIBITIONS`; keep the rest.
 - **Bump `LEGAL_VERSION` and `LEGAL_LAST_UPDATED`** with any terms or privacy
   change.
+
+---
+
+## 12. BAA 1.3.0 (draft): calendar terms, the Q8 clauses and 24 hours' notice
+
+> **Drafted 6 October 2026. Not released, not offered, not legal advice.**
+> `packages/catalog/src/baa.ts` registers 1.3.0 at `BAA_TEMPLATES[1]` with
+> `approvedByCounsel: false`. Checkout does not offer it, and signing refuses
+> it because `validateSignRequest` accepts only `BAA_TEMPLATES[0]`.
+> Provisioning does not check it: its approval gate reads
+> `currentBaaTemplate()`, not the bound acceptance's version, until plan C15
+> changes that, and C15 must land before the release. The full text is
+> rendered in `docs/baa-v1.3.0-draft-calendar-clauses.txt`. The owner decided
+> on 5 October 2026 (answer Q2) that Claude releases 1.3.0 and the calendar
+> election after its own adversarial audit of the full text, with no counsel
+> gate: against 45 CFR 164.504(e), the code's actual behaviour, the spec, the
+> terms and the privacy page. The audit's findings are to be recorded here,
+> and the owner is told the release was made without counsel.
+
+### 12.1 Why a new version
+
+1.2.1's Google Calendar clause is unconditional: it tells every practice that
+healdesk connects its Google Calendar and adds appointments to it. That is
+untrue for a practice whose booking system does not read Google Calendar,
+which the spec puts in manual booking mode with nothing connected, and the
+clause does not say who answers for a calendar Google's business associate
+agreement does not cover. A personal Gmail calendar never is (spec, "Vendor
+position, vendor by vendor": "a consumer Gmail calendar has no route to
+coverage").
+
+1.3.0 asks two questions at checkout, and the answers choose the clause. The
+decisions behind it are the owner's:
+
+- 5 October 2026, decision 2: a practice may direct healdesk to write into a
+  calendar Google's agreement does not cover, and answers for that disclosure.
+- 5 October 2026, decision 3: calendar terms are per location, changed by an
+  append-only calendar election (§ 12.9).
+- Q3: a practice that declared itself a covered entity may use the uncovered
+  clause like any other, so no calendar clause is keyed to covered-entity
+  status.
+- Q8: 1.3.0 also carries the three additions § 11 meant for 1.2.1 (§ 12.6).
+- 6 October 2026: 24 hours' notice before a new subcontractor handles PHI
+  (§ 12.7), and the calendar-list permission is requested, so a practice
+  chooses which of its calendars healdesk books into.
+
+### 12.2 How the clause is chosen
+
+The booking system the practice names gives the sync, which is never a
+selection of its own (`bookingSyncFor`, `packages/catalog/src/booking-systems.ts`):
+
+| Booking system | Reads Google Calendar for conflicts? | Source | Sync |
+| --- | --- | --- | --- |
+| Google Calendar only | Yes | Spec table | Live |
+| Calendly | Yes | Spec table | Live |
+| Cal.com | Yes | Spec table | Live |
+| HighLevel | Yes, once the clinic turns on that Google calendar as a conflict calendar | Spec table (commit a45cd9a). HighLevel's "Setting Up Linked Calendars & Conflict Calendars", https://help.gohighlevel.com/support/solutions/articles/155000002374, read 6 Oct 2026: "Events from third-party calendars added as conflict calendars are synced to the system, blocking your availability for the event's duration", and "The availability is blocked only if the event is marked as 'BUSY'". healdesk writes every event opaque, which is busy (`packages/connectors/src/google/event.ts`). The checkout card states the setting | Live |
+| Mindbody | No | Spec table: one direction only, Mindbody to Google | Manual |
+| Boulevard | Unverified | Spec: "Treat as no until confirmed in writing" | Manual |
+| Something else | Unverified | Nobody has checked it | Manual |
+| No booking system yet | Yes | The assistant books into the calendar the practice connects | Live |
+
+Zenoti, PatientNow, Acuity and Vagaro are not v1 booking systems. On the
+phase-two platform list they are "unverified", and so manual, until a vendor
+confirms in writing (owner, Q4).
+
+The kind of Google account then splits a live system in two:
+
+| Sync | Google account | Clause |
+| --- | --- | --- |
+| Live | Workspace, administrator has accepted Google's BAA | `google-calendar-covered` |
+| Live | Workspace without it, or not sure | `google-calendar-uncovered` |
+| Live | Personal | `google-calendar-uncovered` |
+| Manual | Any (kept in case the system changes) | `google-calendar-not-used` |
+
+`hd` in Google's ID token proves only that an account is managed, never that
+its administrator accepted Google's agreement, so the covered clause rests on
+the practice's statement and says so.
+
+### 12.3 Clause by clause against 1.2.1
+
+Numbers are the rendered sample's (a live system, a covered account).
+
+| # | Clause | Against 1.2.1 |
+| --- | --- | --- |
+| — | Preamble | 1.2.1's, with "Version 1.3.0 — executed electronically". Nothing in it marks a draft, so releasing it moves no hash |
+| 1–3 | Definitions, practice status, permitted uses | 1.2.1's objects, by lookup |
+| 4 | Where Practice is not a covered entity (`state-law`) | **New** (§ 12.6) |
+| 5 | What healdesk reads (`data-sources-none`) | New object. The first sentence is 1.2.1's, naming the system when it has a name. Only a live system's variant ends "together with the calendar access the Google Calendar clause describes"; a manual one ends "during a call or chat." The phase-two `data-sources-verified` is unchanged |
+| 6 | Practice's Google Calendar | **Replaces** `google-calendar` with three clauses, exactly one of which renders (§ 12.4) |
+| 7 | Payments (`payments`) | **New** (§ 12.6) |
+| 8 | Own use and data aggregation (`own-use`) | New object citing 45 CFR 164.514(b) (§ 12.6) |
+| 9–12 | Practice's duties, safeguards, minimum necessary, reporting | 1.2.1's |
+| 13 | Subcontractors | New object: 24 hours' notice (§ 12.7). The flow-down and Anthropic paragraphs are 1.2.1's word for word |
+| 14–20 | Patient rights, acting in your place, not authorised, term, liability, records, notices and law | 1.2.1's |
+
+Twenty-three clauses are registered and twenty render: one of the two
+data-sources clauses and one of the three calendar clauses.
+
+### 12.4 The three calendar clauses
+
+All three are headed "Practice's Google Calendar", so a practice's clause
+never changes its name. Their bodies live once, in
+`packages/catalog/src/calendar-terms.ts`; the BAA appends a last paragraph
+saying the clause governs the location set up at signing, and that a calendar
+election takes its place for any other location or after a change.
+
+- **Covered.** Practice connects its own calendar by OAuth under its own
+  agreement with Google, and has told healdesk the account belongs to its
+  Workspace organisation whose administrator accepted Google's BAA; healdesk
+  cannot check that and relies on the statement, and adds nothing to a
+  calendar outside a Workspace or Cloud Identity organisation. Practice
+  acknowledges that Google's BAA does not extend to applications it
+  authorises.
+- **Uncovered.** The same connection, on an account Practice says no Google
+  BAA covers. Practice directs healdesk to add appointments anyway, knowing
+  Google holds them outside any BAA; the disclosure is made at Practice's
+  direction into an account Practice controls, and Practice is responsible
+  for it, including any notification it triggers. healdesk's responsibility
+  is limited to sending only the stated details, only to that calendar, and
+  safeguarding them until they are sent. Practice may withdraw the direction
+  at any time; healdesk then adds nothing more and the assistant takes
+  requests.
+- **Not used.** healdesk does not connect to the calendar, reads nothing
+  from it and writes nothing to it; the assistant takes every booking as a
+  request staff confirm in their own system. A change of system, or a wish to
+  book into Google, means recording a calendar election first.
+
+Every promise in the covered and uncovered clauses, and in the two Q8
+clauses that say what healdesk does (§ 12.6), has to be kept before release:
+by code, or, where no code can keep it, by an operating process written
+down. On 6 October 2026:
+
+| Promise | Kept by | Built? |
+| --- | --- | --- |
+| Reads the names of the calendars the account owns, free or busy for the one calendar, and its own events; reads no other event | `packages/connectors/src/google/adapter.ts`: the calendar list asks `minAccessRole=owner`; free/busy asks only for the chosen calendar; `verify()` lists events with a filter no event matches and asks for no event fields | Yes (plan C1) |
+| An event carries a first name, the service as the practice's list names it, and the time; private, no invitees, no reminders; nothing moved, edited or cancelled that healdesk did not create | `packages/connectors/src/google/event.ts`; the adapter refuses to cancel an event without healdesk's marker | Yes (C1) |
+| The token is held encrypted and used for nothing else | The sealed credential envelope (`apps/app/src/lib/connections/store.ts`) | Envelope yes; Google rows from C7–C8 |
+| Use stops when the agreement ends; the token is deleted on a disconnect through healdesk, when healdesk finds access removed at Google, and at destruction | Plan § 4.12 and § 9: `eraseCredentials`, `markCalendarBroken`, `sweepCalendarTerms`, destruction | No (C7, C8, C10) |
+| Covered: nothing added to a calendar outside a Workspace or Cloud Identity organisation | Reconciliation at connect (plan § 4.11) and `app_calendar_write_permitted` (§ 11.6). Both look only at the connected account (its `hd`) and the terms, never at whose calendar is chosen. The calendar list asks `minAccessRole=owner` with no organisation filter (`CALENDAR_LIST_QUERY` in the adapter), and Google lists as `owner` a calendar another account has shared in with "make changes and manage sharing", which may belong to a personal account or another domain (§ 12.11, item 7) | No (C6, C8; the chosen calendar's organisation is not checked anywhere yet) |
+| Uncovered: withdrawal stops further writes; not used: nothing connected | The start route refuses not-used terms; a not-used election erases any connection (plan § 2.6, § 4.12) | No (C7, C8) |
+| Payments: a payment link through Practice's own processor, carrying an amount, a generic description and a reference number, and no service name or clinical detail, metadata and statement descriptor included | Nothing yet. Deposit links are package D, which is paused; on a call the assistant states a deposit and never sends a link ("there is none", `depositLine` in `apps/app/src/lib/voice/tools.ts`) | No (package D; § 12.11, item 9) |
+| Payments: healdesk never takes card numbers | Nothing in `apps/app` asks for, parses or stores a card number, and 1.2.1's minimum-necessary clause says the same. One a patient volunteers would sit in the conversation transcript like any other words; the audit weighs that against "never takes" | Yes, by absence |
+| State law: processes patient information only on Practice's documented instructions ("the Terms and Practice's portal settings") and for no other purpose; does not sell or share it, use it outside the relationship, or combine it with other sources beyond what the Services require | Nothing in the code sells, shares or combines it. The portal the instructions name is not built yet (the funnel session builds it), and the own-use clause's permissions sit beside this one (§ 12.11, items 3 and 11) | By design, until the audit confirms |
+| State law: gives Practice what it needs for a consumer's access, deletion or correction request within ten business days | Operator tools in `apps/app/src/lib/patient-rights/export.ts`: `exportPatient` (access) and `amendContact` (correction). Nothing deletes one person's records on request | Partly (no deletion) |
+| State law: tells Practice if healdesk can no longer meet these obligations; lets it stop and remedy unauthorised use; provides compliance documents on request | Operating processes, none written down | No (a written process) |
+
+The release audit checks each row against the code. No clause promises a
+revocation at Google: revoking ends every grant that Google user gave the
+project, including one another of the practice's locations may still be
+using, so the code revokes only an unused grant and the clause promises the
+deletion it always performs.
+
+### 12.5 Where the drafted text departs from the plan's sentences, and why
+
+The plan (5 October 2026, revision 2) gave the clause sentences exactly. These
+departures were forced by later decisions or by the facts, and each is in
+the golden hashes from this draft:
+
+1. **Which calendar.** The plan said "healdesk uses the main calendar of the
+   Google account Practice connects". The owner included the calendar-list
+   permission on 6 October 2026, so a practice may choose any calendar the
+   account owns, and that sentence would be false for one that does. Now:
+   "healdesk uses one calendar of the Google account Practice connects, which
+   is that account's main calendar unless Practice chooses another calendar
+   the account owns."
+2. **What healdesk reads** gains "the names of the calendars that account
+   owns, so that Practice can choose one", which the calendar list reads.
+3. **What Google's permissions reach.** The plan said Google's permission
+   gives access to "the other events on that calendar". Google's own scope
+   page (https://developers.google.com/identity/protocols/oauth2/scopes, read
+   6 October 2026) describes `calendar.events.owned` as "See, create, change,
+   and delete events on Google calendars you own", every one of them, and
+   `calendar.events.freebusy` as "See the availability on Google calendars
+   you have access to". Now: "Google's permission model also gives healdesk
+   access to the other events on the calendars that account owns, and to
+   when the other calendars it can see are free or busy; healdesk does not
+   read or store them." 1.2.1, which is signed, keeps its narrower sentence.
+4. **The calendar election's first section** gains a last sentence, `In the
+   clause below, "this agreement" means that Business Associate Agreement.`
+   The clause it carries says "this agreement" throughout, as it does in the
+   BAA, and an election is not an agreement of its own.
+5. **The election's layout** puts PRACTICE, LOCATION and AGREEMENT on lines
+   of their own with the value indented beneath, as the BAA's preamble does,
+   instead of the plan's two columns, so that a long name wraps inside 78
+   columns through the shared `wrap()`.
+6. **The Google Calendar disclosure** says which calendar and what Google's
+   permission reaches as items 1–3 do, and "When your assistant offers a
+   patient times … and, on a call, spoken to the caller by … Retell" where
+   the plan said "offers a caller times". Web chat will offer times too,
+   reaching no recipient but Anthropic; worded this way, version 1 stays true
+   when it does, instead of forcing every connected practice to reconnect.
+7. **A booking system that names no product.** The not-used clause omits the
+   name for "Something else" ("its booking system does not read …"), and the
+   agreement names no system for "Google Calendar only" or "No booking
+   system yet". Otherwise the data-sources clause would say healdesk holds no
+   credentials to "Google Calendar only", which is false (it holds the
+   calendar's OAuth token), or to "Something else". The render guard (§ 12.8)
+   enforces it. The manual-booking notice takes the answer's label, as agreed
+   with the funnel, and reads "Your booking system" for an answer that names
+   no product, whether it is given that answer's label, its id or null.
+8. **Copy the plan did not word.** The descriptions under the three Google
+   account answers (the plan gave titles only) are worded to hold for a
+   manual system too, where the answer is only kept, so none says bookings
+   will go anywhere. HighLevel's card note: "In HighLevel, turn on the Google
+   Calendar your assistant books into as a conflict calendar. HighLevel then
+   stops offering any time your assistant has booked." Its link is carried in
+   a field the agreed shape did not list, `setupHelpUrl`.
+9. **The notes beside the clauses** (`packages/catalog/src/baa-explainer.ts`).
+   The covered and uncovered notes also name the calendar-list read ("healdesk
+   reads the names of your calendars, so you can choose the one it books
+   into, and when that calendar is free or busy"), which plan § 2.5's notes
+   predate; the not-used note is the plan's. The data-sources note is
+   reworded, as § 2.5 asked, to hold for 1.2.1 and 1.3.0 alike. The
+   subcontractors note is not: its notice period is the point of it. 1.2.1's
+   note, which the live checkout shows, stays word for word ("fifteen days'
+   notice"), and 1.3.0 has its own (`BAA_CLAUSE_EXPLAINERS_BY_VERSION`): at
+   least 24 hours, by email, and an objection that has to come before the
+   change takes effect. `clauseExplainer(version, id)` picks between them.
+10. **The selections builder's inputs.** The agreed call is unchanged; two
+    things are added. `bookingSystem` may be null, for a template before
+    1.3.0 signed from today's picker, and an optional `platformId` carries
+    the phase-two platform id that picker sends, which only a template
+    before 1.3.0 reads (§ 12.8).
+
+### 12.6 The three Q8 additions
+
+§ 3 and § 11 recorded these as 1.2.1 material; 1.2.1 shipped on 1 October 2026
+with findings A1–A5 only. Two had wording, reused word for word; one had
+only a note, and was drafted.
+
+- **Payments (clause 7), reused from § 6:** "Where Practice takes deposits,
+  healdesk creates a payment link through Practice's own payment processor.
+  The link and the payment carry an amount, a generic description and a
+  reference number, and no service name or clinical detail, including in
+  metadata and the statement descriptor. healdesk never takes card numbers."
+  Heading "Payments". Unconditional: deposits are a portal switch, not a
+  checkout answer, and the clause limits itself ("where Practice takes
+  deposits"). Placed after the calendar clause, since both describe what
+  healdesk sends into a system the practice contracts for itself. Basis as
+  § 6.
+- **State law (clause 4), reused from § 9:** the processor terms, heading
+  "Where Practice is not a covered entity". Unconditional, for the reason
+  1.0.0's patient-rights clause is: practice-status already makes the
+  document a data-protection agreement on the same terms where Practice is
+  not covered, and a buyer's status answer should not decide whether the
+  state-law terms are in it at all. Placed after permitted uses, which it
+  qualifies. **Risk R5 is still open**: the clause was drafted without
+  re-reading Cal. Civ. Code § 1798.140(ag) and 11 CCR § 7051. The release
+  audit reads both and adjusts the text before release (§ 12.11).
+- **45 CFR 164.514(b) (clause 8), drafted from § 3's note** ("Cite the
+  de-identification standard"): "healdesk may combine Practice's PHI with
+  that of other practices only to produce aggregate statistics about the
+  Services, de-identified under 45 CFR 164.514(b) (for example, what
+  fraction of after-hours calls are answered)." This is 1.1.0's sentence with
+  "de-identified, aggregate" reordered to carry the citation. The rest of the
+  clause is 1.1.0's word for word, in a new object because 1.2.1's is signed.
+
+The Payments and state-law texts are exported once
+(`PAYMENTS_CLAUSE_BODY`, `STATE_LAW_CLAUSE_BODY` in `baa.ts`) for the funnel's
+data protection agreement, which the funnel plan (Part L) says shares them.
+The state-law text's last sentence names PHI, so a document without PHI has
+to word that sentence for itself.
+
+### 12.7 24 hours' notice of a new subcontractor
+
+The owner decided on 6 October 2026 that the next agreement versions give 24
+hours' notice by email before a new subcontractor handles protected
+information, keeping the right to object
+(`docs/design/funnel-portal-contracts-2026-10-06.md` § 6). The sentence lives
+once, in `packages/catalog/src/subprocessor-notice.ts`, worded for both
+documents that carry it, the BAA and the funnel's DPA:
+
+> "healdesk keeps a current list of its subcontractors at
+> healdesk.io/subprocessors and will give Practice at least 24 hours' notice
+> by email before adding one that will handle the information this agreement
+> protects. If Practice objects on reasonable grounds before the change
+> takes effect, Practice may terminate this agreement without penalty."
+
+1.2.1 keeps its fifteen days for anyone who signs it. The Term clause's "the
+subcontractor-objection right above" still points at clause 13. The signing
+screen's note beside the subcontractors clause names each version's own
+period (§ 12.5, item 9). The public register (`/subprocessors`) and `/trust`
+still promise every customer at least fifteen days
+(`POLICY.subprocessorNoticeDays`), which the release has to reconcile
+(§ 12.11, item 10). A day is far shorter than the usual fifteen to thirty,
+which weakens the objection right; that is risk 13 in `brief.md`.
+
+### 12.8 The render guard and the one selections builder
+
+- **Render guard.** 1.3.0 carries `validate`, which `renderBaa` calls before
+  choosing any clause. It refuses a document without a known booking system,
+  without a known Google account kind, or whose `connectedPlatform` is not
+  exactly that booking system's name. The clause predicates default a
+  missing answer to the most restrictive one, which is right for a predicate
+  and wrong for a signature: a practice that was never asked would sign
+  "manual booking, no agreement with Google" without having said either.
+  Earlier templates have no guard, so nothing about them changes.
+- **One builder.** `buildBaaSelections` (`packages/catalog/src/baa-selections.ts`)
+  is what both signing paths are to call (`signAgreement` from plan C3, and
+  the funnel's AgreementStep), so that the displayed and the stored render
+  cannot drift. Neither calls it yet. For a version before 1.3.0 it names a
+  phase-two platform exactly as both paths do today: the one in
+  `platformId`, the platform id today's picker sends, which covers every
+  entry of `platforms`, Zenoti, PatientNow, Acuity and Vagaro included, though
+  no booking system maps to them; or, without one, the booking system's
+  `phaseTwoPlatformId`. A test renders 1.2.1 and 1.2.0 through the builder for
+  every platform and for every booking system, and finds the bytes today's
+  paths produce. For 1.3.0 it names the booking system, passes the two
+  answers and ignores `platformId`. The sync is derived inside the
+  agreement, never passed, so the browser cannot choose "live" for a one-way
+  system.
+- **Release overlap.** `BAA_RELEASE_OVERLAP` is empty, and nothing reads it
+  yet: `validateSignRequest` is to read it from plan C3. At release it keeps
+  1.2.1 signable for 72 hours, across the two deploys, and it is emptied once
+  both production deployments are verified.
+
+Signing (`apps/app/src/lib/agreements.ts`) and provisioning are unchanged by
+this draft.
+
+### 12.9 The calendar election and the Google Calendar disclosure
+
+- **Calendar election, `calendar-election/1.0.0`** (draft,
+  `approvedByCounsel: false`). One location's calendar terms, accepted after
+  the agreement: for a second location, for a change of booking system or
+  account kind, and for a practice that signed before 1.3.0. Three sections:
+  what the election does (it takes the place of the agreement's calendar
+  clause for that location, and supplements an agreement that does not
+  provide for elections), the calendar clause itself without the location
+  paragraph, and acceptance by a named person confirming authority. The
+  server is to re-render and hash it and store version, hash and text, never
+  accepting a hash from the browser (plan C7). Until it is released, only a
+  demo clinic's election is to count (plan A10, enforced from C6 and C7).
+- **Google Calendar disclosure, `google-calendar-disclosure/1`.** To be
+  shown directly above an unticked box and the Google sign-in button (plan
+  § 4.2, C8); nothing shows it yet. It says what healdesk reads and adds,
+  that the free times it reads go to Anthropic and, on a call, Retell "under
+  business associate agreements with healdesk that are signed before any
+  patient's information is processed" (both are pending on the register,
+  which `apps/web/src/lib/google-disclosure.test.ts` ties to this wording),
+  how to disconnect, and Google's Limited Use statement as privacy § 11
+  makes it. A new recipient of the times makes a new version that earlier
+  acceptances do not cover. The practice's name is put into it verbatim,
+  whatever characters it holds (a `replaceAll` with a string would have
+  expanded `$&` and its kin in a name).
+
+### 12.10 Checked against 45 CFR 164.504(e) and 164.314(a)
+
+1.3.0 keeps every clause § 2 found meeting each element, unchanged or as a
+superset: the subcontractors clause keeps its flow-down paragraph word for
+word, and the own-use clause keeps its 164.504(e)(4) paragraph. In the
+rendered sample's numbering:
+
+| Element | 1.3.0 clause |
+| --- | --- |
+| (e)(2)(i) permitted uses; management and administration; aggregation | 3; 8 |
+| (e)(2)(ii)(A) no other use or disclosure | 3 |
+| (B) safeguards and Subpart C | 10 |
+| (C) reporting, including § 164.410 | 12(a), 12(b) |
+| (D) subcontractors | 13 |
+| (E)–(G) access, amendment, accounting | 14 |
+| (H) acting for the covered entity | 15 |
+| (I) books and records | 19 |
+| (J) return or destroy | 17 |
+| (e)(2)(iii) termination for material violation | 17 |
+| (e)(4), (e)(5) | 8; 13 |
+| § 164.314(a)(2)(i)(A)–(C) | 10; 13; 12(c) |
+| Minimum necessary; no sale or marketing use | 11; 16 |
+
+The calendar, payments and state-law clauses add obligations; none removes
+one. This is a check of the skeleton, not the release audit.
+
+### 12.11 Left for the release audit
+
+Noticed while drafting and left as the plan worded them:
+
+1. The uncovered clause for "Workspace without it, or not sure" ends "so no
+   business associate agreement between Practice and Google covers that
+   calendar". If Practice does not know, that may be untrue in fact; consider
+   "so the parties treat that calendar as one no business associate agreement
+   between Practice and Google covers".
+2. The not-used clause's "records a calendar election for that location"
+   comes before the BAA's location paragraph introduces the location;
+   consider "for the location".
+3. The state-law clause limits use to "providing the Services", while the
+   own-use clause permits management, administration and de-identified
+   aggregation; for a practice that is not a covered entity the two can be
+   read against each other. Settle it together with R5 and item 11.
+4. The data-sources clause says the only patient information healdesk
+   receives is what patients give it in a call or chat. Check it against the
+   deposit webhook when deposits are built: if the processor sends healdesk
+   the payer's name or email, the sentence needs the Payments clause carved
+   out.
+5. Every row of § 12.4's table must read "Yes" against the code, or against
+   a written process where no code can keep the promise. A row that cannot
+   is resolved before release by changing the code, the clause or the site
+   copy.
+6. The 24-hour notice (risk 13) and the uncovered clause's exposure (risk 12)
+   are owner decisions; the audit confirms the text says what was decided,
+   not whether it was wise.
+
+Found in review of this draft (6 October 2026), each to be resolved before
+release by changing the code, the clause or the site copy:
+
+7. **The covered clause and the calendar picker.** The covered clause says
+   healdesk "adds nothing to a calendar whose Google account does not belong
+   to a Google Workspace or Cloud Identity organisation", and plan § 4.11
+   checks only the connected account's `hd`. The calendar list asks
+   `minAccessRole=owner` and nothing else, and Google's calendarList reference
+   defines "owner" as a permission level ("The user can read and modify
+   events and access control lists"), which a calendar another account shares
+   in with "make changes and manage sharing" also has. That account may be a
+   personal one or another domain's. Make the promise true in code: for a
+   managed account, ask the list with `showOwnOrganizationOnly=true` ("only
+   entries for calendars from the organization … only applicable to Google
+   Workspace users") in the adapter and C8's picker, or keep covered terms to
+   the primary calendar; and verify the chosen calendar again when it is
+   chosen. Otherwise narrow the clause to the connected account's
+   organisation, and record what remains as a `brief.md` risk.
+8. **Thirty days to return or destroy.** 1.3.0 reuses 1.2.1's Term clause:
+   "Within thirty days of termination healdesk will return or destroy all
+   PHI it holds for Practice". The code destroys at thirty days only once the
+   export has been delivered, and otherwise after ninety
+   (`DESTROY_AFTER_DAYS`, `DESTROY_WITHOUT_EXPORT_AFTER_DAYS` and
+   `dueForDestruction` in `apps/app/src/lib/offboarding/offboarding.ts`). The
+   funnel's design flags the same gap for this version
+   (`docs/design/funnel-onboarding-portal-2026-10-06.md`, Part L, on main).
+9. **The Payments clause describes a link nothing creates.** "Where Practice
+   takes deposits, healdesk creates a payment link through Practice's own
+   payment processor." No code does: deposit links are package D, which is
+   paused, and on a call the assistant states a deposit and never sends a
+   link (`depositLine`, `apps/app/src/lib/voice/tools.ts`: "there is none").
+   Either package D ships first, or the clause says healdesk "may" create one
+   and keeps its limits on what a link carries.
+10. **The public notice period.** `/subprocessors` and `/trust` tell every
+    customer that a new vendor handling patient information is announced at
+    least `POLICY.subprocessorNoticeDays` days ahead, which is 15
+    (`apps/web/src/lib/legal.ts`), while 1.3.0 gives 24 hours. The site copy
+    has to say which customers get which period, or the clause and the site
+    have to agree.
+11. **The state-law clause's own references.** It applies "the reporting,
+    subcontractor, security and return-or-destroy clauses of this agreement"
+    to non-PHI patient information. 1.3.0 has no clause by either of the last
+    two names: its headings are "Safeguards", "Reporting breaches and
+    security incidents", "Subcontractors" and "Term, termination, and what
+    happens to the information", so "security" could be read as clause 10 or
+    clause 12, and "return-or-destroy" matches no heading. Its "Practice's
+    portal settings" name a portal that is not built yet. The wording is
+    § 9's, reused as the owner's answer to Q8 asked; the audit decides
+    whether to name the clauses by their headings, which moves the golden
+    hashes before release.
+12. **The notes on the signing screen.** AgreementStep looks notes up in
+    `BAA_CLAUSE_EXPLAINERS` by clause id, which gives 1.2.1's subcontractors
+    note ("fifteen days' notice"). Before 1.3.0 is offered it has to look
+    them up through `clauseExplainer(template.version, id)`, or a 1.3.0 buyer
+    reads fifteen days beside a clause that gives 24 hours.
+13. **The gates that are not built yet.** Signing refuses 1.3.0 today only
+    because `validateSignRequest` accepts `BAA_TEMPLATES[0]` alone. Plan C3
+    makes it accept a version in `BAA_RELEASE_OVERLAP`, and plan C15 makes
+    provisioning's approval gate read the bound acceptance's version instead
+    of `currentBaaTemplate()`. Both must land before the release.
+
+### 12.12 Golden hashes
+
+Frozen from this draft in `apps/app/tests/baa-golden.test.ts` and
+`packages/catalog/src/google-calendar-disclosure.test.ts`. An edit before
+release regenerates them in the same commit and is noted here; after
+release they never move.
+
+| Document and variant | SHA-256 |
+| --- | --- |
+| 1.3.0 covered_estimated (the sample) | `770462be01a012ff4221f5a5aabed7503dcb710c5437925d0652d9dde1247d16` |
+| 1.3.0 notcovered_estimated | `16b86e85dfc65a421d7e319534c2f8d18b8fbdc9307cb2269fc6d9d0715915f9` |
+| 1.3.0 unknown_estimated | `70f8f05cafa4784b2c2107a1d3099a20c8c1b789a66bcc4339886e054fde9ae6` |
+| 1.3.0 covered_verified_boulevard | `7361318a1050ceac11a9c0718a6f357d5595f1de85c7cabaa86270fa18cf28db` |
+| 1.3.0 uncovered_nobaa | `cb845bcaa7b1e8c542fbef66d20ac4b7428242b0a0e08eba9a344c53582a6071` |
+| 1.3.0 uncovered_personal | `25d848c43076aebc26f2273325abd11943cb6311e0e42a93978f143b06aa29f5` |
+| 1.3.0 notused_mindbody | `53a9d5482e16a12abf346ae33821659d2707b8290365dfd29420f60abb85840a` |
+| 1.3.0 notused_other | `0752e2848c767633bc3e2418911f91d82810d957ce0dc07225bb3cf24d4bd7d9` |
+| 1.3.0 live_calcom | `d725371aeab66183b4b54f821d0b0a53878f30c4e013bf26200ac72c7cc08720` |
+| 1.3.0 live_highlevel_personal | `144acc18c9e0cd1d08ed33ac160d67ac7d4a8197e3a93b9d8cb2a77141c9fc9d` |
+| 1.3.0 live_calendly_nobaa | `f2d0aed20eb500a1e5c3c278048e0a8a1b7854c5cb8628abe69777c8e7b67da3` |
+| calendar-election/1.0.0 sample | `d047b3894a46da62c737b2058e7dfedd1134c7c0f8be4517962c6e43b91be8be` |
+| google-calendar-disclosure/1 | `a33d569240d4a87171888b0340bcff155a6a69a9097a333dc9a7ef8c3497a83a` |
 
 ---
 

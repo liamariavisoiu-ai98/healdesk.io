@@ -14,12 +14,16 @@
 
 export * from "./baa";
 export * from "./baa-explainer";
+export * from "./baa-selections";
 export * from "./booking-requirements";
+export * from "./booking-systems";
+export * from "./calendar-terms";
 export * from "./clinic-profile";
 export * from "./clinical-content";
 export * from "./connection-steps";
 export * from "./direct-booking-addendum";
 export * from "./forwarding";
+export * from "./google-calendar-disclosure";
 export * from "./onboarding";
 export * from "./plans";
 export * from "./platforms";
@@ -27,5 +31,6 @@ export * from "./request-signing";
 export * from "./segments";
 export * from "./sender-identity";
 export * from "./specialties";
+export * from "./subprocessor-notice";
 export * from "./treatment-names";
 export * from "./welcome";

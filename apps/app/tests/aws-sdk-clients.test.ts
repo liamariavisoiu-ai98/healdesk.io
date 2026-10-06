@@ -128,13 +128,19 @@ describe("the build can resolve both clients and keeps them external", () => {
 });
 
 describe("AwsKmsKeyWrapper", () => {
+  // The wrapper takes nothing but a key's full ARN (tests/kms.test.ts has the
+  // refusals). Written out rather than imported from tests/setup/kms.ts, which
+  // imports the SDK and would load the stub before this test counts loads. AWS's
+  // documentation example: no such key exists.
+  const KEY_ARN = "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab";
+
   test("loads @aws-sdk/client-kms on first use, not before, and once", async () => {
-    const wrapper = new AwsKmsKeyWrapper("alias/healdesk-test");
+    const wrapper = new AwsKmsKeyWrapper(KEY_ARN);
     expect(wire.kms.loads).toBe(0);
 
     const { dek, wrapped } = await wrapper.generateDek();
     expect(wire.kms.loads).toBe(1);
-    expect(wrapped.keyVersion).toBe("kms:alias/healdesk-test");
+    expect(wrapped.keyVersion).toBe(`kms:${KEY_ARN}`);
 
     expect((await wrapper.unwrapDek(wrapped)).equals(dek)).toBe(true);
     await wrapper.wrapExisting(dek);
@@ -145,8 +151,8 @@ describe("AwsKmsKeyWrapper", () => {
       "DecryptCommand",
       "EncryptCommand",
     ]);
-    expect(wire.kms.sent[0]!.input).toEqual({ KeyId: "alias/healdesk-test", KeySpec: "AES_256" });
-    expect(wire.kms.sent[1]!.input.KeyId).toBe("alias/healdesk-test");
+    expect(wire.kms.sent[0]!.input).toEqual({ KeyId: KEY_ARN, KeySpec: "AES_256" });
+    expect(wire.kms.sent[1]!.input.KeyId).toBe(KEY_ARN);
   });
 });
 

@@ -1,11 +1,13 @@
 "use client";
 
 import {
+  type BillingInterval,
   BOOKING_SYSTEMS,
   type BookingSystemId,
   bookingSyncFor,
   CALENDAR_ACCOUNT_OPTIONS,
   type CalendarAccount,
+  type Plan,
   type SpecialtyId,
   specialties,
   specialtyOffered,
@@ -21,7 +23,7 @@ import {
   noWebsiteOptions,
   websiteConflict,
 } from "@/lib/checkout/funnel";
-import { usd } from "@/lib/pricing";
+import { monthlyFigureUsd, usd } from "@/lib/pricing";
 import { site } from "@/lib/site";
 
 import { PrimaryButton, RadioGroup, Reassurance, StepShell, TextField } from "./StepShell";
@@ -51,6 +53,16 @@ const NO_WEBSITE_DESCRIPTIONS: Record<string, string> = {
     "AYA answers your phone, and, if your patients already message you on Instagram, Facebook or WhatsApp, answers them there too.",
   "chat-meta": META_CONDITION,
 };
+
+/**
+ * A replacement package, priced for the billing period already chosen on
+ * step 1, which choosing it keeps: the figure the package card and Review and
+ * pay show, per month, and "billed annually" on the annual terms.
+ */
+function noWebsiteOptionLabel(plan: Plan, interval: BillingInterval): string {
+  const billed = interval === "year" ? " billed annually" : "";
+  return `${plan.name}: ${usd.format(monthlyFigureUsd(plan, interval))}/mo${billed} + ${usd.format(plan.setupFeeUsd)} setup fee`;
+}
 
 export function ClinicStep({
   state,
@@ -148,7 +160,7 @@ export function ClinicStep({
                 hint={`${plan.name} includes website chat, which answers on your site. Choose a package without it:`}
                 options={noWebsiteOptions().map((option) => ({
                   id: option.id,
-                  label: `${option.name}: ${usd.format(option.monthlyUsd)}/mo + ${usd.format(option.setupFeeUsd)} setup fee`,
+                  label: noWebsiteOptionLabel(option, state.interval),
                   description: NO_WEBSITE_DESCRIPTIONS[option.id],
                 }))}
                 value={null}

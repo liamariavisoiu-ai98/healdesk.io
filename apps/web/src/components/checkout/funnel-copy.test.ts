@@ -3,10 +3,11 @@ import { createElement as h, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 
-import { type FunnelState, initialFunnel } from "@/lib/checkout/funnel";
+import { type FunnelState, initialFunnel, noWebsiteOptions } from "@/lib/checkout/funnel";
 import { setupFeeToday } from "@/lib/checkout/review";
 import { siteReadLine } from "@/lib/checkout/site-read";
 import { GUARANTEE_TEXT, LEGAL_VERSION } from "@/lib/legal";
+import { usd } from "@/lib/pricing";
 
 import { type AgreementResult, AgreementStep } from "./AgreementStep";
 import { ClinicStep } from "./ClinicStep";
@@ -432,6 +433,26 @@ describe("the clinic step", () => {
     expect(phone).toBeGreaterThan(0);
     expect(meta).toBeGreaterThan(phone);
     expect(words).toContain("whose patients already message it on Instagram, Facebook or WhatsApp");
+  });
+
+  test("no website: each package offered is priced for the billing period already chosen", () => {
+    // Choosing one keeps the period (choosePlan), so the figures are the ones
+    // the package cards and Review and pay give for it.
+    const annual = text(clinicStep(answered({ noWebsite: true, interval: "year" })));
+    const monthly = text(clinicStep(answered({ noWebsite: true, interval: "month" })));
+    const options = noWebsiteOptions();
+    expect(options.length).toBeGreaterThan(0);
+    for (const plan of options) {
+      const setup = `+ ${usd.format(plan.setupFeeUsd)} setup fee`;
+      expect(annual).toContain(
+        `${plan.name}: ${usd.format(plan.annualMonthlyUsd)}/mo billed annually ${setup}`,
+      );
+      expect(annual).not.toContain(`${plan.name}: ${usd.format(plan.monthlyUsd)}/mo`);
+      expect(monthly).toContain(`${plan.name}: ${usd.format(plan.monthlyUsd)}/mo ${setup}`);
+    }
+    expect(monthly).not.toContain("billed annually");
+    // The review's own example: the phone alone, on annual terms.
+    expect(annual).toContain("AI Voice Agent Alone: $637/mo billed annually + $997 setup fee");
   });
 });
 

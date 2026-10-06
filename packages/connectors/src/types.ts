@@ -108,6 +108,15 @@ export type ConnectorContext = {
   credentials: Record<string, string>;
   /** Non-secret identifiers: location id, site id, merchant id. */
   metadata?: Record<string, unknown>;
+  /**
+   * The OAuth client healdesk calls the platform as, for adapters whose
+   * connection is an OAuth grant (Google Calendar). Filled in by apps/app
+   * from its own environment at call time and never stored with the
+   * connection: it is healdesk's credential, not the clinic's, and this
+   * package reads no environment variables. Absent means the adapter answers
+   * `misconfigured` without making a request.
+   */
+  oauthClient?: { clientId: string; clientSecret: string };
 };
 
 export type VerifiedInfo = {
@@ -115,38 +124,55 @@ export type VerifiedInfo = {
   accountLabel?: string;
   /** Earliest data this connection can reach. Null means no known limit. */
   coverageStartedAt?: Date | null;
+  /**
+   * What a calendar adapter learned about the calendar it writes into: its
+   * own time zone, so the app can tell the clinic when it differs from the
+   * one the assistant books in, and healdesk's access role on it.
+   */
+  calendar?: { timeZone: string; accessRole: string };
 };
 
 /** A bookable interval the platform offered. Half-open, like every window here. */
 export type CanonicalSlot = { startsAt: Date; endsAt: Date };
 
 /**
- * The one write the port allows: add an appointment the practice confirmed on
- * the request page, or elected the assistant to book on the phone.
+ * The one write the port allows: add an appointment the practice's staff
+ * confirmed on the request page, or the assistant booked.
  *
- * There is deliberately no phone field on this type. The attendee's email is
- * a healdesk-controlled sink address, never a patient's, and there is no slot
- * through which an adapter could be handed a number to forward. A platform
- * that "requires" one for SMS reminders gets none — which is why the event
- * type we write into must have reminders and workflows off (design B.2). Do
- * not add a phone field here; if a platform cannot book without one, that
- * platform does not get a write adapter.
+ * There is deliberately no phone field on this type, and no slot through
+ * which an adapter could be handed a number to forward. A platform that
+ * "requires" one for SMS reminders gets none. Do not add a phone field here;
+ * if a platform cannot book without one, that platform does not get a write
+ * adapter. The attendee's email is optional and, where a caller still passes
+ * one, it is a healdesk-controlled sink address, never a patient's: the
+ * Google Calendar adapter never sends it, because the calendar terms promise
+ * an event carries a first name, the service and the time, and nothing else.
  */
 export type CreateAppointmentInput = {
   startsAt: Date;
-  /** Null means the platform's default for the event type. */
+  /** Null means the platform's default: 30 minutes for Google Calendar. */
   durationMinutes: number | null;
-  attendee: { name: string; email: string; timeZone: string };
+  /**
+   * `name` is reduced to a first name by the Google adapter. `email` is
+   * never sent to Google.
+   */
+  attendee: { name: string; email?: string; timeZone: string };
+  /**
+   * Who made the booking: the assistant, or the practice's staff confirming
+   * a request. A calendar event says which in its description. Omitted means
+   * staff, because the desk's write path predates this field.
+   */
+  origin?: "assistant" | "desk";
   /**
    * What the person asked for, for platforms that cannot book without a
    * service. Null where the event type already says what it is.
    */
   service: string | null;
   /**
-   * The booking request's id. Stamped on the platform's record as metadata so
-   * a create whose reply never arrived can be found again before anyone
-   * retries it — the platforms we write to offer no idempotency key of their
-   * own, and a blind retry after a timeout books the slot twice.
+   * Our key for this booking, so a create whose reply never arrived can be
+   * found again before anyone retries it: a blind retry after a timeout
+   * books the slot twice. The Google adapter hashes it into the event's own
+   * id (google/ids.ts), so the key itself never reaches the calendar.
    */
   idempotencyKey: string;
 };

@@ -1,3 +1,4 @@
+import { partsIn, zonedToUtc } from "../time";
 import type { CanonicalSlot, TimeWindow } from "../types";
 
 /**
@@ -6,8 +7,8 @@ import type { CanonicalSlot, TimeWindow } from "../types";
  * The fixture has to hand back slots "in the given zone" so the app's slot
  * picker is exercised against wall-clock times that survive a DST change —
  * a slot generated as UTC-plus-a-constant looks right in June and is an hour
- * out in November. Intl gives us the zone's wall clock for an instant; the
- * inverse (wall clock to instant) is the two-pass guess below.
+ * out in November. The wall-clock arithmetic lives in ../time.ts, which the
+ * v1 availability code shares.
  */
 
 export type SlotSchedule = {
@@ -21,97 +22,6 @@ export type SlotSchedule = {
   /** Local hour the last slot must end by. */
   closesAt?: number;
 };
-
-type Parts = {
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
-  second: number;
-  weekday: number;
-};
-
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const formatters = new Map<string, Intl.DateTimeFormat>();
-
-function formatterFor(timeZone: string): Intl.DateTimeFormat {
-  let formatter = formatters.get(timeZone);
-  if (!formatter) {
-    // Throws RangeError for a zone Intl does not know, which is what we want:
-    // a fixture that silently treats "Europe/Nowhere" as UTC teaches nothing.
-    formatter = new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      hourCycle: "h23",
-      year: "numeric",
-      month: "numeric",
-      day: "numeric",
-      hour: "numeric",
-      minute: "numeric",
-      second: "numeric",
-      weekday: "short",
-    });
-    formatters.set(timeZone, formatter);
-  }
-  return formatter;
-}
-
-/** The zone's wall clock for an instant. */
-export function partsIn(instant: Date, timeZone: string): Parts {
-  const parts: Partial<Parts> = {};
-  for (const part of formatterFor(timeZone).formatToParts(instant)) {
-    switch (part.type) {
-      case "year":
-        parts.year = Number(part.value);
-        break;
-      case "month":
-        parts.month = Number(part.value);
-        break;
-      case "day":
-        parts.day = Number(part.value);
-        break;
-      case "hour":
-        parts.hour = Number(part.value);
-        break;
-      case "minute":
-        parts.minute = Number(part.value);
-        break;
-      case "second":
-        parts.second = Number(part.value);
-        break;
-      case "weekday":
-        parts.weekday = WEEKDAYS.indexOf(part.value);
-        break;
-      default:
-        break;
-    }
-  }
-  return parts as Parts;
-}
-
-function offsetMs(instant: Date, timeZone: string): number {
-  const p = partsIn(instant, timeZone);
-  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - instant.getTime();
-}
-
-/** The instant at which the zone's wall clock reads the given date and time. */
-export function zonedToUtc(
-  year: number,
-  month: number,
-  day: number,
-  hour: number,
-  minute: number,
-  timeZone: string,
-): Date {
-  const wall = Date.UTC(year, month - 1, day, hour, minute);
-  const first = offsetMs(new Date(wall), timeZone);
-  let instant = wall - first;
-  // Around a DST change the offset at the guess differs from the offset at
-  // the answer; one correction settles it.
-  const second = offsetMs(new Date(instant), timeZone);
-  if (second !== first) instant = wall - second;
-  return new Date(instant);
-}
 
 /** Monday to Friday slots inside the half-open window, sorted. */
 export function weekdaySlots(window: TimeWindow, schedule: SlotSchedule): CanonicalSlot[] {

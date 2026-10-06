@@ -11,6 +11,7 @@ import {
   MAX_FAILURES,
   replayParkedBillingEvents,
 } from "@/lib/billing/events";
+import { __setStripeForTests } from "@/lib/billing/stripe-client";
 import { withTenant } from "@/lib/tenant";
 
 import {
@@ -21,6 +22,7 @@ import {
   truncateAll,
 } from "./setup/db";
 import { inTenant, seedClinic } from "./setup/factories";
+import { createStripeFake, stripeError } from "./setup/stripe-fake";
 
 /**
  * The Stripe lifecycle, driven by hand-built events. No network: apps/web
@@ -29,7 +31,17 @@ import { inTenant, seedClinic } from "./setup/factories";
  *
  * Every id in a fixture is letters-only on purpose. The audit guard rejects
  * anything shaped like a phone number, and a Stripe id with a ten-digit run
- * would fail a test at random with a message blaming PHI.
+ * would fail a test at random with a message blaming PHI. Every invoice has
+ * its own id, as Stripe's do: the last paid invoice is what makes a late
+ * payment failure for it stale, so two fixtures sharing an id would hide one.
+ *
+ * These clinics are LEGACY rows (seedEntitlements, no bought package): they
+ * pin what BD31 keeps. The deferred start's rows are
+ * billing-events-lifecycle.test.ts's.
+ *
+ * Stripe is a recording fake. The handler re-reads a subscription and an
+ * unpaid invoice from Stripe before applying them (R11), so the fake answers
+ * with the "live" object each test sets: here, what the event carried.
  */
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
@@ -39,8 +51,12 @@ const complete = getPlan("complete")!;
 
 const DAY = 24 * 60 * 60;
 
+function letters(): string {
+  return randomUUID().replace(/-/g, "").replace(/\d/g, "x");
+}
+
 function eventId(): string {
-  return `evt_${randomUUID().replace(/-/g, "").replace(/\d/g, "x")}`;
+  return `evt_${letters()}`;
 }
 
 /** The narrowest thing that is still a Stripe.Event to the handler. */
@@ -60,11 +76,27 @@ function event(type: string, object: Record<string, unknown>, id = eventId()): S
 
 type Ids = { customer: string; subscription: string };
 
+/** What the fake Stripe returns for a retrieve: the subscriptions and invoices as they stand. */
+const liveSubscriptions = new Map<string, Record<string, unknown>>();
+const liveInvoices = new Map<string, Record<string, unknown>>();
+
+/** A customer.subscription.updated whose subscription is also what Stripe holds now. */
+function updated(object: Record<string, unknown>): Stripe.Event {
+  liveSubscriptions.set(object.id as string, object);
+  return event("customer.subscription.updated", object);
+}
+
+/** An unpaid-invoice event whose invoice Stripe still holds open. */
+function unpaid(type: string, object: Record<string, unknown>): Stripe.Event {
+  liveInvoices.set(object.id as string, { ...object, status: "open" });
+  return event(type, object);
+}
+
 /** An invoice as the current API version sends it: prices as ids, parents typed. */
 function invoice(
   ids: Ids,
   billingReason: string,
-  options: { periodStart: number; periodEnd: number; setupCents?: number },
+  options: { periodStart: number; periodEnd: number; setupCents?: number; id?: string },
 ): Record<string, unknown> {
   const now = Math.floor(Date.now() / 1000);
   const lines: Record<string, unknown>[] = [
@@ -86,7 +118,7 @@ function invoice(
     });
   }
   return {
-    id: "in_fixture",
+    id: options.id ?? `in_${letters()}`,
     object: "invoice",
     customer: ids.customer,
     billing_reason: billingReason,
@@ -184,6 +216,19 @@ describeDb("handleStripeEvent", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
+    const fake = createStripeFake({
+      "subscriptions.retrieve": (id) => {
+        const live = liveSubscriptions.get(id as string);
+        if (!live) throw stripeError("invalid_request", { code: "resource_missing" });
+        return live;
+      },
+      "invoices.retrieve": (id) => {
+        const live = liveInvoices.get(id as string);
+        if (!live) throw stripeError("invalid_request", { code: "resource_missing" });
+        return live;
+      },
+    });
+    __setStripeForTests(fake.stripe);
     clinicId = (await seedClinic("evt")).clinicId;
     await withTenant({ clinicId, actor: { type: "system" } }, (tx) =>
       seedEntitlements(tx.db, clinicId, {
@@ -196,6 +241,7 @@ describeDb("handleStripeEvent", () => {
   }, 60_000);
 
   afterAll(async () => {
+    __setStripeForTests(null);
     await closePools();
   });
 
@@ -279,13 +325,11 @@ describeDb("handleStripeEvent", () => {
   });
 
   test("(c) a failed payment moves active → past_due and opens a 7-day grace window", async () => {
-    const e = event(
-      "invoice.payment_failed",
-      invoice(ids, "subscription_cycle", {
-        periodStart: Math.floor(Date.now() / 1000),
-        periodEnd: Math.floor(Date.now() / 1000) + 30 * DAY,
-      }),
-    );
+    const renewal = invoice(ids, "subscription_cycle", {
+      periodStart: Math.floor(Date.now() / 1000),
+      periodEnd: Math.floor(Date.now() / 1000) + 30 * DAY,
+    });
+    const e = unpaid("invoice.payment_failed", renewal);
     const before = Date.now();
     await handleStripeEvent(e);
 
@@ -295,12 +339,9 @@ describeDb("handleStripeEvent", () => {
     expect(grace).toBeGreaterThanOrEqual(before + GRACE_DAYS * DAY * 1000 - 60_000);
     expect(grace).toBeLessThanOrEqual(Date.now() + GRACE_DAYS * DAY * 1000 + 60_000);
 
-    // A second failure (Stripe's retry) is idempotent: still past_due, and the
-    // window does not move.
-    const retry = event("invoice.payment_failed", invoice(ids, "subscription_cycle", {
-      periodStart: 0,
-      periodEnd: 1,
-    }));
+    // A second failure (Stripe's retry of the same invoice) is idempotent:
+    // still past_due, and the window does not move.
+    const retry = unpaid("invoice.payment_failed", renewal);
     await handleStripeEvent(retry);
     expect((await row()).status).toBe("past_due");
     expect((await row()).grace_ends_at!.getTime()).toBe(grace);
@@ -343,10 +384,7 @@ describeDb("handleStripeEvent", () => {
     // channel. Before the split this was one package with the channel in a
     // field beside it, and a portal switch could not reach that field.
     const metaVoice = getPlan("meta-voice")!;
-    const e = event(
-      "customer.subscription.updated",
-      subscription(ids, { lookupKey: stripeLookupKey(metaVoice, "month") }),
-    );
+    const e = updated(subscription(ids, { lookupKey: stripeLookupKey(metaVoice, "month") }));
     await handleStripeEvent(e);
 
     const r = await row();
@@ -357,10 +395,7 @@ describeDb("handleStripeEvent", () => {
   });
 
   test("(e) a subscription update onto an annual price changes interval and allowances", async () => {
-    const e = event(
-      "customer.subscription.updated",
-      subscription(ids, { lookupKey: stripeLookupKey(complete, "year") }),
-    );
+    const e = updated(subscription(ids, { lookupKey: stripeLookupKey(complete, "year") }));
     await handleStripeEvent(e);
 
     const r = await row();
@@ -376,8 +411,7 @@ describeDb("handleStripeEvent", () => {
   });
 
   test("cancel_at_period_end moves to canceling, and clearing it reverses", async () => {
-    const cancel = event(
-      "customer.subscription.updated",
+    const cancel = updated(
       subscription(ids, {
         lookupKey: stripeLookupKey(complete, "year"),
         cancelAtPeriodEnd: true,
@@ -386,10 +420,7 @@ describeDb("handleStripeEvent", () => {
     await handleStripeEvent(cancel);
     expect((await row()).status).toBe("canceling");
 
-    const reverse = event(
-      "customer.subscription.updated",
-      subscription(ids, { lookupKey: stripeLookupKey(complete, "year") }),
-    );
+    const reverse = updated(subscription(ids, { lookupKey: stripeLookupKey(complete, "year") }));
     await handleStripeEvent(reverse);
     expect((await row()).status).toBe("active");
   });
@@ -398,8 +429,7 @@ describeDb("handleStripeEvent", () => {
     // Stripe never sends customer.subscription.paused without a trial; the
     // pause a person can cause is this field on an ordinary update, with the
     // subscription's own status unchanged.
-    const pause = event(
-      "customer.subscription.updated",
+    const pause = updated(
       subscription(ids, { lookupKey: stripeLookupKey(complete, "year"), pauseCollection: true }),
     );
     await handleStripeEvent(pause);
@@ -407,17 +437,13 @@ describeDb("handleStripeEvent", () => {
     expect(await transitionsFor(pause.id)).toBe(1);
 
     // Delivered again: already paused, nothing to do, no second row.
-    const again = event(
-      "customer.subscription.updated",
+    const again = updated(
       subscription(ids, { lookupKey: stripeLookupKey(complete, "year"), pauseCollection: true }),
     );
     await handleStripeEvent(again);
     expect(await transitionsFor(again.id)).toBe(0);
 
-    const resume = event(
-      "customer.subscription.updated",
-      subscription(ids, { lookupKey: stripeLookupKey(complete, "year") }),
-    );
+    const resume = updated(subscription(ids, { lookupKey: stripeLookupKey(complete, "year") }));
     await handleStripeEvent(resume);
     expect((await row()).status).toBe("active");
 
@@ -434,8 +460,7 @@ describeDb("handleStripeEvent", () => {
   });
 
   test("a subscription Stripe has given up on (status unpaid) is suspended", async () => {
-    const e = event(
-      "customer.subscription.updated",
+    const e = updated(
       subscription(ids, { lookupKey: stripeLookupKey(complete, "year"), status: "unpaid" }),
     );
     await handleStripeEvent(e);
@@ -484,7 +509,7 @@ describeDb("handleStripeEvent", () => {
   });
 
   test("payment_action_required writes a note without moving the status", async () => {
-    const e = event(
+    const e = unpaid(
       "invoice.payment_action_required",
       invoice(ids, "subscription_cycle", { periodStart: 0, periodEnd: 1 }),
     );
@@ -501,6 +526,15 @@ describeDb("handleStripeEvent", () => {
     expect(rows).toEqual([
       { from_status: statusBefore, to_status: statusBefore, reason: "authentication_required" },
     ]);
+    // The clinic has left (canceled above): Stripe stopped collecting, so
+    // the invoice is not recorded as owed and nobody is emailed about it.
+    expect(statusBefore).toBe("canceled");
+    const { rows: notices } = await inTenant(clinicId, (client) =>
+      client.query(`select kind from billing_notices where kind = 'payment_action_required'`),
+    );
+    expect(notices).toEqual([]);
+    const owed = ((await row()) as unknown as { open_invoice_id: string | null }).open_invoice_id;
+    expect(owed).not.toBe((e.data.object as { id: string }).id);
   });
 
   test("an event type outside the lifecycle is recorded and ignored", async () => {
@@ -619,10 +653,7 @@ describeDb("handleStripeEvent", () => {
     // nothing to pause; a dispute on the last charge — the common late
     // dispute — has no service to withhold. Neither may throw and
     // dead-letter: the status stays, and the dispute is still in the history.
-    const pause = event(
-      "customer.subscription.updated",
-      subscription(ids, { lookupKey: "", pauseCollection: true }),
-    );
+    const pause = updated(subscription(ids, { lookupKey: "", pauseCollection: true }));
     expect(await handleStripeEvent(pause)).toMatchObject({ outcome: "processed" });
     expect((await row()).status).toBe("canceled");
     expect(await transitionsFor(pause.id)).toBe(0);

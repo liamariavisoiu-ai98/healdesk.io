@@ -1,12 +1,22 @@
 import {
+  BAA_RELEASE_OVERLAP,
   BAA_TEMPLATES,
+  BaaRenderError,
+  CALENDAR_CLAUSE_IDS_1_3,
+  CALENDAR_LOCATION_PARAGRAPH,
   CURRENT_BAA_VERSION,
+  currentCalendarElection,
   currentDirectBookingAddendum,
   getBaaTemplate,
+  hashCalendarElection,
   hashDirectBookingAddendum,
   prepareBaa,
+  renderCalendarElection,
   renderDirectBookingAddendum,
+  selectCalendarClause,
+  subprocessorNoticeClauseBody,
   type BaaVariables,
+  type CalendarElectionVariables,
 } from "@healdesk/catalog";
 import { describe, expect, test } from "vitest";
 
@@ -35,6 +45,10 @@ import { describe, expect, test } from "vitest";
  * hashes never move. 1.2.0 was offered for part of that day and is frozen like
  * the rest. 1.1.0-draft was superseded by 1.2.0 without ever being
  * offered; it is frozen too, because docs/counsel/ quotes its rendering.
+ * 1.3.0 is drafted at BAA_TEMPLATES[1] and not released; its hashes are
+ * frozen from the first draft, so the audit before release reads exactly
+ * what will be signed, and an edit before then regenerates them in the same
+ * commit (docs/counsel/agreement-changes.md §12).
  */
 
 const BASE: BaaVariables = {
@@ -48,6 +62,11 @@ const BASE: BaaVariables = {
   connectedPlatform: null,
   outboundMessaging: false,
   effectiveDate: "2026-09-13",
+  // Read only from 1.3.0 on; every earlier version renders the same bytes
+  // whatever they hold, which the golden loop below proves by rendering
+  // every version with them set.
+  bookingSystem: "none",
+  calendarAccount: "workspace_baa",
 };
 
 /** Text assertions compare through this: the 78-column wrap may break any phrase across lines. */
@@ -59,11 +78,28 @@ const VARIANTS: Record<string, Partial<BaaVariables>> = {
   notcovered_estimated: { isCoveredEntity: false },
   unknown_estimated: { isCoveredEntity: null },
   covered_outbound: { outboundMessaging: true },
-  covered_verified_boulevard: { attributionMode: "verified", connectedPlatform: "Boulevard" },
+  // bookingSystem is read only by 1.3.0, whose guard requires the platform it
+  // names to be the booking system's.
+  covered_verified_boulevard: {
+    attributionMode: "verified",
+    connectedPlatform: "Boulevard",
+    bookingSystem: "boulevard",
+  },
 };
 
 /** version → variant → sha256 of the assembled text. Append-only. */
 const GOLDEN: Record<string, Record<string, string>> = {
+  // Drafted, not released. Frozen from the first draft all the same: these
+  // are the bytes the release audit reads and a practice will sign.
+  "1.3.0": {
+    covered_estimated: "770462be01a012ff4221f5a5aabed7503dcb710c5437925d0652d9dde1247d16",
+    notcovered_estimated: "16b86e85dfc65a421d7e319534c2f8d18b8fbdc9307cb2269fc6d9d0715915f9",
+    unknown_estimated: "70f8f05cafa4784b2c2107a1d3099a20c8c1b789a66bcc4339886e054fde9ae6",
+    // Identical to covered_estimated by design, as in 1.2.x: no clause reads
+    // outboundMessaging.
+    covered_outbound: "770462be01a012ff4221f5a5aabed7503dcb710c5437925d0652d9dde1247d16",
+    covered_verified_boulevard: "7361318a1050ceac11a9c0718a6f357d5595f1de85c7cabaa86270fa18cf28db",
+  },
   "1.2.1": {
     covered_estimated: "618ac4a585a42f23d70865042c5a02e0b4765c07b6e65ba8ecf586e8f386cfd3",
     notcovered_estimated: "e25654221985d32abf70894a1094183bea6807bb1672517792524f55489e6938",
@@ -470,6 +506,320 @@ describe("1.2.1: the offered agreement", () => {
 });
 
 /**
+ * 1.3.0, the calendar-dependent draft (plan §2, owner decisions of 5 and 6
+ * October 2026). Two answers choose its calendar clause: the booking system,
+ * whose sync direction decides whether healdesk connects at all, and the kind
+ * of Google account, which decides whether Google's business associate
+ * agreement covers the calendar. These pin what it must and must not say on
+ * every variant, read out of the rendered text, because the text is what the
+ * release audit reads and a practice will sign.
+ */
+const DRAFT_130 = "1.3.0";
+
+/** 1.3.0's own variants: each calendar kind, and the booking systems that name a product. */
+const VARIANTS_1_3: Record<string, Partial<BaaVariables>> = {
+  uncovered_nobaa: { calendarAccount: "workspace_no_baa" },
+  uncovered_personal: { calendarAccount: "personal" },
+  notused_mindbody: { bookingSystem: "mindbody", connectedPlatform: "Mindbody" },
+  notused_other: { bookingSystem: "other" },
+  live_calcom: { bookingSystem: "calcom", connectedPlatform: "Cal.com" },
+  live_highlevel_personal: {
+    bookingSystem: "gohighlevel",
+    connectedPlatform: "HighLevel",
+    calendarAccount: "personal",
+  },
+  live_calendly_nobaa: {
+    bookingSystem: "calendly",
+    connectedPlatform: "Calendly",
+    calendarAccount: "workspace_no_baa",
+  },
+};
+
+/** variant → sha256, for 1.3.0. Regenerated only with the draft, and recorded in §12. */
+const GOLDEN_1_3: Record<string, string> = {
+  uncovered_nobaa: "cb845bcaa7b1e8c542fbef66d20ac4b7428242b0a0e08eba9a344c53582a6071",
+  uncovered_personal: "25d848c43076aebc26f2273325abd11943cb6311e0e42a93978f143b06aa29f5",
+  notused_mindbody: "53a9d5482e16a12abf346ae33821659d2707b8290365dfd29420f60abb85840a",
+  notused_other: "0752e2848c767633bc3e2418911f91d82810d957ce0dc07225bb3cf24d4bd7d9",
+  live_calcom: "d725371aeab66183b4b54f821d0b0a53878f30c4e013bf26200ac72c7cc08720",
+  live_highlevel_personal: "144acc18c9e0cd1d08ed33ac160d67ac7d4a8197e3a93b9d8cb2a77141c9fc9d",
+  live_calendly_nobaa: "f2d0aed20eb500a1e5c3c278048e0a8a1b7854c5cb8628abe69777c8e7b67da3",
+};
+
+describe("1.3.0: the calendar-dependent draft", () => {
+  const draft = () => getBaaTemplate(DRAFT_130)!;
+  const render = (overrides: Partial<BaaVariables>) =>
+    prepareBaa(draft(), { ...BASE, ...overrides });
+  /** Every selection any version reads, in states checkout can and cannot produce. */
+  const everyVariant = (): Partial<BaaVariables>[] => [
+    ...Object.values(VARIANTS),
+    ...Object.values(VARIANTS_1_3),
+    ...Object.values(VARIANTS_1_1),
+    { outboundMessaging: true, isCoveredEntity: null },
+    {
+      isCoveredEntity: false,
+      bookingSystem: "boulevard",
+      connectedPlatform: "Boulevard",
+      calendarAccount: "personal",
+    },
+  ];
+
+  for (const [name, hash] of Object.entries(GOLDEN_1_3)) {
+    test(`${DRAFT_130} / ${name} still renders the bytes drafted`, () => {
+      expect(render(VARIANTS_1_3[name]!).hash).toBe(hash);
+    });
+  }
+
+  test("is drafted below the offered version, unreleased, and nothing offers it", () => {
+    expect(BAA_TEMPLATES[0]!.version).toBe(CURRENT_BAA_VERSION);
+    expect(CURRENT_BAA_VERSION).toBe("1.2.1");
+    expect(BAA_TEMPLATES[1]!.version).toBe(DRAFT_130);
+    expect(draft().approvedByCounsel).toBe(false);
+    // Nothing to overlap until 1.3.0 is released (plan C19).
+    expect(BAA_RELEASE_OVERLAP).toEqual({});
+    // Nothing in the text marks it a draft, so releasing it moves no hash;
+    // an edit the audit makes before then does, in the same commit.
+    const text = render({}).text;
+    expect(text).toContain("Version 1.3.0 — executed electronically");
+    expect(text).not.toMatch(/DRAFT|NOT FOR EXECUTION|\[NAME, TITLE\]/);
+  });
+
+  test("the variants are distinct documents, except where an answer has nothing to change", () => {
+    const hashes = [...Object.values(GOLDEN[DRAFT_130]!), ...Object.values(GOLDEN_1_3)];
+    // covered_outbound is covered_estimated, as in every version since 1.2.0.
+    expect(GOLDEN[DRAFT_130]!.covered_outbound).toBe(GOLDEN[DRAFT_130]!.covered_estimated);
+    expect(new Set(hashes).size).toBe(hashes.length - 1);
+    // Google Calendar alone and no booking system both book live and name no product.
+    expect(render({ bookingSystem: "google_calendar" }).hash).toBe(
+      GOLDEN[DRAFT_130]!.covered_estimated,
+    );
+    // A manual system's answer about the Google account is kept in case it
+    // changes, and changes nothing in the document.
+    for (const calendarAccount of ["workspace_baa", "workspace_no_baa", "personal"] as const) {
+      expect(
+        render({ ...VARIANTS_1_3.notused_mindbody, calendarAccount }).hash,
+        calendarAccount,
+      ).toBe(GOLDEN_1_3.notused_mindbody);
+    }
+  });
+
+  test("ignores what it does not read, and nothing earlier reads what it adds", () => {
+    const base = render({}).hash;
+    for (const overrides of [
+      { outboundMessaging: true },
+      ...Object.values(VARIANTS_1_1),
+      { bookingMode: "desk_confirms", calendarWrite: null },
+    ] as Partial<BaaVariables>[]) {
+      expect(render(overrides).hash, JSON.stringify(overrides)).toBe(base);
+    }
+    for (const version of ["1.2.1", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"]) {
+      const template = getBaaTemplate(version)!;
+      const without = prepareBaa(template, {
+        ...BASE,
+        bookingSystem: undefined,
+        calendarAccount: undefined,
+      });
+      expect(without.hash, version).toBe(GOLDEN[version]!.covered_estimated);
+      for (const overrides of Object.values(VARIANTS_1_3)) {
+        // Hold the platform name fixed: earlier versions do read that one.
+        expect(
+          prepareBaa(template, { ...BASE, ...overrides, connectedPlatform: null }).hash,
+          `${version} ${JSON.stringify(overrides)}`,
+        ).toBe(without.hash);
+      }
+    }
+  });
+
+  test("the render guard refuses a document the practice never answered for", () => {
+    for (const bad of [
+      { bookingSystem: undefined },
+      { bookingSystem: "zenoti" },
+      { calendarAccount: undefined },
+      { calendarAccount: "gmail" },
+      // The platform it names must be the booking system's own name.
+      { connectedPlatform: "Mindbody" },
+      { bookingSystem: "mindbody" },
+      { bookingSystem: "gohighlevel", connectedPlatform: "GoHighLevel" },
+      { bookingSystem: "google_calendar", connectedPlatform: "Google Calendar only" },
+      { bookingSystem: "other", connectedPlatform: "Something else" },
+    ] as unknown as Partial<BaaVariables>[]) {
+      expect(() => render(bad), JSON.stringify(bad)).toThrow(BaaRenderError);
+    }
+    // No earlier version has a guard, so nothing about them changes.
+    for (const version of ["1.2.1", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"]) {
+      expect(getBaaTemplate(version)!.validate, version).toBeUndefined();
+    }
+  });
+
+  test("the clause order is fixed; exactly one data-sources clause and one calendar clause apply", () => {
+    const EXPECTED = [
+      "definitions",
+      "practice-status",
+      "permitted-uses",
+      "state-law",
+      "data-sources-none",
+      "google-calendar-covered",
+      "payments",
+      "own-use",
+      "practice-duties",
+      "safeguards",
+      "minimum-necessary",
+      "reporting",
+      "subcontractors",
+      "patient-rights",
+      "acting-in-your-place",
+      "prohibited",
+      "term",
+      "liability",
+      "records-to-hhs",
+      "notices-and-law",
+    ];
+    const swap = (from: string, to: string) => (id: string) => (id === from ? to : id);
+    expect(draft().clauses).toHaveLength(23);
+    expect(render({}).clauseIds).toEqual(EXPECTED);
+    expect(render(VARIANTS_1_3.uncovered_personal!).clauseIds).toEqual(
+      EXPECTED.map(swap("google-calendar-covered", "google-calendar-uncovered")),
+    );
+    expect(render(VARIANTS_1_3.notused_mindbody!).clauseIds).toEqual(
+      EXPECTED.map(swap("google-calendar-covered", "google-calendar-not-used")),
+    );
+    // The phase-two read-back swaps the data-sources clause, and Boulevard is manual.
+    expect(render(VARIANTS.covered_verified_boulevard!).clauseIds).toEqual(
+      EXPECTED.map(swap("data-sources-none", "data-sources-verified")).map(
+        swap("google-calendar-covered", "google-calendar-not-used"),
+      ),
+    );
+    for (const overrides of everyVariant()) {
+      const ids = render(overrides).clauseIds;
+      const label = JSON.stringify(overrides);
+      expect(
+        ids.filter((id) => id.startsWith("data-sources-")),
+        label,
+      ).toHaveLength(1);
+      expect(
+        ids.filter((id) => (CALENDAR_CLAUSE_IDS_1_3 as readonly string[]).includes(id)),
+        label,
+      ).toHaveLength(1);
+      expect(ids, label).not.toContain("google-calendar");
+    }
+  });
+
+  test("each calendar clause is the shared body, then the location paragraph", () => {
+    for (const overrides of everyVariant()) {
+      const variables = { ...BASE, ...overrides };
+      const prepared = render(overrides);
+      const selected = selectCalendarClause({
+        bookingSystem: variables.bookingSystem!,
+        calendarAccount: variables.calendarAccount!,
+      });
+      const label = JSON.stringify(overrides);
+      expect(prepared.clauseIds, label).toContain(selected.clauseId);
+      expect(prepared.text, label).toContain(`PRACTICE'S GOOGLE CALENDAR\n\n${selected.body}\n\n`);
+      expect(unwrap(prepared.text), label).toContain(
+        unwrap(`${selected.body} ${CALENDAR_LOCATION_PARAGRAPH}`),
+      );
+    }
+  });
+
+  test("data sources promise calendar access only where the calendar clause grants it", () => {
+    const sources = (overrides: Partial<BaaVariables>) => {
+      const text = unwrap(render(overrides).text);
+      return text.slice(
+        text.indexOf("WHAT HEALDESK READS FROM YOUR SYSTEMS"),
+        text.indexOf("PRACTICE'S GOOGLE CALENDAR"),
+      );
+    };
+    for (const live of [{}, VARIANTS_1_3.uncovered_personal!, VARIANTS_1_3.live_calcom!]) {
+      expect(sources(live), JSON.stringify(live)).toContain(
+        "during a call or chat, together with the calendar access the Google Calendar clause describes.",
+      );
+    }
+    for (const manual of [VARIANTS_1_3.notused_mindbody!, VARIANTS_1_3.notused_other!]) {
+      expect(sources(manual), JSON.stringify(manual)).toContain("during a call or chat.");
+      expect(sources(manual), JSON.stringify(manual)).not.toContain("calendar access");
+    }
+    // The first sentence is 1.2.1's, naming the system when it has a name.
+    expect(sources(VARIANTS_1_3.notused_mindbody!)).toContain(
+      "healdesk holds no credentials to Mindbody, or to any other practice-management or point-of-sale system",
+    );
+    expect(sources(VARIANTS_1_3.live_calcom!)).toContain(
+      "healdesk holds no credentials to Cal.com,",
+    );
+    expect(sources({})).toContain(
+      "healdesk holds no credentials to any practice-management or point-of-sale system and reads nothing from one.",
+    );
+  });
+
+  test("says what the spec, the owner and the 1 October review require, on every variant", () => {
+    for (const overrides of everyVariant()) {
+      const text = unwrap(render(overrides).text);
+      const label = JSON.stringify(overrides);
+      // 24 hours' notice of a new subcontractor, the right to object kept
+      // (owner, 6 October 2026), in the one shared sentence.
+      expect(text, label).toContain(subprocessorNoticeClauseBody());
+      expect(text, label).toContain("at least 24 hours' notice by email");
+      expect(text, label).not.toContain("fifteen days");
+      // Q8: the Payments clause and the state-law clause, as drafted for
+      // 1.2.1 in agreement-changes.md §6 and §9, and the 164.514(b) citation.
+      expect(text, label).toContain(
+        "PAYMENTS Where Practice takes deposits, healdesk creates a payment link through Practice's own payment processor.",
+      );
+      expect(text, label).toContain(
+        "no service name or clinical detail, including in metadata and the statement descriptor. healdesk never takes card numbers.",
+      );
+      expect(text, label).toContain(
+        "WHERE PRACTICE IS NOT A COVERED ENTITY healdesk processes patient information only on Practice's documented instructions",
+      );
+      expect(text, label).toContain(
+        "The reporting, subcontractor, security and return-or-destroy clauses of this agreement apply to that information as they apply to PHI.",
+      );
+      expect(text, label).toContain(
+        "aggregate statistics about the Services, de-identified under 45 CFR 164.514(b)",
+      );
+      // Every 1.2.1 accuracy fix stays.
+      expect(text, label).toContain("which it may retain for up to two years");
+      expect(text, label).toContain(
+        "healdesk keeps transcripts and conversation records for 90 days",
+      );
+      expect(text, label).toContain(
+        "An email whose receiving server will not negotiate encryption is failed, not sent",
+      );
+      expect(text, label).toContain("state breach-notification and consumer-health-privacy laws");
+      expect(text, label).not.toContain("FTC Health Breach");
+      // Inbound only, no booking election, and no revenue claim (the
+      // phase-two read-back's 1.0.0 clause is the one place that measures
+      // revenue, and checkout cannot reach it in v1).
+      expect(text, label).toContain("healdesk places no calls and sends no SMS");
+      expect(text, label).not.toMatch(
+        /warrants that|holds the consents|Callbacks clause|called back|DIRECT BOOKING|reactivation/i,
+      );
+      if ({ ...BASE, ...overrides }.attributionMode !== "verified") {
+        expect(text, label).not.toMatch(/revenue/i);
+      }
+      // The calendar clause never promises a revocation at Google. (1.0.0's
+      // verified data-sources clause speaks of the practice revoking access
+      // to its own system, which is a different thing.)
+      const variables = { ...BASE, ...overrides };
+      const calendar = selectCalendarClause({
+        bookingSystem: variables.bookingSystem!,
+        calendarAccount: variables.calendarAccount!,
+      });
+      expect(calendar.body, label).not.toMatch(/revok/i);
+    }
+  });
+
+  test("every line fits in 78 columns, the party lines included", () => {
+    for (const overrides of everyVariant()) {
+      const text = render({
+        ...overrides,
+        clinicLegalName: "The Very Long Legal Name Of A Practice That Keeps Going LLC",
+      }).text;
+      for (const line of text.split("\n")) expect(line.length, line).toBeLessThanOrEqual(78);
+    }
+  });
+});
+
+/**
  * The direct-booking addendum is the document a practice actually accepts
  * (on its setup link, once counsel approves it); the clause in 1.1.0-draft is
  * the same text. Its hash is stored on the clinic row, so it is frozen here
@@ -510,5 +860,57 @@ describe("direct-booking addendum freeze", () => {
     // Flipping this ships with counsel's sign-off; the setup page's Direct
     // booking section and the console's booking-mode switch both key on it.
     expect(currentDirectBookingAddendum().approvedByCounsel).toBe(false);
+  });
+});
+
+/**
+ * The calendar election is the document a location's later calendar terms
+ * are accepted on (plan §2.6). Its hash is to be stored on each election row
+ * (plan C7), so it is frozen here exactly as the BAA and the addendum are.
+ */
+describe("calendar election freeze", () => {
+  const ELECTION_VARS: CalendarElectionVariables = {
+    clinicLegalName: "Golden Clinic LLC",
+    locationName: "Golden Clinic, Main Street",
+    agreementVersion: "1.3.0",
+    agreementEffectiveDate: "2026-09-13",
+    bookingSystem: "none",
+    calendarAccount: "personal",
+    signatoryName: "Alex Chen",
+    signatoryTitle: "Owner",
+    electedOn: "2026-09-14",
+  };
+
+  /** election version → sha256 of the rendered text. Append-only. */
+  const GOLDEN_ELECTION: Record<string, string> = {
+    "calendar-election/1.0.0": "d047b3894a46da62c737b2058e7dfedd1134c7c0f8be4517962c6e43b91be8be",
+  };
+
+  test("the current election has a golden hash and still renders those bytes", () => {
+    const current = currentCalendarElection();
+    expect(GOLDEN_ELECTION[current.version], `no golden hash for ${current.version}`).toBeDefined();
+    expect(
+      hashCalendarElection(renderCalendarElection(ELECTION_VARS, current)),
+      "The election text changed. An election row's stored hash points at the old text — add a new version instead.",
+    ).toBe(GOLDEN_ELECTION[current.version]);
+  });
+
+  test("its clause is the BAA 1.3.0 clause, word for word, without the location paragraph", () => {
+    const election = renderCalendarElection(ELECTION_VARS);
+    const selected = selectCalendarClause(ELECTION_VARS);
+    const agreement = prepareBaa(getBaaTemplate(DRAFT_130)!, {
+      ...BASE,
+      calendarAccount: "personal",
+    });
+    expect(agreement.clauseIds).toContain(selected.clauseId);
+    expect(election).toContain(selected.body);
+    expect(agreement.text).toContain(selected.body);
+    expect(unwrap(election)).not.toContain(unwrap(CALENDAR_LOCATION_PARAGRAPH));
+  });
+
+  test("it is not released, so only a demo clinic's election may count", () => {
+    // Released with BAA 1.3.0 (plan C19). Until then a draft election counts
+    // only for a demo clinic (plan A10), which C6 and C7 enforce.
+    expect(currentCalendarElection().approvedByCounsel).toBe(false);
   });
 });

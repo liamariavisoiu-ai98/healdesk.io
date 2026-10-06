@@ -61,10 +61,9 @@ export interface ConnectorAdapter {
    * stops working is worse than one that never worked, because the reports
    * keep arriving and quietly shrink.
    *
-   * For a write-capable adapter this is also where the platform's own
-   * notifications are checked: we hand it a sink address, never a patient's,
-   * so an event type that still emails or texts would do so in the clinic's
-   * name with nobody reading the result. Such an event type is refused.
+   * For a write-capable adapter this is also where the write target itself
+   * is checked before anything is written into it: for Google Calendar, that
+   * the calendar answers free/busy and that the connected account owns it.
    */
   verify(context: ConnectorContext): Promise<Result<VerifiedInfo>>;
 
@@ -96,43 +95,59 @@ export interface ConnectorAdapter {
   ): Promise<Result<Page<CanonicalContact>>>;
 
   /**
-   * Free slots for the event type this connection writes into.
+   * Free time in the calendar this connection writes into.
    *
    * Only exists so `createAppointment` can be offered a time that exists.
-   * Returned in the zone the caller asked for, sorted, within the window.
+   * Sorted, half-open, within the window. A booking platform returns the
+   * bookable slots of its event type. A calendar adapter (Google Calendar)
+   * has no event type, so it returns the maximal free intervals instead, and
+   * the caller lays its own opening hours, notice and slot length over them.
+   *
+   * `freshCredentials` asks for a token minted for this call rather than a
+   * cached one: the assistant's re-check just before it books must see a
+   * revoked grant now, not when a cached token expires.
    */
   listSlots?(
     context: ConnectorContext,
     window: TimeWindow,
-    opts: { timeZone: string; durationMinutes?: number },
+    opts: { timeZone: string; durationMinutes?: number; freshCredentials?: boolean },
   ): Promise<Result<CanonicalSlot[]>>;
 
   /**
-   * The one write. Adds an appointment the practice confirmed or elected the
-   * assistant to book, and returns the platform's own id for it.
+   * The one write. Adds an appointment the practice's staff confirmed or the
+   * assistant booked, and returns the platform's own id for it.
    *
    * No retries inside the adapter: only the caller knows whether a read-back
    * happened, and a retry without one books the slot twice. A failure whose
    * `reason` is `timeout` or `network` means the outcome is unknown, not that
    * nothing happened — read back with `findAppointmentByKey` before trying
    * again.
+   *
+   * `adopted` is set when the platform already held our booking under this
+   * key (Google answers 409 for an event id it has seen): the value then
+   * describes that booking, whose times the caller should compare with its
+   * own before treating it as the same one.
    */
   createAppointment?(
     context: ConnectorContext,
     input: CreateAppointmentInput,
-  ): Promise<Result<{ externalId: string; startsAt: Date; endsAt: Date }>>;
+  ): Promise<Result<{ externalId: string; startsAt: Date; endsAt: Date; adopted?: boolean }>>;
 
   /**
    * Find a booking we created, by the key we stamped on it.
    *
-   * The platforms we write to have no idempotency key, so this is the only
-   * thing standing between "the create timed out" and "the create ran twice".
-   * Null means the platform holds nothing under that key near `around`.
+   * This is the only thing standing between "the create timed out" and "the
+   * create ran twice". Null means the platform holds nothing under that key.
+   * A platform that can only search by attendee and date (the removed
+   * Cal.com adapter) needs `attendeeEmail` and looks near `around`; Google
+   * Calendar reads the event straight back by the id derived from the key and
+   * ignores both. A booking the clinic deleted is a `deleted_in_calendar`
+   * failure, which is terminal: that key's booking is never written again.
    */
   findAppointmentByKey?(
     context: ConnectorContext,
-    input: { idempotencyKey: string; attendeeEmail: string; around: Date },
-  ): Promise<Result<{ externalId: string } | null>>;
+    input: { idempotencyKey: string; attendeeEmail?: string; around: Date },
+  ): Promise<Result<{ externalId: string; startsAt?: Date; endsAt?: Date } | null>>;
 
   /**
    * Cancel a booking we created. Adapters refuse an id that does not carry our

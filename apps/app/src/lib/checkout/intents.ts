@@ -27,6 +27,8 @@ import {
   type CheckoutProfileStatus,
 } from "@/db/schema";
 import { getAgreement } from "@/lib/agreements";
+import { getStripe, stripeConfigured } from "@/lib/billing/stripe-client";
+import { describeError, log } from "@/lib/log";
 import { ProvisioningError, validateProvisionRequest, type ProvisionRequest } from "@/lib/provisioning";
 
 /**
@@ -34,7 +36,8 @@ import { ProvisioningError, validateProvisionRequest, type ProvisionRequest } fr
  * plan Part A4).
  *
  * apps/web stores nothing, so before it creates a Stripe Checkout Session it
- * sends the validated purchase here, and Stripe carries only `{ app, ref }`.
+ * sends the validated purchase here, and Stripe carries only the ref and the
+ * terms of that press of Pay (`{ app, ref, plan, billingInterval, attempt }`).
  * Everything provisioning will need is checked now, before anyone pays, which
  * is what removes the "paid, then provisioning refused the form" case: the
  * agreement must exist, be unbound and have been signed by the buying address.
@@ -42,7 +45,10 @@ import { ProvisioningError, validateProvisionRequest, type ProvisionRequest } fr
  * While purchases are by invitation, one setup link makes one intent
  * (`invite_ref` is unique). Pressing Pay again after cancelling at Stripe
  * reuses it: the attempt counter moves, and apps/web expires the previous
- * Checkout Session so only one can be paid.
+ * Checkout Session so only one can be paid. Pressing it after paying creates
+ * nothing (assertInviteOpen, and apps/web's createCheckout), and a payment is
+ * provisioned only while the intent still names the press and the terms that
+ * were paid (paidTermsMismatch).
  *
  * The four-step funnel (plan Part A3) adds the clinic's answers: where its
  * bookings live and the kind of Google account they would go into, its
@@ -315,17 +321,52 @@ export async function saveIntent(input: IntentRequest): Promise<IntentResult> {
  * Refuse a setup link whose purchase is complete, before anything else is
  * checked: "already used" is the answer that helps, where "the agreement
  * already belongs to an account" would only puzzle.
+ *
+ * And refuse one whose last Checkout Session has been paid, though the
+ * account is not made yet (the first invoice is still on its way): before
+ * saveIntent moves the intent to a new attempt, because the paid Session is
+ * bound to its own attempt's terms and nonce, and an intent moved past them
+ * would turn that payment away at provisioning and lock the paying browser
+ * out of /welcome. apps/web asks Stripe the same question after the move
+ * (createCheckout), for the press that races this one.
  */
 export async function assertInviteOpen(inviteRef: string | null): Promise<void> {
   if (inviteRef === null) return;
   const [row] = await unsafeDb
-    .select({ consumedAt: checkoutIntents.consumedAt })
+    .select({ consumedAt: checkoutIntents.consumedAt, openSessionId: checkoutIntents.openSessionId })
     .from(checkoutIntents)
     .where(eq(checkoutIntents.inviteRef, inviteRef))
     .limit(1);
   if (row?.consumedAt) {
     throw new IntentError("This setup link has already been used to complete a purchase.", "setupLink", 409);
   }
+  if (row?.openSessionId && (await sessionPaid(row.openSessionId))) {
+    throw new IntentError("This purchase is already paid. Check your email.", undefined, 409);
+  }
+}
+
+/**
+ * Whether Stripe says this Checkout Session completed. A press of Pay that
+ * cannot find out (Stripe errs, or does not answer within five seconds) is
+ * refused with nothing moved, as apps/web refuses one whose previous Session
+ * it cannot close: the intent must never move past a Session that may have
+ * been paid. Without a Stripe key (development) there is nothing to ask, and
+ * apps/web's own check stands.
+ */
+async function sessionPaid(sessionId: string): Promise<boolean> {
+  if (!stripeConfigured()) return false;
+  let status: string | null;
+  try {
+    ({ status } = await getStripe().checkout.sessions.retrieve(sessionId, undefined, { timeout: 5_000 }));
+  } catch (error) {
+    log.warn("checkout intents: the previous session could not be checked", { error: describeError(error) });
+    throw new IntentError(
+      "We couldn't check your earlier payment page. Nothing has been charged. Please try again.",
+      undefined,
+      503,
+    );
+  }
+  return status === "complete";
 }
 
 /** Record the Checkout Session apps/web created for one attempt. Only the latest attempt may. */
@@ -395,6 +436,35 @@ export function provisionRequestFromIntent(
     ...(stripe.stripeCustomerId ? { stripeCustomerId: stripe.stripeCustomerId } : {}),
     ...(stripe.stripeSubscriptionId ? { stripeSubscriptionId: stripe.stripeSubscriptionId } : {}),
   };
+}
+
+/** Which of the paid terms an intent no longer carries. */
+export type PaidTermsMismatch = { field: "attempt" | "plan" | "billingInterval"; message: string };
+
+/**
+ * Whether a paid first invoice paid for this intent as it stands: the press
+ * of Pay whose Session was paid, and the package and billing period it
+ * charged, as the webhook relays them from the subscription's metadata
+ * (apps/web createCheckout writes them). Every press of Pay moves the intent
+ * on and rewrites what provisioning builds the account from, so a payment for
+ * any other press, or terms the intent no longer has, must never provision:
+ * /api/provision refuses it, and ops finishes it by hand. Absent or malformed
+ * values do not match.
+ */
+export function paidTermsMismatch(
+  intent: Pick<StoredIntent, "attempt" | "plan" | "billingInterval">,
+  paid: { attempt?: unknown; plan?: unknown; billingInterval?: unknown },
+): PaidTermsMismatch | null {
+  if (paid.attempt !== intent.attempt) {
+    return { field: "attempt", message: "The payment was for another press of Pay than this purchase's latest." };
+  }
+  if (paid.plan !== intent.plan) {
+    return { field: "plan", message: "The payment was for a different package than this purchase's." };
+  }
+  if (paid.billingInterval !== intent.billingInterval) {
+    return { field: "billingInterval", message: "The payment was for a different billing period than this purchase's." };
+  }
+  return null;
 }
 
 /** SHA-256 of a nonce, as stored. */

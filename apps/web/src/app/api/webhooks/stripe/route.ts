@@ -14,14 +14,17 @@ import { updateSetupRequest } from "@/lib/setup-requests";
  * Three moments:
  *
  *   - `checkout.session.completed` (and its async twin) closes the funnel in
- *     the lead store (the conversion, and the setup link spent) and creates
- *     nothing. A completed Session is not money cleared.
+ *     the lead store (the conversion, and the setup link spent) once its
+ *     payment has gone through, and creates nothing. A completed Session is
+ *     not money cleared.
  *   - The FIRST invoice's `invoice.paid` (`billing_reason:
  *     "subscription_create"`) creates the account: it is relayed to
- *     /api/provision as `{ ref, idempotencyKey: <subscription id> }`, and
- *     apps/app provisions from the checkout intent it stored when Pay was
- *     pressed (plan C1, design D2). Only then is the event itself forwarded,
- *     so the clinic it activates exists. The account is made on the first
+ *     /api/provision as `{ ref, idempotencyKey: <subscription id>, attempt,
+ *     plan, billingInterval }`, and apps/app provisions from the checkout
+ *     intent it stored when Pay was pressed, if that intent still names the
+ *     press and the terms that were paid (plan C1, design D2). Only then is
+ *     the event itself forwarded, so the clinic it activates exists. The
+ *     account is made on the first
  *     paid invoice, as docs/v1-product-spec.md ("Stage 1, payment") says, and
  *     never on the success URL: a buyer who closes the tab still gets it, and
  *     a stranger who hand-crafts that URL gets nothing.
@@ -228,10 +231,14 @@ type Relay = { appUrl: string; secret: string };
 // -----------------------------------------------------------------------------
 
 /**
- * A completed Session closes the funnel in the lead store, and nothing more.
- * Gated on `status`, never on `payment_status`: a delayed method completes the
- * Session with the invoice still open, and "paid" is the first invoice's
- * business, which is where the account is made.
+ * A paid Session closes the funnel in the lead store, and nothing more: the
+ * conversion is recorded and the setup link spent only once the money has
+ * moved, which is `payment_status` "paid" (or "no_payment_required", a setup
+ * credit's $0 total), or the async-succeeded event. Checkout is cards only,
+ * but a Session that completes with its payment still pending must not
+ * spend the link: if that payment then failed, no account would ever be made
+ * and the buyer could not try again. The account itself is the first paid
+ * invoice's business.
  */
 async function recordCompletion(event: Stripe.Event): Promise<Response> {
   const session = event.data.object as Stripe.Checkout.Session;
@@ -243,12 +250,33 @@ async function recordCompletion(event: Stripe.Event): Promise<Response> {
   if (session.status !== "complete") {
     return Response.json({ received: true, skipped: session.status });
   }
+  const paid =
+    event.type === "checkout.session.async_payment_succeeded" ||
+    session.payment_status === "paid" ||
+    session.payment_status === "no_payment_required";
+  if (!paid) {
+    return Response.json({ received: true, skipped: "awaiting-payment" });
+  }
   await recordConversion(session);
   await markSetupLinkUsed(session);
   return Response.json({ received: true });
 }
 
-type FirstInvoice = { ref: string; subscriptionId: string; customerId: string | undefined };
+/**
+ * The purchase a paid first invoice completes, and what was paid: the press
+ * of Pay (`attempt`) and the package and billing period its Session charged
+ * for, from the subscription metadata createCheckout wrote. apps/app refuses
+ * to provision when they are not the intent's latest terms. A value that is
+ * missing or malformed is relayed as null, and refused there, loudly.
+ */
+type FirstInvoice = {
+  ref: string;
+  subscriptionId: string;
+  customerId: string | undefined;
+  attempt: number | null;
+  plan: string | null;
+  billingInterval: string | null;
+};
 
 /**
  * The purchase a paid first invoice completes, or null for every other event:
@@ -268,7 +296,15 @@ function firstInvoiceOf(event: Stripe.Event): FirstInvoice | null {
   if (metadata?.app !== APP_MARKER || !metadata.ref) return null;
   const subscriptionId = refId(invoice.parent?.subscription_details?.subscription ?? legacy.subscription);
   if (!subscriptionId) return null;
-  return { ref: metadata.ref, subscriptionId, customerId: refId(invoice.customer) };
+  const attempt = /^[1-9][0-9]{0,8}$/.test(metadata.attempt ?? "") ? Number(metadata.attempt) : null;
+  return {
+    ref: metadata.ref,
+    subscriptionId,
+    customerId: refId(invoice.customer),
+    attempt,
+    plan: metadata.plan || null,
+    billingInterval: metadata.billingInterval || null,
+  };
 }
 
 /**
@@ -287,6 +323,11 @@ async function provisionFromIntent(event: Stripe.Event, first: FirstInvoice, rel
     idempotencyKey: first.subscriptionId,
     stripeCustomerId: first.customerId,
     stripeSubscriptionId: first.subscriptionId,
+    // What was paid for. apps/app provisions only if the intent still says
+    // the same, so the account is built from the terms that were charged.
+    attempt: first.attempt,
+    plan: first.plan,
+    billingInterval: first.billingInterval,
   });
   const result = await relayTo("/api/provision", body, relay);
   switch (result.kind) {
@@ -301,9 +342,12 @@ async function provisionFromIntent(event: Stripe.Event, first: FirstInvoice, rel
       return new Response("Provisioning failed.", { status: 500 });
     case "rejected":
       // Deterministic, so identical on every retry. Money taken with no
-      // account: apps/app has already marked the intent and told ops. The
-      // event still goes on, so it parks against the subscription and
-      // replays if the account is made by hand. Never echo apps/app's body.
+      // account: apps/app has already told ops on every refusal (an unknown
+      // purchase, a second subscription for one that is set up, terms that
+      // moved on, or a purchase provisioning cannot take), and marked the
+      // intent where there is one to mark. The event still goes on, so it
+      // parks against the subscription and replays if the account is made by
+      // hand. Never echo apps/app's body.
       console.error("[healdesk] PROVISIONING REJECTED, paid customer has no account", {
         event: event.id,
         status: result.status,
@@ -511,11 +555,12 @@ function refId(
 
 /**
  * The setup link that opened this purchase is spent: the checkout refuses it
- * from now on (lib/setup-gate.ts). Never throws, and runs after the account is
- * recorded, like the conversion: a Sheet outage must not fail a provisioning.
- * A link left unstamped could open a second purchase until it expires, which
- * is why M2 also binds the link to the checkout intent with a unique
- * `invite_ref`, so the database refuses the second one.
+ * from now on (lib/setup-gate.ts). Never throws, like the conversion: a Sheet
+ * outage must not fail the event. A link left unstamped still cannot buy
+ * twice: it is bound to one checkout intent by a unique `invite_ref`, a press
+ * of Pay on it finds this paid Session and creates nothing (apps/app's
+ * intents route and createCheckout both ask Stripe), and once the account is
+ * made apps/app refuses the intent outright.
  */
 async function markSetupLinkUsed(session: Stripe.Checkout.Session): Promise<void> {
   const id = session.metadata?.setupRequest;

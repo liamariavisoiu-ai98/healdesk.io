@@ -86,6 +86,9 @@ function firstInvoice(metadata: Record<string, string>, billingReason = "subscri
   });
 }
 
+/** A healdesk subscription's metadata, as createCheckout writes it. */
+const PAID = { app: "healdesk", ref: "ref_1", plan: "web-voice", billingInterval: "year", attempt: "2" };
+
 const SAVED: Record<string, string | undefined> = {};
 const ENV = [
   "STRIPE_SECRET_KEY",
@@ -157,16 +160,21 @@ describe("verification", () => {
 
 describe("the first paid invoice makes the account", () => {
   test("provisions from the intent, keyed by the subscription, signed, then forwards the event", async () => {
-    const response = await POST(signed(firstInvoice({ app: "healdesk", ref: "ref_1" })));
+    const response = await POST(signed(firstInvoice(PAID)));
     expect(response.status).toBe(200);
     expect(paths()).toEqual(["/api/provision", "/api/billing/events"]);
 
     const provision = calls[0]!;
+    // With what was paid for, from the subscription's own metadata: apps/app
+    // provisions only if the intent still names that press and those terms.
     expect(JSON.parse(provision.body)).toEqual({
       ref: "ref_1",
       idempotencyKey: "sub_1",
       stripeCustomerId: "cus_1",
       stripeSubscriptionId: "sub_1",
+      attempt: 2,
+      plan: "web-voice",
+      billingInterval: "year",
     });
     const timestamp = provision.headers.get(TIMESTAMP_HEADER)!;
     expect(provision.headers.get(SIGNATURE_HEADER)).toBe(
@@ -197,16 +205,22 @@ describe("the first paid invoice makes the account", () => {
     expect(String(vi.mocked(console.error).mock.calls[0]?.[0])).toContain("PROVISIONING REJECTED");
   });
 
-  test("attribution on the subscription never reaches apps/app: provisioning carries the ref and Stripe ids only", async () => {
-    await POST(
-      signed(firstInvoice({ app: "healdesk", ref: "ref_1", demo: "smith-dental-k7q2mz9xwa", leadId: "lead_1" })),
-    );
+  test("attribution on the subscription never reaches apps/app: provisioning carries the ref, the Stripe ids and the terms paid", async () => {
+    await POST(signed(firstInvoice({ ...PAID, demo: "smith-dental-k7q2mz9xwa", leadId: "lead_1" })));
     expect(JSON.parse(calls[0]!.body)).toEqual({
       ref: "ref_1",
       idempotencyKey: "sub_1",
       stripeCustomerId: "cus_1",
       stripeSubscriptionId: "sub_1",
+      attempt: 2,
+      plan: "web-voice",
+      billingInterval: "year",
     });
+  });
+
+  test("a subscription without a press of Pay on it is still relayed, with nulls apps/app refuses loudly", async () => {
+    await POST(signed(firstInvoice({ app: "healdesk", ref: "ref_1", attempt: "two" })));
+    expect(JSON.parse(calls[0]!.body)).toMatchObject({ attempt: null, plan: null, billingInterval: null });
   });
 
   test("a renewal invoice, or one with no intent ref, provisions nothing and is forwarded", async () => {
@@ -261,6 +275,33 @@ describe("a completed checkout", () => {
     expect(mocks.markConverted).not.toHaveBeenCalled();
     expect(mocks.updateSetupRequest).not.toHaveBeenCalled();
     expect(calls).toEqual([]);
+  });
+
+  test("a Session completed with its payment still pending spends nothing until the payment succeeds", async () => {
+    // A delayed method completes the Session before any money moves. If the
+    // payment then failed, a spent link would leave the buyer unable to retry.
+    const pending = await POST(signed(session({ payment_status: "unpaid" })));
+    expect(await pending.json()).toEqual({ received: true, skipped: "awaiting-payment" });
+    expect(mocks.markConverted).not.toHaveBeenCalled();
+    expect(mocks.updateSetupRequest).not.toHaveBeenCalled();
+
+    const succeeded = event("checkout.session.async_payment_succeeded", {
+      id: "cs_1",
+      object: "checkout.session",
+      status: "complete",
+      payment_status: "paid",
+      customer_email: "owner@glowspa.test",
+      metadata: { app: "healdesk", ref: "ref_1", plan: "web-voice", billingInterval: "month", setupRequest: "req_1" },
+    });
+    expect((await POST(signed(succeeded))).status).toBe(200);
+    expect(mocks.markConverted).toHaveBeenCalledTimes(1);
+    expect(mocks.updateSetupRequest).toHaveBeenCalledWith("req_1", expect.objectContaining({ status: "paid" }));
+  });
+
+  test("a setup credit's $0 Session has nothing to pay, and counts as paid", async () => {
+    await POST(signed(session({ payment_status: "no_payment_required" })));
+    expect(mocks.markConverted).toHaveBeenCalledTimes(1);
+    expect(mocks.updateSetupRequest).toHaveBeenCalledTimes(1);
   });
 });
 

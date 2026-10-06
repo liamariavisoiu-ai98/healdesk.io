@@ -2728,9 +2728,11 @@ export type CheckoutProfileStatus = (typeof CHECKOUT_PROFILE_STATUSES)[number];
  *
  * apps/web stores nothing, so before it creates a Checkout Session it hands
  * the validated purchase form to apps/app, which keeps it here and returns an
- * opaque `ref`. Stripe then carries `{ app, ref }` and nothing else, which is
- * what removes the "paid, then provisioning refused the form" case and the
- * buyer's details from Stripe metadata (design D1).
+ * opaque `ref`. Stripe then carries the ref and the terms of that press of
+ * Pay (`{ app, ref, plan, billingInterval, attempt }`) and nothing about the
+ * buyer, which is what removes the "paid, then provisioning refused the form"
+ * case and the buyer's details from Stripe metadata (design D1), and what
+ * lets provisioning refuse a payment for terms the intent no longer has.
  *
  * Identity plane: no clinic exists yet, so there is no clinic_id and no RLS.
  * The provisioned clinic is a stored result, deliberately not called

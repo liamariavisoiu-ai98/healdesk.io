@@ -64,20 +64,26 @@ import { normalizeSiteUrl } from "@/lib/site";
  *
  * An opaque ref and nothing about the buyer (design D1). Before this Session
  * exists, apps/app stores the validated purchase as a checkout intent
- * (POST /api/checkout/intents) and answers with its ref and the success URL,
- * which is apps/app's /welcome on its public origin. The Session and its
- * subscription carry `{ app, ref, plan, billingInterval }`, and the Session
- * also carries the attribution ids the lead store reads back: campaign, lead
- * and setup request. Ids and package names only: no name, no address.
+ * (POST /api/checkout/intents) and answers with its ref, which press of Pay
+ * this is, and the success URL, which is apps/app's /welcome on its public
+ * origin. The Session and its subscription carry `{ app, ref, plan,
+ * billingInterval, attempt }`, which bind the payment to the terms of that
+ * press, and the Session also carries the attribution ids the lead store
+ * reads back: campaign, lead and setup request. Ids and package names only:
+ * no name, no address.
+ *
+ * Cards only, as the contract says: a delayed method would complete the
+ * Session, and spend the setup link, before any money had moved.
  *
  * ## Where the account is created
  *
  * On the first paid invoice, never on the Session and never on the browser
  * returning (plan C1, design D2): the webhook relays `invoice.paid` with
  * `billing_reason: "subscription_create"` to apps/app as `{ ref,
- * idempotencyKey: <subscription id> }`, and apps/app provisions from the
- * stored intent before the event itself is applied. A paid first invoice is
- * money cleared, so the account and its activation are one moment.
+ * idempotencyKey: <subscription id>, attempt, plan, billingInterval }`, and
+ * apps/app provisions from the stored intent, if it still describes what was
+ * paid, before the event itself is applied. A paid first invoice is money
+ * cleared, so the account and its activation are one moment.
  */
 
 export type CheckoutIntent = {
@@ -122,6 +128,8 @@ export function cohortCouponIdFor(plan: Plan): string {
 export type CheckoutResult =
   /** Send the browser here to pay. */
   | { kind: "redirect"; url: string; sessionId: string }
+  /** The previous attempt's Session was paid: this purchase is done, and nothing new was created. */
+  | { kind: "already-paid" }
   /** No payment configured (development only); the caller provisions immediately. */
   | { kind: "skipped"; reason: string };
 
@@ -207,10 +215,12 @@ export async function createCheckout(
   const stripe = stripeClient();
 
   // A buyer who cancelled at Stripe and pressed Pay again must never hold two
-  // Sessions they could both complete. Best effort: a Session already
-  // expired, or completed a moment ago, refuses, and that refusal is fine.
+  // Sessions they could both complete, and one who already paid must never be
+  // charged again. So the previous attempt's Session is closed first, or this
+  // press creates nothing (closePreviousSession).
   if (input.intent.previousOpenSessionId) {
-    await stripe.checkout.sessions.expire(input.intent.previousOpenSessionId).catch(() => undefined);
+    const previous = await closePreviousSession(stripe, input.intent.previousOpenSessionId);
+    if (previous === "paid") return { kind: "already-paid" };
   }
 
   // Looked up by the stable keys the setup script writes, so pricing lives in
@@ -220,16 +230,26 @@ export async function createCheckout(
     priceIdByLookupKey(stripe, PLAN_START_PLACEHOLDER_LOOKUP_KEY),
   ]);
 
+  // The press of Pay this Session belongs to, and the terms it charges for.
+  // The webhook relays the ref, the attempt, the plan and the interval from
+  // the paid subscription to /api/provision, and apps/app refuses to build
+  // the account from an intent that has moved on since (a later press,
+  // another package or billing period).
   const marker = {
     app: APP_MARKER,
     ref: input.intent.ref,
     plan: input.plan.id,
     billingInterval: input.interval,
+    attempt: String(input.intent.attempt),
   };
 
   const session = await stripe.checkout.sessions.create(
     {
       mode: "subscription",
+      // Cards only (funnel-portal-contracts §2): the account shares Stripe
+      // with scalabid, whose dashboard settings would otherwise decide, and a
+      // delayed method completes the Session before any money moves.
+      payment_method_types: ["card"],
       customer_email: input.contactEmail,
       line_items: [
         // One-time: on the first invoice only. Never on a renewal.
@@ -273,6 +293,53 @@ export async function createCheckout(
     throw new Error("Stripe returned a session with no checkout URL.");
   }
   return { kind: "redirect", url: session.url, sessionId: session.id };
+}
+
+/**
+ * Make sure the previous attempt's Session can no longer be paid, or learn
+ * that it already was.
+ *
+ * "paid" when it completed: that purchase is done, and a second Session would
+ * take the non-refundable setup fee twice, on a second subscription. "closed"
+ * when it is expired, by Stripe or by us now. Anything else throws, and the
+ * caller answers 502 having created nothing: a Session that might still be
+ * payable must never sit beside a new one.
+ *
+ * Stripe refuses to expire a Session that is no longer open, with no error
+ * code that says which way it went, so a refusal is answered by asking again:
+ * it may have been paid, or have expired, in the moment since it was read.
+ */
+async function closePreviousSession(stripe: Stripe, sessionId: string): Promise<"paid" | "closed"> {
+  const settled = (status: string | null): "paid" | "closed" | null =>
+    status === "complete" ? "paid" : status === "expired" ? "closed" : null;
+
+  const before = settled((await stripe.checkout.sessions.retrieve(sessionId)).status);
+  if (before) return before;
+  try {
+    await stripe.checkout.sessions.expire(sessionId);
+    return "closed";
+  } catch (error) {
+    const after = settled((await stripe.checkout.sessions.retrieve(sessionId)).status);
+    if (after) return after;
+    throw error;
+  }
+}
+
+/**
+ * Expire a Session this request created but could not record on its intent:
+ * the next press of Pay could not find it to expire it, and the webhook could
+ * not bind its payment to the intent's latest terms, so it must never be
+ * paid. Its URL is never handed out either. Never throws: the request is
+ * refused whatever happens here.
+ */
+export async function expireUnrecordedCheckout(sessionId: string): Promise<void> {
+  try {
+    await stripeClient().checkout.sessions.expire(sessionId);
+  } catch (error) {
+    console.error("[healdesk] could not expire an unrecorded checkout session", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 /**

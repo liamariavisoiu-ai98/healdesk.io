@@ -15,8 +15,9 @@ export const dynamic = "force-dynamic";
 /**
  * POST /api/checkout/intents: a purchase, before anyone pays (design D1, plan
  * Part A4). apps/web calls it, signed, when the buyer presses Pay, and only
- * then creates the Stripe Checkout Session, carrying `{ app, ref }` and
- * nothing else.
+ * then creates the Stripe Checkout Session, carrying the ref and the terms of
+ * that press (`{ app, ref, plan, billingInterval, attempt }`) and nothing
+ * else.
  *
  * Everything provisioning will check is checked here, before the card is
  * charged. The answer carries the success URL, built here from this app's

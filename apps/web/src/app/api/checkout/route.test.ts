@@ -510,9 +510,16 @@ describe("POST /api/checkout, while the purchase is by setup link", () => {
     const [intent] = sentTo(fetchMock, "/api/checkout/intents");
     expect(intent).toMatchObject({ inviteRef: id, contactEmail: "alex@example.com" });
     expect(intent!.nonceHash).toMatch(/^[0-9a-f]{64}$/);
-    // The development path provisions from that intent, as the webhook would.
+    // The development path provisions from that intent, as the webhook would,
+    // naming the press of Pay and the terms it was for.
     expect(sentTo(fetchMock, "/api/provision")).toEqual([
-      { ref: "11111111-2222-4333-8444-555555555555", idempotencyKey: "dev:11111111-2222-4333-8444-555555555555" },
+      {
+        ref: "11111111-2222-4333-8444-555555555555",
+        idempotencyKey: "dev:11111111-2222-4333-8444-555555555555",
+        attempt: 1,
+        plan: "chat-web",
+        billingInterval: "month",
+      },
     ]);
   });
 });

@@ -3,7 +3,12 @@ import { createHash, randomBytes } from "node:crypto";
 import { WELCOME_NONCE_COOKIE } from "@healdesk/catalog";
 import { NextResponse } from "next/server";
 
-import { createCheckout, isBillingConfigured, isProductionDeployment } from "@/lib/billing";
+import {
+  createCheckout,
+  expireUnrecordedCheckout,
+  isBillingConfigured,
+  isProductionDeployment,
+} from "@/lib/billing";
 import { isCampaignCode } from "@/lib/attribution";
 import { postToApp, welcomeCookieOptions, type AppAnswer } from "@/lib/checkout/app-client";
 import { intentFields, validateOrder } from "@/lib/checkout/order";
@@ -213,16 +218,37 @@ export async function POST(request: Request): Promise<Response> {
         intent: intent.value,
         attribution,
       });
+      if (checkout.kind === "already-paid") {
+        // The previous press of Pay was paid: the account is on its way, and
+        // a second Session would charge the setup fee twice.
+        return Response.json({ error: "This purchase is already paid. Check your email." }, { status: 409 });
+      }
       if (checkout.kind === "redirect") {
         // Which Session this attempt opened, so the next press of Pay can
-        // expire it. Best effort: without it, /welcome asks Stripe instead.
+        // expire it. Not best effort: a Session the intent does not record
+        // is one no later press could expire, so it is expired now and its
+        // URL never handed out. A 409 means a newer press, in another tab,
+        // recorded its own Session first; that one is the one to pay.
         const recorded = await postToApp(
           "/api/checkout/intents/session",
           { ref: intent.value.ref, attempt: intent.value.attempt, sessionId: checkout.sessionId },
           { target, secret },
         );
         if (!recorded.reached || recorded.status !== 200) {
-          console.warn("[healdesk] checkout session not recorded on the intent; /welcome will ask Stripe");
+          await expireUnrecordedCheckout(checkout.sessionId);
+          if (recorded.reached && recorded.status === 409) {
+            return Response.json(
+              { error: "Another payment page was opened; use the latest one." },
+              { status: 409 },
+            );
+          }
+          console.error("[healdesk] checkout session not recorded on the intent; expired and refused", {
+            status: recorded.reached ? recorded.status : "unreachable",
+          });
+          return Response.json(
+            { error: "We couldn't start checkout. Nothing has been charged. Please try again." },
+            { status: 502 },
+          );
         }
         // The funnel's "checkout_started" is the Session existing, not the
         // button click: a lead row is created here if the demo never made one.
@@ -274,12 +300,19 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // Unpaid development path: provision from the intent at once, exactly as
-  // the webhook would after payment, keyed on the intent. Note the colon: an
-  // underscore would survive the audit log's uuid stripper and trip its PHI
-  // assertion on some ids and not others.
+  // the webhook would after payment, keyed on the intent, and naming the
+  // press of Pay and the terms it was for, as a paid subscription does. Note
+  // the colon: an underscore would survive the audit log's uuid stripper and
+  // trip its PHI assertion on some ids and not others.
   const provisioned = await postToApp(
     "/api/provision",
-    { ref: intent.value.ref, idempotencyKey: `dev:${intent.value.ref}` },
+    {
+      ref: intent.value.ref,
+      idempotencyKey: `dev:${intent.value.ref}`,
+      attempt: intent.value.attempt,
+      plan: plan.id,
+      billingInterval: chosenInterval,
+    },
     { target, secret },
   );
   if (!provisioned.reached) {

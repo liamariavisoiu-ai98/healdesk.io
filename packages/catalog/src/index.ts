@@ -12,6 +12,7 @@
  * No dependencies, so importing it from either side pulls nothing along.
  */
 
+export * from "./agreement-kind";
 export * from "./baa";
 export * from "./baa-explainer";
 export * from "./baa-selections";

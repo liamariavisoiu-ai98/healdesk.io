@@ -1,7 +1,10 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { canWriteBookings, isUsable, limitationsOf } from "../src/capabilities";
 import { fixtureAdapter } from "../src/fixture/adapter";
+import { GOOGLE_CALENDAR_PROVIDER } from "../src/google/adapter";
+import { fakeGoogleCalendar } from "../src/google/fake";
+import { setGoogleFetch } from "../src/google/http";
 import { assertNonClinical, ClinicalContentError, safeLog, toE164, toMoney } from "../src/guards";
 import type { ConnectorAdapter } from "../src/port";
 import { registeredAdapters } from "../src/registry";
@@ -53,6 +56,46 @@ function harnessFor(adapter: ConnectorAdapter): Harness {
         install() {},
         uninstall() {},
       };
+    case GOOGLE_CALENDAR_PROVIDER: {
+      // The adapter takes its fetch from setGoogleFetch, so installing the
+      // fake routes every call into it. The global fetch is stubbed to throw,
+      // so a request that escaped the seam would fail here rather than reach
+      // Google. One Google account per clinic, each with an empty calendar.
+      const google = fakeGoogleCalendar();
+      const refreshTokens = new Map<string, string>();
+      const refreshTokenFor = (clinicId: string): string => {
+        let token = refreshTokens.get(clinicId);
+        if (!token) {
+          google.addAccount({
+            sub: `contract-${clinicId}`,
+            email: `bookings-${clinicId.slice(0, 8)}@practice.example`,
+            hd: "practice.example",
+          });
+          token = google.grant({ sub: `contract-${clinicId}` }).refreshToken;
+          refreshTokens.set(clinicId, token);
+        }
+        return token;
+      };
+      return {
+        context: (clinicId = CLINIC_A) => ({
+          clinicId,
+          connectionId: CONNECTION,
+          credentials: { refresh_token: refreshTokenFor(clinicId) },
+          metadata: { calendarId: "primary" },
+          oauthClient: google.client,
+        }),
+        install() {
+          vi.stubGlobal("fetch", () => {
+            throw new Error("live call attempted from the contract test");
+          });
+          setGoogleFetch(google.fetch);
+        },
+        uninstall() {
+          setGoogleFetch(undefined);
+          vi.unstubAllGlobals();
+        },
+      };
+    }
     default:
       throw new Error(
         `${adapter.id} is registered but has no offline harness in contract.test.ts. ` +
@@ -191,7 +234,13 @@ describe.each(registeredAdapters().map((a) => [a.id, a] as const))(
         attendeeEmail: input.attendee.email,
         around: slot.startsAt,
       });
-      expect(found).toEqual({ ok: true, value: { externalId: created.value.externalId } });
+      expect(found.ok).toBe(true);
+      if (!found.ok) return;
+      expect(found.value?.externalId).toBe(created.value.externalId);
+      // An adapter that reports the booking's times (Google does, so a 409
+      // can be compared) must report the ones it booked.
+      if (found.value?.startsAt) expect(found.value.startsAt).toEqual(created.value.startsAt);
+      if (found.value?.endsAt) expect(found.value.endsAt).toEqual(created.value.endsAt);
 
       const missing = await adapter.findAppointmentByKey!(ctx, {
         idempotencyKey: "contract-never",
@@ -440,6 +489,21 @@ describe("fixture write path", () => {
       around: new Date("2026-10-20T14:00:00Z"),
     });
     expect(farAway).toEqual({ ok: true, value: null });
+  });
+
+  test("without an address the read-back is by key alone, as Google's is by event id", async () => {
+    await fixtureAdapter.createAppointment(context, input());
+    const byKey = await fixtureAdapter.findAppointmentByKey(context, {
+      idempotencyKey: "req-9",
+      around: new Date("2026-12-25T14:00:00Z"),
+    });
+    expect(byKey).toEqual({ ok: true, value: { externalId: "fx-req-9" } });
+
+    const otherKey = await fixtureAdapter.findAppointmentByKey(context, {
+      idempotencyKey: "req-10",
+      around: input().startsAt,
+    });
+    expect(otherKey).toEqual({ ok: true, value: null });
   });
 
   test("an input that smuggles a phone number past the type is refused at runtime", async () => {

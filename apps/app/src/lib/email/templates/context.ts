@@ -22,6 +22,13 @@ export function clinicReason(clinicName: string): string {
   return `You're receiving this because this is the address on ${clinicName}'s healdesk account.`;
 }
 
+/**
+ * Why an address receives a sign-in link (B2, O6). Not the clinic line: a
+ * sign-in email names no clinic, because an address can belong to several.
+ */
+export const SIGN_IN_REASON =
+  "You're receiving this because someone asked to sign in to healdesk with this address.";
+
 /** Why the ops address receives an alert. */
 export const OPS_REASON =
   "You're receiving this because this address is set as healdesk's ops alert address.";

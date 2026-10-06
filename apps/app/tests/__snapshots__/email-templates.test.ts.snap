@@ -119,3 +119,105 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 ",
 }
 `;
+
+exports[`each template's output > sign_in_link, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your healdesk sign-in link</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">It works once, for the next 15 minutes.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Here is the link you asked for to sign in to healdesk.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/link/kP3vXq9TzR7wYb2NcL5mHs8JdF4gA6eU1oIiQ0yBtVx" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Sign in</a></p>
+<p style="margin:0 0 16px;">It works once, for the next 15 minutes. If it runs out, ask for a new one on the sign-in page.</p>
+<p style="margin:0 0 16px;">If you didn&#39;t ask to sign in, you can ignore this email. Nobody can sign in without the link in it.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because someone asked to sign in to healdesk with this address.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "It works once, for the next 15 minutes.",
+  "subject": "Your healdesk sign-in link",
+  "text": "Here is the link you asked for to sign in to healdesk.
+
+Sign in: https://app.healdesk.test/link/kP3vXq9TzR7wYb2NcL5mHs8JdF4gA6eU1oIiQ0yBtVx
+
+It works once, for the next 15 minutes. If it runs out, ask for a new one on the sign-in page.
+
+If you didn't ask to sign in, you can ignore this email. Nobody can sign in without the link in it.
+
+—
+You're receiving this because someone asked to sign in to healdesk with this address.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > sign_in_link, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your healdesk sign-in link</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">It works once, for the next 15 minutes.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Here is the link you asked for to sign in to healdesk.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/link/kP3vXq9TzR7wYb2NcL5mHs8JdF4gA6eU1oIiQ0yBtVx" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Sign in</a></p>
+<p style="margin:0 0 16px;">It works once, for the next 15 minutes. If it runs out, ask for a new one on the sign-in page.</p>
+<p style="margin:0 0 16px;">If you didn&#39;t ask to sign in, you can ignore this email. Nobody can sign in without the link in it.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because someone asked to sign in to healdesk with this address.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "It works once, for the next 15 minutes.",
+  "subject": "Your healdesk sign-in link",
+  "text": "Here is the link you asked for to sign in to healdesk.
+
+Sign in: https://app.healdesk.test/link/kP3vXq9TzR7wYb2NcL5mHs8JdF4gA6eU1oIiQ0yBtVx
+
+It works once, for the next 15 minutes. If it runs out, ask for a new one on the sign-in page.
+
+If you didn't ask to sign in, you can ignore this email. Nobody can sign in without the link in it.
+
+—
+You're receiving this because someone asked to sign in to healdesk with this address.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;

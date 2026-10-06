@@ -11,7 +11,7 @@
  * full of links is an invitation to leave before the demo has done its job.
  *
  * So the navbar holds a wordmark, one link and two calls to action, in that
- * order of weight: "Get Started" opens the purchase flow, "Talk to AYA" moves
+ * order of weight: "Get AYA" opens the purchase flow, "Talk to AYA" moves
  * the viewport to the demo, and "Why wait?" goes to the calculator, which
  * left the homepage on 23 September 2026 so that the homepage could be about
  * meeting her. Nothing else.
@@ -82,7 +82,7 @@ export const site = {
   announcement: {
     tag: "New",
     text: "Instagram, Messenger and WhatsApp, now available alongside your phone and website chat.",
-    cta: "Get started",
+    cta: "Get AYA",
   },
 
   cta: {
@@ -91,7 +91,7 @@ export const site = {
      * button that opens it in place; everywhere else it falls back to this
      * href, so the CTA is never dead.
      */
-    primary: { label: "Get Started", href: "/get-started" },
+    primary: { label: "Get AYA", href: "/get-started" },
     secondary: { label: "Talk to AYA", href: "#aya" },
   },
 

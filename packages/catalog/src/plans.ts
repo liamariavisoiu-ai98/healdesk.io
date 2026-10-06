@@ -347,7 +347,7 @@ export const pricingCards: readonly PricingCard[] = [
     id: "chat-voice",
     name: "Web OR Meta + Voice",
     planIds: ["web-voice", "meta-voice"],
-    highlight: "Most clinics",
+    highlight: "Recommended",
   },
   { id: "complete", name: "Complete FrontDesk AI", planIds: ["complete"] },
 ] as const;

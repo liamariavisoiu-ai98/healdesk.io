@@ -207,7 +207,7 @@ export function BuyModalProvider({
       <dialog
         ref={dialogRef}
         className="hd-modal"
-        aria-label="Get started with healdesk"
+        aria-label={site.cta.primary.label}
         onCancel={(event) => {
           // Escape. The only place dismissal is refused.
           if (locked) event.preventDefault();

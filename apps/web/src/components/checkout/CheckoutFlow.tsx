@@ -35,6 +35,7 @@ import {
   monthlyFigureUsd,
   usd,
 } from "@/lib/pricing";
+import { site } from "@/lib/site";
 
 import { AgreementStep, type AgreementResult } from "./AgreementStep";
 import {
@@ -462,7 +463,7 @@ export function CheckoutFlow({
         step={1}
         totalSteps={TOTAL_STEPS}
         onClose={onClose}
-        eyebrow="Get started"
+        eyebrow={site.cta.primary.label}
         title="What kind of clinic is this?"
         subtitle="It sets how the agent talks about treatments, pricing and scheduling."
       >
@@ -494,7 +495,7 @@ export function CheckoutFlow({
         step={2}
         totalSteps={TOTAL_STEPS}
         onClose={onClose}
-        eyebrow="Get started"
+        eyebrow={site.cta.primary.label}
         title="What do you use for booking?"
         subtitle="She books into your Google Calendar. This tells us whether your booking system will see those bookings, or whether your staff confirm each one in it. She answers either way."
         onBack={back}
@@ -556,7 +557,7 @@ export function CheckoutFlow({
         step={3}
         totalSteps={TOTAL_STEPS}
         onClose={onClose}
-        eyebrow="Get started"
+        eyebrow={site.cta.primary.label}
         title="What is one booked appointment worth to you?"
         subtitle="A typical figure is fine. Your full price list is confirmed during setup."
         onBack={back}
@@ -638,7 +639,7 @@ export function CheckoutFlow({
         step={4}
         totalSteps={TOTAL_STEPS}
         onClose={onClose}
-        eyebrow="Get started"
+        eyebrow={site.cta.primary.label}
         title="Who are we setting this up for?"
         onBack={back}
       >
@@ -802,7 +803,7 @@ export function CheckoutFlow({
     <StepShell
       step={6}
       totalSteps={TOTAL_STEPS}
-      eyebrow="Get started"
+      eyebrow={site.cta.primary.label}
       title="Choose your package."
       subtitle="Your agreement is signed and on file. Nothing has been charged yet."
       onBack={back}

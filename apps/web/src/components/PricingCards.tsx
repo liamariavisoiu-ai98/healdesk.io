@@ -17,6 +17,7 @@ import {
   overageLine,
   usd,
 } from "@/lib/pricing";
+import { site } from "@/lib/site";
 
 /**
  * The five pricing cards on /pricing, with the monthly / annual toggle.
@@ -190,7 +191,7 @@ export function PricingCards({
                     : "border-line-strong text-ink hover:border-ink border-[1.5px]",
                 ].join(" ")}
               >
-                Get started
+                {site.cta.primary.label}
               </a>
             </div>
           );

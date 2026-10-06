@@ -14,7 +14,7 @@ import { SETUP_COOKIE } from "@/lib/setup-link";
 const NOTICES: readonly LinkNotice[] = ["invalid", "expired", "replaced", "used"];
 
 export const metadata: Metadata = {
-  title: "Get started",
+  title: "Get AYA",
   description:
     "About fifteen minutes of your time, and each channel goes live as you " +
     "connect it. Works with your Google Calendar.",

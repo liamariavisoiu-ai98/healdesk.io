@@ -92,13 +92,13 @@ const GOLDEN: Record<string, Record<string, string>> = {
   // Drafted, not released. Frozen from the first draft all the same: these
   // are the bytes the release audit reads and a practice will sign.
   "1.3.0": {
-    covered_estimated: "770462be01a012ff4221f5a5aabed7503dcb710c5437925d0652d9dde1247d16",
-    notcovered_estimated: "16b86e85dfc65a421d7e319534c2f8d18b8fbdc9307cb2269fc6d9d0715915f9",
-    unknown_estimated: "70f8f05cafa4784b2c2107a1d3099a20c8c1b789a66bcc4339886e054fde9ae6",
+    covered_estimated: "f32de0d518b57ff3284b45884c37f236a4937cf35c7733b431ad8bef409840e4",
+    notcovered_estimated: "ceb44c88bb79b01c9d9f9ff217ba5aab591fed0408e3b0d8aa0294cbd3eadf5e",
+    unknown_estimated: "4ff0953d550f9358e6388f9dd0d480e119c6d4429176939b2ac997a6ed9374bb",
     // Identical to covered_estimated by design, as in 1.2.x: no clause reads
     // outboundMessaging.
-    covered_outbound: "770462be01a012ff4221f5a5aabed7503dcb710c5437925d0652d9dde1247d16",
-    covered_verified_boulevard: "7361318a1050ceac11a9c0718a6f357d5595f1de85c7cabaa86270fa18cf28db",
+    covered_outbound: "f32de0d518b57ff3284b45884c37f236a4937cf35c7733b431ad8bef409840e4",
+    covered_verified_boulevard: "91eaa631af6b18c953941943a316f90286b8de99a92f634a7704aabf3154dd7f",
   },
   "1.2.1": {
     covered_estimated: "618ac4a585a42f23d70865042c5a02e0b4765c07b6e65ba8ecf586e8f386cfd3",
@@ -537,13 +537,13 @@ const VARIANTS_1_3: Record<string, Partial<BaaVariables>> = {
 
 /** variant → sha256, for 1.3.0. Regenerated only with the draft, and recorded in §12. */
 const GOLDEN_1_3: Record<string, string> = {
-  uncovered_nobaa: "cb845bcaa7b1e8c542fbef66d20ac4b7428242b0a0e08eba9a344c53582a6071",
-  uncovered_personal: "25d848c43076aebc26f2273325abd11943cb6311e0e42a93978f143b06aa29f5",
-  notused_mindbody: "53a9d5482e16a12abf346ae33821659d2707b8290365dfd29420f60abb85840a",
-  notused_other: "0752e2848c767633bc3e2418911f91d82810d957ce0dc07225bb3cf24d4bd7d9",
-  live_calcom: "d725371aeab66183b4b54f821d0b0a53878f30c4e013bf26200ac72c7cc08720",
-  live_highlevel_personal: "144acc18c9e0cd1d08ed33ac160d67ac7d4a8197e3a93b9d8cb2a77141c9fc9d",
-  live_calendly_nobaa: "f2d0aed20eb500a1e5c3c278048e0a8a1b7854c5cb8628abe69777c8e7b67da3",
+  uncovered_nobaa: "07d2bbd1a6d7a51e1352545353a951cb5b52d09f6657a5803a73001b104bbad6",
+  uncovered_personal: "a376e4556a5aa1e767eca781283207369fd02aed4d9269c23fa0e97736889a62",
+  notused_mindbody: "5c2dba0df5068c8be226852e75d199572dcfeed366f0306d0703dcbf655655c0",
+  notused_other: "31165055e024520ea0aea3e6348cee7696854a0fbf0c99606c6738636f8575bf",
+  live_calcom: "1dd79799121ed865bcd25dc0383f6a54e27e32a517d706c01a2e071dfd1f92f3",
+  live_highlevel_personal: "55bdd4992b8c3c28165eb8ccad380ecd2f46beb7bb67cface81fe220c0bfff73",
+  live_calendly_nobaa: "623914a33d429367d07fca13875fe19968f1ff6fb243da6a1e58992d1f4ca117",
 };
 
 describe("1.3.0: the calendar-dependent draft", () => {
@@ -767,14 +767,33 @@ describe("1.3.0: the calendar-dependent draft", () => {
       expect(text, label).toContain(
         "no service name or clinical detail, including in metadata and the statement descriptor. healdesk never takes card numbers.",
       );
+      // The shared state-law paragraph, inside the fuller clause the owner
+      // combined it with on 6 October 2026.
       expect(text, label).toContain(
-        "WHERE PRACTICE IS NOT A COVERED ENTITY healdesk processes patient information only on Practice's documented instructions",
+        "WHERE PRACTICE IS NOT A COVERED ENTITY This clause applies for any period in which Practice is not a covered entity",
+      );
+      expect(text, label).toContain(
+        "PHI applies to it. healdesk processes patient information only on Practice's documented instructions",
+      );
+      expect(text, label).toContain("the Connecticut Data Privacy Act");
+      expect(text, label).toContain(
+        "The Subcontractors clause applies to patient information: its 24 hours' notice is Practice's opportunity to object",
       );
       expect(text, label).toContain(
         "The reporting, subcontractor, security and return-or-destroy clauses of this agreement apply to that information as they apply to PHI.",
       );
+      // Own use: de-identify first, then combine, and never re-identify.
       expect(text, label).toContain(
-        "aggregate statistics about the Services, de-identified under 45 CFR 164.514(b)",
+        "healdesk may de-identify Practice's PHI in accordance with 45 CFR 164.514(b)",
+      );
+      expect(text, label).toContain("It will not re-identify, or try to re-identify, any individual");
+      // Inbound only: healdesk replies to a patient who writes.
+      expect(text, label).toContain("to a patient who writes, are both of those");
+      expect(text, label).not.toContain("sending messages in");
+      // Return or destroy within thirty days; an export on request; never
+      // later than ninety days.
+      expect(text, label).toContain(
+        "healdesk will destroy the PHI as soon as the export is delivered, and in no case later than ninety days after termination",
       );
       // Every 1.2.1 accuracy fix stays.
       expect(text, label).toContain("which it may retain for up to two years");

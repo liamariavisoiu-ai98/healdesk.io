@@ -331,9 +331,13 @@ export const clinics = pgTable(
      *
      *   media   — transcript references. Pure liability after the dispute
      *             window closes; 90 days by default. (No audio is kept.)
-     *   records — the conversation, appointment and transaction rows the
-     *             revenue report is built from. Two years by default, so a
-     *             year-over-year comparison is possible and no longer.
+     *   records — the conversation, appointment and transaction rows. 90
+     *             days by default too, because the BAA says "healdesk keeps
+     *             transcripts and conversation records for 90 days"
+     *             (TRANSCRIPT_RETENTION_DAYS in @healdesk/catalog). It was
+     *             730 until 0048, for a year-over-year revenue report that
+     *             is phase two, and a default the agreement contradicts is
+     *             wrong for every clinic that keeps it.
      *
      * Consent records, suppressions and contact attempts are NOT on either
      * clock: they are the evidence that a call was lawful and that an
@@ -341,7 +345,7 @@ export const clinics = pgTable(
      * The purge job (lib/retention/purge.ts) is the only reader.
      */
     retentionMediaDays: integer("retention_media_days").notNull().default(90),
-    retentionRecordDays: integer("retention_record_days").notNull().default(730),
+    retentionRecordDays: integer("retention_record_days").notNull().default(90),
 
     // --- Onboarding: the road from payment to the first answered call. ---
     /**
@@ -1165,16 +1169,23 @@ export const incidents = pgTable(
     /** A conversation id, never its transcript. */
     conversationId: uuid("conversation_id"),
     discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull(),
-    /** From the class: 5 business days, or 5 calendar days for a breach. */
+    /**
+     * From the class: 5 business days, or 5 calendar days for a breach, and
+     * 24 hours for a breach at a clinic that is not a covered entity (the
+     * BAA's state-law clause: "immediately following discovery").
+     */
     notifyBy: timestamp("notify_by", { withTimezone: true }).notNull(),
     notifiedAt: timestamp("notified_at", { withTimezone: true }),
     notifiedHow: text("notified_how"),
     /**
-     * For non-covered clinics, a second clock 60 days from discovery. Named
-     * for the FTC Health Breach Notification Rule, which on a closer reading
-     * (1 October 2026) does not reach a clinic's booking records: 16 CFR 318.2
-     * covers vendors of personal health records. Kept as a conservative floor
-     * under state breach-notification law; see lib/incidents/incidents.ts.
+     * For a breach at a non-covered clinic, a second clock 30 days from
+     * discovery: California's deadline for the clinic, as owner of the data,
+     * to notify the people affected (Cal. Civ. Code 1798.82(a)(2)(A)), the
+     * strictest owner clock among the states. 60 days until 3 October 2026.
+     * Named for the FTC Health Breach Notification Rule, which on a closer
+     * reading (1 October 2026) does not reach a clinic's booking records:
+     * 16 CFR 318.2 covers vendors of personal health records. The name is
+     * kept; see lib/incidents/incidents.ts.
      */
     ftcNotifyBy: timestamp("ftc_notify_by", { withTimezone: true }),
     openedBy: text("opened_by").notNull(),
@@ -2122,7 +2133,7 @@ export const connectionLinks = pgTable(
      * unknown token. Set at issue, never updated (the UPDATE grant is used_at
      * and consumed_ip only).
      */
-    purpose: text("purpose").$type<"connect" | "setup">().notNull().default("connect"),
+    purpose: text("purpose").$type<"connect" | "setup" | "meta" | "whatsapp">().notNull().default("connect"),
 
     /**
      * The ops user who issued it, as an immutable snapshot rather than an FK —
@@ -2391,7 +2402,7 @@ export const entitlements = pgTable(
     /** Stripe's `cancel_at`, when a cancellation is scheduled for a date. */
     cancelAt: timestamp("cancel_at", { withTimezone: true }),
     // setup_fee_refunded_at and setup_fee_refunded_usd were dropped by
-    // drizzle/0048: the setup fee is never refundable (owner, 6 October 2026),
+    // drizzle/0050: the setup fee is never refundable (owner, 6 October 2026),
     // so nothing may ever record a refund of it.
     firstPeriodRefundedAt: timestamp("first_period_refunded_at", { withTimezone: true }),
 
@@ -2412,7 +2423,7 @@ export const entitlements = pgTable(
      */
     setupDeadlineAt: timestamp("setup_deadline_at", { withTimezone: true }),
 
-    // --- 0048: the Stripe build (packages B, C and D). Null on every row
+    // --- 0050: the Stripe build (packages B, C and D). Null on every row
     // written before it. ---
     /**
      * When the plan-start worker's Stripe update went through: the package
@@ -3066,7 +3077,7 @@ export type BillingRequestOutcome = (typeof BILLING_REQUEST_OUTCOMES)[number];
 export type BillingRequestChannelKey = Channel | "-";
 
 /**
- * The billing-request ledger (drizzle/0048, build decision BD1): what the
+ * The billing-request ledger (drizzle/0050, build decision BD1): what the
  * engine has asked Stripe to do, recorded in the same transaction as the
  * event that asked (a channel's first answer, the reconcile, an operator),
  * and carried out afterwards by a worker that calls Stripe outside any
@@ -3192,7 +3203,7 @@ export const depositPayments = pgTable(
   },
   (t) => [
     index("deposit_payments_appointment_idx").on(t.clinicId, t.appointmentId),
-    // One live link per appointment (drizzle/0048): a retried booking turn or
+    // One live link per appointment (drizzle/0050): a retried booking turn or
     // a second request for the same appointment gets the open session back
     // (createDepositLink) instead of a second link the patient could also pay.
     uniqueIndex("deposit_payments_open_appointment_idx")
@@ -3240,7 +3251,7 @@ export const stripeConnectEvents = pgTable(
 );
 
 /**
- * Where a Connect callback sends the browser back to (drizzle/0048): the
+ * Where a Connect callback sends the browser back to (drizzle/0050): the
  * portal's Settings, the setup wizard, or the neutral page an operator's link
  * lands on. Never /admin.
  */

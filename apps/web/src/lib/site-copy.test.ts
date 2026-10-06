@@ -90,6 +90,16 @@ const QUOTED: readonly { file: string; text: string; why: string }[] = [
     why: "tells the demo agent not to say it",
   },
   {
+    file: "lib/demo/clinic-prompts.ts",
+    text: "Never say healdesk is HIPAA compliant",
+    why: "tells the personalised demo's voice agent not to say it",
+  },
+  {
+    file: "lib/voice-demo-prompt.ts",
+    text: 'Never say healdesk is "HIPAA compliant"',
+    why: "tells the demo call agent not to say it",
+  },
+  {
     file: "lib/knowledge/index.ts",
     text: '"We never miss calls."',
     why: "an owner's objection, quoted so the demo agent can answer it",

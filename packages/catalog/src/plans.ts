@@ -494,6 +494,28 @@ export function planForChannels(channels: Iterable<Channel>): Plan | null {
 }
 
 /**
+ * Whether the Meta channel may be bought as a clinic's only channel.
+ *
+ * Until Meta's App Review of the messaging permissions passes, Instagram,
+ * Messenger and WhatsApp cannot answer a clinic's patients
+ * (docs/v1-product-spec.md, "External gates on the launch date"), so a
+ * clinic that bought Meta Chatbot alone would pay for a package with no
+ * channel that can go live. This was false for that reason. The owner set it
+ * true on 5 October 2026, ahead of App Review: no marketing has launched, so
+ * nobody is expected to buy before approval, and Meta Chatbot is on sale
+ * from the first day there is anyone to sell it to. If App Review slips past
+ * the first campaign, set it back to false: checkout reads it with
+ * `sellsMetaAlone()`, in the UI and again in /api/checkout, which then
+ * refuses the package.
+ */
+export const META_SOLD_ALONE = true;
+
+/** True when Meta is the package's only channel. Today that is Meta Chatbot. */
+export function sellsMetaAlone(plan: Plan): boolean {
+  return plan.channels.meta && !plan.channels.web && !plan.channels.voice;
+}
+
+/**
  * Stripe price lookup keys.
  *
  * The key encodes the amount, so a catalog price change cannot silently resolve

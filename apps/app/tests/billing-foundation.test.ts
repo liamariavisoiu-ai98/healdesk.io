@@ -329,7 +329,7 @@ describeDb("billing foundation", () => {
       );
       expect(at6["billing-housekeeping"]).toBe("disabled");
       expect(at6["annual-overage-invoice"]).toBeUndefined();
-      // The Stripe build (drizzle/0048): the reconcile and the requests
+      // The Stripe build (drizzle/0050): the reconcile and the requests
       // worker every hour, the card-expiry check at 07 only.
       for (const hourly of [
         "usage-meter-report",

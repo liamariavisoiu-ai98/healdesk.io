@@ -9,6 +9,8 @@ import {
   CURRENT_BAA_VERSION,
   getBaaTemplate,
   hashBaaText,
+  isBaaVersionAcceptable,
+  MIN_ACCEPTABLE_BAA_VERSION,
   prepareBaa,
   renderBaa,
   type BaaVariables,
@@ -582,6 +584,33 @@ describe("the explainer shown before payment", () => {
     expect(BAA_EXPLAINER.disclaimer).toMatch(/not\s+legal advice/i);
     expect(BAA_EXPLAINER.disclaimer).toMatch(/not your lawyer/i);
     expect(BAA_EXPLAINER.disclaimer).toMatch(/agreement governs/i);
+  });
+});
+
+/**
+ * The go-live floor (docs/counsel/agreement-changes.md §10).
+ *
+ * Go-live refuses an account whose agreement in effect is older than
+ * MIN_ACCEPTABLE_BAA_VERSION; the database holds the same set as an
+ * allow-list, and tests/database-audit.test.ts proves the two agree.
+ */
+describe("the go-live floor", () => {
+  test("is a released version, and a fresh signature always clears it", () => {
+    // Signing only ever produces the current version, so if the current
+    // version were below the floor, no new clinic could go live at all.
+    const floor = getBaaTemplate(MIN_ACCEPTABLE_BAA_VERSION);
+    expect(floor?.approvedByCounsel).toBe(true);
+    expect(isBaaVersionAcceptable(CURRENT_BAA_VERSION)).toBe(true);
+    expect(isBaaVersionAcceptable(MIN_ACCEPTABLE_BAA_VERSION)).toBe(true);
+  });
+
+  test("refuses every superseded version, every draft, and anything unregistered", () => {
+    // 1.3.0 is a draft until the owner releases it (agreement-changes.md
+    // §12), and the other drafts were never executable. Releasing 1.3.0
+    // changes this list along with the floor, on purpose.
+    for (const version of ["1.3.0", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft", "1.3", "9.9.9", ""]) {
+      expect(isBaaVersionAcceptable(version), version).toBe(false);
+    }
   });
 });
 

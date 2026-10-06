@@ -13,6 +13,7 @@ import {
   FORWARDING_PASS_THROUGH_DAYS,
   getPlan,
   getPricingCard,
+  META_SOLD_ALONE,
   meteredPriceLookupKey,
   offersChatChoice,
   overageRateCents,
@@ -25,6 +26,7 @@ import {
   planMeteredPrices,
   plans,
   pricingCards,
+  sellsMetaAlone,
   SETUP_FEE_REFUND_NOT_LIVE_DAYS,
   stripeLookupKey,
   type PriceKind,
@@ -329,5 +331,18 @@ describe("the plan-start placeholder", () => {
   test("is the $0 price's lookup key, and never reads as a package price", () => {
     expect(PLAN_START_PLACEHOLDER_LOOKUP_KEY).toBe("healdesk_plan_start_placeholder_month");
     expect(parseLookupKey(PLAN_START_PLACEHOLDER_LOOKUP_KEY)).toBeNull();
+  });
+});
+
+describe("selling Meta on its own", () => {
+  test("is open, by the owner's decision of 5 October 2026", () => {
+    // Opened ahead of App Review because no marketing has launched (see the
+    // flag). Flipping it back is a launch decision, not a refactor: this pin
+    // and the /api/checkout test change with it.
+    expect(META_SOLD_ALONE).toBe(true);
+  });
+
+  test("across the catalog, exactly one package is Meta alone", () => {
+    expect(plans.filter(sellsMetaAlone).map((p) => p.id)).toEqual(["chat-meta"]);
   });
 });

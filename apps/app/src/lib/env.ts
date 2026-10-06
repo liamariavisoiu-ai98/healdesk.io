@@ -133,6 +133,18 @@ export const env = {
   voiceToolsSecret: () => optional("HEALDESK_VOICE_TOOLS_SECRET"),
 
   /**
+   * The Meta app (docs/meta-app-review.md). The id is public; the secret signs
+   * every webhook and exchanges every login code. The two configuration ids
+   * come from Facebook Login for Business → Configurations: one for Messenger
+   * and Instagram, one for WhatsApp Embedded Signup. Unset means the matching
+   * connect page says the channel is not available yet and stores nothing.
+   */
+  metaAppId: () => optional("META_APP_ID"),
+  metaAppSecret: () => optional("META_APP_SECRET"),
+  metaLoginConfigId: () => optional("META_LOGIN_CONFIG_ID"),
+  metaWhatsAppConfigId: () => optional("META_WHATSAPP_CONFIG_ID"),
+
+  /**
    * The platform Stripe secret key (design D15). apps/app uses it for Stripe
    * Connect, plan changes, extra locations, metered usage, annual overage
    * invoices, refunds and portal sessions; read it through

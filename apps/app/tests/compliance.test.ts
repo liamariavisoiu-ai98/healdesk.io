@@ -10,11 +10,14 @@ import {
 } from "@/lib/compliance/contact-policy";
 import {
   channelMayCarryPhi,
+  clinicAiNotice,
   disclosureFor,
   metaChannelGreeting,
   voiceDisclosure,
 } from "@/lib/compliance/disclosure";
 import { consentRecords } from "@/db/schema";
+import { guardReply } from "@/lib/meta/front-door";
+import { assertNoPhiInReport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
 import {
@@ -84,17 +87,50 @@ describe("disclosure", () => {
     expect(text).not.toMatch(/is recorded/i);
     // Transcription specifically: the CIPA exposure in Ambriz is about a third
     // party intercepting call CONTENTS, which disclosing "recording" alone
-    // does not describe.
+    // does not describe — so the line also says a third party does it.
     expect(text).toMatch(/transcribed/i);
+    expect(text).toMatch(/run by our service providers/);
     expect(text).toMatch(/representative/i);
     // Live transfer is off by default and v1 has no live staff inbox, so the
     // opener may promise a handover to staff within a day, never a person
-    // on the line now (decision of 1 October 2026).
+    // on the line now (decision of 1 October 2026). What is passed on is the
+    // caller's details: "pass you to" sounds like a transfer (3 October).
     expect(text).toMatch(/get back to you within a day/i);
-    expect(text).not.toMatch(/reach a person/i);
-    expect(disclosureFor({ clinicName: "Radiance", channel: "web_chat" })).toMatch(
-      /get back to you within a day/i,
+    expect(text).toMatch(/pass your details to the practice team/);
+    expect(text).not.toMatch(/reach a person|pass you to/i);
+    const chat = disclosureFor({ clinicName: "Radiance", channel: "web_chat" });
+    expect(chat).toMatch(/pass your details to the practice team, who will get back to you within a day/);
+    expect(chat).not.toMatch(/pass you to/i);
+  });
+
+  test("the voice and web chat lines are the decided text, word for word, and the Meta greeting is unchanged", () => {
+    expect(voiceDisclosure({ clinicName: "Radiance", channel: "voice" })).toBe(
+      `Hi, I'm an AI assistant for Radiance — not a human. This call is transcribed by an automated system run by our service providers; no audio recording is kept. Say "representative" at any time and I'll pass your details to the practice team, who will get back to you within a day.`,
     );
+    expect(disclosureFor({ clinicName: "Radiance", channel: "web_chat" })).toBe(
+      `You're chatting with an AI assistant for Radiance. Ask for a person any time and I'll pass your details to the practice team, who will get back to you within a day.`,
+    );
+    expect(disclosureFor({ clinicName: "Radiance", channel: "whatsapp" })).toBe(
+      `Hi! I'm an AI assistant for Radiance. This channel isn't secure, so please don't share medical details here — I can take your number and the practice will continue by phone.`,
+    );
+  });
+
+  test("the written notice is decision 8's text with the direct line left blank, and passes the guards", () => {
+    const notice = clinicAiNotice({ clinicName: "Radiance" });
+    expect(notice).toBe(
+      "Radiance uses an AI assistant to answer calls and messages and to book appointments. " +
+        "It is not a person and gives no medical advice. " +
+        "Calls it answers are transcribed; no recording is kept. " +
+        "To reach a person, call [your direct line].",
+    );
+    // It travels in a phiClass "none" email, and the clinic fills in the
+    // number: nothing in it is shaped like a phone number, an address or a
+    // date of birth.
+    expect(() => assertNoPhiInReport({ subject: "", text: notice, html: notice })).not.toThrow();
+    // The same words may end up on a clinic's Meta pages (decision 6 puts an
+    // AI disclosure there), so nothing in it is what the Meta reply guard
+    // refuses either.
+    expect(guardReply(notice)).toEqual({ ok: true });
   });
 
   test("Meta channels get a warning, not a welcome — and it promises phone, never text", () => {

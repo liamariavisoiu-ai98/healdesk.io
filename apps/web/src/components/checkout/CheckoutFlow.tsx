@@ -4,7 +4,9 @@ import {
   type BillingInterval,
   cardForPlan,
   type ChatChannel,
+  chatChannelOf,
   getPricingCard,
+  META_SOLD_ALONE,
   NO_PLATFORM_ID,
   offersChatChoice,
   type Plan,
@@ -12,6 +14,7 @@ import {
   platforms,
   type PricingCard,
   pricingCards,
+  sellsMetaAlone,
   specialties,
   supportsVerifiedAttribution,
 } from "@healdesk/catalog";
@@ -253,8 +256,16 @@ export function CheckoutFlow({
   }, [step, agreement, done, onProgress]);
 
   const card = getPricingCard(cardId) ?? cardForPlan(cheapestPlan());
-  /** The package actually bought: the card's twin for the chat channel picked. */
-  const plan = planForCard(card, chatChannel);
+  /**
+   * The package actually bought. Meta on its own is not sold until Meta's App
+   * Review passes, so on the "Web OR Meta Chatbot" card the website is the
+   * only answer; a "meta" picked on the card with the phone and carried over
+   * by switching cards must not reach the route, which would refuse it.
+   */
+  const picked = planForCard(card, chatChannel);
+  const plan =
+    !META_SOLD_ALONE && sellsMetaAlone(picked) ? planForCard(card, "web") : picked;
+  const chatChoice = chatChannelOf(plan);
 
   // Funnel step, with the package and interval — never a form field. Fires
   // only once analytics is live (consent given), no-op otherwise.
@@ -866,40 +877,7 @@ export function CheckoutFlow({
           chat channels or neither, and a question with one answer is noise on
           the screen where the buyer is about to pay. */}
       {offersChatChoice(card) ? (
-        <fieldset className="border-line mt-6 rounded-2xl border bg-white p-5">
-          <legend className="text-[15.6px] font-bold tracking-[0.04em] uppercase">
-            Which chat channel?
-          </legend>
-          <p className="text-muted mt-1.5 text-sm">
-            {card.name} includes one. Website chat goes live once its one-line
-            snippet is on your site. Instagram and Messenger go live as soon as
-            you connect them during setup; WhatsApp once your WhatsApp account
-            has a payment method on it, because Meta bills you directly for
-            WhatsApp messages.
-          </p>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            {CHAT_CHANNEL_CHOICES.map((option) => (
-              <label
-                key={option.id}
-                className={[
-                  "flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition-colors",
-                  chatChannel === option.id
-                    ? "border-red bg-red/[0.04]"
-                    : "border-line hover:border-line-strong",
-                ].join(" ")}
-              >
-                <input
-                  type="radio"
-                  name="chatChannelChoice"
-                  checked={chatChannel === option.id}
-                  onChange={() => setChatChannel(option.id)}
-                  className="accent-red size-4 shrink-0"
-                />
-                <span className="text-sm font-semibold">{option.label}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        <ChatChannelField card={card} value={chatChoice} onChange={setChatChannel} />
       ) : null}
 
       <DueTodayBreakdown plan={plan} interval={interval} />
@@ -1070,6 +1048,73 @@ function PackageCard({
         <span>Setup {usd.format(plan.setupFeeUsd)} once</span>
       </span>
     </button>
+  );
+}
+
+/**
+ * Which twin a "Web OR Meta" card sells: website chat or the Meta bot.
+ *
+ * Exported so a test can render it on its own, as AgreementCopyLink is. While
+ * Meta is not sold on its own (catalog, META_SOLD_ALONE), the choice that
+ * would leave Meta as the clinic's only channel stays on screen, disabled,
+ * with one line saying why: the card's name still says "or Meta", and an
+ * option that silently vanished would read as a mistake.
+ */
+export function ChatChannelField({
+  card,
+  value,
+  onChange,
+}: {
+  card: PricingCard;
+  value: ChatChannel;
+  onChange: (choice: ChatChannel) => void;
+}) {
+  const closed = (choice: ChatChannel) =>
+    !META_SOLD_ALONE && sellsMetaAlone(planForCard(card, choice));
+  return (
+    <fieldset className="border-line mt-6 rounded-2xl border bg-white p-5">
+      <legend className="text-[15.6px] font-bold tracking-[0.04em] uppercase">
+        Which chat channel?
+      </legend>
+      <p className="text-muted mt-1.5 text-sm">
+        {card.name} includes one. Website chat goes live once its one-line
+        snippet is on your site. Instagram and Messenger go live as soon as
+        you connect them during setup; WhatsApp once your WhatsApp account
+        has a payment method on it, because Meta bills you directly for
+        WhatsApp messages.
+      </p>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        {CHAT_CHANNEL_CHOICES.map((option) => (
+          <label
+            key={option.id}
+            className={[
+              "flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors",
+              closed(option.id)
+                ? "border-line cursor-not-allowed opacity-50"
+                : value === option.id
+                  ? "border-red bg-red/[0.04] cursor-pointer"
+                  : "border-line hover:border-line-strong cursor-pointer",
+            ].join(" ")}
+          >
+            <input
+              type="radio"
+              name="chatChannelChoice"
+              checked={value === option.id}
+              disabled={closed(option.id)}
+              onChange={() => onChange(option.id)}
+              className="accent-red size-4 shrink-0"
+            />
+            <span className="text-sm font-semibold">{option.label}</span>
+          </label>
+        ))}
+      </div>
+      {CHAT_CHANNEL_CHOICES.some((option) => closed(option.id)) ? (
+        <p className="text-muted mt-3 text-xs">
+          On its own, Instagram, Messenger + WhatsApp waits for Meta to approve
+          our app, so this package is website chat for now.
+        </p>
+      ) : null}
+    </fieldset>
   );
 }
 

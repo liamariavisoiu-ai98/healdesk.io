@@ -331,14 +331,14 @@ COMMENT ON TABLE meta_inbound_messages IS
 DO $$
 BEGIN
   IF has_table_privilege('healdesk_app'::name, 'billing_requests'::regclass, 'DELETE') THEN
-    RAISE EXCEPTION 'healdesk_app can DELETE from billing_requests, which 0048 made undeletable.';
+    RAISE EXCEPTION 'healdesk_app can DELETE from billing_requests, which 0050 made undeletable.';
   END IF;
   IF has_column_privilege('healdesk_app'::name, 'billing_requests'::regclass, 'id', 'UPDATE')
      OR has_column_privilege('healdesk_app'::name, 'billing_requests'::regclass, 'clinic_id', 'UPDATE')
      OR has_column_privilege('healdesk_app'::name, 'billing_requests'::regclass, 'kind', 'UPDATE')
      OR has_column_privilege('healdesk_app'::name, 'billing_requests'::regclass, 'channel_key', 'UPDATE')
      OR has_column_privilege('healdesk_app'::name, 'billing_requests'::regclass, 'requested_at', 'UPDATE') THEN
-    RAISE EXCEPTION 'healdesk_app can UPDATE a billing_requests column 0048 froze.';
+    RAISE EXCEPTION 'healdesk_app can UPDATE a billing_requests column 0050 froze.';
   END IF;
   IF NOT (has_column_privilege('healdesk_app'::name, 'billing_requests'::regclass, 'next_attempt_at', 'UPDATE')
           AND has_column_privilege('healdesk_app'::name, 'billing_requests'::regclass, 'lease_until', 'UPDATE')
@@ -358,17 +358,17 @@ BEGIN
           AND has_column_privilege('healdesk_app'::name, 'entitlements'::regclass, 'pending_location_count', 'UPDATE')
           AND has_column_privilege('healdesk_app'::name, 'entitlements'::regclass, 'pending_location_charged_at', 'UPDATE')
           AND has_column_privilege('healdesk_app'::name, 'entitlements'::regclass, 'open_invoice_amount_cents', 'UPDATE')) THEN
-    RAISE EXCEPTION 'healdesk_app cannot UPDATE an entitlements column 0048 added for a runtime writer.';
+    RAISE EXCEPTION 'healdesk_app cannot UPDATE an entitlements column 0050 added for a runtime writer.';
   END IF;
   IF has_function_privilege('public', 'app_record_billing_request(text, text, text)', 'EXECUTE')
      OR has_function_privilege('public', 'app_due_billing_requests(timestamptz, integer, text[])', 'EXECUTE')
      OR has_function_privilege('public', 'app_clinic_for_deposit(uuid)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'PUBLIC can execute a definer 0048 added.';
+    RAISE EXCEPTION 'PUBLIC can execute a definer 0050 added.';
   END IF;
   IF NOT (has_function_privilege('healdesk_app', 'app_record_billing_request(text, text, text)', 'EXECUTE')
           AND has_function_privilege('healdesk_app', 'app_due_billing_requests(timestamptz, integer, text[])', 'EXECUTE')
           AND has_function_privilege('healdesk_app', 'app_clinic_for_deposit(uuid)', 'EXECUTE')) THEN
-    RAISE EXCEPTION 'healdesk_app cannot execute a definer 0048 added for it.';
+    RAISE EXCEPTION 'healdesk_app cannot execute a definer 0050 added for it.';
   END IF;
 END;
 $$;

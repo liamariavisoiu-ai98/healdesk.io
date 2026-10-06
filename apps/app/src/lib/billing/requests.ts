@@ -25,7 +25,7 @@ import type { TenantTx } from "@/lib/tenant";
  * or step-up with it, so either both commit or neither does, and no crash
  * between "the clinic answered" and "ask Stripe" can lose a plan start. The
  * request lands on the BILLING clinic through the definer
- * `app_record_billing_request` (drizzle/0048), which resolves it from the
+ * `app_record_billing_request` (drizzle/0050), which resolves it from the
  * caller's own tenant, so a location's transaction can record one and no
  * second transaction is opened. One request per (clinic, kind, channel): a
  * second call is a no-op that returns `recorded: false`.

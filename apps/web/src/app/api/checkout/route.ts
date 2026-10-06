@@ -1,13 +1,17 @@
 import {
   getPlan,
   isBillingInterval,
+  META_SOLD_ALONE,
   SIGNATURE_HEADER,
   TIMESTAMP_HEADER,
+  sellsMetaAlone,
   sign,
 } from "@healdesk/catalog";
 
 import { createCheckout, isBillingConfigured, isProductionDeployment } from "@/lib/billing";
 import { isCampaignCode } from "@/lib/attribution";
+import { demoSlugFromCookieHeader } from "@/lib/demo/attribution";
+import { getDemoSession } from "@/lib/demo/sessions";
 import { cohortCreditLive, findLeadById, markCheckoutStarted, normalizeEmail } from "@/lib/leads";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 import { gateState, refuseOtherEmail, refuseWithoutLink } from "@/lib/setup-gate";
@@ -130,6 +134,20 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
+  // Meta as the only channel waits for Meta's App Review (catalog,
+  // META_SOLD_ALONE). The checkout UI already disables that choice; this is
+  // the refusal a request from anywhere else meets, before Stripe is involved.
+  if (!META_SOLD_ALONE && sellsMetaAlone(plan)) {
+    return Response.json(
+      {
+        error:
+          "Instagram, Messenger + WhatsApp is not sold on its own until Meta approves our app. Choose Website, or a package with website chat or the phone.",
+        field: "plan",
+      },
+      { status: 422 },
+    );
+  }
+
   // The browser's spelling is replaced by the validated terms under the names
   // provisioning reads, so the paid path (via Session metadata) and the unpaid
   // path below deliver the same shape. The package id alone says which
@@ -186,6 +204,12 @@ export async function POST(request: Request): Promise<Response> {
   const claimedLead = typeof leadSource === "string" && leadSource ? await findLeadById(leadSource) : null;
   delete payload.campaign;
   delete payload.leadId;
+  // The personalised demo the buyer came from, from the cookie its "Book
+  // Onboarding" set, never from the body: a slug the browser sends is dropped.
+  // Kept only if the row exists, like the lead id above.
+  delete payload.demo;
+  const demoSlug = demoSlugFromCookieHeader(request.headers.get("cookie"));
+  const demo = demoSlug ? await getDemoSession(demoSlug) : null;
   const contactEmail = String(payload.contactEmail ?? "");
   // The founding-cohort credit is a fact about the lead row, never a claim
   // from the browser: offered by the Day 7 email and still inside its window.
@@ -193,6 +217,7 @@ export async function POST(request: Request): Promise<Response> {
     campaign,
     leadId: claimedLead?.id ?? null,
     offer: claimedLead && cohortCreditLive(claimedLead) ? ("cohort-setup" as const) : null,
+    demo: demo?.slug ?? null,
     setupRequestId: setupRequest?.id ?? null,
   };
 

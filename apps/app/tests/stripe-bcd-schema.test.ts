@@ -24,7 +24,7 @@ import {
 import { inTenant, seedClinic, seedConversation } from "./setup/factories";
 
 /**
- * drizzle/0048 (the Stripe build, S0), asserted: the billing-request ledger's
+ * drizzle/0050 (the Stripe build, S0), asserted: the billing-request ledger's
  * row-level security, privileges and CHECKs; the two definers it is written
  * and drained through, including that the recorder resolves a location's
  * billing clinic and that both hand the caller's tenant setting back; the
@@ -116,7 +116,7 @@ async function insertRequest(
   });
 }
 
-describeDb("drizzle/0048: the Stripe build's schema", () => {
+describeDb("drizzle/0050: the Stripe build's schema", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
@@ -575,7 +575,7 @@ describeDb("drizzle/0048: the Stripe build's schema", () => {
     const insert = sql.match(
       /INSERT INTO scheduled_jobs[\s\S]*?ON CONFLICT \(name\) DO NOTHING;/i,
     )?.[0];
-    expect(insert, "0048 seeds scheduled_jobs").toBeDefined();
+    expect(insert, "0050 seeds scheduled_jobs").toBeDefined();
     // ('name', 'cadence, with '' escapes', enabled)
     const row = /\(\s*'([a-z-]+)'\s*,\s*'(?:[^']|'')*'\s*,\s*(true|false)\s*\)/gi;
     const seeded = [...insert!.matchAll(row)].map((m) => [m[1]!, m[2]!.toLowerCase()]);

@@ -1,5 +1,9 @@
-import { findClinicalContent, forwardingInstructions, openRequiredSteps } from "@healdesk/catalog";
+import { CURRENT_BAA_VERSION, findClinicalContent, forwardingInstructions, openRequiredSteps } from "@healdesk/catalog";
+import { DrizzleQueryError, sql } from "drizzle-orm";
+import { DatabaseError } from "pg";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+
+import { unsafeDb } from "@/db";
 
 import {
   AgentConfigError,
@@ -11,7 +15,7 @@ import {
   validateAgentConfig,
 } from "@/lib/onboarding/agent-config";
 import { issueConnectionLink } from "@/lib/connections/links";
-import { goLive, goLivePreconditions } from "@/lib/onboarding/go-live";
+import { goLive, goLivePreconditions, refusalReason } from "@/lib/onboarding/go-live";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { applyBookingRequirementDefaults, applyBookingRequirementDefaultsFor } from "@/lib/onboarding/requirements";
 import { completeStep, readOnboarding, reopenStep } from "@/lib/onboarding/steps";
@@ -84,6 +88,29 @@ describe("open required steps", () => {
   });
 });
 
+describe("a go-live refusal reaches the console in the database's words", () => {
+  test("the pg error under drizzle's wrapper is the reason, hint included", () => {
+    // drizzle-orm 0.45's own message is the failed query and its parameters.
+    // Before refusalReason walked to `.cause`, that is what the console showed.
+    const refusal = Object.assign(
+      new DatabaseError(
+        "Clinic c1 is bound to business associate agreement version 1.0.0, which has been superseded; refusing to mark it production.",
+        0,
+        "error",
+      ),
+      { code: "23514", hint: "The practice accepts the current agreement first." },
+    );
+    const wrapped = new DrizzleQueryError("select app_mark_clinic_production($1::uuid) as signed", ["c1"], refusal);
+    expect(wrapped.message).toMatch(/^Failed query/);
+    expect(refusalReason(wrapped)).toBe(`${refusal.message} The practice accepts the current agreement first.`);
+  });
+
+  test("an error with no SQLSTATE in its chain keeps its own message", () => {
+    expect(refusalReason(new Error("connect ECONNREFUSED 127.0.0.1:5432"))).toBe("connect ECONNREFUSED 127.0.0.1:5432");
+    expect(refusalReason("not an error")).toBe("Refused.");
+  });
+});
+
 describeDb("onboarding", () => {
   beforeAll(async () => {
     await runMigrations();
@@ -153,8 +180,8 @@ describeDb("onboarding", () => {
     );
     await getMigratorPool().query(
       `insert into baa_acceptances (organization_id, document_version, document_hash, rendered_text, variables, assent_label, accepted_by_name, accepted_by_email, accepted_at, bound_at)
-       values ($1, '1.0.0', repeat('b', 64), 'BAA', '{}'::jsonb, 'I agree', 'Alex', 'alex@golive.test', now(), now())`,
-      [organizationId],
+       values ($1, $2, repeat('b', 64), 'BAA', '{}'::jsonb, 'I agree', 'Alex', 'alex@golive.test', now(), now())`,
+      [organizationId, CURRENT_BAA_VERSION],
     );
     await withTenant({ clinicId, actor: ACTOR }, async (tx) => {
       await setPhoneSettings(tx, { phoneSystemType: "landline", carrier: "verizon", callRouting: "conditional", synthflowNumberE164: "+14155550199" });
@@ -187,6 +214,61 @@ describeDb("onboarding", () => {
     expect(events.rows[0].n).toBe(1);
 
     expect((await goLive(clinicId, { label: "ops@healdesk.test" })).status).toBe("refused");
+  });
+
+  test("go-live refuses an account on a superseded agreement, in the console's words and the database's", async () => {
+    const { clinicId, organizationId } = await seedClinic("superseded");
+    await getMigratorPool().query(
+      `update clinics
+          set is_covered_entity = false,
+              opening_hours = '{"mon":[["09:00","17:00"]]}'::jsonb,
+              call_routing_confirmed_at = now(),
+              agent_approved_at = now(),
+              onboarding = jsonb_build_object(
+                'hours_confirmed', now()::text, 'phone_type_confirmed', now()::text,
+                'call_routing_chosen', now()::text, 'covered_entity_confirmed', now()::text,
+                'agent_script_approved', now()::text, 'forwarding_configured', now()::text,
+                'test_call_passed', now()::text, 'booking_requirements_confirmed', now()::text)
+        where id = $1`,
+      [clinicId],
+    );
+    await getMigratorPool().query(
+      `insert into baa_acceptances (organization_id, document_version, document_hash, rendered_text, variables, assent_label, accepted_by_name, accepted_by_email, accepted_at, bound_at)
+       values ($1, '1.0.0', repeat('c', 64), 'BAA', '{}'::jsonb, 'I agree', 'Alex', 'alex@superseded.test', now() - interval '30 days', now() - interval '30 days')`,
+      [organizationId],
+    );
+
+    // Everything else is confirmed, so the agreement is the one thing missing.
+    const superseded = `The agreement in effect is BAA v1.0.0, which has been superseded. The practice must accept v${CURRENT_BAA_VERSION} before go-live.`;
+    const before = (await listClinics()).find((c) => c.id === clinicId)!;
+    expect(before.baaVersion).toBe("1.0.0");
+    expect(goLivePreconditions(before)).toEqual({ ok: false, missing: [superseded] });
+    expect(await goLive(clinicId, { label: "ops@healdesk.test" })).toEqual({ status: "refused", reason: "Not ready.", missing: [superseded] });
+
+    // The database refuses on its own, and its sentence, not drizzle's
+    // "Failed query", is what the console would show.
+    const refused = await unsafeDb
+      .execute(sql`select app_mark_clinic_production(${clinicId}::uuid) as signed`)
+      .then(() => null, (error: unknown) => error);
+    expect(refused).toBeInstanceOf(DrizzleQueryError);
+    const reason = refusalReason(refused);
+    expect(reason).toContain("version 1.0.0, which has been superseded; refusing to mark it production.");
+    expect(reason).toContain("The practice accepts the current agreement first");
+    expect(reason).not.toMatch(/Failed query/);
+    expect((await listClinics()).find((c) => c.id === clinicId)!.dataClassification).toBe("synthetic");
+
+    // Once the practice has accepted the current version and it is bound, it
+    // is the agreement in effect and go-live copies its date. Bound here as
+    // the migrator: the re-acceptance path is a portal-build item, and
+    // app_bind_agreement refuses a second agreement for an organisation.
+    const { rows } = await getMigratorPool().query<{ accepted_at: Date }>(
+      `insert into baa_acceptances (organization_id, document_version, document_hash, rendered_text, variables, assent_label, accepted_by_name, accepted_by_email, accepted_at, bound_at)
+       values ($1, $2, repeat('d', 64), 'BAA', '{}'::jsonb, 'I agree', 'Alex', 'alex@superseded.test', now(), now())
+       returning accepted_at`,
+      [organizationId, CURRENT_BAA_VERSION],
+    );
+    const live = await goLive(clinicId, { label: "ops@healdesk.test" });
+    expect(live, JSON.stringify(live)).toEqual({ status: "live", baaSignedAt: rows[0]!.accepted_at });
   });
 
   test("the expiry fallback stamps source 'defaults' once the setup link has expired unspent", async () => {

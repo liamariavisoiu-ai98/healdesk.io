@@ -1,13 +1,4 @@
-import {
-  getPlan,
-  getPricingCard,
-  isBillingInterval,
-  isChatChannel,
-  planForCard,
-  SIGNATURE_HEADER,
-  TIMESTAMP_HEADER,
-  sign,
-} from "@healdesk/catalog";
+import { getPlan, SIGNATURE_HEADER, TIMESTAMP_HEADER, sign } from "@healdesk/catalog";
 import type Stripe from "stripe";
 
 import { APP_MARKER, isBillingConfigured, stripeClient } from "@/lib/billing";
@@ -18,29 +9,34 @@ import { updateSetupRequest } from "@/lib/setup-requests";
  * POST /api/webhooks/stripe — every Stripe event we act on, verified here and
  * relayed to apps/app.
  *
- * Two kinds of event, two destinations, and two separate moments:
+ * Three moments:
  *
- *   - `checkout.session.completed` (and its async twin) RECORDS the account,
- *     via /api/provision: apps/app creates the clinic in the `provisioning`
- *     billing state, with nothing switched on yet. This is the ONLY place an
- *     account is created from in the paid flow. Not the success URL: a buyer
- *     who closes the tab after paying still gets their account, and a
- *     stranger who hand-crafts a success URL gets nothing.
- *   - Everything in LIFECYCLE_EVENTS — the first invoice paying, renewals,
- *     failed cards, plan changes, pauses, cancellations, chargebacks — goes to
+ *   - `checkout.session.completed` (and its async twin) closes the funnel in
+ *     the lead store (the conversion, and the setup link spent) and creates
+ *     nothing. A completed Session is not money cleared.
+ *   - The FIRST invoice's `invoice.paid` (`billing_reason:
+ *     "subscription_create"`) creates the account: it is relayed to
+ *     /api/provision as `{ ref, idempotencyKey: <subscription id> }`, and
+ *     apps/app provisions from the checkout intent it stored when Pay was
+ *     pressed (plan C1, design D2). Only then is the event itself forwarded,
+ *     so the clinic it activates exists. The account is made on the first
+ *     paid invoice, as docs/v1-product-spec.md ("Stage 1, payment") says, and
+ *     never on the success URL: a buyer who closes the tab still gets it, and
+ *     a stranger who hand-crafts that URL gets nothing.
+ *   - Everything else in LIFECYCLE_EVENTS (renewals, failed cards, plan
+ *     changes, cancellations, refunds, chargebacks) goes to
  *     /api/billing/events as the full verified event, where apps/app applies
- *     it to the clinic's entitlements (apps/app/src/lib/billing/events.ts).
- *     The first invoice's `invoice.paid` (`billing_reason:
- *     "subscription_create"`) is what moves the clinic from `provisioning` to
- *     `active`. Service activates only on that paid invoice, never on the
- *     checkout Session alone (docs/v1-product-spec.md, "Stage 1, payment").
- *     The spec words that as the account being created on the first paid
- *     invoice; here the record exists from checkout completion, but it sits
- *     in `provisioning` with nothing switched on until the invoice is paid.
- *     A pause is a FIELD on `customer.subscription.updated`
- *     (`pause_collection`), not a `customer.subscription.paused` event: that
- *     event only fires when a trial ends without a card, and there is no
- *     trial, so it is not subscribed to and not relayed.
+ *     it (apps/app/src/lib/billing/events.ts). A pause is a FIELD on
+ *     `customer.subscription.updated` (`pause_collection`), not a
+ *     `customer.subscription.paused` event: that event only fires when a
+ *     trial ends without a card, and there is no trial, so it is not
+ *     subscribed to and not relayed.
+ *
+ * No branch reads a purchase out of Session metadata any more. That path
+ * carried the buyer's details through Stripe and provisioned on a completed
+ * Session; it was removed with the move to intents, when no live Session
+ * could still carry it (production checkout was closed, by invitation and by
+ * an unset HEALDESK_APP_URL, for the whole of the 24 hours before).
  *
  * ## Stripe retries EVERY non-2xx, for up to three days
  *
@@ -87,11 +83,10 @@ const MAX_BODY_BYTES = 1_000_000;
 type EventType = Stripe.Event["type"];
 
 /**
- * Checkout completion RECORDS the account, in the `provisioning` billing state.
- * Nothing is switched on by these events: service activates only on the first
- * paid invoice, which arrives as `invoice.paid` among LIFECYCLE_EVENTS.
+ * Checkout completion closes the funnel in the lead store and creates
+ * nothing: the account is made on the first paid invoice (see the header).
  */
-const PROVISIONING_EVENTS: ReadonlySet<EventType> = new Set<EventType>([
+const COMPLETION_EVENTS: ReadonlySet<EventType> = new Set<EventType>([
   "checkout.session.completed",
   "checkout.session.async_payment_succeeded",
 ]);
@@ -115,6 +110,10 @@ const LIFECYCLE_EVENTS: ReadonlySet<EventType> = new Set<EventType>([
   "invoice.payment_action_required",
   "customer.subscription.updated",
   "customer.subscription.deleted",
+  // Refunds (the first-period guarantee; the setup fee is never refunded).
+  // apps/app records what it does not handle yet as ignored, so relaying it
+  // ahead of Package C's handler loses nothing.
+  "charge.refunded",
   "charge.dispute.created",
 ]);
 
@@ -188,8 +187,8 @@ export async function POST(request: Request): Promise<Response> {
 
   const relay = { appUrl, secret: provisionSecret };
 
-  if (PROVISIONING_EVENTS.has(event.type)) {
-    return provision(event, relay);
+  if (COMPLETION_EVENTS.has(event.type)) {
+    return recordCompletion(event);
   }
   if (ABANDONMENT_EVENTS.has(event.type)) {
     const session = event.data.object as Stripe.Checkout.Session;
@@ -199,6 +198,11 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ received: true });
   }
   if (LIFECYCLE_EVENTS.has(event.type)) {
+    const first = firstInvoiceOf(event);
+    if (first) {
+      const provisioned = await provisionFromIntent(event, first, relay);
+      if (provisioned) return provisioned;
+    }
     return forwardLifecycle(event, relay);
   }
   return Response.json({ received: true });
@@ -207,117 +211,91 @@ export async function POST(request: Request): Promise<Response> {
 type Relay = { appUrl: string; secret: string };
 
 // -----------------------------------------------------------------------------
-// Provisioning
+// Checkout completion, and the first paid invoice
 // -----------------------------------------------------------------------------
 
-async function provision(event: Stripe.Event, relay: Relay): Promise<Response> {
+/**
+ * A completed Session closes the funnel in the lead store, and nothing more.
+ * Gated on `status`, never on `payment_status`: a delayed method completes the
+ * Session with the invoice still open, and "paid" is the first invoice's
+ * business, which is where the account is made.
+ */
+async function recordCompletion(event: Stripe.Event): Promise<Response> {
   const session = event.data.object as Stripe.Checkout.Session;
-
   // One Stripe account serves healdesk and scalabid, and the endpoint's
-  // event-type filter does not separate them. Anything without our marker is
-  // someone else's traffic: acknowledge so it never counts against this
-  // endpoint's failure rate, but say so, a healdesk sale arriving without
-  // metadata would be money taken with no account, and that must not be a
-  // silent 200 the way the payment_status trap was.
+  // event-type filter does not separate them.
   if (session.metadata?.app !== APP_MARKER) {
-    console.warn(
-      "[healdesk] stripe session without healdesk marker; ignoring",
-      event.id,
-      session.id,
-    );
     return Response.json({ received: true, skipped: "not-healdesk" });
   }
-
-  /**
-   * Gate on `status`, NEVER on `payment_status`.
-   *
-   * `payment_status` is the trap this whole flow was rebuilt around: it is
-   * `paid | unpaid | no_payment_required`, and which one you get depends on
-   * the payment method and on `payment_method_collection` at session
-   * creation. A card charged on the spot reports `paid`; a delayed method
-   * (a bank debit) completes the Session with the invoice still open and
-   * reports `unpaid` until it settles. A `payment_status !== "paid"` guard
-   * therefore looks correct, passes review, and silently drops every
-   * delayed-method signup — and it is not even the right question, because
-   * "has the first invoice been paid" is answered by `invoice.paid` in
-   * apps/app, which is what moves the clinic from `provisioning` to
-   * `active`. Recording the account only needs to know the buyer finished
-   * checkout; nothing is switched on until that invoice is paid.
-   *
-   * `status === "complete"` means exactly that, under every setting.
-   */
   if (session.status !== "complete") {
-    console.warn(
-      "[healdesk] stripe session not complete; ignoring",
-      event.id,
-      session.status,
-    );
     return Response.json({ received: true, skipped: session.status });
   }
+  await recordConversion(session);
+  await markSetupLinkUsed(session);
+  return Response.json({ received: true });
+}
 
+type FirstInvoice = { ref: string; subscriptionId: string; customerId: string | undefined };
+
+/**
+ * The purchase a paid first invoice completes, or null for every other event:
+ * `invoice.paid` with `billing_reason: "subscription_create"`, our marker,
+ * and an intent ref on the subscription's metadata (the invoice's frozen copy
+ * of it, wherever the pinned API version keeps it).
+ */
+function firstInvoiceOf(event: Stripe.Event): FirstInvoice | null {
+  if (event.type !== "invoice.paid") return null;
+  const invoice = event.data.object;
+  if (invoice.billing_reason !== "subscription_create") return null;
+  const legacy = invoice as {
+    subscription?: string | { id: string } | null;
+    subscription_details?: { metadata?: Stripe.Metadata | null } | null;
+  };
+  const metadata = invoice.parent?.subscription_details?.metadata ?? legacy.subscription_details?.metadata ?? null;
+  if (metadata?.app !== APP_MARKER || !metadata.ref) return null;
+  const subscriptionId = refId(invoice.parent?.subscription_details?.subscription ?? legacy.subscription);
+  if (!subscriptionId) return null;
+  return { ref: metadata.ref, subscriptionId, customerId: refId(invoice.customer) };
+}
+
+/**
+ * Make the account from the intent, before the invoice event itself is
+ * forwarded. Returns the response to send when the event must NOT be
+ * forwarded yet (provisioning unreachable or failing in a way a retry can
+ * fix: Stripe redelivers, and the event goes on once the account exists), or
+ * null to forward it.
+ */
+async function provisionFromIntent(event: Stripe.Event, first: FirstInvoice, relay: Relay): Promise<Response | null> {
   const body = JSON.stringify({
-    ...provisionRequestFromMetadata(session.metadata),
-    // Stamped here, from the verified event, never from the browser. Returning
-    // a prior result for a caller-chosen key would leak another clinic's ids.
-    // The SESSION id, not the event id: every event about this purchase carries
-    // the same `cs_…`, so this dedupes the purchase rather than the delivery.
-    idempotencyKey: session.id,
-    // The ids every later lifecycle event will be matched back to the clinic
-    // with. From the verified Session for the same reason as the key above:
-    // a browser-supplied subscription id would let anyone attach their
-    // account to somebody else's paid subscription.
-    stripeCustomerId: refId(session.customer),
-    stripeSubscriptionId: refId(session.subscription),
+    ref: first.ref,
+    // The SUBSCRIPTION id, stamped here from the verified event and never
+    // from a browser: every redelivery of this purchase carries the same one,
+    // so it dedupes the purchase, not the delivery.
+    idempotencyKey: first.subscriptionId,
+    stripeCustomerId: first.customerId,
+    stripeSubscriptionId: first.subscriptionId,
   });
-
   const result = await relayTo("/api/provision", body, relay);
-
   switch (result.kind) {
     case "ok":
-      // 200 (replayed) and 201 (created) are both success. The idempotency
-      // ledger in apps/app is what makes a duplicate delivery a no-op rather
-      // than a second account, so retries land here harmlessly.
-      //
-      // Close the funnel loop: the lead becomes a customer, with the plan and
-      // its monthly recurring revenue to healdesk, so the cold-email question
-      // ("which campaign paid") has an answer in the lead store. Best-effort
-      // and after the account is recorded — a lead-store outage must never
-      // fail a provisioning. This marks the lead converted when checkout
-      // completes, which for a delayed payment method is before the first
-      // invoice is paid and before the clinic is `active`.
-      await recordConversion(session);
-      await markSetupLinkUsed(session);
-      return Response.json({ received: true });
-
+      // 200 (replayed) and 201 (created) are both success.
+      return null;
     case "unreachable":
-      console.error(
-        "[healdesk] provisioning unreachable from stripe webhook",
-        event.id,
-        session.id,
-        result.error,
-      );
+      console.error("[healdesk] provisioning unreachable from stripe webhook", event.id, result.error);
       return new Response("Provisioning unreachable.", { status: 500 });
-
     case "retryable":
-      console.error(
-        "[healdesk] provisioning failed, retryable",
-        event.id,
-        result.status,
-      );
+      console.error("[healdesk] provisioning failed, retryable", event.id, result.status);
       return new Response("Provisioning failed.", { status: 500 });
-
     case "rejected":
-      // 400/422: deterministic, built from metadata we wrote ourselves, and so
-      // identical on all three days of retries. Acknowledge to save the
-      // endpoint, but this is a completed checkout, and usually money taken,
-      // with no account, so it must be the loudest line in the file. Never
-      // echo apps/app's error body: the reader here is the Stripe Dashboard
-      // event log.
-      console.error(
-        "[healdesk] PROVISIONING REJECTED, paid customer has no account",
-        { event: event.id, session: session.id, status: result.status },
-      );
-      return Response.json({ received: true, provisioned: false });
+      // Deterministic, so identical on every retry. Money taken with no
+      // account: apps/app has already marked the intent and told ops. The
+      // event still goes on, so it parks against the subscription and
+      // replays if the account is made by hand. Never echo apps/app's body.
+      console.error("[healdesk] PROVISIONING REJECTED, paid customer has no account", {
+        event: event.id,
+        status: result.status,
+      });
+      return null;
   }
 }
 
@@ -442,6 +420,10 @@ function markerOf(event: Stripe.Event): string | null {
     case "customer.subscription.updated":
     case "customer.subscription.deleted":
       return event.data.object.metadata?.app ?? null;
+    case "charge.refunded":
+      // A subscription's charge usually carries no metadata of its own, so
+      // this is mostly null, and apps/app finds the clinic by customer.
+      return event.data.object.metadata?.app ?? null;
     case "charge.dispute.created": {
       // Only present once expanded, which happens after this check; a dispute
       // is therefore always forwarded, and apps/app decides.
@@ -512,71 +494,6 @@ function refId(
 ): string | undefined {
   if (!value) return undefined;
   return typeof value === "string" ? value : value.id;
-}
-
-/**
- * Rebuild the provisioning request from Stripe metadata.
- *
- * Metadata values are ALWAYS strings, and provisioning, as apps/app is
- * written today, requires `averageTreatmentValueUsd` to be a number on every
- * signup whose `attributionMode` is "estimated". Spreading the metadata
- * object straight through would 422 each of those after checkout completed,
- * so the coercion below stays for as long as a Session can carry the field,
- * including Sessions already in flight when the field stops being sent.
- *
- * Both fields exist for revenue attribution, which is phase two, not v1. V1
- * reports booked value, computed from the clinic's own configured service
- * prices, and never revenue (docs/v1-product-spec.md, "What v1 can prove, and
- * what it cannot"). /api/checkout still forwards them only because apps/app
- * provisioning still refuses a signup without `attributionMode`.
- *
- * `billingInterval` is checked against the catalog rather than passed
- * through as whatever string was stored: provisioning validates it too, but a
- * bad value there is a 422 on a paid sale, and the only way one gets into the
- * metadata is a bug in createCheckout(). Dropping an unrecognised value falls
- * back to provisioning's own default (monthly), which is a wrong allowance
- * that support can fix, rather than no account at all.
- *
- * A Session created before 5 October 2026 names a "Web OR Meta" package by
- * its old id — now the id of the pricing card both twins are sold from — with
- * the chat channel in `chatChannelChoice` beside it. That pair is translated
- * to the twin it meant, because apps/app no longer knows the old id and would
- * refuse a sale that has already been paid for.
- */
-export function provisionRequestFromMetadata(
-  metadata: Stripe.Metadata,
-): Record<string, unknown> {
-  const {
-    app: _app,
-    // Attribution rides on the Session for the lead store, never for apps/app.
-    campaign: _campaign,
-    leadId: _leadId,
-    offer: _offer,
-    setupRequest: _setupRequest,
-    averageTreatmentValueUsd,
-    billingInterval,
-    chatChannelChoice,
-    ...rest
-  } = metadata as Record<string, string | undefined>;
-
-  const request: Record<string, unknown> = { ...rest };
-
-  const legacyCard =
-    rest.plan !== undefined && !getPlan(rest.plan) ? getPricingCard(rest.plan) : undefined;
-  if (legacyCard) {
-    request.plan = planForCard(
-      legacyCard,
-      isChatChannel(chatChannelChoice) ? chatChannelChoice : "web",
-    ).id;
-  }
-
-  if (averageTreatmentValueUsd !== undefined) {
-    request.averageTreatmentValueUsd = Number(averageTreatmentValueUsd);
-  }
-  if (isBillingInterval(billingInterval)) {
-    request.billingInterval = billingInterval;
-  }
-  return request;
 }
 
 /**

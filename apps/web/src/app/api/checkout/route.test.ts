@@ -49,19 +49,37 @@ const VALID = {
   agreementId: "6f1f7c1e-2f0e-4d2b-9a0a-3f5e2c1d4b7a",
 } as const;
 
-describe("POST /api/checkout validates the billing terms", () => {
-  const fetchMock = vi.fn(
-    async (_url: URL | RequestInfo, _init?: RequestInit) =>
-      new Response(JSON.stringify({ clinicSlug: "radiance" }), {
-        status: 201,
-        headers: { "Content-Type": "application/json" },
-      }),
-  );
+/**
+ * apps/app, as the purchase routes see it: the intent answers with a ref and
+ * the success URL, and provisioning (the development path) with the clinic.
+ */
+async function appAnswers(url: URL | RequestInfo, _init?: RequestInit): Promise<Response> {
+  const path = new URL(String(url)).pathname;
+  const json =
+    path === "/api/checkout/intents"
+      ? {
+          ref: "11111111-2222-4333-8444-555555555555",
+          attempt: 1,
+          previousOpenSessionId: null,
+          successUrl: "http://localhost:3001/welcome?h=11111111-2222-4333-8444-555555555555&cs={CHECKOUT_SESSION_ID}",
+        }
+      : { clinicSlug: "radiance" };
+  return new Response(JSON.stringify(json), { status: 201, headers: { "Content-Type": "application/json" } });
+}
 
-  /** The body the route signed and forwarded on its n-th call to apps/app. */
+/** The bodies sent to one apps/app path, in order. */
+function sentTo(mock: ReturnType<typeof vi.fn>, path: string): Record<string, unknown>[] {
+  return mock.mock.calls
+    .filter(([url]) => new URL(String(url)).pathname === path)
+    .map(([, init]) => JSON.parse(String((init as RequestInit | undefined)?.body)) as Record<string, unknown>);
+}
+
+describe("POST /api/checkout validates the billing terms", () => {
+  const fetchMock = vi.fn(appAnswers);
+
+  /** The n-th purchase the route handed apps/app as a checkout intent. */
   function forwarded(call = 0): Record<string, unknown> {
-    const init = fetchMock.mock.calls[call]?.[1];
-    return JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return sentTo(fetchMock, "/api/checkout/intents")[call]!;
   }
 
   beforeEach(() => {
@@ -173,13 +191,7 @@ describe("POST /api/checkout validates the billing terms", () => {
  * deployment ever runs under another NODE_ENV.
  */
 describe("POST /api/checkout never provisions without payment in production", () => {
-  const fetchMock = vi.fn(
-    async (_url: URL | RequestInfo, _init?: RequestInit) =>
-      new Response(JSON.stringify({ clinicSlug: "radiance" }), {
-        status: 201,
-        headers: { "Content-Type": "application/json" },
-      }),
-  );
+  const fetchMock = vi.fn(appAnswers);
 
   beforeEach(() => {
     vi.stubEnv("HEALDESK_PROVISION_SECRET", "test-secret");
@@ -229,13 +241,7 @@ describe("POST /api/checkout never provisions without payment in production", ()
  * forged, expired and used links are refused, before apps/app is called.
  */
 describe("POST /api/checkout, while the purchase is by setup link", () => {
-  const fetchMock = vi.fn(
-    async (_url: URL | RequestInfo, _init?: RequestInit) =>
-      new Response(JSON.stringify({ clinicSlug: "radiance" }), {
-        status: 201,
-        headers: { "Content-Type": "application/json" },
-      }),
-  );
+  const fetchMock = vi.fn(appAnswers);
 
   beforeEach(() => {
     vi.stubEnv("HEALDESK_PROVISION_SECRET", "test-secret");
@@ -335,8 +341,8 @@ describe("POST /api/checkout, while the purchase is by setup link", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("a valid link pays only under the address it was sent to", async () => {
-    const { token } = await invite("Alex@Example.com");
+  test("a valid link pays only under the address it was sent to, and the intent carries it", async () => {
+    const { id, token } = await invite("Alex@Example.com");
     const other = await postWith(token, { ...VALID, contactEmail: "someone@else.com" });
     expect(other.status).toBe(422);
     expect((await refusal(other)).field).toBe("contactEmail");
@@ -344,6 +350,12 @@ describe("POST /api/checkout, while the purchase is by setup link", () => {
 
     const own = await postWith(token, { ...VALID, contactEmail: "alex@example.com" });
     expect(own.status).toBe(201);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [intent] = sentTo(fetchMock, "/api/checkout/intents");
+    expect(intent).toMatchObject({ inviteRef: id, contactEmail: "alex@example.com" });
+    expect(intent!.nonceHash).toMatch(/^[0-9a-f]{64}$/);
+    // The development path provisions from that intent, as the webhook would.
+    expect(sentTo(fetchMock, "/api/provision")).toEqual([
+      { ref: "11111111-2222-4333-8444-555555555555", idempotencyKey: "dev:11111111-2222-4333-8444-555555555555" },
+    ]);
   });
 });

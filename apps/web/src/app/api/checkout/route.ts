@@ -1,13 +1,12 @@
-import {
-  getPlan,
-  isBillingInterval,
-  SIGNATURE_HEADER,
-  TIMESTAMP_HEADER,
-  sign,
-} from "@healdesk/catalog";
+import { createHash, randomBytes } from "node:crypto";
+
+import { getPlan, isBillingInterval, WELCOME_NONCE_COOKIE } from "@healdesk/catalog";
+import { NextResponse } from "next/server";
 
 import { createCheckout, isBillingConfigured, isProductionDeployment } from "@/lib/billing";
 import { isCampaignCode } from "@/lib/attribution";
+import { postToApp, welcomeCookieOptions, type AppAnswer } from "@/lib/checkout/app-client";
+import { LEGAL_VERSION } from "@/lib/legal";
 import { cohortCreditLive, findLeadById, markCheckoutStarted, normalizeEmail } from "@/lib/leads";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 import { gateState, refuseOtherEmail, refuseWithoutLink } from "@/lib/setup-gate";
@@ -16,12 +15,14 @@ import { readCookie, SETUP_COOKIE } from "@/lib/setup-link";
 /**
  * POST /api/checkout, start a purchase.
  *
- * The browser's checkout step calls this, once the buyer has signed the BAA;
- * the Stripe webhook never does. It validates the billing terms and hands the
- * buyer to a Stripe-hosted Checkout Session, and nothing is created in
- * apps/app here. The account is recorded when that Session completes and is
- * switched on only when the first invoice is paid, both in
- * app/api/webhooks/stripe (src/lib/billing.ts explains the two steps).
+ * The browser's checkout step calls this, once the buyer has signed the
+ * agreement; the Stripe webhook never does. It validates the billing terms,
+ * hands the purchase to apps/app as a checkout intent (which checks everything
+ * provisioning will), and only then sends the buyer to a Stripe-hosted
+ * Checkout Session that carries the intent's ref. The account is made on the
+ * first paid invoice, from that intent, in app/api/webhooks/stripe
+ * (src/lib/billing.ts explains it), and Stripe brings the buyer back to
+ * apps/app's /welcome, which this response's nonce cookie lets in.
  *
  * The marketing site never talks to the product database. What it sends is
  * signed and carried to apps/app, which owns every write. That keeps exactly
@@ -196,19 +197,66 @@ export async function POST(request: Request): Promise<Response> {
     setupRequestId: setupRequest?.id ?? null,
   };
 
-  // Paid path: hand off to Stripe. The webhook records the account when the
-  // Session completes, and the first paid invoice switches it on.
+  /**
+   * The intent: the purchase, stored by apps/app before Stripe sees anything
+   * (design D1). apps/app runs provisioning's own validation and checks the
+   * agreement is unbound and signed by this address, so a refusal here costs
+   * the buyer nothing. The nonce binds /welcome to this browser: its hash goes
+   * into the intent, the nonce itself into a cookie only this browser holds.
+   */
+  // Production without Stripe keys has nothing to do but refuse, and must do
+  // it before apps/app is asked for anything (the guard below says why).
+  if (!isBillingConfigured() && isProductionDeployment()) {
+    console.error(
+      "[healdesk] checkout reached the unpaid development path in production; refusing (is STRIPE_SECRET_KEY set?)",
+    );
+    return Response.json(
+      { error: "Checkout is unavailable right now. Nothing has been charged. Please try again later." },
+      { status: 503 },
+    );
+  }
+
+  const nonce = randomBytes(24).toString("base64url");
+  const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
+  const saved = await postToApp(
+    "/api/checkout/intents",
+    {
+      ...payload,
+      plan: plan.id,
+      contactEmail,
+      inviteRef: setupRequest?.id ?? null,
+      nonceHash: createHash("sha256").update(nonce).digest("hex"),
+      profileStatus: "none",
+      // The terms tick-box, as accepted: which text, when, and from where.
+      terms: { version: LEGAL_VERSION, acceptedAt: new Date().toISOString(), ip: forwardedFor },
+    },
+    { target, secret },
+  );
+  const intent = intentFrom(saved);
+  if (!intent.ok) return intent.response;
+
+  // Paid path: hand off to Stripe. The webhook makes the account from the
+  // intent once the first invoice is paid.
   if (isBillingConfigured()) {
     try {
       const checkout = await createCheckout({
         plan,
         interval: chosenInterval,
-        clinicName: String(payload.clinicName ?? ""),
         contactEmail,
-        provisionPayload: payload,
+        intent: intent.value,
         attribution,
       });
       if (checkout.kind === "redirect") {
+        // Which Session this attempt opened, so the next press of Pay can
+        // expire it. Best effort: without it, /welcome asks Stripe instead.
+        const recorded = await postToApp(
+          "/api/checkout/intents/session",
+          { ref: intent.value.ref, attempt: intent.value.attempt, sessionId: checkout.sessionId },
+          { target, secret },
+        );
+        if (!recorded.reached || recorded.status !== 200) {
+          console.warn("[healdesk] checkout session not recorded on the intent; /welcome will ask Stripe");
+        }
         // The funnel's "checkout_started" is the Session existing, not the
         // button click: a lead row is created here if the demo never made one.
         await markCheckoutStarted({
@@ -220,12 +268,18 @@ export async function POST(request: Request): Promise<Response> {
           campaign,
           leadId: attribution.leadId,
         });
-        return Response.json({ checkoutUrl: checkout.url }, { status: 200 });
+        const response = NextResponse.json({ checkoutUrl: checkout.url }, { status: 200 });
+        response.cookies.set(
+          WELCOME_NONCE_COOKIE,
+          nonce,
+          welcomeCookieOptions(new URL(request.url).hostname, intent.value.successUrl),
+        );
+        return response;
       }
     } catch (error) {
       console.error("[healdesk] could not start checkout", error);
       return Response.json(
-        { error: "We couldn't start checkout. Please try again." },
+        { error: "We couldn't start checkout. Nothing has been charged. Please try again." },
         { status: 502 },
       );
     }
@@ -239,7 +293,7 @@ export async function POST(request: Request): Promise<Response> {
    * left to do would be to create an account nobody paid for. On any
    * production deployment (NODE_ENV or VERCEL_ENV "production", which covers
    * Vercel previews and a local `next start` too) that is refused before
-   * anything is sent to apps/app, loudly in the log and plainly to the buyer.
+   * anything is provisioned, loudly in the log and plainly to the buyer.
    * `next dev` and the test runner are the only places the path below runs.
    */
   if (isProductionDeployment()) {
@@ -252,41 +306,64 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  // Unpaid development path: provisioning without payment, on purpose, keyed
-  // on the agreement, which is already unique per signature. Note the colon:
-  // an underscore would survive the audit log's uuid stripper and trip its
-  // PHI assertion on some ids and not others.
-  const body = JSON.stringify({
-    ...payload,
-    idempotencyKey: `agr:${String(payload.agreementId ?? "")}`,
-  });
-
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-
-  let response: Response;
-  try {
-    response = await fetch(new URL("/api/provision", target), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        [TIMESTAMP_HEADER]: timestamp,
-        [SIGNATURE_HEADER]: sign(body, timestamp, secret),
-      },
-      body,
-    });
-  } catch (error) {
-    console.error("[healdesk] provisioning unreachable", error);
+  // Unpaid development path: provision from the intent at once, exactly as
+  // the webhook would after payment, keyed on the intent. Note the colon: an
+  // underscore would survive the audit log's uuid stripper and trip its PHI
+  // assertion on some ids and not others.
+  const provisioned = await postToApp(
+    "/api/provision",
+    { ref: intent.value.ref, idempotencyKey: `dev:${intent.value.ref}` },
+    { target, secret },
+  );
+  if (!provisioned.reached) {
+    console.error("[healdesk] provisioning unreachable", provisioned.error);
     return Response.json(
       { error: "We couldn't finish setting up your account. Please try again." },
       { status: 502 },
     );
   }
-
   // Pass the product's own validation messages through. They name the field
   // that was wrong, which is what the form needs to highlight it.
-  const answer = await response.text();
-  return new Response(answer, {
-    status: response.status,
+  return new Response(provisioned.text, {
+    status: provisioned.status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+type StoredIntent = { ref: string; attempt: number; successUrl: string; previousOpenSessionId: string | null };
+
+/**
+ * apps/app's answer to the intent, or the response to send the browser
+ * instead. Its own refusals (a field that is wrong, a setup link already
+ * used) pass through with their field, so the form can point at it; anything
+ * else is "try again", with nothing charged.
+ */
+function intentFrom(answer: AppAnswer): { ok: true; value: StoredIntent } | { ok: false; response: Response } {
+  if (!answer.reached) {
+    console.error("[healdesk] checkout intents unreachable", answer.error);
+    return { ok: false, response: Response.json({ error: "We couldn't start checkout. Nothing has been charged. Please try again." }, { status: 502 }) };
+  }
+  const json = answer.json ?? {};
+  if (answer.status === 201 && typeof json.ref === "string" && typeof json.attempt === "number" && typeof json.successUrl === "string") {
+    return {
+      ok: true,
+      value: {
+        ref: json.ref,
+        attempt: json.attempt,
+        successUrl: json.successUrl,
+        previousOpenSessionId: typeof json.previousOpenSessionId === "string" ? json.previousOpenSessionId : null,
+      },
+    };
+  }
+  if (answer.status === 409 || answer.status === 422) {
+    return {
+      ok: false,
+      response: Response.json(
+        { error: typeof json.error === "string" ? json.error : "Something in the purchase needs a second look.", field: json.field },
+        { status: answer.status },
+      ),
+    };
+  }
+  console.error("[healdesk] checkout intent refused", { status: answer.status });
+  return { ok: false, response: Response.json({ error: "We couldn't start checkout. Nothing has been charged. Please try again." }, { status: 502 }) };
 }

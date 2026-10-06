@@ -407,6 +407,34 @@ export function chatChannelOf(plan: Plan): ChatChannel {
 }
 
 /** The recurring amount for one billing period, in whole dollars. */
+/**
+ * The $0 recurring price a subscription carries until AYA first answers a
+ * patient (the deferred start, contracts §2). Checkout bills the setup fee and
+ * this; at the first answer Package C swaps it for the package's price. It is
+ * what makes the start deferred without being a trial: Stripe never sees a
+ * trial, so nothing is ever "trialing" and no charge reads "TRIAL OVER".
+ */
+export const PLAN_START_PLACEHOLDER_LOOKUP_KEY = "healdesk_plan_start_placeholder_month";
+export const PLAN_START_PLACEHOLDER_NAME = "Monthly plan: starts when AYA first answers";
+
+const usdWhole = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+/**
+ * The plan-start sentence (plan Part A3): one wording, in the Checkout page's
+ * custom text, on Home and Billing, in the welcome email and in the Terms.
+ * "Monthly billing ($897) starts the day AYA first answers a patient."
+ * Vets' practices say "client" (audienceFor).
+ */
+export function planStartSentence(
+  plan: Plan,
+  interval: BillingInterval,
+  audience: "patient" | "client" = "patient",
+): string {
+  return interval === "year"
+    ? `Annual billing (${usdWhole.format(annualTotalUsd(plan))} a year) starts the day AYA first answers a ${audience}.`
+    : `Monthly billing (${usdWhole.format(plan.monthlyUsd)}) starts the day AYA first answers a ${audience}.`;
+}
+
 export function recurringUsd(plan: Plan, interval: BillingInterval): number {
   return interval === "year" ? annualTotalUsd(plan) : plan.monthlyUsd;
 }

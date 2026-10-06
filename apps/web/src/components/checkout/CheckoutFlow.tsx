@@ -1097,28 +1097,21 @@ function DueTodayBreakdown({
       </p>
       <dl className="mt-3 space-y-1.5 text-sm">
         <div className="flex justify-between gap-4">
-          <dt className="text-muted">
-            {due.periodLabel} · {plan.name}
-          </dt>
-          <dd className="font-semibold tabular-nums">
-            {usd.format(due.recurringUsd)}
-          </dd>
-        </div>
-        <div className="flex justify-between gap-4">
-          <dt className="text-muted">Setup fee, charged once</dt>
+          <dt className="text-muted">Setup fee, charged once, not refundable</dt>
           <dd className="font-semibold tabular-nums">
             {usd.format(due.setupFeeUsd)}
           </dd>
         </div>
         <div className="border-line flex justify-between gap-4 border-t pt-2">
-          <dt className="font-bold">Total</dt>
+          <dt className="font-bold">Total today</dt>
           <dd className="font-figure text-[20.4px] leading-none font-semibold tabular-nums">
             {usd.format(due.totalUsd)}
           </dd>
         </div>
       </dl>
+      {/* The catalog's sentence, the one Stripe's page and the Terms print. */}
       <p className="text-muted mt-3 text-xs">
-        Renews at {due.renewsAt}. Cancel at the end of any period.
+        {due.planStart} Cancel at the end of any period.
       </p>
     </div>
   );

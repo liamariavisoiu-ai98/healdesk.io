@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 
 import { agentConfigs, appointments, bookingRequests, clinics } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
+import { voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
 import { slotLabel, slotsFor, writeToCalendar, type CalendarWriteOutcome } from "@/lib/booking/calendar";
 import { directBookingAllowed } from "@/lib/booking/mode";
 import { env } from "@/lib/env";
@@ -109,7 +110,19 @@ export async function handleVoiceTool(request: Request, clinicIdParam: string, t
 
   const call: ToolCall = { clinicId, callId, callRef: callRefOf(callId), phone, body, now: deps.now ?? new Date(), transport: deps.transport };
   try {
-    const reply = await (tool === "context" ? voiceToolContext(call) : tool === "slots" ? voiceToolSlots(call) : voiceToolBook(call));
+    let reply: ToolReply;
+    if (tool === "book") {
+      reply = await voiceToolBook(call);
+    } else {
+      // The answer gate (BD22, BD25), outside any transaction, for the two
+      // tools that decide what the assistant does on this call: `context` at
+      // its first turn, and `slots` before it offers a time. `book` asks it
+      // after its replay (voiceToolBook), so a retry of a booking that
+      // already went through still hears that it did, whatever the gate
+      // says now.
+      const gate = await voiceAnswerDecision(clinicId, call.now);
+      reply = await (tool === "context" ? voiceToolContext(call, gate) : voiceToolSlots(call, gate));
+    }
     return Response.json(reply.body, { status: reply.status });
   } catch (error) {
     // A BAA-gate refusal (synthetic clinic in production) or a database
@@ -194,9 +207,30 @@ export type VoiceContextReply = {
   booking_mode: "desk_confirms" | "direct";
   deposit_line: string;
   clinic_phone_spoken: string;
+  /**
+   * What the agent does with this call (BD25): "assistant" answers it;
+   * "pass_through" transfers it to `transfer_number`, the clinic's direct
+   * line, because the answer gate refused (billing, the channel, the pause,
+   * coverage or "Stop and fall back").
+   */
+  answer_mode: "assistant" | "pass_through";
+  /** The direct line, E.164, only for "pass_through"; null otherwise. */
+  transfer_number: string | null;
 };
 
-async function voiceToolContext(call: ToolCall): Promise<ToolReply> {
+/**
+ * The call's context, with the gate's decision applied. A refusal with a
+ * direct line passes the call through to it. A refusal with NO direct line
+ * has nowhere to send the caller, and a patient calling a clinic must always
+ * reach someone (CLAUDE.md, "Failure"; R25): the assistant answers with the
+ * fixed safe script, the ordinary request flow (`desk_confirms`: it takes
+ * the caller's details for the front desk and books nothing), and ops has
+ * already been told (voiceAnswerDecision). Either way a refused call never
+ * books straight into the calendar, so `booking_mode` is never "direct" then.
+ */
+async function voiceToolContext(call: ToolCall, gate: AnswerDecision): Promise<ToolReply> {
+  const refused = gate.decision === "pass_through";
+  const transferTo = gate.decision === "pass_through" ? gate.directLine : null;
   const reply = await withTenant({ clinicId: call.clinicId, actor: TOOL_ACTOR }, async (tx): Promise<VoiceContextReply | null> => {
     const [clinic] = await tx.db
       .select({ specialty: clinics.specialty, requirements: clinics.bookingRequirements, bookingMode: clinics.bookingMode, phone: clinics.publishedPhoneE164 })
@@ -205,13 +239,21 @@ async function voiceToolContext(call: ToolCall): Promise<ToolReply> {
       .limit(1);
     if (!clinic) return null;
     const [agent] = await tx.db.select({ depositPolicy: agentConfigs.depositPolicy }).from(agentConfigs).where(eq(agentConfigs.clinicId, tx.clinicId)).limit(1);
-    const direct = clinic.bookingMode === "direct" && (await directBookingAllowed(tx)).ok;
-    tx.audit.record({ action: "read", resourceType: "voice_tool_context", resourceId: tx.clinicId, metadata: { callRef: call.callRef, bookingMode: direct ? "direct" : "desk_confirms" } });
+    const direct = !refused && clinic.bookingMode === "direct" && (await directBookingAllowed(tx)).ok;
+    const answerMode = transferTo ? "pass_through" : "assistant";
+    tx.audit.record({
+      action: "read",
+      resourceType: "voice_tool_context",
+      resourceId: tx.clinicId,
+      metadata: { callRef: call.callRef, bookingMode: direct ? "direct" : "desk_confirms", answerMode, ...(gate.decision === "pass_through" ? { reason: gate.reason } : {}) },
+    });
     return {
       required_fields_spoken: spokenFieldList(resolveBookingRequirements(clinic.specialty, clinic.requirements ?? null)),
       booking_mode: direct ? "direct" : "desk_confirms",
       deposit_line: depositLine(agent?.depositPolicy ?? null),
       clinic_phone_spoken: clinic.phone ? spokenPhone(clinic.phone) : "",
+      answer_mode: answerMode,
+      transfer_number: transferTo,
     };
   });
   if (!reply) return { status: 404, body: { error: "Unknown endpoint." } };
@@ -231,11 +273,18 @@ export function depositLine(policy: { required: boolean; amountUsd: number | nul
 
 export type VoiceSlot = { at: string; label: string; spoken: string };
 
-async function voiceToolSlots(call: ToolCall): Promise<ToolReply> {
+async function voiceToolSlots(call: ToolCall, gate: AnswerDecision): Promise<ToolReply> {
   const from = isoDate(call.body.from);
   const daysRaw = call.body.days;
   const days = typeof daysRaw === "number" && Number.isInteger(daysRaw) && daysRaw >= 1 && daysRaw <= 14 ? daysRaw : 14;
   return withTenant({ clinicId: call.clinicId, actor: TOOL_ACTOR }, async (tx): Promise<ToolReply> => {
+    // Refused by the answer gate: no times offered. The vendor hears only
+    // that the service is unavailable, never why (a clinic's billing state
+    // is not the voice vendor's business); the audit row keeps the reason.
+    if (gate.decision === "pass_through") {
+      tx.audit.record({ action: "read", resourceType: "voice_tool_slots", resourceId: tx.clinicId, metadata: { callRef: call.callRef, outcome: "refused", reason: gate.reason } });
+      return { status: 403, body: { error: "service_unavailable" } };
+    }
     const allowed = await directBookingAllowed(tx);
     if (!allowed.ok) {
       tx.audit.record({ action: "read", resourceType: "voice_tool_slots", resourceId: tx.clinicId, metadata: { callRef: call.callRef, outcome: "refused", reason: allowed.reason } });

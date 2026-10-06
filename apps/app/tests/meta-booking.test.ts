@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 
 import { __setMetaRuntimeForTests, POST } from "@/app/api/webhooks/meta/route";
@@ -19,7 +21,7 @@ import type { DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/report
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedClinic } from "./setup/factories";
+import { inTenant, seedClinic, seedEntitled } from "./setup/factories";
 
 /**
  * The booking hand-off (decisions of 21 and 23 September 2026, narrowed by
@@ -107,13 +109,16 @@ function post(body: unknown, secret = APP_SECRET): Promise<Response> {
   );
 }
 
+// Every message carries its own id, as Meta's do: the webhook skips an id it
+// has already handled (BD24), so a shared id would make each message after
+// the first a redelivery.
 const inbound = (text: string, sender = "user-77", pageId = PAGE_ID) => ({
   object: "page",
-  entry: [{ id: pageId, messaging: [{ sender: { id: sender }, recipient: { id: pageId }, message: { mid: "m1", text } }] }],
+  entry: [{ id: pageId, messaging: [{ sender: { id: sender }, recipient: { id: pageId }, message: { mid: `m-${randomUUID()}`, text } }] }],
 });
 const inboundIg = (text: string, sender: string, igId: string) => ({
   object: "instagram",
-  entry: [{ id: igId, messaging: [{ sender: { id: sender }, recipient: { id: igId }, message: { mid: "m1", text } }] }],
+  entry: [{ id: igId, messaging: [{ sender: { id: sender }, recipient: { id: igId }, message: { mid: `m-${randomUUID()}`, text } }] }],
 });
 const inboundWa = (text: string, from: string, phoneNumberId: string) => ({
   object: "whatsapp_business_account",
@@ -157,6 +162,9 @@ describeDb("the booking hand-off, end to end", () => {
   async function liveClinic(label: string, externalId = PAGE_ID, platform: MetaPlatform = "messenger") {
     const c = await seedClinic(label);
     await getMigratorPool().query(`update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`, [c.clinicId]);
+    // A production clinic answers only with a billing row and a live channel
+    // (the answer gate fails closed without them).
+    await seedEntitled(c.clinicId, { channelRows: [{ channel: "meta", liveAt: new Date() }] });
     await inTenant(c.clinicId, (client) => client.query(`insert into report_recipients (clinic_id, email, added_by) values ($1, $2, 'test')`, [c.clinicId, "desk@example-clinic.test"]));
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
       await setPhoneSettings(tx, { publishedPhoneE164: "+14155550199" });

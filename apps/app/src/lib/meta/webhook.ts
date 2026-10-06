@@ -23,6 +23,13 @@ import type { MetaPlatform } from "./front-door";
  * on WhatsApp), never later than the moment it is read. It is the start of
  * the 24-hour window, so a webhook Meta retries a day late does not reopen a
  * window that has already closed. Absent when the payload carries none.
+ *
+ * `messageId` is Meta's own id for the message (`message.mid` on Messenger
+ * and Instagram, `messages[].id` on WhatsApp). Meta delivers at least once
+ * and redelivers a whole batch after any failure, so the route records each
+ * id it handles (meta_inbound_messages, as an HMAC, never the id) and skips
+ * one it has seen: no second answer, no second count (BD24). Absent when the
+ * payload carries none, and such a message cannot be deduplicated.
  */
 export type InboundMetaMessage = {
   platform: MetaPlatform;
@@ -30,6 +37,7 @@ export type InboundMetaMessage = {
   senderId: string;
   text: string;
   sentAt?: Date;
+  messageId?: string;
 };
 
 type Obj = Record<string, unknown>;
@@ -63,7 +71,8 @@ export function parseMetaEvents(body: unknown, now: Date = new Date()): InboundM
         const externalId = str(obj(msg.recipient).id) ?? str(entry.id);
         if (!text || !senderId || !externalId) continue;
         const sentAt = sentAtOf(msg.timestamp, "ms", now);
-        out.push({ platform, externalId, senderId, text, ...(sentAt ? { sentAt } : {}) });
+        const messageId = str(message.mid);
+        out.push({ platform, externalId, senderId, text, ...(sentAt ? { sentAt } : {}), ...(messageId ? { messageId } : {}) });
       }
     } else if (object === "whatsapp_business_account") {
       for (const c of arr(entry.changes)) {
@@ -76,7 +85,8 @@ export function parseMetaEvents(body: unknown, now: Date = new Date()): InboundM
           const senderId = str(msg.from);
           if (!text || !senderId || !externalId) continue;
           const sentAt = sentAtOf(msg.timestamp, "s", now);
-          out.push({ platform: "whatsapp", externalId, senderId, text, ...(sentAt ? { sentAt } : {}) });
+          const messageId = str(msg.id);
+          out.push({ platform: "whatsapp", externalId, senderId, text, ...(sentAt ? { sentAt } : {}), ...(messageId ? { messageId } : {}) });
         }
       }
     }

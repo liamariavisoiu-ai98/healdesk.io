@@ -311,8 +311,9 @@ a Next route. Every job ships switched off and is enabled from the ops console; 
 ### Retention and offboarding
 
 Two clocks per clinic, on the `clinics` row: `retention_media_days` (90) clears
-transcript references; `retention_record_days` (730) deletes conversation, appointment
-and transaction rows and then contacts nothing refers to. `retention-purge` runs both nightly and writes
+transcript references; `retention_record_days` (90) deletes conversation, appointment,
+booking request and transaction rows and then contacts nothing refers to (a booking request
+goes on its appointment's date when it produced one). `retention-purge` runs both nightly and writes
 one audit row per clinic with counts. `baa_acceptances` has its own six-year floor.
 Vendor-side retention (Retell's per-agent setting) is a setting, not a delete we run:
 set it to the minimum and screenshot it. Single-patient erasure is `eraseContact()` in

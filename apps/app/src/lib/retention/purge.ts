@@ -2,15 +2,18 @@ import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 import {
   appointments,
+  bookingRequests,
   clinics,
   contacts,
   conversations,
+  metaBookingDrafts,
   reconciliationExceptions,
   suppressions,
   syncRuns,
   transactions,
   webhookEvents,
 } from "@/db/schema";
+import { DRAFT_TTL_HOURS } from "@/lib/meta/booking-requests";
 import type { TenantTx } from "@/lib/tenant";
 
 /**
@@ -34,13 +37,22 @@ import type { TenantTx } from "@/lib/tenant";
  * the bytes.
  *
  * `clinics.retention_record_days` (default 90) deletes the conversation,
- * appointment and transaction rows themselves, and then any contact that no
- * longer has a row of any kind. 90 days because the BAA says "healdesk keeps
- * transcripts and conversation records for 90 days, which Practice may
- * shorten in its portal" (TRANSCRIPT_RETENTION_DAYS in @healdesk/catalog).
- * Until 0048 the default was 730, for a year-over-year revenue report that
- * is phase two, so every clinic left at the default kept its records eight
- * times as long as its agreement said.
+ * appointment, booking request and transaction rows themselves, and then any
+ * contact that no longer has a row of any kind. 90 days because the BAA says
+ * "healdesk keeps transcripts and conversation records for 90 days, which
+ * Practice may shorten in its portal" (TRANSCRIPT_RETENTION_DAYS in
+ * @healdesk/catalog). Until 0048 the default was 730, for a year-over-year
+ * revenue report that is phase two, so every clinic left at the default kept
+ * its records eight times as long as its agreement said.
+ *
+ * A booking request that produced an appointment goes with it, on the
+ * appointment's date; any other request goes on its own created_at. Requests
+ * lead the deletes because a confirmed one must keep its appointment (CHECK,
+ * 0039) and cannot be rewritten (trigger, 0041), and the runtime role has no
+ * DELETE on them, so app_purge_booking_requests() deletes them, refusing a
+ * cutoff later than the clinic's own clock. A Meta draft abandoned for a day
+ * goes here too, as a backstop to the sweep the clinic's next Meta message
+ * runs.
  *
  * ## What is never purged, and why
  *
@@ -66,10 +78,12 @@ export type PurgeResult = {
   clinicId: string;
   skipped: "sync_running" | null;
   mediaCleared: number;
+  bookingRequestsDeleted: number;
   transactionsDeleted: number;
   appointmentsDeleted: number;
   conversationsDeleted: number;
   contactsDeleted: number;
+  draftsDeleted: number;
   webhookEventsDeleted: number;
 };
 
@@ -89,10 +103,12 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     clinicId: tx.clinicId,
     skipped: null,
     mediaCleared: 0,
+    bookingRequestsDeleted: 0,
     transactionsDeleted: 0,
     appointmentsDeleted: 0,
     conversationsDeleted: 0,
     contactsDeleted: 0,
+    draftsDeleted: 0,
     webhookEventsDeleted: 0,
   };
 
@@ -133,8 +149,18 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ id: conversations.id });
   result.mediaCleared = cleared.length;
 
-  // 2. Records, children first. Exceptions reference transactions and
-  //    appointments; they go with the rows they were about.
+  // 2. Records, children first. Booking requests lead: one that produced an
+  //    appointment holds it, so it goes before it, on the appointment's date
+  //    (the rule the appointments below are chosen by); any other goes on its
+  //    created_at. Through app_purge_booking_requests(), as the app role has
+  //    no DELETE on them.
+  const requests = await tx.db.execute<{ n: number }>(
+    sql`select app_purge_booking_requests(${recordBefore}::timestamptz) as n`,
+  );
+  result.bookingRequestsDeleted = requests.rows[0]?.n ?? 0;
+
+  // Exceptions reference transactions and appointments; they go with the
+  // rows they were about.
   const oldTransactions = await tx.db
     .select({ id: transactions.id })
     .from(transactions)
@@ -199,7 +225,11 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     result.conversationsDeleted = gone.length;
   }
 
-  // 3. Contacts nothing refers to any more, and that are themselves old.
+  // 3. Contacts nothing refers to any more, and that are themselves old. A
+  //    request still inside the clock keeps its person: a Meta request reuses
+  //    the contact without touching updated_at, and the cascade would
+  //    otherwise take a request made yesterday by someone first seen a year
+  //    ago.
   const orphaned = await tx.db
     .delete(contacts)
     .where(
@@ -209,6 +239,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
         sql`not exists (select 1 from ${conversations} c where c.contact_id = ${contacts.id})`,
         sql`not exists (select 1 from ${appointments} a where a.contact_id = ${contacts.id})`,
         sql`not exists (select 1 from ${transactions} t where t.contact_id = ${contacts.id})`,
+        sql`not exists (select 1 from ${bookingRequests} b where b.contact_id = ${contacts.id})`,
       ),
     )
     .returning({ id: contacts.id });
@@ -228,13 +259,30 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ id: webhookEvents.id });
   result.webhookEventsDeleted = payloads.length;
 
+  // 5. Abandoned Meta drafts: a first name and a number, "swept after a day"
+  //    when the clinic's next Meta message arrives (readMetaDraft in
+  //    lib/meta/booking-requests.ts). A clinic whose threads go quiet would
+  //    keep them for good without this.
+  const drafts = await tx.db
+    .delete(metaBookingDrafts)
+    .where(
+      and(
+        eq(metaBookingDrafts.clinicId, tx.clinicId),
+        lt(metaBookingDrafts.updatedAt, new Date(now.getTime() - DRAFT_TTL_HOURS * 60 * 60 * 1000)),
+      ),
+    )
+    .returning({ senderId: metaBookingDrafts.senderId });
+  result.draftsDeleted = drafts.length;
+
   // The audit row says what kind and how many — never which person.
   const total =
     result.mediaCleared +
+    result.bookingRequestsDeleted +
     result.transactionsDeleted +
     result.appointmentsDeleted +
     result.conversationsDeleted +
     result.contactsDeleted +
+    result.draftsDeleted +
     result.webhookEventsDeleted;
   if (total > 0) {
     tx.audit.record({
@@ -243,10 +291,12 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
       resultCount: total,
       metadata: {
         mediaCleared: result.mediaCleared,
+        bookingRequests: result.bookingRequestsDeleted,
         transactions: result.transactionsDeleted,
         appointments: result.appointmentsDeleted,
         conversations: result.conversationsDeleted,
         contacts: result.contactsDeleted,
+        drafts: result.draftsDeleted,
         webhookEvents: result.webhookEventsDeleted,
         mediaDays: clinic.mediaDays,
         recordDays: clinic.recordDays,
@@ -268,9 +318,11 @@ export type ErasureRequest = {
 
 export type ErasureResult = {
   contactsMatched: number;
+  bookingRequestsDeleted: number;
   conversationsDeleted: number;
   appointmentsDeleted: number;
   transactionsDeleted: number;
+  draftsDeleted: number;
   suppressed: boolean;
 };
 
@@ -279,10 +331,12 @@ export type ErasureResult = {
  *
  * Deletes, not de-identifies: a conversation row with the contact detached
  * still carries a treatment interest and a time, which is a re-identification
- * waiting for a join. What remains afterwards is a suppression row for the
- * phone number — deliberately. The number is kept so the request itself is
- * honoured forever; keeping it is what the law expects of a do-not-contact
- * list, and it is the one thing an erasure must not erase.
+ * waiting for a join. Booking requests go too, whatever the desk decided, as
+ * do a payment matched to one of their appointments and a half-collected
+ * Meta draft carrying the number. What remains afterwards is a suppression
+ * row for the phone number — deliberately. The number is kept so the request
+ * itself is honoured forever; keeping it is what the law expects of a
+ * do-not-contact list, and it is the one thing an erasure must not erase.
  */
 export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promise<ErasureResult> {
   if (!request.phone && !request.email) {
@@ -304,23 +358,38 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
   const ids = matches.map((m) => m.id);
   const result: ErasureResult = {
     contactsMatched: ids.length,
+    bookingRequestsDeleted: 0,
     conversationsDeleted: 0,
     appointmentsDeleted: 0,
     transactionsDeleted: 0,
+    draftsDeleted: 0,
     suppressed: false,
   };
 
   if (ids.length) {
-    const theirTransactions = await tx.db
-      .select({ id: transactions.id })
-      .from(transactions)
-      .where(and(eq(transactions.clinicId, tx.clinicId), inArray(transactions.contactId, ids)));
     const theirAppointments = await tx.db
       .select({ id: appointments.id, conversationId: appointments.conversationId })
       .from(appointments)
       .where(and(eq(appointments.clinicId, tx.clinicId), inArray(appointments.contactId, ids)));
-    const tIds = theirTransactions.map((r) => r.id);
     const aIds = theirAppointments.map((r) => r.id);
+    // Their transactions: the ones tied to them, and any payment matched to
+    // one of their appointments, whoever it was matched to. A payment for
+    // their appointment is about them, as the call that produced it is; and
+    // transactions.appointment_id has no delete action, so one left behind
+    // would abort the erasure at the appointment's delete.
+    const theirTransactions = await tx.db
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.clinicId, tx.clinicId),
+          or(
+            inArray(transactions.contactId, ids),
+            aIds.length ? inArray(transactions.appointmentId, aIds) : sql`false`,
+          ),
+        ),
+      );
+    const tIds = theirTransactions.map((r) => r.id);
     const theirAppointmentConversations = theirAppointments
       .map((r) => r.conversationId)
       .filter((id): id is string => id !== null);
@@ -342,6 +411,17 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
         .where(and(eq(transactions.clinicId, tx.clinicId), inArray(transactions.id, tIds)))
         .returning({ id: transactions.id });
       result.transactionsDeleted = gone.length;
+    }
+    // Their booking requests, before the appointments a confirmed one holds
+    // (CHECK, 0039; trigger, 0041). The app role has no DELETE on them, so
+    // app_erase_booking_requests() takes one person's, and any pointing at
+    // that person's appointments, inside this tenant; the contact itself goes
+    // below, in this same transaction, as the cascade would have taken them.
+    for (const id of ids) {
+      const requests = await tx.db.execute<{ n: number }>(
+        sql`select app_erase_booking_requests(${id}::uuid) as n`,
+      );
+      result.bookingRequestsDeleted += requests.rows[0]?.n ?? 0;
     }
     if (aIds.length) {
       const gone = await tx.db
@@ -373,6 +453,19 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
       .where(and(eq(contacts.clinicId, tx.clinicId), inArray(contacts.id, ids)));
   }
 
+  // A half-collected Meta draft has no contact, only the number typed into
+  // the thread, so it is found by number whether or not a contact matched.
+  const phones = [...new Set([request.phone, ...matches.map((m) => m.phone)])].filter(
+    (p): p is string => Boolean(p),
+  );
+  if (phones.length) {
+    const drafts = await tx.db
+      .delete(metaBookingDrafts)
+      .where(and(eq(metaBookingDrafts.clinicId, tx.clinicId), inArray(metaBookingDrafts.phone, phones)))
+      .returning({ senderId: metaBookingDrafts.senderId });
+    result.draftsDeleted = drafts.length;
+  }
+
   // The do-not-contact row outlives the erasure, on purpose.
   const phone = request.phone ?? matches.find((m) => m.phone)?.phone ?? null;
   if (phone) {
@@ -400,9 +493,11 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
     resultCount: ids.length,
     metadata: {
       requestedBy: request.requestedBy,
+      bookingRequests: result.bookingRequestsDeleted,
       conversations: result.conversationsDeleted,
       appointments: result.appointmentsDeleted,
       transactions: result.transactionsDeleted,
+      drafts: result.draftsDeleted,
       suppressed: result.suppressed,
     },
   });

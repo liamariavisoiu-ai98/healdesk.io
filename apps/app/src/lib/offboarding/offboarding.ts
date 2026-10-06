@@ -34,14 +34,19 @@ import { withTenant } from "@/lib/tenant";
  * either the export was delivered or ninety days have elapsed (a clinic that
  * never collected its export does not get to keep us holding its patients
  * forever; the ninety days and the notices are documented in the handover).
- * It deletes every PHI row for the clinic and revokes its connections. What
- * stays: the clinic row (a customer we had), the audit log (append-only,
- * and the record that the destruction happened), the signed agreement (its
- * own six-year floor), suppressions, consent records and contact attempts
- * (the TCPA evidence, on its own four-year clock), and the billing history.
- * That history includes channel_events, kept like billing_notices: the plan
- * start and every step-up were charged from its rows, which hold no patient
- * data.
+ * It deletes every PHI row for the clinic and revokes its connections.
+ * Booking requests go first, through app_destroy_booking_requests(), because
+ * a confirmed one holds its appointment; the function refuses a clinic whose
+ * destroy_after has not passed by the database's clock.
+ *
+ * What stays: the clinic row (a customer we had), the audit log
+ * (append-only, and the record that the destruction happened), the signed
+ * agreement (its own six-year floor), suppressions, consent records and
+ * contact attempts (the TCPA evidence, on its own four-year clock), and the
+ * billing history. That history includes channel_events, kept like
+ * billing_notices: the plan start and every step-up were charged from its
+ * rows, which hold no patient data. Deposit rows are money records too and
+ * stay, without the appointment they were taken for.
  *
  * Of the tables 0044 added, clinic_closures (the days the clinic was closed)
  * goes with the patient rows. clinic_channels is classed with it but cannot
@@ -77,8 +82,9 @@ export async function markExportDelivered(tx: TenantTx, how: string, now: Date =
 export type DestructionResult = { clinicId: string; deleted: Record<string, number> };
 
 /**
- * Every patient row for one clinic, and its closed days, gone. Consent
- * evidence, suppressions, audit, agreements and billing stay.
+ * Every patient row for one clinic, booking requests included, and its
+ * closed days, gone. Consent evidence, suppressions, audit, agreements and
+ * billing stay.
  */
 export async function destroyClinicData(tx: TenantTx, now: Date = new Date()): Promise<DestructionResult> {
   const c = tx.clinicId;
@@ -88,11 +94,18 @@ export async function destroyClinicData(tx: TenantTx, now: Date = new Date()): P
   };
   await del("reconciliation_exceptions", () => tx.db.delete(reconciliationExceptions).where(eq(reconciliationExceptions.clinicId, c)).returning({ id: reconciliationExceptions.id }));
   await del("transactions", () => tx.db.delete(transactions).where(eq(transactions.clinicId, c)).returning({ id: transactions.id }));
+  // Booking requests before the appointments: a confirmed request must keep
+  // its appointment (CHECK, 0039) and cannot be rewritten (trigger, 0041), so
+  // its appointment cannot go while it stands, and waiting for the contact's
+  // cascade (0037) never gets that far. The app role has no DELETE on them;
+  // app_destroy_booking_requests() deletes this tenant's, once destroy_after
+  // has passed by the database's clock.
+  const requests = await tx.db.execute<{ n: number }>(sql`select app_destroy_booking_requests(${c}::uuid) as n`);
+  deleted.booking_requests = requests.rows[0]?.n ?? 0;
   await del("appointments", () => tx.db.delete(appointments).where(eq(appointments.clinicId, c)).returning({ id: appointments.id }));
   await del("conversations", () => tx.db.delete(conversations).where(eq(conversations.clinicId, c)).returning({ id: conversations.id }));
-  // Booking requests carry no DELETE for the app role; they go with their
-  // contact by cascade (0037). The half-collected drafts hold a phone number
-  // and nothing the record needs, so they are deleted outright.
+  // The half-collected drafts hold a phone number and nothing the record
+  // needs, so they are deleted outright.
   await del("meta_booking_drafts", () => tx.db.delete(metaBookingDrafts).where(eq(metaBookingDrafts.clinicId, c)).returning({ id: metaBookingDrafts.senderId }));
   await del("contacts", () => tx.db.delete(contacts).where(eq(contacts.clinicId, c)).returning({ id: contacts.id }));
   await del("webhook_events", () => tx.db.delete(webhookEvents).where(eq(webhookEvents.clinicId, c)).returning({ id: webhookEvents.id }));

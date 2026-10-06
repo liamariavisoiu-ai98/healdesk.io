@@ -1246,9 +1246,13 @@ export const bookingRequests = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
-    // Cascade: offboarding deletes contacts, and the app role has no DELETE
-    // here on purpose. Referential actions run as the table owner, so the
-    // request goes with the person it was about.
+    // Cascade: a request goes with the person it was about. The app role has
+    // no DELETE here on purpose; referential actions run as the table owner.
+    // Destruction, erasure and the purge cannot rely on the cascade alone (a
+    // confirmed request holds its appointment, which holds the contact), so
+    // they delete requests first, through the SECURITY DEFINER functions
+    // app_destroy_booking_requests, app_erase_booking_requests and
+    // app_purge_booking_requests, each scoped to its own tenant.
     contactId: uuid("contact_id")
       .notNull()
       .references(() => contacts.id, { onDelete: "cascade" }),
@@ -1302,7 +1306,16 @@ export const bookingRequests = pgTable(
     deskNote: text("desk_note"),
     /** Set when the desk confirmed a slot; the appointment row is the booking. */
     confirmedFor: timestamp("confirmed_for", { withTimezone: true }),
-    appointmentId: uuid("appointment_id").references(() => appointments.id, { onDelete: "set null" }),
+    /**
+     * The booking this request produced. NO ACTION, not the SET NULL it had
+     * until the booking_request_destruction migration: a confirmed request
+     * must keep its appointment (CHECK, 0039) and a decided one cannot be
+     * rewritten (trigger, 0041), so SET NULL could only ever fail, and fail
+     * as "cannot be re-decided". An appointment a request points at cannot be
+     * deleted until the request is; the request goes first, through the
+     * delete functions named on contactId above.
+     */
+    appointmentId: uuid("appointment_id").references(() => appointments.id),
     /**
      * The fourth decision — "propose other times". Up to three slots (a
      * CHECK), offered by the desk or read from the calendar, which the desk

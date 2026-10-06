@@ -25,5 +25,7 @@ export * from "./plans";
 export * from "./platforms";
 export * from "./request-signing";
 export * from "./segments";
+export * from "./sender-identity";
 export * from "./specialties";
+export * from "./treatment-names";
 export * from "./welcome";

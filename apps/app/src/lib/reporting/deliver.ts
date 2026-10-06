@@ -121,12 +121,41 @@ export type PhiClass =
 export type OutgoingEmail = RenderedReport & {
   attachments?: EmailAttachment[];
   phiClass: PhiClass;
+  // The email platform's fields (lib/email/send.ts, Annex X3). Optional, so the
+  // report mailers and the agreement copy are unchanged. ResendTransport sends
+  // them; SesTransport, the future PHI path, does not carry them yet.
+  /** Overrides HEALDESK_EMAIL_FROM. */
+  from?: string;
+  replyTo?: string;
+  /** Extra headers, e.g. List-Unsubscribe. Names and values must be single-line. */
+  headers?: Readonly<Record<string, string>>;
+  /** Provider tags: ids and kinds only, never an address. */
+  tags?: readonly { name: string; value: string }[];
+  /** Resend's Idempotency-Key: the same key and body within 24 hours sends once. */
+  idempotencyKey?: string;
+};
+
+/**
+ * Why a send failed, as far as the provider said. Absent fields mean the
+ * provider said nothing about them, which the outbox reads as "no answer":
+ * retried, like a timeout.
+ */
+export type DeliveryFailureDetail = {
+  /** The HTTP status the provider answered with; null when no answer arrived. */
+  statusCode?: number | null;
+  /** The provider's error name, e.g. Resend's "daily_quota_exceeded"; "timeout" for our own deadline. */
+  errorName?: string;
 };
 
 export type DeliveryResult =
-  | { status: "sent"; messageId: string }
+  | {
+      status: "sent";
+      messageId: string;
+      /** Resend's `x-resend-daily-quota` header: emails sent today on the account, both apps. */
+      quota?: number;
+    }
   | { status: "skipped"; reason: string }
-  | { status: "failed"; reason: string };
+  | ({ status: "failed"; reason: string; quota?: number } & DeliveryFailureDetail);
 
 export interface EmailTransport {
   readonly name: string;

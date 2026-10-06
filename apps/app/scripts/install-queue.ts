@@ -22,6 +22,22 @@ import { QUEUES } from "../src/lib/queue/boss";
 
 const SCHEMA = "pgboss";
 
+/**
+ * pg-boss's own queue for cron. Every schedule (the hourly tick, the email
+ * outbox's minute clock) fires by the timekeeper inserting a job here, which
+ * the worker then turns into the scheduled job. The timekeeper creates it on
+ * start, but in v10 creating a queue creates a partition table, which needs
+ * CREATE on the schema, and the worker connects as the runtime role, which
+ * deliberately has none. Its attempt fails silently, the inserts into the
+ * missing queue insert nothing, and no schedule fires: a worker started on a
+ * database installed by an earlier version of this script ran neither the
+ * hourly tick nor the minute clock (seen on 6 October 2026, with the email
+ * platform). So the installer creates it, as the migrator. The name is
+ * pg-boss's (QUEUES.SEND_IT in pg-boss/src/timekeeper.js), which it does not
+ * export.
+ */
+const CRON_QUEUE = "__pgboss__send-it";
+
 async function main(): Promise<void> {
   const connectionString =
     process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL;
@@ -46,7 +62,12 @@ async function main(): Promise<void> {
 
   await boss.start();
 
-  for (const queue of QUEUES) {
+  // Every queue in QUEUES, `notices` included (the email outbox's minute
+  // clock), and pg-boss's cron queue. Both arrived with the email platform, so
+  // re-run this in every environment installed before it: pg-boss v10 will not
+  // work a queue that was never created, and without the cron queue no
+  // schedule fires.
+  for (const queue of [...QUEUES, CRON_QUEUE]) {
     // Idempotent. `stately` would collapse retries oddly for sync work, so the
     // default standard policy is right: every send is its own job, and
     // singletonKey at enqueue time is what prevents pile-ups.

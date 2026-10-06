@@ -315,10 +315,13 @@ describeDb("billing foundation", () => {
       );
       expect(at6["billing-housekeeping"]).toBe("disabled");
       expect(at6["annual-overage-invoice"]).toBeUndefined();
-      for (const hourly of ["usage-meter-report", "usage-alerts", "billing-notices"]) {
+      for (const hourly of ["usage-meter-report", "usage-alerts"]) {
         expect(at5[hourly], hourly).toBe("disabled");
         expect(at6[hourly], hourly).toBe("disabled");
       }
+      // The notices sender runs every minute from the `notices` queue now, not
+      // from the hourly tick (lib/email/outbox.ts).
+      expect(at5["billing-notices"]).toBeUndefined();
     });
 
     test("the stubs later packages replace are safe: they run behind their switches and do nothing", async () => {
@@ -326,8 +329,10 @@ describeDb("billing foundation", () => {
       expect(await runUsageMeterReportJob({ now })).toEqual({ status: "disabled" });
       expect(await runAnnualOverageJob({ now })).toEqual({ status: "disabled" });
       expect(await runUsageAlertsJob({ now })).toEqual({ status: "disabled" });
+      // The sender is real now (lib/email/outbox.ts), and still does nothing
+      // while its switch, the billing-notices job row, is off.
       expect(await runBillingNoticesJob({ now })).toEqual({ status: "disabled" });
-      expect(await sendPendingNotices({ now })).toEqual({ sent: 0, failed: 0, skipped: 0 });
+      expect(await sendPendingNotices({ now })).toEqual({ sent: 0, failed: 0, skipped: 0, held: 0 });
       expect(await reconcileMeteredItems(randomUUID())).toEqual({
         status: "skipped",
         reason: "Not built yet.",

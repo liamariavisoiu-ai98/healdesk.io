@@ -204,7 +204,7 @@ describeDb("the outbox sender", () => {
       c.clinicId,
       "payment_failed",
       "in_1",
-      { amountDueCents: 8970, hostedInvoiceUrl: null, graceEndsAt: null },
+      { amountDueCents: 8970, hostedInvoiceUrl: null, graceEndsAt: null, isFirstPlanCharge: false },
       T,
     );
 
@@ -258,8 +258,8 @@ describeDb("the outbox sender", () => {
     const b = await seedClinic("outbox-race-b");
     const T = new Date("2026-10-06T15:00:00Z");
     for (let i = 0; i < 3; i += 1) {
-      await enqueue(a.clinicId, "restored", `r${i}`, {}, T);
-      await enqueue(b.clinicId, "restored", `r${i}`, {}, T);
+      await enqueue(a.clinicId, "restored", `r${i}`, { receiptUrl: null }, T);
+      await enqueue(b.clinicId, "restored", `r${i}`, { receiptUrl: null }, T);
     }
     const transport = new FakeTransport(async (n) => {
       await new Promise((resolve) => setTimeout(resolve, 25));
@@ -278,7 +278,7 @@ describeDb("the outbox sender", () => {
   test("retries at 1, 5, 30, 120 and 360 minutes under the same key, then dies and tells ops", async () => {
     const c = await seedClinic("outbox-retry");
     const T = new Date("2026-10-06T15:00:00Z");
-    const id = await enqueue(c.clinicId, "restored", "r", {}, T);
+    const id = await enqueue(c.clinicId, "restored", "r", { receiptUrl: null }, T);
     const transport = new FakeTransport(failing(500, "internal_server_error"));
 
     let now = T;
@@ -335,7 +335,7 @@ describeDb("the outbox sender", () => {
       c.clinicId,
       "payment_failed",
       "in_2",
-      { amountDueCents: 100, hostedInvoiceUrl: null, graceEndsAt: null },
+      { amountDueCents: 100, hostedInvoiceUrl: null, graceEndsAt: null, isFirstPlanCharge: false },
       T,
     );
     const transport = new FakeTransport((n) =>
@@ -357,7 +357,7 @@ describeDb("the outbox sender", () => {
   test("Resend's daily quota waits until 00:05 UTC without spending an attempt", async () => {
     const c = await seedClinic("outbox-quota");
     const T = new Date("2026-10-06T22:10:00Z");
-    const id = await enqueue(c.clinicId, "restored", "r", {}, T);
+    const id = await enqueue(c.clinicId, "restored", "r", { receiptUrl: null }, T);
     const transport = new FakeTransport(failing(429, "daily_quota_exceeded", { quota: 100 }));
 
     expect(await deliverNotice(c.clinicId, id, { now: T, transport, templates })).toBe("waiting");
@@ -377,7 +377,7 @@ describeDb("the outbox sender", () => {
   test("a 409 invalid_idempotent_request is recorded as sent", async () => {
     const c = await seedClinic("outbox-409");
     const T = new Date("2026-10-06T15:00:00Z");
-    const id = await enqueue(c.clinicId, "restored", "r", {}, T);
+    const id = await enqueue(c.clinicId, "restored", "r", { receiptUrl: null }, T);
     const transport = new FakeTransport(failing(409, "invalid_idempotent_request"));
     expect(await deliverNotice(c.clinicId, id, { now: T, transport, templates })).toBe("sent");
     expect((await notice(c.clinicId, id)).sent_at).not.toBeNull();
@@ -387,7 +387,7 @@ describeDb("the outbox sender", () => {
   test("any other 4xx is final: dead at once, and ops is told", async () => {
     const c = await seedClinic("outbox-4xx");
     const T = new Date("2026-10-06T15:00:00Z");
-    const id = await enqueue(c.clinicId, "restored", "r", {}, T);
+    const id = await enqueue(c.clinicId, "restored", "r", { receiptUrl: null }, T);
     const transport = new FakeTransport(failing(422, "validation_error"));
     expect(await deliverNotice(c.clinicId, id, { now: T, transport, templates })).toBe("dead");
     expect(transport.calls).toHaveLength(1);
@@ -421,7 +421,7 @@ describeDb("the outbox sender", () => {
       ]),
     );
     const T = new Date("2026-10-06T15:00:00Z");
-    const id = await enqueue(c.clinicId, "restored", "r", {}, T);
+    const id = await enqueue(c.clinicId, "restored", "r", { receiptUrl: null }, T);
     const transport = new FakeTransport();
     expect(await deliverNotice(c.clinicId, id, { now: T, transport, templates })).toBe("dead");
     expect(transport.calls).toHaveLength(0);
@@ -435,10 +435,10 @@ describeDb("the outbox sender", () => {
       c.clinicId,
       "payment_failed",
       "in_3",
-      { amountDueCents: 1, hostedInvoiceUrl: null, graceEndsAt: null },
+      { amountDueCents: 1, hostedInvoiceUrl: null, graceEndsAt: null, isFirstPlanCharge: false },
       T,
     );
-    const normal = await enqueue(c.clinicId, "restored", "r", {}, T);
+    const normal = await enqueue(c.clinicId, "restored", "r", { receiptUrl: null }, T);
     const transport = new FakeTransport();
 
     let scheduled: (() => Promise<void>) | undefined;
@@ -466,7 +466,7 @@ describeDb("the outbox sender", () => {
       d.clinicId,
       "payment_failed",
       "in_4",
-      { amountDueCents: 1, hostedInvoiceUrl: null, graceEndsAt: null },
+      { amountDueCents: 1, hostedInvoiceUrl: null, graceEndsAt: null, isFirstPlanCharge: false },
       T,
     );
     await deliverCriticalAfterCommit(d.clinicId, {
@@ -489,14 +489,20 @@ describeDb("the outbox sender", () => {
       c.clinicId,
       "renewal_upcoming",
       "2026-11-05",
-      { renewsOn: "2026-11-05", amountCents: 120_000, planName: "Complete FrontDesk AI" },
+      {
+        renewsOn: "2026-11-05",
+        amountCents: 120_000,
+        planName: "Complete FrontDesk AI",
+        locations: 1,
+        noticeDays: 30,
+      },
       night,
     );
     const urgent = await enqueue(
       c.clinicId,
       "payment_failed",
       "in_5",
-      { amountDueCents: 1, hostedInvoiceUrl: null, graceEndsAt: null },
+      { amountDueCents: 1, hostedInvoiceUrl: null, graceEndsAt: null, isFirstPlanCharge: false },
       night,
     );
     const transport = new FakeTransport();
@@ -524,7 +530,19 @@ describeDb("the outbox sender", () => {
   test("a kind with no template is held: never claimed, logged once, counted", async () => {
     const c = await seedClinic("outbox-held");
     const T = new Date("2026-10-06T15:00:00Z");
-    const id = await enqueue(c.clinicId, "suspended", "in_6", { hostedInvoiceUrl: null }, T);
+    const id = await enqueue(
+      c.clinicId,
+      "suspended",
+      "in_6",
+      {
+        hostedInvoiceUrl: null,
+        amountDueCents: null,
+        carrier: null,
+        phoneSystem: "unknown",
+        routing: "overflow_after_hours",
+      },
+      T,
+    );
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const transport = new FakeTransport();
 
@@ -552,7 +570,7 @@ describeDb("the outbox sender", () => {
   test("the billing-notices job row is the switch: off, nothing is sent", async () => {
     const c = await seedClinic("outbox-switch");
     const T = new Date("2026-10-06T15:00:00Z");
-    await enqueue(c.clinicId, "restored", "r", {}, T);
+    await enqueue(c.clinicId, "restored", "r", { receiptUrl: null }, T);
     await setJobEnabled(JOB_BILLING_NOTICES, false, opsUser);
     const transport = new FakeTransport();
     expect(await sendPendingNotices({ now: T, transport, templates })).toEqual({
@@ -572,10 +590,16 @@ describeDb("the outbox sender", () => {
     const a = await seedClinic("outbox-job-a");
     const b = await seedClinic("outbox-job-b");
     const T = new Date("2026-10-06T15:00:00Z");
-    await enqueue(a.clinicId, "restored", "r", {}, T);
-    await enqueue(b.clinicId, "restored", "r", {}, T);
+    await enqueue(a.clinicId, "restored", "r", { receiptUrl: null }, T);
+    await enqueue(b.clinicId, "restored", "r", { receiptUrl: null }, T);
     // Not due yet: left alone.
-    await enqueue(b.clinicId, "restored", "later", {}, new Date(T.getTime() + 10 * MINUTE));
+    await enqueue(
+      b.clinicId,
+      "restored",
+      "later",
+      { receiptUrl: null },
+      new Date(T.getTime() + 10 * MINUTE),
+    );
     const transport = new FakeTransport();
     const outcome = await runBillingNoticesJob({ now: T, transport, templates });
     expect(outcome).toEqual({ status: "ok", note: "2 sent, 0 failed, 0 waiting or skipped." });
@@ -602,7 +626,7 @@ describeDb("the outbox sender", () => {
         c.clinicId,
         "payment_failed",
         "late",
-        { amountDueCents: 1, hostedInvoiceUrl: null, graceEndsAt: null },
+        { amountDueCents: 1, hostedInvoiceUrl: null, graceEndsAt: null, isFirstPlanCharge: false },
         new Date(now.getTime() - 11 * MINUTE),
       );
       // Five minutes is not late, and a normal kind is never "critical late".
@@ -610,10 +634,16 @@ describeDb("the outbox sender", () => {
         c.clinicId,
         "payment_failed",
         "recent",
-        { amountDueCents: 1, hostedInvoiceUrl: null, graceEndsAt: null },
+        { amountDueCents: 1, hostedInvoiceUrl: null, graceEndsAt: null, isFirstPlanCharge: false },
         new Date(now.getTime() - 5 * MINUTE),
       );
-      await enqueue(c.clinicId, "restored", "normal", {}, new Date(now.getTime() - 60 * MINUTE));
+      await enqueue(
+        c.clinicId,
+        "restored",
+        "normal",
+        { receiptUrl: null },
+        new Date(now.getTime() - 60 * MINUTE),
+      );
 
       expect((await lateCriticalNotices(now)).map((n) => n.id)).toEqual([late]);
 
@@ -650,14 +680,14 @@ describeDb("the outbox sender", () => {
         c.clinicId,
         "payment_failed",
         "retried",
-        { amountDueCents: 1, hostedInvoiceUrl: null, graceEndsAt: null },
+        { amountDueCents: 1, hostedInvoiceUrl: null, graceEndsAt: null, isFirstPlanCharge: false },
         new Date(now.getTime() + 20 * MINUTE),
       );
       const dead = await enqueue(
         c.clinicId,
         "payment_failed",
         "dead",
-        { amountDueCents: 1, hostedInvoiceUrl: null, graceEndsAt: null },
+        { amountDueCents: 1, hostedInvoiceUrl: null, graceEndsAt: null, isFirstPlanCharge: false },
         new Date(now.getTime() - 60 * MINUTE),
       );
       // Waiting for the daily quota gives its attempt back, but it has still
@@ -666,7 +696,7 @@ describeDb("the outbox sender", () => {
         c.clinicId,
         "payment_failed",
         "quota",
-        { amountDueCents: 1, hostedInvoiceUrl: null, graceEndsAt: null },
+        { amountDueCents: 1, hostedInvoiceUrl: null, graceEndsAt: null, isFirstPlanCharge: false },
         new Date(now.getTime() + 6 * 60 * MINUTE),
       );
       await inTenant(c.clinicId, async (client) => {

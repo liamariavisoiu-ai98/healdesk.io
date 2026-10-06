@@ -331,7 +331,7 @@ export const clinics = pgTable(
      * The regime of the clinic's specialty when it was provisioned
      * (`regimeFor` in @healdesk/catalog): 'hipaa', 'hipaa-if-covered' or
      * 'non-hipaa'. With `agreementKind` and `isCoveredEntity` it is what
-     * app_agreement_kind_sufficient() reads (drizzle/0048) to decide whether
+     * app_agreement_kind_sufficient() reads (drizzle/0051) to decide whether
      * the agreement in force covers this clinic's data, which the PHI gate
      * asks on every write. A gate column: provisioning writes it on insert and
      * the runtime role holds no UPDATE on it, so a later edit of `specialty`
@@ -341,9 +341,9 @@ export const clinics = pgTable(
     /**
      * The kind of data agreement the clinic is under, 'baa' or 'dpa', taken at
      * provisioning from the bound acceptance's version and moved afterwards
-     * only by app_supersede_agreement(), from a DPA to a BAA (drizzle/0048).
+     * only by app_supersede_agreement(), from a DPA to a BAA (drizzle/0051).
      * A gate column like `regulatoryRegime`. Null only on a clinic created
-     * before 0048 whose organisation held no bound agreement, which the PHI
+     * before 0051 whose organisation held no bound agreement, which the PHI
      * gate treats as it always has.
      */
     agreementKind: text("agreement_kind").$type<AgreementKind>(),
@@ -354,9 +354,13 @@ export const clinics = pgTable(
      *
      *   media   — transcript references. Pure liability after the dispute
      *             window closes; 90 days by default. (No audio is kept.)
-     *   records — the conversation, appointment and transaction rows the
-     *             revenue report is built from. Two years by default, so a
-     *             year-over-year comparison is possible and no longer.
+     *   records — the conversation, appointment and transaction rows. 90
+     *             days by default too, because the BAA says "healdesk keeps
+     *             transcripts and conversation records for 90 days"
+     *             (TRANSCRIPT_RETENTION_DAYS in @healdesk/catalog). It was
+     *             730 until 0048, for a year-over-year revenue report that
+     *             is phase two, and a default the agreement contradicts is
+     *             wrong for every clinic that keeps it.
      *
      * Consent records, suppressions and contact attempts are NOT on either
      * clock: they are the evidence that a call was lawful and that an
@@ -364,7 +368,7 @@ export const clinics = pgTable(
      * The purge job (lib/retention/purge.ts) is the only reader.
      */
     retentionMediaDays: integer("retention_media_days").notNull().default(90),
-    retentionRecordDays: integer("retention_record_days").notNull().default(730),
+    retentionRecordDays: integer("retention_record_days").notNull().default(90),
 
     // --- Onboarding: the road from payment to the first answered call. ---
     /**
@@ -1201,16 +1205,23 @@ export const incidents = pgTable(
     /** A conversation id, never its transcript. */
     conversationId: uuid("conversation_id"),
     discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull(),
-    /** From the class: 5 business days, or 5 calendar days for a breach. */
+    /**
+     * From the class: 5 business days, or 5 calendar days for a breach, and
+     * 24 hours for a breach at a clinic that is not a covered entity (the
+     * BAA's state-law clause: "immediately following discovery").
+     */
     notifyBy: timestamp("notify_by", { withTimezone: true }).notNull(),
     notifiedAt: timestamp("notified_at", { withTimezone: true }),
     notifiedHow: text("notified_how"),
     /**
-     * For non-covered clinics, a second clock 60 days from discovery. Named
-     * for the FTC Health Breach Notification Rule, which on a closer reading
-     * (1 October 2026) does not reach a clinic's booking records: 16 CFR 318.2
-     * covers vendors of personal health records. Kept as a conservative floor
-     * under state breach-notification law; see lib/incidents/incidents.ts.
+     * For a breach at a non-covered clinic, a second clock 30 days from
+     * discovery: California's deadline for the clinic, as owner of the data,
+     * to notify the people affected (Cal. Civ. Code 1798.82(a)(2)(A)), the
+     * strictest owner clock among the states. 60 days until 3 October 2026.
+     * Named for the FTC Health Breach Notification Rule, which on a closer
+     * reading (1 October 2026) does not reach a clinic's booking records:
+     * 16 CFR 318.2 covers vendors of personal health records. The name is
+     * kept; see lib/incidents/incidents.ts.
      */
     ftcNotifyBy: timestamp("ftc_notify_by", { withTimezone: true }),
     openedBy: text("opened_by").notNull(),
@@ -1522,7 +1533,7 @@ export const baaAcceptances = pgTable(
      * DPA's namespace ("dpa/1.0.0"), 'baa' for every other version. GENERATED
      * ALWAYS from the version, like `retentionEligibleAt`, so no writer can
      * label a signature with a kind its document does not have; a CHECK in
-     * 0048 keeps any other namespace out of `documentVersion`.
+     * 0051 keeps any other namespace out of `documentVersion`.
      * `agreementKindOfVersion` in @healdesk/catalog is the TypeScript mirror,
      * and tests/agreement-kinds.test.ts runs both over the same versions.
      */
@@ -2179,7 +2190,7 @@ export const connectionLinks = pgTable(
      * unknown token. Set at issue, never updated (the UPDATE grant is used_at
      * and consumed_ip only).
      */
-    purpose: text("purpose").$type<"connect" | "setup">().notNull().default("connect"),
+    purpose: text("purpose").$type<"connect" | "setup" | "meta" | "whatsapp">().notNull().default("connect"),
 
     /**
      * The ops user who issued it, as an immutable snapshot rather than an FK —
@@ -2424,7 +2435,10 @@ export const entitlements = pgTable(
      * `included × locations`, computed where usage is counted.
      */
     locations: integer("locations").notNull().default(1),
-    /** When the first invoice was paid. The clock for both refund windows. */
+    /**
+     * When the first invoice (the setup fee) was paid. Not a refund clock:
+     * both refund windows run from the plan start (`planStartedAt`).
+     */
     firstPaidAt: timestamp("first_paid_at", { withTimezone: true }),
     /**
      * End of the paid licensed period, from the latest paid invoice's package
@@ -2444,8 +2458,9 @@ export const entitlements = pgTable(
       .default(sql`'{}'::text[]`),
     /** Stripe's `cancel_at`, when a cancellation is scheduled for a date. */
     cancelAt: timestamp("cancel_at", { withTimezone: true }),
-    setupFeeRefundedAt: timestamp("setup_fee_refunded_at", { withTimezone: true }),
-    setupFeeRefundedUsd: numeric("setup_fee_refunded_usd", { precision: 12, scale: 2 }),
+    // setup_fee_refunded_at and setup_fee_refunded_usd were dropped by
+    // drizzle/0050: the setup fee is never refundable (owner, 6 October 2026),
+    // so nothing may ever record a refund of it.
     firstPeriodRefundedAt: timestamp("first_period_refunded_at", { withTimezone: true }),
 
     // --- 0044: the deferred start and the setup window (funnel and portal
@@ -2464,6 +2479,49 @@ export const entitlements = pgTable(
      * channel by then is closed by a job, and its setup fee is not refunded.
      */
     setupDeadlineAt: timestamp("setup_deadline_at", { withTimezone: true }),
+
+    // --- 0050: the Stripe build (packages B, C and D). Null on every row
+    // written before it. ---
+    /**
+     * When the plan-start worker's Stripe update went through: the package
+     * price replaced the $0 placeholder. The plan has STARTED once this or
+     * `planStartedAt` is set (`hasPlanStarted` in lib/billing/entitlements.ts),
+     * because the paid date alone would leave the minutes between Stripe's
+     * update and its invoice.paid looking like "not started", and a step-up
+     * or a cancellation decided in that gap would act on the placeholder.
+     */
+    planStartAppliedAt: timestamp("plan_start_applied_at", { withTimezone: true }),
+    /**
+     * The first plan invoice, stamped when it is paid. The refunds read its
+     * package line, so a later invoice can never be mistaken for it.
+     */
+    firstPlanInvoiceId: text("first_plan_invoice_id"),
+    /**
+     * One Stripe mutation of the subscription at a time per billing clinic.
+     * The plan-start, step-up, close-setup and cancel-now workers and the
+     * plan-change, extra-location, auto-renew and refund actions each claim
+     * it with a conditional UPDATE and release it once their outcome is
+     * written, so two of them can never each read the subscription, decide,
+     * and overwrite the other's change. A claim whose holder died is taken
+     * over once `until` has passed.
+     */
+    stripeMutationLeaseUntil: timestamp("stripe_mutation_lease_until", { withTimezone: true }),
+    stripeMutationLeaseOwner: text("stripe_mutation_lease_owner"),
+    /**
+     * An extra location being added: the request, the location count it
+     * makes, and when Stripe charged for it. Set before the charge and
+     * cleared once the location's clinic exists, so a failure after the
+     * charge is resumed from where it stopped instead of charged again.
+     */
+    pendingLocationRequestId: text("pending_location_request_id"),
+    pendingLocationCount: integer("pending_location_count"),
+    pendingLocationChargedAt: timestamp("pending_location_charged_at", { withTimezone: true }),
+    /**
+     * What the open invoice above asks for, in cents, beside its URL: the
+     * Billing screen reads the database only (lib/billing/summary.ts), and
+     * "pay the open invoice" needs its amount as well as its link.
+     */
+    openInvoiceAmountCents: integer("open_invoice_amount_cents"),
 
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -2488,6 +2546,21 @@ export const entitlements = pgTable(
       sql`${t.overageMode} in ('allow', 'hard_cap')`,
     ),
     check("entitlements_locations_check", sql`${t.locations} >= 1`),
+    // A lease is a holder and an expiry together: an expiry with no holder
+    // could never be released by anyone, and a holder with no expiry would
+    // never lapse.
+    check(
+      "entitlements_stripe_mutation_lease_check",
+      sql`(${t.stripeMutationLeaseUntil} is null) = (${t.stripeMutationLeaseOwner} is null) and (${t.stripeMutationLeaseOwner} is null or char_length(${t.stripeMutationLeaseOwner}) between 1 and 120)`,
+    ),
+    // A pending location is a request and the count it makes, set together;
+    // it can be charged only while it is pending; the count is at least two
+    // (the clinic itself plus the new one); and the request id is an opaque
+    // token, because it rides into Stripe metadata and idempotency keys.
+    check(
+      "entitlements_pending_location_check",
+      sql`(${t.pendingLocationRequestId} is null) = (${t.pendingLocationCount} is null) and (${t.pendingLocationChargedAt} is null or ${t.pendingLocationRequestId} is not null) and (${t.pendingLocationCount} is null or ${t.pendingLocationCount} >= 2) and (${t.pendingLocationRequestId} is null or ${t.pendingLocationRequestId} ~ '^[A-Za-z0-9_-]{1,64}$')`,
+    ),
   ],
 );
 
@@ -3033,6 +3106,121 @@ export const overageInvoices = pgTable(
 
 export type OverageInvoice = typeof overageInvoices.$inferSelect;
 
+/**
+ * What a billing request asks Stripe to do: swap the $0 placeholder for the
+ * package price (`plan_start`), add a channel's price (`step_up`), close an
+ * account whose 30-day setup window ran out with nothing live
+ * (`close_setup`), or cancel at once after a first-period refund
+ * (`cancel_now`).
+ */
+export const BILLING_REQUEST_KINDS = ["plan_start", "step_up", "close_setup", "cancel_now"] as const;
+export type BillingRequestKind = (typeof BILLING_REQUEST_KINDS)[number];
+
+/** Why it was recorded: a channel's first answer, a waiting channel's 30 days, the setup deadline, an operator, or the hourly reconcile. */
+export const BILLING_REQUEST_REASONS = [
+  "first_answer",
+  "waiting",
+  "deadline",
+  "ops",
+  "reconcile",
+] as const;
+export type BillingRequestReason = (typeof BILLING_REQUEST_REASONS)[number];
+
+/** How a finished request ended. A pending one has no outcome. */
+export const BILLING_REQUEST_OUTCOMES = ["done", "skipped", "dead_letter"] as const;
+export type BillingRequestOutcome = (typeof BILLING_REQUEST_OUTCOMES)[number];
+
+/** The channel a step_up adds; every other kind carries "-", so the unique key still holds. */
+export type BillingRequestChannelKey = Channel | "-";
+
+/**
+ * The billing-request ledger (drizzle/0050, build decision BD1): what the
+ * engine has asked Stripe to do, recorded in the same transaction as the
+ * event that asked (a channel's first answer, the reconcile, an operator),
+ * and carried out afterwards by a worker that calls Stripe outside any
+ * transaction.
+ *
+ * Why a table and not a queue job: a pg-boss send is not part of the
+ * caller's transaction, so a crash between the commit and the send would
+ * lose a plan start for good and leave the clinic answering on the $0 line.
+ * Here the row commits or rolls back with the first answer itself.
+ *
+ * Rows live on the BILLING clinic. The recorders go through the definer
+ * `app_record_billing_request`, which resolves the billing clinic from the
+ * caller's tenant, so a location's transaction can record one and every
+ * claim, outcome and re-arm then runs in the billing clinic's tenant. One row
+ * per (clinic, kind, channel): a second request for the same thing is a
+ * no-op, and a finished one is re-armed rather than inserted again, which
+ * also bounds a clinic to six rows.
+ *
+ * The worker claims a row by a conditional UPDATE that sets a short
+ * `lease_until` and counts the attempt, then writes the outcome
+ * conditionally on the attempt it claimed. The runtime role may SELECT and
+ * INSERT, UPDATE only those worker columns, and never DELETE: this is billing
+ * evidence, kept through offboarding. Tenant plane, no PHI.
+ */
+export const billingRequests = pgTable(
+  "billing_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<BillingRequestKind>().notNull(),
+    channelKey: text("channel_key").$type<BillingRequestChannelKey>().notNull().default("-"),
+    reason: text("reason").$type<BillingRequestReason>().notNull(),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    /** While set and in the future, a worker holds the row. */
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    /** A closed code and a short reason, never a Stripe payload or an exception's text. */
+    lastError: text("last_error"),
+    doneAt: timestamp("done_at", { withTimezone: true }),
+    outcome: text("outcome").$type<BillingRequestOutcome>(),
+    /** A snake_case code: already_started, cancel_pending, live_channel, no_change… */
+    outcomeReason: text("outcome_reason"),
+  },
+  (t) => [
+    uniqueIndex("billing_requests_key_idx").on(t.clinicId, t.kind, t.channelKey),
+    // The drainer's question, "what is due", runs on pending rows only.
+    index("billing_requests_due_idx")
+      .on(t.nextAttemptAt)
+      .where(sql`${t.doneAt} is null`),
+    check("billing_requests_kind_check", sql`${t.kind} in (${sqlList(BILLING_REQUEST_KINDS)})`),
+    check(
+      "billing_requests_channel_check",
+      sql`${t.channelKey} = '-' or ${t.channelKey} in (${sqlList(CHANNELS)})`,
+    ),
+    // A step-up names the channel it adds, and nothing else names one.
+    check(
+      "billing_requests_step_up_channel_check",
+      sql`(${t.kind} = 'step_up') = (${t.channelKey} <> '-')`,
+    ),
+    check(
+      "billing_requests_reason_check",
+      sql`${t.reason} in (${sqlList(BILLING_REQUEST_REASONS)})`,
+    ),
+    check("billing_requests_attempts_check", sql`${t.attempts} >= 0`),
+    check(
+      "billing_requests_last_error_check",
+      sql`${t.lastError} is null or char_length(${t.lastError}) <= 300`,
+    ),
+    check(
+      "billing_requests_outcome_check",
+      sql`${t.outcome} is null or ${t.outcome} in (${sqlList(BILLING_REQUEST_OUTCOMES)})`,
+    ),
+    // Finished means an outcome, and only a finished request has one.
+    check("billing_requests_done_check", sql`(${t.doneAt} is null) = (${t.outcome} is null)`),
+    check(
+      "billing_requests_outcome_reason_check",
+      sql`${t.outcomeReason} is null or ${t.outcomeReason} ~ '^[a-z_]{1,40}$'`,
+    ),
+  ],
+);
+
+export type BillingRequest = typeof billingRequests.$inferSelect;
+
 export type DepositPaymentStatus =
   | "creating"
   | "open"
@@ -3072,6 +3260,12 @@ export const depositPayments = pgTable(
   },
   (t) => [
     index("deposit_payments_appointment_idx").on(t.clinicId, t.appointmentId),
+    // One live link per appointment (drizzle/0050): a retried booking turn or
+    // a second request for the same appointment gets the open session back
+    // (createDepositLink) instead of a second link the patient could also pay.
+    uniqueIndex("deposit_payments_open_appointment_idx")
+      .on(t.clinicId, t.appointmentId)
+      .where(sql`${t.status} in ('creating', 'open') and ${t.appointmentId} is not null`),
     check("deposit_payments_channel_check", sql`${t.channel} in ('web', 'meta')`),
     check("deposit_payments_amount_check", sql`${t.amountCents} > 0`),
     check(
@@ -3114,6 +3308,14 @@ export const stripeConnectEvents = pgTable(
 );
 
 /**
+ * Where a Connect callback sends the browser back to (drizzle/0050): the
+ * portal's Settings, the setup wizard, or the neutral page an operator's link
+ * lands on. Never /admin.
+ */
+export const STRIPE_CONNECT_RETURN_TO = ["settings", "setup", "ops"] as const;
+export type StripeConnectReturnTo = (typeof STRIPE_CONNECT_RETURN_TO)[number];
+
+/**
  * Single-use Stripe Connect OAuth state. Stores SHA-256 of the state, never
  * the state. Identity plane: the callback arrives with no tenant, and this
  * row is how it learns one.
@@ -3129,14 +3331,17 @@ export const stripeConnectStates = pgTable(
     stateHash: bytea("state_hash").primaryKey(),
     clinicId: uuid("target_clinic_id").notNull(),
     userId: text("user_id"),
-    returnTo: text("return_to").$type<"portal" | "ops">().notNull(),
+    returnTo: text("return_to").$type<StripeConnectReturnTo>().notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     usedAt: timestamp("used_at", { withTimezone: true }),
   },
   (t) => [
     check("stripe_connect_states_hash_length", sql`octet_length(${t.stateHash}) = 32`),
-    check("stripe_connect_states_return_check", sql`${t.returnTo} in ('portal', 'ops')`),
+    check(
+      "stripe_connect_states_return_check",
+      sql`${t.returnTo} in (${sqlList(STRIPE_CONNECT_RETURN_TO)})`,
+    ),
   ],
 );
 
@@ -3573,4 +3778,5 @@ export const TENANT_SCOPED_TABLES = [
   "clinic_channels",
   "channel_events",
   "clinic_closures",
+  "billing_requests",
 ] as const;

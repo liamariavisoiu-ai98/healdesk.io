@@ -2272,7 +2272,8 @@ function calendarKindOf(v: BaaVariables): CalendarTermsKind {
  * funnel's data protection agreement is to share the Payments clause and
  * this one (docs/design/funnel-onboarding-portal-2026-10-06.md, Part L); it
  * says "PHI" in its last sentence, which a document without PHI has to word
- * for itself. Frozen with 1.3.0's golden hashes.
+ * for itself. In the BAA it is the second paragraph of the fuller clause in
+ * CLAUSES_1_3. Frozen with 1.3.0's golden hashes.
  */
 export const STATE_LAW_CLAUSE_HEADING = "Where Practice is not a covered entity";
 export const STATE_LAW_CLAUSE_BODY =
@@ -2325,12 +2326,242 @@ const CLAUSES_1_3: readonly BaaClause[] = [
   byId121("practice-status"),
   byId121("permitted-uses"),
 
-  // Q8: the processor terms state consumer-health-privacy law asks for.
+  /**
+   * Q8: the processor terms state consumer-health-privacy law asks for. The
+   * shared paragraph (STATE_LAW_CLAUSE_BODY, which the funnel's DPA also
+   * carries) sits inside the fuller clause the 3 October branch drafted:
+   * when it applies, what "patient information" then means, the laws it
+   * names, the purposes, the data, the assessment rights and the CMIA
+   * sentence (owner, 6 October 2026). Every variant renders it and its first
+   * sentence limits it, so a practice that really is covered gets nothing
+   * from it, and one that is not cannot lose it by ticking the wrong box. It
+   * names other clauses only by their headings, and where it and another
+   * clause differ about patient information, it governs.
+   */
   {
     id: "state-law",
     heading: STATE_LAW_CLAUSE_HEADING,
     appliesWhen: ALWAYS,
-    body: () => wrap(STATE_LAW_CLAUSE_BODY),
+    body: () =>
+      wrap(
+        `This clause applies for any period in which Practice is not a covered entity, ` +
+          `whatever Practice has told healdesk about its status. For that period, "patient ` +
+          `information" means any information about an identified or identifiable ` +
+          `individual, other than Practice's own staff, that healdesk collects, receives or ` +
+          `creates for Practice in the course of the Services, including all that would be ` +
+          `PHI if Practice were a covered entity, and everything this agreement says about ` +
+          `PHI applies to it.`,
+      ) +
+      "\n\n" +
+      wrap(STATE_LAW_CLAUSE_BODY) +
+      "\n\n" +
+      wrap(
+        `healdesk is Practice's service provider and processor under the California ` +
+          `Consumer Privacy Act and its regulations (Cal. Civ. Code 1798.100 and following; ` +
+          `11 CCR 7000 and following), the Washington My Health My Data Act (RCW 19.373), ` +
+          `Nevada's consumer health data law (NRS 603A.400 to 603A.550) and the Connecticut ` +
+          `Data Privacy Act (Conn. Gen. Stat. 42-515 to 42-526), to the extent each applies ` +
+          `(together, "the state privacy laws"). Where this clause and another clause of ` +
+          `this agreement differ about patient information, this clause governs, and any ` +
+          `ambiguity is resolved in favour of a meaning that permits compliance with the ` +
+          `state privacy laws.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Practice makes patient information available to healdesk, and healdesk collects ` +
+          `it for Practice, only for the limited and specified purposes below, which, with ` +
+          `the settings Practice chooses in its portal, are Practice's instructions. ` +
+          `healdesk processes patient information only to:`,
+      ) +
+      "\n\n" +
+      wrap(
+        `a. answer, in Practice's name, the calls, website chats and Instagram, Messenger ` +
+          `and WhatsApp messages that people start with Practice, from Practice's own ` +
+          `services, prices, hours and policies, using a language model to understand each ` +
+          `message and write each reply;`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `b. check Practice's calendar, hold a time and add the appointment, or take a ` +
+          `booking request for Practice's staff to confirm;`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `c. send Practice's own payment link where Practice takes deposits;`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `d. pass urgent messages and requests for a person to the contacts Practice ` +
+          `names;`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `e. keep transcripts and records of those conversations and bookings, show them ` +
+          `to Practice's staff, and export or delete them when Practice asks;`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `f. count conversations, minutes and bookings, to bill Practice and to report ` +
+          `them to it;`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `g. read a conversation that Practice flags, or that a fault or a complaint makes ` +
+          `it necessary to read, to correct the assistant for Practice; and`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `h. keep the Services secure, find and fix faults, detect and prevent fraud and ` +
+          `abuse, and meet healdesk's own legal obligations.`,
+        "    ",
+        "       ",
+      ) +
+      "\n\n" +
+      wrap(
+        `The patient information involved is names, telephone numbers, email addresses ` +
+          `and messaging-account identifiers; what people say or write, kept as transcripts ` +
+          `with no call audio; the services and times they ask about; booking and deposit ` +
+          `status; free and busy times on Practice's calendar and the appointments healdesk ` +
+          `adds to it; and the number or network address a call or chat comes from. ` +
+          `healdesk processes it while Practice uses the Services, keeps it no longer than ` +
+          `the periods this agreement states, and when the Services end returns or destroys ` +
+          `it as the Term clause provides. Afterwards it keeps only archived or backup ` +
+          `copies until they expire, within six months at most, and what a law requires it ` +
+          `to keep or the Subcontractors clause says may be kept for security and abuse ` +
+          `detection, each for that purpose and that period only.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `healdesk will not sell or share patient information, as Cal. Civ. Code 1798.140 ` +
+          `defines those words; will not retain, use or disclose it for any purpose other ` +
+          `than those above, including any other commercial purpose, or outside the direct ` +
+          `business relationship between healdesk and Practice, except as a state privacy ` +
+          `law expressly permits; and will not combine it with personal information that it ` +
+          `receives from or for anyone else, or collects from its own interaction with a ` +
+          `person, except to keep the Services secure and detect fraud and abuse, or to ` +
+          `produce the de-identified statistics the Own use clause permits. healdesk makes ` +
+          `no such statistics from consumer health data as RCW 19.373.010 or NRS 603A.430 ` +
+          `defines it, keeps them de-identified, makes no attempt to re-identify them, and ` +
+          `requires by contract anyone who receives them to do the same. healdesk ` +
+          `understands these restrictions and will comply with them.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `healdesk will comply with the obligations the state privacy laws place on it in ` +
+          `that role, and give patient information the same level of privacy protection ` +
+          `they require of Practice. It will:`,
+      ) +
+      "\n\n" +
+      wrap(
+        `a. ensure that every person who processes patient information for it is bound by ` +
+          `a duty of confidentiality, and give access only to those who need it for the ` +
+          `purposes above;`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `b. help Practice, by appropriate technical and organisational measures and ` +
+          `insofar as it is possible, to meet its obligations under those laws, including ` +
+          `answering the requests people make under them, giving Practice what it needs ` +
+          `within ten business days of being asked;`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `c. when Practice tells it to delete a person's information, delete it from ` +
+          `healdesk's own records within ten business days and from archived or backup ` +
+          `copies as they expire and in any case within six months, have each subcontractor ` +
+          `that holds it delete it in time for Practice to meet the deadline the law sets, ` +
+          `and keep only a record of the request, used for nothing but making sure the ` +
+          `information stays deleted;`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `d. give Practice the information it holds that Practice needs for any risk ` +
+          `assessment, data protection or impact assessment, or cybersecurity audit those ` +
+          `laws require of Practice, and misrepresent no fact relevant to one;`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `e. tell Practice promptly after it determines that it can no longer meet its ` +
+          `obligations under this clause; and`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `f. notify Practice of a breach immediately following discovery wherever a state ` +
+          `breach-notification law requires a person holding data for its owner to notify ` +
+          `the owner that soon, by email to the address in the Notices clause, then report ` +
+          `as the Reporting clause provides, and help Practice meet its own duties to ` +
+          `secure patient information and to give notice of a breach.`,
+        "    ",
+        "       ",
+      ) +
+      "\n\n" +
+      wrap(
+        `Practice may take reasonable and appropriate steps to ensure that healdesk uses ` +
+          `patient information consistently with Practice's obligations under the state ` +
+          `privacy laws and, on notice, to stop and remedy any unauthorised use, including ` +
+          `requiring documents showing that healdesk has deleted what it was told to ` +
+          `delete. On reasonable request healdesk will make available all the information ` +
+          `in its possession necessary to show that it meets this clause. Practice, or an ` +
+          `assessor Practice designates, may assess healdesk's compliance with this clause ` +
+          `on reasonable notice, once in any twelve months and after any breach, at ` +
+          `Practice's cost; healdesk will cooperate, or may instead have a qualified and ` +
+          `independent assessor assess its policies and technical and organisational ` +
+          `measures against an appropriate and accepted control standard or framework, and ` +
+          `will give Practice the report on request.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `The Subcontractors clause applies to patient information: its 24 hours' notice ` +
+          `is Practice's opportunity to object, and the written agreement it ` +
+          `requires binds each subcontractor to the obligations of this clause. Google ` +
+          `Calendar, Instagram, Messenger, WhatsApp and Practice's payment processor are ` +
+          `services Practice connects under its own accounts with their providers. They are ` +
+          `not healdesk's subcontractors, and healdesk sends patient information to them ` +
+          `only to answer people on Instagram, Messenger and WhatsApp and to add ` +
+          `appointments to the calendar. At termination the record of disclosures that the ` +
+          `Term clause keeps for six years goes to Practice with the export, and healdesk ` +
+          `keeps no copy of it that contains patient information unless a law requires it.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Where Practice is a provider of health care under California's Confidentiality ` +
+          `of Medical Information Act, healdesk receives medical information from Practice ` +
+          `under Cal. Civ. Code 56.10(c)(3) and will not further disclose it in a way that ` +
+          `would violate that Act.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Practice will tell healdesk of any request under the state privacy laws that ` +
+          `healdesk must act on, with the information healdesk needs to act on it; will ` +
+          `make sure its own notices, consents and consumer health data privacy policy ` +
+          `cover the processing this clause describes; and will not instruct healdesk to ` +
+          `process patient information in a way those laws forbid. A request made to ` +
+          `healdesk directly is handled as the Patient access clause provides.`,
+      ),
   },
 
   byId121("data-sources-verified"),
@@ -2371,27 +2602,29 @@ const CLAUSES_1_3: readonly BaaClause[] = [
     body: () => wrap(PAYMENTS_CLAUSE_BODY),
   },
 
-  // Q8: 1.1.0's own-use clause, the first paragraph word for word; the
-  // aggregation sentence now names the de-identification standard.
+  // De-identify first, then combine, and never re-identify: no PHI is
+  // aggregated across practices (owner, 6 October 2026).
   {
     id: "own-use",
-    heading: "healdesk's own use, and data aggregation",
+    heading: "healdesk's own use, and de-identified statistics",
     appliesWhen: ALWAYS,
     body: () =>
       wrap(
-        `healdesk may use PHI for its own proper management and administration and to ` +
-          `carry out its legal responsibilities, and may disclose it for those purposes ` +
-          `only where the law requires the disclosure, or where healdesk has obtained ` +
-          `reasonable assurances from the recipient that the PHI will be held ` +
+        `healdesk may use PHI where necessary for its own proper management and ` +
+          `administration and to carry out its legal responsibilities, and may disclose it ` +
+          `for those purposes only where the law requires the disclosure, or where healdesk ` +
+          `has obtained reasonable assurances from the recipient that the PHI will be held ` +
           `confidentially, used or further disclosed only as required by law or for the ` +
-          `purpose it was disclosed for, and that the recipient will notify healdesk of ` +
-          `any breach of its confidentiality. 45 CFR 164.504(e)(4).`,
+          `purpose it was disclosed for, and that the recipient will notify healdesk of any ` +
+          `breach of its confidentiality. 45 CFR 164.504(e)(4).`,
       ) +
       "\n\n" +
       wrap(
-        `healdesk may combine Practice's PHI with that of other practices only to ` +
-          `produce aggregate statistics about the Services, de-identified under 45 CFR ` +
-          `164.514(b) (for example, what fraction of after-hours calls are answered). It ` +
+        `healdesk may de-identify Practice's PHI in accordance with 45 CFR 164.514(b), ` +
+          `and combine the de-identified information with de-identified information from ` +
+          `other practices, only to produce aggregate statistics about the Services (for ` +
+          `example, what fraction of after-hours calls are answered). It will not ` +
+          `re-identify, or try to re-identify, any individual from that information. It ` +
           `will not use PHI to train, fine-tune or evaluate any model, and nothing in this ` +
           `clause permits it to.`,
       ),
@@ -2436,9 +2669,64 @@ const CLAUSES_1_3: readonly BaaClause[] = [
   },
 
   byId121("patient-rights"),
-  byId121("acting-in-your-place"),
+  // Replying to a patient who writes, not "sending messages": v1 is inbound only.
+  {
+    id: "acting-in-your-place",
+    heading: "Where healdesk acts in your place",
+    appliesWhen: ALWAYS,
+    body: (v) =>
+      wrap(
+        `Some of what healdesk does is ${v.clinicLegalName} carrying out its own duties ` +
+          `through healdesk, rather than healdesk doing something of its own — ` +
+          `answering a patient who calls, and replying in ${v.clinicLegalName}'s name ` +
+          `to a patient who writes, are both of those. Where healdesk carries out ` +
+          `an obligation the HIPAA Privacy Rule places on ${v.clinicLegalName}, ` +
+          `healdesk will meet the requirements that Rule places on ` +
+          `${v.clinicLegalName} in performing it, and not only the lighter ones it ` +
+          `places on a business associate. 45 CFR 164.504(e)(2)(ii)(H).`,
+      ),
+  },
+
   byId121("prohibited"),
-  byId121("term"),
+
+  // 1.2.1's term clause, with a ninety-day limit on destruction where an
+  // export was asked for and not yet delivered (owner, 6 October 2026).
+  {
+    id: "term",
+    heading: "Term, termination, and what happens to the information",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `This agreement takes effect on the effective date and continues for as long as ` +
+          `healdesk holds any PHI for Practice. Either party may terminate it on written ` +
+          `notice if the other materially breaches it and does not cure the breach within ` +
+          `thirty days of being told of it in writing; where cure is not possible, on ` +
+          `notice. Practice may also terminate under the subcontractor-objection right ` +
+          `above. Ending the Services ends this agreement, subject to the rest of this ` +
+          `clause.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Within thirty days of termination healdesk will return or destroy all PHI it ` +
+          `holds for Practice and retain no copies, and will give Practice, on request ` +
+          `before that date, an export of the PHI it holds in a usable electronic form. ` +
+          `Where Practice has asked for an export that has not been delivered by then, ` +
+          `healdesk will destroy the PHI as soon as the export is delivered, and in no case ` +
+          `later than ninety days after termination; until then this agreement continues ` +
+          `to protect it. Where return or destruction is not feasible, healdesk will say ` +
+          `why in writing, extend the protections of this agreement to that PHI for as ` +
+          `long as it is held, and limit further use to what makes return or destruction ` +
+          `infeasible.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Two records survive termination: the signed copy of this agreement, and the ` +
+          `record of disclosures needed to answer an accounting request, each kept for ` +
+          `six years from termination as 45 CFR 164.530(j) and 164.528 require. Neither ` +
+          `contains more PHI than the record itself needs.`,
+      ),
+  },
+
   byId121("liability"),
   byId121("records-to-hhs"),
   byId121("notices-and-law"),
@@ -2571,6 +2859,42 @@ export const BAA_TEMPLATES: readonly BaaTemplate[] = [
 ] as const;
 
 export const CURRENT_BAA_VERSION = BAA_TEMPLATES[0]!.version;
+
+/**
+ * The oldest agreement a clinic may go live under
+ * (docs/counsel/agreement-changes.md §10, decided 3 October 2026).
+ *
+ * Go-live refuses an account whose agreement in effect is older than this,
+ * and the ops console says so on the clinic's card. A floor, not "the
+ * current version only": whether a revised text needs fresh assent is a
+ * judgement made at each release, and a floor makes it a constant raised on
+ * purpose rather than a side effect of publishing.
+ *
+ * 1.2.1, the version being signed, while 1.3.0 is a draft. It refuses 1.0.0,
+ * 1.2.0 and every unreleased draft. Whether releasing 1.3.0 raises it is part
+ * of that release (plan C19): 1.3.0 is the first version with the Payments
+ * clause and the clause for a practice that is not a covered entity.
+ *
+ * At each release: decide whether the new version raises the floor, and add
+ * every acceptable version to app_baa_version_acceptable() in a migration.
+ * Go-live refuses any version that SQL list leaves out, and the parity test
+ * in apps/app/tests/database-audit.test.ts fails until the two agree.
+ */
+export const MIN_ACCEPTABLE_BAA_VERSION = "1.2.1";
+
+/**
+ * Whether a clinic may go live under an agreement of this version: the
+ * template is registered, approved for release, and no older than
+ * MIN_ACCEPTABLE_BAA_VERSION. "Older" is position in BAA_TEMPLATES, which is
+ * ordered newest released first, with a draft after the release it follows;
+ * publishedOn cannot decide it, because 1.2.0 and 1.2.1 share a date. A draft
+ * is never acceptable, wherever it sits: it is not approved for release.
+ */
+export function isBaaVersionAcceptable(version: string): boolean {
+  const at = BAA_TEMPLATES.findIndex((t) => t.version === version);
+  const floor = BAA_TEMPLATES.findIndex((t) => t.version === MIN_ACCEPTABLE_BAA_VERSION);
+  return at !== -1 && floor !== -1 && at <= floor && BAA_TEMPLATES[at]!.approvedByCounsel;
+}
 
 /**
  * The calendar clause ids of 1.3.0. An acceptance whose `appliedClauses`

@@ -35,7 +35,7 @@ import {
 import { seedClinic, seedContact } from "./setup/factories";
 
 /**
- * Agreement kinds (plan Part L; drizzle/0048): the generated kind on every
+ * Agreement kinds (plan Part L; drizzle/0051): the generated kind on every
  * acceptance, the two gate columns on clinics, the sufficiency rule in SQL and
  * its TypeScript mirror, the PHI gate's new condition, the supersede function,
  * and provisioning's part.
@@ -221,7 +221,7 @@ describe("the DPA's Term clause is the offboarding clock in this app", () => {
   });
 });
 
-describeDb("agreement kinds in the database (0048)", () => {
+describeDb("agreement kinds in the database (0051)", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
@@ -606,7 +606,7 @@ describeDb("agreement kinds in the database (0048)", () => {
   });
 });
 
-describeDb("provisioning records the regime and the kind (0048)", () => {
+describeDb("provisioning records the regime and the kind (0051)", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();

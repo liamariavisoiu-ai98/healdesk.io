@@ -46,6 +46,7 @@ describe("analytics allowlist", () => {
   it("keeps third-party scripts off the purchase-complete page and the console", () => {
     expect(isAnalyticsExcludedPath("/get-started/done")).toBe(true);
     expect(isAnalyticsExcludedPath("/admin/ops")).toBe(true);
+    expect(isAnalyticsExcludedPath("/demo/smith-dental-k7q2mz9xwa")).toBe(true);
     expect(isAnalyticsExcludedPath("/pricing")).toBe(false);
   });
 });

@@ -540,7 +540,7 @@ async function provisionOnce({
       // document — `null` where the buyer said they did not know, and false
       // under a DPA, which only a practice outside HIPAA signs.
       isCoveredEntity: agreement.isCoveredEntity,
-      // The gate columns (drizzle/0048): the specialty's regime and the kind of
+      // The gate columns (drizzle/0051): the specialty's regime and the kind of
       // the agreement just bound, which the PHI gate reads with the line above.
       // Written here, on insert; the runtime role cannot update either.
       regulatoryRegime: agreement.regime,
@@ -695,7 +695,7 @@ type ProvisionedAgreement = {
  * a practice outside HIPAA, so it must name this specialty and record no
  * covered answer but "No", and the clinic is stored as not covered. Last, the
  * kind must cover the specialty's regime with that answer, by the rule the PHI
- * gate applies (app_agreement_kind_sufficient, drizzle/0048): a BAA at a
+ * gate applies (app_agreement_kind_sufficient, drizzle/0051): a BAA at a
  * veterinary practice, or a DPA at a practice HIPAA always reaches, never
  * becomes an account.
  */

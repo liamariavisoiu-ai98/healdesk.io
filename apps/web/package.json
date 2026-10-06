@@ -13,7 +13,9 @@
     "stripe:settings": "tsx scripts/stripe-account-settings.ts",
     "test": "vitest run",
     "qa:gate": "tsx --env-file-if-exists=.env.local scripts/qa-gate.ts",
-    "sheets:init": "tsx --env-file-if-exists=.env.local scripts/sheets-init.ts"
+    "sheets:init": "tsx --env-file-if-exists=.env.local scripts/sheets-init.ts",
+    "retell:demo": "tsx --env-file-if-exists=.env.local scripts/retell-demo-agent.ts",
+    "retell:clinic-demo": "tsx --env-file-if-exists=.env.local scripts/retell-clinic-demo-agent.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
@@ -24,6 +26,7 @@
     "qrcode": "^1.5.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "retell-client-js-sdk": "^3.0.2",
     "stripe": "^22.6.1"
   },
   "devDependencies": {

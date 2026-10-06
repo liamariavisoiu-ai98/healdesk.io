@@ -66,7 +66,7 @@ import { baaAcceptances } from "@/db/schema";
  *     on a column that cannot be corrected afterwards. It has been removed
  *     rather than left exported for someone to find and call.
  *     The one other writer is in the database, and keeps the same rule:
- *     app_supersede_agreement() (drizzle/0048) terminates the agreement a newer
+ *     app_supersede_agreement() (drizzle/0051) terminates the agreement a newer
  *     one replaces, and stamps the last instant of the current UTC day, as
  *     this writer would for today's date.
  *   - `copy_sent_at` and `copy_document_sha256` — `deliverSignedCopy` in

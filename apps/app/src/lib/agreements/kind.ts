@@ -16,7 +16,7 @@ import { baaAcceptances } from "@/db/schema";
  *
  * The database decides both: `clinics.agreement_kind` and
  * `clinics.regulatory_regime` are gate columns the runtime role cannot update,
- * and app_agreement_kind_sufficient() (drizzle/0048) is what the PHI gate
+ * and app_agreement_kind_sufficient() (drizzle/0051) is what the PHI gate
  * asks on every write. This module is the TypeScript side of the same rules,
  * for code that has to answer before it writes: provisioning, and whatever
  * offers the re-sign. tests/agreement-kinds.test.ts runs every combination

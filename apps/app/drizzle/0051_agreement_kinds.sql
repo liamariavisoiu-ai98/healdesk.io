@@ -358,7 +358,7 @@ COMMENT ON CONSTRAINT baa_acceptances_version_namespace ON baa_acceptances IS
 COMMENT ON COLUMN clinics.regulatory_regime IS
   'The regime of the clinic''s specialty at provisioning: hipaa, hipaa-if-covered or non-hipaa. A gate column: written on insert, never updated by healdesk_app.';--> statement-breakpoint
 COMMENT ON COLUMN clinics.agreement_kind IS
-  'The kind of agreement the clinic is under, baa or dpa: from the bound acceptance at provisioning, moved only by app_supersede_agreement(). A gate column. NULL only before 0048 where no agreement was bound.';--> statement-breakpoint
+  'The kind of agreement the clinic is under, baa or dpa: from the bound acceptance at provisioning, moved only by app_supersede_agreement(). A gate column. NULL only before 0051 where no agreement was bound.';--> statement-breakpoint
 COMMENT ON FUNCTION app_agreement_kind_sufficient(text, text, boolean) IS
   'Whether an agreement of this kind covers a clinic of this regime and covered-entity status. A BAA covers hipaa and hipaa-if-covered; a DPA covers non-hipaa, and hipaa-if-covered only while not covered. Total; never NULL.';--> statement-breakpoint
 COMMENT ON FUNCTION app_clinic_accepts_phi(uuid) IS
@@ -388,7 +388,7 @@ BEGIN
   END IF;
   IF NOT has_function_privilege('healdesk_app'::name, 'app_supersede_agreement(uuid, uuid, text)', 'EXECUTE')
      OR NOT has_function_privilege('healdesk_app'::name, 'app_agreement_kind_sufficient(text, text, boolean)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'healdesk_app cannot execute the agreement-kind functions 0048 added.';
+    RAISE EXCEPTION 'healdesk_app cannot execute the agreement-kind functions 0051 added.';
   END IF;
 
   SELECT string_agg(p.proname, ', ')

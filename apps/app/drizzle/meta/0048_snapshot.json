@@ -1,5 +1,5 @@
 {
-  "id": "10d3a27a-4bab-4bac-8c0e-0bd5e882316f",
+  "id": "d53f6ab7-006f-4f28-bb8b-16ac5fa994cb",
   "prevId": "1d7e1cf7-6d4a-4f18-bf7e-8f1a1cc85e3f",
   "version": "7",
   "dialect": "postgresql",
@@ -745,16 +745,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "agreement_kind": {
-          "name": "agreement_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "generated": {
-            "as": "case when document_version like 'dpa/%' then 'dpa' else 'baa' end",
-            "type": "stored"
-          }
-        },
         "rendered_text": {
           "name": "rendered_text",
           "type": "text",
@@ -958,14 +948,6 @@
         "baa_acceptances_copy_hash_format": {
           "name": "baa_acceptances_copy_hash_format",
           "value": "\"baa_acceptances\".\"copy_document_sha256\" is null or \"baa_acceptances\".\"copy_document_sha256\" ~ '^[0-9a-f]{64}$'"
-        },
-        "baa_acceptances_agreement_kind_check": {
-          "name": "baa_acceptances_agreement_kind_check",
-          "value": "\"baa_acceptances\".\"agreement_kind\" in ('baa', 'dpa')"
-        },
-        "baa_acceptances_version_namespace": {
-          "name": "baa_acceptances_version_namespace",
-          "value": "\"baa_acceptances\".\"document_version\" not like '%/%' or \"baa_acceptances\".\"document_version\" like 'dpa/%'"
         }
       },
       "isRLSEnabled": false
@@ -2701,18 +2683,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "regulatory_regime": {
-          "name": "regulatory_regime",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "agreement_kind": {
-          "name": "agreement_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "retention_media_days": {
           "name": "retention_media_days",
           "type": "integer",
@@ -2725,7 +2695,7 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "default": 730
+          "default": 90
         },
         "onboarding": {
           "name": "onboarding",
@@ -3004,18 +2974,6 @@
         "clinics_billing_clinic_not_self": {
           "name": "clinics_billing_clinic_not_self",
           "value": "\"clinics\".\"billing_clinic_id\" is null or \"clinics\".\"billing_clinic_id\" <> \"clinics\".\"id\""
-        },
-        "clinics_regulatory_regime_check": {
-          "name": "clinics_regulatory_regime_check",
-          "value": "\"clinics\".\"regulatory_regime\" is null or \"clinics\".\"regulatory_regime\" in ('hipaa', 'hipaa-if-covered', 'non-hipaa')"
-        },
-        "clinics_agreement_kind_check": {
-          "name": "clinics_agreement_kind_check",
-          "value": "\"clinics\".\"agreement_kind\" is null or \"clinics\".\"agreement_kind\" in ('baa', 'dpa')"
-        },
-        "clinics_dpa_never_hipaa": {
-          "name": "clinics_dpa_never_hipaa",
-          "value": "\"clinics\".\"agreement_kind\" is distinct from 'dpa' or \"clinics\".\"regulatory_regime\" is distinct from 'hipaa'"
         }
       },
       "isRLSEnabled": false

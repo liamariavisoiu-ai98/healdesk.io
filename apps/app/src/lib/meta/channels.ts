@@ -6,6 +6,7 @@ import { saveConnection, withCredentials } from "@/lib/connections/store";
 import type { TenantTx } from "@/lib/tenant";
 
 import type { MetaPlatform } from "./front-door";
+import { GRAPH_VERSION } from "./graph";
 
 /**
  * A clinic's Meta channels: one sealed access token per platform, on the
@@ -40,21 +41,39 @@ export function isMetaPlatform(value: unknown): value is MetaPlatform {
   return value === "messenger" || value === "instagram" || value === "whatsapp";
 }
 
+/**
+ * Store one Meta channel for the tenant, replacing any earlier connection on
+ * the same platform (`saveConnection` keeps one per provider).
+ *
+ * `secrets` are sealed with the token, never written in clear: today only a
+ * WhatsApp number's registration PIN, which re-registering the number needs.
+ * `details` are non-secret ids kept in metadata, such as the WhatsApp Business
+ * account a number belongs to. `via` says how the token arrived, so the audit
+ * trail separates a clinic's own login from an operator pasting one.
+ */
 export async function attachMetaChannel(
   tx: TenantTx,
-  input: { platform: MetaPlatform; externalId: string; accessToken: string; label?: string },
+  input: {
+    platform: MetaPlatform;
+    externalId: string;
+    accessToken: string;
+    label?: string;
+    secrets?: Record<string, string>;
+    details?: Record<string, string>;
+    via?: "operator" | "facebook_login" | "embedded_signup";
+  },
 ): Promise<string> {
   const id = await saveConnection(tx.db, {
     clinicId: tx.clinicId,
     provider: META_PROVIDERS[input.platform],
-    credentials: { accessToken: input.accessToken },
-    metadata: { externalId: input.externalId, label: input.label ?? null },
+    credentials: { ...input.secrets, accessToken: input.accessToken },
+    metadata: { ...input.details, externalId: input.externalId, label: input.label ?? null },
   });
   tx.audit.record({
     action: "create",
     resourceType: "provider_connection",
     resourceId: id,
-    metadata: { provider: META_PROVIDERS[input.platform] },
+    metadata: { provider: META_PROVIDERS[input.platform], via: input.via ?? "operator" },
   });
   return id;
 }
@@ -121,8 +140,8 @@ export type MetaSender = (input: { platform: MetaPlatform; externalId: string; a
 export async function graphSend(input: Parameters<MetaSender>[0]): Promise<void> {
   const url =
     input.platform === "whatsapp"
-      ? `https://graph.facebook.com/v21.0/${encodeURIComponent(input.externalId)}/messages`
-      : `https://graph.facebook.com/v21.0/me/messages`;
+      ? `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(input.externalId)}/messages`
+      : `https://graph.facebook.com/${GRAPH_VERSION}/me/messages`;
   const body =
     input.platform === "whatsapp"
       ? { messaging_product: "whatsapp", to: input.recipientId, type: "text", text: { body: input.text } }

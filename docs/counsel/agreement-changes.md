@@ -863,19 +863,48 @@ release they never move.
 
 | Document and variant | SHA-256 |
 | --- | --- |
-| 1.3.0 covered_estimated (the sample) | `770462be01a012ff4221f5a5aabed7503dcb710c5437925d0652d9dde1247d16` |
-| 1.3.0 notcovered_estimated | `16b86e85dfc65a421d7e319534c2f8d18b8fbdc9307cb2269fc6d9d0715915f9` |
-| 1.3.0 unknown_estimated | `70f8f05cafa4784b2c2107a1d3099a20c8c1b789a66bcc4339886e054fde9ae6` |
-| 1.3.0 covered_verified_boulevard | `7361318a1050ceac11a9c0718a6f357d5595f1de85c7cabaa86270fa18cf28db` |
-| 1.3.0 uncovered_nobaa | `cb845bcaa7b1e8c542fbef66d20ac4b7428242b0a0e08eba9a344c53582a6071` |
-| 1.3.0 uncovered_personal | `25d848c43076aebc26f2273325abd11943cb6311e0e42a93978f143b06aa29f5` |
-| 1.3.0 notused_mindbody | `53a9d5482e16a12abf346ae33821659d2707b8290365dfd29420f60abb85840a` |
-| 1.3.0 notused_other | `0752e2848c767633bc3e2418911f91d82810d957ce0dc07225bb3cf24d4bd7d9` |
-| 1.3.0 live_calcom | `d725371aeab66183b4b54f821d0b0a53878f30c4e013bf26200ac72c7cc08720` |
-| 1.3.0 live_highlevel_personal | `144acc18c9e0cd1d08ed33ac160d67ac7d4a8197e3a93b9d8cb2a77141c9fc9d` |
-| 1.3.0 live_calendly_nobaa | `f2d0aed20eb500a1e5c3c278048e0a8a1b7854c5cb8628abe69777c8e7b67da3` |
+| 1.3.0 covered_estimated (the sample) | `f32de0d518b57ff3284b45884c37f236a4937cf35c7733b431ad8bef409840e4` |
+| 1.3.0 notcovered_estimated | `ceb44c88bb79b01c9d9f9ff217ba5aab591fed0408e3b0d8aa0294cbd3eadf5e` |
+| 1.3.0 unknown_estimated | `4ff0953d550f9358e6388f9dd0d480e119c6d4429176939b2ac997a6ed9374bb` |
+| 1.3.0 covered_verified_boulevard | `91eaa631af6b18c953941943a316f90286b8de99a92f634a7704aabf3154dd7f` |
+| 1.3.0 uncovered_nobaa | `07d2bbd1a6d7a51e1352545353a951cb5b52d09f6657a5803a73001b104bbad6` |
+| 1.3.0 uncovered_personal | `a376e4556a5aa1e767eca781283207369fd02aed4d9269c23fa0e97736889a62` |
+| 1.3.0 notused_mindbody | `5c2dba0df5068c8be226852e75d199572dcfeed366f0306d0703dcbf655655c0` |
+| 1.3.0 notused_other | `31165055e024520ea0aea3e6348cee7696854a0fbf0c99606c6738636f8575bf` |
+| 1.3.0 live_calcom | `1dd79799121ed865bcd25dc0383f6a54e27e32a517d706c01a2e071dfd1f92f3` |
+| 1.3.0 live_highlevel_personal | `55bdd4992b8c3c28165eb8ccad380ecd2f46beb7bb67cface81fe220c0bfff73` |
+| 1.3.0 live_calendly_nobaa | `623914a33d429367d07fca13875fe19968f1ff6fb243da6a1e58992d1f4ca117` |
 | calendar-election/1.0.0 sample | `d047b3894a46da62c737b2058e7dfedd1134c7c0f8be4517962c6e43b91be8be` |
 | google-calendar-disclosure/1 | `a33d569240d4a87171888b0340bcff155a6a69a9097a333dc9a7ef8c3497a83a` |
+
+The eleven 1.3.0 hashes above were regenerated on 6 October 2026 by the edits
+in §12.13; the election and the disclosure did not move.
+
+### 12.13 The owner's choices between two 1.3.0 texts (6 October 2026)
+
+A second session had drafted its own 1.3.0 on 3 October and marked it
+released, but it never reached main: production offered only 1.2.1, and
+nobody signed it. Two documents cannot share a version, so the owner chose,
+clause by clause, what this draft keeps. Each choice below is in the text and
+asserted on every variant in `apps/app/tests/baa-golden.test.ts`.
+
+| Clause | Kept |
+| --- | --- |
+| Practice's Google Calendar | This draft's three clauses, chosen by the practice's answers (§12.4). |
+| Where Practice is not a covered entity | Both: the shared §9 paragraph (`STATE_LAW_CLAUSE_BODY`, which the funnel's DPA also carries) inside the other draft's full clause. That clause says when it applies whatever Practice has said about its status, defines "patient information" for that period, names the CCPA, Washington's My Health My Data Act, Nevada's consumer health data law and the Connecticut Data Privacy Act, lists the purposes and the data, sets deletion within ten business days, gives Practice assessment rights, and adds the CMIA sentence. Its pointer to the subcontractor notice reads 24 hours. |
+| Payments | This draft's one paragraph (§6). |
+| Notice of a new subcontractor | 24 hours (§12.7). |
+| Term | 1.2.1's: return or destroy within thirty days, an export on request before then. Added: where an export was asked for and has not been delivered by then, destruction follows its delivery, and in no case later than ninety days after termination. |
+| Where healdesk acts in your place | "replying in Practice's name to a patient who writes", not "sending messages in Practice's name": v1 is inbound only. |
+| Own use | The other draft's: de-identify under 164.514(b) first, then combine with other practices' de-identified information for aggregate statistics, and never re-identify. Heading "healdesk's own use, and de-identified statistics". |
+
+For the release audit (§12.11): the shared paragraph and the full clause
+overlap. Both forbid combining patient information, the paragraph "except as
+the Services require" and the clause with two named exceptions. The clause
+says it governs where they differ, so the narrower reading holds, but the audit
+should decide whether the paragraph's own sentence stays. The go-live floor
+(`MIN_ACCEPTABLE_BAA_VERSION`, migration 0048) is 1.2.1 while 1.3.0 is a
+draft. Whether releasing 1.3.0 raises it is part of that release.
 
 ---
 

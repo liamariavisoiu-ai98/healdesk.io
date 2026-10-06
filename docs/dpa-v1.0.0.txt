@@ -15,7 +15,7 @@ electronically. "Not sure" signs the BAA, and so does every specialty HIPAA
 always reaches. Its launch-checklist items (Gate A): this text; vet readiness
 (the veterinary urgent set and its fixed reply, the emergency referral number,
 vet practice cases, client wording); and the supersede function for the "No"
-branch (app_supersede_agreement, drizzle/0048).
+branch (app_supersede_agreement, drizzle/0051).
 
 Rendered for a sample practice: a med spa that answered "No"; bookings in
 Mindbody, which does not read Google Calendar, so the calendar clause is the

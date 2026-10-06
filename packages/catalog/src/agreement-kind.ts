@@ -35,7 +35,7 @@ export const DPA_VERSION_PREFIX = "dpa/";
 /**
  * Which kind a stored acceptance is, from its document version alone: the
  * TypeScript mirror of the generated column `baa_acceptances.agreement_kind`
- * (drizzle/0048), whose parity test runs both over the same versions.
+ * (drizzle/0051), whose parity test runs both over the same versions.
  */
 export function agreementKindOfVersion(version: string): AgreementKind {
   return version.startsWith(DPA_VERSION_PREFIX) ? "dpa" : "baa";

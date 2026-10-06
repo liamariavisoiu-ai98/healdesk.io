@@ -2,11 +2,13 @@ import { metaEligible, resolveBookingRequirements } from "@healdesk/catalog";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 
 import { __setMetaRuntimeForTests, GET, POST } from "@/app/api/webhooks/meta/route";
+import { META_CHANNEL_PROHIBITIONS } from "@/lib/compliance/disclosure";
 import { attachMetaChannel, resolveMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta/channels";
 import {
   answerFrontDoor,
   buildFrontDoorPrompt,
   FRONT_DOOR_PROBES,
+  guardContextFor,
   guardReply,
   handoffLine,
   probeVerdict,
@@ -28,6 +30,8 @@ const describeDb = hasTestDatabase ? describe : describe.skip;
 const ACTOR = { type: "service", serviceName: "test" } as const;
 const APP_SECRET = "meta-app-secret-for-tests";
 const PAGE_ID = "123456789012345";
+/** A med spa's menu, as the guard is handed it. */
+const SERVICES = ["Botox", "Lip filler", "Laser hair removal"];
 
 describe("the guard", () => {
   test("lets a public answer through", () => {
@@ -56,12 +60,47 @@ describe("the guard", () => {
 
   test("the hand-off line itself passes the guard and the probe verdict", () => {
     const line = handoffLine({ clinicName: "Radiance", phone: "+1 415 555 0199" });
-    expect(guardReply(line)).toEqual({ ok: true });
-    expect(probeVerdict(line)).toEqual({ ok: true, reason: null });
+    expect(guardReply(line, { clinicName: "Radiance", serviceNames: SERVICES })).toEqual({ ok: true });
+    expect(probeVerdict(line, { clinicName: "Radiance", serviceNames: SERVICES })).toEqual({ ok: true, reason: null });
     expect(probeVerdict("We're open 9 to 5.")).toEqual({ ok: false, reason: "no hand-off" });
+    // A practice named after what it sells can still say its own name.
+    const named = handoffLine({ clinicName: "Botox Bar", phone: "+1 415 555 0199" });
+    expect(guardReply(named, { clinicName: "Botox Bar", serviceNames: SERVICES })).toEqual({ ok: true });
   });
 
-  test("the prompt forbids the four things and lists only approved public facts", () => {
+  test("refuses one of the clinic's own service names however it is written, and lets the price through without it", () => {
+    // The one Meta rule, (2) and (5): Meta signs no BAA, so no treatment name
+    // goes into a Meta message, even one the person wrote first.
+    const context = { clinicName: "Radiance", serviceNames: SERVICES };
+    for (const reply of [
+      "Lip filler is $300 to $600 here — call the practice to book.",
+      "Yes, we do BOTOX. Call the practice to book.",
+      "The practice offers lip-filler; call to book.",
+    ]) {
+      expect(guardReply(reply, context), reply).toEqual({ ok: false, reason: "a treatment name" });
+    }
+    expect(guardReply("Yes, the practice offers that: it's $300 to $600. Call the practice to book.", context)).toEqual({ ok: true });
+    // The clinic's own name is not a treatment, but a service named beside it still is.
+    const bar = { clinicName: "Botox Bar", serviceNames: SERVICES };
+    expect(guardReply("Thanks for messaging Botox Bar! Call the practice to book.", bar)).toEqual({ ok: true });
+    expect(guardReply("Botox Bar offers Botox — call the practice to book.", bar)).toEqual({ ok: false, reason: "a treatment name" });
+    // The names come from the facts: every configured service, approved or not.
+    expect(guardContextFor({ clinicName: "Radiance", services: [], serviceNames: ["Lip filler"] })).toEqual({ clinicName: "Radiance", serviceNames: ["Lip filler"] });
+    expect(guardContextFor({ clinicName: "Radiance", services: [{ name: "Botox", priceFromUsd: null, priceToUsd: null }] })).toEqual({ clinicName: "Radiance", serviceNames: ["Botox"] });
+  });
+
+  test("refuses promotional wording", () => {
+    for (const reply of [
+      "We have a 20% off special this month — call the practice to book.",
+      "Use promo code GLOW at the desk!",
+      "Ask about our introductory offer when you call the practice.",
+      "Our monthly specials are on the website.",
+    ]) {
+      expect(guardReply(reply), reply).toEqual({ ok: false, reason: "a promotion" });
+    }
+  });
+
+  test("the prompt forbids the four things, carries the Meta prohibitions, and lists only approved public facts", () => {
     // A plastic-surgery practice collects a surname, the service and the visit
     // type on the phone; none of those may be asked on this channel.
     const resolved = resolveBookingRequirements("plastic-surgery", null);
@@ -79,8 +118,17 @@ describe("the guard", () => {
     expect(prompt).toMatch(/Acknowledge, repeat, or respond to any health condition/);
     expect(prompt).toMatch(/appointment date, time, or provider/);
     expect(prompt).toMatch(/insurance, payment status/);
-    expect(prompt).toMatch(/Consultation \(from \$0\)/);
     expect(prompt).toMatch(/Free parking/);
+    // The one Meta rule's list, word for word: it has a caller now.
+    for (const prohibition of META_CHANNEL_PROHIBITIONS) expect(prompt).toContain(prohibition);
+    expect(prompt).toMatch(/Write the name of any treatment or service, even one the person named first/);
+    expect(prompt).toMatch(/Mention a promotion/);
+    // A service is on the menu so the model knows what was asked, with its
+    // price, but it is no longer a fact the model may state.
+    expect(prompt).toMatch(/- Consultation: from \$0/);
+    const [, statable = ""] = prompt.split("FACTS YOU MAY STATE:");
+    expect(statable.split("THE PRACTICE'S MENU")[0]).not.toMatch(/Consultation/);
+    expect(prompt).toMatch(/THE PRACTICE'S MENU[^\n]*never write its name/);
     // §D.2 rule 4 and the answer format. Inbound only: nothing about call-backs
     // or WhatsApp messages is asked or classified.
     expect(prompt).toMatch(/up to two other times that could also work/);
@@ -268,6 +316,50 @@ describeDb("the front door, end to end", () => {
     expect(stored.audit.map((a) => a.metadata.source)).toEqual(["model", "handoff", "handoff"]);
     expect(stored.audit[1]!.metadata.guarded).toBe("an acknowledgement");
     expect(JSON.stringify(stored.audit)).not.toMatch(/acne|hours\?/);
+  });
+
+  test("a reply naming one of the clinic's services is replaced by the hand-off line, approved or not; the price without the name goes out", async () => {
+    const pageId = "423456789012345";
+    const c = await seedClinic("meta-names");
+    await getMigratorPool().query(`update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`, [c.clinicId]);
+    const config = {
+      greeting: "Hi",
+      services: [{ name: "Lip filler", priceFromUsd: 300, priceToUsd: 600, durationMinutes: 30 }],
+      escalationPhone: null,
+      escalationHours: null,
+      notes: null,
+    };
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      await setPhoneSettings(tx, { publishedPhoneE164: "+14155550198" });
+      await updateAgentConfig(tx, config);
+      await approveAgentConfig(tx, "Dr Chen");
+      await attachMetaChannel(tx, { platform: "messenger", externalId: pageId, accessToken: "EAAB-page-token-9876543210" });
+      await setMetaFrontDoor(tx, true);
+    });
+
+    // The person names it; the model repeats it; the guard replaces the reply
+    // exactly as it replaces any other refused one.
+    __setMetaRuntimeForTests(async () => "Lip filler is $300 to $600 — call the practice to book.", sender);
+    await post(inbound("how much are lip fillers?", pageId));
+    expect(sent[0]!.text).toBe(handoffLine({ clinicName: "meta-names Clinic", phone: "+14155550198" }));
+
+    // The price without the name is what the prompt asks for, and it goes out.
+    __setMetaRuntimeForTests(async () => "That's $300 to $600 — call the practice to book.", sender);
+    await post(inbound("how much are lip fillers?", pageId));
+    expect(sent[1]!.text).toBe("That's $300 to $600 — call the practice to book.");
+
+    // An edit clears the approval, so the menu is no longer stated, but the
+    // name is refused all the same: refusing needs no approval.
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => updateAgentConfig(tx, config));
+    __setMetaRuntimeForTests(async () => "Yes, we do lip filler — call the practice to book.", sender);
+    await post(inbound("do you do lip filler?", pageId));
+    expect(sent[2]!.text).toMatch(/isn't secure for health details/);
+
+    const audit = await inTenant(c.clinicId, (client) =>
+      client.query<{ metadata: Record<string, unknown> }>(`select metadata from audit_log where resource_type = 'meta_front_door_reply' order by occurred_at`),
+    );
+    expect(audit.rows.map((a) => a.metadata.guarded ?? null)).toEqual(["a treatment name", null, "a treatment name"]);
+    expect(JSON.stringify(audit.rows)).not.toMatch(/lip/i);
   });
 
   test("the switch refuses a synthetic clinic and one with no phone to hand off to", async () => {

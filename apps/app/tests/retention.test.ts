@@ -1,3 +1,4 @@
+import { TRANSCRIPT_RETENTION_DAYS } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { eraseContact, purgeClinic } from "@/lib/retention/purge";
@@ -49,11 +50,17 @@ describeDb("retention purge", () => {
   test("clears media past the media clock, deletes rows past the record clock, and leaves the other clinic alone", async () => {
     const a = await seedClinic("purgeA");
     const b = await seedClinic("purgeB");
+    // Both clocks default to 90 days, so clinic A shortens its media clock to
+    // leave a span that is past one clock and inside the other. The record
+    // clock stays at its default: the one the agreement states.
+    await getMigratorPool().query(`update clinics set retention_media_days = 30 where id = $1`, [a.clinicId]);
 
-    // Clinic A: one ancient booked conversation (past both clocks), one
-    // middle-aged one (past media, inside records), one fresh.
+    // Clinic A: one ancient booked conversation (past both clocks), one past
+    // the 90-day record clock (kept for two years until 0048), one middle-aged
+    // (past media, inside records), one fresh.
     const ancient = await seedConversation(a.clinicId, { startedAt: new Date(now.getTime() - 800 * DAY), booked: true });
-    const middle = await seedConversation(a.clinicId, { startedAt: new Date(now.getTime() - 120 * DAY) });
+    await seedConversation(a.clinicId, { startedAt: new Date(now.getTime() - 120 * DAY) });
+    const middle = await seedConversation(a.clinicId, { startedAt: new Date(now.getTime() - 60 * DAY) });
     const fresh = await seedConversation(a.clinicId, { startedAt: new Date(now.getTime() - 10 * DAY) });
     await inTenant(a.clinicId, async (client) => {
       await client.query(
@@ -74,8 +81,8 @@ describeDb("retention purge", () => {
     const result = await withTenant({ clinicId: a.clinicId, actor: ACTOR }, (tx) => purgeClinic(tx, now));
 
     expect(result.skipped).toBeNull();
-    expect(result.mediaCleared).toBe(2); // ancient + middle; fresh keeps its media
-    expect(result.conversationsDeleted).toBe(1);
+    expect(result.mediaCleared).toBe(3); // every one but fresh, which keeps its media
+    expect(result.conversationsDeleted).toBe(2); // ancient, and the 120-day one
     expect(result.appointmentsDeleted).toBe(1);
     expect(result.transactionsDeleted).toBe(1);
     expect(result.contactsDeleted).toBe(1);
@@ -103,8 +110,20 @@ describeDb("retention purge", () => {
       return rows;
     });
     expect(audit).toHaveLength(1);
-    expect(audit[0]!.result_count).toBe(6);
+    expect(audit[0]!.result_count).toBe(8);
     expect(JSON.stringify(audit[0]!.metadata)).not.toMatch(/\+1555/);
+  });
+
+  test("both clocks default to the 90 days the agreement states", async () => {
+    // BAA 1.2.1 and 1.3.0: "healdesk keeps transcripts and conversation
+    // records for 90 days". The record clock defaulted to 730 until 0048, so
+    // a clinic that never changed it kept its records eight times as long.
+    const c = await seedClinic("purgeDefaults");
+    const { rows } = await getMigratorPool().query<{ media: number; records: number }>(
+      `select retention_media_days as media, retention_record_days as records from clinics where id = $1`,
+      [c.clinicId],
+    );
+    expect(rows[0]).toEqual({ media: TRANSCRIPT_RETENTION_DAYS, records: TRANSCRIPT_RETENTION_DAYS });
   });
 
   test("the per-clinic window is honoured", async () => {

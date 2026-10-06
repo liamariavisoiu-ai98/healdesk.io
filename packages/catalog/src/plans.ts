@@ -469,6 +469,53 @@ export function channelList(plan: Plan): Channel[] {
 }
 
 /**
+ * The package whose channels are exactly `channels`, or null for none.
+ *
+ * Billing follows the channels in service, not the package bought (the
+ * owner's decision of 6 October 2026): a clinic that bought Complete and
+ * whose website chat answered first is billed as Web Chatbot until its next
+ * channel answers. The seven packages are the seven non-empty sets of the
+ * three channels, so every set names exactly one package, and duplicates in
+ * the input do not matter. An empty set is null, never a package: no channel
+ * in service means nothing to bill yet, and a caller must not start or change
+ * a plan on it.
+ */
+export function planForChannels(channels: Iterable<Channel>): Plan | null {
+  const wanted = new Set(channels);
+  if (wanted.size === 0) return null;
+  return (
+    plans.find(
+      (plan) =>
+        plan.channels.web === wanted.has("web") &&
+        plan.channels.meta === wanted.has("meta") &&
+        plan.channels.voice === wanted.has("voice"),
+    ) ?? null
+  );
+}
+
+/**
+ * Whether the Meta channel may be bought as a clinic's only channel.
+ *
+ * Until Meta's App Review of the messaging permissions passes, Instagram,
+ * Messenger and WhatsApp cannot answer a clinic's patients
+ * (docs/v1-product-spec.md, "External gates on the launch date"), so a
+ * clinic that bought Meta Chatbot alone would pay for a package with no
+ * channel that can go live. This was false for that reason. The owner set it
+ * true on 5 October 2026, ahead of App Review: no marketing has launched, so
+ * nobody is expected to buy before approval, and Meta Chatbot is on sale
+ * from the first day there is anyone to sell it to. If App Review slips past
+ * the first campaign, set it back to false: checkout reads it with
+ * `sellsMetaAlone()`, in the UI and again in /api/checkout, which then
+ * refuses the package.
+ */
+export const META_SOLD_ALONE = true;
+
+/** True when Meta is the package's only channel. Today that is Meta Chatbot. */
+export function sellsMetaAlone(plan: Plan): boolean {
+  return plan.channels.meta && !plan.channels.web && !plan.channels.voice;
+}
+
+/**
  * Stripe price lookup keys.
  *
  * The key encodes the amount, so a catalog price change cannot silently resolve
@@ -656,6 +703,16 @@ export const SETUP_FEE_REFUND_NOT_LIVE_DAYS = 30;
  * (decision of 21 September 2026).
  */
 export const FIRST_PERIOD_REFUND_DAYS = 14;
+
+/**
+ * Days after the service ends for which calls still forwarded to us are
+ * passed straight through to the clinic's direct line, the floor terms § 7
+ * promises (it stops sooner only when the clinic removes its own call
+ * forwarding). Here so apps/app's end-of-service email states the same number
+ * as apps/web's terms, whose `POLICY.forwardingPassThroughDays` a test holds
+ * to this one.
+ */
+export const FORWARDING_PASS_THROUGH_DAYS = 30;
 
 /**
  * What a clinic is displacing, for the comparison on the pricing page.

@@ -67,9 +67,11 @@ export async function truncateAll(): Promise<void> {
   // would make every replayed fixture event a silent no-op. The same holds
   // for the identity-plane tables 0043 added without foreign keys
   // (checkout_intents, stripe_connect_events, stripe_connect_states).
+  // billing_requests (0050) cascades from clinics, and is named anyway beside
+  // the rest of the billing ledger.
   await pool.query(`
     truncate table
-      billing_events, billing_transitions, entitlements,
+      billing_events, billing_transitions, billing_requests, entitlements,
       audit_log, security_events, reconciliation_exceptions,
       webhook_events, sync_runs, transactions, appointments,
       conversations, contacts, provider_connections, clinic_touches,
@@ -95,7 +97,11 @@ export async function truncateAll(): Promise<void> {
       ('annual-overage-invoice', 'Daily at 05 UTC; invoices annual plans'' overage per closed month', false),
       ('usage-alerts', 'Hourly; queues the 80% and 100% allowance emails', false),
       ('billing-notices', 'Every minute, from the notices queue; sends due email notices and retries, and holds kinds with no template yet', false),
-      ('billing-housekeeping', 'Daily at 06 UTC; purges expired checkout intents and Meta message refs', false)
+      ('billing-housekeeping', 'Daily at 06 UTC; purges expired checkout intents and Meta message refs', false),
+      ('billing-requests', 'Every minute from the billing-minute queue, and hourly from the tick as a backstop; carries out recorded plan starts, step-ups and immediate cancellations on Stripe, and setup closures while setup-closure is on', false),
+      ('setup-closure', 'A switch, not a schedule: while on, the billing-requests worker closes accounts left with nothing live at the end of their 30-day setup window', false),
+      ('billing-reconcile', 'Hourly; records any plan start, step-up or setup closure that is due but missing, steps up waiting channels after 30 days with a reminder a week before, and re-arms requests that can now go through', false),
+      ('card-expiring', 'Daily at 07 UTC; queues the card-expiring email when the card on file expires before a renewal due within 30 days', false)
     on conflict (name) do update set enabled = (excluded.name = 'heartbeat'), updated_by = null
   `);
 }

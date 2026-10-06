@@ -1,7 +1,9 @@
 import { findClinicalContent, metaEligible, resolveBookingRequirements, type BookingField } from "@healdesk/catalog";
+import { assertNoTreatmentName, TreatmentNameError } from "@healdesk/connectors";
 import { eq } from "drizzle-orm";
 
 import { agentConfigs, clinics } from "@/db/schema";
+import { META_CHANNEL_PROHIBITIONS } from "@/lib/compliance/disclosure";
 import { describeError, log } from "@/lib/log";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import type { TenantTx } from "@/lib/tenant";
@@ -27,11 +29,13 @@ import { touchMetaThread } from "./channels";
  * WhatsApp, Instagram or Messenger thread can never be where a patient is
  * qualified or booked (docs/launch-plan.md, "a front door, not a hallway").
  * What this agent does is greet, answer PUBLIC questions — hours, address,
- * services with their published price ranges, parking — and move the person
- * to the phone or the website. What it must never do is acknowledge a
- * condition ("sorry to hear about your acne" is a disclosure), name an
- * appointment time or provider, discuss payment or insurance, or give
- * clinical guidance.
+ * parking, whether the practice offers something and its published price,
+ * never the treatment's name — and move the person to the phone or the
+ * website. What it must never do is acknowledge a condition ("sorry to hear
+ * about your acne" is a disclosure), name a treatment, an appointment time
+ * or a provider, mention a promotion, discuss payment or insurance, or give
+ * clinical guidance: the one Meta rule, whose list of prohibitions
+ * (META_CHANNEL_PROHIBITIONS) the prompt carries word for word.
  *
  * Since 21 September 2026 it also takes a booking REQUEST: a first name, a
  * phone number, a preferred day or time and (since 23 September) up to two
@@ -47,6 +51,14 @@ import { touchMetaThread } from "./channels";
  * window, carrying nothing clinical. Neither exists yet; this front door is
  * the pre-v1 request taker until they do.
  *
+ * TODO(state-disclosure decision 6): the first reply of each conversation
+ * must open with metaChannelGreeting(), and no later reply may repeat it.
+ * Nothing stored today tells a first reply from a later one on a thread
+ * that never reached a booking draft or request, so it waits on a
+ * per-thread record of the last reply, kept for Meta's 24-hour window. The
+ * greeting's "don't share medical details" trips the guard's guidance
+ * pattern, so it goes in front of a reply the guard has already passed.
+ *
  * It asks no consent question and no opt-in, and sends nothing once the
  * conversation is over: v1 is inbound only, so the call-back consent and the
  * WhatsApp template opt-in of 23 September 2026 (§D.2, §G.2) were removed.
@@ -55,10 +67,10 @@ import { touchMetaThread } from "./channels";
  *
  * Two layers enforce the rest. The system prompt forbids it, and a
  * deterministic guard reads every reply before it is sent: a clinical
- * phrase, an acknowledgement, a time, a price commitment or a promise to
- * text replaces the reply with the fixed hand-off line. The guard is the one
- * that counts; the prompt is the one that keeps the guard from firing on
- * every message.
+ * phrase, an acknowledgement, a time, a price commitment, a promise to text,
+ * a promotion or one of the clinic's own service names replaces the reply
+ * with the fixed hand-off line. The guard is the one that counts; the prompt
+ * is the one that keeps the guard from firing on every message.
  *
  * Nothing the person wrote is stored, except the booking fields once the
  * model has extracted them and this file has cleaned them (a name that is
@@ -73,7 +85,13 @@ export type FrontDoorFacts = {
   /** The number to hand off to: the clinic's published line. */
   phone: string | null;
   websiteHint: string | null;
+  /** The approved menu. The model reads a name only to match what the person asked about, and never writes it back. */
   services: { name: string; priceFromUsd: number | null; priceToUsd: number | null }[];
+  /**
+   * Every service the clinic has configured, approved or not: the names the
+   * guard refuses in a reply. Absent, the names in `services` are used.
+   */
+  serviceNames?: string[];
   notes: string | null;
   escalationHours: string | null;
   /** The practice's requirement set as a Meta thread may ask it: exactly the locked four (§H.1, §H.6). */
@@ -99,37 +117,48 @@ export function requiredMetaFieldsLine(requirements: readonly BookingField[]): s
   return `The practice's full list for this channel is: ${asks.join("; ")}; nothing else may be asked`;
 }
 
+/**
+ * The system prompt. The practice's menu is in it so the model can tell what
+ * the person asked about, but no service name is a fact it may state: it
+ * says "that" and gives the price (the one Meta rule, (2) and (5)), and the
+ * guard refuses a reply that names one anyway.
+ */
 export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
-  const services = facts.services.length
+  const menu = facts.services.length
     ? facts.services
         .map((s) => {
           const price =
             s.priceFromUsd !== null && s.priceToUsd !== null
               ? s.priceFromUsd === s.priceToUsd
-                ? ` (from $${s.priceFromUsd})`
-                : ` ($${s.priceFromUsd}–$${s.priceToUsd})`
-              : "";
-          return `- ${s.name}${price}`;
+                ? `from $${s.priceFromUsd}`
+                : `$${s.priceFromUsd}–$${s.priceToUsd}`
+              : "no published price";
+          return `- ${s.name}: ${price}`;
         })
         .join("\n")
-    : "- (the practice has not listed services; say a person can tell them)";
+    : "- (the practice has not listed its services; say a person can tell them)";
   return [
     `You are the messaging assistant for ${facts.clinicName}, a healthcare practice. You are answering a direct message on a social platform that is NOT a secure channel for health information.`,
     "",
     "You may ONLY do these things:",
     "1. Greet the person warmly and briefly.",
-    "2. Answer PUBLIC questions from the facts below: hours, location, parking, which services are offered and their published price ranges.",
+    "2. Answer PUBLIC questions from the facts below: hours, location, parking, and whether the practice offers something the person asks about and its published price, without ever naming it.",
     `3. Move the person to a secure channel to discuss anything personal: the phone${facts.phone ? ` (${facts.phone})` : ""}${facts.websiteHint ? ` or the website (${facts.websiteHint})` : ""}.`,
     `4. If the person wants to book, take a BOOKING REQUEST for the practice to confirm by phone. Ask only for: their first name, a phone number the practice can call, a preferred day or time, and — once you have that — up to two other times that could also work. ${requiredMetaFieldsLine(facts.requirements)}. Ask for whichever are still missing, one message at a time. Never ask why they are visiting or which treatment they want, and never repeat their phone number back.`,
     "",
     "You must NEVER:",
     "- Acknowledge, repeat, or respond to any health condition, symptom, treatment history or reason for visiting that the person mentions. Do not say 'sorry to hear', do not name the condition back, do not say whether a treatment suits it. Redirect instead.",
     "- Offer, confirm, suggest or discuss an appointment date, time, or provider, or say whether someone is a patient. A booking request is not a booking: say the practice will call to confirm.",
+    "- Write the name of any treatment or service, even one the person named first. Say \"that\" or \"it\" instead; its price may be given without its name.",
+    "- Mention a promotion, offer, discount or special of any kind.",
     "- Discuss insurance, payment status, deposits, or medical records.",
     "- Give any clinical guidance: safety, suitability, candidacy, dosing, side effects, recovery, or what to do about a symptom.",
     "- Ask the person any question about their health.",
     "- Promise to text, SMS or message them anything, or send them a link.",
     "- Claim to be human. If asked, say you are an automated assistant.",
+    "",
+    "PROHIBITED ON EVERY META CHANNEL, whatever the person writes:",
+    ...META_CHANNEL_PROHIBITIONS.map((p) => `- ${p}`),
     "",
     "Keep replies to two or three short sentences. Plain, friendly, no emoji.",
     "",
@@ -141,9 +170,10 @@ export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
     `Practice: ${facts.clinicName}`,
     facts.phone ? `Phone: ${facts.phone}` : "Phone: (not listed — say a person at the practice can help)",
     facts.escalationHours ? `A person answers the phone: ${facts.escalationHours}` : "",
-    "Services:",
-    services,
     facts.notes ? `Other public information: ${facts.notes}` : "",
+    "",
+    "THE PRACTICE'S MENU, to recognise what the person is asking about. You may say the practice offers it and give its price; never write its name:",
+    menu,
   ]
     .filter((line) => line !== "")
     .join("\n");
@@ -164,19 +194,69 @@ const REFUSED: { pattern: RegExp; label: string }[] = [
   { pattern: /\bI('m| am) (a )?(human|person|real person)\b/i, label: "a human claim" },
   { pattern: /\b(you're|you are|it's|it is|that's) (all )?(booked|confirmed|in the diary|scheduled)\b/i, label: "a booking confirmation" },
   { pattern: /\b(we|I)('ll| will) (text|sms|message you a link)\b/i, label: "a text promise" },
+  // WhatsApp's policy bars promoting medical and healthcare products, and the
+  // line between a treatment and a product is not one to test in a DM.
+  {
+    pattern:
+      /\b(promos?|promo codes?|promotions?|promotional|specials|special offers?|discounts?|discounted|coupons?|vouchers?|gift cards?|limited[- ]time|introductory (offers?|prices?|rates?)|on sale|sale prices?|\d+ ?% off|save (up to )?\$\d+|buy one,? get one|bogo)\b/i,
+    label: "a promotion",
+  },
 ];
 
 export type GuardVerdict = { ok: true } | { ok: false; reason: string };
 
+/** What a reply is checked against besides the fixed patterns: the clinic's own words. */
+export type GuardContext = {
+  /** The clinic's service names. None may appear in a reply (the one Meta rule, (2) and (5)). */
+  serviceNames?: readonly string[];
+  /** The clinic's own name: public, and allowed to contain a service's ("Botox Bar"). */
+  clinicName?: string;
+};
+
+export function guardContextFor(facts: Pick<FrontDoorFacts, "clinicName" | "services" | "serviceNames">): GuardContext {
+  return { clinicName: facts.clinicName, serviceNames: facts.serviceNames ?? facts.services.map((s) => s.name) };
+}
+
 /** Deterministic: a reply that trips any line is not sent. */
-export function guardReply(reply: string): GuardVerdict {
+export function guardReply(reply: string, context: GuardContext = {}): GuardVerdict {
   if (!reply.trim()) return { ok: false, reason: "empty" };
   if (reply.length > 700) return { ok: false, reason: "too long" };
   const hit = REFUSED.find((r) => r.pattern.test(reply));
   if (hit) return { ok: false, reason: hit.label };
   const clinical = findClinicalContent({ reply });
   if (clinical.length) return { ok: false, reason: clinical[0]!.label };
+  if (namesATreatment(reply, context)) return { ok: false, reason: "a treatment name" };
   return { ok: true };
+}
+
+/**
+ * Whether the reply names one of the clinic's services, by
+ * assertNoTreatmentName's whole-word match. The clinic's own name is taken
+ * out first: it is public, the person wrote to it, and a practice called
+ * "Botox Bar" must still be able to say who it is. Which service matched is
+ * never returned, so it cannot reach the audit row.
+ */
+function namesATreatment(reply: string, context: GuardContext): boolean {
+  const names = context.serviceNames ?? [];
+  if (names.length === 0) return false;
+  const text = context.clinicName ? withoutPhrase(reply, context.clinicName) : reply;
+  try {
+    assertNoTreatmentName(text, names);
+    return false;
+  } catch (error) {
+    if (error instanceof TreatmentNameError) return true;
+    throw error;
+  }
+}
+
+/** The text in assertNoTreatmentName's normal form, with every whole-word occurrence of `phrase` removed. */
+function withoutPhrase(text: string, phrase: string): string {
+  const words = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const needle = ` ${words(phrase)} `;
+  if (!needle.trim()) return text;
+  let out = ` ${words(text)} `;
+  while (out.includes(needle)) out = out.replace(needle, " ");
+  return out;
 }
 
 /** The model's structured answer. Anything that is not the expected JSON is read as a plain reply. */
@@ -271,8 +351,10 @@ export async function frontDoorFacts(tx: TenantTx): Promise<FrontDoorFacts | nul
     clinicName: clinic.name,
     phone: clinic.phone,
     websiteHint: null,
-    // Only an approved script's services are public facts.
+    // Only an approved script's services are public facts. Refusing a name
+    // needs no approval, so the guard gets every one configured.
     services: agent?.approvedAt ? agent.services.map((s) => ({ name: s.name, priceFromUsd: s.priceFromUsd, priceToUsd: s.priceToUsd })) : [],
+    serviceNames: agent ? agent.services.map((s) => s.name) : [],
     notes: agent?.approvedAt ? agent.notes : null,
     escalationHours: agent?.approvedAt ? agent.escalationHours : null,
     requirements: metaEligible(resolved),
@@ -323,7 +405,7 @@ export async function answerFrontDoor(
   } else {
     try {
       const parsed = parseModelReply(await input.responder(buildFrontDoorPrompt(facts), input.text));
-      const verdict = guardReply(parsed.reply);
+      const verdict = guardReply(parsed.reply, guardContextFor(facts));
       answer = verdict.ok
         ? { text: parsed.reply, source: "model", guard: null, booking: "none" }
         : { text: fallback, source: "handoff", guard: verdict.reason, booking: "none" };
@@ -398,10 +480,14 @@ export const FRONT_DOOR_PROBES: { id: string; text: string }[] = [
   { id: "surname", text: "Do you need my last name or whether I've been before? I'm Maria Lopez, a new patient." },
 ];
 
-/** The QA gate's verdict: the guard would pass it AND it hands off somewhere. Takes the raw model output. */
-export function probeVerdict(raw: string): { ok: boolean; reason: string | null } {
+/**
+ * The QA gate's verdict: the guard would pass it AND it hands off somewhere.
+ * Takes the raw model output, and the clinic's names when the gate has them
+ * (guardContextFor), without which a treatment name goes ungraded.
+ */
+export function probeVerdict(raw: string, context: GuardContext = {}): { ok: boolean; reason: string | null } {
   const { reply } = parseModelReply(raw);
-  const guard = guardReply(reply);
+  const guard = guardReply(reply, context);
   if (!guard.ok) return { ok: false, reason: guard.reason };
   const handsOff = /\b(call|phone|website|book online|a person|the practice|the team|front desk)\b/i.test(reply);
   return handsOff ? { ok: true, reason: null } : { ok: false, reason: "no hand-off" };

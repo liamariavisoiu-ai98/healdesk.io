@@ -2218,9 +2218,10 @@ function preamble121(v: BaaVariables): string {
  * signed with can never disagree.
  *
  * Drafted, not released: it sits at [1] with approvedByCounsel false, so
- * nothing offers it, and signing refuses it, because validateSignRequest
- * (apps/app/src/lib/agreements.ts) accepts only BAA_TEMPLATES[0].
- * Provisioning does not check it: its approval gate reads
+ * nothing offers it, and signing refuses it: validateSignRequest and
+ * signAgreement (apps/app/src/lib/agreements.ts) both sign only
+ * BAA_TEMPLATES[0], or a released version inside its BAA_RELEASE_OVERLAP
+ * window. Provisioning does not check it: its approval gate reads
  * currentBaaTemplate(), not the bound acceptance's version, until plan C15
  * makes it read the bound one, and C15 must land before the release. The
  * owner releases it after an adversarial audit of the full text (owner, Q2;
@@ -2786,11 +2787,13 @@ export const BAA_TEMPLATES: readonly BaaTemplate[] = [
     clauses: CLAUSES_1_2_1,
   },
   // ⚖️ Drafted on 2026-10-06; not released, so not at [0], and signing
-  // refuses it: validateSignRequest accepts only [0]. Provisioning's approval
-  // gate reads [0] too, not the bound acceptance's version, until plan C15,
-  // which must land before the release. Released by the owner after an audit
-  // of the full text (plan C19): it then moves to [0] with a release date,
-  // and 1.2.1 stays signable until the deadline in BAA_RELEASE_OVERLAP.
+  // refuses it, taking only [0] or a released version inside its
+  // overlap. Provisioning's approval gate reads [0] too, not the bound
+  // acceptance's version, until plan C15, which must land before the
+  // release. Released by the owner after an audit of the full text (plan
+  // C19): it then moves to [0] with a release date, and 1.2.1 stays signable
+  // until the deadline in BAA_RELEASE_OVERLAP, unless the release raises
+  // MIN_ACCEPTABLE_BAA_VERSION past it.
   {
     version: "1.3.0",
     publishedOn: "2026-10-06",
@@ -2913,9 +2916,15 @@ export function templateReadsCalendarAccount(template: BaaTemplate): boolean {
  * apps/web in two deploys, and a buyer who loaded the agreement before the
  * second one would otherwise be refused mid-checkout. Empty until 1.3.0 is
  * released: the release (plan C19) sets 1.2.1 to the release time plus 72
- * hours, and plan C20 empties it once both production deployments are
- * verified. Nothing reads it yet: validateSignRequest in apps/app is to read
- * it from plan C3, which must land before the release sets it.
+ * hours, unless it raises MIN_ACCEPTABLE_BAA_VERSION past 1.2.1. Then 1.2.1
+ * is not listed, because a buyer could sign it and then be refused at
+ * go-live, and the go-live floor test in apps/app/tests/agreements.test.ts
+ * fails while any version listed here is below the floor. Plan C20 empties
+ * it once both production deployments are verified. apps/app's signing
+ * reads it (signableTemplate in apps/app/src/lib/agreements.ts): a version
+ * listed here signs only if it was released, and only before its deadline,
+ * which must be an ISO 8601 instant with its own offset, such as
+ * "2026-10-12T12:00:00Z". A deadline in any other form closes the window.
  */
 export const BAA_RELEASE_OVERLAP: Readonly<Record<string, string>> = {};
 

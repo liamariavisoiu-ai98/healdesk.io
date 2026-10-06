@@ -31,6 +31,7 @@ import {
 import type { OpeningHours } from "../lib/clinic/opening-hours";
 import type { SealedPayload } from "../lib/crypto/envelope";
 import { NOTICE_KINDS } from "../lib/email/kinds";
+import { DEVICE_LABEL_MAX } from "../lib/factors/device";
 
 import { organization, user } from "./auth-schema";
 
@@ -3119,6 +3120,253 @@ export const clinicClosures = pgTable(
       sql`${t.label} is null or char_length(${t.label}) <= 80`,
     ),
   ],
+);
+
+// -----------------------------------------------------------------------------
+// The portal's second factors and step-up (drizzle/0046). Identity plane, like
+// sign_in_links: a factor belongs to the clinic's one sign-in, not to a clinic,
+// and is read before any tenant is known, so no clinic_id and no RLS.
+// -----------------------------------------------------------------------------
+
+export const USER_FACTOR_KINDS = ["passkey", "totp"] as const;
+export type UserFactorKind = (typeof USER_FACTOR_KINDS)[number];
+
+/**
+ * The second factors of one sign-in (plan Part D3): a passkey per phone or
+ * computer, named by the person adding it, and at most one authenticator-app
+ * secret as the backup. One sign-in is shared by a clinic's staff, so the
+ * device a passkey lives on is the only "who" there is: step_ups snapshots
+ * the label and the access log records it.
+ *
+ * Each kind has its own columns and a CHECK refuses the other kind's: a
+ * passkey row is a WebAuthn credential (id, COSE public key, signature
+ * counter, transports, whether it is synced), a TOTP row a sealed secret
+ * (envelope.ts, bound to this row's id) and the last time step spent.
+ *
+ * The runtime role may move only `counter`, `last_step`, `last_used_at` and
+ * `revoked_at`, never DELETE, and a trigger freezes a revoked row and refuses
+ * a counter or step going backwards (app_user_factor_no_rewrite).
+ */
+export const userFactors = pgTable(
+  "user_factors",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<UserFactorKind>().notNull(),
+    /** Chosen by the person. Required for passkeys; the TOTP backup has none. */
+    deviceLabel: text("device_label"),
+    /** base64url, as the browser reports it. */
+    credentialId: text("credential_id"),
+    /** The COSE-encoded public key, exactly as registered. */
+    publicKey: bytea("public_key"),
+    /** The authenticator's signature counter; synced passkeys keep it at 0. */
+    counter: bigint("counter", { mode: "number" }),
+    transports: text("transports").array(),
+    /** Synced to the platform's keychain at registration (a "multi-device" passkey). */
+    backedUp: boolean("backed_up"),
+    /** The base32 TOTP secret, sealed. Never stored or logged in the clear. */
+    secretSealed: jsonb("secret_sealed").$type<SealedPayload>(),
+    /** The highest RFC 6238 time step already accepted: the replay guard. */
+    lastStep: bigint("last_step", { mode: "number" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("user_factors_credential_id_idx")
+      .on(t.credentialId)
+      .where(sql`${t.credentialId} is not null`),
+    uniqueIndex("user_factors_one_totp_idx")
+      .on(t.userId)
+      .where(sql`${t.kind} = 'totp' and ${t.revokedAt} is null`),
+    index("user_factors_user_idx").on(t.userId, t.createdAt),
+    check("user_factors_kind_check", sql`${t.kind} in (${sqlList(USER_FACTOR_KINDS)})`),
+    check(
+      "user_factors_passkey_columns",
+      sql`${t.kind} <> 'passkey' or (${t.credentialId} is not null and ${t.publicKey} is not null and ${t.counter} is not null and ${t.deviceLabel} is not null and ${t.backedUp} is not null and ${t.secretSealed} is null and ${t.lastStep} is null)`,
+    ),
+    check(
+      "user_factors_totp_columns",
+      sql`${t.kind} <> 'totp' or (${t.secretSealed} is not null and ${t.lastStep} is not null and ${t.credentialId} is null and ${t.publicKey} is null and ${t.counter} is null and ${t.transports} is null and ${t.backedUp} is null)`,
+    ),
+    check(
+      "user_factors_device_label_check",
+      sql`${t.deviceLabel} is null or (char_length(${t.deviceLabel}) between 1 and ${sql.raw(String(DEVICE_LABEL_MAX))} and ${t.deviceLabel} = btrim(${t.deviceLabel}) and ${t.deviceLabel} !~ '[[:cntrl:]]')`,
+    ),
+    // A length check, not a regex bound: Postgres caps {m,n} at 255. 1364 is
+    // base64url of WebAuthn's longest credential id, 1023 bytes.
+    check(
+      "user_factors_credential_id_format",
+      sql`${t.credentialId} is null or (${t.credentialId} ~ '^[A-Za-z0-9_-]+$' and char_length(${t.credentialId}) <= 1364)`,
+    ),
+    check("user_factors_counter_check", sql`${t.counter} is null or ${t.counter} >= 0`),
+    check("user_factors_last_step_check", sql`${t.lastStep} is null or ${t.lastStep} >= 0`),
+  ],
+);
+
+export type UserFactor = typeof userFactors.$inferSelect;
+
+/**
+ * Backup codes for the authenticator app (plan Part D3): ten per set, shown
+ * once, stored as SHA-256 of the normalised code. A code is spent by one
+ * conditional UPDATE of `used_at`; a new set revokes the old set's unspent
+ * codes rather than deleting them, so "which code was used, and when" keeps
+ * an answer. The runtime role has no DELETE and may UPDATE `used_at` and
+ * `revoked_at` only, and a spent or revoked code is frozen.
+ */
+export const userBackupCodes = pgTable(
+  "user_backup_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    codeHash: bytea("code_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("user_backup_codes_live_idx")
+      .on(t.userId, t.codeHash)
+      .where(sql`${t.usedAt} is null and ${t.revokedAt} is null`),
+    check("user_backup_codes_hash_length", sql`octet_length(${t.codeHash}) = 32`),
+  ],
+);
+
+export const WEBAUTHN_CHALLENGE_PURPOSES = ["register", "authenticate"] as const;
+export type WebauthnChallengePurpose = (typeof WEBAUTHN_CHALLENGE_PURPOSES)[number];
+
+/**
+ * Why this session may add a passkey, decided before the browser is asked to
+ * make one (plan Part D3): the sign-in's first passkey before any of its
+ * clinics has gone live, a passkey step-up on this session, or a code from
+ * the authenticator app or a backup code.
+ */
+export const PASSKEY_ENROL_BASES = ["first_passkey", "step_up", "code"] as const;
+export type PasskeyEnrolBasis = (typeof PASSKEY_ENROL_BASES)[number];
+
+/**
+ * WebAuthn challenges, single-use: consumed by one conditional UPDATE of
+ * `used_at` (`used_at IS NULL AND expires_at > now()`), the sign_in_links
+ * pattern, so one ceremony's response can be verified once. Each is bound to
+ * the session that asked for it (SHA-256 of its Better Auth token, as in
+ * step_ups), so a response lifted from one browser cannot step up another.
+ * A registration carries the basis it was allowed on. Five minutes at most,
+ * pinned by a CHECK. The runtime role may UPDATE `used_at` only, never DELETE.
+ */
+export const webauthnChallenges = pgTable(
+  "webauthn_challenges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    sessionTokenHash: bytea("session_token_hash").notNull(),
+    purpose: text("purpose").$type<WebauthnChallengePurpose>().notNull(),
+    /** base64url, exactly as the options handed to the browser carry it. */
+    challenge: text("challenge").notNull(),
+    enrolBasis: text("enrol_basis").$type<PasskeyEnrolBasis>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("webauthn_challenges_challenge_idx").on(t.challenge),
+    index("webauthn_challenges_user_idx").on(t.userId, t.createdAt),
+    check(
+      "webauthn_challenges_purpose_check",
+      sql`${t.purpose} in (${sqlList(WEBAUTHN_CHALLENGE_PURPOSES)})`,
+    ),
+    check(
+      "webauthn_challenges_basis_check",
+      sql`(${t.purpose} = 'register') = (${t.enrolBasis} is not null) and (${t.enrolBasis} is null or ${t.enrolBasis} in (${sqlList(PASSKEY_ENROL_BASES)}))`,
+    ),
+    check(
+      "webauthn_challenges_challenge_format",
+      sql`${t.challenge} ~ '^[A-Za-z0-9_-]{16,128}$'`,
+    ),
+    check(
+      "webauthn_challenges_session_hash_length",
+      sql`octet_length(${t.sessionTokenHash}) = 32`,
+    ),
+    check(
+      "webauthn_challenges_expiry_check",
+      sql`${t.expiresAt} > ${t.createdAt} and ${t.expiresAt} <= ${t.createdAt} + interval '5 minutes'`,
+    ),
+  ],
+);
+
+/**
+ * Passkey step-ups (plan Part D2): this session proved, with this device's
+ * passkey, that someone holding the device is here. Patient pages and
+ * sensitive changes ask for one that has been active in the last 15 minutes
+ * and is at most 8 hours old (lib/portal/step-up.ts).
+ *
+ * Bound to the Better Auth session by SHA-256 of its token, never the token:
+ * the token is the cookie's bearer value, and Better Auth 1.6 never rotates
+ * it (`disableSessionRefresh`, and a refresh would only move `expires_at`),
+ * so the hash is stable for the session's fourteen days. A step-up outlives
+ * its session only as a record: once the session row is gone no request can
+ * present the token again, and sign-out revokes it besides (lib/auth.ts).
+ *
+ * `device_label` is a snapshot, so the access log still names the device
+ * after it is renamed or removed. The runtime role may UPDATE
+ * `last_activity_at` and `revoked_at` only, never DELETE; a revoked row is
+ * frozen, activity never moves backwards, and a CHECK keeps it inside the
+ * eight hours.
+ */
+export const stepUps = pgTable(
+  "step_ups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionTokenHash: bytea("session_token_hash").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    factorId: uuid("factor_id")
+      .notNull()
+      .references(() => userFactors.id, { onDelete: "cascade" }),
+    deviceLabel: text("device_label").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("step_ups_session_idx")
+      .on(t.sessionTokenHash)
+      .where(sql`${t.revokedAt} is null`),
+    index("step_ups_factor_idx").on(t.factorId),
+    index("step_ups_user_idx").on(t.userId, t.createdAt),
+    check("step_ups_session_hash_length", sql`octet_length(${t.sessionTokenHash}) = 32`),
+    check(
+      "step_ups_activity_window",
+      sql`${t.lastActivityAt} >= ${t.createdAt} and ${t.lastActivityAt} <= ${t.createdAt} + interval '8 hours'`,
+    ),
+  ],
+);
+
+/**
+ * Wrong second-factor codes, counted per sign-in so a lockout survives a
+ * restart and holds across instances (plan Part D3). attempt-limit.ts is
+ * in-memory and per process, which is right for what it bounds and wrong for
+ * this. Five wrong codes (authenticator or backup) within fifteen minutes
+ * lock code entry for fifteen minutes; a right code clears the count.
+ */
+export const factorLockouts = pgTable(
+  "factor_lockouts",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
+    failures: integer("failures").notNull().default(0),
+    windowStartedAt: timestamp("window_started_at", { withTimezone: true }),
+    lockedUntil: timestamp("locked_until", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("factor_lockouts_failures_check", sql`${t.failures} >= 0`)],
 );
 
 /** Tables carrying a clinic_id, and therefore requiring RLS. Asserted by tests. */

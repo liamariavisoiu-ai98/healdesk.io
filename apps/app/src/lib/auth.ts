@@ -16,6 +16,7 @@ import { invitation } from "@/db/auth-schema";
 
 import { acceptInvitationFor } from "./access";
 import { env } from "./env";
+import { endStepUps, hashSessionToken } from "./factors/step-ups";
 import { describeError, log } from "@/lib/log";
 
 /**
@@ -172,6 +173,30 @@ export const auth = betterAuth({
   },
 
   databaseHooks: {
+    session: {
+      delete: {
+        /**
+         * A session's passkey step-ups end with it (plan Part D2: "cleared on
+         * sign-out"). Every way Better Auth deletes a session runs this: sign
+         * out, revoking sessions, and the clean-up of an expired one.
+         *
+         * After the delete, never before, and it never throws: once the row
+         * is gone no request can present the token again, so a step-up left
+         * behind by a failure here is already dead, while a throw before the
+         * delete would leave someone unable to sign out.
+         */
+        async after(session) {
+          try {
+            await endStepUps({ sessionTokenHash: hashSessionToken(session.token) });
+          } catch (error) {
+            // The name only: a Drizzle error's message carries its parameters.
+            log.error("could not end a deleted session's step-ups", {
+              error: error instanceof Error ? error.name : "unknown error",
+            });
+          }
+        },
+      },
+    },
     user: {
       create: {
         async before(user) {

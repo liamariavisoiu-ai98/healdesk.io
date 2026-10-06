@@ -15,6 +15,18 @@ import type { TenantTx } from "@/lib/tenant";
 
 const CLINIC = "0c1d2e3f-0000-4000-8000-000000000000";
 
+// The step-up's request, outside any request: no session at all.
+vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
+vi.mock("next/navigation", () => ({
+  redirect: (url: string) => {
+    throw new Error(`NEXT_REDIRECT ${url}`);
+  },
+  notFound: () => {
+    throw new Error("NEXT_NOT_FOUND");
+  },
+}));
+vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: async () => null } } }));
+
 function fieldsOf(line: string): Record<string, unknown> {
   return JSON.parse(line.slice(line.indexOf("{"))) as Record<string, unknown>;
 }
@@ -73,14 +85,16 @@ describe("the notice seams", () => {
 });
 
 describe("the portal guards", () => {
-  // requirePortal is real since sign-in landed; tests/portal-access.test.ts
-  // holds it. The step-up still refuses until the factors land.
-  test("the step-up refuses until the factors land", async () => {
+  // requirePortal is real since sign-in landed (tests/portal-access.test.ts),
+  // and requireStepUp since the factors did (tests/step-up.test.ts). What
+  // callers build on: without a live step-up it never returns, it sends the
+  // browser to step up.
+  test("the step-up sends a session it cannot vouch for to step up, and never returns", async () => {
     await expect(
       requireStepUp(
         { userId: "usr_1", clinicId: CLINIC, clinicSlug: "any-clinic" },
         "patient_pages",
       ),
-    ).rejects.toThrow(/lands with the factors/);
+    ).rejects.toThrow(/^NEXT_REDIRECT \/c\/any-clinic\/step-up\?next=%2Fc%2Fany-clinic$/);
   });
 });

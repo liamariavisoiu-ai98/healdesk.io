@@ -49,10 +49,22 @@ import { NextResponse, type NextRequest } from "next/server";
  * in the page, not in this file: a proxy check protects neither route handlers
  * nor client-side navigations, which is why the old one was explicitly labelled
  * as not a security boundary.
+ *
+ * ## The one thing it does: tell a page its own path
+ *
+ * The clinic portal's pages now check sessions themselves (requirePortal), and
+ * a patient page that needs a passkey step-up sends the browser to
+ * `/c/<slug>/step-up?next=<this page>`. A server component cannot see its own
+ * URL, so the path is passed down as a request header (PATH_HEADER in
+ * lib/portal/step-up.ts), overwriting any the client sent. Only the pathname:
+ * a query string can carry a search term, and `next` ends up in history.
+ * The value is validated where it is used (portalNext), never trusted here.
  */
 
-export function proxy(_request: NextRequest) {
-  return NextResponse.next();
+export function proxy(request: NextRequest) {
+  const forwarded = new Headers(request.headers);
+  forwarded.set("x-healdesk-path", request.nextUrl.pathname);
+  return NextResponse.next({ request: { headers: forwarded } });
 }
 
 export const config = {

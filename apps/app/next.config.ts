@@ -24,6 +24,12 @@ const nextConfig: NextConfig = {
           { key: "Referrer-Policy", value: "no-referrer" },
           // Nothing behind here should ever be cached by an intermediary.
           { key: "Cache-Control", value: "no-store, max-age=0" },
+          // Passkeys only from this app's own pages, never from a frame a
+          // page embeds (plan Part D6). The nonce CSP and HSTS come later.
+          {
+            key: "Permissions-Policy",
+            value: "publickey-credentials-get=(self), publickey-credentials-create=(self)",
+          },
         ],
       },
     ];

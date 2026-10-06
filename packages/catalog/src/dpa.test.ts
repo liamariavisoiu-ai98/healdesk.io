@@ -40,6 +40,7 @@ import {
   renderDpa,
   type DpaVariables,
 } from "./dpa";
+import { dpaReviewDocument } from "./dpa-review";
 import { plans, pricingCards } from "./plans";
 import { regimeFor, specialties, type SpecialtyId } from "./specialties";
 import { SUBPROCESSOR_NOTICE_HOURS, subprocessorNoticeClauseBody } from "./subprocessor-notice";
@@ -415,6 +416,8 @@ describe("what the DPA says", () => {
     );
   });
 
+  // Renders BAA 1.3.0 and the DPA for every answer: seconds of work, which a
+  // loaded machine stretches past the five-second default.
   test("the calendar clause is the one BAA 1.3.0 chooses, in the selector's words with the person a client", () => {
     const baa130 = getBaaTemplate("1.3.0")!;
     for (const answers of everyAnswer()) {
@@ -455,7 +458,7 @@ describe("what the DPA says", () => {
       expect(dpaClause, label).toBe(baaClause);
       expect(unwrap(prepared.text), label).toContain(unwrap(CALENDAR_LOCATION_PARAGRAPH));
     }
-  });
+  }, 60_000);
 
   test("data sources promise calendar access only where the calendar clause grants it", () => {
     const sources = (answers: Partial<DpaVariables>) =>
@@ -564,6 +567,10 @@ describe("docs/dpa-v1.0.0.txt", () => {
   const read = () =>
     readFileSync(fileURLToPath(new URL("../../../docs/dpa-v1.0.0.txt", import.meta.url)), "utf8");
   const RULE = "-".repeat(78);
+
+  test("is exactly what the renderer produces: run npm run dpa:review -w @healdesk/catalog after any clause change", () => {
+    expect(read() === dpaReviewDocument(), "docs/dpa-v1.0.0.txt is stale: run npm run dpa:review -w @healdesk/catalog").toBe(true);
+  });
 
   test("the sample is exactly what a practice that answered No, on Mindbody and a personal account, signs", () => {
     const doc = read();

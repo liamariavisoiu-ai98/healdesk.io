@@ -84,8 +84,12 @@ describe("rateLimit (per-instance keys)", () => {
 });
 
 describe("rateLimit (the global daily caps)", () => {
-  it("names exactly the two spend caps the routes use", () => {
-    expect([...GLOBAL_CAP_KEYS].sort()).toEqual(["callback:global:day", "chat:global:day"]);
+  it("names exactly the three spend caps the routes use", () => {
+    expect([...GLOBAL_CAP_KEYS].sort()).toEqual([
+      "callback:global:day",
+      "chat:global:day",
+      "site-read:global:day",
+    ]);
   });
 
   it("goes through the counters tab and survives a fresh instance", async () => {

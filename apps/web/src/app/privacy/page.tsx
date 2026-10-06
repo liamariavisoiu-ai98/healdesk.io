@@ -154,6 +154,17 @@ export default function PrivacyPage() {
             details go directly to Stripe and never touch our servers. If you reach the payment
             page and stop, we send one email about it, an hour later, and no more; it carries the
             same one-click unsubscribe.
+            {/* Added 6 Oct 2026 with the website read (LEGAL_VERSION 2026-10-06.2):
+                app/api/clinic-site and lib/site-read. */}{" "}
+            If you give your clinic's website, we read it so that setup starts with your details
+            already filled in: up to eight of its public pages, never one its robots.txt asks
+            robots not to read. We send the text of those pages to Anthropic, which picks out the
+            business details: services and prices, locations and opening hours, the practitioners
+            the site names, its policies and its answers to common questions. It is told to leave
+            out anything a patient wrote or said, such as reviews and testimonials. The details go
+            back to your browser for the rest of checkout, and this website keeps neither the pages
+            nor what was read from them. Once you are a customer we may read the site again the
+            same way, to keep your setup current.
           </li>
           <li>
             <strong>Technical data.</strong> Your IP address and the page requested, used to
@@ -255,6 +266,7 @@ export default function PrivacyPage() {
           <li>Server logs: {POLICY.logRetentionDays} days.</li>
           <li>Demo-call consent records: {POLICY.callConsentRetentionYears} years, then deleted.</li>
           <li>Demo conversations: not stored by us at all; Anthropic's own retention applies to its processing.</li>
+          <li>Your website's pages, read at checkout: not stored by us at all; Anthropic's own retention applies to its processing.</li>
           <li>The demo call itself: Synthflow keeps its call record under its own retention; we hold the number only in the consent record above.</li>
           <li>Contact-form messages: as ordinary email correspondence, until the enquiry is closed.</li>
           <li>Customer billing records: for as long as tax and accounting law require.</li>

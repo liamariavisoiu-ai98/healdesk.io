@@ -15,6 +15,7 @@
 export * from "./baa";
 export * from "./baa-explainer";
 export * from "./booking-requirements";
+export * from "./clinic-profile";
 export * from "./clinical-content";
 export * from "./connection-steps";
 export * from "./direct-booking-addendum";

@@ -149,7 +149,10 @@ runs the image.
   placeholders for `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` and
   `HEALDESK_PROVISION_SECRET`, so the image no longer needs a real database URL
   at build time. A bare `next build` outside Docker still fails without one;
-  CI passes only because `DATABASE_URL` sits in the job-level env.
+  CI passes only because `DATABASE_URL` sits in the job-level env. The build
+  stage sets `NODE_ENV=production` itself (L54): it inherits `development`
+  from the deps stage, under which `next build` fails prerendering
+  `/_global-error`, so until 6 October 2026 the image did not build at all.
 - **The AWS SDKs load in a production build; fixed 6 October 2026.** They
   used to be optional, installed nowhere, and imported through a `const`
   specifier; Turbopack folded the constant and inlined
@@ -165,16 +168,16 @@ runs the image.
   already is. An isolated copy of `.next/standalone`, run with
   `NODE_ENV=production` and `HEALDESK_KMS_PROVIDER=aws-kms` against a fake
   local AWS endpoint, sealed and opened a secret and sent through SES; the old
-  build, with both SDKs added to its runtime tree, failed both. The Dockerfile
-  needed no change: `npm ci` runs before `next build`, and the runtime stage
+  build, with both SDKs added to its runtime tree, failed both. The SDKs needed
+  no Dockerfile change: `npm ci` runs before `next build`, and the runtime stage
   copies the workspace `node_modules`. `tests/aws-sdk-clients.test.ts` pins
   all three; re-check the chunks after a Next upgrade.
 - **Static assets are in the image; the host is not described anywhere.**
   `.next/static` is still not part of Next's standalone output, but the
-  Dockerfile (L64-65) copies it beside `server.js`. There is still no compose
+  Dockerfile (L70-71) copies it beside `server.js`. There is still no compose
   file, `fly.toml`, Terraform or task definition in the repo.
 - **The worker, migrations and queue install ship in the image as separate
-  commands.** The Dockerfile (L67-76) copies the whole workspace
+  commands.** The Dockerfile (L73-82) copies the whole workspace
   `node_modules` (`tsx` is a runtime dependency; `drizzle-kit` is there only
   because the deps stage installs dev dependencies), `src/`, `drizzle/`,
   `drizzle.config.ts` and `scripts/`.

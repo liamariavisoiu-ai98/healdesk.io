@@ -23,6 +23,8 @@ import {
 
 import {
   type BillingInterval,
+  type BookingSystemId,
+  type CalendarAccount,
   type Channel,
   CHANNELS,
   type OnboardingState,
@@ -2568,6 +2570,18 @@ export type CheckoutIntentPayload = {
   phoneSystemType: "landline" | "voip" | "unknown";
   callRouting: "conditional" | "always";
   agreementId: string;
+  /**
+   * The funnel's answers (plan Part A3), absent on an intent from before it:
+   * where bookings live today, and the kind of Google account they would go
+   * into, which together select the agreement's calendar terms; and the
+   * website, or null for a practice with none (which is never sold website
+   * chat). The read of that website is in its own column.
+   */
+  bookingSystem?: BookingSystemId;
+  calendarAccount?: CalendarAccount;
+  website?: string | null;
+  /** The buyer's browser time zone: the fallback for the clinic's own. */
+  timezone?: string;
 };
 
 /** Whether the website was read at checkout: read, tried and failed, or there was none. */

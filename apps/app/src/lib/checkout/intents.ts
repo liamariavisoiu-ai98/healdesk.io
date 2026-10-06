@@ -1,5 +1,20 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
+import {
+  agreementPlatformFor,
+  type BookingSystemId,
+  type CalendarAccount,
+  cleanWebsite,
+  type ClinicProfile,
+  getPlan,
+  isBookingSystemId,
+  isCalendarAccount,
+  parseClinicProfile,
+  planNeedsWebsite,
+  screenClinicProfile,
+  type SpecialtyId,
+  specialtyOffered,
+} from "@healdesk/catalog";
 import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
@@ -26,6 +41,15 @@ import { ProvisioningError, validateProvisionRequest, type ProvisionRequest } fr
  * (`invite_ref` is unique). Pressing Pay again after cancelling at Stripe
  * reuses it: the attempt counter moves, and apps/web expires the previous
  * Checkout Session so only one can be paid.
+ *
+ * The four-step funnel (plan Part A3) adds the clinic's answers: where its
+ * bookings live and the kind of Google account they would go into, its
+ * website or none, and the read of that website. Each is checked again here,
+ * with the catalog's own rules, because the browser that carried them can
+ * change them: a practice with no website is never sold website chat, and a
+ * website read is kept only when it parses, is of the website bought under,
+ * and has been screened under the specialty bought, never the one the
+ * website looked like.
  */
 
 export const INTENT_TTL_DAYS = 14;
@@ -36,7 +60,14 @@ export type IntentRequest = Omit<ProvisionRequest, "idempotencyKey" | "stripeCus
   inviteRef: string | null;
   /** SHA-256 hex of the nonce cookie apps/web sets on the paying browser. */
   nonceHash: string;
-  profile: unknown;
+  /** "Where do bookings live today?" Absent only on a request from before the four-step funnel. */
+  bookingSystem?: BookingSystemId;
+  /** "Which Google account will bookings go into?" Sent with the booking system, or not at all. */
+  calendarAccount?: CalendarAccount;
+  /** The website, cleaned, or null: the practice has none. Absent only before the funnel asked. */
+  website?: string | null;
+  /** Validated and screened under the specialty bought (validateIntentRequest). */
+  profile: ClinicProfile | null;
   profileStatus: CheckoutProfileStatus;
   /** The terms tick-box: which version, when, and from where. */
   terms: { version: string; acceptedAt: string; ip: string | null } | null;
@@ -72,6 +103,16 @@ export function validateIntentRequest(input: unknown): IntentRequest {
     throw error;
   }
 
+  // Provisioning's own checks passed, so the specialty and the plan are known.
+  const specialty = body.specialty as SpecialtyId;
+  const plan = getPlan(body.plan as string)!;
+
+  // A practice with no agreement it can sign cannot buy: a veterinary one,
+  // until the Data Protection Agreement is released (plan Part L).
+  if (!specialtyOffered(specialty)) {
+    throw new IntentError("This practice's agreement can't be signed here.", "specialty");
+  }
+
   const inviteRef = body.inviteRef ?? null;
   if (inviteRef !== null && (typeof inviteRef !== "string" || !UUID.test(inviteRef))) {
     throw new IntentError("Invalid setup link reference.", "inviteRef");
@@ -79,16 +120,54 @@ export function validateIntentRequest(input: unknown): IntentRequest {
   if (typeof body.nonceHash !== "string" || !SHA256_HEX.test(body.nonceHash)) {
     throw new IntentError("Invalid nonce.", "nonceHash");
   }
+
+  // The calendar answers travel together, and the platform the released
+  // agreement names must be the one the booking system implies.
+  const bookingSystem = body.bookingSystem;
+  const calendarAccount = body.calendarAccount;
+  if (bookingSystem !== undefined || calendarAccount !== undefined) {
+    if (!isBookingSystemId(bookingSystem)) throw new IntentError("Unknown booking system.", "bookingSystem");
+    if (!isCalendarAccount(calendarAccount)) throw new IntentError("Unknown Google account kind.", "calendarAccount");
+    if (body.platform !== agreementPlatformFor(bookingSystem)) {
+      throw new IntentError("The agreement's platform is not the booking system's.", "platform");
+    }
+  }
+
+  // The website, as apps/web cleans it, or null for none.
+  const website = body.website;
+  if (website !== undefined && website !== null && (typeof website !== "string" || cleanWebsite(website) !== website)) {
+    throw new IntentError("Invalid website.", "website");
+  }
+  if (website === null && planNeedsWebsite(plan)) {
+    throw new IntentError("Website chat needs a website. Choose a package without it.", "plan");
+  }
+
   const profileStatus = body.profileStatus ?? "none";
   if (!(CHECKOUT_PROFILE_STATUSES as readonly string[]).includes(profileStatus)) {
     throw new IntentError("Invalid profile status.", "profileStatus");
   }
-  const profile = body.profile ?? null;
-  if (profile !== null) {
-    if (typeof profile !== "object" || Array.isArray(profile)) throw new IntentError("Invalid profile.", "profile");
-    if (JSON.stringify(profile).length > MAX_PROFILE_BYTES) throw new IntentError("The profile is too large.", "profile");
+  const raw = body.profile ?? null;
+  let profile: ClinicProfile | null = null;
+  if (raw !== null) {
+    if (typeof raw !== "object" || Array.isArray(raw)) throw new IntentError("Invalid profile.", "profile");
+    if (JSON.stringify(raw).length > MAX_PROFILE_BYTES) throw new IntentError("The profile is too large.", "profile");
+    const parsed = parseClinicProfile(raw);
+    if (!parsed) throw new IntentError("Invalid profile.", "profile");
+    // Screened again, under the specialty bought: `practiceKind` is only what
+    // the website looked like, and the browser could have changed it.
+    profile = screenClinicProfile(parsed, specialty);
   }
   if (profileStatus === "read" && profile === null) throw new IntentError("A read needs its profile.", "profile");
+  if (profileStatus !== "read" && profile !== null) throw new IntentError("Only a read carries a profile.", "profile");
+  if (profile !== null && (typeof website !== "string" || profile.website !== website)) {
+    throw new IntentError("The website read is not of this purchase's website.", "profile");
+  }
+  if (website === null && profileStatus !== "none") {
+    throw new IntentError("A practice with no website has no website read.", "profileStatus");
+  }
+  if (typeof website === "string" && profileStatus === "none") {
+    throw new IntentError("A website was given, so its read is either done or failed.", "profileStatus");
+  }
 
   const terms = body.terms ?? null;
   if (terms !== null) {
@@ -161,6 +240,9 @@ export async function saveIntent(input: IntentRequest): Promise<IntentResult> {
     ...(input.attributionMode ? { attributionMode: input.attributionMode } : {}),
     ...(input.averageTreatmentValueUsd !== undefined ? { averageTreatmentValueUsd: input.averageTreatmentValueUsd } : {}),
     ...(input.timezone ? { timezone: input.timezone } : {}),
+    ...(input.bookingSystem ? { bookingSystem: input.bookingSystem } : {}),
+    ...(input.calendarAccount ? { calendarAccount: input.calendarAccount } : {}),
+    ...(input.website !== undefined ? { website: input.website } : {}),
     ...(input.terms ? { terms: input.terms } : {}),
   };
   const values = {

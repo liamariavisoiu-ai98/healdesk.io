@@ -3,6 +3,20 @@
 > wins, then this plan, then `docs/design/stripe-launch-2026-10-05.md`. What other sessions build to is extracted in
 > `docs/design/funnel-portal-contracts-2026-10-06.md`. The owner's open items are tracked on the "healdesk Launch Open
 > Items" page (https://claude.ai/artifact/JowPjYhhLcffkm7R4qev7s), not in this file.
+>
+> **Changed since approval (6 October 2026), by the owner's answers on that page and the sessions'
+> acknowledgements.** The contracts file is current; where this plan disagrees with it, the contracts file wins.
+> - **No opening dates.** A channel is sold only once it is ready; one that isn't comes off the product list.
+>   `CHANNEL_OPENING`, `published_opening_on`, O12, the opening-date alerts and the Meta switch-or-refund date are gone.
+> - **No plan-start backstop.** Monthly billing starts only on the day AYA first answers a patient. Instead there is a
+>   30-day setup window: six reminders, one every five days, while no channel is live, and an unfinished clinic is
+>   closed at the end of it. The setup fee is never refundable. No subscription schedule; L5, L6 and
+>   `extendPlanStart` are gone.
+> - **The direct-booking kill switch** is `HEALDESK_DIRECT_BOOKING_ENABLED`, set only by the owner (5 October
+>   decision). The clinic's own control is Auto-confirm, behind step-up.
+> - **Setup links** stay closed in production until the owner sets `HEALDESK_SETUP_LINKS=open` (Gate A).
+> - **Smaller answers:** the calendar-list permission is included; vets' bookings may record the animal's name and
+>   species; the support line is the Retell number; the announcement bar's wording is the owner's.
 
 # Get AYA: sales funnel → onboarding → minimal clinic portal (v1)
 

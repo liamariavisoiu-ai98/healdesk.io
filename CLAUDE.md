@@ -150,21 +150,25 @@ runs the image.
   `HEALDESK_PROVISION_SECRET`, so the image no longer needs a real database URL
   at build time. A bare `next build` outside Docker still fails without one;
   CI passes only because `DATABASE_URL` sits in the job-level env.
-- **The optional AWS SDKs are baked in as unconditional throws.**
-  `crypto/kms.ts:132` and `reporting/deliver.ts:392` route the import specifier
-  through a `const` "so TypeScript can't resolve it statically". Turbopack
-  resolves it anyway and inlines `throw MODULE_NOT_FOUND` into the server
-  chunk: the 12 September production build still in
-  `apps/app/.next/server/chunks` shows it for both `@aws-sdk/client-kms` and
-  `@aws-sdk/client-sesv2`, and neither that pattern nor `next.config.ts`
-  (`serverExternalPackages` lists only `pg`) has changed since. Neither SDK is
-  in `package-lock.json`, so an image built today carries the same throws, and
-  adding the SDK to the runtime stage after the build cannot undo them. Whether
-  installing it before `next build`, or listing it in
-  `serverExternalPackages`, is enough has not been tested. Consequence: in
-  production `getKeyWrapper()` has no KMS and refuses `LocalKeyWrapper`, and
-  the SES transport can never send. Re-check with a fresh production build
-  after any fix.
+- **The AWS SDKs load in a production build; fixed 6 October 2026.** They
+  used to be optional, installed nowhere, and imported through a `const`
+  specifier; Turbopack folded the constant and inlined
+  `throw MODULE_NOT_FOUND` into the server chunks, so production had no KMS
+  (and `getKeyWrapper()` refuses `LocalKeyWrapper`) and SES could never send.
+  `@aws-sdk/client-kms` and `@aws-sdk/client-sesv2` are now `dependencies` of
+  `apps/app`, imported lazily by a literal specifier in `crypto/kms.ts` and
+  `reporting/deliver.ts`, and listed in `serverExternalPackages` beside `pg`.
+  Production builds on 6 October settled what had not been tested: listing
+  them without installing them changes nothing; installing them removes the
+  throw but bundles the SDK into the chunks; with both, each chunk `require`s
+  the package and the standalone output traces it in, symlinked the way `pg`
+  already is. An isolated copy of `.next/standalone`, run with
+  `NODE_ENV=production` and `HEALDESK_KMS_PROVIDER=aws-kms` against a fake
+  local AWS endpoint, sealed and opened a secret and sent through SES; the old
+  build, with both SDKs added to its runtime tree, failed both. The Dockerfile
+  needed no change: `npm ci` runs before `next build`, and the runtime stage
+  copies the workspace `node_modules`. `tests/aws-sdk-clients.test.ts` pins
+  all three; re-check the chunks after a Next upgrade.
 - **Static assets are in the image; the host is not described anywhere.**
   `.next/static` is still not part of Next's standalone output, but the
   Dockerfile (L64-65) copies it beside `server.js`. There is still no compose

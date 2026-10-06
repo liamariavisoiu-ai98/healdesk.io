@@ -162,12 +162,23 @@ describe("rateLimit (the global daily caps)", () => {
   });
 
   it("starts a fresh window once the shared one has closed", async () => {
-    const sheets = new FakeSheets();
-    __setSheetsClientForTests(sheets);
-    expect((await rateLimit("chat:global:day", 1, 1)).ok).toBe(true);
-    await new Promise((r) => setTimeout(r, 15));
-    expect((await rateLimit("chat:global:day", 1, 1)).ok).toBe(true);
-    expect(sheets.records("counters")[0]!.count).toBe(1);
+    // On a frozen clock, like its per-instance twin above, and at both edges
+    // of the window: refused a millisecond before it closes, fresh the moment
+    // it does. Only Date is faked: the one timer on this path is the real
+    // Sheets client's backoff, which FakeSheets never reaches.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const sheets = new FakeSheets();
+      __setSheetsClientForTests(sheets);
+      expect((await rateLimit("chat:global:day", 1, 200)).ok).toBe(true);
+      vi.advanceTimersByTime(199);
+      expect((await rateLimit("chat:global:day", 1, 200)).ok, "a millisecond before it closes").toBe(false);
+      vi.advanceTimersByTime(1);
+      expect((await rateLimit("chat:global:day", 1, 200)).ok, "the moment it closes").toBe(true);
+      expect(sheets.records("counters")[0]!.count).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("falls back to per-instance memory when the Sheet is unconfigured, with one warning in production and no throw", async () => {

@@ -26,7 +26,7 @@ import {
   type Entitlements,
 } from "@/db/schema";
 import { assertNoPhi, type ActorContext } from "@/lib/audit";
-import type { CoverageMode } from "@/lib/billing/answering";
+import { coverageModeOf, type CoverageMode } from "@/lib/billing/answering";
 import { createLocationClinic, LOCATION_CLINICS_READY } from "@/lib/location-clinic";
 import { log } from "@/lib/log";
 import { notifyOps } from "@/lib/ops/notify";
@@ -529,7 +529,7 @@ async function forwardingFacts(tx: TenantTx): Promise<{
   return {
     carrier: isCarrier(clinic.carrier) ? clinic.carrier : null,
     phoneSystem: clinic.phoneSystem,
-    routing: clinic.callRouting === "always" ? "all_calls" : "overflow_after_hours",
+    routing: coverageModeOf(clinic),
   };
 }
 

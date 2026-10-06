@@ -64,12 +64,14 @@ const FAQS = [
   {
     q: "What do we have to log into?",
     a:
-      "A small portal, used when you want it. You sign in from an emailed " +
-      "link, with no password needed. Switches, not settings, change how she " +
-      "behaves. Every conversation and every booking she made is there, and " +
-      "opening a transcript asks for a second factor. Your owner, manager and " +
-      "billing contact each get their own access. Everything else is done " +
-      "for you.",
+      "A small portal, used when you want it. Your clinic has one sign-in, " +
+      "at the one email address it uses with us (a shared inbox such as " +
+      "info@ is fine), and you sign in from an emailed link, with no " +
+      "password needed. Each phone or computer you use adds its own Face ID " +
+      "or other passkey, which opening a conversation or a booking asks " +
+      "for. Switches, not settings, change how she behaves. Every " +
+      "conversation and every booking she made is there. Everything else is " +
+      "done for you.",
   },
   {
     q: "How long until she's live?",

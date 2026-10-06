@@ -44,6 +44,10 @@ import { KnowMore } from "@/components/KnowMore";
  *   does not reach signs a data protection agreement instead (plan Part L).
  * - "live the same day" and its kin. No timing before purchase (the owner's
  *   rule of 6 October 2026): copy says how a channel goes live, never when.
+ * - Access per role ("Your owner, manager and billing contact each get their
+ *   own access"). v1 has one shared sign-in per clinic, at the clinic's one
+ *   email address, and each phone or computer adds its own passkey; the
+ *   spec's three roles are deferred past v1.
  *
  * Copy is every string, template and piece of JSX text under src/, outside
  * the tests, read with the TypeScript parser so that comments, which often
@@ -81,6 +85,11 @@ const BANNED: readonly { pattern: RegExp; label: string }[] = [
     label: "'never over email': the agreement says only over an encrypted connection",
   },
   { pattern: /\bwith every clinic\b/i, label: "'with every clinic': not every practice signs the same agreement" },
+  {
+    pattern:
+      /\bowner, manager and billing contact\b|\beach (?:get|gets|have|has) (?:their|its) own (?:access|sign[\s-]?in|log[\s-]?in|login|account)\b/i,
+    label: "access per role: v1 has one shared sign-in per clinic",
+  },
   {
     // Our timing, not a patient's: "same-day intent" is what a caller wants.
     pattern: /\b(?:live|answer\w*|ready|forwarding is set)\b[^.]{0,60}\bsame[\s\u2010\u2011-]day\b/i,

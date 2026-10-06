@@ -334,8 +334,15 @@
     {
       "idx": 47,
       "version": "7",
-      "when": 1791281761912,
-      "tag": "0047_stripe_bcd",
+      "when": 1791280367711,
+      "tag": "0047_portal_factors",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1791284820725,
+      "tag": "0048_stripe_bcd",
       "breakpoints": true
     }
   ]

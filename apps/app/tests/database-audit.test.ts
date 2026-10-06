@@ -252,6 +252,27 @@ describeDb("database audit (0031)", () => {
     }
   });
 
+  test("the identity plane's records of who got in, and with what, cannot be erased by the runtime role", async () => {
+    // security_events (0003), sign_in_links (0043), and the portal's second
+    // factors and step-ups (0047): which device's passkey could open patient
+    // data, and when. A new table of this kind belongs on this list.
+    for (const table of [
+      "security_events",
+      "sign_in_links",
+      "user_factors",
+      "user_backup_codes",
+      "webauthn_challenges",
+      "step_ups",
+      "factor_lockouts",
+    ]) {
+      const { rows } = await getMigratorPool().query<{ deletable: boolean }>(
+        `select has_table_privilege('healdesk_app', $1::regclass, 'DELETE') as deletable`,
+        [table],
+      );
+      expect(rows[0]!.deletable, table).toBe(false);
+    }
+  });
+
   test("the BAA gate trigger guards every table that carries a caller's number or payload", async () => {
     const expected = [
       "appointments",
@@ -282,7 +303,7 @@ describeDb("database audit (0031)", () => {
     // app.clinic_id for every clinic in turn. Postgres grants EXECUTE on a new
     // function to PUBLIC by default, so one created without its REVOKE would
     // hand that walk to any role that can connect. Every migration revokes it
-    // by hand; this is the check that they all did (0047 added three).
+    // by hand; this is the check that they all did (0048 added three).
     const { rows } = await getMigratorPool().query<{
       proname: string;
       public_execute: boolean;

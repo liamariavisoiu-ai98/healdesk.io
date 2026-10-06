@@ -194,7 +194,7 @@ describeDb("tenant isolation", () => {
     }
   });
 
-  test("the billing request ledger (0047) shows a clinic only its own rows, and takes no write into another", async () => {
+  test("the billing request ledger (0048) shows a clinic only its own rows, and takes no write into another", async () => {
     const alpha = await seedClinic("alpha-req");
     const beta = await seedClinic("beta-req");
     for (const c of [alpha, beta]) {

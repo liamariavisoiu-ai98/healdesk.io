@@ -67,7 +67,7 @@ export async function truncateAll(): Promise<void> {
   // would make every replayed fixture event a silent no-op. The same holds
   // for the identity-plane tables 0043 added without foreign keys
   // (checkout_intents, stripe_connect_events, stripe_connect_states).
-  // billing_requests (0047) cascades from clinics, and is named anyway beside
+  // billing_requests (0048) cascades from clinics, and is named anyway beside
   // the rest of the billing ledger.
   await pool.query(`
     truncate table
@@ -77,6 +77,7 @@ export async function truncateAll(): Promise<void> {
       conversations, contacts, provider_connections, clinic_touches,
       clinic_memberships, clinics, baa_acceptances,
       checkout_intents, sign_in_links, stripe_connect_events, stripe_connect_states,
+      step_ups, webauthn_challenges, user_backup_codes, user_factors, factor_lockouts,
       invitation, member, organization, session, account, verification, "user"
     restart identity cascade
   `);

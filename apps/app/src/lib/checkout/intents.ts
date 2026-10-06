@@ -250,12 +250,25 @@ export async function findIntent(ref: string): Promise<StoredIntent | null> {
   return row ?? null;
 }
 
-/** Provisioning refused this paid intent: /welcome stops waiting and says so. */
-export async function markIntentFailed(ref: string): Promise<void> {
-  await unsafeDb
+/**
+ * Provisioning refused this paid intent: /welcome stops waiting and says so.
+ * Returns the intent the first time only, so whatever the refusal sends (B3)
+ * goes once however often the purchase is replayed; null when it was already
+ * marked, already provisioned, or never existed.
+ */
+export async function markIntentFailed(ref: string): Promise<StoredIntent | null> {
+  const [row] = await unsafeDb
     .update(checkoutIntents)
     .set({ provisionFailedAt: sql`now()` })
-    .where(and(eq(checkoutIntents.ref, ref), isNull(checkoutIntents.consumedAt)));
+    .where(
+      and(
+        eq(checkoutIntents.ref, ref),
+        isNull(checkoutIntents.consumedAt),
+        isNull(checkoutIntents.provisionFailedAt),
+      ),
+    )
+    .returning();
+  return row ?? null;
 }
 
 /** The provisioning request an intent becomes once its first invoice is paid. */

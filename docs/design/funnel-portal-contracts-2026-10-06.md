@@ -75,7 +75,7 @@ invoices the first period at once. Nobody stores a schedule id.
   law requires.
 
 **Functions Package C provides** (each records the request in the caller's transaction; the worker calls
-Stripe with idempotency keys and retries):
+Stripe with idempotency keys and retries). The final signatures, as Package C stubs them on 6 October 2026, follow the table:
 
 | Function | Does |
 |---|---|
@@ -84,6 +84,43 @@ Stripe with idempotency keys and retries):
 | `stepUpPackage(tx, clinicId, channel, reason: "first_answer" \| "waiting")` | **Only once the plan has started.** It adds a channel from its first answer (`price_stepped_up` that day), or 30 days after the later of its readiness and the plan start (`step_up_reminder` 7 days ahead). Monthly plans use `create_prorations`; annual plans use `always_invoice`. It never re-charges a setup fee, and metered rates stay at the **bought** package's. |
 | `setAutoRenew(tx, clinicId, false)` before the start | Sets `cancel_at_period_end` on the $0 period: the account closes at that period's end unless auto-renew is turned back on, and nothing more is charged. Billing shows the earlier of that date and `setup_deadline_at`. |
 | `closeUnfinishedSetup(tx, clinicId)` | At `setup_deadline_at` with no live channel. The worker re-checks that no channel is live (if one is, it calls `notifyOps` instead), then cancels immediately with no proration and no final invoice. Package C sends no `canceled` notice for it; the plan's closure email is the only one. |
+
+**Final signatures (Package C, 6 October 2026), all in apps/app.** Recorders run inside the caller's
+transaction; everything else runs outside any transaction.
+
+- `startPlan(tx, clinicId, reason?: "first_answer" | "reconcile" | "ops") → { recorded }`
+- `stepUpPackage(tx, clinicId, channel, reason) → { recorded }`
+- `closeUnfinishedSetup(tx, clinicId, reason?: "deadline" | "ops") → { recorded }`. Package C's hourly
+  billing reconcile records it with `"deadline"` once `setup_deadline_at` has passed, the plan has not
+  started, the clinic is not canceled and no location has `live_at`; the unique row makes a second
+  caller harmless. The worker cancels with `cancellation_details.comment = "hd_setup_closure"`, and
+  `events.ts` sends no `canceled` notice and calls `startOffboarding(tx, "setup_closure")`: the plan's
+  closure email keys on that reason.
+- These three record on the **billing** clinic through a definer, so a location's transaction may call them.
+- `assistantMayAnswer({ clinicId, channel, usage?: { source, sourceRef }, now?, actor })` →
+  `{ decision: "answer" }` or `{ decision: "pass_through", reason, fallback: "direct_line" | "contact_form" | "no_reply", directLine }`.
+  It takes **no transaction** and must be called outside one (it reads the location, then the billing
+  clinic). The `usage` ref replaces `startsNew`: a hard cap applies while that call or conversation is not
+  yet counted. Reasons: `unpaid`, `suspended`, `canceled`, `not_active`, `ai_paused`, `channel_off`,
+  `channel_not_live`, `not_purchased`, `cancel_before_start`, `allowance_cap`, `outside_coverage`.
+- `recordUsage({ locationClinicId, meter, quantity, source, sourceRef, occurredAt, actor })`: on every
+  allowed message, idempotent per `sourceRef`. Never for test calls, forwarding tests, the clinic's own
+  numbers, the preview or the practice questions.
+- `setAutoRenew({ clinicId, on, actorLabel }) → { status: "ok", closesOn } | { status: "busy" | "refused", message }`
+- `changePlan({ clinicId, planId, interval, requestId, actorLabel })` and `addLocation({ clinicId, requestId,
+  actorLabel, name? })`, each returning a typed union whose statuses include `busy`, `payment_failed` and
+  `not_available`. `requestId` is fresh per user attempt. `addLocation` refuses with `not_available` while
+  `LOCATION_CLINICS_READY` (lib/location-clinic.ts) is false, and calls `createLocationClinic({
+  billingClinicId, locationNumber, name?, actor })`, which is idempotent on (billing clinic, location number).
+- `createPortalSession({ clinicId, returnUrl, flow?: "payment_method_update" }) → { url } | { status:
+  "unavailable" }`: payment method and invoices only. Its URL lasts about five minutes, so it never goes
+  in an email.
+- For Billing, `lib/billing/summary.ts`: `getBillingSummary(clinicId)` (database only: status, bought and
+  billed plans, interval, locations, channels in service and not yet priced, plan started, first period
+  end, paid through, setup deadline, auto-renew and closes-on, overage mode, usage alerts, the open
+  invoice's URL and amount, grace, usage meters), `previewNextInvoice(clinicId)`, `previewChangePlan({
+  clinicId, planId, interval })` (with the setup-fee difference and the proration) and
+  `previewAddLocation(clinicId)`.
 
 **Gate additions for `assistantMayAnswer` (Package B):** the channel is Off; the channel is not live;
 `ai_paused_until` is in the future; `cancel_at_period_end` is set before the plan starts; and, in
@@ -207,9 +244,12 @@ The catalogue ids are the plan's Annex X.
   - `first_answer`: the first inbound patient conversation answered on a live
     channel. It excludes healdesk's test calls, the forwarding-test window,
     calls from the clinic's own numbers, the preview and the practice questions.
-- **The clinic's first `first_answer`** calls `startPlan(clinicId,
-  "first_answer")`; each later channel's calls `stepUpPackage(clinicId, channel,
-  "first_answer")`.
+- **The clinic's first `first_answer`** calls `startPlan(tx, clinicId,
+  "first_answer")`; each later channel's calls `stepUpPackage(tx, clinicId,
+  channel, "first_answer")`, both inside the transaction that records the event.
+- **Before answering anyone,** the runtime asks `assistantMayAnswer(...)`
+  outside any transaction and, for every allowed message, calls `recordUsage(...)`
+  with the call's or conversation's own reference (signatures in §2).
 - **Also provided:**
   - the pre-model urgent matcher, keyed by specialty, with human and veterinary
     sets;

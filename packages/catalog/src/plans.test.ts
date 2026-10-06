@@ -327,7 +327,7 @@ describe("the package for the channels in service", () => {
 
 describe("the plan-start placeholder", () => {
   test("is the $0 price's lookup key, and never reads as a package price", () => {
-    expect(PLAN_START_PLACEHOLDER_LOOKUP_KEY).toBe("plan_start_placeholder_month");
+    expect(PLAN_START_PLACEHOLDER_LOOKUP_KEY).toBe("healdesk_plan_start_placeholder_month");
     expect(parseLookupKey(PLAN_START_PLACEHOLDER_LOOKUP_KEY)).toBeNull();
   });
 });

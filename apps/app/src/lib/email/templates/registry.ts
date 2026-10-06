@@ -1,7 +1,10 @@
 import type { EmailKind } from "../kind-rules";
 import type { NoticeKind, NoticeOwner } from "../kinds";
 
+import { DEVICE_CHANGED_ENTRY } from "./device_changed";
 import { OPS_ALERT_FIXTURE, renderOpsAlert } from "./ops_alert";
+import { ORDER_CONFIRMED_DELAYED_ENTRY } from "./order_confirmed_delayed";
+import { SIGN_IN_LINK_ENTRY } from "./sign_in_link";
 import type { EmailTemplate } from "./types";
 
 /**
@@ -31,6 +34,9 @@ type AnyEntry = TemplateEntry<any>;
 
 export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   ops_alert: { render: renderOpsAlert, fixture: OPS_ALERT_FIXTURE },
+  sign_in_link: SIGN_IN_LINK_ENTRY,
+  order_confirmed_delayed: ORDER_CONFIRMED_DELAYED_ENTRY,
+  device_changed: DEVICE_CHANGED_ENTRY,
 };
 
 export type PendingTemplate = {
@@ -40,7 +46,10 @@ export type PendingTemplate = {
 };
 
 /** Every kind still waiting for its template, with the session that owes it. */
-export const PENDING_TEMPLATES: Record<Exclude<EmailKind, "ops_alert">, PendingTemplate> = {
+export const PENDING_TEMPLATES: Record<
+  Exclude<EmailKind, "ops_alert" | "sign_in_link" | "order_confirmed_delayed" | "device_changed">,
+  PendingTemplate
+> = {
   payment_failed: { owner: "package_c", ships: "Package C, Gate A (L27)" },
   payment_action_required: { owner: "package_c", ships: "Package C, Gate A (L27)" },
   grace_ending: { owner: "package_c", ships: "Package C, Gate A (L27)" },
@@ -64,9 +73,7 @@ export const PENDING_TEMPLATES: Record<Exclude<EmailKind, "ops_alert">, PendingT
   refund_issued: { owner: "package_c", ships: "Package C, Gate A (L27)" },
   card_expiring: { owner: "package_c", ships: "Package C, Gate A (L27)" },
   connect_connected: { owner: "package_d", ships: "Package D (O14)" },
-  sign_in_link: { owner: "plan", ships: "M2, sign-in (B2)" },
   sign_in_help_link: { owner: "plan", ships: "M2, sign-in (O6)" },
-  order_confirmed_delayed: { owner: "plan", ships: "M2, purchase (B3)" },
 };
 
 /** The template for a kind, or undefined while it is pending. */

@@ -15,12 +15,26 @@ import type { ActorContext } from "./audit";
  *
  * A stub until the provisioning rewrite in M2 lands it, so Package C can be
  * written against the signature now and nothing can create half a clinic.
+ *
+ * Idempotent on (billingClinicId, locationNumber), so `addLocation` can
+ * resume from here if a step after the charge failed: the same call returns
+ * the clinic the first one made.
  */
 export type CreateLocationClinicInput = {
   billingClinicId: string;
+  /** The billing clinic's location count after this add: 2 for the first extra location. */
+  locationNumber: number;
   name?: string;
   actor: ActorContext;
 };
+
+/**
+ * Whether createLocationClinic can make a clinic yet. `addLocation` refuses
+ * with "not_available" while this is false, so no clinic is charged for a
+ * location the stub below would then fail to create. Flipped in the same
+ * commit as the real body.
+ */
+export const LOCATION_CLINICS_READY = false;
 
 export async function createLocationClinic(
   input: CreateLocationClinicInput,

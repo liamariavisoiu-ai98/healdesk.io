@@ -59,7 +59,7 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // billing-notices backstop that used to run here.
   await record("usage-meter-report", () => runUsageMeterReportJob({ now }));
   await record("usage-alerts", () => runUsageAlertsJob({ now }));
-  // The Stripe build (drizzle/0047). The reconcile records whatever billing
+  // The Stripe build (drizzle/0048). The reconcile records whatever billing
   // request is due but missing, then the requests worker carries out what is
   // due, in that order so a request recorded this hour goes this hour. The
   // worker also runs every minute from the `billing-minute` queue; this is

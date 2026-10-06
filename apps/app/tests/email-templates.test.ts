@@ -31,7 +31,14 @@ import {
   MAX_HTML_BYTES,
   REPLY_LINE,
 } from "@/lib/email/templates/compose";
-import { audienceFor, clinicReason, OPS_REASON } from "@/lib/email/templates/context";
+import {
+  ACCOUNT_REASON,
+  audienceFor,
+  clinicReason,
+  OPS_REASON,
+  ORDER_REASON,
+  SIGN_IN_REASON,
+} from "@/lib/email/templates/context";
 import { PENDING_TEMPLATES, TEMPLATES, templateFor } from "@/lib/email/templates/registry";
 import type { EmailAudience, TemplateContext } from "@/lib/email/templates/types";
 import {
@@ -74,9 +81,21 @@ afterEach(() => {
 function contextFor(kind: EmailKind, audience: EmailAudience = "patients"): TemplateContext {
   const scope = carriesUnsubscribe(kind) ? "commercial" : null;
   return {
-    clinicName: kind === "ops_alert" ? null : "Radiance Med Spa",
+    clinicName:
+      kind === "ops_alert" || kind === "sign_in_link" || kind === "device_changed"
+        ? null
+        : "Radiance Med Spa",
     audience,
-    reason: kind === "ops_alert" ? OPS_REASON : clinicReason("Radiance Med Spa"),
+    reason:
+      kind === "ops_alert"
+        ? OPS_REASON
+        : kind === "sign_in_link"
+          ? SIGN_IN_REASON
+          : kind === "order_confirmed_delayed"
+            ? ORDER_REASON
+            : kind === "device_changed"
+              ? ACCOUNT_REASON
+              : clinicReason("Radiance Med Spa"),
     ...(scope ? { unsubscribeUrl: unsubscribeUrl(CLINIC_ID, scope) } : {}),
     raisedAt: new Date("2026-10-06T14:32:00Z"),
     timeZone: "America/New_York",
@@ -115,8 +134,13 @@ describe("the template registry", () => {
     }
   });
 
-  test("I1, the ops alert, is the one template the platform ships", () => {
-    expect(Object.keys(TEMPLATES)).toEqual(["ops_alert"]);
+  test("the templates shipped so far: I1, B2, B3 and O3", () => {
+    expect(Object.keys(TEMPLATES)).toEqual([
+      "ops_alert",
+      "sign_in_link",
+      "order_confirmed_delayed",
+      "device_changed",
+    ]);
   });
 
   test("every template's fixture passes the payload allowlist", () => {

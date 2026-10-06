@@ -36,10 +36,24 @@ export async function portalGrants(userId: string): Promise<PortalGrant[]> {
   return result.rows.map((r) => ({ clinicId: r.clinic_id, slug: r.slug, name: r.name }));
 }
 
+/** This request's Better Auth session, read once per render. */
+const currentSession = cache(async () => auth.api.getSession({ headers: await headers() }));
+
 /** The signed-in user's id, or null. Deduplicated across one render. */
 export const currentUserId = cache(async (): Promise<string | null> => {
-  const result = await auth.api.getSession({ headers: await headers() });
+  const result = await currentSession();
   return result?.user?.id ?? null;
+});
+
+/**
+ * The session's token, or null: the bearer value of the session cookie, which
+ * Better Auth never rotates while the session lives. Step-ups and WebAuthn
+ * challenges refer to the session only by its SHA-256
+ * (lib/factors/step-ups.ts), so this never leaves the request.
+ */
+export const currentSessionToken = cache(async (): Promise<string | null> => {
+  const result = await currentSession();
+  return result?.session?.token ?? null;
 });
 
 /**

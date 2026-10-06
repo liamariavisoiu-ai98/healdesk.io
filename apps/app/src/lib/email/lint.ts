@@ -50,6 +50,7 @@ type ValueClass =
   | "planName"
   | "channel"
   | "clinicName"
+  | "deviceName"
   | "masked"
   | "phone"
   | "url"
@@ -102,6 +103,16 @@ const CATEGORY_KEYS: ReadonlySet<string> = new Set([
   "interval",
   "overageMode",
   "mode",
+  // How a clinic's calls reach us, so a suspension, an end of service or a
+  // plan change that drops voice can print the steps for undoing forwarding
+  // from catalog forwardingInstructions(...).undo; and the one action a
+  // waiting channel needs (L4). Catalog ids, never words.
+  "carrier",
+  "phoneSystem",
+  "routing",
+  "waitingOn",
+  // O3: what happened to a device (added, removed, locked).
+  "change",
 ]);
 
 /** The class a key's value must belong to, or null when the key is not on the list. */
@@ -109,6 +120,7 @@ function classOfKey(key: string): ValueClass | null {
   // An opening date never enters a payload (X4); opening dates are gone.
   if (/open(ing|s)/i.test(key)) return null;
   if (key === "clinicName") return "clinicName";
+  if (key === "deviceName") return "deviceName";
   if (key === "planName") return "planName";
   if (key === "planId" || key === "plan" || key === "boughtPlanId") return "planId";
   if (key === "channel" || key === "channels") return "channel";
@@ -240,6 +252,20 @@ function checkValue(
         /[@\r\n]|:\/\/|\d{7,}/.test(value)
       ) {
         fail("must be a clinic's name.");
+      }
+      return;
+    case "deviceName":
+      // What staff called one of their own devices ("Front desk Mac"), O3's
+      // one free-text field: the user_factors CHECK's rules, and nothing that
+      // could be an address, a link or a number someone could call.
+      if (
+        typeof value !== "string" ||
+        value.length === 0 ||
+        value.length > 60 ||
+        // eslint-disable-next-line no-control-regex
+        /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069@]|:\/\/|\d{7,}/.test(value)
+      ) {
+        fail("must be a device's name.");
       }
       return;
     case "masked":

@@ -29,6 +29,19 @@ const nextConfig: NextConfig = {
           { key: "Referrer-Policy", value: "no-referrer" },
           // Nothing behind here should ever be cached by an intermediary.
           { key: "Cache-Control", value: "no-store, max-age=0" },
+          // Passkeys only from this app's own pages, never from a frame a
+          // page embeds (plan Part D6). The page's Content-Security-Policy is
+          // per request, for its nonce, so it is set in src/proxy.ts.
+          {
+            key: "Permissions-Policy",
+            value: "publickey-credentials-get=(self), publickey-credentials-create=(self)",
+          },
+          // HTTPS only, for two years, here and below: a sign-in link or a
+          // session cookie must never cross a network in the clear. Browsers
+          // ignore it over plain http, so development is unaffected. No
+          // `preload`, which binds the whole of healdesk.io and is the
+          // owner's decision, not this app's.
+          { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
         ],
       },
     ];

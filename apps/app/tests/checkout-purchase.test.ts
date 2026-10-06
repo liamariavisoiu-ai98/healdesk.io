@@ -13,8 +13,12 @@ import { POST as postIntent } from "@/app/api/checkout/intents/route";
 import { POST as postIntentSession } from "@/app/api/checkout/intents/session/route";
 import { POST as postProvision } from "@/app/api/provision/route";
 import { signAgreement } from "@/lib/agreements";
+import { findIntent, markIntentFailed } from "@/lib/checkout/intents";
+import { sendOrderConfirmedDelayed } from "@/lib/checkout/order-delayed";
 import { welcomeState } from "@/lib/checkout/welcome";
 import { setupDeadline } from "@/lib/clinic/setup-window";
+import { replyByDate } from "@/lib/reply-by";
+import type { DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
 import { consumeSignInLink } from "@/lib/sign-in/links";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
@@ -292,6 +296,10 @@ describeDb("provisioning from a paid intent, and /welcome", () => {
     const token = (ready as { url: string }).url.split("/link/")[1]!;
     const consumed = await consumeSignInLink(token, null);
     expect(consumed).toMatchObject({ ok: true, purpose: "checkout" });
+    // The plan's first screen after /welcome: "Protect patient details", then the clinic.
+    expect((consumed as { redirectTo: string }).redirectTo).toMatch(
+      /^\/c\/([a-z0-9-]+)\/protect\?next=%2Fc%2F\1$/,
+    );
 
     // Polled again (a reload, a second tab): the link was already handed out.
     expect(await welcomeState(asPayer)).toMatchObject({ status: "use_email" });
@@ -322,5 +330,51 @@ describeDb("provisioning from a paid intent, and /welcome", () => {
     });
     expect(errors.some((line) => line.includes("provisioning_rejected"))).toBe(true);
     spy.mockRestore();
+  });
+
+  test("the buyer of a refused purchase is written to once, with the order's terms (B3)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const p = await purchase();
+    const { json: saved } = await intent(p.body);
+    const ref = saved.ref as string;
+    await getMigratorPool().query(
+      `insert into organization (id, name, slug, created_at) values ('org_other_b3', 'Other', 'other-b3-org', now())`,
+    );
+    await getMigratorPool().query(`select app_bind_agreement($1::uuid, 'org_other_b3')`, [p.agreementId]);
+
+    // Refused twice (a replay of the purchase): the mark, and so the email,
+    // belong to the first refusal only.
+    expect((await provision(ref, `sub_test_${randomUUID().slice(0, 8)}`)).status).toBe(422);
+    const firstMark = (await findIntent(ref))!.provisionFailedAt;
+    expect(firstMark).toBeInstanceOf(Date);
+    expect((await provision(ref, `sub_test_${randomUUID().slice(0, 8)}`)).status).toBe(422);
+    expect((await findIntent(ref))!.provisionFailedAt).toEqual(firstMark);
+    expect(await markIntentFailed(ref)).toBeNull();
+
+    const sent: { target: DeliveryTarget; message: OutgoingEmail }[] = [];
+    const transport: EmailTransport = {
+      name: "fake",
+      send: async (target, message) => {
+        sent.push({ target, message });
+        return { status: "sent", messageId: "msg_b3" };
+      },
+    };
+    expect(await sendOrderConfirmedDelayed((await findIntent(ref))!, { transport })).toBe("sent");
+
+    const [{ target, message }] = sent as [{ target: DeliveryTarget; message: OutgoingEmail }];
+    expect(target.to).toBe(p.email);
+    expect(message.subject).toBe("Your healdesk order is confirmed: one step on our side");
+    expect(message.text).toContain(`We'll email your sign-in link to this address by ${replyByDate(firstMark!)}.`);
+    expect(message.text).toContain("Monthly billing ($897) starts the day AYA first answers a patient.");
+    expect(message.text).toContain("The setup fee is non-refundable.");
+    // Keyed by a digest of the ref, which opens /welcome: never the ref itself.
+    const digest = createHash("sha256").update(ref).digest("hex");
+    expect(message.idempotencyKey).toBe(`hd-order_confirmed_delayed-${digest}-1`);
+    expect(JSON.stringify(message)).not.toContain(ref);
+    expect(message.tags).toEqual([
+      { name: "app", value: "app" },
+      { name: "kind", value: "order_confirmed_delayed" },
+      { name: "delivery", value: digest },
+    ]);
   });
 });

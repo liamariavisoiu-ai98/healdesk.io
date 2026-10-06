@@ -32,8 +32,6 @@ ALTER TABLE "entitlements" ADD COLUMN "pending_location_request_id" text;--> sta
 ALTER TABLE "entitlements" ADD COLUMN "pending_location_count" integer;--> statement-breakpoint
 ALTER TABLE "entitlements" ADD COLUMN "pending_location_charged_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "entitlements" ADD COLUMN "open_invoice_amount_cents" integer;--> statement-breakpoint
-ALTER TABLE "entitlements" DROP COLUMN "setup_fee_refunded_at";--> statement-breakpoint
-ALTER TABLE "entitlements" DROP COLUMN "setup_fee_refunded_usd";--> statement-breakpoint
 ALTER TABLE "billing_requests" ADD CONSTRAINT "billing_requests_clinic_id_clinics_id_fk" FOREIGN KEY ("clinic_id") REFERENCES "public"."clinics"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "billing_requests_key_idx" ON "billing_requests" USING btree ("clinic_id","kind","channel_key");--> statement-breakpoint
 CREATE INDEX "billing_requests_due_idx" ON "billing_requests" USING btree ("next_attempt_at") WHERE "billing_requests"."done_at" is null;--> statement-breakpoint
@@ -41,6 +39,8 @@ CREATE UNIQUE INDEX "deposit_payments_open_appointment_idx" ON "deposit_payments
 ALTER TABLE "entitlements" ADD CONSTRAINT "entitlements_stripe_mutation_lease_check" CHECK (("entitlements"."stripe_mutation_lease_until" is null) = ("entitlements"."stripe_mutation_lease_owner" is null) and ("entitlements"."stripe_mutation_lease_owner" is null or char_length("entitlements"."stripe_mutation_lease_owner") between 1 and 120));--> statement-breakpoint
 ALTER TABLE "entitlements" ADD CONSTRAINT "entitlements_pending_location_check" CHECK (("entitlements"."pending_location_request_id" is null) = ("entitlements"."pending_location_count" is null) and ("entitlements"."pending_location_charged_at" is null or "entitlements"."pending_location_request_id" is not null) and ("entitlements"."pending_location_count" is null or "entitlements"."pending_location_count" >= 2) and ("entitlements"."pending_location_request_id" is null or "entitlements"."pending_location_request_id" ~ '^[A-Za-z0-9_-]{1,64}$'));--> statement-breakpoint
 ALTER TABLE "stripe_connect_states" ADD CONSTRAINT "stripe_connect_states_return_check" CHECK ("stripe_connect_states"."return_to" in ('settings', 'setup', 'ops'));--> statement-breakpoint
+ALTER TABLE "entitlements" DROP COLUMN "setup_fee_refunded_at";--> statement-breakpoint
+ALTER TABLE "entitlements" DROP COLUMN "setup_fee_refunded_usd";--> statement-breakpoint
 
 -- =============================================================================
 -- The Stripe build: packages B, C and D (build spec of 6 October 2026, S0).
@@ -331,14 +331,14 @@ COMMENT ON TABLE meta_inbound_messages IS
 DO $$
 BEGIN
   IF has_table_privilege('healdesk_app'::name, 'billing_requests'::regclass, 'DELETE') THEN
-    RAISE EXCEPTION 'healdesk_app can DELETE from billing_requests, which 0047 made undeletable.';
+    RAISE EXCEPTION 'healdesk_app can DELETE from billing_requests, which 0048 made undeletable.';
   END IF;
   IF has_column_privilege('healdesk_app'::name, 'billing_requests'::regclass, 'id', 'UPDATE')
      OR has_column_privilege('healdesk_app'::name, 'billing_requests'::regclass, 'clinic_id', 'UPDATE')
      OR has_column_privilege('healdesk_app'::name, 'billing_requests'::regclass, 'kind', 'UPDATE')
      OR has_column_privilege('healdesk_app'::name, 'billing_requests'::regclass, 'channel_key', 'UPDATE')
      OR has_column_privilege('healdesk_app'::name, 'billing_requests'::regclass, 'requested_at', 'UPDATE') THEN
-    RAISE EXCEPTION 'healdesk_app can UPDATE a billing_requests column 0047 froze.';
+    RAISE EXCEPTION 'healdesk_app can UPDATE a billing_requests column 0048 froze.';
   END IF;
   IF NOT (has_column_privilege('healdesk_app'::name, 'billing_requests'::regclass, 'next_attempt_at', 'UPDATE')
           AND has_column_privilege('healdesk_app'::name, 'billing_requests'::regclass, 'lease_until', 'UPDATE')
@@ -358,17 +358,17 @@ BEGIN
           AND has_column_privilege('healdesk_app'::name, 'entitlements'::regclass, 'pending_location_count', 'UPDATE')
           AND has_column_privilege('healdesk_app'::name, 'entitlements'::regclass, 'pending_location_charged_at', 'UPDATE')
           AND has_column_privilege('healdesk_app'::name, 'entitlements'::regclass, 'open_invoice_amount_cents', 'UPDATE')) THEN
-    RAISE EXCEPTION 'healdesk_app cannot UPDATE an entitlements column 0047 added for a runtime writer.';
+    RAISE EXCEPTION 'healdesk_app cannot UPDATE an entitlements column 0048 added for a runtime writer.';
   END IF;
   IF has_function_privilege('public', 'app_record_billing_request(text, text, text)', 'EXECUTE')
      OR has_function_privilege('public', 'app_due_billing_requests(timestamptz, integer, text[])', 'EXECUTE')
      OR has_function_privilege('public', 'app_clinic_for_deposit(uuid)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'PUBLIC can execute a definer 0047 added.';
+    RAISE EXCEPTION 'PUBLIC can execute a definer 0048 added.';
   END IF;
   IF NOT (has_function_privilege('healdesk_app', 'app_record_billing_request(text, text, text)', 'EXECUTE')
           AND has_function_privilege('healdesk_app', 'app_due_billing_requests(timestamptz, integer, text[])', 'EXECUTE')
           AND has_function_privilege('healdesk_app', 'app_clinic_for_deposit(uuid)', 'EXECUTE')) THEN
-    RAISE EXCEPTION 'healdesk_app cannot execute a definer 0047 added for it.';
+    RAISE EXCEPTION 'healdesk_app cannot execute a definer 0048 added for it.';
   END IF;
 END;
 $$;

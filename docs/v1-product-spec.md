@@ -303,7 +303,7 @@ The demo already scraped the clinic's site into a structured profile: services, 
 
 ### Stage 1, payment
 
-Stripe Checkout charges the setup fee only. Monthly billing starts the day the assistant first answers a patient, and no later than a fixed term after purchase. Until then the subscription carries a $0 monthly line, so nothing is a trial, and until every channel in the package is in service the monthly price is that of the channels in service. The agreement (a business associate agreement, or a data protection agreement for a practice HIPAA does not cover) is accepted inline before checkout completes, with version, timestamp and IP stored. On the first paid invoice the account is created and the browser lands in setup. Provisioning is gated on the invoice being paid, never on the checkout session alone. No opening date is shown before purchase: each channel's date appears only in the dashboard.
+Stripe Checkout charges the setup fee only. Monthly billing starts the day the assistant first answers a patient. Until then the subscription carries a $0 monthly line, so nothing is a trial, and until every channel in the package is in service the monthly price is that of the channels in service. The agreement (a business associate agreement, or a data protection agreement for a practice HIPAA does not cover) is accepted inline before checkout completes, with version, timestamp and IP stored. On the first paid invoice the account is created and the browser lands in setup. Provisioning is gated on the invoice being paid, never on the checkout session alone. A channel is sold only once it is ready, so there are no opening dates: one that is not ready comes off the product list. The setup fee is never refunded, and the purchase page says so before payment. The clinic then has 30 days to finish setup. While no channel is answering patients it gets a reminder every five days, six in all, and if none is by the end of the 30th day, the subscription is cancelled with nothing refunded and the account is closed, keeping only the signed agreement and the billing records the law requires.
 
 ### Stage 2, the wizard, under fifteen minutes
 
@@ -461,7 +461,7 @@ No channel is ever shown as live before it is. A false green light in week one c
 ### The first 48 hours
 
 - Healdesk places a test call and sends a test DM within five minutes of each channel going live, so the clinic experiences its own agent rather than reading that it exists.
-- Any channel still not live after 48 hours triggers one reminder naming the single action outstanding, and for voice, the offer of a five-minute call.
+- While no channel is live, a reminder goes every five days, six in all, naming the single action outstanding, and for voice the offer of a five-minute call. Once a channel is live, any other channel still not live after 48 hours triggers one reminder of the same kind.
 - An account with zero interactions on any channel after 48 hours is flagged internally. Something is wrong with the deployment, not with the clinic.
 
 ### Honest headline timing
@@ -564,7 +564,7 @@ What the AI booked, with deposit status, and the queue of anything flagged for m
 
 ### 6. Billing
 
-Current plan, channels included, renewal date, next invoice amount, and before the plan starts, the latest date it starts. Until every channel in the package is in service, the plan is billed at the price of the channels that are. Usage meters: minutes used against included, conversations used against included, any overage in dollars, days left in the cycle. Overage handling switch. Upgrade and add capacity here. Invoices and the payment method deep-link into Stripe's own portal rather than being rebuilt. Cancellation is the Auto-renew switch, not Stripe's portal: off cancels at period end, and before the plan starts it means the plan never starts and nothing more is charged.
+Current plan, channels included, renewal date, next invoice amount, and before the plan starts, the date by which setup must be finished. Until every channel in the package is in service, the plan is billed at the price of the channels that are. Usage meters: minutes used against included, conversations used against included, any overage in dollars, days left in the cycle. Overage handling switch. Upgrade and add capacity here. Invoices and the payment method deep-link into Stripe's own portal rather than being rebuilt. Cancellation is the Auto-renew switch, not Stripe's portal: off cancels at period end, and before the plan starts it means the plan never starts and nothing more is charged.
 
 ## Every switch in the portal
 
@@ -624,7 +624,7 @@ Defaults matter more than the switches. A clinic that changes nothing should get
 
 A small chat bubble on every screen. Same engine as the product, pointed at Healdesk's own documentation instead of a clinic's.
 
-Help also offers a support phone line, a voicemail that only emails Healdesk that a call came in (the caller and the time, no recording or transcript), and hello@healdesk.io.
+Help also offers a support phone line on Healdesk's Retell number, whose agent keeps only basic call attributes (Retell's Basic Attributes Only storage: the caller and the time, no recording or transcript) and emails Healdesk that a call came in, so Healdesk can call back; and hello@healdesk.io.
 
 ### What it does
 
@@ -707,7 +707,7 @@ This section is the one a clinic's lawyer will read. It is written to survive th
 | Healdesk, contracting as Viixi FZC | Business associate | That agreement with each clinic, plus its own agreements with every subcontractor below |
 | Every vendor in the stack that touches patient data | Subcontractor | A business associate agreement with Healdesk. Required, not optional, under 45 CFR 164.308(b)(2) |
 
-The agreement with the clinic is accepted inline at checkout, with version, timestamp and IP stored against the account. It is a blocking step; checkout does not complete without it. A practice HIPAA does not cover (a veterinary clinic, or a cash-pay practice that answers "No" to billing any health insurance electronically) signs Healdesk's data protection agreement instead, and its client data is controlled exactly as PHI. A practice that is not sure signs the business associate agreement. Veterinary practices are sold only once the veterinary urgent set and an emergency referral number are in place.
+The agreement with the clinic is accepted inline at checkout, with version, timestamp and IP stored against the account. It is a blocking step; checkout does not complete without it. A practice HIPAA does not cover (a veterinary clinic, or a cash-pay practice that answers "No" to billing any health insurance electronically) signs Healdesk's data protection agreement instead, and its client data is controlled exactly as PHI. A practice that is not sure signs the business associate agreement. Veterinary practices are sold only once the veterinary urgent set and an emergency referral number are in place. A veterinary booking may record the animal's name and species.
 
 Two things that are easy to get wrong and expensive to get wrong late:
 
@@ -844,13 +844,13 @@ One cheap bridge worth building: a single outcome control on each booking in the
 
 ### The guarantee
 
-The setup fee is non-refundable once a channel is in service, which is defensible because provisioning work happens immediately. It is refunded if no channel is in service 30 days after its published opening date for a reason on Healdesk's side, and a Meta-only package gets a fixed date by which to switch package or be refunded. That makes the first month the place where risk has to be reversed.
+The setup fee is never refunded: provisioning work starts the moment it is paid, and a clinic that does not finish its own steps has still cost that work. It has 30 days to finish setup, after which an account with no channel live is closed. That makes the first month the place where risk has to be reversed.
 
 The guarantee is tied to something Healdesk controls and can measure: calls and messages answered. Not to revenue, not to bookings, not to anything that depends on the clinic's own demand, pricing or follow-through. Promising revenue outcomes on a $797 retainer to a clinic whose ad spend you do not control is a refund queue waiting to happen.
 
 The shape: if the assistant does not answer every call and message routed to it during the first month, which runs from the plan start, the first month's retainer is refunded. It is a promise about reliability, which is exactly what a clinic doubts before buying and exactly what the product guarantees.
 
-The exact wording, the refund window and whether the setup fee is refundable before provisioning still need to be settled with counsel and written identically into the pricing page and the service agreement.
+The exact wording and the refund window still need to be settled with counsel and written identically into the pricing page and the service agreement. The setup fee is never refundable, and both say so.
 
 ### Why this rather than the alternatives
 
@@ -931,7 +931,7 @@ The current product sheet and site promise things v1 does not do. These need cha
 
 ### Set-up promise
 
-Per channel, not global, and it describes the step rather than the time: website chat goes live once the snippet is pasted, phone once call forwarding is set, Instagram and Messenger once the clinic connects them, WhatsApp once its account has a payment method. No timing is promised before purchase until that channel's runtime ships; each channel's opening date appears only in the clinic's dashboard. A missed set-up promise in week one is the most expensive thing on this list, because it lands exactly where post-purchase doubt is highest.
+Per channel, not global, and it describes the step rather than the time: website chat goes live once the snippet is pasted, phone once call forwarding is set, Instagram and Messenger once the clinic connects them, WhatsApp once its account has a payment method. No timing is promised before purchase, and a channel is sold only once it is ready, so there are no opening dates. A missed set-up promise in week one is the most expensive thing on this list, because it lands exactly where post-purchase doubt is highest.
 
 ### Pricing consequences
 

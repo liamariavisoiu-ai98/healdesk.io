@@ -278,8 +278,10 @@ precedent.
 - The set-up promise is per channel, never global: about fifteen minutes of the
   clinic's attention; website chat live once the snippet is pasted; Instagram
   and Messenger once the clinic connects them; WhatsApp once its WhatsApp
-  account has a payment method; phone once call forwarding is set, usually the
-  same day. Never "live in two minutes".
+  account has a payment method; phone once call forwarding is set. It describes
+  the step, never the time. Never "live in two minutes".
+- **No opening dates.** A channel is sold only once it is ready; one that isn't
+  comes off the product list and out of the copy (owner, 6 October 2026).
 - The overage rates ($0.80 a voice minute; $0.40 a chat conversation on the
   single-channel chat package and $0.30 on the rest, set by the owner on 5
   October 2026) are provisional until measured. Copy says so; the billing
@@ -332,9 +334,15 @@ the spec edits the owner approved.
     from noreply@healdesk.io, and every email can be replied to;
   - F0's `billing_notices` is the one outbox and `report_deliveries` the ledger.
 - **Billing starts the day AYA first answers a patient, with no Stripe trial**:
-  a $0 monthly line until then, and a subscription schedule
-  (`docs/design/funnel-portal-contracts-2026-10-06.md` §2). Never reintroduce
-  `trial_end`.
+  a $0 monthly line until then, swapped for the package price on the plain
+  subscription at the first answer. There is no subscription schedule and no
+  backstop date (`docs/design/funnel-portal-contracts-2026-10-06.md` §2). Never
+  reintroduce `trial_end`.
+- **The setup fee is never refunded, and a clinic has 30 days to finish
+  setup** (owner, 6 October 2026). While no channel is live it gets a reminder
+  every five days, six in all; at the end of the 30th day with nothing live,
+  the subscription is cancelled and the account closed, keeping only the signed
+  agreement and the billing records the law requires.
 - **Every connection is a login button:** Google Calendar OAuth, Facebook
   login, WhatsApp embedded signup, the gateway's own connect flow. A clinic never
   pastes a key or a credential. The single-use `/connect/[token]` credential

@@ -113,9 +113,9 @@ export function HealdeskSoul({
   /** Which encode to play. See CLIPS. */
   clip?: keyof typeof CLIPS;
   /**
-   * Hold the clip and every loop where they are, for a page that offers a
-   * pause control (the hero's, see HeroOrbit.tsx). "Always alive" above is
-   * the default, not a promise the reader cannot opt out of.
+   * Hold the clip and every loop where they are, while the page has no use
+   * for them: the hero's orbit rests its soul when it is scrolled out of view
+   * (HeroOrbit.tsx). "Always alive" above means alive whenever it is seen.
    */
   paused?: boolean;
   className?: string;

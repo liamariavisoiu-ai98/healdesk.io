@@ -40,20 +40,13 @@ import { LABEL, RING } from "@/lib/integrations";
  * Stripe down the right; then the four channels back up the left. The two
  * kinds never interleave, and no two blues sit side by side.
  *
- * ## The pause button
- *
- * The ring and the soul loop for as long as the page is open, beside the
- * heading and the buttons, and WCAG 2.2.2 asks for a way to stop motion like
- * that which does not depend on an operating-system setting. It sits outside
- * the image, because a role="img" hides its children from screen readers,
- * and it holds everything where it is rather than snapping back to rest.
- * Under reduced motion nothing moves, so it is not shown.
- *
  * ## Resting out of view
  *
- * Away from the hero the orbit rests, held the same way, so a reader deep in
- * the page is not paying for the clip and every loop while none of it is in
- * sight (see useResting). The button only ever shows the reader's own choice.
+ * Away from the hero the orbit rests: the swing, the bounce, the soul's loops
+ * and its clip are held where they are, so a reader deep in the page is not
+ * paying for any of it while none of it is in sight (see useResting). A pause
+ * button sat in the orbit's corner from 5 to 6 October 2026 and the owner had
+ * it taken out; the operating system's reduce-motion setting still stills it.
  */
 
 /**
@@ -160,80 +153,63 @@ function drift(i: number) {
  * own transform.
  */
 export function HeroOrbit({ className = "" }: { className?: string }) {
-  const [paused, setPaused] = useState(false);
   const stage = useRef<HTMLDivElement>(null);
   const resting = useResting(stage);
-  const held = paused || resting;
 
   return (
-    <div ref={stage} className={`relative ${className}`}>
-      <div role="img" aria-label={LABEL} className="orbit" data-paused={held || undefined}>
-        {/* Hidden as well as presentational: an image's children should not
-            be read, but accessibility tools still listed an empty list item
-            per logo under the label. */}
-        <div className="orbit__core" aria-hidden>
-          <HealdeskSoul size="var(--orbit-soul)" clip="hero" paused={held} />
-        </div>
-
-        <ul className="orbit__ring" aria-hidden>
-          {RING.map((logo, i) => {
-            const { sway, bounce, delay } = drift(i);
-            return (
-              <li
-                key={logo.name}
-                className="orbit__spoke"
-                style={{
-                  ["--angle" as string]: `${((360 / RING.length) * i).toFixed(3)}deg`,
-                  ["--sway-time" as string]: `${sway.toFixed(2)}s`,
-                  ["--bounce-time" as string]: `${bounce.toFixed(2)}s`,
-                  ["--drift-delay" as string]: `${delay.toFixed(2)}s`,
-                  ...(logo.disc ? { ["--disc" as string]: String(logo.disc) } : {}),
-                }}
-              >
-                <span className="orbit__arm">
-                  <span className="orbit__line" />
-                </span>
-                <span className="orbit__node">
-                  <span className="orbit__reach">
-                    <span
-                      className={logo.disc ? "orbit__bounce orbit__bounce--disc" : "orbit__bounce"}
-                    >
-                      <img
-                        src={logo.src}
-                        alt=""
-                        width={192}
-                        height={192}
-                        decoding="async"
-                        draggable={false}
-                        className="orbit__logo"
-                      />
-                    </span>
-                  </span>
-                </span>
-              </li>
-            );
-          })}
-        </ul>
+    <div
+      ref={stage}
+      role="img"
+      aria-label={LABEL}
+      className={`orbit ${className}`}
+      data-paused={resting || undefined}
+    >
+      {/* Hidden as well as presentational: an image's children should not
+          be read, but accessibility tools still listed an empty list item
+          per logo under the label. */}
+      <div className="orbit__core" aria-hidden>
+        <HealdeskSoul size="var(--orbit-soul)" clip="hero" paused={resting} />
       </div>
 
-      <button
-        type="button"
-        onClick={() => setPaused((p) => !p)}
-        aria-pressed={paused}
-        aria-label="Pause the animation"
-        className="border-line text-muted hover:text-ink absolute right-0 bottom-0 grid size-8 place-items-center rounded-full border bg-white/90 shadow-[0_6px_16px_-10px_rgb(23_42_58/0.5)] transition-colors motion-reduce:hidden"
-      >
-        {paused ? (
-          <svg aria-hidden width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-            <path d="M3 1.8v8.4a.6.6 0 0 0 .9.5l7-4.2a.6.6 0 0 0 0-1L3.9 1.3a.6.6 0 0 0-.9.5Z" />
-          </svg>
-        ) : (
-          <svg aria-hidden width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-            <rect x="2.25" y="1.5" width="2.5" height="9" rx="0.75" />
-            <rect x="7.25" y="1.5" width="2.5" height="9" rx="0.75" />
-          </svg>
-        )}
-      </button>
+      <ul className="orbit__ring" aria-hidden>
+        {RING.map((logo, i) => {
+          const { sway, bounce, delay } = drift(i);
+          return (
+            <li
+              key={logo.name}
+              className="orbit__spoke"
+              style={{
+                ["--angle" as string]: `${((360 / RING.length) * i).toFixed(3)}deg`,
+                ["--sway-time" as string]: `${sway.toFixed(2)}s`,
+                ["--bounce-time" as string]: `${bounce.toFixed(2)}s`,
+                ["--drift-delay" as string]: `${delay.toFixed(2)}s`,
+                ...(logo.disc ? { ["--disc" as string]: String(logo.disc) } : {}),
+              }}
+            >
+              <span className="orbit__arm">
+                <span className="orbit__line" />
+              </span>
+              <span className="orbit__node">
+                <span className="orbit__reach">
+                  <span
+                    className={logo.disc ? "orbit__bounce orbit__bounce--disc" : "orbit__bounce"}
+                  >
+                    <img
+                      src={logo.src}
+                      alt=""
+                      width={192}
+                      height={192}
+                      decoding="async"
+                      draggable={false}
+                      className="orbit__logo"
+                    />
+                  </span>
+                </span>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

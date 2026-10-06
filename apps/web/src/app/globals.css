@@ -853,7 +853,7 @@
   animation: soul-emit 1.7s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
 }
 
-/* --- paused: held where it is, by a page's pause control ----------------- */
+/* --- paused: held where it is, while its page rests it ------------------- */
 /*
  * The component pauses the clip; this holds every loop drawn here, mid-beat
  * rather than back at rest, so pausing does not itself make the orb jump.
@@ -912,10 +912,9 @@
 
    Reduced motion: the global rule runs every animation and transition once in
    0.01ms. With no fill mode each logo comes to rest exactly on its spoke, and
-   a hover moves it out without the slide. The hero's pause button holds the
-   swing and the bounce where they are (`data-paused`, below), and so does
-   the orbit resting while it is scrolled out of reach; a hover still slides,
-   because that motion is the reader's own.
+   a hover moves it out without the slide. Scrolled out of reach, the orbit
+   rests: `data-paused` (below) holds the swing and the bounce where they are;
+   a hover still slides, because that motion is the reader's own.
    ============================================================================= */
 
 .orbit {

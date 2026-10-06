@@ -86,7 +86,7 @@ function order(overrides: Record<string, unknown> = {}): Record<string, unknown>
     nonceHash: createHash("sha256").update(randomBytes(24)).digest("hex"),
     profile: profile(),
     profileStatus: "read",
-    terms: { version: "2026-10-07.2", acceptedAt: new Date().toISOString(), ip: null },
+    terms: { version: "2026-10-06.5", acceptedAt: new Date().toISOString(), ip: null },
     ...overrides,
   };
 }

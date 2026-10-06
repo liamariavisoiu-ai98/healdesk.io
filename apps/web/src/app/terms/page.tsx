@@ -54,14 +54,14 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * the handover duty in section 8); docs/counsel/agreement-changes.md § 7 and
  * guarantee-and-refund.md record what changed and the choices made.
  *
- * Revised 7 October 2026 to the owner's decisions of 6 October, recorded in
- * docs/v1-product-spec.md ("Stage 1, payment" and "The guarantee"): billing
- * starts on the plan start, the day the agent first answers a patient, and
- * renewal, the first-period refund and the guarantee's first month all run
- * from it (sections 3 to 5); the setup fee is never refunded, which ends the
- * 3 October exception, and an account with nothing live 30 days after
- * payment is closed (section 3); a failed payment is emailed to the
- * account's one address (section 6).
+ * Revised 6 October 2026 (LEGAL_VERSION 2026-10-06.5) to the owner's decisions
+ * of that day, recorded in docs/v1-product-spec.md ("Stage 1, payment" and
+ * "The guarantee"): billing starts on the plan start, the day the agent first
+ * answers a patient, and renewal, the first-period refund and the guarantee's
+ * first month all run from it (sections 3 to 5); the setup fee is never
+ * refunded, which ends the 3 October exception, and an account with nothing
+ * live 30 days after payment is closed (section 3); a failed payment is
+ * emailed to the account's one address (section 6).
  */
 export default function TermsPage() {
   const packages = packagesForTerms();

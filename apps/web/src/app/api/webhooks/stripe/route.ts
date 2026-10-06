@@ -118,6 +118,17 @@ const LIFECYCLE_EVENTS: ReadonlySet<EventType> = new Set<EventType>([
 ]);
 
 /**
+ * Lifecycle events whose object normally carries no marker: a charge has no
+ * subscription metadata, so a refund or a dispute is forwarded unmarked as a
+ * matter of course, and apps/app finds the clinic by customer. Only a marker
+ * naming another app skips one.
+ */
+const UNMARKED_BY_NATURE: ReadonlySet<EventType> = new Set<EventType>([
+  "charge.refunded",
+  "charge.dispute.created",
+]);
+
+/**
  * Deliberately NOT rate limited.
  *
  * `clientKey` buckets by IP, and Stripe delivers from a small pool, so every
@@ -319,7 +330,7 @@ async function forwardLifecycle(
   if (marker !== null && marker !== APP_MARKER) {
     return Response.json({ received: true, skipped: "not-healdesk" });
   }
-  if (marker === null) {
+  if (marker === null && !UNMARKED_BY_NATURE.has(event.type)) {
     console.warn(
       "[healdesk] stripe lifecycle event without app marker; forwarding anyway",
       event.id,

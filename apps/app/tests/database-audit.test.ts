@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { BAA_TEMPLATES, CURRENT_BAA_VERSION, isBaaVersionAcceptable } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import {
@@ -45,19 +46,44 @@ async function asTenant<T>(clinicId: string | null, fn: (c: Client) => Promise<T
   }
 }
 
-/** A signed agreement row, inserted as the migrator. Unbound unless an org is given. */
-async function seedAcceptance(organizationId: string | null): Promise<string> {
+/**
+ * A signed agreement row, inserted as the migrator. Unbound unless an org is
+ * given. The current version unless told otherwise, because go-live refuses
+ * a superseded one (0048) and only the version tests below want that.
+ */
+async function seedAcceptance(
+  organizationId: string | null,
+  version: string = CURRENT_BAA_VERSION,
+): Promise<string> {
   const id = randomUUID();
   await getMigratorPool().query(
     `insert into baa_acceptances
        (id, organization_id, document_version, document_hash, rendered_text, variables,
         assent_label, accepted_by_name, accepted_by_email, accepted_at, bound_at)
-     values ($1, $2, '1.0.0', repeat('a', 64), 'BUSINESS ASSOCIATE AGREEMENT (test)',
+     values ($1, $2, $4, repeat('a', 64), 'BUSINESS ASSOCIATE AGREEMENT (test)',
              $3::jsonb, 'I agree', 'Alex Chen', 'alex@radiance.test', now(),
              case when $2::text is null then null else now() end)`,
-    [id, organizationId, JSON.stringify({ clinicLegalName: "Radiance", isCoveredEntity: false })],
+    [id, organizationId, JSON.stringify({ clinicLegalName: "Radiance", isCoveredEntity: false }), version],
   );
   return id;
+}
+
+/** Everything go-live checks except the agreement, set as the onboarding call sets it. */
+async function readyForGoLive(clinicId: string): Promise<void> {
+  await getMigratorPool().query(
+    `update clinics
+        set is_covered_entity = false,
+            opening_hours = '{"mon":[["09:00","17:00"]]}'::jsonb,
+            call_routing_confirmed_at = now(),
+            agent_approved_at = now(),
+            onboarding = jsonb_build_object(
+              'hours_confirmed', now()::text, 'phone_type_confirmed', now()::text,
+              'call_routing_chosen', now()::text, 'covered_entity_confirmed', now()::text,
+              'agent_script_approved', now()::text, 'forwarding_configured', now()::text,
+              'test_call_passed', now()::text, 'booking_requirements_confirmed', now()::text)
+      where id = $1`,
+    [clinicId],
+  );
 }
 
 describeDb("database audit (0031)", () => {
@@ -171,6 +197,46 @@ describeDb("database audit (0031)", () => {
         c.query(`select app_mark_clinic_production($1::uuid)`, [clinicId]),
       ).rejects.toMatchObject({ code: "23514" });
     });
+  });
+
+  test("app_mark_clinic_production refuses a superseded agreement, names its version, and writes nothing (0048)", async () => {
+    // Until 0048 any bound version went live, 1.0.0 and unapproved drafts
+    // included. Everything else is ready here, so the version is the refusal: a
+    // superseded release, the 1.3.0 draft, and older drafts and releases.
+    for (const [i, version] of ["1.2.0", "1.3.0", "1.0.0", "0.1.0-draft"].entries()) {
+      const { clinicId, organizationId } = await seedClinic(`superseded${i}`);
+      await readyForGoLive(clinicId);
+      await seedAcceptance(organizationId, version);
+
+      await expect(
+        getAppPool().query(`select app_mark_clinic_production($1::uuid)`, [clinicId]),
+      ).rejects.toMatchObject({
+        code: "23514",
+        message: expect.stringContaining(`version ${version}, which has been superseded`),
+        hint: expect.stringMatching(/accepts the current agreement first/),
+      });
+      const { rows } = await getMigratorPool().query(
+        `select data_classification, baa_signed_at, went_live_at from clinics where id = $1`,
+        [clinicId],
+      );
+      expect(rows[0]).toEqual({ data_classification: "synthetic", baa_signed_at: null, went_live_at: null });
+    }
+  });
+
+  test("the SQL allow-list is the catalog's floor, version for version", async () => {
+    // app_baa_version_acceptable() is isBaaVersionAcceptable() written out,
+    // because SQL cannot read the catalog. A release that becomes current
+    // without a migration extending the list fails here, rather than as
+    // every new signer refused at go-live in production.
+    for (const version of [...BAA_TEMPLATES.map((t) => t.version), "9.9.9", ""]) {
+      const { rows } = await getMigratorPool().query<{ ok: boolean }>(
+        `select app_baa_version_acceptable($1) as ok`,
+        [version],
+      );
+      expect(rows[0]!.ok, version).toBe(isBaaVersionAcceptable(version));
+    }
+    const { rows } = await getMigratorPool().query<{ ok: boolean }>(`select app_baa_version_acceptable(null) as ok`);
+    expect(rows[0]!.ok).toBe(false);
   });
 
   test("binding is one-way, once, and off the runtime role's direct reach", async () => {
@@ -296,5 +362,35 @@ describeDb("database audit (0031)", () => {
        order by c.relname
     `);
     expect(rows.map((r) => r.relname)).toEqual(expected);
+  });
+
+  test("every SECURITY DEFINER function is executable by the runtime role and not by PUBLIC", async () => {
+    // A definer runs as its owner, and the tenant walks among them set
+    // app.clinic_id for every clinic in turn. Postgres grants EXECUTE on a new
+    // function to PUBLIC by default, so one created without its REVOKE would
+    // hand that walk to any role that can connect. Every migration revokes it
+    // by hand; this is the check that they all did (0050 added three).
+    const { rows } = await getMigratorPool().query<{
+      proname: string;
+      public_execute: boolean;
+      app_execute: boolean;
+    }>(`
+      select p.proname,
+             has_function_privilege('public', p.oid, 'EXECUTE') as public_execute,
+             has_function_privilege('healdesk_app', p.oid, 'EXECUTE') as app_execute
+        from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.prosecdef
+    `);
+    expect(rows.map((r) => r.proname)).toEqual(
+      expect.arrayContaining([
+        "app_record_billing_request",
+        "app_due_billing_requests",
+        "app_clinic_for_deposit",
+      ]),
+    );
+    for (const fn of rows) {
+      expect(fn.public_execute, `${fn.proname} is executable by PUBLIC`).toBe(false);
+      expect(fn.app_execute, `${fn.proname} is not executable by healdesk_app`).toBe(true);
+    }
   });
 });

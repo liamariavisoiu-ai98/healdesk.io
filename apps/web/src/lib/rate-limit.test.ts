@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FakeSheets, __setSheetsClientForTests } from "./sheets/client";
 import { __resetSheetSchemaForTests } from "./sheets/schema";
@@ -56,16 +56,24 @@ describe("rateLimit (per-instance keys)", () => {
   });
 
   it("starts a fresh window once the old one has closed", async () => {
+    // The clock is frozen, because a 1ms window on the real one closes again
+    // whenever the reopening call and the check after it straddle a
+    // millisecond, and under load they did: 12 failures in 178 full runs.
     const k = key();
-    // A 200ms window, waited out by 250ms. It used to be 1ms, which the check
-    // straight after the second call had to land inside: on a busy test
-    // runner it sometimes didn't, and the test failed for timing, not logic.
-    expect((await rateLimit(k, 1, 200)).ok).toBe(true);
-    await new Promise((r) => setTimeout(r, 250));
-    expect((await rateLimit(k, 1, 200)).ok).toBe(true);
-    expect(await isOverLimit(k, 1)).toBe(true);
-    await new Promise((r) => setTimeout(r, 250));
-    expect(await isOverLimit(k, 1)).toBe(false);
+    const start = Date.now();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(start);
+      expect((await rateLimit(k, 1, 1)).ok).toBe(true);
+      // The 1ms window has closed by the time the second call arrives.
+      vi.setSystemTime(start + 15);
+      expect((await rateLimit(k, 1, 1)).ok).toBe(true);
+      expect(await isOverLimit(k, 1)).toBe(true);
+      vi.setSystemTime(start + 30);
+      expect(await isOverLimit(k, 1)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("clientKey takes the first x-forwarded-for entry, which is what Vercel sets", () => {
@@ -86,11 +94,12 @@ describe("rateLimit (per-instance keys)", () => {
 });
 
 describe("rateLimit (the global daily caps)", () => {
-  it("names exactly the three spend caps the routes use", () => {
+  it("names exactly the four spend caps the routes use", () => {
     expect([...GLOBAL_CAP_KEYS].sort()).toEqual([
       "callback:global:day",
       "chat:global:day",
       "site-read:global:day",
+      "webcall:global:day",
     ]);
   });
 

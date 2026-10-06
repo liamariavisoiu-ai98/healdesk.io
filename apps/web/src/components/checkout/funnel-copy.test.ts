@@ -390,10 +390,10 @@ describe("the package step", () => {
       packageStep(answered({ noWebsite: true, cardId: "chat-single", chat: "meta" })),
     );
     expect(markup).toMatch(
-      /<input(?=[^>]*name="chat-channel")(?=[^>]*value="web")(?=[^>]*disabled)[^>]*>/,
+      /<input(?=[^>]*name="chatChannelChoice")(?=[^>]*value="web")(?=[^>]*disabled)[^>]*>/,
     );
     expect(markup).not.toMatch(
-      /<input(?=[^>]*name="chat-channel")(?=[^>]*value="meta")(?=[^>]*disabled)[^>]*>/,
+      /<input(?=[^>]*name="chatChannelChoice")(?=[^>]*value="meta")(?=[^>]*disabled)[^>]*>/,
     );
     expect(text(packageStep(answered({ noWebsite: true })))).toContain("Needs a website");
   });

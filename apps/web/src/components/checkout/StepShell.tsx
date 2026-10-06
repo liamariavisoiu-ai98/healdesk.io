@@ -274,10 +274,14 @@ export function RadioGroup<T extends string>({
         {options.map((option) => {
           const checked = option.id === value;
           return (
+            // A two-column grid: the drawn dot, then the answer and its
+            // description. The input itself is visually hidden (absolutely
+            // placed, so it takes no cell) and sits right before the answer
+            // it names.
             <label
               key={option.id}
               className={[
-                "relative flex min-h-11 items-start gap-3 border transition-colors has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-orange",
+                "relative grid min-h-11 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 border transition-colors has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-orange",
                 layout === "chips" ? "rounded-full px-4 py-2.5" : "rounded-xl px-4 py-3",
                 option.disabled
                   ? "border-line cursor-not-allowed bg-paper-2 opacity-60"
@@ -286,6 +290,15 @@ export function RadioGroup<T extends string>({
                     : "border-line hover:border-line-strong cursor-pointer bg-white",
               ].join(" ")}
             >
+              <span
+                aria-hidden
+                className={[
+                  "row-span-2 mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border-2",
+                  checked ? "border-red bg-red" : "border-line-strong bg-white",
+                ].join(" ")}
+              >
+                {checked ? <span className="size-1.5 rounded-full bg-white" /> : null}
+              </span>
               <input
                 type="radio"
                 name={name}
@@ -295,21 +308,12 @@ export function RadioGroup<T extends string>({
                 onChange={() => onChange(option.id)}
                 className="sr-only"
               />
-              <span
-                aria-hidden
-                className={[
-                  "mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border-2",
-                  checked ? "border-red bg-red" : "border-line-strong bg-white",
-                ].join(" ")}
-              >
-                {checked ? <span className="size-1.5 rounded-full bg-white" /> : null}
-              </span>
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold">{option.label}</span>
-                {option.description ? (
-                  <span className="text-muted mt-0.5 block text-xs leading-relaxed">{option.description}</span>
-                ) : null}
-              </span>
+              <span className="col-start-2 block text-sm font-semibold">{option.label}</span>
+              {option.description ? (
+                <span className="text-muted col-start-2 mt-0.5 block text-xs leading-relaxed">
+                  {option.description}
+                </span>
+              ) : null}
             </label>
           );
         })}

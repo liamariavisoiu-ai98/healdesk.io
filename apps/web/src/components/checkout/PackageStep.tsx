@@ -3,7 +3,9 @@
 import {
   type BillingInterval,
   type ChatChannel,
+  chatChannelOf,
   getPlan,
+  META_SOLD_ALONE,
   offersChatChoice,
   planForCard,
   planNeedsWebsite,
@@ -20,7 +22,13 @@ import {
   monthlyFigureUsd,
   usd,
 } from "@/lib/pricing";
-import { chosenCard, chosenPlan, type FunnelState } from "@/lib/checkout/funnel";
+import {
+  chosenCard,
+  chosenPlan,
+  type FunnelState,
+  planOnSale,
+  sellableTo,
+} from "@/lib/checkout/funnel";
 import { locationsLine } from "@/lib/checkout/review";
 import { site } from "@/lib/site";
 
@@ -104,26 +112,15 @@ export function PackageStep({
 
       {/* Only a "Web OR Meta" card asks: the others include both chat
           channels or neither, and a question with one answer is noise. */}
-      {card && offersChatChoice(card) ? (
-        <div className="border-line mt-6 rounded-2xl border bg-white p-5">
-          <RadioGroup<ChatChannel>
-            name="chat-channel"
-            label="Which chat channel?"
-            hint={`${card.name} includes one. Website chat goes live once its one-line snippet is on your site. Instagram and Messenger go live once you connect them in setup, and WhatsApp once your WhatsApp account has a payment method on it, because Meta bills you directly for WhatsApp messages.`}
-            options={CHAT_CHANNEL_CHOICES.map((option) => ({
-              id: option.id,
-              label: option.label,
-              // A practice with no website is not sold website chat.
-              disabled: option.id === "web" && state.noWebsite,
-              description:
-                option.id === "web" && state.noWebsite
-                  ? "Needs a website: you told us you don't have one."
-                  : undefined,
-            }))}
-            value={state.chat}
-            onChange={onChat}
-          />
-        </div>
+      {card && plan && offersChatChoice(card) ? (
+        <ChatChannelField
+          card={card}
+          // The package's own channel, so a choice the step overrides (Meta
+          // alone, while it is not sold) shows as what will be bought.
+          value={chatChannelOf(plan)}
+          onChange={onChat}
+          noWebsite={state.noWebsite}
+        />
       ) : null}
 
       {/* One region, always in the page, so a change of package is heard. */}
@@ -220,9 +217,10 @@ function PackageCard({
   onSelect: () => void;
 }) {
   const plan = planForCard(card);
-  // Only a card whose every package has website chat is closed to a
-  // practice without a website; a twin card still sells its Meta package.
-  const closed = noWebsite && card.planIds.every((id) => planNeedsWebsite(getPlan(id)!));
+  // Closed only when no package on the card can be sold to this practice: a
+  // twin card still sells its Meta package to a practice without a website,
+  // unless Meta on its own is not on sale either.
+  const closed = !card.planIds.some((id) => sellableTo(getPlan(id)!, { noWebsite }));
   return (
     <label
       className={[
@@ -286,5 +284,61 @@ function PackageCard({
         <span className={`${FIELD_LABEL} text-muted mt-3 text-[12px]`}>Needs a website</span>
       ) : null}
     </label>
+  );
+}
+
+/**
+ * Which twin a "Web OR Meta" card sells: website chat or the Meta bot.
+ *
+ * Exported (and from CheckoutFlow, where its test has always found it) so a
+ * test can render it on its own. While Meta is not sold on its own (catalog,
+ * META_SOLD_ALONE), the choice that would leave Meta as the clinic's only
+ * channel stays on screen, disabled, with one line saying why: the card's
+ * name still says "or Meta", and an option that silently vanished would read
+ * as a mistake. A practice with no website cannot take website chat, and is
+ * told so beside the option.
+ */
+export function ChatChannelField({
+  card,
+  value,
+  onChange,
+  noWebsite = false,
+  metaSoldAlone = META_SOLD_ALONE,
+}: {
+  card: PricingCard;
+  value: ChatChannel;
+  onChange: (choice: ChatChannel) => void;
+  noWebsite?: boolean;
+  /** The catalog's flag; a parameter only so a test can close it. */
+  metaSoldAlone?: boolean;
+}) {
+  const waitsForMeta = (choice: ChatChannel) =>
+    !planOnSale(planForCard(card, choice), metaSoldAlone);
+  const needsWebsite = (choice: ChatChannel) =>
+    noWebsite && planNeedsWebsite(planForCard(card, choice));
+  return (
+    <div className="border-line mt-6 rounded-2xl border bg-white p-5">
+      <RadioGroup<ChatChannel>
+        name="chatChannelChoice"
+        label="Which chat channel?"
+        hint={`${card.name} includes one. Website chat goes live once its one-line snippet is on your site. Instagram and Messenger go live once you connect them in setup, and WhatsApp once your WhatsApp account has a payment method on it, because Meta bills you directly for WhatsApp messages.`}
+        options={CHAT_CHANNEL_CHOICES.map((option) => ({
+          id: option.id,
+          label: option.label,
+          disabled: waitsForMeta(option.id) || needsWebsite(option.id),
+          description: needsWebsite(option.id)
+            ? "Needs a website: you told us you don't have one."
+            : undefined,
+        }))}
+        value={value}
+        onChange={onChange}
+      />
+      {CHAT_CHANNEL_CHOICES.some((option) => waitsForMeta(option.id)) ? (
+        <p className="text-muted mt-3 text-xs">
+          On its own, Instagram, Messenger + WhatsApp waits for Meta to approve our app, so this
+          package is website chat for now.
+        </p>
+      ) : null}
+    </div>
   );
 }

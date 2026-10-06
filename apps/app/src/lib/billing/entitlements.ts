@@ -1,9 +1,11 @@
 import {
   type BillingInterval,
   channelList,
+  getPlan,
   type Plan,
 } from "@healdesk/catalog";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
+import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 
 import type { Transaction } from "@/db";
 import {
@@ -12,6 +14,7 @@ import {
   type BillingStatus,
   type ChannelsEnabled,
   type Entitlements,
+  type UsageMeter,
 } from "@/db/schema";
 
 /**
@@ -61,6 +64,25 @@ import {
  * — driven by the billing sweep job, and by the usage path once one exists —
  * advances it a month at a time and zeroes the counters as it goes. The
  * annual renewal invoice re-anchors the window from the invoice.
+ *
+ * ## Bought and billed are two packages (the owner's decisions of 6 October)
+ *
+ * A clinic buys a package at checkout and is billed for the channels in
+ * service: Complete bought, website chat first to answer, Web Chatbot billed
+ * until the next channel answers. So `bought_plan_id` is what was sold, and
+ * decides which channels may answer (`channels_enabled`), the step-up target
+ * and the metered rates; `plan_code`, the interval and the `included_*`
+ * allowances follow the package Stripe bills (`applyBilledPlan`). A row with
+ * no `bought_plan_id` is LEGACY, written before the deferred start: there
+ * `channels_enabled` still follows `plan_code`, and `recordFirstInvoice`
+ * still opens the window from the first invoice, so the synthetic data and
+ * the tests written against it keep today's behaviour (BD31).
+ *
+ * Before the plan starts there is no allowance window at all: the $0 first
+ * invoice opens none, usage is recorded but never over the allowance (BD6),
+ * and the window opens from the first PLAN invoice (`openAllowanceWindow`).
+ * The plan has started once the worker's Stripe update went through or that
+ * invoice was paid, whichever is first (`hasPlanStarted`, R8).
  */
 
 /**
@@ -152,10 +174,33 @@ export async function getEntitlements(
   return rows[0] ?? null;
 }
 
+/**
+ * The row, locked for the rest of the transaction (`SELECT … FOR UPDATE`).
+ *
+ * Every path that reads the counters to decide what to write takes this
+ * lock first: the usage recorder, the annual roll, the status machine. Under
+ * READ COMMITTED a reader that has to wait gets the row as the holder
+ * committed it, so one writer's increment can never be read stale and then
+ * overwritten by another's reset. Lock this one row and nothing else, in
+ * this order, and no two of them can deadlock.
+ */
+export async function getEntitlementsForUpdate(
+  db: Transaction,
+  clinicId: string,
+): Promise<Entitlements | null> {
+  const rows = await db
+    .select()
+    .from(entitlements)
+    .where(eq(entitlements.clinicId, clinicId))
+    .limit(1)
+    .for("update");
+  return rows[0] ?? null;
+}
+
 async function updateOrThrow(
   db: Transaction,
   clinicId: string,
-  values: Partial<typeof entitlements.$inferInsert>,
+  values: PgUpdateSetSource<typeof entitlements>,
 ): Promise<void> {
   const updated = await db
     .update(entitlements)
@@ -247,14 +292,19 @@ export type AllowanceRoll =
  * anyway (there is no metered item on an annual subscription to bill it to).
  *
  * The caller records the roll in the billing history; this function, like
- * every other writer here, does not touch the status or the history.
+ * every other writer here, does not touch the status or the history. It
+ * locks the row (`getEntitlementsForUpdate`) for the rest of the caller's
+ * transaction.
  */
 export async function rollAllowancePeriod(
   db: Transaction,
   clinicId: string,
   now: Date = new Date(),
 ): Promise<AllowanceRoll> {
-  const current = await getEntitlements(db, clinicId);
+  // Locked: the hourly sweep calls this while usage is being recorded, and an
+  // unlocked read would let the sweep zero counters a recorder had just
+  // incremented after the read, losing that usage from the window.
+  const current = await getEntitlementsForUpdate(db, clinicId);
   if (!current) throw new EntitlementsNotFoundError(clinicId);
   if (current.billingInterval !== "year") return { rolled: 0 };
   if (!current.currentPeriodStart || !current.currentPeriodEnd) return { rolled: 0 };
@@ -284,16 +334,29 @@ export async function rollAllowancePeriod(
  * `setupFeeDeltaUsd` in the catalog is computed from what was PAID, and a
  * clinic that paid $497 owes $500 more for a $997 package, not $997.
  *
- * The window is derived the same way `resetUsage()` derives it, so an annual
- * clinic starts on a one-month window from its very first invoice.
+ * LEGACY rows only (no `bought_plan_id`): the window is derived the same way
+ * `resetUsage()` derives it, so an annual clinic starts on a one-month window
+ * from its very first invoice. For a row bought under the deferred start the
+ * first invoice is the setup fee and a $0 placeholder, which buys no period:
+ * it records the setup fee and when it was paid (`recordSetupFeePaid`) and
+ * opens NO window, because a window opened on the placeholder's month would
+ * bill usage against an allowance nobody has paid for (BD7). The window opens
+ * from the first plan invoice instead (`openAllowanceWindow`).
  */
 export async function recordFirstInvoice(
   db: Transaction,
   clinicId: string,
-  input: { periodStart: Date; periodEnd: Date; setupFeePaidUsd: number },
+  input: { periodStart: Date; periodEnd: Date; setupFeePaidUsd: number; paidAt?: Date },
 ): Promise<void> {
   const current = await getEntitlements(db, clinicId);
   if (!current) throw new EntitlementsNotFoundError(clinicId);
+  if (current.boughtPlanId !== null) {
+    await recordSetupFeePaid(db, clinicId, {
+      usd: input.setupFeePaidUsd,
+      at: input.paidAt ?? new Date(),
+    });
+    return;
+  }
   const window = allowanceWindow(current.billingInterval, {
     start: input.periodStart,
     end: input.periodEnd,
@@ -307,16 +370,21 @@ export async function recordFirstInvoice(
 }
 
 /**
- * Move the clinic onto a package and interval. Allowances become the FULL
- * new allowance (see the header), channels follow the new package, and a
- * chat-channel choice already on the row is kept when the new package still
- * offers one.
+ * Move the clinic onto the package and interval Stripe now BILLS (see the
+ * header). Allowances become the FULL new allowance. `channels_enabled` moves
+ * with it only on a legacy row: on a row with a bought package it follows
+ * what was bought, because a clinic billed as Web Chatbot while its phone is
+ * still being set up must not have voice switched off by being billed for
+ * less, or the phone could never answer, never be in service, and never be
+ * priced in.
  *
  * Returns whether anything actually changed, because
  * `customer.subscription.updated` fires for many reasons that are not a plan
  * change and the caller should not record a plan change that did not happen.
+ * Nothing is written when nothing changed, so a price-book edit never
+ * rewrites an existing clinic's allowance.
  */
-export async function applyPlanChange(
+export async function applyBilledPlan(
   db: Transaction,
   clinicId: string,
   plan: Plan,
@@ -332,11 +400,41 @@ export async function applyPlanChange(
   await updateOrThrow(db, clinicId, {
     planCode: plan.id,
     billingInterval: interval,
-    channelsEnabled: channelsFor(plan),
+    ...(current.boughtPlanId === null ? { channelsEnabled: channelsFor(plan) } : {}),
     includedVoiceMinutes: plan.includedVoiceMinutes,
     includedChatConversations: plan.includedChatConversations,
   });
   return { changed: true };
+}
+
+/**
+ * The name the lifecycle webhook has always called. A thin wrapper kept so
+ * events.ts compiles and behaves unchanged on legacy rows while Package C
+ * rewrites it against `applyBilledPlan`; new code calls that directly.
+ */
+export async function applyPlanChange(
+  db: Transaction,
+  clinicId: string,
+  plan: Plan,
+  interval: BillingInterval,
+): Promise<{ changed: boolean }> {
+  return applyBilledPlan(db, clinicId, plan, interval);
+}
+
+/**
+ * Record the package BOUGHT (at checkout, or by a plan change): it decides
+ * which channels may answer, so `channels_enabled` follows it. Billing is
+ * untouched; `applyBilledPlan` moves that.
+ */
+export async function applyBoughtPlan(
+  db: Transaction,
+  clinicId: string,
+  plan: Plan,
+): Promise<void> {
+  await updateOrThrow(db, clinicId, {
+    boughtPlanId: plan.id,
+    channelsEnabled: channelsFor(plan),
+  });
 }
 
 /** Null clears it. */
@@ -370,6 +468,343 @@ export async function storeStripeIds(
   }
   if (Object.keys(values).length === 0) return;
   await updateOrThrow(db, clinicId, values);
+}
+
+// -----------------------------------------------------------------------------
+// The deferred start and the plan's lifecycle (build spec §3; R5, R8, R9, R14)
+// -----------------------------------------------------------------------------
+
+/**
+ * Whether the plan has started (R8): the worker's Stripe update went through
+ * (`plan_start_applied_at`) or the first plan invoice was paid
+ * (`plan_started_at`), whichever came first. A step-up, the gate's
+ * "cancelled before the start", the before-start wording of the cancellation
+ * emails and the reconcile all ask this, never `plan_started_at` alone.
+ */
+export function hasPlanStarted(
+  row: Pick<Entitlements, "planStartedAt" | "planStartAppliedAt">,
+): boolean {
+  return row.planStartedAt !== null || row.planStartAppliedAt !== null;
+}
+
+/**
+ * Write a column that is set once: a conditional UPDATE that matches only
+ * while `stillNull` is null, returning whether this call set it. Zero rows
+ * is "already set" or "no row"; the second throws, like every writer here.
+ */
+async function setOnce(
+  db: Transaction,
+  clinicId: string,
+  values: PgUpdateSetSource<typeof entitlements>,
+  stillNull: Parameters<typeof isNull>[0],
+): Promise<boolean> {
+  const set = await db
+    .update(entitlements)
+    .set({ ...values, updatedAt: new Date() })
+    .where(and(eq(entitlements.clinicId, clinicId), isNull(stillNull)))
+    .returning({ clinicId: entitlements.clinicId });
+  if (set.length > 0) return true;
+  if (!(await getEntitlements(db, clinicId))) throw new EntitlementsNotFoundError(clinicId);
+  return false;
+}
+
+/**
+ * The first plan invoice was paid (BD7): the plan's paid start, which Home
+ * and the plan-started email show. Only while still unset, so a replayed
+ * invoice.paid, or the next one, never moves it; returns whether this call
+ * set it.
+ */
+export async function markPlanStarted(
+  db: Transaction,
+  clinicId: string,
+  at: Date,
+): Promise<boolean> {
+  return setOnce(db, clinicId, { planStartedAt: at }, entitlements.planStartedAt);
+}
+
+/** The plan-start worker's Stripe update went through (R8). Only while still unset. */
+export async function markPlanStartApplied(
+  db: Transaction,
+  clinicId: string,
+  at: Date,
+): Promise<boolean> {
+  return setOnce(db, clinicId, { planStartAppliedAt: at }, entitlements.planStartAppliedAt);
+}
+
+/** The first plan invoice's id (R9), for the refunds. Only while still unset. */
+export async function markFirstPlanInvoice(
+  db: Transaction,
+  clinicId: string,
+  invoiceId: string,
+): Promise<boolean> {
+  return setOnce(db, clinicId, { firstPlanInvoiceId: invoiceId }, entitlements.firstPlanInvoiceId);
+}
+
+/**
+ * A first-period refund or the guarantee was paid (BD14, R15). Only while
+ * still unset, which is what stops the two stacking; returns whether this
+ * call set it.
+ */
+export async function markFirstPeriodRefunded(
+  db: Transaction,
+  clinicId: string,
+  at: Date,
+): Promise<boolean> {
+  return setOnce(db, clinicId, { firstPeriodRefundedAt: at }, entitlements.firstPeriodRefundedAt);
+}
+
+/**
+ * Open the plan's first allowance window from the period the first plan
+ * invoice bought, and start the counters from zero (BD6, BD7): usage before
+ * it was recorded with no window and is never counted against it.
+ *
+ * `invoiced` is the invoiced period; the window is derived from it through
+ * `allowanceWindow()` and the row's interval, exactly as `resetUsage()`
+ * derives it, so an annual plan gets its first month. Passing a window that
+ * is already derived gives the same window. Locks the row first, like every
+ * writer that resets the counters. Returns the window it opened.
+ */
+export async function openAllowanceWindow(
+  db: Transaction,
+  clinicId: string,
+  invoiced: { start: Date; end: Date },
+): Promise<{ start: Date; end: Date }> {
+  const current = await getEntitlementsForUpdate(db, clinicId);
+  if (!current) throw new EntitlementsNotFoundError(clinicId);
+  const window = allowanceWindow(current.billingInterval, invoiced);
+  await updateOrThrow(db, clinicId, {
+    usedVoiceMinutes: "0",
+    usedChatConversations: 0,
+    currentPeriodStart: window.start,
+    currentPeriodEnd: window.end,
+  });
+  return window;
+}
+
+/**
+ * The setup fee cleared (BD7): what was paid towards it, and when the first
+ * invoice was paid, kept from the first time it is recorded.
+ */
+export async function recordSetupFeePaid(
+  db: Transaction,
+  clinicId: string,
+  input: { usd: number; at: Date },
+): Promise<void> {
+  await updateOrThrow(db, clinicId, {
+    setupFeePaidUsd: input.usd.toFixed(2),
+    firstPaidAt: sql`coalesce(${entitlements.firstPaidAt}, ${input.at}::timestamptz)`,
+  });
+}
+
+/**
+ * An invoice was paid: the last one paid (a late payment_failed for it is
+ * stale and ignored), and the paid-through date, which only ever moves
+ * forward (`greatest`), so an action invoice paid after a renewal cannot pull
+ * the renewal date back.
+ *
+ * The open invoice is cleared only when it is THIS invoice. A different paid
+ * invoice (a proration or a setup-fee difference raised while a renewal sits
+ * unpaid) leaves the unpaid one on record: the clinic still owes it, Billing
+ * still links it, and the suspended-to-active rule (R10) still sees it.
+ */
+export async function recordInvoicePaid(
+  db: Transaction,
+  clinicId: string,
+  input: { invoiceId: string; paidThrough?: Date | null },
+): Promise<void> {
+  const isOpen = sql`${entitlements.openInvoiceId} = ${input.invoiceId}`;
+  await updateOrThrow(db, clinicId, {
+    lastPaidInvoiceId: input.invoiceId,
+    openInvoiceId: sql`case when ${isOpen} then null else ${entitlements.openInvoiceId} end`,
+    openInvoiceUrl: sql`case when ${isOpen} then null else ${entitlements.openInvoiceUrl} end`,
+    openInvoiceAmountCents: sql`case when ${isOpen} then null else ${entitlements.openInvoiceAmountCents} end`,
+    ...(input.paidThrough
+      ? {
+          paidThrough: sql`greatest(${entitlements.paidThrough}, ${input.paidThrough}::timestamptz)`,
+        }
+      : {}),
+  });
+}
+
+/**
+ * An invoice is due and unpaid (payment failed, or the card needs the clinic
+ * to confirm): its id, Stripe's hosted pay page and what it asks for.
+ */
+export async function recordOpenInvoice(
+  db: Transaction,
+  clinicId: string,
+  input: { invoiceId: string; url: string | null; amountDueCents?: number | null },
+): Promise<void> {
+  await updateOrThrow(db, clinicId, {
+    openInvoiceId: input.invoiceId,
+    openInvoiceUrl: input.url,
+    openInvoiceAmountCents: input.amountDueCents ?? null,
+  });
+}
+
+/**
+ * The lookup keys of the metered prices the subscription carries, as Stripe
+ * returned them: sorted and deduplicated, so comparing with
+ * `expectedMeteredKeys()` is an equality.
+ */
+export async function setMeteredPriceKeys(
+  db: Transaction,
+  clinicId: string,
+  keys: readonly string[],
+): Promise<void> {
+  await updateOrThrow(db, clinicId, { meteredPriceKeys: [...new Set(keys)].sort() });
+}
+
+/** Locations on the subscription: the package item's quantity. A whole number, at least 1. */
+export async function setLocations(
+  db: Transaction,
+  clinicId: string,
+  locations: number,
+): Promise<void> {
+  if (!Number.isInteger(locations) || locations < 1) {
+    throw new RangeError(`Locations must be a whole number of at least 1, not ${locations}.`);
+  }
+  await updateOrThrow(db, clinicId, { locations });
+}
+
+/** When a scheduled cancellation takes effect, or null when none is (BD10). */
+export async function setCancelAt(
+  db: Transaction,
+  clinicId: string,
+  at: Date | null,
+): Promise<void> {
+  await updateOrThrow(db, clinicId, { cancelAt: at });
+}
+
+/**
+ * The end of the 30-day setup window: set at provisioning, moved only by
+ * ops. A clinic with nothing live by then is closed.
+ */
+export async function setSetupDeadline(
+  db: Transaction,
+  clinicId: string,
+  at: Date,
+): Promise<void> {
+  await updateOrThrow(db, clinicId, { setupDeadlineAt: at });
+}
+
+/** The owner's switch for the 80% and 100% allowance emails. */
+export async function setUsageAlertsEnabled(
+  db: Transaction,
+  clinicId: string,
+  enabled: boolean,
+): Promise<void> {
+  await updateOrThrow(db, clinicId, { usageAlertsEnabled: enabled });
+}
+
+/** Keep going and bill the extra (`allow`), or stop and fall back at the allowance (`hard_cap`). */
+export async function setOverageMode(
+  db: Transaction,
+  clinicId: string,
+  mode: "allow" | "hard_cap",
+): Promise<void> {
+  if (mode !== "allow" && mode !== "hard_cap") {
+    throw new RangeError(`Unknown overage mode: ${String(mode)}.`);
+  }
+  await updateOrThrow(db, clinicId, { overageMode: mode });
+}
+
+/**
+ * The allowance a meter counts against, pooled across the locations (BD5):
+ * the billed package's included amount when it is above 0, otherwise the
+ * BOUGHT package's, from the catalog, times `locations`.
+ *
+ * The fallback is the point. A clinic that bought Web + Voice and is billed
+ * as Web Chatbot while its phone is still being set up has 0 included voice
+ * minutes on the billed package; counted against 0, its first call would be
+ * billed as overage, and under the hard cap it would be refused, so the
+ * phone could never answer and never be priced in. Usage recording, the gate
+ * and the usage alerts all use this one function. A legacy row (no bought
+ * package) has no fallback: 0 there means the channel was not sold.
+ */
+export function effectiveIncluded(
+  row: Pick<
+    Entitlements,
+    "includedVoiceMinutes" | "includedChatConversations" | "boughtPlanId" | "locations"
+  >,
+  meter: UsageMeter,
+): number {
+  const billed =
+    meter === "voice_minutes" ? row.includedVoiceMinutes : row.includedChatConversations;
+  if (billed > 0) return billed * row.locations;
+  const bought = row.boughtPlanId ? getPlan(row.boughtPlanId) : undefined;
+  if (!bought) return 0;
+  const perLocation =
+    meter === "voice_minutes" ? bought.includedVoiceMinutes : bought.includedChatConversations;
+  return perLocation * row.locations;
+}
+
+/** How long a Stripe mutation lease lasts unless its holder renews or releases it (R5). */
+export const STRIPE_MUTATION_LEASE_MS = 5 * 60 * 1000;
+
+/**
+ * Claim the billing clinic's Stripe mutation lease (R5), in the billing
+ * clinic's transaction, before reading the subscription to change it: the
+ * plan-start, step-up, close-setup and cancel-now workers, and changePlan,
+ * addLocation, setAutoRenew and commitRefund. A conditional UPDATE that wins
+ * when the lease is free, has run out, or is already this holder's (which
+ * renews it). Returns false while another holder's lease is running: a worker
+ * then defers a minute without counting an attempt, and an action answers
+ * `busy`.
+ *
+ * `owner` names the holder for the console and for the release, e.g.
+ * `billing_request:<id>:<attempt>`; 1 to 120 characters, never a person.
+ * Lease writes leave `updated_at` alone: they are a lock, not a change to
+ * what the clinic is entitled to.
+ */
+export async function claimStripeMutationLease(
+  db: Transaction,
+  clinicId: string,
+  owner: string,
+  options: { now?: Date; leaseMs?: number } = {},
+): Promise<boolean> {
+  if (owner.length < 1 || owner.length > 120) {
+    throw new RangeError("A Stripe mutation lease owner is 1 to 120 characters.");
+  }
+  const now = options.now ?? new Date();
+  const until = new Date(now.getTime() + (options.leaseMs ?? STRIPE_MUTATION_LEASE_MS));
+  const claimed = await db
+    .update(entitlements)
+    .set({ stripeMutationLeaseUntil: until, stripeMutationLeaseOwner: owner })
+    .where(
+      and(
+        eq(entitlements.clinicId, clinicId),
+        or(
+          isNull(entitlements.stripeMutationLeaseUntil),
+          lt(entitlements.stripeMutationLeaseUntil, now),
+          eq(entitlements.stripeMutationLeaseOwner, owner),
+        ),
+      ),
+    )
+    .returning({ clinicId: entitlements.clinicId });
+  if (claimed.length > 0) return true;
+  if (!(await getEntitlements(db, clinicId))) throw new EntitlementsNotFoundError(clinicId);
+  return false;
+}
+
+/**
+ * Release the lease once the outcome is written. Only the holder's own: a
+ * holder whose lease ran out and was taken over releases nothing, and
+ * returns false, rather than free the new holder's lease under it.
+ */
+export async function releaseStripeMutationLease(
+  db: Transaction,
+  clinicId: string,
+  owner: string,
+): Promise<boolean> {
+  const released = await db
+    .update(entitlements)
+    .set({ stripeMutationLeaseUntil: null, stripeMutationLeaseOwner: null })
+    .where(
+      and(eq(entitlements.clinicId, clinicId), eq(entitlements.stripeMutationLeaseOwner, owner)),
+    )
+    .returning({ clinicId: entitlements.clinicId });
+  return released.length > 0;
 }
 
 /**

@@ -197,6 +197,18 @@ describe("the first paid invoice makes the account", () => {
     expect(String(vi.mocked(console.error).mock.calls[0]?.[0])).toContain("PROVISIONING REJECTED");
   });
 
+  test("attribution on the subscription never reaches apps/app: provisioning carries the ref and Stripe ids only", async () => {
+    await POST(
+      signed(firstInvoice({ app: "healdesk", ref: "ref_1", demo: "smith-dental-k7q2mz9xwa", leadId: "lead_1" })),
+    );
+    expect(JSON.parse(calls[0]!.body)).toEqual({
+      ref: "ref_1",
+      idempotencyKey: "sub_1",
+      stripeCustomerId: "cus_1",
+      stripeSubscriptionId: "sub_1",
+    });
+  });
+
   test("a renewal invoice, or one with no intent ref, provisions nothing and is forwarded", async () => {
     await POST(signed(firstInvoice({ app: "healdesk", ref: "ref_1" }, "subscription_cycle")));
     await POST(signed(firstInvoice({ app: "healdesk" })));

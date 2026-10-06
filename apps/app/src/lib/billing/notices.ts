@@ -1,6 +1,13 @@
-import type { BillingInterval } from "@healdesk/catalog";
+import type { BillingInterval, Carrier, Channel, PhoneSystemType } from "@healdesk/catalog";
 
-import { billingNotices, BILLING_NOTICE_KINDS, type BillingNoticeKind } from "@/db/schema";
+import {
+  billingNotices,
+  BILLING_NOTICE_KINDS,
+  type BillingNoticeKind,
+  type ChannelWaitingOn,
+  type UsageMeter,
+} from "@/db/schema";
+import type { CoverageMode } from "@/lib/billing/answering";
 import type { TenantTx } from "@/lib/tenant";
 
 /**
@@ -24,63 +31,224 @@ import type { TenantTx } from "@/lib/tenant";
 
 export { BILLING_NOTICE_KINDS, type BillingNoticeKind };
 
-/** The allowance-email payload, for both thresholds. */
+/**
+ * The allowance-email payload, for both thresholds. Templates stay pending
+ * until the funnel's M3.
+ */
 export type UsageNoticePayload = {
-  meter: "voice_minutes" | "chat_conversations";
+  meter: UsageMeter;
   used: number;
-  /** The POOLED allowance: included × locations. */
+  /** The POOLED allowance: effectiveIncluded (included × locations). */
   included: number;
   /** ISO date (YYYY-MM-DD) the allowance window ends. */
   windowEndsOn: string;
   overageMode: "allow" | "hard_cap";
-  /** The provisional overage rate in cents for this meter on this plan. */
+  /** The provisional overage rate in cents for this meter on the BOUGHT package. */
   rateCents: number;
 };
 
-type Empty = Record<string, never>;
-
 /**
- * The payload of a kind whose shape is not written yet. Package C defines each
- * shape with its template (Package D for `connect_connected`), replacing this
- * one kind at a time. Payloads carry no PHI: cents, ISO dates, Stripe-hosted
- * URLs, plan and channel names, counts.
+ * How the clinic's calls reach us, so an email that ends or suspends the
+ * service can print the steps for undoing call forwarding for the clinic's
+ * own carrier (catalog `forwardingInstructions(...).undo`, whose "ask your
+ * carrier" branch covers a carrier we do not know). Catalog ids, never words
+ * (R31).
  */
-export type NoticePayloadPending = Readonly<Record<string, string | number | boolean | null>>;
+export type ForwardingFacts = {
+  /** `clinics.carrier`; null when it was never collected or is not a catalog id. */
+  carrier: Carrier | null;
+  /** `clinics.phone_system_type`. */
+  phoneSystem: PhoneSystemType;
+  /** `coverageModeOf(clinic)`. */
+  routing: CoverageMode;
+};
+
+/** Who started a Connect change: the portal, an operator's link, or Stripe itself. */
+export type ConnectSource = "portal" | "ops" | "stripe";
 
 /**
- * What each kind carries (design §7). No PHI, ever: amounts in cents, ISO
- * dates, Stripe-hosted invoice URLs, plan names, meter names and location
- * counts. Never a treatment, a caller, a conversation or a transcript.
+ * What each kind carries, and the dedupe key it is enqueued under (R22).
+ *
+ * The final shapes (build spec §11, with R31 on top). No PHI, ever: cents,
+ * ISO dates, Stripe-hosted URLs, plan and channel names and ids, counts, enum
+ * flags, a masked card. Never a treatment, a caller, a conversation or a
+ * transcript. Every key passes `assertPayloadAllowed` (lib/email/lint.ts),
+ * which classes a key by its name: flags start with is, has, was, can or
+ * will; `…Cents` is cents, `…Url` a link on the allowlist, `…At` and `…On` an
+ * ISO date, `…Days`, `…Minutes` and `…Count` counts. Dates are ISO strings,
+ * rendered in words by the template.
+ *
+ * Dedupe keys are "once per what". A notice is enqueued on the BILLING
+ * clinic's tenant, so the key is unique within one billing group.
  */
 export type NoticePayloads = {
+  /** Dedupe `<invoiceId>`. Critical. */
   payment_failed: {
     amountDueCents: number;
     hostedInvoiceUrl: string | null;
     graceEndsAt: string | null;
+    /** The first plan invoice failed: nothing had started, so the copy says so. */
+    isFirstPlanCharge: boolean;
   };
-  payment_action_required: { hostedInvoiceUrl: string | null };
-  grace_ending: { graceEndsAt: string; hostedInvoiceUrl: string | null };
-  suspended: { hostedInvoiceUrl: string | null };
-  restored: Empty;
-  cancel_scheduled: { endsAt: string };
-  cancel_reversed: Empty;
-  canceled: { passThroughDays: number };
-  renewal_upcoming: { renewsOn: string; amountCents: number; planName: string };
+  /** Dedupe `<invoiceId>`. Critical. */
+  payment_action_required: { amountDueCents: number; hostedInvoiceUrl: string | null };
+  /** Dedupe `grace:<graceEndsAtIso>`, 24 hours before grace ends. */
+  grace_ending: {
+    graceEndsAt: string;
+    hostedInvoiceUrl: string | null;
+    amountDueCents: number | null;
+  };
+  /**
+   * Dedupe `<cause>:<eventId | graceEndsAtIso>`: grace_expired, unpaid,
+   * dispute or ops, with the Stripe event or the grace end that caused it.
+   * Critical.
+   */
+  suspended: { hostedInvoiceUrl: string | null; amountDueCents: number | null } & ForwardingFacts;
+  /** Dedupe `restored:<invoiceId>`. */
+  restored: { receiptUrl: string | null };
+  /** Dedupe `<stripeEventId>`, from the webhook only. */
+  cancel_scheduled: {
+    endsAt: string;
+    isBeforeStart: boolean;
+    /**
+     * When auto-renew went off inside the first-period refund window: the
+     * last day of that window (ISO date), so the email can say a refund is
+     * due and the team will be in touch. Null otherwise. R31 calls this
+     * `refundEligibleUntil`; the lint classes a date by a name ending in At
+     * or On, so it is `refundWindowEndsOn` here.
+     */
+    refundWindowEndsOn: string | null;
+  };
+  /** Dedupe `<stripeEventId>`, from the webhook only. */
+  cancel_reversed: { isBeforeStart: boolean };
+  /** Dedupe `<subscriptionId>`. Never for a setup closure, whose email is the funnel's. */
+  canceled: {
+    /** FORWARDING_PASS_THROUGH_DAYS. */
+    passThroughDays: number;
+    endedAt: string;
+    isBeforeStart: boolean;
+    /** The bought channels. */
+    channels: Channel[];
+    /** The last day to ask for the export, and the day the data is destroyed (dueForDestruction's rule). */
+    exportByOn: string;
+    destroyByOn: string;
+  } & ForwardingFacts;
+  /** Dedupe `renewal:<renewsOn>:<noticeDays>`. Annual plans, 30 and 21 days ahead. */
+  renewal_upcoming: {
+    renewsOn: string;
+    /** The annual price times the locations. */
+    amountCents: number;
+    planName: string;
+    locations: number;
+    noticeDays: 30 | 21;
+  };
+  /** Dedupe `<meter>:<windowStartIso>`. */
   usage_80: UsageNoticePayload;
+  /** Dedupe `<meter>:<windowStartIso>`. */
   usage_100: UsageNoticePayload;
-  overage_invoiced: { amountCents: number; windowLabel: string };
-  plan_changed: { planName: string; interval: BillingInterval };
-  location_added: { locations: number };
-  connect_disconnected: Empty;
-  // The funnel and portal contracts (§3, §5), kinds in lib/email/kinds.ts.
-  plan_started: NoticePayloadPending;
-  price_stepped_up: NoticePayloadPending;
-  step_up_reminder: NoticePayloadPending;
-  allowance_fallback: NoticePayloadPending;
-  receipt: NoticePayloadPending;
-  refund_issued: NoticePayloadPending;
-  card_expiring: NoticePayloadPending;
-  connect_connected: NoticePayloadPending;
+  /** Dedupe `<windowStartIso>`. Annual plans, per closed allowance month. */
+  overage_invoiced: {
+    amountCents: number;
+    windowStart: string;
+    windowEnd: string;
+    voiceMinutes: number;
+    chatConversationsCount: number;
+    hostedInvoiceUrl: string | null;
+  };
+  /**
+   * Dedupe `plan:<requestId>`. Only our own changePlan enqueues it, never the
+   * webhook. The forwarding facts are present only when the change drops
+   * voice, so the email can print the undo steps.
+   */
+  plan_changed: {
+    planName: string;
+    interval: BillingInterval;
+    locations: number;
+    setupFeeDeltaCents: number;
+    hostedInvoiceUrl: string | null;
+    hasDroppedChannels: boolean;
+    isBeforeStart: boolean;
+    /** The package billed now; null before the plan starts. */
+    billedPlanId: string | null;
+  } & Partial<ForwardingFacts>;
+  /** Dedupe `location:<requestId>`. Only our own addLocation enqueues it. */
+  location_added: {
+    locations: number;
+    recurringCents: number;
+    setupFeeCents: number;
+    hostedInvoiceUrl: string | null;
+    isBeforeStart: boolean;
+    /** The package billed now; null before the plan starts. */
+    billedPlanId: string | null;
+  };
+  /**
+   * Dedupe `disconnected:<sha256(acct)>:<disconnectedAtIso>`, only from the
+   * path that stamps the disconnection.
+   */
+  connect_disconnected: { disconnectedAt: string; wasByWebhook: boolean; source: ConnectSource };
+  /** Dedupe `plan_started`: once per billing clinic. Critical. */
+  plan_started: {
+    /** The package billed: the channels in service. */
+    planName: string;
+    /** The package bought; the template looks its name up in the catalog. */
+    boughtPlanId: string;
+    /** The channel whose first answer started the plan, when one did. */
+    channel: Channel | null;
+    amountCents: number;
+    interval: BillingInterval;
+    periodEndsOn: string;
+    receiptUrl: string | null;
+    /** The billed package is smaller than the bought one: billing follows the channels in service. */
+    isBilledByChannelsInService: boolean;
+  };
+  /** Dedupe `step_up:<channel>:<toPriceId>`. */
+  price_stepped_up: {
+    channel: Channel;
+    planName: string;
+    amountCents: number;
+    interval: BillingInterval;
+    /** Annual plans are invoiced at once; monthly ones prorate on the next invoice. */
+    isInvoicedNow: boolean;
+    hostedInvoiceUrl: string | null;
+  };
+  /** Dedupe `step_up_reminder:<channel>:<dueDate>`, 7 days before a waiting channel joins. */
+  step_up_reminder: {
+    channel: Channel;
+    joinsOn: string;
+    planName: string;
+    amountCents: number;
+    interval: BillingInterval;
+    /** The one thing the clinic still has to do to bring the channel live. */
+    waitingOn: ChannelWaitingOn;
+  };
+  /**
+   * Dedupe `<meter>:<windowStartIso>`. Enqueued the moment the hard cap
+   * engages, whatever the usage-alerts switch says. Critical.
+   */
+  allowance_fallback: { meter: UsageMeter; included: number; windowEndsOn: string };
+  /** Dedupe `<invoiceId>`. Any paid invoice above $0 no other email covers. */
+  receipt: {
+    amountCents: number;
+    hostedInvoiceUrl: string | null;
+    periodStartsOn: string | null;
+    periodEndsOn: string | null;
+  };
+  /** Dedupe `refund:<refundId>`. Never a setup-fee refund: there is none. */
+  refund_issued: {
+    amountCents: number;
+    kind: "first_period_cancel" | "guarantee" | "other";
+    refundedAt: string;
+  };
+  /** Dedupe `<pmId>:<cardExpiresOn>:<renewsOn>`. */
+  card_expiring: {
+    /** Brand and last four only, e.g. "Visa •••• 4242". */
+    cardMasked: string;
+    /** The last day of the card's expiry month, ISO date. */
+    cardExpiresOn: string;
+    renewsOn: string;
+  };
+  /** Dedupe `connected:<sha256(acct)>:<connectedAtIso>`. */
+  connect_connected: { connectedAt: string; source: ConnectSource };
 };
 
 // A compile-time check that the payload map and the CHECK list name the same

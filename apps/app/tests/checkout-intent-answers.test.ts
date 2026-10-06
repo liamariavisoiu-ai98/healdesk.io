@@ -89,9 +89,12 @@ function order(overrides: Record<string, unknown> = {}): Record<string, unknown>
   };
 }
 
-function refusal(body: Record<string, unknown>): string | undefined {
+function refusal(
+  body: Record<string, unknown>,
+  options: { metaSoldAlone?: boolean } = {},
+): string | undefined {
   try {
-    validateIntentRequest(body);
+    validateIntentRequest(body, options);
   } catch (error) {
     if (error instanceof IntentError) return error.field;
     throw error;
@@ -197,6 +200,14 @@ describe("the funnel's answers, validated", () => {
 
   test("a practice with no agreement to sign cannot buy", () => {
     expect(refusal(order({ specialty: "veterinary" }))).toBe("specialty");
+  });
+
+  test("Meta as the only channel is refused while Meta has not approved the app", () => {
+    // Open today (catalog META_SOLD_ALONE); closed, apps/app refuses it as apps/web does.
+    const metaAlone = order({ plan: "chat-meta", website: null, profile: null, profileStatus: "none" });
+    expect(refusal(metaAlone)).toBeUndefined();
+    expect(refusal(metaAlone, { metaSoldAlone: false })).toBe("plan");
+    expect(refusal({ ...metaAlone, plan: "meta-voice" }, { metaSoldAlone: false })).toBeUndefined();
   });
 });
 

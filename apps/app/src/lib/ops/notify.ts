@@ -43,6 +43,18 @@ export const OPS_EVENTS = [
   "agreement_unsigned_7_days",
   "no_interactions_48_hours",
   "no_inbound_calls_14_days",
+  // The Stripe build (packages B, C and D, 6 October 2026): each is a thing
+  // only a person can finish, raised by the worker or job that found it.
+  "billing_request_dead_lettered",
+  "billing_request_stuck",
+  "setup_closure_skipped_live_channel",
+  "location_charged_not_created",
+  "connect_event_dead_lettered",
+  "overage_invoice_failed",
+  "meter_report_failing",
+  "first_period_refund_due",
+  "voice_fallback_no_direct_line",
+  "plan_start_after_cancel",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

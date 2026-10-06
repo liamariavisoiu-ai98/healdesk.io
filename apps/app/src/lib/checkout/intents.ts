@@ -9,9 +9,11 @@ import {
   getPlan,
   isBookingSystemId,
   isCalendarAccount,
+  META_SOLD_ALONE,
   parseClinicProfile,
   planNeedsWebsite,
   screenClinicProfile,
+  sellsMetaAlone,
   type SpecialtyId,
   specialtyOffered,
 } from "@healdesk/catalog";
@@ -90,7 +92,11 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 const MAX_PROFILE_BYTES = 200_000;
 
 /** Validate what apps/web sent, exactly as provisioning will, plus the plan's fields. */
-export function validateIntentRequest(input: unknown): IntentRequest {
+export function validateIntentRequest(
+  input: unknown,
+  /** The catalog's flag, a parameter only so a test can close it. */
+  options: { metaSoldAlone?: boolean } = {},
+): IntentRequest {
   const body = input as Partial<IntentRequest> | null;
   if (!body || typeof body !== "object") throw new IntentError("Invalid request body.");
 
@@ -111,6 +117,11 @@ export function validateIntentRequest(input: unknown): IntentRequest {
   // until the Data Protection Agreement is released (plan Part L).
   if (!specialtyOffered(specialty)) {
     throw new IntentError("This practice's agreement can't be signed here.", "specialty");
+  }
+  // Nor a package nothing can go live on: Meta as the only channel waits for
+  // Meta's App Review (catalog, META_SOLD_ALONE), as apps/web refuses too.
+  if (!(options.metaSoldAlone ?? META_SOLD_ALONE) && sellsMetaAlone(plan)) {
+    throw new IntentError("Instagram, Messenger + WhatsApp is not sold on its own until Meta approves our app.", "plan");
   }
 
   const inviteRef = body.inviteRef ?? null;

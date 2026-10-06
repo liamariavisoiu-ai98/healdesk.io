@@ -1,4 +1,9 @@
-import { BOOKING_SYSTEMS, bookingSystemName, manualBookingNotice } from "@healdesk/catalog";
+import {
+  BOOKING_SYSTEMS,
+  bookingSystemName,
+  getPlan,
+  manualBookingNotice,
+} from "@healdesk/catalog";
 import { describe, expect, test } from "vitest";
 
 import {
@@ -17,6 +22,8 @@ import {
   initialFunnel,
   noWebsiteOptions,
   packageComplete,
+  planOnSale,
+  sellableTo,
   parseAgreementInputs,
   parseStoredFunnel,
   purchaseWebsite,
@@ -176,6 +183,42 @@ describe("no website", () => {
   test("a package that needs no website is unaffected", () => {
     expect(websiteConflict(choosePlan(answered({ noWebsite: true }), "voice"))).toBe(false);
     expect(websiteConflict(answered())).toBe(false);
+  });
+});
+
+describe("Meta on its own, while Meta has not approved the app", () => {
+  // The catalog flag is open today (META_SOLD_ALONE, the owner, 5 October
+  // 2026); each rule takes it as a parameter so its closed branch is pinned.
+  const plan = (id: string) => chosenPlan(choosePlan(initialFunnel(), id), false);
+
+  test("the chatbot card sells its website twin, whatever was picked", () => {
+    expect(plan("chat-meta")?.id).toBe("chat-web");
+    expect(
+      chosenPlan(chooseChat(chooseCard(initialFunnel(), "chat-single"), "meta"), false)?.id,
+    ).toBe("chat-web");
+    // Today, open, the pick stands.
+    expect(chosenPlan(choosePlan(initialFunnel(), "chat-meta"))?.id).toBe("chat-meta");
+  });
+
+  test("Meta beside the phone stays on sale", () => {
+    expect(plan("meta-voice")?.id).toBe("meta-voice");
+    expect(planOnSale(getPlan("meta-voice")!, false)).toBe(true);
+    expect(planOnSale(getPlan("chat-meta")!, false)).toBe(false);
+    expect(planOnSale(getPlan("chat-meta")!, true)).toBe(true);
+  });
+
+  test("a practice with no website is offered the phone, then Meta beside the phone", () => {
+    expect(noWebsiteOptions(false).map((p) => p.id)).toEqual(["voice", "meta-voice"]);
+    expect(noWebsiteOptions(true).map((p) => p.id)).toEqual(["voice", "meta-voice", "chat-meta"]);
+  });
+
+  test("so the chatbot card has nothing to sell such a practice", () => {
+    const none = { noWebsite: true };
+    expect(sellableTo(getPlan("chat-web")!, none, false)).toBe(false);
+    expect(sellableTo(getPlan("chat-meta")!, none, false)).toBe(false);
+    expect(sellableTo(getPlan("chat-meta")!, none, true)).toBe(true);
+    expect(sellableTo(getPlan("meta-voice")!, none, false)).toBe(true);
+    expect(sellableTo(getPlan("chat-web")!, { noWebsite: false }, false)).toBe(true);
   });
 });
 

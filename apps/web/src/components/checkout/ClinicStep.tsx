@@ -45,7 +45,10 @@ const META_CONDITION =
 const NO_WEBSITE_DESCRIPTIONS: Record<string, string> = {
   voice:
     "AYA answers your phone. A practice without a website takes most of its bookings by phone.",
-  "meta-voice": "AYA answers your phone, and your Instagram, Messenger and WhatsApp messages.",
+  // Carries the Meta bot's condition too: while Meta is not sold on its own,
+  // this is the only way the Meta bot is offered to a practice with no website.
+  "meta-voice":
+    "AYA answers your phone, and, if your patients already message you on Instagram, Facebook or WhatsApp, answers them there too.",
   "chat-meta": META_CONDITION,
 };
 

@@ -199,11 +199,9 @@ Fix these before promising a deploy date for `apps/app`.
 
 Every rule below comes from `docs/v1-product-spec.md`. They are enforced in code
 around the model, never left to a prompt. Several of the surfaces they govern are
-not built yet, and some existing code predates them (the account is still
-created on `checkout.session.completed` and only activated by `invoice.paid`;
-`lib/meta/front-door.ts` books nothing and takes booking requests instead). Read
-the code before assuming a rule already holds, and treat a gap as a bug, not a
-precedent.
+not built yet, and some existing code predates them (`lib/meta/front-door.ts`
+books nothing and takes booking requests instead). Read the code before assuming
+a rule already holds, and treat a gap as a bug, not a precedent.
 
 **Channels and contact**
 

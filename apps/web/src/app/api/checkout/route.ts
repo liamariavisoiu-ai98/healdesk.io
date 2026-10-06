@@ -7,6 +7,8 @@ import { createCheckout, isBillingConfigured, isProductionDeployment } from "@/l
 import { isCampaignCode } from "@/lib/attribution";
 import { postToApp, welcomeCookieOptions, type AppAnswer } from "@/lib/checkout/app-client";
 import { intentFields, validateOrder } from "@/lib/checkout/order";
+import { demoSlugFromCookieHeader } from "@/lib/demo/attribution";
+import { getDemoSession } from "@/lib/demo/sessions";
 import { LEGAL_VERSION } from "@/lib/legal";
 import { cohortCreditLive, findLeadById, markCheckoutStarted, normalizeEmail } from "@/lib/leads";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
@@ -148,6 +150,12 @@ export async function POST(request: Request): Promise<Response> {
   const setupRequest = gate.mode === "pilot" && gate.link === "valid" ? gate.request : null;
   const leadSource = setupRequest ? setupRequest.leadId : payload.leadId;
   const claimedLead = typeof leadSource === "string" && leadSource ? await findLeadById(leadSource) : null;
+  // The personalised demo the buyer came from, from the cookie its "Book
+  // Onboarding" set, never from the body: the order carries no demo field,
+  // so a slug the browser sends is never read. Kept only if the row exists,
+  // like the lead id above.
+  const demoSlug = demoSlugFromCookieHeader(request.headers.get("cookie"));
+  const demo = demoSlug ? await getDemoSession(demoSlug) : null;
   const contactEmail = order.contactEmail;
   // The founding-cohort credit is a fact about the lead row, never a claim
   // from the browser: offered by the Day 7 email and still inside its window.
@@ -155,6 +163,7 @@ export async function POST(request: Request): Promise<Response> {
     campaign,
     leadId: claimedLead?.id ?? null,
     offer: claimedLead && cohortCreditLive(claimedLead) ? ("cohort-setup" as const) : null,
+    demo: demo?.slug ?? null,
     setupRequestId: setupRequest?.id ?? null,
   };
 

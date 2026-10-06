@@ -110,6 +110,56 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "A live phone channel has had no inbound calls for 14 days. Check the clinic's call forwarding.",
   },
+  billing_request_dead_lettered: {
+    title: "A billing request stopped retrying",
+    action:
+      "A plan start, step-up, cancellation or setup closure failed on Stripe after every retry. Check the clinic's subscription in Stripe, then retry the request from the console.",
+  },
+  billing_request_stuck: {
+    title: "A billing request has waited over 24 hours",
+    action:
+      "A plan start, step-up, cancellation or setup closure is still pending a day after it was recorded. Check that the billing-requests job is on and the worker is running, then look at the request in the console.",
+  },
+  setup_closure_skipped_live_channel: {
+    title: "A setup closure was skipped: a channel is live",
+    action:
+      "An account reached the end of its 30-day setup window with a channel already live, so it was left open. Nothing needs undoing; check that its plan starts when AYA first answers.",
+  },
+  location_charged_not_created: {
+    title: "An extra location was charged but not created",
+    action:
+      "A clinic paid for an extra location and creating it failed. The charge stands: retry the location's setup from the console today.",
+  },
+  connect_event_dead_lettered: {
+    title: "A Connect event stopped retrying",
+    action:
+      "A Stripe Connect event about a clinic's deposits could not be applied after its retries. Check the deposit in the clinic's own Stripe account, then replay the event from the console.",
+  },
+  overage_invoice_failed: {
+    title: "An annual overage invoice failed",
+    action:
+      "Invoicing an annual clinic's overage for a closed month failed. Check for a draft or open invoice in Stripe, then retry it from the console.",
+  },
+  meter_report_failing: {
+    title: "Usage is not reaching Stripe's meters",
+    action:
+      "Overage on monthly plans keeps failing to report. Usage reported after an invoice is finalised is never billed, so check the Stripe key and the meters today.",
+  },
+  first_period_refund_due: {
+    title: "A first-period refund is due",
+    action:
+      "A clinic turned auto-renew off inside its first-period refund window. Contact the clinic, then issue the refund from the console.",
+  },
+  voice_fallback_no_direct_line: {
+    title: "A call had no direct line to pass through to",
+    action:
+      "AYA could not pass a call through because the clinic has no direct line set, so she answered it with the fixed safe script. Ask the clinic for a direct line that does not forward back to us.",
+  },
+  plan_start_after_cancel: {
+    title: "A plan started on a subscription set to cancel",
+    action:
+      "A clinic's first period was charged while its subscription was set to cancel. Check with the clinic whether auto-renew should be on; if not, the first-period refund applies.",
+  },
 };
 
 /**

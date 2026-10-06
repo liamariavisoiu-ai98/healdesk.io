@@ -1,4 +1,4 @@
-import type { ClinicProfile } from "@healdesk/catalog";
+import { type ClinicProfile, META_SOLD_ALONE } from "@healdesk/catalog";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { LEGAL_VERSION } from "@/lib/legal";
@@ -177,6 +177,10 @@ describe("POST /api/checkout validates the billing terms", () => {
   });
 
   test("both Meta packages are on sale, Meta Chatbot included", async () => {
+    // The catalog flag, opened by the owner on 5 October 2026. Closed again,
+    // Meta Chatbot becomes a 422 with field "plan" before Stripe hears of it.
+    expect(META_SOLD_ALONE).toBe(true);
+
     const alone = await post({ ...VALID, plan: "chat-meta" });
     expect(alone.status).toBe(201);
     expect(forwarded(0).plan).toBe("chat-meta");
@@ -280,6 +284,8 @@ describe("POST /api/checkout validates the billing terms", () => {
       averageTreatmentValueUsd: 550,
       callRouting: "always",
       attributionMode: "verified",
+      // The demo a buyer came from is read from its cookie, never the body.
+      demo: "glow-med-spa",
       favouriteColour: "red",
     });
     expect(response.status).toBe(201);

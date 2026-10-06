@@ -21,11 +21,13 @@ import {
   isCoveredAnswer,
   isSpecialtyId,
   manualBookingNotice,
+  META_SOLD_ALONE,
   offersChatChoice,
   type Plan,
   planForCard,
   planNeedsWebsite,
   type PricingCard,
+  sellsMetaAlone,
   type SpecialtyId,
   specialtyOffered,
 } from "@healdesk/catalog";
@@ -136,13 +138,30 @@ export function chosenCard(state: Pick<FunnelState, "cardId">): PricingCard | nu
 }
 
 /**
+ * Whether a package is on sale at all today. Meta as a clinic's only channel
+ * waits for Meta's App Review (catalog, META_SOLD_ALONE); Meta beside website
+ * chat or the phone is always on sale. The flag is a parameter only so a test
+ * can close it.
+ */
+export function planOnSale(plan: Plan, metaSoldAlone: boolean = META_SOLD_ALONE): boolean {
+  return metaSoldAlone || !sellsMetaAlone(plan);
+}
+
+/**
  * The package being bought: the card's own, or on a twin card the one for the
  * chat channel picked. The plan id, never the card id, is what is signed for,
- * charged and provisioned.
+ * charged and provisioned. While Meta is not sold on its own, the website is
+ * the only answer on the "Web OR Meta Chatbot" card: a "meta" carried over
+ * from the card with the phone must not reach /api/checkout, which refuses it.
  */
-export function chosenPlan(state: Pick<FunnelState, "cardId" | "chat">): Plan | null {
+export function chosenPlan(
+  state: Pick<FunnelState, "cardId" | "chat">,
+  metaSoldAlone: boolean = META_SOLD_ALONE,
+): Plan | null {
   const card = chosenCard(state);
-  return card ? planForCard(card, state.chat) : null;
+  if (!card) return null;
+  const picked = planForCard(card, state.chat);
+  return planOnSale(picked, metaSoldAlone) ? picked : planForCard(card, "web");
 }
 
 /**
@@ -188,11 +207,27 @@ export function purchaseWebsite(
  * What a practice with no website is offered, in order: the phone first,
  * because a practice without a website takes its bookings by phone (v1 spec,
  * "Stage 0"), then the Meta bot, for one whose patients message it there.
+ * While Meta is not sold on its own, the Meta bot is offered only beside the
+ * phone: Meta Chatbot drops out of the list, and Meta + Voice carries it.
  */
 export const NO_WEBSITE_PLAN_IDS = ["voice", "meta-voice", "chat-meta"] as const;
 
-export function noWebsiteOptions(): Plan[] {
-  return NO_WEBSITE_PLAN_IDS.map((id) => getPlan(id)!);
+export function noWebsiteOptions(metaSoldAlone: boolean = META_SOLD_ALONE): Plan[] {
+  return NO_WEBSITE_PLAN_IDS.map((id) => getPlan(id)!).filter((plan) =>
+    planOnSale(plan, metaSoldAlone),
+  );
+}
+
+/**
+ * Whether a package can be sold to this practice: on sale at all, and, for
+ * a practice with no website, without website chat.
+ */
+export function sellableTo(
+  plan: Plan,
+  state: Pick<FunnelState, "noWebsite">,
+  metaSoldAlone: boolean = META_SOLD_ALONE,
+): boolean {
+  return planOnSale(plan, metaSoldAlone) && !(state.noWebsite && planNeedsWebsite(plan));
 }
 
 /** Whether the package chosen cannot be sold to the practice as it has described itself. */

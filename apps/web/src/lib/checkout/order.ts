@@ -11,9 +11,11 @@ import {
   isBookingSystemId,
   isCalendarAccount,
   isSpecialtyId,
+  META_SOLD_ALONE,
   parseClinicProfile,
   type Plan,
   planNeedsWebsite,
+  sellsMetaAlone,
   type SpecialtyId,
   specialtyOffered,
 } from "@healdesk/catalog";
@@ -84,9 +86,22 @@ export function isTimeZone(value: unknown): value is string {
   }
 }
 
-export function validateOrder(body: Record<string, unknown>): OrderResult {
+export function validateOrder(
+  body: Record<string, unknown>,
+  /** The catalog's flag, a parameter only so a test can close it. */
+  options: { metaSoldAlone?: boolean } = {},
+): OrderResult {
   const plan = getPlan(String(body.plan ?? ""));
   if (!plan) return refuse("plan", "Unknown plan.");
+  // Meta as the only channel waits for Meta's App Review (catalog,
+  // META_SOLD_ALONE). The package step already holds that choice closed;
+  // this is the refusal a request from anywhere else meets.
+  if (!(options.metaSoldAlone ?? META_SOLD_ALONE) && sellsMetaAlone(plan)) {
+    return refuse(
+      "plan",
+      "Instagram, Messenger + WhatsApp is not sold on its own until Meta approves our app. Choose Website, or a package with website chat or the phone.",
+    );
+  }
 
   // A missing interval is monthly, which is what every button that does not
   // say otherwise has always meant; a wrong one is an error, not a quiet

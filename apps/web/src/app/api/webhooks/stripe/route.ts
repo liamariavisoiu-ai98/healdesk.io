@@ -2,6 +2,8 @@ import { getPlan, SIGNATURE_HEADER, TIMESTAMP_HEADER, sign } from "@healdesk/cat
 import type Stripe from "stripe";
 
 import { APP_MARKER, isBillingConfigured, stripeClient } from "@/lib/billing";
+import { postInternalAlert } from "@/lib/demo/alert";
+import { displayName, markDemoClaimed } from "@/lib/demo/sessions";
 import { markCheckoutAbandoned, markConverted } from "@/lib/leads";
 import { updateSetupRequest } from "@/lib/setup-requests";
 
@@ -538,6 +540,33 @@ async function recordConversion(session: Stripe.Checkout.Session): Promise<void>
     await markConverted({ email, plan: plan?.id ?? "unknown", mrrUsd: mrr });
   } catch (error) {
     console.error("[healdesk] could not record conversion in the lead store", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  await recordDemoClaim(session);
+}
+
+/**
+ * A purchase that came from a personalised demo: mark the demo claimed and
+ * tell the team. Best effort and never throws, like the conversion above.
+ * The prospect's own receipt, agreement copy and setup link are not sent
+ * from here: Stripe sends the receipt, and apps/app sends the agreement copy
+ * and the setup link once /api/provision has recorded the account, because
+ * every clinic-facing link is composed there (root CLAUDE.md).
+ */
+async function recordDemoClaim(session: Stripe.Checkout.Session): Promise<void> {
+  const slug = session.metadata?.demo;
+  if (!slug) return;
+  try {
+    const plan = getPlan(String(session.metadata?.plan ?? ""));
+    const claimed = await markDemoClaimed(slug, plan?.id ?? "unknown");
+    if (!claimed?.newly) return;
+    await postInternalAlert(
+      `Demo claimed: ${displayName(claimed.session)} bought ${plan?.name ?? "a package"} from their personalised demo (${slug}).`,
+    );
+  } catch (error) {
+    console.error("[healdesk] could not mark the demo claimed", {
+      slug,
       error: error instanceof Error ? error.message : String(error),
     });
   }

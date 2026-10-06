@@ -51,6 +51,7 @@ import { ReviewStep } from "./ReviewStep";
 
 // Exported from here, where the tests have always found them.
 export { AgreementCopyLink, filenameFrom } from "./AgreementCopy";
+export { ChatChannelField } from "./PackageStep";
 
 /**
  * "Get AYA": the purchase, in four steps (plan Part A3).

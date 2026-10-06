@@ -39,8 +39,8 @@ const PINNED = {
   lastUpdated: "7 October 2026",
   sha256: {
     "/terms": "ebe445a386546e55454a77e90bd2cc51bd1e0bc05cad575a264ea438e8809cac",
-    "/privacy": "dc0450feb7e80167274b844cc16bab1a001da3db1c4834808c8f57b6128c946c",
-    "/subprocessors": "422ca0fb5b523151eec403f316dcaf4108aea3c057ccff6d231c7e4b7efd8cae",
+    "/privacy": "90ee153352526b7e61fd821d9e90475b149eb19b0460d75bb39d0500f5f6f2d3",
+    "/subprocessors": "05d9e7d5926848d1415bc6437412a3aee0fecb65041648b570b8b313c48aa859",
     "/trust": "3afd18cd5d363f861bca400dea22b94b952b069a2459f6cbeb82cfb9f5b52691",
     "/data-deletion": "c176eca3132e36d15ee7924b829b7d8c70c30e655bb1a068606d10289b1531be",
   },

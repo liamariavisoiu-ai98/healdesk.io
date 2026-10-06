@@ -50,10 +50,15 @@ const AGENT_ID_VAR: Record<VoiceDemoDirection, string> = {
 };
 
 /**
- * Claude, as the chat demo is. Sonnet rather than Opus because a phone turn
- * has to start within about a second; the chat demo can afford to think.
+ * Claude Haiku: still Claude, so the privacy notice and /subprocessors stay
+ * true, and the fastest model that kept the rules. Measured on real calls
+ * with this prompt and voice on 6 October 2026, the model's share of each
+ * pause was 0.63s median and 0.72s p90 against Sonnet 5.5's 1.07s and 1.30s;
+ * GPT-5.4 Mini was 0.72s, Gemini 3.8 Flash 1.75s. Haiku postponed a price
+ * question and sidestepped a discount until the prompt's "three answers you
+ * never delay or dodge" block; scratchpad quality runs check both.
  */
-const MODEL = "claude-5.5-sonnet";
+const MODEL = "claude-4.5-haiku";
 
 /**
  * Sloane, as a Retell platform voice: tuned for phone audio, and it fails

@@ -59,7 +59,8 @@ const PORTAL_META = { healdesk: "customer-portal" } as const;
 const WEBHOOK_META = { healdesk: "webhook" } as const;
 
 /**
- * Every event app/api/webhooks/stripe handles. Not
+ * Every event app/api/webhooks/stripe handles: the ones it relays to apps/app
+ * and the abandonment it records itself. Not
  * customer.subscription.paused/resumed: they only fire when a trial ends
  * without a card, and there is no trial; a Dashboard pause arrives on
  * customer.subscription.updated.
@@ -68,6 +69,9 @@ const WEBHOOK_EVENTS = [
   "charge.dispute.created",
   "checkout.session.async_payment_succeeded",
   "checkout.session.completed",
+  // An abandoned checkout: the route records it in the lead store, nothing
+  // reaches apps/app (ABANDONMENT_EVENTS in the route).
+  "checkout.session.expired",
   "customer.subscription.deleted",
   "customer.subscription.updated",
   "invoice.paid",

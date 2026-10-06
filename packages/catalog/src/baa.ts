@@ -846,6 +846,20 @@ const GOVERNING_STATE = "Delaware";
 // indemnity. healdesk carries no insurance, and a floor above the fees would be
 // a promise with nothing behind it.
 
+/**
+ * The contracting party, its notice address and the governing law, exactly as
+ * every BAA version from 1.1.0 on prints them, exported once so that the data
+ * protection agreement (dpa.ts) names the same party at the same address under
+ * the same law. Kind-neutral, and read-only: changing any of these would move
+ * every BAA golden hash, so they are as frozen as the versions that print them.
+ */
+export const AGREEMENT_PARTY = {
+  entity: ENTITY,
+  entityForm: ENTITY_FORM,
+  noticeAddress: NOTICE_ADDRESS,
+  governingState: GOVERNING_STATE,
+} as const;
+
 function byId(id: string): BaaClause {
   const clause = CLAUSES.find((c) => c.id === id);
   if (!clause) throw new Error(`No 1.0.0 clause ${id}`);

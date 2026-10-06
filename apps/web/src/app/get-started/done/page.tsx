@@ -57,9 +57,8 @@ export default function CheckoutDonePage() {
           Each channel then goes live on its own. Website chat, once the
           one-line snippet is on your site. Instagram and Messenger, as soon as
           you connect them. WhatsApp, once your WhatsApp account has a payment
-          method on it. Your phone, once call forwarding is set on your line,
-          usually the same day. Questions in the meantime: reply to your
-          receipt.
+          method on it. Your phone, once call forwarding is set on your line.
+          Questions in the meantime: reply to your receipt.
         </p>
       </main>
     </div>

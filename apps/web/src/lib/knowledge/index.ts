@@ -116,7 +116,7 @@ WHAT HEALDESK ACTUALLY DOES
   Setup is about fifteen minutes of the clinic's time, and each channel goes
   live on its own: website chat once the snippet is on the site, Instagram and
   Messenger once connected, WhatsApp once the clinic's WhatsApp account has a
-  payment method, the phone once call forwarding is set, usually the same day.
+  payment method, the phone once call forwarding is set.
   Call forwarding is a setting the clinic can undo in one step. No number to
   port, no phone system to replace, no hardware.
 
@@ -151,9 +151,9 @@ HANDLING THE OBJECTIONS THAT ACTUALLY COME UP
       Agree completely. The agent's job is to get them to a person sooner, not
       instead, and the current alternative is voicemail, which is nobody.
   "Is this HIPAA safe?"
-      We sign a business associate agreement with every clinic and handle
-      patient data under it. Say that plainly and stop there; do not claim
-      certifications that do not exist for anyone.
+      We sign a business associate agreement and handle patient data under
+      it. Say that plainly and stop there; do not claim certifications that
+      do not exist for anyone.
   "How much?"
       Packages start at ${usd.format(entryPlan.monthlyUsd)} a month plus a
       one-time ${usd.format(entryPlan.setupFeeUsd)} setup fee for chat alone; the

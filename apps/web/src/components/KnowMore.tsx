@@ -80,7 +80,7 @@ const FAQS = [
       "WhatsApp account has a payment method on it: Meta bills you directly " +
       "for WhatsApp messages, including replies from 1 October 2026, and we " +
       "do not resell them. Your phone, once call forwarding is set on your " +
-      "line, usually the same day.",
+      "line.",
   },
   {
     q: "Do we have to give her every call?",
@@ -104,8 +104,8 @@ const FAQS = [
   {
     q: "How do you handle patient data?",
     a:
-      "We sign a business associate agreement with every clinic and handle " +
-      "patient data under it. It is encrypted at rest, and in transit " +
+      "We sign a business associate agreement and handle patient data under " +
+      "it. It is encrypted at rest, and in transit " +
       "wherever we control both ends, and never used to train models. The " +
       "only system we write to is the Google Calendar you connect. Our AI " +
       "model provider keeps conversation inputs for 30 days, and up to two " +

@@ -1,25 +1,268 @@
-import type { BillingInterval, Channel } from "@healdesk/catalog";
+import {
+  CHANNELS,
+  channelList,
+  getPlan,
+  isBillingInterval,
+  planForChannels,
+  recurringUsd,
+  setupFeeDeltaUsd,
+  stripeLookupKey,
+  type BillingInterval,
+  type Channel,
+  type Plan,
+} from "@healdesk/catalog";
+import { sql } from "drizzle-orm";
+import type Stripe from "stripe";
 
-import type { BillingStatus, UsageMeter } from "@/db/schema";
+import { unsafeDb } from "@/db";
+import type { BillingStatus, Entitlements, UsageMeter } from "@/db/schema";
+import type { ActorContext } from "@/lib/audit";
+import { channelsInService, readChannelStates } from "@/lib/channels/state";
+import { LOCATION_CLINICS_READY } from "@/lib/location-clinic";
+import { log } from "@/lib/log";
+import { withTenant } from "@/lib/tenant";
 
-import { BillingActionNotBuiltError } from "./stripe-actions";
+import { resolveBillingClinicId } from "./billing-clinic";
+import { addMonthsUtc, effectiveIncluded, getEntitlements, hasPlanStarted } from "./entitlements";
+import {
+  expectedMeteredKeys,
+  meteredItemChanges,
+  meteredItemParams,
+  packageItemOf,
+  stripeErrorCode,
+  type SubscriptionLike,
+} from "./metered-items";
+import { priceForLookupKey } from "./prices";
+import { getStripe, stripeConfigured } from "./stripe-client";
+import { WORKER_STRIPE_OPTIONS } from "./stripe-helpers";
 
 /**
- * What the portal's Billing screen reads (R30, finding 19).
+ * What the portal's Billing screen reads (R30, finding 19), and the checks
+ * the billing actions share with their previews.
  *
  * `getBillingSummary` reads the database only, never Stripe, so the screen
  * renders even while Stripe is slow or down and a page view costs no API
  * call; it describes the BILLING clinic of the clinic it is given. The
  * previews ask Stripe what an action would charge before the clinic confirms
- * it, outside any transaction.
- *
- * STUB written by S0 with the final signatures; Package C-actions replaces
- * the bodies. Until then each preview answers `not_available`, and
- * getBillingSummary, whose result has no such status, throws
- * BillingActionNotBuiltError.
+ * it, outside any transaction, and refuse exactly what the action would
+ * refuse, because both run the same check (`checkPlanChange`,
+ * `checkAddLocation`).
  */
 
 const NOT_AVAILABLE = "This isn't available yet.";
+
+const SUMMARY_ACTOR: ActorContext = { type: "service", serviceName: "billing-summary" };
+
+// -----------------------------------------------------------------------------
+// The billing group: the billing clinic, its row and its locations' channels
+// -----------------------------------------------------------------------------
+
+export type BillingGroup = {
+  billingClinicId: string;
+  /** The billing clinic's entitlements, or null (a synthetic or demo clinic). */
+  row: Entitlements | null;
+  /** Every clinic billed on it, the billing clinic first (`app_location_clinics`). */
+  locationIds: string[];
+  /** Every channel with a first answer at any of them, in the catalog's order. */
+  inService: Channel[];
+};
+
+/**
+ * Read a billing group in SEQUENTIAL tenant transactions, never nested: the
+ * given clinic's own row to find its billing clinic, the billing clinic's
+ * entitlements, then each location's channels in its own transaction. A
+ * transaction opened inside another holds two of the pool's ten connections
+ * and can deadlock against itself, and Postgres cannot see that it has.
+ *
+ * The locations come from the SECURITY DEFINER `app_location_clinics`, which
+ * returns ids alone: the runtime role cannot list another tenant's clinics
+ * any other way. Channels in service are the union across them, because one
+ * package price covers every location (BD13).
+ */
+export async function readBillingGroup(
+  clinicId: string,
+  options: { now?: Date; actor?: ActorContext } = {},
+): Promise<BillingGroup> {
+  const now = options.now ?? new Date();
+  const actor = options.actor ?? SUMMARY_ACTOR;
+  const billingClinicId = await withTenant({ clinicId, actor }, (tx) => resolveBillingClinicId(tx));
+  const row = await withTenant({ clinicId: billingClinicId, actor }, (tx) =>
+    getEntitlements(tx.db, billingClinicId),
+  );
+  const locationIds = await locationClinicIds(billingClinicId);
+  const inService = new Set<Channel>();
+  for (const locationId of locationIds) {
+    const states = await withTenant({ clinicId: locationId, actor }, (tx) =>
+      readChannelStates(tx.db, locationId, now),
+    );
+    for (const channel of channelsInService(states)) inService.add(channel);
+  }
+  return {
+    billingClinicId,
+    row,
+    locationIds,
+    inService: CHANNELS.filter((channel) => inService.has(channel)),
+  };
+}
+
+/** The billing clinic and every location billed on it, the billing clinic first. */
+export async function locationClinicIds(billingClinicId: string): Promise<string[]> {
+  const result = await unsafeDb.execute<{ id: string }>(
+    sql`select app_location_clinics(${billingClinicId}::uuid) as id`,
+  );
+  const ids = result.rows.map((row) => row.id);
+  return ids.length > 0 ? ids : [billingClinicId];
+}
+
+// -----------------------------------------------------------------------------
+// The checks the actions and their previews share
+// -----------------------------------------------------------------------------
+
+/**
+ * In good standing for a change that charges the card: active, or past due
+ * while grace still runs (BD12, BD13). A suspended, cancelled or cancelling
+ * account cannot buy more.
+ */
+export function inGoodStanding(
+  row: Pick<Entitlements, "status" | "graceEndsAt">,
+  now: Date,
+): boolean {
+  if (row.status === "active") return true;
+  return (
+    row.status === "past_due" &&
+    row.graceEndsAt !== null &&
+    row.graceEndsAt.getTime() > now.getTime()
+  );
+}
+
+export type CheckRefusal = { ok: false; status: "refused" | "not_available"; message: string };
+
+function refusal(message: string, status: "refused" | "not_available" = "refused"): CheckRefusal {
+  return { ok: false, status, message };
+}
+
+const MESSAGES = {
+  noAccount: "We couldn't find a billing account for this clinic.",
+  noStripe: "Billing isn't set up for this account yet, so nothing can be changed here.",
+  legacy:
+    "This account was set up before plan changes moved into Billing. Contact us and we'll make the change for you.",
+  standing:
+    "Plan and location changes need the account to be in good standing. Pay the open invoice first, then try again.",
+  canceling: "Turn auto-renew back on before changing your plan.",
+} as const;
+
+function standingRefusal(row: Entitlements, now: Date): CheckRefusal | null {
+  if (row.status === "canceled" || row.status === "purged") {
+    return refusal("This plan has ended, so it can't be changed.");
+  }
+  if (row.status === "canceling" || row.cancelAt !== null) return refusal(MESSAGES.canceling);
+  if (!inGoodStanding(row, now)) return refusal(MESSAGES.standing);
+  return null;
+}
+
+export type PlanChangeCheck =
+  | {
+      ok: true;
+      row: Entitlements;
+      boughtPlan: Plan;
+      newPlan: Plan;
+      interval: BillingInterval;
+      isStarted: boolean;
+      /** The new package's setup fee less the bought one's, per location, never negative. */
+      deltaPerLocationCents: number;
+      locations: number;
+    }
+  | CheckRefusal;
+
+/**
+ * Whether `changePlan` may go ahead (BD12): a known plan, a row bought under
+ * the deferred start (a legacy row has no bought package to change), in good
+ * standing, auto-renew on, something actually changing, and, once the plan
+ * has started, at least one channel in service kept: a change that dropped
+ * every answering channel would leave nothing to bill and every patient
+ * passed through.
+ */
+export function checkPlanChange(
+  row: Entitlements | null,
+  input: { planId: string; interval: BillingInterval },
+  inService: readonly Channel[],
+  now: Date,
+): PlanChangeCheck {
+  if (!row) return refusal(MESSAGES.noAccount);
+  const newPlan = getPlan(input.planId);
+  if (!newPlan) return refusal("That isn't one of our plans.");
+  if (!isBillingInterval(input.interval)) return refusal("Choose monthly or annual billing.");
+  if (!row.boughtPlanId) return refusal(MESSAGES.legacy);
+  const boughtPlan = getPlan(row.boughtPlanId);
+  if (!boughtPlan) return refusal(MESSAGES.legacy);
+  if (!row.stripeSubscriptionId || !row.stripeCustomerId) {
+    return refusal(MESSAGES.noStripe, "not_available");
+  }
+  const standing = standingRefusal(row, now);
+  if (standing) return standing;
+  if (newPlan.id === boughtPlan.id && input.interval === row.billingInterval) {
+    return refusal("That's already your plan.");
+  }
+  const isStarted = hasPlanStarted(row);
+  if (isStarted && planForChannels(inService.filter((c) => newPlan.channels[c])) === null) {
+    return refusal(
+      "A plan change can't drop every channel that's already answering. Choose a plan that keeps at least one of them.",
+    );
+  }
+  return {
+    ok: true,
+    row,
+    boughtPlan,
+    newPlan,
+    interval: input.interval,
+    isStarted,
+    deltaPerLocationCents: setupFeeDeltaUsd(boughtPlan, newPlan) * 100,
+    locations: row.locations,
+  };
+}
+
+export type AddLocationCheck =
+  | { ok: true; row: Entitlements; boughtPlan: Plan; isStarted: boolean; locations: number }
+  | CheckRefusal;
+
+/**
+ * Whether `addLocation` may go ahead (BD13, R14): the location clinic can
+ * actually be created (until it can, nothing is charged), a row bought under
+ * the deferred start, in good standing and renewing.
+ */
+export function checkAddLocation(row: Entitlements | null, now: Date): AddLocationCheck {
+  if (!LOCATION_CLINICS_READY) {
+    return refusal(
+      "Adding a location from Billing isn't available yet. Nothing was changed and nothing was charged.",
+      "not_available",
+    );
+  }
+  if (!row) return refusal(MESSAGES.noAccount);
+  if (!row.boughtPlanId) return refusal(MESSAGES.legacy);
+  const boughtPlan = getPlan(row.boughtPlanId);
+  if (!boughtPlan) return refusal(MESSAGES.legacy);
+  if (!row.stripeSubscriptionId || !row.stripeCustomerId) {
+    return refusal(MESSAGES.noStripe, "not_available");
+  }
+  const standing = standingRefusal(row, now);
+  if (standing) return standing;
+  return {
+    ok: true,
+    row,
+    boughtPlan,
+    isStarted: hasPlanStarted(row),
+    locations: row.locations + 1,
+  };
+}
+
+/** Channels `inService` that `plan` does not include. */
+export function channelsDroppedBy(plan: Plan, inService: readonly Channel[]): Channel[] {
+  return inService.filter((channel) => !plan.channels[channel]);
+}
+
+// -----------------------------------------------------------------------------
+// getBillingSummary
+// -----------------------------------------------------------------------------
 
 /** One allowance meter, pooled across the billing group's locations. */
 export type UsageMeterSummary = {
@@ -68,11 +311,97 @@ export type BillingSummary = {
   usage: UsageMeterSummary[];
 };
 
-/** Null when the billing clinic has no entitlements row (a synthetic or demo clinic). */
-export async function getBillingSummary(clinicId: string): Promise<BillingSummary | null> {
-  void clinicId;
-  throw new BillingActionNotBuiltError("getBillingSummary");
+function iso(date: Date | null | undefined): string | null {
+  return date ? date.toISOString() : null;
 }
+
+/** A UTC calendar date, YYYY-MM-DD: what the "…On" fields carry. */
+export function isoDay(date: Date | null | undefined): string | null {
+  return date ? date.toISOString().slice(0, 10) : null;
+}
+
+/** The first plan period's end: a month or a year after the plan started, as Stripe anchors it. */
+export function firstPeriodEnd(row: Entitlements): Date | null {
+  const start = row.planStartedAt ?? row.planStartAppliedAt;
+  if (!start) return null;
+  return addMonthsUtc(start, row.billingInterval === "year" ? 12 : 1);
+}
+
+/**
+ * When the account closes, or null while it renews (BD10): Stripe's
+ * `cancel_at` once the plan has started; before the start, the earlier of
+ * that and the setup deadline, because a clinic that turned auto-renew off
+ * before anything answered is also closed at the end of its setup window.
+ */
+export function closesAt(
+  row: Pick<Entitlements, "cancelAt" | "setupDeadlineAt" | "planStartedAt" | "planStartAppliedAt">,
+): Date | null {
+  if (!row.cancelAt) return null;
+  if (hasPlanStarted(row) || !row.setupDeadlineAt) return row.cancelAt;
+  return row.setupDeadlineAt.getTime() < row.cancelAt.getTime()
+    ? row.setupDeadlineAt
+    : row.cancelAt;
+}
+
+function meterUsage(row: Entitlements): UsageMeterSummary[] {
+  const plan = getPlan(row.boughtPlanId ?? row.planCode);
+  const meters: UsageMeter[] = [];
+  if (!plan || plan.channels.voice) meters.push("voice_minutes");
+  if (!plan || plan.channels.web || plan.channels.meta) meters.push("chat_conversations");
+  return meters.map((meter) => ({
+    meter,
+    used: meter === "voice_minutes" ? Number(row.usedVoiceMinutes) : row.usedChatConversations,
+    included: effectiveIncluded(row, meter),
+    windowStart: iso(row.currentPeriodStart),
+    windowEnd: iso(row.currentPeriodEnd),
+  }));
+}
+
+/**
+ * The Billing screen, from the database only. Null when the billing clinic
+ * has no entitlements row (a synthetic or demo clinic).
+ */
+export async function getBillingSummary(clinicId: string): Promise<BillingSummary | null> {
+  const group = await readBillingGroup(clinicId);
+  const row = group.row;
+  if (!row) return null;
+  const isPlanStarted = hasPlanStarted(row);
+  const billedPlan = isPlanStarted ? (getPlan(row.planCode) ?? null) : null;
+  return {
+    billingClinicId: group.billingClinicId,
+    status: row.status,
+    boughtPlanId: row.boughtPlanId,
+    billedPlanId: billedPlan?.id ?? null,
+    interval: row.billingInterval,
+    locations: row.locations,
+    isPlanStarted,
+    planStartedAt: iso(row.planStartedAt),
+    firstPeriodEndsAt: iso(firstPeriodEnd(row)),
+    paidThrough: iso(row.paidThrough),
+    setupDeadlineAt: iso(row.setupDeadlineAt),
+    isAutoRenewOn:
+      row.cancelAt === null &&
+      row.status !== "canceling" &&
+      row.status !== "canceled" &&
+      row.status !== "purged",
+    closesOn: iso(closesAt(row)),
+    channelsInService: group.inService,
+    channelsNotYetPriced: billedPlan
+      ? channelsDroppedBy(billedPlan, group.inService)
+      : [...group.inService],
+    overageMode: row.overageMode,
+    usageAlertsEnabled: row.usageAlertsEnabled,
+    openInvoice: row.openInvoiceId
+      ? { url: row.openInvoiceUrl, amountDueCents: row.openInvoiceAmountCents }
+      : null,
+    graceEndsAt: iso(row.graceEndsAt),
+    usage: meterUsage(row),
+  };
+}
+
+// -----------------------------------------------------------------------------
+// The previews (Stripe, outside any transaction)
+// -----------------------------------------------------------------------------
 
 export type PreviewNextInvoiceResult =
   | {
@@ -85,9 +414,97 @@ export type PreviewNextInvoiceResult =
     }
   | { status: "not_available"; message: string };
 
-export async function previewNextInvoice(clinicId: string): Promise<PreviewNextInvoiceResult> {
-  void clinicId;
-  return { status: "not_available", message: NOT_AVAILABLE };
+type LineLike = {
+  amount?: number | null;
+  period?: { start?: number | null; end?: number | null } | null;
+  parent?: {
+    type?: string | null;
+    subscription_item_details?: { proration?: boolean | null } | null;
+  } | null;
+};
+
+function linesOf(invoice: { lines?: { data?: unknown[] | null } | null }): LineLike[] {
+  return (invoice.lines?.data ?? []) as LineLike[];
+}
+
+/** The proration lines of a previewed invoice, summed: what the change would invoice now. */
+export function prorationCentsOf(invoice: { lines?: { data?: unknown[] | null } | null }): number {
+  return linesOf(invoice)
+    .filter((line) => line.parent?.subscription_item_details?.proration === true)
+    .reduce((sum, line) => sum + (typeof line.amount === "number" ? line.amount : 0), 0);
+}
+
+function secondsToDay(seconds: number | null | undefined): string | null {
+  return typeof seconds === "number" ? isoDay(new Date(seconds * 1000)) : null;
+}
+
+/**
+ * What Stripe will charge next: its own preview of the subscription's next
+ * invoice. Not available before the plan starts (the next charge is the
+ * plan start itself, whose amount follows the channels that answer), on an
+ * ended plan, or when Stripe has no next invoice to show (a plan set to end).
+ */
+export async function previewNextInvoice(
+  clinicId: string,
+  options: { now?: Date; stripe?: Stripe } = {},
+): Promise<PreviewNextInvoiceResult> {
+  const group = await readBillingGroup(clinicId, { now: options.now });
+  const row = group.row;
+  if (!row || !row.stripeCustomerId || !row.stripeSubscriptionId) {
+    return { status: "not_available", message: NOT_AVAILABLE };
+  }
+  if (row.status === "canceled" || row.status === "purged") {
+    return { status: "not_available", message: "This plan has ended: there is no next invoice." };
+  }
+  if (!hasPlanStarted(row)) {
+    return {
+      status: "not_available",
+      message:
+        "Your plan's first charge is the day AYA first answers, at the price of the channels in service.",
+    };
+  }
+  if (row.cancelAt) {
+    return {
+      status: "not_available",
+      message: `Auto-renew is off: the plan ends on ${isoDay(row.cancelAt)}, with no further invoice.`,
+    };
+  }
+  if (!options.stripe && !stripeConfigured()) {
+    return { status: "not_available", message: NOT_AVAILABLE };
+  }
+  try {
+    const stripe = options.stripe ?? getStripe();
+    const invoice = await stripe.invoices.createPreview(
+      { customer: row.stripeCustomerId, subscription: row.stripeSubscriptionId },
+      WORKER_STRIPE_OPTIONS,
+    );
+    const lines = linesOf(invoice as never);
+    const packageLine =
+      lines.find(
+        (line) =>
+          line.parent?.type === "subscription_item_details" &&
+          line.parent.subscription_item_details?.proration !== true &&
+          (line.amount ?? 0) > 0,
+      ) ?? null;
+    const nextAttempt = (invoice as { next_payment_attempt?: number | null }).next_payment_attempt;
+    const periodEnd = (invoice as { period_end?: number | null }).period_end;
+    return {
+      status: "ok",
+      amountDueCents: (invoice as { amount_due?: number }).amount_due ?? 0,
+      nextPaymentOn: secondsToDay(nextAttempt ?? packageLine?.period?.start ?? periodEnd ?? null),
+      periodStartsOn: secondsToDay(packageLine?.period?.start ?? null),
+      periodEndsOn: secondsToDay(packageLine?.period?.end ?? null),
+    };
+  } catch (error) {
+    log.warn("next invoice preview unavailable", {
+      clinicId: group.billingClinicId,
+      code: stripeErrorCode(error),
+    });
+    return {
+      status: "not_available",
+      message: "Stripe couldn't show the next invoice right now. Try again in a minute.",
+    };
+  }
 }
 
 export type PreviewChangePlanInput = {
@@ -112,11 +529,107 @@ export type PreviewChangePlanResult =
     }
   | { status: "refused" | "not_available"; message: string };
 
+/**
+ * What `changePlan` would charge: the setup-fee difference, the proration
+ * Stripe would invoice at once, and the recurring price afterwards. Refuses
+ * exactly what the action refuses. After the start the billed package is
+ * worked out as the action works it out (R7): from the package Stripe bills
+ * now plus the channels in service, kept to the new bought package.
+ */
 export async function previewChangePlan(
   input: PreviewChangePlanInput,
+  options: { now?: Date; stripe?: Stripe } = {},
 ): Promise<PreviewChangePlanResult> {
-  void input;
-  return { status: "not_available", message: NOT_AVAILABLE };
+  const now = options.now ?? new Date();
+  const group = await readBillingGroup(input.clinicId, { now });
+  const check = checkPlanChange(group.row, input, group.inService, now);
+  if (!check.ok) return { status: check.status, message: check.message };
+  const { newPlan, interval, locations } = check;
+  const setupFeeDeltaCents = check.deltaPerLocationCents * locations;
+  const droppedChannels = channelsDroppedBy(newPlan, group.inService);
+  const kept = (channels: Iterable<Channel>) =>
+    [...new Set(channels)].filter((channel) => newPlan.channels[channel]);
+
+  if (!check.isStarted) {
+    const billedAtStart = planForChannels(kept(group.inService)) ?? newPlan;
+    return {
+      status: "ok",
+      planId: newPlan.id,
+      interval,
+      setupFeeDeltaCents,
+      prorationCents: 0,
+      recurringCents: recurringUsd(billedAtStart, interval) * 100 * locations,
+      droppedChannels,
+    };
+  }
+
+  if (!options.stripe && !stripeConfigured()) {
+    return { status: "not_available", message: NOT_AVAILABLE };
+  }
+  try {
+    const stripe = options.stripe ?? getStripe();
+    const subscription = (await stripe.subscriptions.retrieve(
+      check.row.stripeSubscriptionId as string,
+      { expand: ["items.data.price"] },
+      WORKER_STRIPE_OPTIONS,
+    )) as unknown as SubscriptionLike;
+    const current = packageItemOf(subscription);
+    if (!current) {
+      return {
+        status: "not_available",
+        message: "Your plan is still being set up in Stripe. Try again in a few minutes.",
+      };
+    }
+    const target = planForChannels(kept([...channelList(current.plan), ...group.inService]));
+    if (!target) {
+      return {
+        status: "refused",
+        message:
+          "A plan change can't drop every channel that's already answering. Choose a plan that keeps at least one of them.",
+      };
+    }
+    const targetPrice = await priceForLookupKey(stripeLookupKey(target, interval), { stripe });
+    let prorationCents = 0;
+    if (targetPrice.id !== current.priceId || interval !== current.interval) {
+      const expected = expectedMeteredKeys(newPlan.id, interval) ?? [];
+      const metered = await meteredItemParams(meteredItemChanges(subscription, expected), {
+        stripe,
+      });
+      const preview = await stripe.invoices.createPreview(
+        {
+          customer: check.row.stripeCustomerId as string,
+          subscription: subscription.id,
+          subscription_details: {
+            items: [
+              { id: current.item.id, price: targetPrice.id, quantity: locations },
+              ...(metered as Stripe.InvoiceCreatePreviewParams.SubscriptionDetails.Item[]),
+            ],
+            proration_behavior: "always_invoice",
+          },
+        },
+        WORKER_STRIPE_OPTIONS,
+      );
+      prorationCents = prorationCentsOf(preview as never);
+    }
+    return {
+      status: "ok",
+      planId: newPlan.id,
+      interval,
+      setupFeeDeltaCents,
+      prorationCents,
+      recurringCents: recurringUsd(target, interval) * 100 * locations,
+      droppedChannels,
+    };
+  } catch (error) {
+    log.warn("plan change preview unavailable", {
+      clinicId: group.billingClinicId,
+      code: stripeErrorCode(error),
+    });
+    return {
+      status: "not_available",
+      message: "Stripe couldn't price this change right now. Try again in a minute.",
+    };
+  }
 }
 
 export type PreviewAddLocationResult =
@@ -133,7 +646,80 @@ export type PreviewAddLocationResult =
     }
   | { status: "refused" | "not_available"; message: string };
 
-export async function previewAddLocation(clinicId: string): Promise<PreviewAddLocationResult> {
-  void clinicId;
-  return { status: "not_available", message: NOT_AVAILABLE };
+/**
+ * What `addLocation` would charge: the bought package's setup fee once, and
+ * the billed package's recurring price for one more location, prorated to
+ * the renewal date when the plan has started. Before the start nothing
+ * recurring is charged yet: the location joins the plan's quantity at the
+ * start, at the price of the channels then in service.
+ */
+export async function previewAddLocation(
+  clinicId: string,
+  options: { now?: Date; stripe?: Stripe } = {},
+): Promise<PreviewAddLocationResult> {
+  const now = options.now ?? new Date();
+  const group = await readBillingGroup(clinicId, { now });
+  const check = checkAddLocation(group.row, now);
+  if (!check.ok) return { status: check.status, message: check.message };
+  const { row, boughtPlan, locations } = check;
+  const setupFeeCents = boughtPlan.setupFeeUsd * 100;
+
+  if (!check.isStarted) {
+    const billedAtStart =
+      planForChannels(group.inService.filter((channel) => boughtPlan.channels[channel])) ??
+      boughtPlan;
+    return {
+      status: "ok",
+      locations,
+      recurringCents: recurringUsd(billedAtStart, row.billingInterval) * 100,
+      setupFeeCents,
+      prorationCents: 0,
+    };
+  }
+
+  if (!options.stripe && !stripeConfigured()) {
+    return { status: "not_available", message: NOT_AVAILABLE };
+  }
+  try {
+    const stripe = options.stripe ?? getStripe();
+    const subscription = (await stripe.subscriptions.retrieve(
+      row.stripeSubscriptionId as string,
+      { expand: ["items.data.price"] },
+      WORKER_STRIPE_OPTIONS,
+    )) as unknown as SubscriptionLike;
+    const current = packageItemOf(subscription);
+    if (!current) {
+      return {
+        status: "not_available",
+        message: "Your plan is still being set up in Stripe. Try again in a few minutes.",
+      };
+    }
+    const preview = await stripe.invoices.createPreview(
+      {
+        customer: row.stripeCustomerId as string,
+        subscription: subscription.id,
+        subscription_details: {
+          items: [{ id: current.item.id, quantity: locations }],
+          proration_behavior: "always_invoice",
+        },
+      },
+      WORKER_STRIPE_OPTIONS,
+    );
+    return {
+      status: "ok",
+      locations,
+      recurringCents: recurringUsd(current.plan, current.interval) * 100,
+      setupFeeCents,
+      prorationCents: prorationCentsOf(preview as never),
+    };
+  } catch (error) {
+    log.warn("location preview unavailable", {
+      clinicId: group.billingClinicId,
+      code: stripeErrorCode(error),
+    });
+    return {
+      status: "not_available",
+      message: "Stripe couldn't price this right now. Try again in a minute.",
+    };
+  }
 }

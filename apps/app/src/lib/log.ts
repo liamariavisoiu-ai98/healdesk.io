@@ -78,6 +78,10 @@ export const ALLOWED_LOG_KEYS: ReadonlySet<string> = new Set([
   "field",
   "noticeId",
   "windowStart",
+  // The Stripe build (6 October 2026): `eventType` is a Stripe event's type
+  // (invoice.paid, checkout.session.completed), never anything the event
+  // carries.
+  "eventType",
   // Counters.
   "count",
   "written",

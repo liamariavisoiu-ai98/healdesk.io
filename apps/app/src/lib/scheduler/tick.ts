@@ -1,5 +1,8 @@
 import { runAnnualOverageJob } from "@/lib/billing/annual-overage";
+import { runCardExpiringJob } from "@/lib/billing/card-expiring";
 import { runBillingHousekeepingJob } from "@/lib/billing/housekeeping";
+import { runBillingReconcileJob } from "@/lib/billing/reconcile";
+import { runBillingRequestsJob } from "@/lib/billing/requests";
 import { runUsageAlertsJob } from "@/lib/billing/usage-alerts";
 import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
 import { expireLapsedRequests } from "@/lib/meta/booking-requests";
@@ -27,9 +30,9 @@ import { runWeeklyRecapJob } from "./weekly-recap";
  * costs nothing.
  *
  * The hour gates are UTC and deliberately spread: the purge and the sync run
- * at night; the annual overage invoices at 05 and billing housekeeping at
- * 06; the mailers in the morning; the sweeps every hour because their effect
- * is time-bounded anyway.
+ * at night; the annual overage invoices at 05, billing housekeeping at 06 and
+ * the card-expiry check at 07; the mailers in the morning; the sweeps every
+ * hour because their effect is time-bounded anyway.
  */
 export type TickOutcome = { job: string; status: string; note?: string };
 
@@ -56,6 +59,14 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // billing-notices backstop that used to run here.
   await record("usage-meter-report", () => runUsageMeterReportJob({ now }));
   await record("usage-alerts", () => runUsageAlertsJob({ now }));
+  // The Stripe build (drizzle/0050). The reconcile records whatever billing
+  // request is due but missing, then the requests worker carries out what is
+  // due, in that order so a request recorded this hour goes this hour. The
+  // worker also runs every minute from the `billing-minute` queue; this is
+  // its backstop for a worker whose queue was never installed, and each
+  // request's own lease makes the overlap harmless.
+  await record("billing-reconcile", () => runBillingReconcileJob({ now }));
+  await record("billing-requests", () => runBillingRequestsJob({ now }));
   // Phase two: runJob() reports it "disabled" in v1 whatever its switch says.
   await record("monthly-report", () => runMonthlyReportJob({ now, send: true }));
   await record("weekly-recap", () => runWeeklyRecapJob({ now }));
@@ -77,6 +88,9 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // (overage_invoices, one row per window) makes a re-run a no-op.
   if (hour === 5) await record("annual-overage-invoice", () => runAnnualOverageJob({ now }));
   if (hour === 6) await record("billing-housekeeping", () => runBillingHousekeepingJob({ now }));
+  // Once a day, after the night's jobs and before the morning's mail: whether
+  // the card on file expires before the next renewal.
+  if (hour === 7) await record("card-expiring", () => runCardExpiringJob({ now }));
   if (hour === 9) await record("annual-renewal-reminder", () => runAnnualRenewalReminderJob({ now }));
 
   return out;

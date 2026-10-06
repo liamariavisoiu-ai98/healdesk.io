@@ -1,5 +1,6 @@
 import { specialties } from "@healdesk/catalog";
 
+import { clinicAiNotice } from "@/lib/compliance/disclosure";
 import {
   getTransport,
   type DeliveryTarget,
@@ -29,7 +30,8 @@ import {
  *
  * ## No PHI, by construction
  *
- * A clinic name, its specialty as a word, an expiry and a single-use URL.
+ * A clinic name, its specialty as a word, an expiry, a single-use URL, and
+ * the written AI notice, which names the clinic and leaves its number blank.
  * `to` is a business address that is very often a shared front-desk inbox.
  * The token is a credential and is redacted from every reason string.
  */
@@ -56,7 +58,25 @@ export function specialtyNameFor(id: string): string {
   return specialties.find((s) => s.id === id)?.name ?? id;
 }
 
-/** §H.2, verbatim: subject and body. */
+/**
+ * Around the written AI notice (lib/compliance/disclosure.ts). The notice is
+ * the clinic's, for its own website and intake form, and whether it meets a
+ * state's law is the clinic's to judge (terms § 8, "Your own notices"): the
+ * copy offers it, says what to fill in, and warrants nothing.
+ */
+const NOTICE_INTRO =
+  `Separately, for your website and intake form: some states expect a practice that uses an AI assistant to say so in writing. ` +
+  `Here is a plain-language notice you can use. Replace [your direct line] with a number that reaches a person at the practice and is not forwarded to the assistant.`;
+const NOTICE_CAVEAT =
+  `We offer this wording as a convenience, not a warranty that it meets any state's requirements. ` +
+  `Any disclosure your state requires you to make to patients remains yours to make.`;
+
+/**
+ * §H.2, verbatim: subject and body. Then, below the link and set apart from
+ * it, the written AI notice (docs/counsel/state-disclosure.md, decision 8).
+ * Until the portal or the wizard exists this is the one email every clinic
+ * is sure to get, so the notice travels in it.
+ */
 export function renderSetupLink(email: SetupLinkEmail): {
   subject: string;
   text: string;
@@ -65,6 +85,7 @@ export function renderSetupLink(email: SetupLinkEmail): {
   const expiry = formatExpiry(email.expiresAt);
   const specialty = specialtyNameFor(email.specialty);
   const subject = `One thing to set up for ${email.clinicName}`;
+  const notice = clinicAiNotice({ clinicName: email.clinicName });
 
   const body =
     `Before your assistant takes its first call, tell us what it should ask for when someone wants to book — and nothing more. ` +
@@ -72,7 +93,7 @@ export function renderSetupLink(email: SetupLinkEmail): {
     `Nothing clinical can be selected. It takes two minutes, works once, and expires on ${expiry}; ` +
     `if nobody opens it by then, the set we chose applies and you can change it at any time by telling us.`;
 
-  const text = [body, ``, email.url].join("\n");
+  const text = [body, ``, email.url, ``, NOTICE_INTRO, ``, notice, ``, NOTICE_CAVEAT].join("\n");
 
   const href = escapeHtml(email.url);
   const html = [
@@ -81,6 +102,9 @@ export function renderSetupLink(email: SetupLinkEmail): {
     `Nothing clinical can be selected. It takes two minutes, works once, and expires on ${escapeHtml(expiry)}; `,
     `if nobody opens it by then, the set we chose applies and you can change it at any time by telling us.</p>`,
     `<p><a href="${href}">Confirm what the assistant asks for</a></p>`,
+    `<p>${escapeHtml(NOTICE_INTRO)}</p>`,
+    `<blockquote>${escapeHtml(notice)}</blockquote>`,
+    `<p>${escapeHtml(NOTICE_CAVEAT)}</p>`,
   ].join("");
 
   return { subject, text, html };
@@ -94,7 +118,7 @@ export function renderSetupLink(email: SetupLinkEmail): {
 export async function sendSetupLink(email: SetupLinkEmail): Promise<SetupLinkResult> {
   const message: OutgoingEmail = {
     ...renderSetupLink(email),
-    /** No PHI: a clinic name, a specialty, an expiry and a single-use URL. */
+    /** No PHI: a clinic name, a specialty, an expiry, a single-use URL and the clinic's own AI notice. */
     phiClass: "none",
   };
 

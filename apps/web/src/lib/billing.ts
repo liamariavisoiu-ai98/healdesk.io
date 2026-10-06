@@ -103,6 +103,13 @@ export type CheckoutIntent = {
     leadId: string | null;
     /** "cohort-setup" when the lead was offered the setup credit inside its window. */
     offer?: "cohort-setup" | null;
+    /** The personalised demo's slug, when the buyer came from its "Book Onboarding" (lib/demo). */
+    demo?: string | null;
+    /**
+     * The setup request whose link opened this purchase, while purchases are
+     * by invitation. The webhook stamps the request paid, which is what
+     * makes the link single-use (lib/setup-gate.ts).
+     */
     setupRequestId?: string | null;
   };
 };
@@ -250,6 +257,7 @@ export async function createCheckout(
         ...(input.attribution?.campaign ? { campaign: input.attribution.campaign } : {}),
         ...(input.attribution?.leadId ? { leadId: input.attribution.leadId } : {}),
         ...(input.attribution?.offer ? { offer: input.attribution.offer } : {}),
+        ...(input.attribution?.demo ? { demo: input.attribution.demo } : {}),
         ...(input.attribution?.setupRequestId ? { setupRequest: input.attribution.setupRequestId } : {}),
       },
       // Finds the purchase from the Dashboard without opening metadata.

@@ -1,3 +1,4 @@
+import { META_SOLD_ALONE } from "@healdesk/catalog";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { issueSetupToken, setupLinkExpiry } from "@/lib/setup-link";
@@ -146,6 +147,10 @@ describe("POST /api/checkout validates the billing terms", () => {
   });
 
   test("both Meta packages are on sale, Meta Chatbot included", async () => {
+    // The catalog flag, opened by the owner on 5 October 2026. Closed again,
+    // Meta Chatbot becomes a 422 with field "plan" before Stripe hears of it.
+    expect(META_SOLD_ALONE).toBe(true);
+
     const alone = await post({ ...VALID, plan: "chat-meta" });
     expect(alone.status).toBe(201);
     expect(forwarded(0).plan).toBe("chat-meta");

@@ -1,10 +1,12 @@
-import { isBillingInterval } from "@healdesk/catalog";
+import { isBillingInterval, isSpecialtyId } from "@healdesk/catalog";
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 
 import { CheckoutFlow } from "@/components/checkout/CheckoutFlow";
 import { type LinkNotice, SetupRequestForm } from "@/components/checkout/SetupRequestForm";
 import { Brand } from "@/components/Nav";
+import { DEMO_COOKIE } from "@/lib/demo/attribution";
+import { displayName, getDemoSession, isDemoSlug } from "@/lib/demo/sessions";
 import { checkoutStart, cheapestPlan } from "@/lib/pricing";
 import { replyByDate } from "@/lib/reply-by";
 import { gateState } from "@/lib/setup-gate";
@@ -28,7 +30,24 @@ export const metadata: Metadata = {
  * plan that no longer exists should land the buyer on the flow, not on a 404,
  * and the package is chosen again at step 6 anyway. `plan` may name a pricing
  * card or a package (`checkoutStart`).
+ *
+ * A buyer arriving from a personalised demo's "Book Onboarding" carries the
+ * demo in a cookie (lib/demo/attribution.ts): the form opens with that
+ * clinic's name, specialty and email already in it. Every step is still
+ * shown, and every field can still be changed.
  */
+async function demoPrefill() {
+  const slug = (await cookies()).get(DEMO_COOKIE)?.value;
+  if (!isDemoSlug(slug)) return undefined;
+  const session = await getDemoSession(slug);
+  if (!session) return undefined;
+  return {
+    clinicName: displayName(session),
+    ...(session.leadEmail ? { contactEmail: session.leadEmail } : {}),
+    ...(isSpecialtyId(session.specialty) ? { specialty: session.specialty } : {}),
+  };
+}
+
 export default async function GetStartedPage({
   searchParams,
 }: {
@@ -37,6 +56,7 @@ export default async function GetStartedPage({
   const { plan, interval, link } = await searchParams;
   const initialPlan = checkoutStart(plan) ? plan! : cheapestPlan().id;
   const initialInterval = isBillingInterval(interval) ? interval : "month";
+  const initialState = await demoPrefill();
 
   /**
    * While the purchase is by invitation, the setup cookie decides what this
@@ -73,7 +93,9 @@ export default async function GetStartedPage({
           <CheckoutFlow
             initialPlan={initialPlan}
             initialInterval={initialInterval}
-            initialState={invited ? { clinicName: invited.clinicName } : undefined}
+            initialState={
+              invited ? { ...initialState, clinicName: invited.clinicName } : initialState
+            }
             lockedEmail={invited?.email}
           />
         )}

@@ -140,7 +140,13 @@ const LINK_ACTOR: ActorContext = {
  * What a link is for.
  *
  * `connect` hands us a booking credential; `setup` confirms the booking
- * requirement set (design of 23 September 2026, §A.9 and §H). Same table,
+ * requirement set (design of 23 September 2026, §A.9 and §H). `meta` connects
+ * a clinic's Facebook Page and its linked Instagram account through Facebook
+ * Login for Business, and `whatsapp` its WhatsApp number through Embedded
+ * Signup (launch plan 1.6 and 2.5, docs/meta-app-review.md). They are two
+ * purposes rather than one "channels" link because every link here is single
+ * use, burned in the transaction that stores what it bought, and a clinic
+ * connecting both would otherwise spend its link on the first. Same table,
  * same token, same bootstrap policy — the purpose is a column checked inside
  * the tenant transaction by resolution and by consumption, so a setup token
  * cannot be spent on /connect and a connect token cannot be spent on /setup.
@@ -148,7 +154,7 @@ const LINK_ACTOR: ActorContext = {
  * (property 3), because "this is a real link for a different page" is exactly
  * the kind of confirmation a stranger holding a URL should not get.
  */
-export type LinkPurpose = "connect" | "setup";
+export type LinkPurpose = "connect" | "setup" | "meta" | "whatsapp";
 
 /** What the wizard (or the setup page) needs to render, and nothing else. */
 export type ResolvedLink = {

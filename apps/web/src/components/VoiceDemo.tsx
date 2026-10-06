@@ -27,9 +27,9 @@ const LINE_DELAY_MS = 1_600;
  *
  * That one consented demo call to a clinic owner is the only call anything
  * on healdesk ever places. The product is inbound only and never dials a
- * patient, so the panel says so beside the form. The call still runs through
- * Synthflow (lib/synthflow.ts) until a Retell demo agent exists; the product
- * voice agent runs on Retell.
+ * patient, so the panel says so beside the form. The call runs on Retell, to
+ * AYA's demo agent (lib/retell-demo-call.ts); the product's voice agent is a
+ * separate Retell agent that only ever answers.
  *
  * ## The consent gate is not a formality
  *

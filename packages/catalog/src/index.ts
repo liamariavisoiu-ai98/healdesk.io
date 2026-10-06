@@ -25,3 +25,4 @@ export * from "./platforms";
 export * from "./request-signing";
 export * from "./segments";
 export * from "./specialties";
+export * from "./welcome";

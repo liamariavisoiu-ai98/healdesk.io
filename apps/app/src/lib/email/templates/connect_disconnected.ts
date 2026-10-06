@@ -1,0 +1,74 @@
+import type { NoticePayloads } from "@/lib/billing/notices";
+
+import { momentLong, portalUrl } from "./billing-copy";
+import { compose, type Block } from "./compose";
+import type { TemplateEntry } from "./registry";
+import type { EmailTemplate } from "./types";
+
+/**
+ * O14: payments disconnected (Annex X5), Package D's Stripe Connect. It is
+ * also the security record of the disconnection (contracts §5).
+ *
+ * What changed: deposits are off, links already sent and unpaid no longer
+ * work, and those deposits are flagged in Bookings for the front desk (the
+ * disconnect cascade, R23). What to do depends on who did it: a disconnection
+ * from Stripe's side may not have been meant, so that one offers to connect
+ * again; one from the portal or by our team asks the clinic to reply only if
+ * it was not expected.
+ */
+
+export type ConnectDisconnectedPayload = NoticePayloads["connect_disconnected"];
+
+export const renderConnectDisconnected: EmailTemplate<ConnectDisconnectedPayload> = (
+  payload,
+  ctx,
+) => {
+  const fromStripe = payload.wasByWebhook || payload.source === "stripe";
+  const how = fromStripe
+    ? "from your Stripe account"
+    : payload.source === "ops"
+      ? "by the healdesk team"
+      : "from your healdesk account";
+
+  const next: Block[] = fromStripe
+    ? [
+        {
+          type: "paragraph",
+          text: "If you didn't mean to disconnect it, connect Stripe again in Settings, under Payments.",
+        },
+        { type: "action", label: "Connect Stripe again", url: portalUrl() },
+      ]
+    : [
+        {
+          type: "paragraph",
+          text:
+            payload.source === "ops"
+              ? "If you weren't expecting this, reply to this email."
+              : "If nobody at your clinic disconnected it, reply to this email now.",
+        },
+      ];
+
+  return compose(
+    {
+      subject: "Stripe was disconnected from healdesk",
+      preheader: "Deposits are off until Stripe is connected again.",
+      blocks: [
+        {
+          type: "paragraph",
+          text: `Your Stripe account was disconnected from healdesk at ${momentLong(payload.disconnectedAt, ctx)}, ${how}.`,
+        },
+        {
+          type: "paragraph",
+          text: "Deposits are now off, so AYA no longer sends deposit links. Links she had already sent that weren't paid have stopped working, and those deposits are flagged in Bookings for your team to collect.",
+        },
+        ...next,
+      ],
+    },
+    ctx,
+  );
+};
+
+export const CONNECT_DISCONNECTED_ENTRY: TemplateEntry<ConnectDisconnectedPayload> = {
+  render: renderConnectDisconnected,
+  fixture: { disconnectedAt: "2026-10-06T14:20:00.000Z", wasByWebhook: true, source: "stripe" },
+};

@@ -134,12 +134,33 @@ describe("the template registry", () => {
     }
   });
 
-  test("the templates shipped so far: I1, B2, B3 and O3", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
       "order_confirmed_delayed",
       "device_changed",
+      "payment_failed",
+      "payment_action_required",
+      "grace_ending",
+      "suspended",
+      "restored",
+      "cancel_scheduled",
+      "cancel_reversed",
+      "canceled",
+      "renewal_upcoming",
+      "overage_invoiced",
+      "plan_changed",
+      "location_added",
+      "connect_disconnected",
+      "plan_started",
+      "price_stepped_up",
+      "step_up_reminder",
+      "allowance_fallback",
+      "receipt",
+      "refund_issued",
+      "card_expiring",
+      "connect_connected",
     ]);
   });
 

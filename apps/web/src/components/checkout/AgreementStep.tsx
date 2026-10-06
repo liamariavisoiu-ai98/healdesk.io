@@ -164,7 +164,15 @@ export function AgreementStep({
   } | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const endRef = useRef<HTMLDivElement>(null);
+  /**
+   * The end marker, held as state through a callback ref rather than in a
+   * ref object, so that the marker appearing is itself what (re)attaches the
+   * observer below. The step can open on the signed view, which has no
+   * marker, and "Sign again with different answers" then draws the document
+   * in this same component with nothing else the observer watched having
+   * changed; a ref object read in an effect would never see it arrive.
+   */
+  const [endMarker, setEndMarker] = useState<HTMLDivElement | null>(null);
   const noticeRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -230,11 +238,11 @@ export function AgreementStep({
    * the marker is clipped until the box is scrolled to it, and inline it
    * enters the viewport when the page is. A browser with no observer is let
    * through rather than left with a Sign button that can never unlock.
+   * Keyed on the marker element itself, which exists only while the document
+   * is shown (see `endMarker`).
    */
   useEffect(() => {
-    if (!hasDocument || readToEnd) return;
-    const end = endRef.current;
-    if (!end) return;
+    if (!endMarker || readToEnd) return;
     if (typeof IntersectionObserver === "undefined") {
       setReadToEnd(true);
       return;
@@ -242,9 +250,9 @@ export function AgreementStep({
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) setReadToEnd(true);
     });
-    observer.observe(end);
+    observer.observe(endMarker);
     return () => observer.disconnect();
-  }, [hasDocument, readToEnd, documentKey]);
+  }, [endMarker, readToEnd, documentKey]);
 
   const nameOk = contactName.trim().length >= 2;
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
@@ -461,7 +469,7 @@ export function AgreementStep({
               <pre className="text-muted font-sans text-[15.6px] leading-relaxed whitespace-pre-wrap">
                 {shownText}
               </pre>
-              <div ref={endRef} aria-hidden className="h-px" data-agreement-end />
+              <div ref={setEndMarker} aria-hidden className="h-px" data-agreement-end />
             </div>
 
             <div className="border-line border-t px-5 py-3">

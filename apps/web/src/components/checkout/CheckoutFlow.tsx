@@ -528,6 +528,9 @@ export function CheckoutFlow({
     const stale = agreement !== null && !signedFor;
     return (
       <AgreementStep
+        // "Sign again with different answers" is a new screen, not the old
+        // one redrawn: the document unread, the assent box unticked.
+        key={validAgreement ? "signed" : "unsigned"}
         step={3}
         totalSteps={TOTAL_STEPS}
         onBack={() => go(2)}

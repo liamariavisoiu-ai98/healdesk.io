@@ -194,6 +194,48 @@ describeDb("tenant isolation", () => {
     }
   });
 
+  test("the billing request ledger (0047) shows a clinic only its own rows, and takes no write into another", async () => {
+    const alpha = await seedClinic("alpha-req");
+    const beta = await seedClinic("beta-req");
+    for (const c of [alpha, beta]) {
+      await inTenant(c.clinicId, async (client) => {
+        await client.query(
+          `insert into billing_requests (clinic_id, kind, reason) values ($1, 'plan_start', 'first_answer')`,
+          [c.clinicId],
+        );
+      });
+    }
+
+    const seen = await asTenant(alpha.clinicId, async (c) => {
+      const result = await c.query(`select clinic_id from billing_requests`);
+      return result.rows;
+    });
+    expect(seen).toEqual([{ clinic_id: alpha.clinicId }]);
+
+    const { rows } = await getAppPool().query<{ count: number }>(
+      `select count(*)::int as count from billing_requests`,
+    );
+    expect(rows[0]!.count, "billing_requests leaked rows with no tenant set").toBe(0);
+
+    await expect(
+      asTenant(alpha.clinicId, (c) =>
+        c.query(
+          `insert into billing_requests (clinic_id, kind, reason) values ($1, 'close_setup', 'deadline')`,
+          [beta.clinicId],
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "42501" });
+    // And a tenant cannot reach another's row to rewrite it: the update finds nothing.
+    const moved = await asTenant(alpha.clinicId, async (c) => {
+      const result = await c.query(
+        `update billing_requests set next_attempt_at = now() where clinic_id = $1 returning id`,
+        [beta.clinicId],
+      );
+      return result.rows;
+    });
+    expect(moved).toEqual([]);
+  });
+
   test("the tenant setting does not survive into the next borrower of a pooled connection", async () => {
     const clinic = await seedClinic("pooled");
 

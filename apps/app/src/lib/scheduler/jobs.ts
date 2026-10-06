@@ -44,6 +44,22 @@ export const JOB_USAGE_ALERTS = "usage-alerts";
 export const JOB_BILLING_NOTICES = "billing-notices";
 export const JOB_BILLING_HOUSEKEEPING = "billing-housekeeping";
 /**
+ * The Stripe build's jobs (drizzle/0047), seeded off.
+ *
+ * `billing-requests` carries out the billing-request ledger on Stripe: every
+ * minute from the `billing-minute` queue, and hourly from the tick as a
+ * backstop, behind its switch but without runJob's lock (runSwitchedJob),
+ * because each request is leased on its own row. `billing-reconcile` runs
+ * hourly and records whatever request is due but missing. `card-expiring`
+ * runs daily at 07 UTC. `setup-closure` is a switch, not a schedule: while it
+ * is off the worker leaves `close_setup` requests pending, because closing an
+ * account cannot be undone. Wired in tick.ts.
+ */
+export const JOB_BILLING_REQUESTS = "billing-requests";
+export const JOB_SETUP_CLOSURE = "setup-closure";
+export const JOB_BILLING_RECONCILE = "billing-reconcile";
+export const JOB_CARD_EXPIRING = "card-expiring";
+/**
  * Phase two: the attribution jobs. Their code is kept, but they never run in
  * v1 (env.phaseTwoAttribution()), and the console refuses to switch them on.
  * The 0040 `callback-dialer` job was removed by drizzle/0041.

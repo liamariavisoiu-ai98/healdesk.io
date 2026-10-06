@@ -356,6 +356,10 @@ describeDb("delivery", () => {
           // every minute from the `notices` queue (lib/email/outbox.ts).
           "usage-meter-report",
           "usage-alerts",
+          // The Stripe build's hourly jobs (drizzle/0047): the billing reconcile,
+          // and the requests worker's hourly backstop.
+          "billing-reconcile",
+          "billing-requests",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;

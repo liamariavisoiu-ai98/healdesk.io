@@ -27,6 +27,16 @@ function optional(name: string): string | undefined {
   return process.env[name] || undefined;
 }
 
+/**
+ * The identifier-reference key outside production. Fixed, so a test or a
+ * local run computes the same references every time with no setup, and
+ * public, because nothing outside production may hold a real identifier.
+ */
+const DEVELOPMENT_IDENTIFIER_REF_KEY = "healdesk-development-identifier-ref-key-not-a-secret";
+
+/** openssl rand -base64 32 prints 44 characters; anything under 32 is a typo or a placeholder. */
+const IDENTIFIER_REF_KEY_MIN_LENGTH = 32;
+
 export const env = {
   /** Runtime connection. MUST be a role WITHOUT BYPASSRLS — see docs/hipaa-compliance.md. */
   databaseUrl: () =>
@@ -48,6 +58,40 @@ export const env = {
 
   betterAuthUrl: () =>
     process.env.BETTER_AUTH_URL ?? "http://localhost:3001",
+
+  /**
+   * The key behind identifierRef() (lib/identifier-ref.ts): the HMAC that
+   * turns a vendor's identifier into the reference we store instead of it. A
+   * WhatsApp sender id is a phone number, and an unkeyed hash of one is
+   * reversed by hashing every number. Its own variable rather than a
+   * derivation of BETTER_AUTH_SECRET, so rotating session signing can never
+   * re-key the ledgers by accident.
+   *
+   * NEVER rotate it without a re-key plan. Every stored reference was made
+   * under it: under a new key a caller's next message no longer finds its
+   * conversation, a redelivered Meta message is no longer recognised as one,
+   * and a call already counted is counted again.
+   *
+   * Required in production, at least 32 characters (openssl rand -base64 32).
+   * Outside production a fixed development key stands in, without a warning,
+   * because it is read on every inbound message and the stand-in is
+   * deliberate rather than a missing secret.
+   */
+  identifierRefKey: (): string => {
+    const value = process.env.HEALDESK_IDENTIFIER_REF_KEY;
+    if (process.env.NODE_ENV !== "production") return value || DEVELOPMENT_IDENTIFIER_REF_KEY;
+    if (!value) {
+      throw new Error(
+        "HEALDESK_IDENTIFIER_REF_KEY is not set. Generate with: openssl rand -base64 32",
+      );
+    }
+    if (value.length < IDENTIFIER_REF_KEY_MIN_LENGTH) {
+      throw new Error(
+        `HEALDESK_IDENTIFIER_REF_KEY is shorter than ${IDENTIFIER_REF_KEY_MIN_LENGTH} characters. Generate with: openssl rand -base64 32`,
+      );
+    }
+    return value;
+  },
 
   /**
    * Shared secret between the marketing site's checkout and this app's

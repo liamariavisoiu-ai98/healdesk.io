@@ -441,6 +441,40 @@ export function channelList(plan: Plan): Channel[] {
 }
 
 /**
+ * The package whose channels are exactly `channels`, or null for none.
+ *
+ * Billing follows the channels in service, not the package bought (the
+ * owner's decision of 6 October 2026): a clinic that bought Complete and
+ * whose website chat answered first is billed as Web Chatbot until its next
+ * channel answers. The seven packages are the seven non-empty sets of the
+ * three channels, so every set names exactly one package, and duplicates in
+ * the input do not matter. An empty set is null, never a package: no channel
+ * in service means nothing to bill yet, and a caller must not start or change
+ * a plan on it.
+ */
+export function planForChannels(channels: Iterable<Channel>): Plan | null {
+  const wanted = new Set(channels);
+  if (wanted.size === 0) return null;
+  return (
+    plans.find(
+      (plan) =>
+        plan.channels.web === wanted.has("web") &&
+        plan.channels.meta === wanted.has("meta") &&
+        plan.channels.voice === wanted.has("voice"),
+    ) ?? null
+  );
+}
+
+/**
+ * The $0 monthly price checkout puts on the subscription beside the setup fee,
+ * which the plan-start worker swaps for the package price at the clinic's
+ * first answer (funnel and portal contracts §2). stripe-setup creates it. Not
+ * a `healdesk_` package key, so `parseLookupKey` returns null for it and
+ * nothing reads the placeholder as a plan.
+ */
+export const PLAN_START_PLACEHOLDER_LOOKUP_KEY = "plan_start_placeholder_month";
+
+/**
  * Stripe price lookup keys.
  *
  * The key encodes the amount, so a catalog price change cannot silently resolve
@@ -628,6 +662,16 @@ export const SETUP_FEE_REFUND_NOT_LIVE_DAYS = 30;
  * (decision of 21 September 2026).
  */
 export const FIRST_PERIOD_REFUND_DAYS = 14;
+
+/**
+ * Days after the service ends for which calls still forwarded to us are
+ * passed straight through to the clinic's direct line, the floor terms § 7
+ * promises (it stops sooner only when the clinic removes its own call
+ * forwarding). Here so apps/app's end-of-service email states the same number
+ * as apps/web's terms, whose `POLICY.forwardingPassThroughDays` a test holds
+ * to this one.
+ */
+export const FORWARDING_PASS_THROUGH_DAYS = 30;
 
 /**
  * What a clinic is displacing, for the comparison on the pricing page.

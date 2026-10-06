@@ -10,14 +10,18 @@ import {
   CHAT_CONVERSATION_SILENCE_MS,
   chatChannelOf,
   FIRST_PERIOD_REFUND_DAYS,
+  FORWARDING_PASS_THROUGH_DAYS,
   getPlan,
   getPricingCard,
   meteredPriceLookupKey,
   offersChatChoice,
   overageRateCents,
   parseLookupKey,
+  type Channel,
   type Plan,
+  PLAN_START_PLACEHOLDER_LOOKUP_KEY,
   planForCard,
+  planForChannels,
   planMeteredPrices,
   plans,
   pricingCards,
@@ -275,5 +279,55 @@ describe("refund windows", () => {
   test("carry the numbers the terms quote", () => {
     expect(SETUP_FEE_REFUND_NOT_LIVE_DAYS).toBe(30);
     expect(FIRST_PERIOD_REFUND_DAYS).toBe(14);
+  });
+
+  test("forwarded calls pass through for the 30 days terms § 7 promises", () => {
+    expect(FORWARDING_PASS_THROUGH_DAYS).toBe(30);
+  });
+});
+
+describe("the package for the channels in service", () => {
+  /**
+   * Written out by hand, so a package whose channels changed would have to
+   * change this table too: billing follows these sets, and a wrong one bills a
+   * clinic for a channel it does not have.
+   */
+  const SETS: [Channel[], string][] = [
+    [["web"], "chat-web"],
+    [["meta"], "chat-meta"],
+    [["voice"], "voice"],
+    [["web", "meta"], "chat-dual"],
+    [["web", "voice"], "web-voice"],
+    [["meta", "voice"], "meta-voice"],
+    [["web", "meta", "voice"], "complete"],
+  ];
+
+  test("each of the seven channel sets is exactly one package", () => {
+    for (const [channels, id] of SETS) {
+      expect(planForChannels(channels)?.id, channels.join("+")).toBe(id);
+    }
+    expect(new Set(SETS.map(([, id]) => id)).size).toBe(plans.length);
+  });
+
+  test("every package is the answer for its own channels", () => {
+    for (const p of plans) expect(planForChannels(channelList(p))?.id, p.id).toBe(p.id);
+  });
+
+  test("order and repeats do not matter, and any iterable will do", () => {
+    expect(planForChannels(["voice", "web"])?.id).toBe("web-voice");
+    expect(planForChannels(["meta", "meta", "web", "meta"])?.id).toBe("chat-dual");
+    expect(planForChannels(new Set<Channel>(["voice", "meta", "web"]))?.id).toBe("complete");
+  });
+
+  test("no channel in service is no package, never a guess", () => {
+    expect(planForChannels([])).toBeNull();
+    expect(planForChannels(new Set<Channel>())).toBeNull();
+  });
+});
+
+describe("the plan-start placeholder", () => {
+  test("is the $0 price's lookup key, and never reads as a package price", () => {
+    expect(PLAN_START_PLACEHOLDER_LOOKUP_KEY).toBe("plan_start_placeholder_month");
+    expect(parseLookupKey(PLAN_START_PLACEHOLDER_LOOKUP_KEY)).toBeNull();
   });
 });

@@ -276,4 +276,34 @@ describeDb("database audit (0031)", () => {
     `);
     expect(rows.map((r) => r.relname)).toEqual(expected);
   });
+
+  test("every SECURITY DEFINER function is executable by the runtime role and not by PUBLIC", async () => {
+    // A definer runs as its owner, and the tenant walks among them set
+    // app.clinic_id for every clinic in turn. Postgres grants EXECUTE on a new
+    // function to PUBLIC by default, so one created without its REVOKE would
+    // hand that walk to any role that can connect. Every migration revokes it
+    // by hand; this is the check that they all did (0047 added three).
+    const { rows } = await getMigratorPool().query<{
+      proname: string;
+      public_execute: boolean;
+      app_execute: boolean;
+    }>(`
+      select p.proname,
+             has_function_privilege('public', p.oid, 'EXECUTE') as public_execute,
+             has_function_privilege('healdesk_app', p.oid, 'EXECUTE') as app_execute
+        from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.prosecdef
+    `);
+    expect(rows.map((r) => r.proname)).toEqual(
+      expect.arrayContaining([
+        "app_record_billing_request",
+        "app_due_billing_requests",
+        "app_clinic_for_deposit",
+      ]),
+    );
+    for (const fn of rows) {
+      expect(fn.public_execute, `${fn.proname} is executable by PUBLIC`).toBe(false);
+      expect(fn.app_execute, `${fn.proname} is not executable by healdesk_app`).toBe(true);
+    }
+  });
 });

@@ -309,6 +309,13 @@
       "when": 1791187294672,
       "tag": "0043_stripe_launch",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1791272095494,
+      "tag": "0044_funnel_portal_contracts",
+      "breakpoints": true
     }
   ]
 }

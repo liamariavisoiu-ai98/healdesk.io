@@ -5,6 +5,8 @@ import {
   annualTotalUsd,
   billableVoiceMinutes,
   cardForPlan,
+  channelList,
+  CHANNELS,
   CHAT_CONVERSATION_SILENCE_MS,
   chatChannelOf,
   FIRST_PERIOD_REFUND_DAYS,
@@ -149,6 +151,17 @@ describe("the twin packages", () => {
       (["month", "year", "setup"] as const).map((kind) => stripeLookupKey(p, kind)),
     );
     expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+describe("the channel ids", () => {
+  test("CHANNELS is every key of a package's channels, in channelList's order", () => {
+    // apps/app builds its channel CHECKs from this list, so a channel added
+    // to the type and not here would be refused on its first row.
+    for (const p of plans) {
+      expect(Object.keys(p.channels).sort(), p.id).toEqual([...CHANNELS].sort());
+    }
+    expect(channelList(plan("complete"))).toEqual(CHANNELS);
   });
 });
 

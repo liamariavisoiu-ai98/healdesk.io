@@ -128,6 +128,13 @@
 
 export type Channel = "web" | "meta" | "voice";
 
+/**
+ * Every channel, in `channelList`'s order. The runtime list of `Channel`, so a
+ * database CHECK on a channel column is built from it rather than retyped: a
+ * clinic's channels are rows keyed by these ids, and billing steps up by them.
+ */
+export const CHANNELS: readonly Channel[] = ["web", "meta", "voice"];
+
 export type BillingInterval = "month" | "year";
 
 export const BILLING_INTERVALS: readonly BillingInterval[] = ["month", "year"];

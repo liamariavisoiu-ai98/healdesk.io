@@ -18,8 +18,10 @@ import type { TenantTx } from "@/lib/tenant";
  * transaction, to the owners and billing contacts of the billing clinic
  * (lib/billing/recipients.ts) and never to report_recipients.
  *
- * F0 writes the types and the enqueue; package C replaces the sender stubs at
- * the bottom of this file.
+ * F0 writes the types and the enqueue. The kinds come from the registry in
+ * lib/email/kinds.ts; the email platform replaces the sender stubs at the
+ * bottom of this file in M2, and Package C writes payloads and templates, not
+ * a sender (funnel and portal contracts §4).
  */
 
 export { BILLING_NOTICE_KINDS, type BillingNoticeKind };
@@ -38,6 +40,14 @@ export type UsageNoticePayload = {
 };
 
 type Empty = Record<string, never>;
+
+/**
+ * The payload of a kind whose shape is not written yet. Package C defines each
+ * shape with its template (Package D for `connect_connected`), replacing this
+ * one kind at a time. Payloads carry no PHI: cents, ISO dates, Stripe-hosted
+ * URLs, plan and channel names, counts.
+ */
+export type NoticePayloadPending = Readonly<Record<string, string | number | boolean | null>>;
 
 /**
  * What each kind carries (design §7). No PHI, ever: amounts in cents, ISO
@@ -64,7 +74,15 @@ export type NoticePayloads = {
   plan_changed: { planName: string; interval: BillingInterval };
   location_added: { locations: number };
   connect_disconnected: Empty;
-  welcome_resend: Empty;
+  // The funnel and portal contracts (§3, §5), kinds in lib/email/kinds.ts.
+  plan_started: NoticePayloadPending;
+  price_stepped_up: NoticePayloadPending;
+  step_up_reminder: NoticePayloadPending;
+  allowance_fallback: NoticePayloadPending;
+  receipt: NoticePayloadPending;
+  refund_issued: NoticePayloadPending;
+  card_expiring: NoticePayloadPending;
+  connect_connected: NoticePayloadPending;
 };
 
 // A compile-time check that the payload map and the CHECK list name the same
@@ -131,8 +149,8 @@ export type SendPendingNoticesOptions = {
 };
 
 /**
- * STUB (package C replaces it). Deliver due notices outside any transaction.
- * Never throws; returns counts.
+ * STUB (the email platform replaces it in M2). Deliver due notices outside
+ * any transaction. Never throws; returns counts.
  */
 export async function sendPendingNotices(
   options: SendPendingNoticesOptions = {},
@@ -141,7 +159,7 @@ export async function sendPendingNotices(
   return { sent: 0, failed: 0, skipped: 0 };
 }
 
-/** STUB (package C replaces it). The hourly backstop sender, through its switch. */
+/** STUB (the email platform replaces it in M2). The hourly backstop sender, through its switch. */
 export async function runBillingNoticesJob(
   options: { now?: Date; transport?: EmailTransport } = {},
 ): Promise<JobOutcome> {

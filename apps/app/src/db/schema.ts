@@ -5,6 +5,7 @@ import {
   boolean,
   check,
   customType,
+  date,
   index,
   inet,
   integer,
@@ -20,10 +21,16 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-import type { BillingInterval, Channel, OnboardingState } from "@healdesk/catalog";
+import {
+  type BillingInterval,
+  type Channel,
+  CHANNELS,
+  type OnboardingState,
+} from "@healdesk/catalog";
 
 import type { OpeningHours } from "../lib/clinic/opening-hours";
 import type { SealedPayload } from "../lib/crypto/envelope";
+import { NOTICE_KINDS } from "../lib/email/kinds";
 
 import { organization, user } from "./auth-schema";
 
@@ -2271,6 +2278,23 @@ export const entitlements = pgTable(
     setupFeeRefundedUsd: numeric("setup_fee_refunded_usd", { precision: 12, scale: 2 }),
     firstPeriodRefundedAt: timestamp("first_period_refunded_at", { withTimezone: true }),
 
+    // --- 0044: the deferred start and the setup window (funnel and portal
+    // contracts). Null on every row written before it. ---
+    /** When the first plan invoice was paid: the monthly plan has started. */
+    planStartedAt: timestamp("plan_started_at", { withTimezone: true }),
+    /**
+     * The package bought at checkout. `planCode` follows the package Stripe
+     * bills, which matches the channels in service until every bought channel
+     * is; this stays what was sold, and the metered rates stay its.
+     */
+    boughtPlanId: text("bought_plan_id"),
+    /**
+     * The end of the setup window: the end of the 30th day after purchase,
+     * set at provisioning and extended only by ops. A clinic with no live
+     * channel by then is closed by a job, and its setup fee is not refunded.
+     */
+    setupDeadlineAt: timestamp("setup_deadline_at", { withTimezone: true }),
+
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -2577,6 +2601,12 @@ export const clinicSettings = pgTable(
     aiPausedAt: timestamp("ai_paused_at", { withTimezone: true }),
     aiPausedByLabel: text("ai_paused_by_label"),
     /**
+     * When a pause ends by itself ("for 1 hour", "until tomorrow 8 am"). Read
+     * only while `aiPausedAt` is set, and null then means until someone turns
+     * AYA back on.
+     */
+    aiPausedUntil: timestamp("ai_paused_until", { withTimezone: true }),
+    /**
      * A clinic line that does NOT forward back to us: where every degradation
      * path sends a caller (CLAUDE.md, "Failure"). E.164.
      */
@@ -2711,24 +2741,12 @@ export const metaInboundMessages = pgTable(
   ],
 );
 
-export const BILLING_NOTICE_KINDS = [
-  "payment_failed",
-  "payment_action_required",
-  "grace_ending",
-  "suspended",
-  "restored",
-  "cancel_scheduled",
-  "cancel_reversed",
-  "canceled",
-  "renewal_upcoming",
-  "usage_80",
-  "usage_100",
-  "overage_invoiced",
-  "plan_changed",
-  "location_added",
-  "connect_disconnected",
-  "welcome_resend",
-] as const;
+/**
+ * The outbox's kinds: the keys of the registry in lib/email/kinds.ts (Annex
+ * X3), which also says how each is sent. F0's name and export are kept, so
+ * every reader of this list reads the registry.
+ */
+export const BILLING_NOTICE_KINDS = NOTICE_KINDS;
 export type BillingNoticeKind = (typeof BILLING_NOTICE_KINDS)[number];
 
 /**
@@ -2914,6 +2932,157 @@ export const stripeConnectStates = pgTable(
   ],
 );
 
+// -----------------------------------------------------------------------------
+// The funnel and portal contracts (drizzle/0044): channels, their events, and
+// the days a clinic is closed
+// -----------------------------------------------------------------------------
+
+/** The one thing a channel ready on our side is waiting for the clinic to do. */
+export const CHANNEL_WAITING_ON = [
+  "setup",
+  "forwarding",
+  "snippet",
+  "meta_connect",
+  "whatsapp_payment_method",
+] as const;
+export type ChannelWaitingOn = (typeof CHANNEL_WAITING_ON)[number];
+
+/**
+ * One row per channel the clinic bought, written at provisioning. The channel
+ * is the catalog's (`CHANNELS`: web, meta, voice), because billing steps up by
+ * those three: Meta is one row for Instagram, Messenger and WhatsApp.
+ *
+ * The row is the channel's state now; `channel_events` is how it got there.
+ * `enabled` is the Settings On/Off. `ready_at` is when it was ready on our
+ * side, `waiting_on` the clinic's one outstanding action meanwhile, `live_at`
+ * when it went live, and `first_answer_at` its first answered patient
+ * conversation: the day its price joins the plan. lib/channels/state.ts turns
+ * a row into a status word.
+ *
+ * The runtime role cannot DELETE a row or move its key, so a channel in
+ * service never drops out of the price by losing it. Tenant plane, no PHI.
+ */
+export const clinicChannels = pgTable(
+  "clinic_channels",
+  {
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    channel: text("channel").$type<Channel>().notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    readyAt: timestamp("ready_at", { withTimezone: true }),
+    waitingOn: text("waiting_on").$type<ChannelWaitingOn>(),
+    liveAt: timestamp("live_at", { withTimezone: true }),
+    firstAnswerAt: timestamp("first_answer_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.clinicId, t.channel] }),
+    check("clinic_channels_channel_check", sql`${t.channel} in (${sqlList(CHANNELS)})`),
+    check(
+      "clinic_channels_waiting_on_check",
+      sql`${t.waitingOn} is null or ${t.waitingOn} in (${sqlList(CHANNEL_WAITING_ON)})`,
+    ),
+  ],
+);
+
+export type ClinicChannelRow = typeof clinicChannels.$inferSelect;
+
+export const CHANNEL_EVENT_KINDS = [
+  "ready",
+  "waiting",
+  "live",
+  "first_answer",
+  "paused",
+  "resumed",
+  "turned_off",
+  "turned_on",
+] as const;
+export type ChannelEventKind = (typeof CHANNEL_EVENT_KINDS)[number];
+
+/**
+ * What happened to a clinic's channels, append-only: ready on our side,
+ * waiting on the clinic (and for what), live, the first answer, the header's
+ * pause and resume, and the Settings switch.
+ *
+ * It is billing evidence. The plan starts on the clinic's first
+ * `first_answer` and each later channel's price joins on its own, so the
+ * partial unique index below makes the database, not the engine's memory,
+ * the reason a channel's first answer is recorded once. A pause is
+ * clinic-wide, so `paused` and `resumed` may name no channel; every other
+ * kind names one.
+ *
+ * `actor` is 'system', 'ops', or the label of the device whose passkey did it.
+ * `detail` holds ids, ISO dates and counts, never conversation content. The
+ * runtime role may SELECT and INSERT, nothing else. Tenant plane, no PHI.
+ */
+export const channelEvents = pgTable(
+  "channel_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    channel: text("channel").$type<Channel>(),
+    kind: text("kind").$type<ChannelEventKind>().notNull(),
+    waitingOn: text("waiting_on").$type<ChannelWaitingOn>(),
+    actor: text("actor"),
+    detail: jsonb("detail")
+      .$type<Record<string, string | number | boolean | null>>()
+      .notNull()
+      .default({}),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("channel_events_first_answer_idx")
+      .on(t.clinicId, t.channel)
+      .where(sql`${t.kind} = 'first_answer'`),
+    index("channel_events_clinic_idx").on(t.clinicId, t.occurredAt),
+    check(
+      "channel_events_channel_check",
+      sql`${t.channel} is null or ${t.channel} in (${sqlList(CHANNELS)})`,
+    ),
+    check("channel_events_kind_check", sql`${t.kind} in (${sqlList(CHANNEL_EVENT_KINDS)})`),
+    check(
+      "channel_events_waiting_on_check",
+      sql`${t.waitingOn} is null or ${t.waitingOn} in (${sqlList(CHANNEL_WAITING_ON)})`,
+    ),
+    check(
+      "channel_events_channel_required",
+      sql`${t.channel} is not null or ${t.kind} in ('paused', 'resumed')`,
+    ),
+  ],
+);
+
+export type ChannelEvent = typeof channelEvents.$inferSelect;
+
+/**
+ * Whole local days the clinic is closed (a holiday, a training day), on top
+ * of its weekly hours, which stay in `clinics.opening_hours`. `closed_on` is
+ * a date in the clinic's own time zone; lib/clinic/closures.ts reads it. The
+ * runtime role may add a day, relabel it and remove it, never move it.
+ * Tenant plane, no PHI.
+ */
+export const clinicClosures = pgTable(
+  "clinic_closures",
+  {
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    closedOn: date("closed_on", { mode: "string" }).notNull(),
+    label: text("label"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.clinicId, t.closedOn] }),
+    check(
+      "clinic_closures_label_check",
+      sql`${t.label} is null or char_length(${t.label}) <= 80`,
+    ),
+  ],
+);
+
 /** Tables carrying a clinic_id, and therefore requiring RLS. Asserted by tests. */
 export const TENANT_SCOPED_TABLES = [
   "clinic_memberships",
@@ -2946,4 +3115,7 @@ export const TENANT_SCOPED_TABLES = [
   "billing_notices",
   "overage_invoices",
   "deposit_payments",
+  "clinic_channels",
+  "channel_events",
+  "clinic_closures",
 ] as const;

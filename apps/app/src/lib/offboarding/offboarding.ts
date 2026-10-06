@@ -3,6 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import { unsafeDb } from "@/db";
 import {
   appointments,
+  clinicClosures,
   clinics,
   contacts,
   conversations,
@@ -38,6 +39,15 @@ import { withTenant } from "@/lib/tenant";
  * and the record that the destruction happened), the signed agreement (its
  * own six-year floor), suppressions, consent records and contact attempts
  * (the TCPA evidence, on its own four-year clock), and the billing history.
+ * That history includes channel_events, kept like billing_notices: the plan
+ * start and every step-up were charged from its rows, which hold no patient
+ * data.
+ *
+ * Of the tables 0044 added, clinic_closures (the days the clinic was closed)
+ * goes with the patient rows. clinic_channels is classed with it but cannot
+ * go yet: the runtime role holds no DELETE on it (a channel in service must
+ * never drop out of the price), and destruction runs as that role. It holds
+ * no patient data.
  *
  * Vendor-side data — recordings at Synthflow, the agent itself — is deleted
  * in the vendor console by the operator and noted on the security event;
@@ -66,7 +76,10 @@ export async function markExportDelivered(tx: TenantTx, how: string, now: Date =
 
 export type DestructionResult = { clinicId: string; deleted: Record<string, number> };
 
-/** Every patient row for one clinic, gone. Consent evidence, suppressions, audit, agreements, billing stay. */
+/**
+ * Every patient row for one clinic, and its closed days, gone. Consent
+ * evidence, suppressions, audit, agreements and billing stay.
+ */
 export async function destroyClinicData(tx: TenantTx, now: Date = new Date()): Promise<DestructionResult> {
   const c = tx.clinicId;
   const deleted: Record<string, number> = {};
@@ -93,6 +106,9 @@ export async function destroyClinicData(tx: TenantTx, now: Date = new Date()): P
   // and that "stop" was honoured, on the TCPA's four-year clock
   // (lib/retention/purge.ts says the same). The BAA permits retention the
   // law requires; the handover names it in the destruction notice.
+  // The closed days go with the clinic; channel_events stays as billing
+  // evidence (see the header).
+  await del("clinic_closures", () => tx.db.delete(clinicClosures).where(eq(clinicClosures.clinicId, c)).returning({ id: clinicClosures.closedOn }));
 
   await tx.db.update(clinics).set({ destroyedAt: now, synthflowNumberE164: null, updatedAt: now }).where(eq(clinics.id, c));
   const total = Object.values(deleted).reduce((a, b) => a + b, 0);

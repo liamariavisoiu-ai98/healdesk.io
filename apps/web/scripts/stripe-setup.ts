@@ -487,7 +487,7 @@ async function syncPackage(
     products,
     PLAN_META,
     pkg.plan.id,
-    { name: pkg.productName, description: pkg.description },
+    { name: pkg.productName, description: pkg.description, statement_descriptor: STATEMENT_DESCRIPTOR },
   );
 
   for (const want of pkg.prices) {
@@ -526,9 +526,9 @@ async function syncPackage(
 }
 
 // ---------------------------------------------------------------------------
-// The founding-cohort setup credit: one coupon per package.
+// The setup credit: one coupon per package.
 //
-// Day 7 of the nurture sequence offers the first cohort their setup fee back
+// Day 7 of the nurture sequence offers the setup fee back
 // (catalog COHORT_SETUP_CREDIT). Checkout honours it by naming the coupon on
 // the Session (`discounts`, lib/billing.ts), and Stripe refuses a Session
 // that names a coupon it does not have — so this runs before any of those
@@ -554,9 +554,20 @@ async function syncCohortCoupons(stripe: Stripe): Promise<void> {
       if (existing.currency !== "usd") problems.push(`currency is ${existing.currency}`);
       if (existing.duration !== "once") problems.push(`duration is ${existing.duration}, want once`);
       if (!existing.valid) problems.push("coupon is no longer valid");
-      if (problems.length === 0) verified(`${label}  ${existing.id}`);
-      // A coupon's amount cannot be changed in place: delete it and re-run.
-      else drift(`${label}  ${existing.id}: ${problems.join("; ")}`);
+      if (problems.length > 0) {
+        // A coupon's amount cannot be changed in place: delete it and re-run.
+        drift(`${label}  ${existing.id}: ${problems.join("; ")}`);
+        continue;
+      }
+      // The name can, and Stripe prints it on Checkout and the invoice, so it
+      // follows the catalog (it lost "Founding-cohort" on 6 October 2026).
+      if (existing.name !== COHORT_SETUP_CREDIT.name) {
+        await stripe.coupons.update(existing.id, { name: COHORT_SETUP_CREDIT.name });
+        tally.updated += 1;
+        line("~", `UPDATED: ${label}  ${existing.id}  (name now matches the catalog)`);
+        continue;
+      }
+      verified(`${label}  ${existing.id}`);
       continue;
     }
     const coupon = await stripe.coupons.create({
@@ -636,6 +647,7 @@ async function syncMeter(
     {
       name: want.displayName,
       description: `Billed per ${want.unitLabel} beyond the package allowance, monthly in arrears.`,
+      statement_descriptor: STATEMENT_DESCRIPTOR,
     },
   );
 
@@ -742,45 +754,16 @@ function printDryRun(desired: Desired): void {
 // ---------------------------------------------------------------------------
 
 function printNext(live: boolean): void {
-  const host = live ? "https://healdesk.io" : "https://<staging-domain>";
   console.log(
-    `\nStatement descriptor should read "${STATEMENT_DESCRIPTOR}".\n` +
-      `Set it at dashboard.stripe.com → Settings → Business → ` +
-      `Public details → Statement descriptor.\n` +
-      `Verify it is NOT the scalabid descriptor — one account serves both.\n`,
-  );
-
-  console.log(
-    `Next:\n` +
-      `  1. Webhook endpoint  dashboard.stripe.com → Developers → Webhooks\n` +
-      `     URL:    ${host}/api/webhooks/stripe\n` +
-      `     Events: checkout.session.completed          (records the account, in provisioning)\n` +
-      `             checkout.session.async_payment_succeeded\n` +
-      `             invoice.paid                        (the first one switches service on)\n` +
-      `             invoice.payment_failed\n` +
-      `             invoice.payment_action_required\n` +
-      `             customer.subscription.updated\n` +
-      `             customer.subscription.deleted\n` +
-      `             charge.dispute.created\n` +
-      `     (not customer.subscription.paused/resumed: they only fire when a\n` +
-      `     trial ends without a card, and there is no trial. A Dashboard or\n` +
-      `     portal pause arrives on customer.subscription.updated.)\n` +
-      `     Copy its signing secret into STRIPE_WEBHOOK_SECRET.\n` +
-      `     Locally: stripe listen --forward-to localhost:3000/api/webhooks/stripe\n` +
-      `  2. Customer Portal  Settings → Billing → Customer portal\n` +
-      `     ON:  update payment method; invoice history\n` +
-      `     ON:  cancel subscription — "at end of billing period" ONLY\n` +
-      `     OFF: switch plan. Stripe's portal cannot update a subscription that\n` +
-      `          carries metered prices, and a plan change must also swap the\n` +
-      `          metered items to the new package's rates (planMeteredPrices in\n` +
-      `          the catalog). Change a package by hand in the Dashboard: swap the\n` +
-      `          package price AND the metered prices, until healdesk's own Billing\n` +
-      `          screen does it.\n` +
-      `     OFF: pause subscription\n` +
-      `     OFF: cancel immediately\n` +
-      `  3. Stripe Tax  Settings → Tax → enable, and set a default tax behavior\n` +
+    `\nNext:\n` +
+      `  1. Statement descriptor, Customer Portal and webhook endpoint:\n` +
+      `     npx tsx apps/web/scripts/stripe-account-settings.ts --dry-run, then\n` +
+      `     without --dry-run, with a key that can write Products, Webhook\n` +
+      `     Endpoints and Customer Portal. It sets "${STATEMENT_DESCRIPTOR}" on these products\n` +
+      `     only (one account serves scalabid too), and${live ? " writes the new\n     endpoint's signing secret to a git-ignored file for STRIPE_WEBHOOK_SECRET." : "\n     skips the webhook in test mode; locally run\n     stripe listen --forward-to localhost:3000/api/webhooks/stripe"}\n` +
+      `  2. Stripe Tax  Settings → Tax → enable, and set a default tax behavior\n` +
       `     (prices here are created without tax_behavior and inherit it).\n` +
-      `  4. Subscriptions → Manage failed payments → "on payment failure":\n` +
+      `  3. Subscriptions → Manage failed payments → "on payment failure":\n` +
       `     must NOT cancel the subscription. Leave it active/past_due; healdesk\n` +
       `     owns the terminal transition — the billing-sweep job suspends the\n` +
       `     clinic once its grace window closes, and customer.subscription.updated\n` +

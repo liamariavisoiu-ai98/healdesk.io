@@ -6,7 +6,11 @@ import {
   downloadCookieOptions,
   issueDownloadToken,
 } from "@/lib/agreement-download";
+import { normalizeEmail } from "@/lib/leads";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
+import { gateState, refuseOtherEmail, refuseWithoutLink } from "@/lib/setup-gate";
+import { readCookie, SETUP_COOKIE } from "@/lib/setup-link";
+import { updateSetupRequest } from "@/lib/setup-requests";
 
 /**
  * POST /api/agreement, sign the BAA, before payment.
@@ -130,6 +134,36 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const raw = await request.text();
+
+  /**
+   * The setup link, while the purchase is by invitation (lib/checkout-mode.ts).
+   *
+   * Signing comes before paying, so it is gated the same way, by the same
+   * function, as /api/checkout: without a valid link there is nothing to sign
+   * for, and every refusal here is one fewer orphaned row in an append-only
+   * table. The signatory's address must be the one the link was sent to,
+   * because it becomes the clinic's one address. The body is parsed only to
+   * read that address; what is forwarded is still the raw bytes.
+   */
+  const gate = await gateState(readCookie(request.headers, SETUP_COOKIE));
+  let invited: { id: string; signedAt: Date | null } | null = null;
+  if (gate.mode === "pilot") {
+    const refused = refuseWithoutLink(gate);
+    if (refused) return refused;
+    if (gate.link === "valid") {
+      let signatoryEmail = "";
+      try {
+        signatoryEmail = String((JSON.parse(raw) as { signatoryEmail?: unknown }).signatoryEmail ?? "");
+      } catch {
+        return Response.json({ error: "Invalid request body." }, { status: 400 });
+      }
+      if (normalizeEmail(signatoryEmail) !== gate.request.emailNormalized) {
+        return refuseOtherEmail(gate.request, "signatoryEmail");
+      }
+      invited = { id: gate.request.id, signedAt: gate.request.signedAt };
+    }
+  }
+
   const timestamp = Math.floor(Date.now() / 1000).toString();
 
   let response: Response;
@@ -199,6 +233,18 @@ export async function POST(request: Request): Promise<Response> {
         `[healdesk] agreement ${agreementId}: download cookie not issued`,
         error,
       );
+    }
+  }
+
+  // Progress for /admin/setup: the first signature on this link. Never a
+  // reason to fail the response, which already carries a recorded signature.
+  if (agreementId && invited && !invited.signedAt) {
+    try {
+      await updateSetupRequest(invited.id, { signedAt: new Date() });
+    } catch (error) {
+      console.error("[healdesk] could not mark the setup request signed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 

@@ -1,12 +1,20 @@
 import { isBillingInterval } from "@healdesk/catalog";
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 
 import { CheckoutFlow } from "@/components/checkout/CheckoutFlow";
+import { type LinkNotice, SetupRequestForm } from "@/components/checkout/SetupRequestForm";
 import { Brand } from "@/components/Nav";
 import { checkoutStart, cheapestPlan } from "@/lib/pricing";
+import { replyByDate } from "@/lib/reply-by";
+import { gateState } from "@/lib/setup-gate";
+import { SETUP_COOKIE } from "@/lib/setup-link";
+
+/** Every link state a visitor can be told about, from the cookie or from /start's redirect. */
+const NOTICES: readonly LinkNotice[] = ["invalid", "expired", "replaced", "used"];
 
 export const metadata: Metadata = {
-  title: "Get started",
+  title: "Get AYA",
   description:
     "About fifteen minutes of your time, and each channel goes live as you " +
     "connect it. Works with your Google Calendar.",
@@ -24,11 +32,25 @@ export const metadata: Metadata = {
 export default async function GetStartedPage({
   searchParams,
 }: {
-  searchParams: Promise<{ plan?: string; interval?: string }>;
+  searchParams: Promise<{ plan?: string; interval?: string; link?: string }>;
 }) {
-  const { plan, interval } = await searchParams;
+  const { plan, interval, link } = await searchParams;
   const initialPlan = checkoutStart(plan) ? plan! : cheapestPlan().id;
   const initialInterval = isBillingInterval(interval) ? interval : "month";
+
+  /**
+   * While the purchase is by invitation, the setup cookie decides what this
+   * page is (lib/setup-gate.ts): the purchase, pre-filled from the request
+   * and bound to its address, or "Tell us about your clinic". The routes
+   * behind the purchase check the same cookie again, so this is what the
+   * page shows, not what protects it.
+   */
+  const gate = await gateState((await cookies()).get(SETUP_COOKIE)?.value);
+  const invited = gate.mode === "pilot" && gate.link === "valid" ? gate.request : null;
+  const notice =
+    gate.mode === "pilot" && gate.link !== "valid" && gate.link !== "none"
+      ? gate.link
+      : NOTICES.find((n) => n === link) ?? null;
 
   return (
     <div className="min-h-screen">
@@ -45,10 +67,16 @@ export default async function GetStartedPage({
       </header>
 
       <main className="px-5 py-12 sm:px-8 sm:py-16">
-        <CheckoutFlow
-          initialPlan={initialPlan}
-          initialInterval={initialInterval}
-        />
+        {gate.mode === "pilot" && !invited ? (
+          <SetupRequestForm replyBy={replyByDate()} notice={notice} />
+        ) : (
+          <CheckoutFlow
+            initialPlan={initialPlan}
+            initialInterval={initialInterval}
+            initialState={invited ? { clinicName: invited.clinicName } : undefined}
+            lockedEmail={invited?.email}
+          />
+        )}
       </main>
     </div>
   );

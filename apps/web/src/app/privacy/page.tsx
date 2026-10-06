@@ -129,7 +129,19 @@ export default function PrivacyPage() {
           <li>
             <strong>Contact form submissions</strong> — your name, your clinic's name if you give
             it, your email and your message. They are delivered to our inbox by email and kept as
-            ordinary correspondence.
+            ordinary correspondence. We send one email to the address you give, saying when we
+            will reply.
+          </li>
+          <li>
+            {/* Added 6 Oct 2026 with the setup request form (LEGAL_VERSION
+                2026-10-06.1). */}
+            <strong>Setup requests</strong> ("Tell us about your clinic") — your name, your
+            clinic's name and website, the email address your clinic will use with us, the
+            channels you want, and the IP address the request came from, which we keep with it to
+            stop abuse. We use them to reply and to send your setup link, and we record when the
+            link is opened and used. We send one email to the address you give, saying when we
+            will reply; the setup link emails carry a one-click unsubscribe. If you came from one
+            of our follow-up emails, asking for setup stops them.
           </li>
           <li>
             {/* Adopted 3 Oct 2026 by the owner without external counsel review:
@@ -235,6 +247,10 @@ export default function PrivacyPage() {
             A lead that never becomes a customer: {POLICY.leadRetentionMonths} months after the
             last visit, then deleted automatically, together with the funnel events recorded
             against it.
+          </li>
+          <li>
+            A setup request: {POLICY.leadRetentionMonths} months after it was last updated, then
+            deleted automatically.
           </li>
           <li>Server logs: {POLICY.logRetentionDays} days.</li>
           <li>Demo-call consent records: {POLICY.callConsentRetentionYears} years, then deleted.</li>

@@ -9,6 +9,15 @@ then the Stripe design.
 
 Each owning session acknowledges its section before building on it.
 
+**Updated later on 6 October 2026** with the owner's answers on the open-items page and the
+sessions' acknowledgements:
+- §2 has no backstop and no schedule; it has the 30-day setup window;
+- §3 loses L5, L6 and L26;
+- §6 carries the corrected kill switch and the agreed signatures;
+- §8 adds `HEALDESK_SETUP_LINKS`.
+
+The Stripe session and the calendar session have acknowledged these versions.
+
 ---
 
 ## 1. What the plan changes in the Stripe design
@@ -33,46 +42,57 @@ Each owning session acknowledges its section before building on it.
 
 ## 2. The deferred start (Package C)
 
-Monthly billing starts **the day AYA first answers a patient**, and no later
-than a backstop date (purchase plus `PLAN_START_TERM_DAYS`, a catalog constant,
-default 60). **There is no Stripe trial anywhere.**
+Monthly billing starts **the day AYA first answers a patient**. There is **no backstop date** and
+**no Stripe trial anywhere** (owner, 6 October 2026).
 
-Why no trial: Visa's trial rules bind "only… merchants that offer free trials
-or introductory promotions" (Visa Business News AI09334, 26 Sep 2019), and the
-plan gives nothing free. A Stripe trial would make Stripe treat it as one, and
-Stripe appends "TRIAL OVER" to the first charge's statement descriptor.
+Why no trial: Visa's trial rules bind "only… merchants that offer free trials or introductory
+promotions" (Visa Business News AI09334, 26 Sep 2019), and the plan gives nothing free. A Stripe trial
+would make Stripe treat it as one, and Stripe appends "TRIAL OVER" to the first charge's statement
+descriptor.
 
 **Checkout (apps/web, built by the plan):**
 - subscription mode, cards only;
-- line items: the bought package's setup fee (one-time), and a **$0 recurring
-  price**, "Monthly plan: starts when AYA first answers"
-  (`lookup_key: plan_start_placeholder_month`);
+- line items: the bought package's setup fee (one-time), and a **$0 recurring price**, "Monthly plan:
+  starts when AYA first answers" (`lookup_key: plan_start_placeholder_month`, created by stripe-setup in M2);
 - no `trial_end`; no package price and no metered items yet;
 - `metadata {app, ref}`; `custom_text` carries the plan-start sentence;
-- the setup credit still applies to the setup-fee line. Subscription mode always
-  saves the card, even when the total is $0.
+- the setup credit still applies to the setup-fee line. Subscription mode always saves the card, even
+  when the total is $0;
+- **the setup fee is never refundable** (owner, 6 October 2026), and the funnel and the Terms say so before payment.
 
 The first invoice (setup fee plus the $0 line) fires `invoice.paid` with
 `billing_reason=subscription_create`, so provisioning is unchanged.
 
-**Functions Package C provides:**
+**No subscription schedule.** At the first answer the worker swaps the $0 item for the package price on
+the plain subscription, with `billing_cycle_anchor: "now"` and `proration_behavior: "none"`, so Stripe
+invoices the first period at once. Nobody stores a schedule id.
+
+**The 30-day setup window (owner, 6 October 2026):**
+- provisioning sets `entitlements.setup_deadline_at`: the end of the 30th day after purchase;
+- while no channel is live, the plan sends a setup reminder every five days, six in all (days 5 to 30);
+- at the deadline, a clinic with no live channel is closed. The setup fee is not refunded, the account and
+  its setup data are removed, and the signed agreement and the billing records are kept for as long as the
+  law requires.
+
+**Functions Package C provides** (each records the request in the caller's transaction; the worker calls
+Stripe with idempotency keys and retries):
 
 | Function | Does |
 |---|---|
-| `schedulePlanStart({clinicId, subscriptionId, boughtPlanId, interval, backstopAt})` | Called by provisioning after commit. Creates a schedule `from_subscription`, then sets phase 0 to the $0 line until `backstopAt`, and phase 1 to the bought package as a placeholder (plus metered items on monthly plans) with `billing_cycle_anchor: phase_start` and no end. Stores `entitlements.stripe_schedule_id`. Idempotent per subscription. |
-| `startPlan(clinicId, reason: "first_answer" \| "backstop")` | **`first_answer`** (the engine calls it once, on the clinic's first `first_answer`): rewrites phase 1 to the package matching the channels in service, ends phase 0 now and starts phase 1 now, so Stripe charges the first period that day. **`backstop`** (a job, 7 days before the backstop): sets phase 1 to the channels ready on our side, live or waiting on the clinic, and enqueues `plan_start_reminder`. If no channel is ready on our side, the delay is ours, so it calls `extendPlanStart` instead. `notifyOps` fires if this job hasn't run by 3 days before the backstop. |
-| (on the first plan invoice's `invoice.paid`) | Sets `entitlements.plan_started_at`, opens the allowance window and enqueues `plan_started`, with the hosted receipt and the cancel link. At the backstop the copy reads "Your plan started today, as scheduled". A failed charge enqueues `payment_failed` instead. |
-| `stepUpPackage(clinicId, channel, reason: "first_answer" \| "waiting")` | **Only once the plan has started.** It adds a channel to the current phase from its first answer (`price_stepped_up` that day), or 30 days after the later of its readiness and the plan start (`step_up_reminder` 7 days ahead). Monthly plans use `create_prorations`; annual plans use `always_invoice`. It never re-charges a setup fee, and metered rates stay at the **bought** package's. Before the start, waiting channels count only at the backstop. |
-| `extendPlanStart(clinicId, date, reason: "ours" \| "ops")` | Moves phase 0's end and enqueues `plan_start_moved`. When an opening date moved too, the clinic gets one email for both. |
-| `setAutoRenew(clinicId, false)` before the start | Sets the schedule to end with phase 0, so nothing more is charged: "Your plan won't start, and nothing more is charged." |
+| `startPlan(tx, clinicId)` | The clinic's first `first_answer`. Swaps the $0 item for the package matching the channels in service, anchored now, so the first period is charged that day. |
+| (on the first plan invoice's `invoice.paid`) | Sets `entitlements.plan_started_at`, opens the allowance window and enqueues `plan_started` (L2), with the hosted receipt and the cancel link. A failed charge enqueues `payment_failed` instead. |
+| `stepUpPackage(tx, clinicId, channel, reason: "first_answer" \| "waiting")` | **Only once the plan has started.** It adds a channel from its first answer (`price_stepped_up` that day), or 30 days after the later of its readiness and the plan start (`step_up_reminder` 7 days ahead). Monthly plans use `create_prorations`; annual plans use `always_invoice`. It never re-charges a setup fee, and metered rates stay at the **bought** package's. |
+| `setAutoRenew(tx, clinicId, false)` before the start | Sets `cancel_at_period_end` on the $0 period: the account closes at that period's end unless auto-renew is turned back on, and nothing more is charged. Billing shows the earlier of that date and `setup_deadline_at`. |
+| `closeUnfinishedSetup(tx, clinicId)` | At `setup_deadline_at` with no live channel. The worker re-checks that no channel is live (if one is, it calls `notifyOps` instead), then cancels immediately with no proration and no final invoice. Package C sends no `canceled` notice for it; the plan's closure email is the only one. |
 
-**Gate additions for `assistantMayAnswer` (Package B):** the channel is Off; the
-channel is not live; `ai_paused_until` is in the future; a cancellation before
-the start is set.
+**Gate additions for `assistantMayAnswer` (Package B):** the channel is Off; the channel is not live;
+`ai_paused_until` is in the future; `cancel_at_period_end` is set before the plan starts; and, in
+after-hours-only coverage, a call inside opening hours (`isOpenAt` with `closedOn`) passes through with
+reason `outside_coverage`.
 
-**Tests Package C adds:** no subscription is ever `trialing`; no charge carries
-"TRIAL OVER"; a $0 invoice sends no email and doesn't trip `recordFirstInvoice`,
-the allowance windows, the renewal reminder or usage alerts.
+**Tests Package C adds:** no subscription is ever `trialing`; no charge carries "TRIAL OVER"; a $0
+invoice sends no email and doesn't trip `recordFirstInvoice`, the allowance windows, the renewal reminder
+or usage alerts ("the placeholder period opens no window and sends no email").
 
 ## 3. Notice kinds (Package C's payloads and templates, the plan's sender)
 
@@ -83,14 +103,17 @@ The catalogue ids are the plan's Annex X.
 | `plan_started` | L2 | First plan invoice paid |
 | `price_stepped_up` | L3 | A channel's price joins |
 | `step_up_reminder` | L4 | 7 days before a waiting channel joins |
-| `plan_start_reminder` | L5 | 7 days before the backstop |
-| `plan_start_moved` | L6 | `extendPlanStart` |
 | `allowance_fallback` | L19 | "Stop and fall back" engages, whatever the usage-alerts switch says |
-| `meta_deadline` | L26 | 14 and 3 days before Meta's switch-or-refund date |
 | F0's kinds | L27, E1, E2 | As the design's §7 says. `renewal_upcoming` goes at 30 **and** 21 days. `canceled` carries carrier-specific steps for undoing call forwarding. |
 | `receipt` | L27 | Any paid invoice above $0 that no other email covers, with the cancel link |
-| `refund_issued` | L27 | `commitRefund` |
+| `refund_issued` | L27 | `commitRefund` (the first-period refund; the setup fee is never refunded) |
 | `card_expiring` | L27 | The default card expires before the next renewal |
+| `connect_connected` | O14 | Package D, beside `connect_disconnected` |
+
+- These eight are registered in `apps/app/src/lib/email/kinds.ts` by the shared contracts commit.
+  Package C may change the attributes of its own kinds there, and nowhere else.
+- L5, L6 and L26 are gone with the backstop and the Meta date. The setup reminders and the closure email
+  are the plan's kinds (M3).
 
 - `welcome_resend` leaves the CHECK: the welcome is a link email (Annex X1.5).
 - **No receipt for an invoice that has its own email:** the welcome, `plan_started`,
@@ -152,8 +175,25 @@ The catalogue ids are the plan's Annex X.
   - The plan's DPA uses the same clause.
   - The owner decided this on 6 October; it is a counsel risk row.
   - BAA 1.2.1 keeps its 15 days for anyone who signed it.
-- **The direct-booking kill switch** is, in v1, the clinic's one sign-in, with a
-  step-up.
+- **The direct-booking kill switch is `HEALDESK_DIRECT_BOOKING_ENABLED`**, off by default and set only by
+  the owner (5 October decision). It is not a clinic control. The clinic's own control is Auto-confirm
+  (`clinic_settings.auto_confirm_bookings`, default on), which the portal puts behind step-up through the
+  calendar session's `setAutoConfirm(clinicId, on, actor)`. (Corrected 6 October: this line first called
+  the clinic's sign-in the kill switch.)
+- **Agreed signatures:**
+  - `startGoogleConnect({clinicId, returnTo, disclosureVersion}) -> {authUrl}`. It is called from a server
+    action on app.healdesk.io, never apps/web, because it sets an HttpOnly binding cookie. `returnTo` is
+    exactly `/c/<slug>/setup` or `/c/<slug>/settings`. Setup step 3 and Settings → Calendar render
+    `GOOGLE_CALENDAR_DISCLOSURE` (packages/catalog) directly above an unticked box and the Google-branded
+    button.
+  - `notifyCalendarState(tx, clinicId, state, { dedupeKey })` lives at
+    `apps/app/src/lib/notices/calendar-state.ts`. It is a no-op seam until M3, when it enqueues O13 inside
+    the caller's transaction.
+  - `effectiveBookingMode(clinicId) -> {mode, reason, reasons}`; `listCalendars` returns owned calendars
+    only, primary first.
+- **Provisioning creates the clinic's one membership as active, with role `owner`**, which the calendar
+  session's election guard requires.
+- **Google scopes are five**, the calendar list included (owner, 6 October).
 - **The calendar step sits in setup step 3** (`/c/<slug>/setup`) and in Settings
   → Calendar. Both use `startGoogleConnect` with a `returnTo` on the
   portal's own origin.
@@ -185,6 +225,7 @@ hello@), `RESEND_WEBHOOK_SECRET`, `ANTHROPIC_API_KEY`,
 | Variable | App | From | Purpose |
 |---|---|---|---|
 | `HEALDESK_CHECKOUT_MODE` | web | M1 | `pilot` or `public`; unset or anything else means `pilot`. Declared in `turbo.json` |
+| `HEALDESK_SETUP_LINKS` | web | M1 | `open` lets /admin/setup send setup links; unset, production refuses (Gate A, the owner's switch). Declared in `turbo.json` |
 | `STRIPE_AUTOMATIC_TAX` | web | M2 | `true` turns on Stripe Tax at checkout (owner's open item 9) |
 | `NEXT_PUBLIC_PORTAL_URL` | web | M3 | The site's "Sign in" link. Declared in `turbo.json`'s `build.env` |
 | `HEALDESK_SUPPORT_PHONE` | app | M3 | Help's voicemail number (open item 7); Help hides it while unset |

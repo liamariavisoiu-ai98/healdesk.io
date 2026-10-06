@@ -43,6 +43,7 @@ export const EVENTS = {
   checkout_started: ["plan", "interval"],
   checkout_step: ["step", "plan", "interval"],
   contact_submitted: [],
+  setup_requested: ["has_website"],
   call_requested: [],
 } as const satisfies Record<string, readonly string[]>;
 

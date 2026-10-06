@@ -206,7 +206,12 @@ const CHAT_OVERAGE = 0.3;
 export const COHORT_SETUP_CREDIT = {
   /** Stripe coupon id; stripe:setup creates it. */
   couponId: "healdesk-cohort-setup",
-  name: "Founding-cohort setup credit",
+  /**
+   * Shown by Stripe on the Checkout page and the invoice, so it is client
+   * copy: nothing that says we are new. Re-run stripe:setup after changing
+   * it, because the coupon already in Stripe keeps its old name.
+   */
+  name: "Setup credit",
   /** Days after the offer email during which checkout honours it. */
   validDays: 14,
 } as const;
@@ -349,7 +354,7 @@ export const pricingCards: readonly PricingCard[] = [
     id: "chat-voice",
     name: "Web OR Meta + Voice",
     planIds: ["web-voice", "meta-voice"],
-    highlight: "Most clinics",
+    highlight: "Recommended",
   },
   { id: "complete", name: "Complete FrontDesk AI", planIds: ["complete"] },
 ] as const;

@@ -38,6 +38,12 @@ export type OutboundEmail = {
   unsubscribeUrl?: string;
   /** Provider-side tag, for the dashboard. Never contains a person's data. */
   tag?: string;
+  /**
+   * Resend's `Idempotency-Key`: the same key within 24 hours sends once.
+   * Built from row ids and the kind (`setup-ack:<request id>`), never from
+   * an address, because Resend keeps the key in its logs.
+   */
+  idempotencyKey?: string;
 };
 
 export type SendResult =
@@ -80,6 +86,7 @@ export async function send(message: OutboundEmail): Promise<SendResult> {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
+        ...(message.idempotencyKey ? { "Idempotency-Key": message.idempotencyKey } : {}),
       },
       body: JSON.stringify({
         from,
@@ -88,7 +95,13 @@ export async function send(message: OutboundEmail): Promise<SendResult> {
         subject: message.subject,
         text: message.text,
         headers,
-        tags: message.tag ? [{ name: "kind", value: message.tag }] : undefined,
+        // `app` lets the one Resend account's webhook tell this site's mail
+        // from the product's (Annex X3). Tag values allow letters, digits,
+        // `_` and `-` only, which the kinds used here keep to.
+        tags: [
+          { name: "app", value: "web" },
+          ...(message.tag ? [{ name: "kind", value: message.tag }] : []),
+        ],
       }),
       signal: AbortSignal.timeout(10_000),
     });
@@ -103,6 +116,21 @@ export async function send(message: OutboundEmail): Promise<SendResult> {
       status: "failed",
       reason: error instanceof Error ? error.message : "unknown error",
     };
+  }
+}
+
+/**
+ * `send()` for callers whose own work is already done: a form whose row is
+ * saved, an operator action whose state is written. `send()` throws in
+ * production when no transport is configured, which is right for the cron
+ * and wrong for a request that has nothing left to roll back, so here a
+ * throw is a failed send the caller can log and report.
+ */
+export async function sendSafely(message: OutboundEmail): Promise<SendResult> {
+  try {
+    return await send(message);
+  } catch (error) {
+    return { status: "failed", reason: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -152,4 +180,37 @@ export function verifyUnsubscribeToken(token: string | null | undefined): string
 
 export function unsubscribeUrl(leadId: string): string {
   return `${site.url}/api/email/unsubscribe?t=${encodeURIComponent(unsubscribeToken(leadId))}`;
+}
+
+/**
+ * The opt-out on the setup-link emails (P4, P5), which are about one setup
+ * request rather than one lead: a request can exist with no lead behind it.
+ * `s.<request id>.<hmac over "setup:<id>">`, under the same derived key. A
+ * lead token is a bare uuid first, and no uuid starts with "s.", so the two
+ * shapes cannot be mistaken for each other.
+ */
+export function setupUnsubscribeUrl(requestId: string): string {
+  const sig = createHmac("sha256", unsubscribeKey()).update(`setup:${requestId}`).digest("base64url");
+  return `${site.url}/api/email/unsubscribe?t=${encodeURIComponent(`s.${requestId}.${sig}`)}`;
+}
+
+export type UnsubscribeTarget = { kind: "lead" | "setup"; id: string };
+
+export function verifyUnsubscribeTarget(token: string | null | undefined): UnsubscribeTarget | null {
+  if (!token) return null;
+  if (token.startsWith("s.")) {
+    const rest = token.slice(2);
+    const dot = rest.lastIndexOf(".");
+    if (dot <= 0) return null;
+    const id = rest.slice(0, dot);
+    const sig = rest.slice(dot + 1);
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+    const expected = createHmac("sha256", unsubscribeKey()).update(`setup:${id}`).digest("base64url");
+    const a = Buffer.from(sig);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+    return { kind: "setup", id };
+  }
+  const leadId = verifyUnsubscribeToken(token);
+  return leadId ? { kind: "lead", id: leadId } : null;
 }

@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { issueSetupToken, setupLinkExpiry } from "@/lib/setup-link";
+import { createSetupRequest, updateSetupRequest } from "@/lib/setup-requests";
+import { FakeSheets, __setSheetsClientForTests } from "@/lib/sheets/client";
+import { __resetSheetSchemaForTests } from "@/lib/sheets/schema";
+
 import { POST } from "./route";
 
 /**
@@ -63,6 +68,9 @@ describe("POST /api/checkout validates the billing terms", () => {
     vi.stubEnv("HEALDESK_PROVISION_SECRET", "test-secret");
     vi.stubEnv("HEALDESK_APP_URL", "http://app.test");
     vi.stubEnv("STRIPE_SECRET_KEY", "");
+    // Open checkout: these blocks are about the order itself. The setup-link
+    // gate in front of it has its own block below.
+    vi.stubEnv("HEALDESK_CHECKOUT_MODE", "public");
     vi.stubGlobal("fetch", fetchMock);
     fetchMock.mockClear();
   });
@@ -177,6 +185,9 @@ describe("POST /api/checkout never provisions without payment in production", ()
     vi.stubEnv("HEALDESK_PROVISION_SECRET", "test-secret");
     vi.stubEnv("HEALDESK_APP_URL", "http://app.test");
     vi.stubEnv("STRIPE_SECRET_KEY", "");
+    // Open checkout: these blocks are about the order itself. The setup-link
+    // gate in front of it has its own block below.
+    vi.stubEnv("HEALDESK_CHECKOUT_MODE", "public");
     vi.stubGlobal("fetch", fetchMock);
     fetchMock.mockClear();
   });
@@ -208,5 +219,131 @@ describe("POST /api/checkout never provisions without payment in production", ()
     const response = await post(VALID);
     expect(response.status).toBe(503);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * While the purchase is by invitation (HEALDESK_CHECKOUT_MODE unset), only a
+ * browser holding the latest setup link for an unpaid request may pay, and
+ * only under the address the link was sent to. M1's done-when: missing,
+ * forged, expired and used links are refused, before apps/app is called.
+ */
+describe("POST /api/checkout, while the purchase is by setup link", () => {
+  const fetchMock = vi.fn(
+    async (_url: URL | RequestInfo, _init?: RequestInit) =>
+      new Response(JSON.stringify({ clinicSlug: "radiance" }), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      }),
+  );
+
+  beforeEach(() => {
+    vi.stubEnv("HEALDESK_PROVISION_SECRET", "test-secret");
+    vi.stubEnv("HEALDESK_APP_URL", "http://app.test");
+    vi.stubEnv("STRIPE_SECRET_KEY", "");
+    vi.stubEnv("HEALDESK_CHECKOUT_MODE", "");
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockClear();
+    __setSheetsClientForTests(new FakeSheets());
+    __resetSheetSchemaForTests();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    __setSheetsClientForTests(null);
+    __resetSheetSchemaForTests();
+  });
+
+  /** A request an operator has sent a link to, `sentAt` ago by default now. */
+  async function invite(email = "alex@example.com", sentAt = new Date()) {
+    const created = await createSetupRequest({
+      name: "Alex Chen",
+      clinicName: "Radiance Med Spa",
+      website: "radiancemedspa.com",
+      email,
+      channels: ["web"],
+      leadId: null,
+      ipAddress: null,
+    });
+    if (!created.ok) throw new Error("the fake Sheet refused a request");
+    const expiresAt = setupLinkExpiry(sentAt);
+    await updateSetupRequest(created.request.id, { status: "invited", invitedAt: sentAt, linkExpiresAt: expiresAt });
+    return { id: created.request.id, token: issueSetupToken(created.request.id, email, expiresAt) };
+  }
+
+  function postWith(token: string | null, body: Record<string, unknown> = VALID): Promise<Response> {
+    counter += 1;
+    return POST(
+      new Request("http://localhost/api/checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-forwarded-for": `10.1.0.${counter}`,
+          ...(token ? { cookie: `hd_setup=${encodeURIComponent(token)}` } : {}),
+        },
+        body: JSON.stringify(body),
+      }),
+    );
+  }
+
+  async function refusal(response: Response) {
+    return (await response.json()) as { error: string; field: string; link?: string };
+  }
+
+  test("a browser with no setup link is refused, whatever it sends", async () => {
+    const response = await postWith(null);
+    expect(response.status).toBe(403);
+    expect(await refusal(response)).toMatchObject({ field: "setupLink", link: "none" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("a forged link is refused", async () => {
+    const { token } = await invite();
+    const forged = `${token.slice(0, -4)}AAAA`;
+    const response = await postWith(forged);
+    expect(response.status).toBe(403);
+    expect((await refusal(response)).link).toBe("invalid");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("an expired link is refused", async () => {
+    const { token } = await invite("alex@example.com", new Date(Date.now() - 15 * 24 * 60 * 60 * 1000));
+    const response = await postWith(token);
+    expect(response.status).toBe(403);
+    expect((await refusal(response)).link).toBe("expired");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("a used link is refused once the request is paid", async () => {
+    const { id, token } = await invite();
+    await updateSetupRequest(id, { status: "paid", paidAt: new Date() });
+    const response = await postWith(token);
+    expect(response.status).toBe(409);
+    expect((await refusal(response)).link).toBe("used");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("a link replaced by a newer one is refused", async () => {
+    const first = await invite();
+    const later = new Date(Date.now() + 60_000);
+    const expiresAt = setupLinkExpiry(later);
+    await updateSetupRequest(first.id, { invitedAt: later, linkExpiresAt: expiresAt });
+    const response = await postWith(first.token);
+    expect(response.status).toBe(403);
+    expect((await refusal(response)).link).toBe("replaced");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("a valid link pays only under the address it was sent to", async () => {
+    const { token } = await invite("Alex@Example.com");
+    const other = await postWith(token, { ...VALID, contactEmail: "someone@else.com" });
+    expect(other.status).toBe(422);
+    expect((await refusal(other)).field).toBe("contactEmail");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const own = await postWith(token, { ...VALID, contactEmail: "alex@example.com" });
+    expect(own.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

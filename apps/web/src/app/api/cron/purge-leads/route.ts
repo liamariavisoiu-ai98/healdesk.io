@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 import { purgeStaleCallConsents, purgeStaleLeads } from "@/lib/leads";
 import { POLICY } from "@/lib/legal";
+import { purgeStaleSetupRequests } from "@/lib/setup-requests";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +19,8 @@ export const dynamic = "force-dynamic";
  * public internet and a delete.
  *
  * What it deletes is exactly what the privacy policy says: leads not seen
- * for POLICY.leadRetentionMonths. The count is logged; the addresses never are.
+ * for POLICY.leadRetentionMonths, and setup requests not updated for as long.
+ * The count is logged; the addresses never are.
  */
 export async function GET(request: Request): Promise<NextResponse> {
   const expected = process.env.CRON_SECRET;
@@ -37,11 +39,13 @@ export async function GET(request: Request): Promise<NextResponse> {
 
   const deleted = await purgeStaleLeads(POLICY.leadRetentionMonths);
   const consentsDeleted = await purgeStaleCallConsents(POLICY.callConsentRetentionYears);
+  const setupRequestsDeleted = await purgeStaleSetupRequests(POLICY.leadRetentionMonths);
   console.info("[healdesk] lead retention purge", {
     deleted,
     consentsDeleted,
+    setupRequestsDeleted,
     olderThanMonths: POLICY.leadRetentionMonths,
     consentsOlderThanYears: POLICY.callConsentRetentionYears,
   });
-  return NextResponse.json({ ok: true, deleted, consentsDeleted });
+  return NextResponse.json({ ok: true, deleted, consentsDeleted, setupRequestsDeleted });
 }

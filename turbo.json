@@ -89,7 +89,14 @@
         // Checkout (on only when "true").
         "STRIPE_CONNECT_WEBHOOK_SECRET",
         "STRIPE_AUTOMATIC_TAX",
-        "HEALDESK_WEB_URL"
+        "HEALDESK_WEB_URL",
+        // The funnel (6 October 2026): who may buy ("public", or by setup
+        // link when unset or anything else) and whether /admin may send setup
+        // links yet ("open" once the launch checklist is done). Declared so a
+        // flip changes the cache key and a cached build never serves the old
+        // gate.
+        "HEALDESK_CHECKOUT_MODE",
+        "HEALDESK_SETUP_LINKS"
       ],
       "outputs": [".next/**", "!.next/cache/**", "dist/**"]
     },

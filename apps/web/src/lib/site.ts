@@ -98,12 +98,16 @@ export const site = {
   /**
    * "Get in touch" in the navbar: a call with us, booked in Calendly's
    * scheduler opened over the page (GetInTouch.tsx). Its length is the
-   * event's, set in Calendly, not the "30min" in the link. The URL is also the
-   * button's href, so the call can be booked from a browser that has not run
-   * the page's script, and its origin is the one the security policy lets the
-   * site frame (security-headers.ts, which a test keeps in step with it).
+   * event's, set in Calendly; nothing on the site states it. The URL is also
+   * the button's href, so the call can be booked from a browser that has not
+   * run the page's script, and its origin is the one the security policy lets
+   * the site frame (security-headers.ts, which a test keeps in step with it).
+   *
+   * It is the event's own link, so changing that link in Calendly breaks the
+   * button: the "30min" link this replaced went to a 404 on 6 October 2026,
+   * the day the button shipped.
    */
-  meeting: { label: "Get in touch", url: "https://calendly.com/healdesk-io/30min" },
+  meeting: { label: "Get in touch", url: "https://calendly.com/healdesk-io/get-in-touch" },
 
   /** The one link in the navbar. See the note at the top of the file. */
   navLinks: [{ label: "Why wait?", href: "/why-wait" }],

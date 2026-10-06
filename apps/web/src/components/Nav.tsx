@@ -22,7 +22,7 @@ export function Brand({ className = "" }: { className?: string }) {
       className={`inline-flex items-center leading-none ${className}`}
       aria-label={`${site.name} home`}
     >
-      <span className="inline-block">
+      <span className="inline-block min-w-0">
         <WordmarkGlyphs />
       </span>
     </a>
@@ -43,9 +43,13 @@ export function Brand({ className = "" }: { className?: string }) {
  *
  * "Get in touch" (6 October 2026, the owner's) sits beside it as the outlined
  * secondary button, opening a call booking over the page (GetInTouch.tsx).
- * It shows from 700px. At 640px, where the text links appear, a row with it
- * in is exactly full, so a font that sets a little wider wraps both buttons
- * onto two lines; at 700 there are about 60px to spare.
+ * It shows at every width: a calendar icon on a phone, its words from 480px.
+ *
+ * The text links wait until 700px. At 640, where they used to appear, a row
+ * that also holds "Get in touch" is exactly full; at 700 there are about 60px
+ * to spare. Nothing in the row wraps or shrinks except the wordmark, which
+ * scales down on a phone narrower than about 360px rather than push the
+ * buttons off the edge.
  *
  * Client component because both CTAs behave differently by route.
  */
@@ -58,24 +62,25 @@ export function Nav() {
 
   return (
     <header className="border-line/60 bg-paper/85 sticky top-0 z-50 border-b backdrop-blur-md">
-      <div className="mx-auto flex max-w-[1240px] items-center gap-3 px-5 py-4 sm:gap-5 sm:px-8 lg:px-14">
-        <Brand />
+      <div className="mx-auto flex max-w-[1240px] items-center gap-2 px-5 py-4 min-[480px]:gap-3 sm:gap-5 sm:px-8 lg:px-14">
+        <Brand className="min-w-0" />
 
-        {/* Text links are hidden on the narrowest screens rather than wrapped:
-            the row stays two items wide on a phone instead of four cramped
-            ones, and both destinations are one scroll or one footer away. */}
+        {/* Text links are hidden on the narrower screens rather than wrapped:
+            a phone's row holds the wordmark and the two buttons instead of
+            five cramped items, and both destinations are one scroll or one
+            footer away. */}
         {site.navLinks.map((item) => (
           <a
             key={item.href}
             href={item.href}
-            className="text-muted hover:text-ink ml-auto hidden text-[16.8px] font-semibold transition-colors sm:inline-flex"
+            className="text-muted hover:text-ink ml-auto hidden text-[16.8px] font-semibold whitespace-nowrap transition-colors min-[700px]:inline-flex"
           >
             {item.label}
           </a>
         ))}
         <a
           href={demoHref}
-          className="text-muted hover:text-ink hidden text-[16.8px] font-semibold transition-colors sm:inline-flex sm:items-center sm:gap-1.5"
+          className="text-muted hover:text-ink hidden text-[16.8px] font-semibold whitespace-nowrap transition-colors min-[700px]:inline-flex min-[700px]:items-center min-[700px]:gap-1.5"
         >
           {site.cta.secondary.label}
           <span aria-hidden className="text-[0.85em] opacity-60">
@@ -83,8 +88,8 @@ export function Nav() {
           </span>
         </a>
 
-        <GetInTouch className="hidden min-[700px]:inline-flex" />
-        <BuyButton className="ml-auto sm:ml-0" />
+        <GetInTouch className="ml-auto min-[700px]:ml-0" />
+        <BuyButton className="shrink-0 whitespace-nowrap" />
       </div>
     </header>
   );

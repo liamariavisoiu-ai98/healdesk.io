@@ -56,7 +56,6 @@ import {
   resolveIncident,
   type IncidentClass,
 } from "@/lib/incidents/incidents";
-import { connectAuthorizeUrl } from "@/lib/billing/connect";
 import { applyEmailEvent, isDeliveryStatus } from "@/lib/email/events";
 import { KIND_SHAPE } from "@/lib/email/kind-rules";
 import { markExportDelivered, startOffboarding } from "@/lib/offboarding/offboarding";
@@ -2523,7 +2522,7 @@ async function opGetOnboarding(
     stripeConnect: {
       accountId: clinic.stripeConnectAccountId,
       connectedAt: clinic.stripeConnectConnectedAt?.toISOString() ?? null,
-      authorizeUrl: clinic.stripeConnectAccountId ? null : connectAuthorizeUrl(clinic.id),
+      authorizeUrl: null,
     },
     // Counts only. The requests themselves live behind the desk's link.
     meta: { enabled: clinic.metaFrontDoorEnabled, channels: metaChannels, bookingRequests },
@@ -2763,11 +2762,15 @@ function readAgentInput(args: Record<string, unknown>): AgentConfigInput | strin
   const services = rawServices.map((raw) => {
     const r = (raw ?? {}) as Record<string, unknown>;
     const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v) : null);
+    const depositNum = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
     return {
       name: typeof r.name === "string" ? r.name.trim().slice(0, 120) : "",
       priceFromUsd: num(r.priceFromUsd),
       priceToUsd: num(r.priceToUsd),
       durationMinutes: num(r.durationMinutes),
+      // Carried through, or every operator save would wipe the per-service
+      // deposits (BD27); validateAgentConfig checks the range.
+      ...(r.depositUsd === undefined ? {} : { depositUsd: depositNum(r.depositUsd) }),
     };
   });
   return {

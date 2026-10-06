@@ -4,14 +4,24 @@ import { findClinicalContent, resolveBookingRequirements } from "@healdesk/catal
 import { toE164 } from "@healdesk/connectors";
 import { and, eq } from "drizzle-orm";
 
-import { agentConfigs, appointments, bookingRequests, clinics } from "@/db/schema";
+import { agentConfigs, appointments, bookingRequests, clinics, type DepositPolicy } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
+import {
+  clinicDefaultDepositUsd,
+  depositDecision,
+  effectiveDepositUsd,
+  findService,
+  normaliseDepositUsd,
+  readClinicDepositFacts,
+  type DepositAction,
+} from "@/lib/billing/deposits";
 import { slotLabel, slotsFor, writeToCalendar, type CalendarWriteOutcome } from "@/lib/booking/calendar";
 import { directBookingAllowed } from "@/lib/booking/mode";
 import { env } from "@/lib/env";
 import { describeError, log } from "@/lib/log";
 import { BOOKING_REQUEST_TTL_DAYS, cleanCollectedFields, notifyDesk } from "@/lib/meta/booking-requests";
+import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
@@ -250,7 +260,7 @@ async function voiceToolContext(call: ToolCall, gate: AnswerDecision): Promise<T
     return {
       required_fields_spoken: spokenFieldList(resolveBookingRequirements(clinic.specialty, clinic.requirements ?? null)),
       booking_mode: direct ? "direct" : "desk_confirms",
-      deposit_line: depositLine(agent?.depositPolicy ?? null),
+      deposit_line: await voiceDepositLine(tx, agent?.depositPolicy ?? null),
       clinic_phone_spoken: clinic.phone ? spokenPhone(clinic.phone) : "",
       answer_mode: answerMode,
       transfer_number: transferTo,
@@ -260,11 +270,55 @@ async function voiceToolContext(call: ToolCall, gate: AnswerDecision): Promise<T
   return { status: 200, body: reply };
 }
 
-/** The deposit rule as the agent states it: the fact and who collects it, never a payment link (there is none, §E.7). */
-export function depositLine(policy: { required: boolean; amountUsd: number | null } | null): string {
-  if (!policy?.required) return "";
-  const amount = policy.amountUsd !== null && Number.isFinite(policy.amountUsd) ? `A deposit of ${policy.amountUsd} dollars` : "A deposit";
-  return `${amount} is required to hold the appointment. The front desk will call you to take it; nothing is charged on this call.`;
+/**
+ * The deposit rule as the agent states it (BD27): what the deposit decision
+ * means for this caller, and who collects, never a payment link (voice never
+ * collects, §E.7). `book_and_flag` books and leaves the deposit to the front
+ * desk; `decline_and_alert` books nothing, so the line never promises a
+ * booking, and says the team will call to take the deposit and confirm a
+ * time. `booking` is one appointment's line; `clinic` is the context's line
+ * for the clinic's default deposit, said before anything is chosen;
+ * `some_services` is the context's line when there is no default but some
+ * services ask for one, and the agent learns which at booking.
+ */
+export function depositLine(input: { action: DepositAction; amountUsd: number | null; scope?: "booking" | "clinic" | "some_services" } | null): string {
+  if (!input) return "";
+  const amount = input.amountUsd !== null && Number.isFinite(input.amountUsd) && input.amountUsd > 0 ? input.amountUsd : null;
+  if (input.action === "book_and_flag") {
+    if (input.scope === "some_services") return "Some appointments need a deposit to hold them. If yours does, the front desk will call you to take it; nothing is charged on this call.";
+    return `${amount !== null ? `A deposit of ${amount} dollars` : "A deposit"} is required to hold the appointment. The front desk will call you to take it; nothing is charged on this call.`;
+  }
+  if (input.action === "decline_and_alert") {
+    if (input.scope === "some_services") return "Some appointments need a deposit and can't be booked on this call. For those, I'll pass your request to the team, who will call you to take the deposit and confirm a time; nothing is charged on this call.";
+    if (input.scope === "clinic") return `Appointments need a deposit${amount !== null ? ` of ${amount} dollars` : ""}, so they can't be booked on this call. I'll pass your request to the team, who will call you to take the deposit and confirm a time; nothing is charged on this call.`;
+    return `This appointment needs a deposit${amount !== null ? ` of ${amount} dollars` : ""}, so it can't be booked on this call. I'll pass your request to the team, who will call you to take the deposit and confirm a time; nothing is charged on this call.`;
+  }
+  return "";
+}
+
+/**
+ * The context's deposit line for this clinic: the decision for the clinic's
+ * default deposit, or, when there is none, for the services that set their
+ * own, so a caller is told before they choose. Voice's own switch decides
+ * (lib/billing/deposits.ts depositDecision); deposits off, no connected
+ * account or no amount means no line at all.
+ */
+async function voiceDepositLine(tx: TenantTx, policy: DepositPolicy | null): Promise<string> {
+  const facts = await readClinicDepositFacts(tx);
+  const base = {
+    channel: "voice" as const,
+    depositsEnabled: facts.depositsEnabled,
+    isConnected: facts.isConnected,
+    bookVoiceWithoutDeposit: facts.bookVoiceWithoutDeposit,
+    bookChatWithoutDeposit: facts.bookChatWithoutDeposit,
+    uncollectable: facts.uncollectable,
+  };
+  const byDefault = depositDecision({ ...base, amountUsd: clinicDefaultDepositUsd(policy) });
+  if (byDefault.isRequired) return depositLine({ action: byDefault.action, amountUsd: byDefault.amountUsd, scope: "clinic" });
+  const smallest = facts.services.map((service) => normaliseDepositUsd(service.depositUsd)).filter((usd): usd is number => usd !== null && usd > 0).sort((a, b) => a - b)[0];
+  if (smallest === undefined) return "";
+  const bySome = depositDecision({ ...base, amountUsd: smallest });
+  return bySome.isRequired ? depositLine({ action: bySome.action, amountUsd: null, scope: "some_services" }) : "";
 }
 
 // -----------------------------------------------------------------------------
@@ -313,10 +367,15 @@ async function listSpokenSlots(tx: TenantTx, opts: { from: Date; days: number })
 // book
 // -----------------------------------------------------------------------------
 
-export type VoiceBookReply = { booked: true; when_spoken: string; calendar: CalendarWriteOutcome };
+/** `deposit_line` is present when a deposit was flagged for the desk: the agent tells the caller (BD27). */
+export type VoiceBookReply = { booked: true; when_spoken: string; calendar: CalendarWriteOutcome; deposit_line?: string };
 
-type Booked = { kind: "booked"; requestId: string; token: string; appointmentId: string; whenSpoken: string };
-type BookStep = Booked | { kind: "replay"; reply: VoiceBookReply } | { kind: "refused"; reply: ToolReply };
+/** A deposit was due, voice may not book without one, and the request went to the desk instead (BD27, R25). */
+export const DEPOSIT_DECLINED_REPLY: ToolReply = { status: 403, body: { error: "deposit_required", request_taken: true } };
+
+type Booked = { kind: "booked"; requestId: string; token: string; appointmentId: string; whenSpoken: string; depositLine: string };
+type Declined = { kind: "declined"; requestId: string; token: string };
+type BookStep = Booked | Declined | { kind: "replay"; reply: ToolReply } | { kind: "refused"; reply: ToolReply };
 
 async function voiceToolBook(call: ToolCall): Promise<ToolReply> {
   const firstNameRaw = text(call.body.first_name, 40);
@@ -330,6 +389,24 @@ async function voiceToolBook(call: ToolCall): Promise<ToolReply> {
   const fieldsRaw = call.body.fields;
   const fields = fieldsRaw && typeof fieldsRaw === "object" && !Array.isArray(fieldsRaw) ? (fieldsRaw as Record<string, unknown>) : {};
 
+  // 1. The replay, in its own short transaction (R25): a retry of a call that
+  //    already booked, or already went to the desk for a deposit, answers as
+  //    it did the first time, whatever the gate or the switches say now.
+  const prior = await withTenant({ clinicId: call.clinicId, actor: TOOL_ACTOR }, (tx) => priorOutcome(tx, call));
+  if (prior) return prior;
+
+  // 2. The answer gate (BD25, R1), outside any transaction: it opens the
+  //    location's and then the billing clinic's in sequence, and nesting
+  //    either inside a booking transaction would hold two pooled connections.
+  const gate = await voiceAnswerDecision(call.clinicId, call.now);
+  if (gate.decision !== "answer") {
+    await withTenant({ clinicId: call.clinicId, actor: TOOL_ACTOR }, async (tx) => {
+      tx.audit.record({ action: "create", resourceType: "voice_tool_book", resourceId: tx.clinicId, metadata: { callRef: call.callRef, outcome: "refused", reason: "service_unavailable", decision: gate.reason } });
+    });
+    return { status: 403, body: { error: "service_unavailable" } };
+  }
+
+  // 3. The booking itself.
   let step: BookStep;
   try {
     step = await withTenant({ clinicId: call.clinicId, actor: TOOL_ACTOR }, (tx) => bookInTenant(tx, call, { firstName, at, service, fields }));
@@ -337,12 +414,20 @@ async function voiceToolBook(call: ToolCall): Promise<ToolReply> {
     // Two retries of one call racing: the partial unique index on
     // (clinic_id, vendor_call_id) let exactly one through. Answer with it.
     if (!isUniqueViolation(error)) throw error;
-    const replay = await withTenant({ clinicId: call.clinicId, actor: TOOL_ACTOR }, (tx) => replayBooking(tx, call));
+    const replay = await withTenant({ clinicId: call.clinicId, actor: TOOL_ACTOR }, (tx) => priorOutcome(tx, call));
     if (!replay) throw error;
-    return { status: 200, body: replay };
+    return replay;
   }
-  if (step.kind === "refused") return step.reply;
-  if (step.kind === "replay") return { status: 200, body: step.reply };
+  if (step.kind === "refused" || step.kind === "replay") return step.reply;
+  if (step.kind === "declined") {
+    // The request is the desk's now; until booking alerts land (M5) the
+    // desk's email is how staff hear of it.
+    const declined = step;
+    await withTenant({ clinicId: call.clinicId, actor: TOOL_ACTOR }, (tx) =>
+      notifyDesk(tx, { id: declined.requestId, token: declined.token }, { channel: "voice", platform: null }, { transport: call.transport, variant: "new" }),
+    );
+    return DEPOSIT_DECLINED_REPLY;
+  }
 
   // §B.4 after the commit, inside the agent's patience (§E.2): the write
   // carries on past the budget and records its own outcome; the agent is
@@ -352,7 +437,8 @@ async function voiceToolBook(call: ToolCall): Promise<ToolReply> {
   await withTenant({ clinicId: call.clinicId, actor: TOOL_ACTOR }, (tx) =>
     notifyDesk(tx, { id: step.requestId, token: step.token }, { channel: "voice", platform: null }, { transport: call.transport, variant: "fyi_direct" }),
   );
-  return { status: 200, body: { booked: true, when_spoken: step.whenSpoken, calendar } satisfies VoiceBookReply };
+  const reply: VoiceBookReply = { booked: true, when_spoken: step.whenSpoken, calendar, ...(step.depositLine ? { deposit_line: step.depositLine } : {}) };
+  return { status: 200, body: reply };
 }
 
 async function bookInTenant(
@@ -366,8 +452,9 @@ async function bookInTenant(
   };
 
   // Idempotent on the vendor's call id before anything else is read: a
-  // retry of a booked call answers with the booking, whatever the gates say now.
-  const replay = await replayBooking(tx, call);
+  // retry that raced past voiceToolBook's own check answers with the first
+  // outcome, whatever the gates say now.
+  const replay = await priorOutcome(tx, call);
   if (replay) return { kind: "replay", reply: replay };
 
   const allowed = await directBookingAllowed(tx);
@@ -395,11 +482,54 @@ async function bookInTenant(
 
   const contactId = await upsertCallerContact(tx.db, { clinicId: tx.clinicId, phone: call.phone, name: input.firstName, clinicTimezone: clinic.timezone });
 
-  // The deposit rule exactly as lib/meta/booking-requests.ts insertAppointment
-  // applies it (private there): with no payment link, a required deposit is
-  // owed to the front desk.
-  const [agent] = await tx.db.select({ depositPolicy: agentConfigs.depositPolicy }).from(agentConfigs).where(eq(agentConfigs.clinicId, tx.clinicId)).limit(1);
-  const depositPolicy = agent?.depositPolicy ?? null;
+  // The deposit decision (BD27). Voice never collects, so its own switch
+  // decides: On books and leaves the deposit to the front desk; Off books
+  // nothing and sends the request to the desk. The amount is the named
+  // service's own deposit, else the clinic default.
+  const deposits = await readClinicDepositFacts(tx);
+  const serviceName = input.service ?? accepted.service ?? null;
+  const decision = depositDecision({
+    channel: "voice",
+    depositsEnabled: deposits.depositsEnabled,
+    isConnected: deposits.isConnected,
+    amountUsd: effectiveDepositUsd({ service: findService(deposits.services, serviceName), policy: deposits.policy }),
+    bookVoiceWithoutDeposit: deposits.bookVoiceWithoutDeposit,
+    bookChatWithoutDeposit: deposits.bookChatWithoutDeposit,
+    uncollectable: deposits.uncollectable,
+  });
+  const label = slotLabel(input.at, clinic.timezone);
+
+  if (decision.action === "decline_and_alert") {
+    // No booking: a request for the desk, carrying the call id so the
+    // post-call webhook links its conversation to it instead of opening a
+    // second request, and a retry of this tool call is answered from it.
+    const raw = randomBytes(32);
+    const token = raw.toString("base64url");
+    raw.fill(0);
+    const [request] = await tx.db
+      .insert(bookingRequests)
+      .values({
+        clinicId: tx.clinicId,
+        contactId,
+        channel: "voice",
+        conversationId: null,
+        preferredWindow: label,
+        alternativeWindows: [],
+        treatment: input.service,
+        collectedFields: accepted,
+        tokenHash: createHash("sha256").update(token, "utf8").digest(),
+        expiresAt: new Date(call.now.getTime() + BOOKING_REQUEST_TTL_DAYS * 24 * 60 * 60 * 1000),
+        vendorCallId: call.callId,
+      })
+      .returning({ id: bookingRequests.id });
+    if (!request) throw new Error("Direct booking: no request row returned.");
+    await notifyBookingAlert(tx, "deposit_to_collect", { bookingRequestId: request.id });
+    tx.audit.record({ action: "create", resourceType: "booking_request", resourceId: request.id, resourceIds: [contactId], metadata: { channel: "voice", via: "deposit_declined", expiresInDays: BOOKING_REQUEST_TTL_DAYS } });
+    tx.audit.record({ action: "create", resourceType: "voice_tool_book", resourceId: request.id, metadata: { callRef: call.callRef, outcome: "request_taken", reason: "deposit_required", fields: Object.keys(accepted) } });
+    return { kind: "declined", requestId: request.id, token };
+  }
+
+  const depositStatus = decision.action === "book_and_flag" ? "pending_front_desk" : "none";
   const [appointment] = await tx.db
     .insert(appointments)
     .values({
@@ -407,20 +537,22 @@ async function bookInTenant(
       contactId,
       conversationId: null,
       scheduledFor: input.at,
-      treatment: input.service ?? accepted.service ?? null,
-      depositUsd: depositPolicy?.required && depositPolicy.amountUsd !== null ? String(depositPolicy.amountUsd) : null,
-      depositStatus: depositPolicy?.required ? "pending_front_desk" : "none",
+      treatment: serviceName,
+      depositUsd: decision.isRequired && decision.amountUsd !== null ? String(decision.amountUsd) : null,
+      depositStatus,
       externalConfirmedAt: null,
     })
     .returning({ id: appointments.id });
   if (!appointment) throw new Error("Direct booking: no appointment row returned.");
+  if (depositStatus === "pending_front_desk") {
+    await notifyBookingAlert(tx, "deposit_to_collect", { appointmentId: appointment.id });
+  }
 
   // The request, INSERTed already confirmed (the 0040 trigger is BEFORE
   // UPDATE only, on purpose). The token exists once, here, for the FYI.
   const raw = randomBytes(32);
   const token = raw.toString("base64url");
   raw.fill(0);
-  const label = slotLabel(input.at, clinic.timezone);
   const [request] = await tx.db
     .insert(bookingRequests)
     .values({
@@ -449,26 +581,47 @@ async function bookInTenant(
     action: "create",
     resourceType: "appointment",
     resourceId: appointment.id,
-    metadata: { bookingRequestId: request.id, confirmedByDesk: false, bookedByAssistant: true, confirmedByClinicSystem: false, deposit: depositPolicy?.required ? "pending_front_desk" : "none" },
+    metadata: { bookingRequestId: request.id, confirmedByDesk: false, bookedByAssistant: true, confirmedByClinicSystem: false, deposit: depositStatus, depositRule: decision.rule },
   });
   tx.audit.record({ action: "create", resourceType: "booking_request", resourceId: request.id, resourceIds: [contactId], metadata: { channel: "voice", via: "agent_direct", expiresInDays: BOOKING_REQUEST_TTL_DAYS } });
   tx.audit.record({ action: "create", resourceType: "voice_tool_book", resourceId: request.id, metadata: { callRef: call.callRef, outcome: "booked", fields: Object.keys(accepted) } });
-  return { kind: "booked", requestId: request.id, token, appointmentId: appointment.id, whenSpoken: spokenSlot(input.at, clinic.timezone) };
+  return {
+    kind: "booked",
+    requestId: request.id,
+    token,
+    appointmentId: appointment.id,
+    whenSpoken: spokenSlot(input.at, clinic.timezone),
+    depositLine: depositStatus === "pending_front_desk" ? depositLine({ action: "book_and_flag", amountUsd: decision.amountUsd }) : "",
+  };
 }
 
-/** The booking this call already made, as the agent was first told it, or null. */
-async function replayBooking(tx: TenantTx, call: ToolCall): Promise<VoiceBookReply | null> {
+/**
+ * What this call already got, as the agent was first told it, or null: the
+ * booking, with its deposit line read back from the appointment, or the
+ * request a deposit sent to the desk.
+ */
+async function priorOutcome(tx: TenantTx, call: ToolCall): Promise<ToolReply | null> {
   const [existing] = await tx.db
-    .select({ id: bookingRequests.id, confirmedFor: bookingRequests.confirmedFor, calendar: appointments.calendarWriteStatus, timezone: clinics.timezone })
+    .select({
+      id: bookingRequests.id,
+      confirmedFor: bookingRequests.confirmedFor,
+      calendar: appointments.calendarWriteStatus,
+      depositStatus: appointments.depositStatus,
+      depositUsd: appointments.depositUsd,
+      timezone: clinics.timezone,
+    })
     .from(bookingRequests)
     .innerJoin(clinics, eq(clinics.id, bookingRequests.clinicId))
     .leftJoin(appointments, eq(appointments.id, bookingRequests.appointmentId))
     .where(and(eq(bookingRequests.clinicId, tx.clinicId), eq(bookingRequests.vendorCallId, call.callId)))
     .limit(1);
-  if (!existing || !existing.confirmedFor) return null;
+  if (!existing) return null;
   tx.audit.record({ action: "create", resourceType: "voice_tool_book", resourceId: existing.id, metadata: { callRef: call.callRef, outcome: "replayed" } });
+  if (!existing.confirmedFor) return DEPOSIT_DECLINED_REPLY;
   const calendar: CalendarWriteOutcome = existing.calendar === "written" ? "written" : existing.calendar === "failed" ? "failed" : existing.calendar === "none" ? "not-connected" : "unknown";
-  return { booked: true, when_spoken: spokenSlot(existing.confirmedFor, existing.timezone), calendar };
+  const deposit = existing.depositStatus === "pending_front_desk" ? depositLine({ action: "book_and_flag", amountUsd: existing.depositUsd === null ? null : Number(existing.depositUsd) }) : "";
+  const reply: VoiceBookReply = { booked: true, when_spoken: spokenSlot(existing.confirmedFor, existing.timezone), calendar, ...(deposit ? { deposit_line: deposit } : {}) };
+  return { status: 200, body: reply };
 }
 
 function isUniqueViolation(error: unknown): boolean {

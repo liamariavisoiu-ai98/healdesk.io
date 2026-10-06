@@ -1754,6 +1754,8 @@ export type AgentService = {
   priceFromUsd: number | null;
   priceToUsd: number | null;
   durationMinutes: number | null;
+  /** The service's own deposit in dollars; null or absent means the clinic default. */
+  depositUsd?: number | null;
 };
 
 export type OnboardingView = {
@@ -1953,6 +1955,9 @@ function readOnboardingView(value: unknown): OnboardingView {
               priceFromUsd: num(row.priceFromUsd),
               priceToUsd: num(row.priceToUsd),
               durationMinutes: num(row.durationMinutes),
+              // Read back so a save of the script carries it, rather than
+              // wiping every service's own deposit.
+              depositUsd: num(row.depositUsd),
             };
           }),
           escalationPhone: optionalString(agent.escalationPhone),

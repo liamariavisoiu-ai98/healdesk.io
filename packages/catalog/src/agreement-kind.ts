@@ -1,3 +1,4 @@
+import { currentDpaTemplate } from "./dpa";
 import { isSpecialtyId, regimeFor, type SpecialtyId } from "./specialties";
 
 /**
@@ -16,10 +17,29 @@ import { isSpecialtyId, regimeFor, type SpecialtyId } from "./specialties";
  *
  * Until the owner releases the DPA (Gate A), "No" signs the BAA, as it
  * always has, and a veterinary practice cannot buy: there is no agreement
- * for it to sign.
+ * for it to sign. The release is the DPA template's own flag (dpa.ts), read
+ * here at call time, so setting it is the one switch.
  */
 
 export type AgreementKind = "baa" | "dpa";
+
+export const AGREEMENT_KINDS: readonly AgreementKind[] = ["baa", "dpa"];
+
+export function isAgreementKind(value: unknown): value is AgreementKind {
+  return typeof value === "string" && (AGREEMENT_KINDS as readonly string[]).includes(value);
+}
+
+/** The namespace every DPA template version carries ("dpa/1.0.0"). BAA versions carry none. */
+export const DPA_VERSION_PREFIX = "dpa/";
+
+/**
+ * Which kind a stored acceptance is, from its document version alone: the
+ * TypeScript mirror of the generated column `baa_acceptances.agreement_kind`
+ * (drizzle/0051), whose parity test runs both over the same versions.
+ */
+export function agreementKindOfVersion(version: string): AgreementKind {
+  return version.startsWith(DPA_VERSION_PREFIX) ? "dpa" : "baa";
+}
 
 /**
  * The funnel's covered-entity question, worded around what decides it: "Do
@@ -35,12 +55,15 @@ export function isCoveredAnswer(value: unknown): value is CoveredAnswer {
 }
 
 /**
- * Whether the Data Protection Agreement can be signed yet: false until the
- * owner reads docs/dpa-v1.0.0.txt and releases it, with the veterinary
- * readiness items (plan Part L). The DPA's template replaces this constant
- * with its own release flag, the one the BAA templates carry.
+ * Whether the Data Protection Agreement can be signed yet: the current DPA
+ * template's release flag (`approvedByCounsel`, the one the BAA templates
+ * carry). False until the owner reads docs/dpa-v1.0.0.txt and releases it,
+ * with the veterinary readiness items (plan Part L). A function, not a
+ * constant, so nothing caches the answer.
  */
-export const DPA_RELEASED = false;
+export function isDpaReleased(): boolean {
+  return currentDpaTemplate().approvedByCounsel;
+}
 
 export type AgreementChoice =
   | {
@@ -55,11 +78,11 @@ export function agreementKindFor(input: {
   specialty: string;
   /** Null when the question was not asked (a veterinary practice) or not yet answered. */
   covered: CoveredAnswer | null;
-  /** For tests and previews of the released DPA; production reads DPA_RELEASED. */
+  /** For tests and previews of the released DPA; production reads isDpaReleased(). */
   dpaReleased?: boolean;
 }): AgreementChoice {
   if (!isSpecialtyId(input.specialty)) return { ok: false, reason: "unknown_specialty" };
-  const released = input.dpaReleased ?? DPA_RELEASED;
+  const released = input.dpaReleased ?? isDpaReleased();
 
   switch (regimeFor(input.specialty)) {
     case "hipaa":
@@ -85,7 +108,7 @@ export function asksCoveredQuestion(id: SpecialtyId): boolean {
  * Whether the funnel offers a specialty at all. A veterinary practice can buy
  * only once there is an agreement it can sign: the released DPA.
  */
-export function specialtyOffered(id: SpecialtyId, dpaReleased: boolean = DPA_RELEASED): boolean {
+export function specialtyOffered(id: SpecialtyId, dpaReleased: boolean = isDpaReleased()): boolean {
   return regimeFor(id) !== "non-hipaa" || dpaReleased;
 }
 

@@ -3,12 +3,17 @@ import { describe, expect, test } from "vitest";
 import {
   agreementKindFor,
   asksCoveredQuestion,
+  agreementKindOfVersion,
   COVERED_ANSWERS,
-  DPA_RELEASED,
+  DPA_VERSION_PREFIX,
+  isAgreementKind,
   isCoveredAnswer,
+  isDpaReleased,
   specialtyOffered,
   type CoveredAnswer,
 } from "./agreement-kind";
+import { BAA_TEMPLATES } from "./baa";
+import { currentDpaTemplate, DPA_TEMPLATES } from "./dpa";
 import { specialties } from "./specialties";
 
 /**
@@ -19,8 +24,16 @@ import { specialties } from "./specialties";
 const ANSWERS: (CoveredAnswer | null)[] = [...COVERED_ANSWERS, null];
 
 describe("agreementKindFor", () => {
-  test("the DPA is not released yet", () => {
-    expect(DPA_RELEASED).toBe(false);
+  test("the DPA is not released yet, and its template's own flag is what says so", () => {
+    expect(currentDpaTemplate().approvedByCounsel).toBe(false);
+    expect(isDpaReleased()).toBe(currentDpaTemplate().approvedByCounsel);
+    // Unreleased, the defaults nothing overrides offer no DPA to anyone.
+    expect(agreementKindFor({ specialty: "med-spa", covered: "no" })).toMatchObject({ kind: "baa" });
+    expect(agreementKindFor({ specialty: "veterinary", covered: null })).toEqual({
+      ok: false,
+      reason: "dpa_not_released",
+    });
+    expect(specialtyOffered("veterinary")).toBe(false);
   });
 
   test("a specialty HIPAA always reaches signs the BAA, whatever it answers", () => {
@@ -83,6 +96,18 @@ describe("agreementKindFor", () => {
       expect(asksCoveredQuestion(s.id), s.id).toBe(true);
       expect(specialtyOffered(s.id, false), s.id).toBe(true);
     }
+  });
+
+  test("a stored version says which kind it is: dpa/ is a DPA, anything else a BAA", () => {
+    for (const t of DPA_TEMPLATES) {
+      expect(t.version.startsWith(DPA_VERSION_PREFIX), t.version).toBe(true);
+      expect(agreementKindOfVersion(t.version)).toBe("dpa");
+    }
+    for (const t of BAA_TEMPLATES) {
+      expect(agreementKindOfVersion(t.version), t.version).toBe("baa");
+    }
+    expect(isAgreementKind("dpa")).toBe(true);
+    expect(isAgreementKind("DPA")).toBe(false);
   });
 
   test("an unknown specialty is refused, never defaulted", () => {

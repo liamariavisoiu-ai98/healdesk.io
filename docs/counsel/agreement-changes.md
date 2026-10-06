@@ -331,6 +331,13 @@ already does.
 Trigger to engage a lawyer: the first clinic outside HIPAA in Washington,
 Nevada or Connecticut, or a consumer request under one of those laws.
 
+**Narrowed on 6 October 2026.** The funnel plan (Part L) gives a veterinary
+practice, and a practice HIPAA reaches only if covered that answers "No", a
+separate Data Protection Agreement once the owner releases it
+([dpa.md](./dpa.md); `dpa/1.0.0` in `packages/catalog/src/dpa.ts`). It quotes
+the clause above with two edits a document without PHI needs. The decision
+above still holds for every practice that signs the BAA while not covered.
+
 ---
 
 ## 10. Existing signers and subprocessor notice

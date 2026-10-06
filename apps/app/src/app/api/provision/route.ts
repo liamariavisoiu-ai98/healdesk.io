@@ -3,12 +3,15 @@ import {
   TIMESTAMP_HEADER,
   verify,
 } from "@healdesk/catalog";
+import { after } from "next/server";
 
 import {
   findIntent,
   markIntentFailed,
   provisionRequestFromIntent,
+  type StoredIntent,
 } from "@/lib/checkout/intents";
+import { sendOrderConfirmedDelayed } from "@/lib/checkout/order-delayed";
 import { issueConnectionLink } from "@/lib/connections/links";
 import { sendSetupLink } from "@/lib/email/setup-link";
 import { env } from "@/lib/env";
@@ -230,10 +233,26 @@ function intentRefOf(body: unknown): string | null {
  * still has to reach apps/web, which forwards the event so it parks.
  */
 async function refuseIntent(ref: string, error: ProvisioningError): Promise<void> {
+  let firstRefusal: StoredIntent | null = null;
   try {
-    await markIntentFailed(ref);
+    firstRefusal = await markIntentFailed(ref);
   } catch (markError) {
     log.error("could not mark a refused intent", { error: describeError(markError) });
   }
-  await notifyOps("provisioning_rejected", { field: error.field ?? null, source: "intent" });
+  // Both can wait on Resend for seconds, and this is the webhook's request
+  // path: they go after the response. The buyer is written to once, by the
+  // refusal that marked the intent (B3).
+  await afterResponse(async () => {
+    await notifyOps("provisioning_rejected", { field: error.field ?? null, source: "intent" });
+    if (firstRefusal) await sendOrderConfirmedDelayed(firstRefusal);
+  });
+}
+
+/** After the response when Next can schedule it; at once outside a request (tests, scripts). */
+async function afterResponse(task: () => Promise<void>): Promise<void> {
+  try {
+    after(task);
+  } catch {
+    await task();
+  }
 }

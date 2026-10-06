@@ -29,6 +29,10 @@ export function clinicReason(clinicName: string): string {
 export const SIGN_IN_REASON =
   "You're receiving this because someone asked to sign in to healdesk with this address.";
 
+/** Why a buyer receives an order email before their account exists (B3). */
+export const ORDER_REASON =
+  "You're receiving this because this address placed an order with healdesk.";
+
 /** Why the ops address receives an alert. */
 export const OPS_REASON =
   "You're receiving this because this address is set as healdesk's ops alert address.";

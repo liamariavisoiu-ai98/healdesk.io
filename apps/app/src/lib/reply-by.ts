@@ -7,6 +7,14 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function replyByDate(now: Date = new Date(), timeZone = "America/New_York"): string {
+  return formatReplyBy(replyByDay(now, timeZone));
+}
+
+/**
+ * The same day as an ISO date (YYYY-MM-DD), for an email payload, which
+ * carries dates and never sentences (Annex X4).
+ */
+export function replyByDay(now: Date = new Date(), timeZone = "America/New_York"): string {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
     year: "numeric",
@@ -18,10 +26,16 @@ export function replyByDate(now: Date = new Date(), timeZone = "America/New_York
   const weekday = get("weekday");
   const ahead = weekday === "Fri" ? 3 : weekday === "Sat" ? 2 : 1;
   const local = Date.UTC(Number(get("year")), Number(get("month")) - 1, Number(get("day")), 12);
+  return new Date(local + ahead * DAY_MS).toISOString().slice(0, 10);
+}
+
+/** "Wednesday 7 October", from an ISO date. */
+export function formatReplyBy(isoDay: string): string {
+  const [year, month, day] = isoDay.split("-").map(Number) as [number, number, number];
   return new Intl.DateTimeFormat("en-GB", {
     timeZone: "UTC",
     weekday: "long",
     day: "numeric",
     month: "long",
-  }).format(new Date(local + ahead * DAY_MS));
+  }).format(new Date(Date.UTC(year, month - 1, day, 12)));
 }

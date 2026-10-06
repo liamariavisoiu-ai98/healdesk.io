@@ -614,7 +614,7 @@ Settings shows the Channels, Behaviour and Escalation switches below as cards on
 
 | Switch | Options | Default | Effect |
 | --- | --- | --- | --- |
-| When the monthly allowance runs out | Keep going and bill the extra / Stop and fall back | Keep going | Stop and fall back means calls forward to the clinic's line and chat becomes a contact form rather than producing a surprise invoice |
+| When the monthly allowance runs out | Keep going and bill the extra / Stop and fall back | Keep going | Keep going bills the extra in blocks of 100 minutes or 100 conversations. Stop and fall back means calls forward to the clinic's line and chat becomes a contact form rather than producing a surprise invoice |
 | Usage alerts | On / Off | On | Emails at 80 percent and 100 percent of the allowance |
 | Auto-renew | On / Off | On | Off is a cancellation at period end, reversible until the date |
 
@@ -895,7 +895,7 @@ One correction on the zero-PHI idea that gets suggested around this: routing tra
 | Chat cost per conversation | Not established | The largest unknown in the product. The clinic profile rides in the system prompt on every turn, so a long conversation is not cheap. Needs measuring on real traffic before the top tier's 2,000 included conversations can be priced |
 | Concurrency | 20 concurrent calls included on the voice platform's pay-as-you-go, extra slots about $8 each a month | Whether 20 is enough at 15 to 20 clinics |
 | WhatsApp | From 1 October 2026, service messages cost $0.0034 per delivered message in North America, after 1,000 free per number each month | A per-clinic counter to track it |
-| Overage prices | Set provisionally by the owner on 5 October 2026: $0.80 a voice minute; $0.40 a chat conversation on the single-channel chat package and $0.30 on the rest. Included allowances cut the same day: chat to 1,000 / 2,000 / 1,000 / 2,000 conversations and the top tier's voice to 1,000 minutes | Measured cost times target margin, from pilot traffic (launch step 3.5). Until then the rates are a judgement, and the pricing page marks them provisional |
+| Overage prices | Set provisionally by the owner on 5 October 2026 and billed in blocks since 6 October: $80 for each started block of 100 extra voice minutes ($0.80 a minute); $40 for each started block of 100 extra chat conversations on the single-channel chat package and $30 on the rest ($0.40 and $0.30 a conversation). Included allowances cut on 5 October: chat to 1,000 / 2,000 / 1,000 / 2,000 conversations and the top tier's voice to 1,000 minutes | Measured cost times target margin, from pilot traffic (launch step 3.5). Until then the rates are a judgement, and the pricing page marks them provisional |
 
 ### The exercise to run
 

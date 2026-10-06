@@ -245,8 +245,12 @@ export async function saveIntent(input: IntentRequest): Promise<IntentResult> {
     contactName: input.contactName.trim(),
     contactEmail: input.contactEmail,
     ...(input.contactTitle ? { contactTitle: input.contactTitle.trim() } : {}),
-    phoneSystemType: input.phoneSystemType ?? "unknown",
-    callRouting: input.callRouting ?? "conditional",
+    // Never defaulted here. Provisioning reads a present answer as the
+    // clinic's confirmed choice (call_routing_confirmed_at, the onboarding
+    // step), and the funnel asks neither: an unasked answer stays unasked,
+    // and the wizard asks it.
+    ...(input.phoneSystemType ? { phoneSystemType: input.phoneSystemType } : {}),
+    ...(input.callRouting ? { callRouting: input.callRouting } : {}),
     agreementId: input.agreementId,
     ...(input.attributionMode ? { attributionMode: input.attributionMode } : {}),
     ...(input.averageTreatmentValueUsd !== undefined ? { averageTreatmentValueUsd: input.averageTreatmentValueUsd } : {}),
@@ -379,8 +383,10 @@ export function provisionRequestFromIntent(
     contactName: payload.contactName,
     contactEmail: payload.contactEmail,
     ...(payload.contactTitle ? { contactTitle: payload.contactTitle } : {}),
-    phoneSystemType: payload.phoneSystemType,
-    callRouting: payload.callRouting,
+    // Absent unless the purchase asked (saveIntent), so provisioning applies
+    // the column defaults and leaves both unconfirmed for the wizard.
+    ...(payload.phoneSystemType ? { phoneSystemType: payload.phoneSystemType } : {}),
+    ...(payload.callRouting ? { callRouting: payload.callRouting } : {}),
     agreementId: payload.agreementId,
     ...(payload.attributionMode ? { attributionMode: payload.attributionMode } : {}),
     ...(payload.averageTreatmentValueUsd !== undefined ? { averageTreatmentValueUsd: payload.averageTreatmentValueUsd } : {}),

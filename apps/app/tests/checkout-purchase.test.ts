@@ -276,6 +276,41 @@ describeDb("provisioning from a paid intent, and /welcome", () => {
     expect((await intent(p.body)).status).toBe(409);
   });
 
+  test("a funnel purchase confirms no call routing and no phone line: the wizard asks both", async () => {
+    // The four-step funnel asks neither question (the wizard's step 2.2 does),
+    // so its intent carries neither, and nothing may stamp them confirmed.
+    const p = await purchase();
+    const { json: saved } = await intent(p.body);
+    const ref = saved.ref as string;
+    const { rows: stored } = await getMigratorPool().query(
+      `select payload from checkout_intents where ref = $1`,
+      [ref],
+    );
+    expect(stored[0]!.payload).not.toHaveProperty("callRouting");
+    expect(stored[0]!.payload).not.toHaveProperty("phoneSystemType");
+
+    const provisioned = await provision(ref, `sub_test_${randomUUID().slice(0, 8)}`);
+    expect(provisioned.status).toBe(201);
+    const [clinic] = await inTenant(provisioned.json.clinicId as string, async (client) => {
+      const { rows } = await client.query<{
+        call_routing: string;
+        call_routing_confirmed_at: Date | null;
+        phone_system_type: string;
+        onboarding: Record<string, string | null>;
+      }>(`select call_routing, call_routing_confirmed_at, phone_system_type, onboarding from clinics`);
+      return rows;
+    });
+    // The defaults the runtime reads, explicitly unconfirmed: go-live and the
+    // console's "Confirm call routing" still wait on the clinic's answer.
+    expect(clinic).toMatchObject({
+      call_routing: "conditional",
+      call_routing_confirmed_at: null,
+      phone_system_type: "unknown",
+    });
+    expect(clinic!.onboarding.call_routing_chosen).toBeNull();
+    expect(clinic!.onboarding.phone_type_confirmed).toBeNull();
+  });
+
   test("/welcome gives the paying browser one sign-in link, and nobody else anything", async () => {
     const p = await purchase();
     const { json: saved } = await intent(p.body);

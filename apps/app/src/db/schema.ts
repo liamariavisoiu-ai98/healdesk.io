@@ -2697,8 +2697,13 @@ export type CheckoutIntentPayload = {
   /** Lowercased. */
   contactEmail: string;
   contactTitle?: string;
-  phoneSystemType: "landline" | "voip" | "unknown";
-  callRouting: "conditional" | "always";
+  /**
+   * Only when the purchase asked. The four-step funnel asks neither: which
+   * calls reach AYA is the wizard's question (step 2.2), and an answer stored
+   * here would reach provisioning as the clinic's confirmed choice.
+   */
+  phoneSystemType?: "landline" | "voip" | "unknown";
+  callRouting?: "conditional" | "always";
   agreementId: string;
   /**
    * The funnel's answers (plan Part A3), absent on an intent from before it:

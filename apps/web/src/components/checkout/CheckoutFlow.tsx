@@ -236,7 +236,9 @@ export function CheckoutFlow({
   const [pdfPending, setPdfPending] = useState(false);
 
   /**
-   * Rehydrate a signature this browser already made, before first paint.
+   * Rehydrate a signature this browser already made, once the flow has mounted:
+   * the server renders step 1 without sessionStorage, so reading it any sooner
+   * would break hydration.
    *
    * Only the agreement is restored, never the form fields: the form is cheap to
    * retype and restoring a half-filled clinic name into a fresh session is
@@ -246,6 +248,7 @@ export function CheckoutFlow({
     if (agreement) return;
     const stored = readStoredAgreement();
     if (!stored) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- read after hydration, see above
     setAgreement(stored);
     // Land them where the signature left them, not at the start.
     setStep((current) => (current < 6 ? 6 : current));

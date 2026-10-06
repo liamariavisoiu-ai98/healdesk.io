@@ -68,7 +68,6 @@ export default async function Image() {
         }}
       >
         <div style={{ display: "flex", flexDirection: "column" }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={wordmarkSrc}
             width={WORDMARK_WIDTH}

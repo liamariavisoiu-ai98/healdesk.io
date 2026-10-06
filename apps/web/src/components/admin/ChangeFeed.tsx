@@ -89,6 +89,7 @@ const TICK_MS = 10_000;
 const MAX_VISIBLE_FILES = 8;
 
 const EMPTY_FRESH: ReadonlySet<string> = new Set<string>();
+const EMPTY_ANNOUNCED: ReadonlyMap<string, number> = new Map<string, number>();
 
 const FRESH_KEYFRAMES = `
 @keyframes hd-change-fresh {
@@ -165,8 +166,9 @@ export function ChangeFeed({
 }: ChangeFeedProps) {
   const now = useTickingNow(TICK_MS);
 
-  // sha -> the wall-clock moment this browser first saw it.
-  const firstSeenRef = useRef<Map<string, number>>(new Map());
+  // Every sha this browser has seen, so each one is judged once, on the
+  // payload that first carries it.
+  const seenRef = useRef<Set<string>>(new Set());
   // False until a first *non-empty* payload has been absorbed, so page load is
   // not "new". Emptiness matters: a parent that renders `[]` while the first
   // fetch is in flight would otherwise make the entire real payload announce
@@ -176,13 +178,16 @@ export function ChangeFeed({
   // See rule 2: this is what separates "landed while you were watching" from
   // "the window got wider", which are the same unseen sha.
   const newestSeenRef = useRef<number | null>(null);
-  // Announced shas. State, not a ref, because arrival has to force a paint.
-  const [announced, setAnnounced] = useState<ReadonlySet<string>>(EMPTY_FRESH);
+  // Announced shas, each with the wall-clock moment this browser first saw it.
+  // State, not a ref, because arrival has to force a paint. The moment travels
+  // with the sha rather than being looked up in a ref because render reads it
+  // to expire the badge, and React does not re-render for a ref.
+  const [announced, setAnnounced] = useState<ReadonlyMap<string, number>>(EMPTY_ANNOUNCED);
 
   useEffect(() => {
-    const firstSeen = firstSeenRef.current;
+    const seen = seenRef.current;
     const stamp = Date.now();
-    const arrived: string[] = [];
+    const arrived: Array<[string, number]> = [];
 
     // Read once, before anything in this payload moves it, otherwise the first
     // commit of a batch raises the bar the rest of the batch is judged against.
@@ -197,8 +202,8 @@ export function ChangeFeed({
         newest = authoredMs;
       }
 
-      if (firstSeen.has(change.sha)) continue;
-      firstSeen.set(change.sha, stamp);
+      if (seen.has(change.sha)) continue;
+      seen.add(change.sha);
 
       if (
         primedRef.current &&
@@ -206,7 +211,7 @@ export function ChangeFeed({
         authoredMs !== null &&
         authoredMs > watermark
       ) {
-        arrived.push(change.sha);
+        arrived.push([change.sha, stamp]);
       }
     }
 
@@ -214,17 +219,22 @@ export function ChangeFeed({
     if (changes.length > 0) primedRef.current = true;
 
     if (arrived.length > 0) {
-      setAnnounced((previous) => new Set([...previous, ...arrived]));
+      // Set here, after commit, rather than during render from the previous
+      // payload kept in state, the usual cure for the rule disabled below. The
+      // badge lasts `FRESH_MS` from the moment the payload was absorbed, that
+      // moment is a reading of the wall clock, and render must not take one.
+      // The cost is an extra render and commit on the rare poll that brings a
+      // commit: it is painted for one frame before its badge appears.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- stamped off the wall clock
+      setAnnounced((previous) => new Map([...previous, ...arrived]));
     }
   }, [changes]);
 
   const fresh = useMemo(() => {
     if (now === null || announced.size === 0) return EMPTY_FRESH;
-    const firstSeen = firstSeenRef.current;
     const live = new Set<string>();
-    for (const sha of announced) {
-      const seenAt = firstSeen.get(sha);
-      if (seenAt !== undefined && now - seenAt < FRESH_MS) live.add(sha);
+    for (const [sha, seenAt] of announced) {
+      if (now - seenAt < FRESH_MS) live.add(sha);
     }
     return live;
   }, [now, announced]);

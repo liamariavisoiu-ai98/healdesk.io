@@ -2,8 +2,8 @@ import { isMarketingStoreConfigured, sheetsClient, type SheetsClient } from "@/l
 import { COUNTERS, dataRange, ensureSheetSchema, recordToRow, rowRange, rowToRecord, type Counter } from "@/lib/sheets/schema";
 
 /**
- * Fixed-window rate limiter: per-instance memory, plus a shared row for the
- * two site-wide daily spend caps.
+ * Fixed-window rate limiter: per-instance memory, plus a shared row for each
+ * of the three site-wide daily spend caps.
  *
  * ## What is shared and what is not, and why
  *
@@ -18,10 +18,11 @@ import { COUNTERS, dataRange, ensureSheetSchema, recordToRow, rowRange, rowToRec
  * Routing sixteen counters through that would turn the sign-in throttle into
  * a sign-in outage.
  *
- * The two counters that bound the BILL rather than a visitor are different:
- * `chat:global:day` (api/chat) and `callback:global:day` (api/callback) cap
- * model turns and dialled calls per UTC day across the whole site, and a cap
- * that resets on every cold start is not a cap. Those two, and only those two
+ * The three counters that bound the BILL rather than a visitor are different:
+ * `chat:global:day` (api/chat), `callback:global:day` (api/callback) and
+ * `site-read:global:day` (api/clinic-site) cap model turns, dialled calls and
+ * website reads per UTC day across the whole site, and a cap that resets on
+ * every cold start is not a cap. Those three, and only those three
  * (`GLOBAL_CAP_KEYS`), are backed by the `counters` tab of the marketing
  * Sheet.
  *
@@ -60,8 +61,16 @@ export type RateLimitResult = {
   retryAfter: number;
 };
 
-/** The only keys that go through the Sheet. Anything else is per-instance memory. */
-export const GLOBAL_CAP_KEYS: ReadonlySet<string> = new Set(["chat:global:day", "callback:global:day"]);
+/**
+ * The only keys that go through the Sheet. Anything else is per-instance
+ * memory. `site-read:global:day` (api/clinic-site) caps the website reads at
+ * checkout, each of which is a model call.
+ */
+export const GLOBAL_CAP_KEYS: ReadonlySet<string> = new Set([
+  "chat:global:day",
+  "callback:global:day",
+  "site-read:global:day",
+]);
 
 export function isGlobalCapKey(key: string): boolean {
   return GLOBAL_CAP_KEYS.has(key);

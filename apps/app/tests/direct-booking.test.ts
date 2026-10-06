@@ -50,9 +50,11 @@ describe("spoken forms (pure)", () => {
     expect(spokenSlot(new Date("2026-10-13T20:00:00Z"), TZ)).toBe("Tuesday the 13th at 4 PM");
     expect(spokenSlot(new Date("2026-10-22T13:00:00Z"), TZ)).toBe("Thursday the 22nd at 9 AM");
     expect(depositLine(null)).toBe("");
-    expect(depositLine({ required: false, amountUsd: 50 })).toBe("");
-    expect(depositLine({ required: true, amountUsd: 200 })).toMatch(/^A deposit of 200 dollars is required to hold the appointment\. The front desk will call you to take it/);
-    expect(depositLine({ required: true, amountUsd: null })).toMatch(/^A deposit is required/);
+    expect(depositLine({ action: "book", amountUsd: 50 })).toBe("");
+    expect(depositLine({ action: "book_and_flag", amountUsd: 200 })).toMatch(/^A deposit of 200 dollars is required to hold the appointment\. The front desk will call you to take it/);
+    expect(depositLine({ action: "book_and_flag", amountUsd: null })).toMatch(/^A deposit is required/);
+    // "Book by phone without a deposit" off: the line never promises a booking.
+    expect(depositLine({ action: "decline_and_alert", amountUsd: 200 })).toMatch(/^This appointment needs a deposit of 200 dollars, so it can't be booked on this call\./);
     expect(callRefOf("call_abc123")).toMatch(/^[0-9a-f]{64}$/);
   });
 });
@@ -133,6 +135,11 @@ describeDb("the direct-booking tools", () => {
       return id;
     });
     await inTenant(c.clinicId, (client) => client.query(`update provider_connections set phi_basis = 'practice_account'`));
+    if (opts.deposit) {
+      // A deposit is only asked for with deposits on and a connected Stripe account (BD27).
+      await getMigratorPool().query(`update clinics set stripe_connect_account_id = 'acct_1DirectBooking', stripe_connect_connected_at = now() where id = $1`, [c.clinicId]);
+      await inTenant(c.clinicId, (client) => client.query(`insert into clinic_settings (clinic_id, deposits_enabled) values ($1, true)`, [c.clinicId]));
+    }
     if (opts.direct !== false) {
       await getMigratorPool().query(
         `update clinics set booking_mode = 'direct', direct_booking_elected_at = now(), direct_booking_elected_by_label = 'Dr Chen, Owner',
@@ -220,8 +227,9 @@ describeDb("the direct-booking tools", () => {
     const chosen = slots[1]!;
     const booked = await post("book", c.clinicId, call("call_book_1", { first_name: "Dana", at: chosen.at, service: "Rhinoplasty consultation", fields: { last_name: "Okonkwo", consult_or_treatment: "consultation", dob: "1990", phone: "+15550000000" } }));
     expect(booked.status).toBe(200);
-    const reply = (await booked.json()) as { booked: boolean; when_spoken: string; calendar: string };
-    expect(reply).toEqual({ booked: true, when_spoken: chosen.spoken, calendar: "written" });
+    const reply = (await booked.json()) as { booked: boolean; when_spoken: string; calendar: string; deposit_line?: string };
+    // The deposit flagged for the desk comes back with the line the agent says (BD27).
+    expect(reply).toEqual({ booked: true, when_spoken: chosen.spoken, calendar: "written", deposit_line: expect.stringMatching(/^A deposit of 100 dollars is required/) });
 
     const stored = await inTenant(c.clinicId, async (client) => ({
       requests: (await client.query<Record<string, unknown>>(`select channel, status, booked_via, vendor_call_id, decided_by_label, preferred_window, treatment, collected_fields, conversation_id, desk_notified_at, confirmed_for, appointment_id from booking_requests`)).rows,

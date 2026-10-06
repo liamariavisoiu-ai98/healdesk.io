@@ -931,9 +931,10 @@ export const agentConfigs = pgTable(
     /** Anything else the agent may say, e.g. parking, new-patient policy. */
     notes: text("notes"),
     /**
-     * The clinic's deposit rule, as the agent must state it. Null means no
-     * deposit is mentioned. With Stripe Connect unavailable the only
-     * collection path is the front desk, and the agent says so on the call.
+     * The clinic's default deposit, for a service that sets none of its own
+     * (AgentService.depositUsd). Null means no default. Whether a deposit is
+     * then asked for, and how, is lib/billing/deposits.ts depositDecision:
+     * deposits switched on, a connected Stripe account, and the channel.
      */
     depositPolicy: jsonb("deposit_policy").$type<DepositPolicy>(),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
@@ -951,6 +952,13 @@ export type AgentService = {
   priceToUsd: number | null;
   /** Minutes, for scheduling. */
   durationMinutes: number | null;
+  /**
+   * The deposit this service asks for, in dollars, 0 to 10,000 (BD27; the
+   * spec sets deposits per service). 0 means none, even when the clinic has a
+   * default; null or absent means the clinic default, `deposit_policy`.
+   * lib/billing/deposits.ts effectiveDepositUsd reads it.
+   */
+  depositUsd?: number | null;
 };
 
 // -----------------------------------------------------------------------------
@@ -1141,7 +1149,10 @@ export type PhiBasis = "vendor_baa" | "practice_account";
 export type DepositPolicy = {
   required: boolean;
   amountUsd: number | null;
-  /** How it is collected. "front_desk" until Stripe Connect is enabled for the clinic. */
+  /**
+   * Ignored since BD27: how a deposit is collected follows from the channel
+   * and the clinic's deposit switches. Kept so existing rows still parse.
+   */
   collection: "front_desk" | "stripe_connect";
 };
 

@@ -240,19 +240,27 @@ const VARIANTS: Variant[] = [
     noticeDays: 21,
   }),
   variant("overage on voice", "overage_invoiced", {
-    amountCents: 2_400,
+    amountCents: 8_000,
     windowStart: "2026-09-06T14:32:00.000Z",
     windowEnd: "2026-10-06T14:32:00.000Z",
     voiceMinutes: 30,
     chatConversationsCount: 0,
+    voiceBlocksCount: 1,
+    chatBlocksCount: 0,
+    voiceBlockRateCents: 8_000,
+    chatBlockRateCents: 3_000,
     hostedInvoiceUrl: INVOICE_URL,
   }),
   variant("overage on both meters, no invoice link", "overage_invoiced", {
-    amountCents: 2_450,
+    amountCents: 17_000,
     windowStart: "2026-09-06T14:32:00.000Z",
     windowEnd: "2026-10-06T14:32:00.000Z",
     voiceMinutes: 1,
-    chatConversationsCount: 79,
+    chatConversationsCount: 201,
+    voiceBlocksCount: 1,
+    chatBlocksCount: 3,
+    voiceBlockRateCents: 8_000,
+    chatBlockRateCents: 3_000,
     hostedInvoiceUrl: null,
   }),
   variant("plan changed after the start, billed by channels in service", "plan_changed", {
@@ -774,14 +782,36 @@ describe("what each email says", () => {
     }
   });
 
+  test("overage is worded in started blocks of 100 at the block price, never a per-unit rate", () => {
+    const voice = render(named("overage on voice"));
+    expect(voice.text).toContain("30 voice minutes, billed as 1 block of 100 voice minutes at $80");
+    expect(voice.text).toContain(
+      "Overage is billed for each started block of 100, so that comes to $80, charged to the card on file.",
+    );
+    const both = render(named("overage on both meters, no invoice link"));
+    expect(both.text).toContain("1 voice minute, billed as 1 block of 100 voice minutes at $80");
+    expect(both.text).toContain(
+      "201 chat conversations, billed as 3 blocks of 100 chat conversations at $30 each",
+    );
+    expect(both.text).toContain("so that comes to $170");
+    for (const email of [voice, both]) {
+      expect(`${email.subject}\n${email.text}`).not.toMatch(
+        /\$0\.\d|\b(a|per) (voice )?minute\b|\b(a|per) (chat )?conversation\b/,
+      );
+    }
+  });
+
   test("the allowance fallback says what stops, until when, and that work under way carries on", () => {
     const voice = render(named("the voice allowance ran out"));
     expect(voice.subject).toBe("Allowance used: calls go to your direct line until 6 November");
     expect(voice.text).toContain("All 1,000 voice minutes in your plan are used");
     expect(voice.text).toContain("A call she's already on carries on.");
+    // "Keep going" bills in started blocks of 100 since 6 October 2026.
+    expect(voice.text).toContain("billed for each started block of 100 voice minutes");
     const chat = render(named("the chat allowance ran out, across the new year"));
     expect(chat.subject).toBe("Allowance used: AYA starts no new chats until 10 January 2027");
     expect(chat.text).toContain("Conversations already under way carry on.");
+    expect(chat.text).toContain("billed for each started block of 100 chat conversations");
   });
 
   test("every email that links a receipt says how to cancel online", () => {

@@ -327,9 +327,9 @@ describeDb("billing writers and recorders", () => {
       const deadline = new Date("2026-11-05T00:00:00Z");
       await inClinic(clinicId, async (tx) => {
         await setMeteredPriceKeys(tx.db, clinicId, [
-          "healdesk_meter_voice_minutes_80",
-          "healdesk_meter_chat_conversations_30",
-          "healdesk_meter_voice_minutes_80",
+          "healdesk_meter_voice_minutes_block100_8000",
+          "healdesk_meter_chat_conversations_block100_3000",
+          "healdesk_meter_voice_minutes_block100_8000",
         ]);
         await setLocations(tx.db, clinicId, 3);
         await setCancelAt(tx.db, clinicId, cancelAt);
@@ -340,8 +340,8 @@ describeDb("billing writers and recorders", () => {
       const after = await row(clinicId);
       expect(after).toMatchObject({
         meteredPriceKeys: [
-          "healdesk_meter_chat_conversations_30",
-          "healdesk_meter_voice_minutes_80",
+          "healdesk_meter_chat_conversations_block100_3000",
+          "healdesk_meter_voice_minutes_block100_8000",
         ],
         locations: 3,
         usageAlertsEnabled: false,

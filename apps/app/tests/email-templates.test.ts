@@ -298,7 +298,7 @@ describe("the payload allowlist", () => {
           included: 500,
           windowEndsOn: "2026-10-31",
           overageMode: "allow",
-          rateCents: 80,
+          blockRateCents: 8_000,
         },
       ],
       [

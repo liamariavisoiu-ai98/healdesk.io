@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi 
 
 const mocks = vi.hoisted(() => ({
   ops: [] as Array<{ event: string; fields: Record<string, unknown> }>,
-  alerts: [] as Array<{ clinicId: string; kind: string; ref: Record<string, string> }>,
+  alerts: [] as Array<{ clinicId: string; kind: string; ref: Record<string, string | boolean> }>,
 }));
 
 vi.mock("@/lib/ops/notify", async (importOriginal) => ({
@@ -22,7 +22,7 @@ vi.mock("@/lib/notices/booking-alerts", () => ({
   notifyBookingAlert: async (
     tx: { clinicId: string },
     kind: string,
-    ref: Record<string, string>,
+    ref: Record<string, string | boolean>,
   ) => {
     mocks.alerts.push({ clinicId: tx.clinicId, kind, ref });
   },
@@ -528,11 +528,19 @@ describeDb("POST /api/webhooks/stripe-connect", DB_TEST_OPTIONS, () => {
         client.query<{ deposits_enabled: boolean }>(`select deposits_enabled from clinic_settings`),
       );
       expect(settings.rows[0]!.deposits_enabled).toBe(false);
-      // Its open link cannot be checked any more: left open, handed to the desk.
+      // Its open link cannot be checked any more: left open, handed to the desk,
+      // and the alert says it may already have been paid.
       expect(await row(clinic.clinicId, clinic.deposit)).toMatchObject({
         status: "open",
         appointment: "pending_front_desk",
       });
+      expect(mocks.alerts.filter((a) => a.clinicId === clinic.clinicId)).toEqual([
+        {
+          clinicId: clinic.clinicId,
+          kind: "deposit_to_collect",
+          ref: { appointmentId: clinic.appointment, mayBePaid: true },
+        },
+      ]);
       const notices = await inTenant(clinic.clinicId, (client) =>
         client.query<{ kind: string; payload: Record<string, unknown> }>(
           `select kind, payload from billing_notices`,

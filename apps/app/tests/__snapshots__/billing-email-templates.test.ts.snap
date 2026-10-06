@@ -6,7 +6,7 @@ exports[`every branch of every billing template > allowance_fallback: the chat a
   "subject": "Allowance used: AYA starts no new chats until 10 January 2027",
   "text": "All 4,000 chat conversations in your plan are used for this period. You chose “Stop and fall back” for when that happens, so until Sunday 10 January 2027, when your allowance resets, AYA doesn't start new conversations: website chat becomes a contact form, and new Instagram, Messenger and WhatsApp messages go unanswered for your team to see. Conversations already under way carry on.
 
-To keep AYA answering instead, switch to “Keep going and bill the extra” in Billing. Usage past the allowance is then billed at your plan's overage rates, which are provisional until we've measured our costs.
+To keep AYA answering instead, switch to “Keep going and bill the extra” in Billing. Usage past the allowance is then billed for each started block of 100 chat conversations at your plan's overage rates, which are provisional until we've measured our costs.
 
 Change it in Billing: https://app.healdesk.test/
 
@@ -25,7 +25,7 @@ exports[`every branch of every billing template > allowance_fallback: the voice 
   "subject": "Allowance used: calls go to your direct line until 6 November",
   "text": "All 1,000 voice minutes in your plan are used for this period. You chose “Stop and fall back” for when that happens, so until Friday 6 November, when your allowance resets, AYA doesn't answer new calls: they go to your direct line instead. A call she's already on carries on.
 
-To keep AYA answering instead, switch to “Keep going and bill the extra” in Billing. Usage past the allowance is then billed at your plan's overage rates, which are provisional until we've measured our costs.
+To keep AYA answering instead, switch to “Keep going and bill the extra” in Billing. Usage past the allowance is then billed for each started block of 100 voice minutes at your plan's overage rates, which are provisional until we've measured our costs.
 
 Change it in Billing: https://app.healdesk.test/
 
@@ -412,14 +412,14 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > overage_invoiced: overage on both meters, no invoice link > the words, as a snapshot 1`] = `
 {
-  "preheader": "$24.50 for the month to Tuesday 6 October.",
+  "preheader": "$170 for the month to Tuesday 6 October.",
   "subject": "Your healdesk invoice for usage past your allowance",
   "text": "In the month from Sunday 6 September to Tuesday 6 October, AYA handled more than your plan includes. Past your allowance:
 
-- 1 voice minute
-- 79 chat conversations
+- 1 voice minute, billed as 1 block of 100 voice minutes at $80
+- 201 chat conversations, billed as 3 blocks of 100 chat conversations at $30 each
 
-That comes to $24.50 at your plan's overage rates, charged to the card on file. The rates are provisional until we've measured what each minute and conversation costs us.
+Overage is billed for each started block of 100, so that comes to $170, charged to the card on file. The rates are provisional until we've measured what each minute and conversation costs us.
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
@@ -432,13 +432,13 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > overage_invoiced: overage on voice > the words, as a snapshot 1`] = `
 {
-  "preheader": "$24 for the month to Tuesday 6 October.",
+  "preheader": "$80 for the month to Tuesday 6 October.",
   "subject": "Your healdesk invoice for usage past your allowance",
   "text": "In the month from Sunday 6 September to Tuesday 6 October, AYA handled more than your plan includes. Past your allowance:
 
-- 30 voice minutes
+- 30 voice minutes, billed as 1 block of 100 voice minutes at $80
 
-That comes to $24 at your plan's overage rates, charged to the card on file. The rates are provisional until we've measured what each minute and conversation costs us.
+Overage is billed for each started block of 100, so that comes to $80, charged to the card on file. The rates are provisional until we've measured what each minute and conversation costs us.
 
 View the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 

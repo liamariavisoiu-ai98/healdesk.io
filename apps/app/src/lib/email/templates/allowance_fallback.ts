@@ -1,3 +1,5 @@
+import { OVERAGE_BLOCK_UNITS } from "@healdesk/catalog";
+
 import type { NoticePayloads } from "@/lib/billing/notices";
 
 import { counted, dayLong, dayShort, METER_WORDS, portalUrl } from "./billing-copy";
@@ -15,8 +17,10 @@ import type { EmailTemplate } from "./types";
  * when the allowance resets), and what still works. Under the cap a call or a
  * conversation already under way is never cut off; only new ones fall back
  * (R18). The one action is the switch itself, with the honest cost of the
- * other choice: usage past the allowance billed at the plan's overage rates,
- * which are provisional until measured (CLAUDE.md, "Claims and copy").
+ * other choice: usage past the allowance billed for each started block of
+ * 100, as "Keep going" bills it since 6 October 2026 (docs/v1-product-spec.md,
+ * the allowance switch), at the plan's overage rates, which are provisional
+ * until measured (CLAUDE.md, "Claims and copy").
  */
 
 export type AllowanceFallbackPayload = NoticePayloads["allowance_fallback"];
@@ -42,7 +46,7 @@ export const renderAllowanceFallback: EmailTemplate<AllowanceFallbackPayload> = 
         },
         {
           type: "paragraph",
-          text: "To keep AYA answering instead, switch to “Keep going and bill the extra” in Billing. Usage past the allowance is then billed at your plan's overage rates, which are provisional until we've measured our costs.",
+          text: `To keep AYA answering instead, switch to “Keep going and bill the extra” in Billing. Usage past the allowance is then billed for each started block of ${OVERAGE_BLOCK_UNITS} ${words.many} at your plan's overage rates, which are provisional until we've measured our costs.`,
         },
         { type: "action", label: "Change it in Billing", url: portalUrl() },
       ],

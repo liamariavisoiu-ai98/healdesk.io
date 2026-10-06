@@ -43,8 +43,12 @@ export type UsageNoticePayload = {
   /** ISO date (YYYY-MM-DD) the allowance window ends. */
   windowEndsOn: string;
   overageMode: "allow" | "hard_cap";
-  /** The provisional overage rate in cents for this meter on the BOUGHT package. */
-  rateCents: number;
+  /**
+   * The provisional price of one started block of 100 units on this meter, at
+   * the BOUGHT package's rate, in cents. Overage is billed per started block
+   * (catalog OVERAGE_BLOCK_UNITS), so the email never quotes a per-unit rate.
+   */
+  blockRateCents: number;
 };
 
 /**
@@ -153,6 +157,12 @@ export type NoticePayloads = {
     windowEnd: string;
     voiceMinutes: number;
     chatConversationsCount: number;
+    /** The started blocks of 100 each meter was billed as: the invoice lines' quantities. */
+    voiceBlocksCount: number;
+    chatBlocksCount: number;
+    /** The price of one block on each meter, in cents; 0 for a meter the package does not sell. */
+    voiceBlockRateCents: number;
+    chatBlockRateCents: number;
     hostedInvoiceUrl: string | null;
   };
   /**

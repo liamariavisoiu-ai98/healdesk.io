@@ -162,7 +162,7 @@ function subscription(
           id: "si_metered",
           price: {
             id: "price_meter",
-            lookup_key: "healdesk_meter_voice_minutes_80",
+            lookup_key: "healdesk_meter_voice_minutes_block100_8000",
             recurring: { usage_type: "metered" },
           },
         },
@@ -201,6 +201,10 @@ describe("parseLookupKey", () => {
 
   test("returns null for anything that is not a package price", () => {
     expect(parseLookupKey("healdesk_meter_voice_minutes")).toBeNull();
+    // The metered prices per started block of 100 (6 October 2026), and the
+    // per-unit ones before them that a subscription may still carry.
+    expect(parseLookupKey("healdesk_meter_voice_minutes_block100_8000")).toBeNull();
+    expect(parseLookupKey("healdesk_meter_chat_conversations_block100_3000")).toBeNull();
     expect(parseLookupKey("healdesk_meter_voice_minutes_80")).toBeNull();
     expect(parseLookupKey("healdesk_meter_chat_conversations_30")).toBeNull();
     expect(parseLookupKey("scalabid_pro_month_9900")).toBeNull();

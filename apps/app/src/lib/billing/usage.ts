@@ -1,4 +1,9 @@
-import { getPlan, OVERAGE_RATES_PROVISIONAL } from "@healdesk/catalog";
+import {
+  getPlan,
+  overageBlockCents,
+  overageChargeCents,
+  OVERAGE_RATES_PROVISIONAL,
+} from "@healdesk/catalog";
 import { and, eq, sql } from "drizzle-orm";
 
 import {
@@ -129,19 +134,52 @@ export function usedOf(
 }
 
 /**
- * The overage rate for a meter in cents, at the BOUGHT package's rate (the
- * metered prices stay the bought package's, BD3); a legacy row has only its
- * billed package. 0 when the package does not sell the meter.
+ * The per-unit overage rate for a meter in dollars, at the BOUGHT package's
+ * rate (the metered prices stay the bought package's, BD3); a legacy row has
+ * only its billed package. 0 when the package does not sell the meter or has
+ * left the catalog.
  */
-export function overageRateCentsFor(
+function overageRateUsdFor(
   row: Pick<Entitlements, "boughtPlanId" | "planCode">,
   meter: UsageMeter,
 ): number {
   const plan = getPlan(row.boughtPlanId ?? row.planCode);
   if (!plan) return 0;
-  const usd =
-    meter === "voice_minutes" ? plan.overagePerVoiceMinuteUsd : plan.overagePerChatConversationUsd;
-  return Math.round(usd * 100);
+  return meter === "voice_minutes"
+    ? plan.overagePerVoiceMinuteUsd
+    : plan.overagePerChatConversationUsd;
+}
+
+/**
+ * The price of one started block of 100 on a meter, in cents, at the bought
+ * package's rate: what the allowance emails quote. Overage is billed per
+ * started block since 6 October 2026 (catalog OVERAGE_BLOCK_UNITS), so a
+ * per-unit rate is never what a clinic is charged. 0 when the package does
+ * not sell the meter.
+ */
+export function overageBlockCentsFor(
+  row: Pick<Entitlements, "boughtPlanId" | "planCode">,
+  meter: UsageMeter,
+): number {
+  const rateUsd = overageRateUsdFor(row, meter);
+  return rateUsd > 0 ? overageBlockCents(rateUsd) : 0;
+}
+
+/**
+ * What `units` past the allowance bill on a meter, in cents: started blocks
+ * times the block price (catalog `overageChargeCents`), the sum Stripe's
+ * metered price and the annual overage invoice both make. Units times the
+ * per-unit rate would show a clinic less than it will be charged for every
+ * part block: 250 minutes over are three blocks, $240, not $200. 0 when the
+ * package does not sell the meter.
+ */
+export function overageChargeCentsFor(
+  row: Pick<Entitlements, "boughtPlanId" | "planCode">,
+  meter: UsageMeter,
+  units: number,
+): number {
+  const rateUsd = overageRateUsdFor(row, meter);
+  return rateUsd > 0 ? overageChargeCents(units, rateUsd) : 0;
 }
 
 /** The `${meter}:${windowStartIso}` key the allowance notices share (R22). */
@@ -361,9 +399,9 @@ export type UsageMeterSnapshot = {
   /** Units past the allowance so far this window. */
   overUnits: number;
   /**
-   * What those units bill at the bought package's rate: 0 under "Stop and
-   * fall back" (R19) and while OVERAGE_RATES_PROVISIONAL says overage is not
-   * billed.
+   * What those units bill at the bought package's rate, in started blocks of
+   * 100 (overageChargeCentsFor): 0 under "Stop and fall back" (R19) and while
+   * OVERAGE_RATES_PROVISIONAL says overage is not billed.
    */
   overageCents: number;
   /** Whole percent of the allowance used; null when the meter has no allowance. */
@@ -410,7 +448,7 @@ export function usageSnapshot(
       included,
       remaining: Math.max(0, included - used),
       overUnits,
-      overageCents: billed ? overUnits * overageRateCentsFor(row, meter) : 0,
+      overageCents: billed ? overageChargeCentsFor(row, meter, overUnits) : 0,
       percent: included > 0 ? Math.floor((used * 100) / included) : null,
       windowStart: row.currentPeriodStart?.toISOString() ?? null,
       windowEnd: row.currentPeriodEnd?.toISOString() ?? null,

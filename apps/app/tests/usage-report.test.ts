@@ -278,7 +278,7 @@ describeDb("usage reported to Stripe's meters", () => {
       // Sold as Web Chatbot's rate, which the bought Web + Voice package is not.
       items: [
         { lookupKey: "healdesk_web-voice_month_89700" },
-        { lookupKey: "healdesk_meter_chat_conversations_40" },
+        { lookupKey: "healdesk_meter_chat_conversations_block100_4000" },
       ],
       periodStart: s(STARTED),
       periodEnd: s(new Date("2026-11-07T00:00:00Z")),
@@ -294,8 +294,8 @@ describeDb("usage reported to Stripe's meters", () => {
     expect(update!.args[1]).toEqual({
       items: [
         { id: chatItem, deleted: true },
-        { price: "price_healdesk_meter_chat_conversations_30" },
-        { price: "price_healdesk_meter_voice_minutes_80" },
+        { price: "price_healdesk_meter_chat_conversations_block100_3000" },
+        { price: "price_healdesk_meter_voice_minutes_block100_8000" },
       ],
       proration_behavior: "none",
       off_session: true,
@@ -308,8 +308,8 @@ describeDb("usage reported to Stripe's meters", () => {
       getEntitlements(tx.db, clinic.clinicId),
     );
     expect(row!.meteredPriceKeys).toEqual([
-      "healdesk_meter_chat_conversations_30",
-      "healdesk_meter_voice_minutes_80",
+      "healdesk_meter_chat_conversations_block100_3000",
+      "healdesk_meter_voice_minutes_block100_8000",
     ]);
     expect((await usageRow(clinic.clinicId, id)).stripe_reported_at).toEqual(NOW);
 
@@ -393,7 +393,7 @@ describeDb("reconcileMeteredItems", () => {
       subscriptionId: clinic.subscriptionId,
       items: [
         { lookupKey: "healdesk_chat-web_month_39700" },
-        { lookupKey: "healdesk_meter_chat_conversations_40" },
+        { lookupKey: "healdesk_meter_chat_conversations_block100_4000" },
       ],
       periodStart: s(STARTED),
       periodEnd: s(new Date("2026-11-07T00:00:00Z")),
@@ -406,7 +406,7 @@ describeDb("reconcileMeteredItems", () => {
       getEntitlements(tx.db, clinic.clinicId),
     );
     expect(row).toMatchObject({
-      meteredPriceKeys: ["healdesk_meter_chat_conversations_40"],
+      meteredPriceKeys: ["healdesk_meter_chat_conversations_block100_4000"],
       stripeMutationLeaseOwner: null,
     });
   });
@@ -426,7 +426,7 @@ describeDb("reconcileMeteredItems", () => {
       subscriptionId: foreign.subscriptionId,
       items: [
         { lookupKey: "healdesk_chat-web_month_39700" },
-        { lookupKey: "healdesk_meter_chat_conversations_40" },
+        { lookupKey: "healdesk_meter_chat_conversations_block100_4000" },
       ],
       periodStart: s(STARTED),
       periodEnd: s(new Date("2026-11-07T00:00:00Z")),
@@ -444,6 +444,88 @@ describeDb("reconcileMeteredItems", () => {
       status: "ok",
     });
     expect(world.fake.callsTo("subscriptions.update")).toHaveLength(0);
+  });
+
+  test("a subscription still on the per-unit prices of 5 October is moved onto the block prices", async () => {
+    // What a monthly checkout attached before overage was billed per started
+    // block of 100 (6 October 2026). stripe-setup archives those prices, which
+    // stops them being sold but not billed: only this swap moves the clinic.
+    const clinic = await seedMonthly("reconcile-per-unit", {
+      bought: "web-voice",
+      snapshot: false,
+    });
+    await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+      setMeteredPriceKeys(tx.db, clinic.clinicId, [
+        "healdesk_meter_chat_conversations_30",
+        "healdesk_meter_voice_minutes_80",
+      ]),
+    );
+    const world = createStripeWorld({
+      customerId: clinic.customerId,
+      subscriptionId: clinic.subscriptionId,
+      items: [
+        { lookupKey: "healdesk_web-voice_month_89700" },
+        { lookupKey: "healdesk_meter_voice_minutes_80" },
+        { lookupKey: "healdesk_meter_chat_conversations_30" },
+      ],
+      periodStart: s(STARTED),
+      periodEnd: s(new Date("2026-11-07T00:00:00Z")),
+    });
+    const [packageItem, voiceItem, chatItem] = world.state.subscription.items.data.map(
+      (item) => item.id as string,
+    );
+
+    expect(await reconcileMeteredItems(clinic.clinicId, { stripe: world.stripe })).toEqual({
+      status: "fixed",
+    });
+    const updates = world.fake.callsTo("subscriptions.update");
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.args[1]).toEqual({
+      items: [
+        { id: voiceItem, deleted: true },
+        { id: chatItem, deleted: true },
+        { price: "price_healdesk_meter_chat_conversations_block100_3000" },
+        { price: "price_healdesk_meter_voice_minutes_block100_8000" },
+      ],
+      proration_behavior: "none",
+      off_session: true,
+      expand: ["items.data.price"],
+    });
+    // The package item is untouched; the metered items now bill $30 and $80 a
+    // started block of 100, the period's total divided by 100 and rounded up.
+    const items = world.state.subscription.items.data as {
+      id: string;
+      price: { lookup_key: string; unit_amount: number; transform_quantity: unknown };
+    }[];
+    expect(items.map((item) => item.id)).toContain(packageItem);
+    expect(
+      items
+        .filter((item) => item.id !== packageItem)
+        .map((item) => [
+          item.price.lookup_key,
+          item.price.unit_amount,
+          item.price.transform_quantity,
+        ]),
+    ).toEqual([
+      ["healdesk_meter_chat_conversations_block100_3000", 3_000, { divide_by: 100, round: "up" }],
+      ["healdesk_meter_voice_minutes_block100_8000", 8_000, { divide_by: 100, round: "up" }],
+    ]);
+    const row = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+      getEntitlements(tx.db, clinic.clinicId),
+    );
+    expect(row).toMatchObject({
+      meteredPriceKeys: [
+        "healdesk_meter_chat_conversations_block100_3000",
+        "healdesk_meter_voice_minutes_block100_8000",
+      ],
+      stripeMutationLeaseOwner: null,
+    });
+
+    // Moved once: the next pass finds the items right and changes nothing.
+    expect(await reconcileMeteredItems(clinic.clinicId, { stripe: world.stripe })).toEqual({
+      status: "ok",
+    });
+    expect(world.fake.callsTo("subscriptions.update")).toHaveLength(1);
   });
 
   test("a trialing subscription is reported as a fault, never built on", async () => {

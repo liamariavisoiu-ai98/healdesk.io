@@ -67,13 +67,15 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
     locations: 1,
     noticeDays: 30,
   },
+  // Overage is billed per started block of 100 (6 October 2026): the alerts
+  // quote a block's price, and the invoice notice counts blocks.
   usage_80: {
     meter: "voice_minutes",
     used: 800,
     included: 1_000,
     windowEndsOn: "2026-11-10",
     overageMode: "allow",
-    rateCents: 80,
+    blockRateCents: 8_000,
   },
   usage_100: {
     meter: "chat_conversations",
@@ -81,14 +83,18 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
     included: 2_000,
     windowEndsOn: "2026-11-10",
     overageMode: "hard_cap",
-    rateCents: 30,
+    blockRateCents: 3_000,
   },
   overage_invoiced: {
-    amountCents: 2_400,
+    amountCents: 8_000,
     windowStart: "2026-10-10T00:00:00.000Z",
     windowEnd: "2026-11-10T00:00:00.000Z",
     voiceMinutes: 30,
     chatConversationsCount: 0,
+    voiceBlocksCount: 1,
+    chatBlocksCount: 0,
+    voiceBlockRateCents: 8_000,
+    chatBlockRateCents: 3_000,
     hostedInvoiceUrl: INVOICE_URL,
   },
   // Voice kept, so no forwarding facts ride along: the shape every plan

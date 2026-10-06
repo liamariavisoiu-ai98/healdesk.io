@@ -2,8 +2,10 @@ import {
   getPlan,
   meteredPriceLookupKey,
   METERS,
+  OVERAGE_BLOCK_UNITS,
+  overageBlockCents,
+  overageBlocks,
   OVERAGE_RATES_PROVISIONAL,
-  overageRateCents,
   type Plan,
 } from "@healdesk/catalog";
 import { and, asc, eq, isNotNull, sql } from "drizzle-orm";
@@ -35,6 +37,16 @@ import { effectivePaymentMethod, WORKER_STRIPE_OPTIONS } from "./stripe-helpers"
  * window's `over_allowance` by meter (only rows never reported to a meter,
  * so a clinic that moved from monthly to annual is never billed twice) and
  * charges it on one invoice of its own at the BOUGHT package's rates.
+ *
+ * Overage is billed per STARTED block of 100 units since 6 October 2026
+ * (catalog OVERAGE_BLOCK_UNITS), so each meter's month total becomes
+ * `overageBlocks(units)` blocks at the block price: 1 to 100 minutes over is
+ * one block of $80, 101 is two. That is the sum a monthly plan's metered
+ * price makes at the end of its period (its `transform_quantity` divides the
+ * total by 100 and rounds up), so an annual clinic pays exactly what a
+ * monthly one would for the same month. The blocks are counted on the
+ * month's total, never per call or per row: two 60-minute overruns are 120
+ * minutes, two blocks, not one each.
  *
  * The ledger is `overage_invoices`, one row per window (unique on the
  * window), and the order of operations is what makes a crash harmless:
@@ -112,15 +124,23 @@ export async function closedOverageWindows(
   return windows;
 }
 
-/** The bought package's rate for a meter in whole cents, or 0 when the package does not sell it. */
-function rateCents(rateUsd: number): number {
-  return rateUsd > 0 ? overageRateCents(rateUsd) : 0;
+/** The bought package's price for one block on a meter in whole cents, or 0 when it does not sell it. */
+function blockCents(rateUsd: number): number {
+  return rateUsd > 0 ? overageBlockCents(rateUsd) : 0;
+}
+
+/** "1 block of 100", "3 blocks of 100": what an invoice line's quantity counts. */
+function blocksOf(blocks: number): string {
+  return `${blocks} ${blocks === 1 ? "block" : "blocks"} of ${OVERAGE_BLOCK_UNITS}`;
 }
 
 type Claimed = {
   row: OverageInvoice;
-  voiceRateCents: number;
-  chatRateCents: number;
+  voiceBlockCents: number;
+  chatBlockCents: number;
+  /** Started blocks billed on each meter: 0 for a meter the bought package does not sell. */
+  voiceBlocks: number;
+  chatBlocks: number;
   amountCents: number;
 };
 
@@ -128,21 +148,30 @@ type Claimed = {
  * Claim a window's ledger row (step 1): insert it, or take over a `failed`
  * (or crashed `pending`) one with the amounts worked out afresh. `done` when
  * the window is already invoiced or skipped, or has nothing to bill.
+ *
+ * The amount is started blocks times the block price per meter, never units
+ * times the per-unit rate. The ledger keeps the units it counted, and its
+ * rate columns hold the price of one block, which is what each invoice item
+ * charges per unit of its quantity: so `amount_cents` is always
+ * `overageBlocks(voice_units) × voice_rate_cents` plus the same for chat.
  */
 async function claimWindow(
   tx: TenantTx,
   plan: Plan,
   window: OverageWindow,
 ): Promise<Claimed | { done: OverageInvoice }> {
-  const voiceRateCents = rateCents(plan.overagePerVoiceMinuteUsd);
-  const chatRateCents = rateCents(plan.overagePerChatConversationUsd);
-  const amountCents = window.voiceUnits * voiceRateCents + window.chatUnits * chatRateCents;
+  const voiceBlockCents = blockCents(plan.overagePerVoiceMinuteUsd);
+  const chatBlockCents = blockCents(plan.overagePerChatConversationUsd);
+  const voiceBlocks = voiceBlockCents > 0 ? overageBlocks(window.voiceUnits) : 0;
+  const chatBlocks = chatBlockCents > 0 ? overageBlocks(window.chatUnits) : 0;
+  const amountCents = voiceBlocks * voiceBlockCents + chatBlocks * chatBlockCents;
+  const claimed = { voiceBlockCents, chatBlockCents, voiceBlocks, chatBlocks, amountCents };
   const values = {
     windowEnd: window.end,
     voiceUnits: window.voiceUnits,
     chatUnits: window.chatUnits,
-    voiceRateCents,
-    chatRateCents,
+    voiceRateCents: voiceBlockCents,
+    chatRateCents: chatBlockCents,
     amountCents,
   };
 
@@ -157,9 +186,7 @@ async function claimWindow(
     .onConflictDoNothing({ target: [overageInvoices.clinicId, overageInvoices.windowStart] })
     .returning();
   if (inserted) {
-    return inserted.status === "skipped"
-      ? { done: inserted }
-      : { row: inserted, voiceRateCents, chatRateCents, amountCents };
+    return inserted.status === "skipped" ? { done: inserted } : { row: inserted, ...claimed };
   }
 
   const [existing] = await tx.db
@@ -178,9 +205,7 @@ async function claimWindow(
     .set({ ...values, status: amountCents > 0 ? "pending" : "skipped", error: null })
     .where(eq(overageInvoices.id, existing.id))
     .returning();
-  return taken!.status === "skipped"
-    ? { done: taken! }
-    : { row: taken!, voiceRateCents, chatRateCents, amountCents };
+  return taken!.status === "skipped" ? { done: taken! } : { row: taken!, ...claimed };
 }
 
 /**
@@ -218,28 +243,32 @@ export async function invoiceOverageWindow(
     const stripe = options.stripe ?? getStripe();
     const items: OneOffItem[] = [];
     const days = `${windowStartIso.slice(0, 10)} to ${window.end.toISOString().slice(0, 10)}`;
-    if (window.voiceUnits > 0 && claimed.voiceRateCents > 0) {
+    // One item per meter: the blocks as its quantity, at the price of one
+    // block, on the meter's own product so the line reads like the monthly
+    // plans' metered line. The description is generic: a meter, the dates
+    // and a count, nothing about who called or what was asked.
+    if (claimed.voiceBlocks > 0) {
       const price = await priceForLookupKey(
         meteredPriceLookupKey("voiceMinutes", plan.overagePerVoiceMinuteUsd),
         { stripe },
       );
       items.push({
         product: price.productId,
-        unitAmountCents: claimed.voiceRateCents,
-        quantity: window.voiceUnits,
-        description: `${METERS.voiceMinutes.displayName}, ${days}`,
+        unitAmountCents: claimed.voiceBlockCents,
+        quantity: claimed.voiceBlocks,
+        description: `${METERS.voiceMinutes.displayName}, ${days}: ${blocksOf(claimed.voiceBlocks)}`,
       });
     }
-    if (window.chatUnits > 0 && claimed.chatRateCents > 0) {
+    if (claimed.chatBlocks > 0) {
       const price = await priceForLookupKey(
         meteredPriceLookupKey("chatConversations", plan.overagePerChatConversationUsd),
         { stripe },
       );
       items.push({
         product: price.productId,
-        unitAmountCents: claimed.chatRateCents,
-        quantity: window.chatUnits,
-        description: `${METERS.chatConversations.displayName}, ${days}`,
+        unitAmountCents: claimed.chatBlockCents,
+        quantity: claimed.chatBlocks,
+        description: `${METERS.chatConversations.displayName}, ${days}: ${blocksOf(claimed.chatBlocks)}`,
       });
     }
     const subscription = row.stripeSubscriptionId
@@ -294,6 +323,10 @@ export async function invoiceOverageWindow(
         windowEnd: window.end.toISOString(),
         voiceMinutes: window.voiceUnits,
         chatConversationsCount: window.chatUnits,
+        voiceBlocksCount: claimed.voiceBlocks,
+        chatBlocksCount: claimed.chatBlocks,
+        voiceBlockRateCents: claimed.voiceBlockCents,
+        chatBlockRateCents: claimed.chatBlockCents,
         hostedInvoiceUrl: charge.hostedInvoiceUrl,
       });
     });

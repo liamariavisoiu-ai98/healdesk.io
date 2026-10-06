@@ -221,7 +221,7 @@ describeDb("billing actions", () => {
       });
       startedWorld(seeded, { bought: "chat-web", billed: "chat-web", locations: 2 });
       const packageItem = itemId("healdesk_chat-web_month_39700")!;
-      const meteredItem = itemId("healdesk_meter_chat_conversations_40")!;
+      const meteredItem = itemId("healdesk_meter_chat_conversations_block100_4000")!;
 
       const result = await changePlan(
         {
@@ -309,8 +309,8 @@ describeDb("billing actions", () => {
       });
       startedWorld(seeded, { bought: "complete", billed: "web-voice" });
       const packageItem = itemId("healdesk_web-voice_month_89700")!;
-      const voiceItem = itemId("healdesk_meter_voice_minutes_80")!;
-      const chatItem = itemId("healdesk_meter_chat_conversations_30")!;
+      const voiceItem = itemId("healdesk_meter_voice_minutes_block100_8000")!;
+      const chatItem = itemId("healdesk_meter_chat_conversations_block100_3000")!;
 
       const result = await changePlan(
         {
@@ -330,7 +330,7 @@ describeDb("billing actions", () => {
           { id: packageItem, price: "price_healdesk_chat-web_month_39700", quantity: 1 },
           { id: chatItem, deleted: true },
           { id: voiceItem, deleted: true },
-          { price: "price_healdesk_meter_chat_conversations_40" },
+          { price: "price_healdesk_meter_chat_conversations_block100_4000" },
         ],
         proration_behavior: "always_invoice",
         payment_behavior: "error_if_incomplete",
@@ -341,7 +341,7 @@ describeDb("billing actions", () => {
       expect(await rowOf(seeded.clinicId)).toMatchObject({
         boughtPlanId: "chat-web",
         planCode: "chat-web",
-        meteredPriceKeys: ["healdesk_meter_chat_conversations_40"],
+        meteredPriceKeys: ["healdesk_meter_chat_conversations_block100_4000"],
         channelsEnabled: { web: true, meta: false, voice: false },
       });
       const [notice] = await noticesOf(seeded.clinicId);
@@ -359,7 +359,7 @@ describeDb("billing actions", () => {
     test("blocker 0: when the billed price stays, the difference goes on a draft-first one-off invoice, then the metered swap and the marker", async () => {
       const seeded = await seedBilling("cp-blocker0", { bought: "chat-web", inService: ["web"] });
       startedWorld(seeded, { bought: "chat-web", billed: "chat-web" });
-      const meteredItem = itemId("healdesk_meter_chat_conversations_40")!;
+      const meteredItem = itemId("healdesk_meter_chat_conversations_block100_4000")!;
 
       const result = await changePlan(
         {
@@ -409,8 +409,8 @@ describeDb("billing actions", () => {
       expect(updates[0]!.args[1]).toEqual({
         items: [
           { id: meteredItem, deleted: true },
-          { price: "price_healdesk_meter_chat_conversations_30" },
-          { price: "price_healdesk_meter_voice_minutes_80" },
+          { price: "price_healdesk_meter_chat_conversations_block100_3000" },
+          { price: "price_healdesk_meter_voice_minutes_block100_8000" },
         ],
         proration_behavior: "none",
         off_session: true,
@@ -425,8 +425,8 @@ describeDb("billing actions", () => {
         boughtPlanId: "web-voice",
         planCode: "chat-web",
         meteredPriceKeys: [
-          "healdesk_meter_chat_conversations_30",
-          "healdesk_meter_voice_minutes_80",
+          "healdesk_meter_chat_conversations_block100_3000",
+          "healdesk_meter_voice_minutes_block100_8000",
         ],
       });
       const [notice] = await noticesOf(seeded.clinicId);
@@ -995,7 +995,7 @@ describeDb("billing actions", () => {
           },
           // A metered line in arrears: overage, never refunded here.
           {
-            lookupKey: "healdesk_meter_voice_minutes_80",
+            lookupKey: "healdesk_meter_voice_minutes_block100_8000",
             amount: 0,
             periodStart: s(STARTED),
             periodEnd: s(end),

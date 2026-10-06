@@ -903,15 +903,24 @@ Because the key encodes the amount, a catalog price change cannot silently resol
 old price — it fails loudly with `No active Stripe price with lookup_key "…"` until the
 script is re-run.
 
-The metered overage prices are one per distinct rate on each meter — since 5 October
-2026, three prices on two meters: `healdesk_meter_voice_minutes_80` ($0.80 a minute),
-`healdesk_meter_chat_conversations_40` ($0.40 a conversation, the single-channel chat
-package) and `healdesk_meter_chat_conversations_30` ($0.30, every other package with
-chat). Like the package keys, each metered key encodes its rate, so a rate change makes a
-new price and the old one is reported STALE. They are created unconditionally; checkout
-attaches a package's own metered prices to a monthly Session unless
-`OVERAGE_RATES_PROVISIONAL` is set back to true. After the 5 October change, re-run the
-script before the next checkout: the new keys do not exist in Stripe until it has run.
+The metered overage prices are one per distinct rate on each meter — three prices on two
+meters, billed per started block of 100 since 6 October 2026:
+`healdesk_meter_voice_minutes_block100_8000` ($80 for each started block of 100 voice
+minutes), `healdesk_meter_chat_conversations_block100_4000` ($40 a block of 100
+conversations, the single-channel chat package) and
+`healdesk_meter_chat_conversations_block100_3000` ($30, every other package with chat).
+Each is package-priced: `per_unit` at the block price, with `transform_quantity` dividing
+the month's metered total by 100 and rounding up, so the app still reports single minutes
+and conversations. Like the package keys, each metered key encodes its block size and
+price, so a rate change makes a new price and the old one is reported STALE. The script
+archives only the per-unit prices of 5 October (`healdesk_meter_voice_minutes_80` and the
+two chat ones), once a meter's block prices exist; a subscription still carrying one keeps
+billing on it until apps/app's metered-item reconcile moves it onto the block price. The
+block prices are created unconditionally; checkout attaches a package's own metered prices
+to a monthly Session unless `OVERAGE_RATES_PROVISIONAL` is set back to true. After the 6
+October change, re-run the script together with the deploy that carries the block keys:
+the new keys do not exist in Stripe until it has run, and once it has run the per-unit
+keys an older deploy asks for are archived.
 
 ### Steps
 
@@ -927,9 +936,10 @@ script before the next checkout: the new keys do not exist in Stripe until it ha
    STRIPE_SECRET_KEY=sk_test_... npm run stripe:setup --workspace @healdesk/web
    ```
    The script is idempotent by lookup key: re-running finds each existing price, checks it
-   still matches the catalog, and leaves it alone. Nothing is ever archived, updated or
-   deleted. A catalog price *change* produces a new key and therefore a new price; the old
-   one stays active for subscriptions already on it and is reported as **STALE** for a
+   still matches the catalog, and leaves it alone. Nothing is deleted and no price amount
+   is ever updated; the one thing it archives is the per-unit metered prices of 5 October,
+   above. Any other catalog price *change* produces a new key and therefore a new price; the
+   old one stays active for subscriptions already on it and is reported as **STALE** for a
    human to archive once nobody is billing on it. Do not create products by hand in the
    Dashboard — the amount would then live in two places that can disagree.
 

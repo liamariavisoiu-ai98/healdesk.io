@@ -642,8 +642,18 @@ export async function recordDepositLapsed(
  * `pending_front_desk` and staff get the L10 alert. A no-op for an
  * appointment in any other state, so a late or repeated event cannot
  * undo `paid` or alert twice.
+ *
+ * `mayBePaid` is for a link nobody could check (a disconnect that lost access
+ * to the account, or Stripe unreachable while expiring it): the patient may
+ * already have paid it, so the alert carries the flag and its template says
+ * to check Stripe before collecting. Without it staff would ask again and
+ * the patient could be charged twice (R23, BookingAlertRef.mayBePaid).
  */
-export async function flagForFrontDesk(tx: TenantTx, appointmentId: string): Promise<boolean> {
+export async function flagForFrontDesk(
+  tx: TenantTx,
+  appointmentId: string,
+  options: { mayBePaid?: boolean } = {},
+): Promise<boolean> {
   const moved = await tx.db
     .update(appointments)
     .set({ depositStatus: "pending_front_desk" })
@@ -656,6 +666,9 @@ export async function flagForFrontDesk(tx: TenantTx, appointmentId: string): Pro
     )
     .returning({ id: appointments.id });
   if (moved.length === 0) return false;
-  await notifyBookingAlert(tx, "deposit_to_collect", { appointmentId });
+  await notifyBookingAlert(tx, "deposit_to_collect", {
+    appointmentId,
+    ...(options.mayBePaid ? { mayBePaid: true } : {}),
+  });
   return true;
 }

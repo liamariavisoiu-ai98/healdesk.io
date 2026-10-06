@@ -92,7 +92,8 @@ describeDb("usage-alerts", () => {
           included: 2_000,
           windowEndsOn: "2026-11-01",
           overageMode: "allow",
-          rateCents: 30,
+          // A started block of 100 conversations on Complete: $30, never $0.30 a unit.
+          blockRateCents: 3_000,
         },
       },
       {
@@ -104,7 +105,7 @@ describeDb("usage-alerts", () => {
           included: 1_000,
           windowEndsOn: "2026-11-01",
           overageMode: "allow",
-          rateCents: 80,
+          blockRateCents: 8_000,
         },
       },
     ]);

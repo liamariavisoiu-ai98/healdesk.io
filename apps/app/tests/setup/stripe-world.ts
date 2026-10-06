@@ -29,13 +29,19 @@ export function priceFor(lookupKey: string): Json {
       recurring: { interval: "month", usage_type: "licensed" },
     };
   }
-  const meter = /^healdesk_meter_([a-z_]+?)_(\d+)$/.exec(lookupKey);
+  // A metered overage price: per started block since 6 October 2026
+  // (`healdesk_meter_<meter>_block100_<cents>`, package-priced as stripe-setup
+  // creates it), or a per-unit one of 5 October (`healdesk_meter_<meter>_<cents>`)
+  // that a subscription can still carry until the reconcile swaps it.
+  const meter = /^healdesk_meter_([a-z_]+?)_(?:block(\d+)_)?(\d+)$/.exec(lookupKey);
   if (meter) {
     return {
       id: `price_${lookupKey}`,
       lookup_key: lookupKey,
       product: `prod_meter_${meter[1]}`,
-      unit_amount: Number(meter[2]),
+      billing_scheme: "per_unit",
+      unit_amount: Number(meter[3]),
+      transform_quantity: meter[2] ? { divide_by: Number(meter[2]), round: "up" } : null,
       recurring: { interval: "month", usage_type: "metered" },
     };
   }

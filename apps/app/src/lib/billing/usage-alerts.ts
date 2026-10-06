@@ -10,7 +10,7 @@ import { enqueueNotice } from "./notices";
 import {
   allowanceDedupeKey,
   openWindowAt,
-  overageRateCentsFor,
+  overageBlockCentsFor,
   usedOf,
   windowEndsOn,
 } from "./usage";
@@ -93,13 +93,16 @@ export async function queueUsageAlerts(now: Date = new Date()): Promise<UsageAle
                 ? "usage_80"
                 : null;
           if (!kind) continue;
+          // The price of a started block of 100, never a per-unit rate:
+          // overage is billed in blocks (6 October 2026), so that is the
+          // number a clinic can check its next invoice against.
           const inserted = await enqueueNotice(tx, kind, allowanceDedupeKey(meter, window.start), {
             meter,
             used,
             included,
             windowEndsOn: windowEndsOn(window.end),
             overageMode: row.overageMode,
-            rateCents: overageRateCentsFor(row, meter),
+            blockRateCents: overageBlockCentsFor(row, meter),
           });
           if (inserted) queued += 1;
         }

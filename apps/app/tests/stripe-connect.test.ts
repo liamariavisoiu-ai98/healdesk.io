@@ -25,7 +25,7 @@ const mocks = vi.hoisted(() => {
     NotFoundSignal,
     session: { userId: null as string | null, token: null as string | null },
     headers: new Headers(),
-    alerts: [] as Array<{ clinicId: string; kind: string; ref: Record<string, string> }>,
+    alerts: [] as Array<{ clinicId: string; kind: string; ref: Record<string, string | boolean> }>,
   };
 });
 
@@ -52,7 +52,7 @@ vi.mock("@/lib/notices/booking-alerts", () => ({
   notifyBookingAlert: async (
     tx: { clinicId: string },
     kind: string,
-    ref: Record<string, string>,
+    ref: Record<string, string | boolean>,
   ) => {
     mocks.alerts.push({ clinicId: tx.clinicId, kind, ref });
   },
@@ -814,6 +814,14 @@ describeDb("Connect against the database", DB_TEST_OPTIONS, () => {
         [expirable.appointment, unreadable.appointment].sort(),
       );
       expect(mocks.alerts.every((a) => a.kind === "deposit_to_collect")).toBe(true);
+      // The link nobody could check is flagged as possibly paid, so the alert
+      // says to look in Stripe before collecting; the one Stripe expired is not.
+      expect(mocks.alerts.map((a) => a.ref)).toEqual(
+        expect.arrayContaining([
+          { appointmentId: expirable.appointment },
+          { appointmentId: unreadable.appointment, mayBePaid: true },
+        ]),
+      );
 
       const { rows } = await getMigratorPool().query<{
         acct: string | null;

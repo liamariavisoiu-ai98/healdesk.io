@@ -3,7 +3,13 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { setOverageMode } from "@/lib/billing/entitlements";
-import { recordUsage, usageSnapshot, type RecordUsageInput } from "@/lib/billing/usage";
+import {
+  overageBlockCentsFor,
+  overageChargeCentsFor,
+  recordUsage,
+  usageSnapshot,
+  type RecordUsageInput,
+} from "@/lib/billing/usage";
 import { touchChatThread } from "@/lib/chat/threads";
 import { identifierRef } from "@/lib/identifier-ref";
 import { withTenant } from "@/lib/tenant";
@@ -118,7 +124,8 @@ describe("usageSnapshot (pure)", () => {
         included: 1_000,
         remaining: 0,
         overUnits: 200,
-        overageCents: 200 * 80,
+        // Two started blocks of 100 at the bought Web + Voice package's $80 a block.
+        overageCents: 2 * 8_000,
         percent: 120,
         windowStart: WINDOW_START.toISOString(),
         windowEnd: WINDOW_END.toISOString(),
@@ -139,6 +146,49 @@ describe("usageSnapshot (pure)", () => {
         isWindowOpen: true,
       },
     ]);
+  });
+
+  test("overage in dollars is started blocks of 100 at the block price, never units times the rate", () => {
+    const voiceAt = (usedVoiceMinutes: string) =>
+      usageSnapshot({ ...row, usedVoiceMinutes }, IN_WINDOW)[0]!;
+    expect(voiceAt("1000")).toMatchObject({ overUnits: 0, overageCents: 0 });
+    expect(voiceAt("1001")).toMatchObject({ overUnits: 1, overageCents: 8_000 });
+    expect(voiceAt("1100")).toMatchObject({ overUnits: 100, overageCents: 8_000 });
+    expect(voiceAt("1101")).toMatchObject({ overUnits: 101, overageCents: 16_000 });
+    // $240 for 250 minutes, where per minute it would have read $200.
+    expect(voiceAt("1250")).toMatchObject({ overUnits: 250, overageCents: 24_000 });
+
+    // Chat on a single-channel chat package is $40 a block of 100 conversations.
+    const [, chat] = usageSnapshot(
+      {
+        ...row,
+        boughtPlanId: "chat-web",
+        planCode: "chat-web",
+        includedVoiceMinutes: 0,
+        includedChatConversations: 1_000,
+        usedChatConversations: 1_101,
+      },
+      IN_WINDOW,
+    );
+    expect(chat).toMatchObject({ overUnits: 101, overageCents: 8_000 });
+  });
+
+  test("the block price a meter quotes is the bought package's, and a meter it lacks has none", () => {
+    const webVoice = { boughtPlanId: "web-voice" as string | null, planCode: "voice" };
+    expect(overageBlockCentsFor(webVoice, "voice_minutes")).toBe(8_000);
+    expect(overageBlockCentsFor(webVoice, "chat_conversations")).toBe(3_000);
+    const chatWeb = { boughtPlanId: "chat-web" as string | null, planCode: "chat-web" };
+    expect(overageBlockCentsFor(chatWeb, "chat_conversations")).toBe(4_000);
+    expect(overageBlockCentsFor(chatWeb, "voice_minutes")).toBe(0);
+    // A legacy row reads its billed package; a package that left the catalog bills nothing.
+    expect(overageBlockCentsFor({ boughtPlanId: null, planCode: "voice" }, "voice_minutes")).toBe(
+      8_000,
+    );
+    const retired = { boughtPlanId: null, planCode: "chat-voice" };
+    expect(overageBlockCentsFor(retired, "voice_minutes")).toBe(0);
+    expect(overageChargeCentsFor(retired, "voice_minutes", 150)).toBe(0);
+    expect(overageChargeCentsFor(chatWeb, "voice_minutes", 0)).toBe(0);
+    expect(overageChargeCentsFor(webVoice, "chat_conversations", 250)).toBe(9_000);
   });
 
   test("no overage in dollars under Stop and fall back, a meter not sold has no allowance, and no window before the start", () => {

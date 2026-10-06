@@ -3043,6 +3043,13 @@ export const overageInvoices = pgTable(
     windowEnd: timestamp("window_end", { withTimezone: true }).notNull(),
     voiceUnits: integer("voice_units").notNull().default(0),
     chatUnits: integer("chat_units").notNull().default(0),
+    /**
+     * The price of one STARTED BLOCK of 100 units on each meter, never a
+     * per-minute or per-conversation rate: overage is billed in blocks since
+     * 6 October 2026, so amount_cents is ceil(units / 100) times this, per
+     * meter (lib/billing/annual-overage.ts). 0 for a meter the package does
+     * not sell.
+     */
     voiceRateCents: integer("voice_rate_cents").notNull().default(0),
     chatRateCents: integer("chat_rate_cents").notNull().default(0),
     amountCents: integer("amount_cents").notNull().default(0),

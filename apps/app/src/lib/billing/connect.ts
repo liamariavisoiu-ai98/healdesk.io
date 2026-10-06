@@ -989,9 +989,10 @@ async function settleLinks(
  * row stays `open`, which is the truth: it may have been paid, and a late
  * `checkout.session.completed` still records it (connect-events.ts resolves
  * the deposit by its own id, not by the clinic's current account). The
- * appointment goes to the front desk with the L10 alert; the audit row says
- * the link was unchecked, which is what the alert's template reads to say
- * "may have been paid; check Stripe before collecting".
+ * appointment goes to the front desk with the L10 alert flagged `mayBePaid`,
+ * which its template words as "may have been paid; check Stripe before
+ * collecting", and the audit row says the link was unchecked. The webhook's
+ * deauthorization hands its open links here too: neither path can look.
  */
 async function handUncheckedLink(tx: TenantTx, depositId: string): Promise<void> {
   const [row] = await tx.db
@@ -1005,7 +1006,7 @@ async function handUncheckedLink(tx: TenantTx, depositId: string): Promise<void>
     resourceId: depositId,
     metadata: { outcome: "unchecked", reason: "link_may_be_paid" },
   });
-  if (row?.appointmentId) await flagForFrontDesk(tx, row.appointmentId);
+  if (row?.appointmentId) await flagForFrontDesk(tx, row.appointmentId, { mayBePaid: true });
 }
 
 /**

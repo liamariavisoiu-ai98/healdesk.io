@@ -15,7 +15,12 @@ import {
   getPricingCard,
   META_SOLD_ALONE,
   meteredPriceLookupKey,
+  METERS,
   offersChatChoice,
+  OVERAGE_BLOCK_UNITS,
+  overageBlockCents,
+  overageBlocks,
+  overageChargeCents,
   overageRateCents,
   parseLookupKey,
   type Channel,
@@ -85,33 +90,121 @@ describe("metered price lookup keys", () => {
     expect(() => overageRateCents(Number.NaN)).toThrow(/whole number of cents/);
   });
 
-  test("the key encodes the meter and the rate", () => {
-    expect(meteredPriceLookupKey("voiceMinutes", 0.8)).toBe("healdesk_meter_voice_minutes_80");
-    expect(meteredPriceLookupKey("chatConversations", 0.3)).toBe(
-      "healdesk_meter_chat_conversations_30",
+  test("the key encodes the meter, the block size and the block price", () => {
+    // Per started block of 100 since 6 October 2026: a new price, so a new key.
+    // The 5 October per-unit keys (healdesk_meter_voice_minutes_80) are gone.
+    expect(meteredPriceLookupKey("voiceMinutes", 0.8)).toBe(
+      "healdesk_meter_voice_minutes_block100_8000",
     );
+    expect(meteredPriceLookupKey("chatConversations", 0.4)).toBe(
+      "healdesk_meter_chat_conversations_block100_4000",
+    );
+    expect(meteredPriceLookupKey("chatConversations", 0.3)).toBe(
+      "healdesk_meter_chat_conversations_block100_3000",
+    );
+    for (const meter of Object.keys(METERS) as (keyof typeof METERS)[]) {
+      expect(meteredPriceLookupKey(meter, 0.3)).toMatch(
+        new RegExp(`^${METERS[meter].lookupKeyPrefix}_block${OVERAGE_BLOCK_UNITS}_\\d+$`),
+      );
+    }
   });
 
-  test("each package bills its own channels at its own rate", () => {
+  test("each package bills its own channels at its own rate, per block", () => {
     expect(planMeteredPrices(getPlan("chat-meta")!)).toEqual([
-      { meter: "chatConversations", rateUsd: 0.4, lookupKey: "healdesk_meter_chat_conversations_40" },
+      {
+        meter: "chatConversations",
+        rateUsd: 0.4,
+        blockCents: 4_000,
+        lookupKey: "healdesk_meter_chat_conversations_block100_4000",
+      },
     ]);
     expect(planMeteredPrices(getPlan("voice")!)).toEqual([
-      { meter: "voiceMinutes", rateUsd: 0.8, lookupKey: "healdesk_meter_voice_minutes_80" },
+      {
+        meter: "voiceMinutes",
+        rateUsd: 0.8,
+        blockCents: 8_000,
+        lookupKey: "healdesk_meter_voice_minutes_block100_8000",
+      },
     ]);
     expect(planMeteredPrices(getPlan("complete")!)).toEqual([
-      { meter: "voiceMinutes", rateUsd: 0.8, lookupKey: "healdesk_meter_voice_minutes_80" },
-      { meter: "chatConversations", rateUsd: 0.3, lookupKey: "healdesk_meter_chat_conversations_30" },
+      {
+        meter: "voiceMinutes",
+        rateUsd: 0.8,
+        blockCents: 8_000,
+        lookupKey: "healdesk_meter_voice_minutes_block100_8000",
+      },
+      {
+        meter: "chatConversations",
+        rateUsd: 0.3,
+        blockCents: 3_000,
+        lookupKey: "healdesk_meter_chat_conversations_block100_3000",
+      },
     ]);
   });
 
   test("the catalog needs exactly three metered prices on two meters", () => {
     const keys = new Set(plans.flatMap((p) => planMeteredPrices(p).map((x) => x.lookupKey)));
     expect([...keys].sort()).toEqual([
-      "healdesk_meter_chat_conversations_30",
-      "healdesk_meter_chat_conversations_40",
-      "healdesk_meter_voice_minutes_80",
+      "healdesk_meter_chat_conversations_block100_3000",
+      "healdesk_meter_chat_conversations_block100_4000",
+      "healdesk_meter_voice_minutes_block100_8000",
     ]);
+  });
+});
+
+describe("overage billed per started block of 100", () => {
+  test("a block is 100 units, and any part of one is a whole block", () => {
+    expect(OVERAGE_BLOCK_UNITS).toBe(100);
+    expect(overageBlocks(0)).toBe(0);
+    expect(overageBlocks(1)).toBe(1);
+    expect(overageBlocks(100)).toBe(1);
+    expect(overageBlocks(101)).toBe(2);
+    expect(overageBlocks(250)).toBe(3);
+  });
+
+  test("nothing over, or a count that cannot be trusted, is no block at all", () => {
+    for (const units of [-1, -250, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(overageBlocks(units), String(units)).toBe(0);
+    }
+  });
+
+  test("a block costs the per-unit rate times 100, in whole cents", () => {
+    // $80 a block of 100 voice minutes; $40 or $30 a block of 100 chat conversations.
+    expect(overageBlockCents(0.8)).toBe(8_000);
+    expect(overageBlockCents(0.4)).toBe(4_000);
+    expect(overageBlockCents(0.3)).toBe(3_000);
+    // A rate that is not a positive whole number of cents is refused, as for a unit.
+    expect(() => overageBlockCents(0)).toThrow(/whole number of cents/);
+    expect(() => overageBlockCents(0.035)).toThrow(/whole number of cents/);
+  });
+
+  test("the charge is started blocks times the block price, never units times the rate", () => {
+    expect(overageChargeCents(1, 0.8)).toBe(8_000);
+    expect(overageChargeCents(100, 0.8)).toBe(8_000);
+    expect(overageChargeCents(101, 0.8)).toBe(16_000);
+    expect(overageChargeCents(250, 0.8)).toBe(24_000);
+    expect(overageChargeCents(250, 0.4)).toBe(12_000);
+    expect(overageChargeCents(250, 0.3)).toBe(9_000);
+    // Per unit, 250 minutes would have been $200: the blocks are the bill.
+    expect(overageChargeCents(250, 0.8)).not.toBe(250 * overageRateCents(0.8));
+  });
+
+  test("nothing over costs nothing, even on a meter the package has no rate for", () => {
+    expect(overageChargeCents(0, 0.8)).toBe(0);
+    expect(overageChargeCents(0, 0)).toBe(0);
+    // Units over with no rate is a catalog fault, refused rather than billed as $0.
+    expect(() => overageChargeCents(1, 0)).toThrow(/whole number of cents/);
+  });
+
+  test("every package's block price is its own per-unit rate times 100", () => {
+    for (const plan of plans) {
+      for (const price of planMeteredPrices(plan)) {
+        expect(price.blockCents, `${plan.id} ${price.meter}`).toBe(
+          overageRateCents(price.rateUsd) * OVERAGE_BLOCK_UNITS,
+        );
+        expect(price.lookupKey).toBe(meteredPriceLookupKey(price.meter, price.rateUsd));
+      }
+    }
   });
 });
 
@@ -223,8 +316,15 @@ describe("package lookup keys read back", () => {
 
   test("anything that is not a package price is not ours to read", () => {
     for (const key of [
+      // The metered overage prices, per block (6 October 2026) and the
+      // archived per-unit ones before them (5 October).
+      "healdesk_meter_voice_minutes_block100_8000",
+      "healdesk_meter_chat_conversations_block100_4000",
+      "healdesk_meter_chat_conversations_block100_3000",
       "healdesk_meter_voice_minutes_80",
+      "healdesk_meter_chat_conversations_40",
       "healdesk_meter_chat_conversations_30",
+      ...plans.flatMap((p) => planMeteredPrices(p).map((x) => x.lookupKey)),
       "scalabid_pro_month_9900",
       "healdesk_chat-voice_weekly_100",
       "healdesk_Complete_month_100",

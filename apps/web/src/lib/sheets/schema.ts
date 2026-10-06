@@ -302,7 +302,79 @@ export const DEMO_SESSIONS: Tab = {
   ],
 };
 
-export const TABS: readonly Tab[] = [LEADS, LEAD_EVENTS, CALL_CONSENTS, COUNTERS, DEMO_SESSIONS];
+/**
+ * One "Tell us about your clinic" request, and the setup link sent back.
+ *
+ * Business contact data only, like every tab here: who asked, for which
+ * clinic, at which address, and where the request has got to. The link's
+ * token is never stored (it is an HMAC over these fields and the expiry;
+ * see src/lib/setup-link.ts), only when it was sent and when it expires.
+ * `paid_at` makes the link single-use: the checkout refuses a request that
+ * has one.
+ */
+export type SetupRequestStatus = "new" | "invited" | "paid" | "declined";
+
+export type SetupRequest = {
+  id: string;
+  /** The person asking, as typed. */
+  name: string;
+  clinicName: string;
+  /** Host or URL as typed, or null for a clinic with no website. */
+  website: string | null;
+  /** The address the clinic will use with healdesk; a shared inbox is fine. */
+  email: string;
+  emailNormalized: string;
+  /** Comma-separated channel ids from the form: phone, web, instagram, messenger, whatsapp. */
+  channels: string | null;
+  /** The nurture lead this came from, when the Day 7 link brought them. */
+  leadId: string | null;
+  status: SetupRequestStatus;
+  invitedAt: Date | null;
+  linkExpiresAt: Date | null;
+  openedAt: Date | null;
+  remindedAt: Date | null;
+  signedAt: Date | null;
+  paidAt: Date | null;
+  /** The one-click opt-out on the setup-link emails; stops the reminder. */
+  unsubscribedAt: Date | null;
+  ipAddress: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export const SETUP_REQUESTS: Tab = {
+  title: "setup_requests",
+  columns: [
+    col("id", "id", "text"),
+    col("name", "name", "text"),
+    col("clinic_name", "clinicName", "text"),
+    col("website", "website", "text"),
+    col("email", "email", "text"),
+    col("email_normalized", "emailNormalized", "text"),
+    col("channels", "channels", "text"),
+    col("lead_id", "leadId", "text"),
+    col("status", "status", "text"),
+    col("invited_at", "invitedAt", "timestamp"),
+    col("link_expires_at", "linkExpiresAt", "timestamp"),
+    col("opened_at", "openedAt", "timestamp"),
+    col("reminded_at", "remindedAt", "timestamp"),
+    col("signed_at", "signedAt", "timestamp"),
+    col("paid_at", "paidAt", "timestamp"),
+    col("unsubscribed_at", "unsubscribedAt", "timestamp"),
+    col("ip_address", "ipAddress", "text"),
+    col("created_at", "createdAt", "timestamp"),
+    col("updated_at", "updatedAt", "timestamp"),
+  ],
+};
+
+export const TABS: readonly Tab[] = [
+  LEADS,
+  LEAD_EVENTS,
+  CALL_CONSENTS,
+  COUNTERS,
+  SETUP_REQUESTS,
+  DEMO_SESSIONS,
+];
 
 // -----------------------------------------------------------------------------
 // Ranges

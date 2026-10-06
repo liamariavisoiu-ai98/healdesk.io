@@ -460,17 +460,18 @@ vendor, chat conversations by LLM tokens). Annual is a flat 20% off, quoted per 
 
 | Package | Monthly | Annual (per mo) | Setup (once) | Voice min / mo | Chat conv / mo |
 |---|---|---|---|---|---|
-| **Web OR Meta Chatbot** | **$397** | $317 | $497 | — | 1,500 |
-| **Web + Meta Chatbot** | **$597** | $477 | $997 | — | 3,000 |
+| **Web OR Meta Chatbot** | **$397** | $317 | $497 | — | 1,000 |
+| **Web + Meta Chatbot** | **$597** | $477 | $997 | — | 2,000 |
 | **AI Voice Agent Alone** | **$797** | $637 | $997 | 1,000 | — |
-| **Web OR Meta + Voice** | **$897** | $717 | $997 | 1,000 | 1,500 |
-| **Complete FrontDesk AI** | **$1,197** | $957 | $997 | 1,500 | 4,000 |
+| **Web OR Meta + Voice** | **$897** | $717 | $997 | 1,000 | 1,000 |
+| **Complete FrontDesk AI** | **$1,197** | $957 | $997 | 1,000 | 2,000 |
 
-**Overage rates are provisional.** The catalog carries placeholder per-minute and per-conversation
-rates flagged `OVERAGE_RATES_PROVISIONAL`; the pricing page does not print them and checkout
-attaches no metered price while the flag is set, so overage is not billed until the rates are
-signed off. Setting them needs the Synthflow per-minute cost (see the blocker above) and a
-measured LLM cost per conversation.
+**Overage rates are provisional.** $0.80 a voice minute; $0.40 a chat conversation on the
+single-channel chat package and $0.30 on the rest, set by the owner on 5 October 2026 (with the
+allowances above cut the same day). The pricing page prints them marked provisional, and a monthly
+checkout attaches each package's metered prices (`OVERAGE_RATES_PROVISIONAL` is false). They are a
+judgement, not a measurement: measured voice and chat cost from pilot traffic (launch step 3.5)
+replaces them.
 
 **Why above the $295–299 cluster, not under it.** The cluster is voice-only, single-channel,
 and sold on answered calls. These packages are sold on *recovered* calls with closed-loop

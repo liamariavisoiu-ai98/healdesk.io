@@ -46,6 +46,12 @@ ENV DATABASE_URL=postgres://build:build@localhost:5432/build \
     BETTER_AUTH_SECRET=build-placeholder-not-a-secret-0000 \
     BETTER_AUTH_URL=http://localhost:3001 \
     HEALDESK_PROVISION_SECRET=build-placeholder
+# The deps stage set NODE_ENV=development so `npm ci` would install dev
+# dependencies, and this stage inherits it. `next build` must not: under
+# development it prerenders with React's development build and fails on
+# "/_global-error" (reading 'useContext' of null), and lib/env.ts would not
+# check the variables above either.
+ENV NODE_ENV=production
 # Turbo would try to build apps/web too; call the app's own build script.
 RUN npm run build -w @healdesk/app
 

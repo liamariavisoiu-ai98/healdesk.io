@@ -135,17 +135,13 @@ describe("package cards", () => {
     ]);
   });
 
-  /**
-   * The overage line is per package, not one sentence reused. Since 5 October
-   * 2026 the single-channel chat package bills $0.40 a conversation and the
-   * multi-channel ones $0.30, so a card that printed the same figure on every
-   * package would misquote four of the five.
-   */
-  test("each card prints its own package's overage rate", () => {
-    expect(overageLine(getPlan("chat-web")!)).toBe("$0.40/conversation");
-    expect(overageLine(getPlan("chat-dual")!)).toBe("$0.30/conversation");
-    expect(overageLine(getPlan("voice")!)).toBe("$0.80/min");
-    expect(overageLine(getPlan("complete")!)).toBe("$0.80/min · $0.30/conversation");
+  test("the overage line quotes each package's own rate", () => {
+    if (OVERAGE_RATES_PROVISIONAL) return;
+    expect(overageLine(getPlan("chat-web")!)).toContain("$0.40/conversation");
+    expect(overageLine(getPlan("chat-dual")!)).toContain("$0.30/conversation");
+    expect(overageLine(getPlan("voice")!)).toContain("$0.80/min");
+    expect(overageLine(getPlan("complete")!)).toContain("$0.80/min");
+    expect(overageLine(getPlan("complete")!)).toContain("$0.30/conversation");
   });
 
   test("no overage number is printed while the rates are provisional", () => {

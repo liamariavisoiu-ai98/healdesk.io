@@ -56,7 +56,7 @@ describeDb("retention purge", () => {
     await getMigratorPool().query(`update clinics set retention_media_days = 30 where id = $1`, [a.clinicId]);
 
     // Clinic A: one ancient booked conversation (past both clocks), one past
-    // the 90-day record clock (kept for two years until 0042), one middle-aged
+    // the 90-day record clock (kept for two years until 0048), one middle-aged
     // (past media, inside records), one fresh.
     const ancient = await seedConversation(a.clinicId, { startedAt: new Date(now.getTime() - 800 * DAY), booked: true });
     await seedConversation(a.clinicId, { startedAt: new Date(now.getTime() - 120 * DAY) });
@@ -116,7 +116,7 @@ describeDb("retention purge", () => {
 
   test("both clocks default to the 90 days the agreement states", async () => {
     // BAA 1.2.1 and 1.3.0: "healdesk keeps transcripts and conversation
-    // records for 90 days". The record clock defaulted to 730 until 0042, so
+    // records for 90 days". The record clock defaulted to 730 until 0048, so
     // a clinic that never changed it kept its records eight times as long.
     const c = await seedClinic("purgeDefaults");
     const { rows } = await getMigratorPool().query<{ media: number; records: number }>(

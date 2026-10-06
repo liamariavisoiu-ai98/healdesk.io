@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   type BillingInterval,
+  CHANNELS,
   currentBaaTemplate,
   getPlan,
   getPlatform,
@@ -9,11 +10,18 @@ import {
   isSpecialtyId,
   NO_PLATFORM_ID,
   supportsVerifiedAttribution, emptyOnboarding } from "@healdesk/catalog";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
-import { unsafeDb } from "@/db";
-import { organization } from "@/db/auth-schema";
-import { clinics, provisioningAttempts } from "@/db/schema";
+import { unsafeDb, type Transaction } from "@/db";
+import { member, organization, user } from "@/db/auth-schema";
+import {
+  checkoutIntents,
+  clinicChannels,
+  clinicMemberships,
+  clinics,
+  entitlements,
+  provisioningAttempts,
+} from "@/db/schema";
 
 import { bindAgreement } from "./agreements";
 import { AuditRecorder } from "./audit";
@@ -23,6 +31,7 @@ import { recordSecurityEvent } from "./audit";
 import type { RequestContext } from "./audit";
 import { seedEntitlements } from "./billing/entitlements";
 import { replayParkedBillingEvents } from "./billing/events";
+import { setupDeadline } from "./clinic/setup-window";
 
 /**
  * Turning a completed checkout into a clinic.
@@ -119,8 +128,12 @@ export type ProvisionRequest = {
   specialty: string;
   /** Platform id from @healdesk/catalog, including "none". */
   platform: string;
-  attributionMode: "estimated" | "verified";
-  /** Required when attributionMode is "estimated" — it is the whole input. */
+  /**
+   * Phase two (revenue attribution is fenced out of v1). Optional since the
+   * funnel plan stopped asking: absent means "estimated", the column default,
+   * and the value below is kept only when a caller still sends it.
+   */
+  attributionMode?: "estimated" | "verified";
   averageTreatmentValueUsd?: number;
   plan: string;
   /**
@@ -186,10 +199,18 @@ export type ProvisionRequest = {
   idempotencyKey: string;
 };
 
+/** What provisioning also does when the purchase came through a checkout intent. */
+export type ProvisionOptions = {
+  /** Consumed in the same transaction, so an intent provisions one clinic. */
+  intentRef?: string;
+};
+
 export type ProvisionResult = {
   organizationId: string;
   clinicId: string;
   clinicSlug: string;
+  /** The clinic's one sign-in, on a genuine creation (design D3). */
+  ownerUserId?: string;
   /**
    * True when this key had already been provisioned and nothing was written.
    *
@@ -246,7 +267,11 @@ export function validateProvisionRequest(
     }
   }
 
-  if (body.attributionMode !== "estimated" && body.attributionMode !== "verified") {
+  if (
+    body.attributionMode !== undefined &&
+    body.attributionMode !== "estimated" &&
+    body.attributionMode !== "verified"
+  ) {
     throw new ProvisioningError("Invalid attribution mode.", "attributionMode");
   }
 
@@ -263,13 +288,13 @@ export function validateProvisionRequest(
     );
   }
 
-  // Estimated attribution is the default path, and this value is its only
-  // input. Without it the first monthly report would have nothing to say.
-  if (body.attributionMode === "estimated") {
+  // Optional now (design 4.2): the funnel plan stopped asking, because the
+  // monthly revenue report it fed is phase two. Still checked when sent.
+  if (body.averageTreatmentValueUsd !== undefined) {
     const value = body.averageTreatmentValueUsd;
     if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
       throw new ProvisioningError(
-        "Average treatment value is required for estimated attribution.",
+        "Average treatment value must be a positive number.",
         "averageTreatmentValueUsd",
       );
     }
@@ -331,6 +356,7 @@ export function validateProvisionRequest(
 export async function provisionClinic(
   request: ProvisionRequest,
   context: RequestContext = {},
+  options: ProvisionOptions = {},
 ): Promise<ProvisionResult> {
   const email = request.contactEmail.trim().toLowerCase();
   const platform = getPlatform(request.platform)!;
@@ -384,7 +410,7 @@ export async function provisionClinic(
     const slug =
       attempt === 0 ? baseSlug : `${baseSlug}-${randomUUID().slice(0, 6)}`;
     try {
-      return await provisionOnce({ request, context, email, platform, slug });
+      return await provisionOnce({ request, context, options, email, platform, slug });
     } catch (error) {
       if (attempt < 4 && isSlugCollision(error)) continue;
       throw error;
@@ -395,16 +421,19 @@ export async function provisionClinic(
 async function provisionOnce({
   request,
   context,
+  options,
   email,
   platform,
   slug,
 }: {
   request: ProvisionRequest;
   context: RequestContext;
+  options: ProvisionOptions;
   email: string;
   platform: { id: string };
   slug: string;
 }): Promise<ProvisionResult> {
+  let ownerUserId = "";
   const organizationId = `org_${randomUUID().replace(/-/g, "").slice(0, 20)}`;
 
   /**
@@ -487,7 +516,7 @@ async function provisionOnce({
           ? { covered_entity_confirmed: new Date().toISOString() }
           : {}),
       },
-      attributionMode: request.attributionMode,
+      attributionMode: request.attributionMode ?? "estimated",
       averageTreatmentValueUsd:
         request.averageTreatmentValueUsd?.toFixed(2) ?? null,
       plan: request.plan,
@@ -508,12 +537,61 @@ async function provisionOnce({
     // and the webhook cannot find, so the two must not be able to exist apart.
     // Allowances and channels are copied from the catalog HERE, at the moment
     // of sale, for the reasons in lib/billing/entitlements.ts.
+    const plan = getPlan(request.plan)!;
     const billingStatus = await seedEntitlements(tx, clinicId, {
-      plan: getPlan(request.plan)!,
+      plan,
       interval: request.billingInterval ?? "month",
       stripeCustomerId: request.stripeCustomerId,
       stripeSubscriptionId: request.stripeSubscriptionId,
     });
+
+    // What was sold stays on record beside what is billed (plan_code follows
+    // the channels in service once the plan starts), and the setup window
+    // ends on the clinic's own calendar: the 30th day after today.
+    await tx
+      .update(entitlements)
+      .set({
+        boughtPlanId: plan.id,
+        setupDeadlineAt: setupDeadline(new Date(), request.timezone ?? "America/New_York"),
+      })
+      .where(eq(entitlements.clinicId, clinicId));
+
+    // One row per channel the package includes: where each stands, from
+    // setting up to live, and what the price steps up by (contracts §2).
+    const bought = CHANNELS.filter((channel) => plan.channels[channel]);
+    if (bought.length > 0) {
+      await tx.insert(clinicChannels).values(bought.map((channel) => ({ clinicId, channel })));
+    }
+
+    // The clinic's one sign-in (plan C2, design D3): the address that bought
+    // it, as the owner, with no password and no invitation. Created directly
+    // rather than through Better Auth, whose create hook admits only invited
+    // addresses; the payment is the invitation.
+    ownerUserId = await ensureOwner(tx, {
+      email,
+      name: request.contactName.trim(),
+      organizationId,
+      clinicId,
+      context,
+    });
+
+    // The intent that carried this purchase is spent here, inside the same
+    // transaction, so one intent makes one clinic however Stripe redelivers.
+    if (options.intentRef) {
+      const consumed = await tx
+        .update(checkoutIntents)
+        .set({
+          consumedAt: sql`now()`,
+          stripeSubscriptionId: request.stripeSubscriptionId ?? null,
+          provisionedClinicId: clinicId,
+          provisionedUserId: ownerUserId,
+        })
+        .where(and(eq(checkoutIntents.ref, options.intentRef), isNull(checkoutIntents.consumedAt)))
+        .returning({ ref: checkoutIntents.ref });
+      if (consumed.length === 0) {
+        throw new ProvisioningError("That purchase has already been set up.", "ref");
+      }
+    }
 
     // The agent's default words, from the specialty, so onboarding starts
     // from something the clinic can correct rather than from a blank.
@@ -570,8 +648,53 @@ async function provisionOnce({
     organizationId,
     clinicId,
     clinicSlug: slug,
+    ownerUserId,
     replayed: false,
   };
+}
+
+/**
+ * Find or create the user for the buying address, and make it the owner of
+ * the new clinic. An address that already has a clinic keeps its one user,
+ * so one sign-in opens both.
+ */
+async function ensureOwner(
+  tx: Transaction,
+  input: { email: string; name: string; organizationId: string; clinicId: string; context: RequestContext },
+): Promise<string> {
+  const now = new Date();
+  await tx
+    .insert(user)
+    .values({
+      id: `usr_${randomUUID().replace(/-/g, "")}`,
+      name: input.name || input.email,
+      email: input.email,
+      emailVerified: false,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing({ target: user.email });
+  const [owner] = await tx.select({ id: user.id }).from(user).where(eq(user.email, input.email)).limit(1);
+  if (!owner) throw new Error("The owner's user could not be found after it was written.");
+
+  await tx.insert(member).values({
+    id: `mem_${randomUUID().replace(/-/g, "")}`,
+    organizationId: input.organizationId,
+    userId: owner.id,
+    role: "owner",
+    createdAt: now,
+  });
+  await tx.insert(clinicMemberships).values({ clinicId: input.clinicId, userId: owner.id, role: "owner" });
+  await recordSecurityEvent(tx, {
+    event: "role_granted",
+    actorLabel: "provisioning",
+    userId: owner.id,
+    organizationId: input.organizationId,
+    ipAddress: input.context.ipAddress ?? null,
+    userAgent: input.context.userAgent ?? null,
+    metadata: { role: "owner" },
+  });
+  return owner.id;
 }
 
 function slugify(name: string): string {

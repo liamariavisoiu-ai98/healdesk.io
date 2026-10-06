@@ -54,6 +54,8 @@ const clinic = (over: Partial<ClinicOverview> = {}): ClinicOverview => ({
   bookingRequirementsConfirmedAt: null,
   bookingRequirementsSource: null,
   baaVersion: CURRENT_BAA_VERSION,
+  billingClinicId: null,
+  stripeConnectDisconnectedAt: null,
   ...over,
 });
 
@@ -95,7 +97,7 @@ describe("clinic blockers", () => {
 
   test("a superseded agreement is the first thing a synthetic clinic's card says, naming both versions", () => {
     // The card shows the first blocker when none is "blocked", and go-live
-    // refuses this one outright (0042), so it goes ahead of the covered-entity
+    // refuses this one outright (0048), so it goes ahead of the covered-entity
     // line and the onboarding steps.
     const blockers = blockersFor(clinic({ baaVersion: "1.0.0", isCoveredEntity: null, agentApprovedAt: null }));
     const superseded = blockers.filter((b) => b.message.includes("superseded"));
@@ -170,6 +172,7 @@ describeDb("ops clinic listing", () => {
         "attributionMode",
         "baaSignedAt",
         "baaVersion",
+        "billingClinicId",
         "bookingMode",
         "bookingRequirements",
         "bookingRequirementsConfirmedAt",
@@ -201,6 +204,7 @@ describeDb("ops clinic listing", () => {
         "specialty",
         "stripeConnectAccountId",
         "stripeConnectConnectedAt",
+        "stripeConnectDisconnectedAt",
         "synthflowNumberE164",
         "timezone",
         "wentLiveAt",
@@ -225,7 +229,7 @@ describeDb("ops clinic listing", () => {
     expect(blockersFor(found!)).toEqual([]);
   });
 
-  test("reports the version of the agreement in effect: the newest bound, unterminated one (0042)", async () => {
+  test("reports the version of the agreement in effect: the newest bound, unterminated one (0048)", async () => {
     const { clinicId, organizationId } = await seedClinic("ops-version");
     const version = async () => (await listClinics()).find((c) => c.id === clinicId)!.baaVersion;
     expect(await version()).toBeNull();

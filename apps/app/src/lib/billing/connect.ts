@@ -6,6 +6,8 @@ import { unsafeDb } from "@/db";
 import { clinics } from "@/db/schema";
 import { recordSecurityEvent } from "@/lib/audit";
 import { env } from "@/lib/env";
+import { describeError, log } from "@/lib/log";
+import { PublicUrlError, publicUrl } from "@/lib/public-url";
 import { withTenant } from "@/lib/tenant";
 
 /**
@@ -61,18 +63,31 @@ export function verifyConnectState(
 
 /** The callback URL Stripe sends the clinic back to; registered on the platform. */
 export function connectRedirectUri(): string {
-  return `${env.betterAuthUrl().replace(/\/$/, "")}/api/connect/stripe`;
+  return publicUrl("/api/connect/stripe");
 }
 
-/** The link the onboarding page shows, or null when the platform is not enabled. */
+/**
+ * The link the onboarding page shows, or null when the platform is not
+ * enabled or there is no public origin to send the clinic back to. The
+ * second is logged rather than thrown, so one missing variable hides the
+ * Connect button instead of failing the whole onboarding view.
+ */
 export function connectAuthorizeUrl(clinicId: string, now: Date = new Date()): string | null {
   const clientId = process.env.STRIPE_CONNECT_CLIENT_ID;
   if (!clientId || !process.env.STRIPE_SECRET_KEY) return null;
+  let redirectUri: string;
+  try {
+    redirectUri = connectRedirectUri();
+  } catch (error) {
+    if (!(error instanceof PublicUrlError)) throw error;
+    log.error("Stripe Connect link withheld: no public origin", { clinicId, error: describeError(error) });
+    return null;
+  }
   const params = new URLSearchParams({
     response_type: "code",
     client_id: clientId,
     scope: "read_write",
-    redirect_uri: connectRedirectUri(),
+    redirect_uri: redirectUri,
     state: connectState(clinicId, now),
   });
   return `https://connect.stripe.com/oauth/authorize?${params.toString()}`;

@@ -299,22 +299,57 @@
     {
       "idx": 42,
       "version": "7",
-      "when": 1791013273065,
-      "tag": "0042_baa_floor_and_retention",
+      "when": 1791186583090,
+      "tag": "0042_split_chat_packages",
       "breakpoints": true
     },
     {
       "idx": 43,
       "version": "7",
-      "when": 1791175603563,
-      "tag": "0043_meta_channel_links",
+      "when": 1791187294672,
+      "tag": "0043_stripe_launch",
       "breakpoints": true
     },
     {
       "idx": 44,
       "version": "7",
-      "when": 1791184068622,
-      "tag": "0044_split_chat_packages",
+      "when": 1791272095494,
+      "tag": "0044_funnel_portal_contracts",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1791274802932,
+      "tag": "0045_checkout_intents_funnel",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1791279431789,
+      "tag": "0046_email_platform",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1791280367711,
+      "tag": "0047_portal_factors",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1791283195603,
+      "tag": "0048_baa_floor_and_retention",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1791283201813,
+      "tag": "0049_meta_channel_links",
       "breakpoints": true
     }
   ]

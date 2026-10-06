@@ -38,6 +38,7 @@ import {
   monthlyFigureUsd,
   usd,
 } from "@/lib/pricing";
+import { site } from "@/lib/site";
 
 import { AgreementStep, type AgreementResult } from "./AgreementStep";
 import {
@@ -164,6 +165,7 @@ export function CheckoutFlow({
   initialPlan,
   initialInterval = "month",
   initialState,
+  lockedEmail,
   onClose,
   onProgress,
   downloadHost,
@@ -173,13 +175,24 @@ export function CheckoutFlow({
   initialInterval?: BillingInterval;
   /** Prefill from wherever the buyer came from. Step 1 is still shown. */
   initialState?: Partial<State>;
+  /**
+   * The address a setup link was sent to. The purchase is bound to it
+   * (lib/setup-gate.ts refuses any other at signing and at payment), so the
+   * field shows it and cannot be edited, rather than letting a buyer type
+   * another and be refused two steps later.
+   */
+  lockedEmail?: string;
   /** Present only when hosted in something dismissable. */
   onClose?: () => void;
   onProgress?: (progress: CheckoutProgress) => void;
   downloadHost?: DownloadHost;
 }) {
   const [step, setStep] = useState(1);
-  const [state, setState] = useState<State>(() => ({ ...INITIAL, ...initialState }));
+  const [state, setState] = useState<State>(() => ({
+    ...INITIAL,
+    ...initialState,
+    ...(lockedEmail ? { contactEmail: lockedEmail } : {}),
+  }));
   // `initialPlan` may name a card or a package; see checkoutStart.
   const [start] = useState(
     () => checkoutStart(initialPlan) ?? { card: cardForPlan(cheapestPlan()), chat: "web" as const },
@@ -461,7 +474,7 @@ export function CheckoutFlow({
         step={1}
         totalSteps={TOTAL_STEPS}
         onClose={onClose}
-        eyebrow="Get started"
+        eyebrow={site.cta.primary.label}
         title="What kind of clinic is this?"
         subtitle="It sets how the agent talks about treatments, pricing and scheduling."
       >
@@ -493,7 +506,7 @@ export function CheckoutFlow({
         step={2}
         totalSteps={TOTAL_STEPS}
         onClose={onClose}
-        eyebrow="Get started"
+        eyebrow={site.cta.primary.label}
         title="What do you use for booking?"
         subtitle="She books into your Google Calendar. This tells us whether your booking system will see those bookings, or whether your staff confirm each one in it. She answers either way."
         onBack={back}
@@ -555,7 +568,7 @@ export function CheckoutFlow({
         step={3}
         totalSteps={TOTAL_STEPS}
         onClose={onClose}
-        eyebrow="Get started"
+        eyebrow={site.cta.primary.label}
         title="What is one booked appointment worth to you?"
         subtitle="A typical figure is fine. Your full price list is confirmed during setup."
         onBack={back}
@@ -637,7 +650,7 @@ export function CheckoutFlow({
         step={4}
         totalSteps={TOTAL_STEPS}
         onClose={onClose}
-        eyebrow="Get started"
+        eyebrow={site.cta.primary.label}
         title="Who are we setting this up for?"
         onBack={back}
       >
@@ -656,15 +669,27 @@ export function CheckoutFlow({
             placeholder="Alex Chen"
             invalid={errorField === "contactName"}
           />
-          <Field
-            label="Work email"
-            type="email"
-            value={state.contactEmail}
-            onChange={(v) => set("contactEmail", v)}
-            placeholder="alex@radiancemedspa.com"
-            hint="We'll send your setup link here."
-            invalid={errorField === "contactEmail"}
-          />
+          {lockedEmail ? (
+            <Field
+              label="Clinic email"
+              type="email"
+              value={lockedEmail}
+              onChange={() => undefined}
+              readOnly
+              hint="Your setup link is for this address. It becomes your clinic's sign-in and where we send everything. To use another, reply to the email your link came in."
+              invalid={errorField === "contactEmail"}
+            />
+          ) : (
+            <Field
+              label="Work email"
+              type="email"
+              value={state.contactEmail}
+              onChange={(v) => set("contactEmail", v)}
+              placeholder="alex@radiancemedspa.com"
+              hint="We'll send your setup link here."
+              invalid={errorField === "contactEmail"}
+            />
+          )}
           <Field
             label="Your title (optional)"
             value={state.contactTitle}
@@ -789,7 +814,7 @@ export function CheckoutFlow({
     <StepShell
       step={6}
       totalSteps={TOTAL_STEPS}
-      eyebrow="Get started"
+      eyebrow={site.cta.primary.label}
       title="Choose your package."
       subtitle="Your agreement is signed and on file. Nothing has been charged yet."
       onBack={back}
@@ -1306,6 +1331,7 @@ function Field({
   placeholder,
   hint,
   type = "text",
+  readOnly,
   invalid,
 }: {
   label: string;
@@ -1314,6 +1340,7 @@ function Field({
   placeholder?: string;
   hint?: string;
   type?: string;
+  readOnly?: boolean;
   invalid?: boolean;
 }) {
   return (
@@ -1326,9 +1353,11 @@ function Field({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        readOnly={readOnly}
         aria-invalid={invalid || undefined}
         className={[
-          "text-ink placeholder:text-muted mt-2 w-full rounded-xl border bg-white px-4 py-3 text-[19.2px] outline-none transition-colors",
+          "text-ink placeholder:text-muted mt-2 w-full rounded-xl border px-4 py-3 text-[19.2px] outline-none transition-colors",
+          readOnly ? "bg-paper-2" : "bg-white",
           invalid ? "border-red" : "border-line focus:border-orange",
         ].join(" ")}
       />

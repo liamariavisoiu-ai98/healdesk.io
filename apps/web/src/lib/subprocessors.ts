@@ -44,6 +44,7 @@
  * (lib/retell-demo-call.ts), on a separate agent from the product's. Its row
  * is "Retell (the website demo call)", beside the product's own Retell row,
  * as Anthropic has one row per organisation.
+ * Published as LEGAL_VERSION 2026-10-06.4.
  *   - Cal.com is gone: v1 writes bookings only to the clinic's own Google
  *     Calendar, and nothing into Cal.com.
  *   - Google Calendar is not a row. The calendar is the clinic's own, under
@@ -62,6 +63,17 @@
  *   - Stripe is our own billing only. A deposit is taken through the clinic's
  *     own payment processor account, so that leg left the register for a
  *     note above it.
+ *
+ * Change of 6 October 2026: Calendly is a row. "Get in touch" in the navbar
+ * books a call with us in its scheduler, framed on our page, so a visitor's
+ * name and email reach it from this website. It handles no patient
+ * information, so it needed no notice to clinics (LEGAL_VERSION 2026-10-06.2).
+ *
+ * Change of 6 October 2026, later (the website read, app/api/clinic-site):
+ * the website's Anthropic organisation also reads a clinic's public website
+ * at checkout, so its row is "this website" rather than "the website demo",
+ * and says what the read sends: public page text, never patient information
+ * (LEGAL_VERSION 2026-10-06.3).
  */
 
 export type BaaStatus =
@@ -124,14 +136,14 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     scope: "product",
   },
   {
-    name: "Anthropic (the website demo)",
-    purpose: "The language model behind the chat demo on this website, in a separate Anthropic organisation from the product's",
-    data: "What you type into the demo, and the public service information of the specialty being demonstrated. No training on any of it",
+    name: "Anthropic (this website)",
+    purpose: "The language model behind the chat demo on this website, and behind reading a clinic's public website at checkout so setup starts pre-filled, in a separate Anthropic organisation from the product's",
+    data: "What you type into the demo, and the public service information of the specialty being demonstrated; at checkout, the text of up to eight public pages of the website you give us. No training on any of it",
     region: "United States",
     handlesPhi: false,
     baa: {
       state: "not-needed",
-      because: "A separate organisation from the product's, with no BAA: the demo is for clinic owners and staff, not a patient channel, and no patient information is sent to it.",
+      because: "A separate organisation from the product's, with no BAA: the demo is for clinic owners and staff, not a patient channel, the website read sends only a clinic's own public pages, and no patient information is sent to it.",
     },
     scope: "marketing-site",
   },
@@ -175,6 +187,15 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     scope: "marketing-site",
   },
   {
+    name: "Calendly",
+    purpose: "Books the call a visitor asks for through \"Get in touch\" on this website, in Calendly's scheduler shown on our page",
+    data: "The name and email you give when booking, anything you add in its form, and the time you pick; Calendly also records your visit to its scheduling page",
+    region: "United States",
+    handlesPhi: false,
+    baa: { state: "not-needed", because: "Calls with clinic owners and staff who asked for one; it asks for no patient information and needs none." },
+    scope: "marketing-site",
+  },
+  {
     name: "Resend",
     purpose: "Transactional email: invitations, agreement copies, account and billing notices",
     data: "Recipient address and non-patient content only",
@@ -194,8 +215,8 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   },
   {
     name: "Google (Google Sheets / Drive)",
-    purpose: "The marketing site's lead register: demo leads, funnel events and the demo-call consent record, in a Google Sheet",
-    data: "Work email, business or personal domain, specialty demoed, referrer host, campaign code, the marketing-consent record",
+    purpose: "The marketing site's lead register: demo leads, funnel events, the demo-call consent record and setup requests, in a Google Sheet",
+    data: "Work email, business or personal domain, specialty demoed, referrer host, campaign code, the marketing-consent record; for a setup request, the requester's name, the clinic's name, website and email, the channels wanted, and the IP address it came from",
     region: "United States (Google Cloud; not region-pinned for a Google account)",
     handlesPhi: false,
     baa: { state: "not-needed", because: "Business contact data only; a separate store from the product's; no patient information ever reaches it." },

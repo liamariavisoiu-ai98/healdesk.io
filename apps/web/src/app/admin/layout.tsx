@@ -12,7 +12,7 @@ import {
 } from "@/lib/admin/operator";
 
 /**
- * The chrome around the admin area: one header, four sections, one sign-out.
+ * The chrome around the admin area: one header, five sections, one sign-out.
  *
  * ## Why this is not the marketing `Nav`
  *
@@ -97,12 +97,13 @@ export const metadata: Metadata = {
 
 /**
  * The surfaces this console has, in the order somebody uses them: what
- * changed, what is running, who is in the funnel, the personalised demos
- * built for them, and what has been signed.
+ * changed, what is running, who asked to be set up, who is in the funnel, the
+ * personalised demos built for them, and what has been signed.
  */
 const SECTIONS = [
   { href: "/admin", label: "Changes" },
   { href: "/admin/ops", label: "Ops" },
+  { href: "/admin/setup", label: "Setup" },
   { href: "/admin/crm", label: "CRM" },
   { href: "/admin/demos", label: "Demos" },
   { href: "/admin/agreements", label: "Agreements" },
@@ -163,7 +164,7 @@ export default async function AdminLayout({
           {/* Wraps on a phone: brand and sign-out on the first line, the
               section links on the next. Every control is at least 44px tall,
               the size a thumb can hit; the nav is deliberately not a menu
-              behind a button, because four links fit and a menu hides the
+              behind a button, because five links fit and a menu hides the
               one you want. */}
           <div className="mx-auto flex w-full max-w-[1240px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-8 sm:py-4 lg:px-14">
             {/* The gradient utility rather than the marketing `Brand`'s two

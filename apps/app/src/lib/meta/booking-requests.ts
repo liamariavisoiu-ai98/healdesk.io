@@ -20,7 +20,7 @@ import {
 import type { ActorContext, RequestContext } from "@/lib/audit";
 import { slotLabel, slotsFor, writableConnection, writeToCalendar, type CalendarSlot, type CalendarWriteOutcome } from "@/lib/booking/calendar";
 import { planRescheduleOutreach, type RescheduleOutreach } from "@/lib/booking/reschedule";
-import { env } from "@/lib/env";
+import { PublicUrlError, publicUrl } from "@/lib/public-url";
 import { describeError, log } from "@/lib/log";
 import { listClinics } from "@/lib/ops/clinics";
 import { getTransport, type EmailTransport } from "@/lib/reporting/deliver";
@@ -409,7 +409,7 @@ export function channelLabel(channel: BookingChannel, platform: MetaPlatform | n
 }
 
 export function bookingRequestUrl(token: string): string {
-  return `${env.betterAuthUrl().replace(/\/$/, "")}/booking/${token}`;
+  return publicUrl(`/booking/${token}`);
 }
 
 // -----------------------------------------------------------------------------
@@ -443,7 +443,23 @@ export async function notifyDesk(
     return { status: "no-recipients", recipients: 0 };
   }
   const transport = deps.transport ?? getTransport("none");
-  const url = bookingRequestUrl(created.token);
+  // notifyDesk runs inside the caller's tenant transaction, after the booking
+  // request (and, on a call, the conversation) is written. A misconfigured
+  // BETTER_AUTH_URL must cost the desk its email, not the patient their
+  // request: a throw here would roll all of it back. So it is a failed send,
+  // logged, and the request stays where the care view and the console see it.
+  let url: string;
+  try {
+    url = bookingRequestUrl(created.token);
+  } catch (error) {
+    if (!(error instanceof PublicUrlError)) throw error;
+    log.error("booking request notice not sent: no public origin to link to", {
+      clinicId: tx.clinicId,
+      requestId: created.id,
+      error: describeError(error),
+    });
+    return { status: "failed", recipients: recipients.length };
+  }
   const label = channelLabel(via.channel, via.platform);
 
   let subject: string;

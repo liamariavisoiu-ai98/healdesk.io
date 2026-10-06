@@ -129,9 +129,6 @@ describe("refunds say what is refunded, how, and when", () => {
   });
 });
 
-/** The legal version that first carried the first-month guarantee. */
-const INTRODUCED_IN = "2026-10-03.2";
-
 describe("the first-month guarantee", () => {
   const text = pageText();
 
@@ -188,24 +185,10 @@ describe("the first-month guarantee", () => {
     expect(text).toContain("Sections 5, 7 and 9 to 20 survive termination");
   });
 
-  /**
-   * The guarantee has been in the terms since 2026-10-03.2 and may not quietly
-   * leave them, so this asserts the page is on that version OR LATER rather
-   * than on that exact string. Pinning the exact one made every unrelated
-   * version bump fail here — the allowance change of 5 October 2026 did —
-   * which says nothing about the guarantee and trains the next reader to
-   * retype the constant without reading the clause. What a change to the
-   * terms' TEXT has to pass is the sha256 pin in lib/legal-version.test.ts;
-   * that one is not relaxed.
-   */
-  test("the page carries a version at or after the one that introduced it", () => {
-    const order = (v: string): [string, number] => {
-      const [date, n] = v.split(".");
-      return [date!, Number(n)];
-    };
-    const [date, n] = order(LEGAL_VERSION);
-    const [introDate, introN] = order(INTRODUCED_IN);
-    expect(date > introDate || (date === introDate && n >= introN)).toBe(true);
+  test("has been in the terms since the version that introduced it, and the page prints its version", () => {
+    // Introduced in 2026-10-05.2. Versions are dated, so later ones sort after
+    // it; legal-version.test.ts is what pins each version's exact text.
+    expect(LEGAL_VERSION >= "2026-10-05.2").toBe(true);
     expect(text).toContain(`Version ${LEGAL_VERSION}`);
   });
 });

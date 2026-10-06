@@ -11,10 +11,13 @@ export const dynamic = "force-dynamic";
  * GET /api/cron/nurture — the follow-up clock.
  *
  * Same authentication as /api/cron/purge-leads: Vercel Cron's Bearer
- * CRON_SECRET, compared in constant time. Hourly in vercel.json; on a Hobby
- * plan Vercel runs crons at most daily, which only delays the touches — the
- * sequence is keyed on elapsed time since consent, so nothing is sent twice
- * and nothing is skipped.
+ * CRON_SECRET, compared in constant time. Daily in vercel.json, because the
+ * Hobby plan refuses to deploy a project with a more frequent cron: the hourly
+ * schedule this had failed every deploy from 22 September to 3 October 2026.
+ * Daily only delays the touches — the sequence is keyed on elapsed time since
+ * consent, so nothing is sent twice and nothing is skipped. It runs at 14:07
+ * UTC, mid-morning in New York where the readers are, not at 05:07 UTC (1 a.m.
+ * there): these are emails a person opens, and a reply invites a reply.
  */
 export async function GET(request: Request): Promise<NextResponse> {
   const expected = process.env.CRON_SECRET;

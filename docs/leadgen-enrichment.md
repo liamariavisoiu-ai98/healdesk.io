@@ -141,6 +141,51 @@ ant auth login --no-browser                              # or set ANTHROPIC_API_
 npm run enrich -w @healdesk/leadgen -- --input ~/Downloads/healdesk_leads.csv
 ```
 
+### Adding a second batch
+
+Repeat `--input`. Give every list, every time — the first one included:
+
+```bash
+npm run enrich -w @healdesk/leadgen -- \
+  --input ~/Downloads/healdesk_leads.csv \
+  --input ~/Downloads/leads_batch2.csv \
+  --batch --hours
+```
+
+`01-clinics.json` records which files it was built from. Given a different set
+it re-dedupes across all of them, which is free and takes a second, and is
+safe for everything downstream: a clinic's id is a hash of its domain, so a
+clinic from the first list keeps its id and therefore keeps its crawl, its
+label, its DNS probe, its booking-page fetch and its hours. **Only the clinics
+the new file adds reach the paid stages.** The report says how many that is:
+
+```
+  8619 rows → 7371 clinics (3 unusable)
+    healdesk_leads.csv               4919 rows   4512 clinics not in an earlier file
+    leads_batch2.csv                 3700 rows   2859 clinics not in an earlier file
+    132 clinics appear in more than one file — their contacts were merged, not duplicated.
+```
+
+*(illustrative numbers — the real overlap is printed by the run)*
+
+Two consequences worth knowing before the run:
+
+- **A clinic in both lists can change its primary contact.** Contacts are
+  ranked by seniority across both files, so if batch 2 supplies the owner where
+  batch 1 only had the office manager, the owner becomes `contacts[0]` and the
+  manager moves to `second-contacts.csv`. Right, but if batch 1 has already
+  been *sent*, diff `all-leads.csv` on `clinic_id` before loading it.
+- **The two lists have different columns.** The first was a bespoke export
+  (`website`, `first_name`, `jobTitle` …); the second is a raw Apollo export
+  (`Website`, `First Name`, `Title` …). The format is detected from the header
+  and mapped (`src/enrich/sources.ts`); a file that matches neither stops the
+  run. Fed in unmapped, an Apollo file dedupes to zero clinics with no error —
+  which is what made the mapping worth a hard stop rather than a warning.
+
+Every row of every CSV now carries `source` (the file the *contact* came from)
+and `clinic_sources` (every file that named the clinic), so a campaign can be
+filtered to one batch and a bad row traced to the export it arrived in.
+
 | Flag | Why |
 |---|---|
 | `--limit 200` | Crawl a sample first. **Do this before the full run.** |
@@ -182,15 +227,29 @@ prompt is ~700 tokens and Haiku 4.5's minimum cacheable prefix is 4,096, so a
 
 ```
 packages/leadgen/data/
-  01-clinics.json          deduped clinics with ranked contacts
+  01-clinics.json          deduped clinics with ranked contacts, + the input files it came from
   02-crawl.json            page text per domain
   03-labels.json           segment + confidence + signals
+  03b-dns.json             { probed, findings } — booking vendors seen in DNS
+  03b2-pages.json          { attempted, findings } — vendors behind the clinic's own booking link
+  03c-hours.json           Google opening hours (only with --hours)
   report.json              the tally
   segments/
     injectables.csv        ← contact-ready, one row per clinic
     weight-loss-glp1.csv
     body-contouring.csv
+    excluded.csv           chains, not-a-clinic — no copy, kept apart on purpose
+  unreadable-leads.csv     sites that could not be read: one touch, honest copy
+  second-contacts.csv      the second person at a clinic — a later wave, never day one
+  all-leads.csv            everything contactable, with `list` saying which of the three
 ```
+
+Every stage is incremental on `clinic_id` (or domain, for DNS). Adding a list
+re-runs only what the new clinics need; `--force-<stage>` redoes a stage for
+everyone. The DNS and booking-page files were once hit-only arrays, which
+could not tell "probed, nothing found" from "never probed" — an old-format
+file is read fine, and clinics crawled before the current run are assumed
+probed, since every earlier run swept the whole set.
 
 Each CSV is campaign-ready: best contact, segment, confidence, and the evidence
 line that decided the label, so a sample can be spot-checked by eye.

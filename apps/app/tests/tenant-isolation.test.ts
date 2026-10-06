@@ -151,6 +151,49 @@ describeDb("tenant isolation", () => {
     }
   });
 
+  test("the channel and closure tables (0044) show a clinic only its own rows, and take no write into another", async () => {
+    const alpha = await seedClinic("alpha-ch");
+    const beta = await seedClinic("beta-ch");
+    for (const c of [alpha, beta]) {
+      await inTenant(c.clinicId, async (client) => {
+        await client.query(`insert into clinic_channels (clinic_id, channel) values ($1, 'web')`, [
+          c.clinicId,
+        ]);
+        await client.query(
+          `insert into channel_events (clinic_id, channel, kind) values ($1, 'web', 'first_answer')`,
+          [c.clinicId],
+        );
+        await client.query(
+          `insert into clinic_closures (clinic_id, closed_on) values ($1, '2026-12-25')`,
+          [c.clinicId],
+        );
+      });
+    }
+
+    for (const table of ["clinic_channels", "channel_events", "clinic_closures"]) {
+      const seen = await asTenant(alpha.clinicId, async (c) => {
+        const result = await c.query(`select clinic_id from ${table}`);
+        return result.rows;
+      });
+      expect(seen, table).toEqual([{ clinic_id: alpha.clinicId }]);
+
+      const { rows } = await getAppPool().query<{ count: number }>(
+        `select count(*)::int as count from ${table}`,
+      );
+      expect(rows[0]!.count, `${table} leaked rows with no tenant set`).toBe(0);
+    }
+
+    for (const insert of [
+      `insert into clinic_channels (clinic_id, channel) values ($1, 'voice')`,
+      `insert into channel_events (clinic_id, channel, kind) values ($1, 'voice', 'live')`,
+      `insert into clinic_closures (clinic_id, closed_on) values ($1, '2026-12-26')`,
+    ]) {
+      await expect(
+        asTenant(alpha.clinicId, (c) => c.query(insert, [beta.clinicId])),
+      ).rejects.toMatchObject({ code: "42501" });
+    }
+  });
+
   test("the tenant setting does not survive into the next borrower of a pooled connection", async () => {
     const clinic = await seedClinic("pooled");
 

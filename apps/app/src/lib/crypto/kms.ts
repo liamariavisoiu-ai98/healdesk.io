@@ -117,31 +117,31 @@ export class LocalKeyWrapper implements KeyWrapper {
 /**
  * AWS KMS — the production wrapper.
  *
- * The SDK is an OPTIONAL dependency, loaded lazily. Until there's a paying
- * clinic there's no KMS key to talk to, and pulling ~20MB of AWS SDK into every
- * install to support a code path nobody runs yet is a poor trade.
+ * The SDK is a dependency of this app, imported lazily by a literal specifier
+ * and listed in next.config.ts's serverExternalPackages. Each of the three is
+ * there on purpose, and the arrangement they replaced is the reason.
  *
- * The specifier goes through a variable so TypeScript can't resolve it
- * statically and demand the package be installed. That is deliberate, not an
- * oversight — the runtime error below is what a developer should see, rather
- * than a compile failure in a file they didn't touch.
+ * It used to be an optional dependency, installed nowhere, with the specifier
+ * routed through a `const` so that TypeScript could not resolve it statically.
+ * That hid it from TypeScript and not from Turbopack, which folds the constant,
+ * found no package, and compiled the import into an unconditional
+ * `throw MODULE_NOT_FOUND` in the server chunk. Every production build produced
+ * a server that could never load KMS — and since getKeyWrapper() refuses the
+ * local wrapper in production, a server that could seal and open no secret at
+ * all. Installing the SDK into the image afterwards could not help: the throw
+ * was already compiled in.
  *
- * When you do install it:
- *   npm install --workspace @healdesk/app @aws-sdk/client-kms
+ *   - A dependency, so the build can resolve it.
+ *   - A literal specifier, so what the bundler resolves is what the code says,
+ *     not what constant folding happens to recover.
+ *   - External, so the chunk `require`s it from node_modules at run time
+ *     instead of carrying a copy of the SDK, and the standalone output traces
+ *     it in beside the server.
+ *
+ * Still lazy: nothing loads it until a KMS wrapper is first used, so
+ * development and tests on the local wrapper never do.
  */
-const KMS_MODULE = "@aws-sdk/client-kms";
-
-type KmsModule = {
-  KMSClient: new (config: Record<string, unknown>) => {
-    send: (command: unknown) => Promise<{
-      Plaintext?: Uint8Array;
-      CiphertextBlob?: Uint8Array;
-    }>;
-  };
-  GenerateDataKeyCommand: new (input: Record<string, unknown>) => unknown;
-  DecryptCommand: new (input: Record<string, unknown>) => unknown;
-  EncryptCommand: new (input: Record<string, unknown>) => unknown;
-};
+type KmsModule = typeof import("@aws-sdk/client-kms");
 
 export class AwsKmsKeyWrapper implements KeyWrapper {
   readonly keyVersion: string;
@@ -160,11 +160,15 @@ export class AwsKmsKeyWrapper implements KeyWrapper {
   }> {
     if (!this.#mod) {
       try {
-        this.#mod = (await import(/* @vite-ignore */ KMS_MODULE)) as KmsModule;
-      } catch {
+        this.#mod = await import("@aws-sdk/client-kms");
+      } catch (error) {
+        // Not a missing feature any more: the package is a dependency, so a
+        // failure here is an install or an image without its node_modules.
         throw new Error(
-          "HEALDESK_KMS_PROVIDER is 'aws-kms' but @aws-sdk/client-kms is not installed. " +
-            "Run: npm install --workspace @healdesk/app @aws-sdk/client-kms",
+          "HEALDESK_KMS_PROVIDER is 'aws-kms' but @aws-sdk/client-kms could not be loaded. " +
+            "It is a dependency of @healdesk/app and external to the Next build, so the " +
+            "server requires it from node_modules at run time: the install is incomplete.",
+          { cause: error },
         );
       }
     }

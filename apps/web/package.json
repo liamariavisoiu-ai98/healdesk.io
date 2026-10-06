@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf .next .turbo node_modules",
     "stripe:setup": "tsx --env-file-if-exists=.env.local scripts/stripe-setup.ts",
+    "stripe:settings": "tsx scripts/stripe-account-settings.ts",
     "test": "vitest run",
     "qa:gate": "tsx --env-file-if-exists=.env.local scripts/qa-gate.ts",
     "sheets:init": "tsx --env-file-if-exists=.env.local scripts/sheets-init.ts",
@@ -26,8 +27,7 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "retell-client-js-sdk": "^3.0.2",
-    "stripe": "^22.6.1",
-    "three": "^0.185.1"
+    "stripe": "^22.6.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
@@ -35,7 +35,6 @@
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "@types/three": "^0.185.4",
     "postcss": "^8.5.1",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.7.2",

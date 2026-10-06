@@ -6,8 +6,22 @@ import { Footer } from "@/components/Footer";
 import { HeroStage } from "@/components/HeroStage";
 import { HomeExperience } from "@/components/HomeExperience";
 import { KnowMore } from "@/components/KnowMore";
-import { LeaveReview } from "@/components/LeaveReview";
 import { Nav } from "@/components/Nav";
+import { Reviews } from "@/components/Reviews";
+import { PUBLISHED, summarize } from "@/lib/reviews";
+import { SAMPLE } from "@/lib/reviews.sample";
+
+/**
+ * The reviews the wall shows: the published ones once there are any, and
+ * until then the sample set, labelled as examples on the wall itself.
+ *
+ * ⚠️ The sample set is invented (src/lib/reviews.sample.ts). It is on the
+ * live site by the owner's decision of 3 October 2026 ONLY with Reviews'
+ * `examples` flag set, which prints EXAMPLE_NOTICE above the rating. Never
+ * render SAMPLE without it. src/lib/reviews.test.ts pins both lines.
+ */
+const SHOWING_EXAMPLES = PUBLISHED.length === 0;
+const REVIEWS = SHOWING_EXAMPLES ? SAMPLE : summarize(PUBLISHED);
 
 /**
  * The homepage is the one page with no metadata of its own, so it declares a
@@ -25,16 +39,14 @@ export const metadata: Metadata = {
 /**
  * The homepage, and the whole site's argument.
  *
- * Four things in order: the claim with AYA beside it, AYA working, the
- * specialties we know, and a way to ask. Pricing and contact are their own
- * pages but are reachable only from the footer, so nothing competes with the
- * demo for a visitor's first click.
+ * Six things in order: the claim, AYA working, what changes in month one,
+ * the specialties we know, what clinics say, and a way to ask. Pricing and contact
+ * are their own pages but are reachable only from the footer, so nothing
+ * competes with the demo for a visitor's first click.
  *
- * There is no review section. The one that sat between the demos and the FAQ
- * was placeholder content with an invented rating, and it was removed on 30
- * September 2026 (src/lib/reviews.ts says why). Customers can still leave a
- * review: the control sits under the FAQ, and nothing it collects is shown
- * anywhere until someone here has read it and it is real.
+ * What clinics say is the review wall. Until real reviews are published it
+ * shows the sample set, labelled as examples (see REVIEWS above). "Leave a
+ * review" sits in its header.
  *
  * ## Nothing is parked any more
  *
@@ -62,11 +74,12 @@ export default function HomePage() {
             one selected specialty, so they cannot disagree with each other. */}
         <HomeExperience />
 
+        {/* Social proof sits between the money question and the FAQ on
+            purpose: the FAQ then answers whatever the reviews raised. */}
+        <Reviews summary={REVIEWS} examples={SHOWING_EXAMPLES} />
+
         <KnowMore />
 
-        <div className="border-line border-t pt-8 pb-24 sm:pb-28">
-          <LeaveReview />
-        </div>
       </main>
 
       <Footer />

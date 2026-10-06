@@ -49,7 +49,7 @@ async function asTenant<T>(clinicId: string | null, fn: (c: Client) => Promise<T
 /**
  * A signed agreement row, inserted as the migrator. Unbound unless an org is
  * given. The current version unless told otherwise, because go-live refuses
- * a superseded one (0042) and only the version tests below want that.
+ * a superseded one (0048) and only the version tests below want that.
  */
 async function seedAcceptance(
   organizationId: string | null,
@@ -199,8 +199,8 @@ describeDb("database audit (0031)", () => {
     });
   });
 
-  test("app_mark_clinic_production refuses a superseded agreement, names its version, and writes nothing (0042)", async () => {
-    // Until 0042 any bound version went live, 1.0.0 and unapproved drafts
+  test("app_mark_clinic_production refuses a superseded agreement, names its version, and writes nothing (0048)", async () => {
+    // Until 0048 any bound version went live, 1.0.0 and unapproved drafts
     // included. Everything else is ready here, so the version is the refusal.
     for (const [i, version] of ["1.2.1", "1.0.0", "0.1.0-draft"].entries()) {
       const { clinicId, organizationId } = await seedClinic(`superseded${i}`);
@@ -317,6 +317,27 @@ describeDb("database audit (0031)", () => {
     }
   });
 
+  test("the identity plane's records of who got in, and with what, cannot be erased by the runtime role", async () => {
+    // security_events (0003), sign_in_links (0043), and the portal's second
+    // factors and step-ups (0047): which device's passkey could open patient
+    // data, and when. A new table of this kind belongs on this list.
+    for (const table of [
+      "security_events",
+      "sign_in_links",
+      "user_factors",
+      "user_backup_codes",
+      "webauthn_challenges",
+      "step_ups",
+      "factor_lockouts",
+    ]) {
+      const { rows } = await getMigratorPool().query<{ deletable: boolean }>(
+        `select has_table_privilege('healdesk_app', $1::regclass, 'DELETE') as deletable`,
+        [table],
+      );
+      expect(rows[0]!.deletable, table).toBe(false);
+    }
+  });
+
   test("the BAA gate trigger guards every table that carries a caller's number or payload", async () => {
     const expected = [
       "appointments",
@@ -325,6 +346,7 @@ describeDb("database audit (0031)", () => {
       "contact_attempts",
       "contacts",
       "conversations",
+      "deposit_payments",
       "meta_booking_drafts",
       "suppressions",
       "transactions",

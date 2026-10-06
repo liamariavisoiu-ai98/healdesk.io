@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import { site } from "@/lib/site";
+
 import {
+  CALENDLY_ORIGIN,
   CSP_DIRECTIVES,
   GOOGLE_DOCS_ORIGIN,
   POSTHOG_ASSETS_ORIGIN,
@@ -77,17 +80,20 @@ describe("contentSecurityPolicy", () => {
   it("lets forms post to Stripe Checkout but does not load Stripe.js", () => {
     expect(csp.get("form-action")).toEqual(["'self'", STRIPE_CHECKOUT_ORIGIN]);
     expect(contentSecurityPolicy(production)).not.toContain("js.stripe.com");
-    expect(csp.get("frame-src")).toEqual(["'none'"]);
+    expect(csp.get("frame-src")).not.toContain("https://js.stripe.com");
   });
 
-  // /admin/crm frames the marketing Sheet. That is the only route family that
-  // may frame anything, and docs.google.com is the only origin it may frame;
-  // next.config.ts applies the variant to `/admin/:path*` after the generic
-  // entry, which is what makes it win under Next's last-match-wins rule.
-  it("frames nothing by default, and only docs.google.com on the admin variant", () => {
-    expect(csp.get("frame-src")).toEqual(["'none'"]);
+  // "Get in touch" frames Calendly's booking page on every page with the
+  // navbar; /admin/crm also frames the marketing Sheet. Those are the only
+  // origins the site may frame. next.config.ts applies the admin variant to
+  // `/admin/:path*` after the generic entry, which is what makes it win under
+  // Next's last-match-wins rule.
+  it("frames only Calendly by default, and docs.google.com as well on the admin variant", () => {
+    expect(csp.get("frame-src")).toEqual([CALENDLY_ORIGIN]);
+    // The modal frames the meeting link's own origin; the two move together.
+    expect(new URL(site.meeting.url).origin).toBe(CALENDLY_ORIGIN);
     const admin = parse(contentSecurityPolicy(production, { frameSources: [GOOGLE_DOCS_ORIGIN] }));
-    expect(admin.get("frame-src")).toEqual([GOOGLE_DOCS_ORIGIN]);
+    expect(admin.get("frame-src")).toEqual([CALENDLY_ORIGIN, GOOGLE_DOCS_ORIGIN]);
     for (const name of CSP_DIRECTIVES) {
       if (name !== "frame-src") expect(admin.get(name), name).toEqual(csp.get(name));
     }
@@ -103,17 +109,15 @@ describe("contentSecurityPolicy", () => {
     expect(contentSecurityPolicy(production, { frameSources: [] })).toBe(contentSecurityPolicy(production));
     // On preview the toolbar host is kept alongside.
     const preview = parse(contentSecurityPolicy({ ...production, vercelEnv: "preview" }, { frameSources: [GOOGLE_DOCS_ORIGIN] }));
-    expect(preview.get("frame-src")).toEqual(["https://vercel.live", GOOGLE_DOCS_ORIGIN]);
+    expect(preview.get("frame-src")).toEqual(["https://vercel.live", CALENDLY_ORIGIN, GOOGLE_DOCS_ORIGIN]);
   });
 
-  it("lets the hero video and the glTF decoder run", () => {
+  it("lets the videos play, and no longer allows what the 3D hero needed", () => {
     expect(csp.get("media-src")).toEqual(["'self'", "blob:"]);
     expect(csp.get("img-src")).toEqual(["'self'", "data:", "blob:"]);
-    // GLTFLoader fetches the hero model's embedded texture via a blob: URL.
-    // Dropping this renders her as a white clay bust, silently.
-    expect(csp.get("connect-src")).toContain("blob:");
-    // MeshoptDecoder instantiates embedded WebAssembly; this is not 'unsafe-eval'.
-    expect(csp.get("script-src")).toContain("'wasm-unsafe-eval'");
+    // The glTF hero, removed on 3 October 2026, was the only reason for these.
+    expect(csp.get("connect-src")).not.toContain("blob:");
+    expect(csp.get("script-src")).not.toContain("'wasm-unsafe-eval'");
   });
 
   it("adds unsafe-eval and drops the https upgrade only in development", () => {

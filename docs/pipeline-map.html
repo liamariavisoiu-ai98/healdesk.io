@@ -1,0 +1,639 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The healdesk Pipeline</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;800&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+  /* Dark-first: the bare :root carries the schematic palette, the light blocks
+     below swap the same tokens. Status hues are validated in both modes. */
+  :root {
+    --ground: #0b1316;
+    --panel: #111d21;
+    --panel-2: #0e181b;
+    --line: #23343a;
+    --line-soft: #1a272c;
+    --bone: #e4ece9;
+    --mute: #8299a0;
+    --faint: #56717a;
+
+    --auto:  #1f9c81;   /* runs with nobody watching */
+    --hand:  #c4851f;   /* a person does it */
+    --off:   #4288d4;   /* built, nothing calls it */
+    --none:  #cf4c3a;   /* not built */
+    --auto-wash: rgba(31,156,129,.13);
+    --hand-wash: rgba(196,133,31,.13);
+    --off-wash:  rgba(66,136,212,.13);
+    --none-wash: rgba(207,76,58,.13);
+    --shadow: 0 1px 0 rgba(255,255,255,.02) inset;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --ground: #edf0ee; --panel: #ffffff; --panel-2: #f6f8f7;
+      --line: #c7d2d1; --line-soft: #dde4e3;
+      --bone: #101f1e; --mute: #4f6468; --faint: #7c8f92;
+      --auto: #00806a; --hand: #96620c; --off: #2a6fb8; --none: #b33a28;
+      --auto-wash: rgba(0,128,106,.09);
+      --hand-wash: rgba(150,98,12,.09);
+      --off-wash:  rgba(42,111,184,.09);
+      --none-wash: rgba(179,58,40,.09);
+      --shadow: 0 1px 2px rgba(16,31,30,.05);
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #edf0ee; --panel: #ffffff; --panel-2: #f6f8f7;
+    --line: #c7d2d1; --line-soft: #dde4e3;
+    --bone: #101f1e; --mute: #4f6468; --faint: #7c8f92;
+    --auto: #00806a; --hand: #96620c; --off: #2a6fb8; --none: #b33a28;
+    --auto-wash: rgba(0,128,106,.09);
+    --hand-wash: rgba(150,98,12,.09);
+    --off-wash:  rgba(42,111,184,.09);
+    --none-wash: rgba(179,58,40,.09);
+    --shadow: 0 1px 2px rgba(16,31,30,.05);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--bone);
+    font-family: Archivo, "Helvetica Neue", Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .sheet {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding-inline: 18px;
+    padding-block: 34px 48px;
+  }
+  .mono { font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace; }
+
+  /* state carries color AND a glyph AND a word — never color alone */
+  .st-auto { --hue: var(--auto); --wash: var(--auto-wash); }
+  .st-hand { --hue: var(--hand); --wash: var(--hand-wash); }
+  .st-off  { --hue: var(--off);  --wash: var(--off-wash); }
+  .st-none { --hue: var(--none); --wash: var(--none-wash); }
+
+  .state {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--hue);
+    white-space: nowrap;
+  }
+  .state .g { font-size: 11px; line-height: 1; }
+
+  /* ---------- masthead ---------- */
+  header.top { border-bottom: 1px solid var(--line); padding-bottom: 22px; margin-bottom: 24px; }
+  .wordmark { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+  .wordmark .mark {
+    width: 17px; height: 17px; border: 1.5px solid var(--auto);
+    border-radius: 50%; position: relative;
+  }
+  .wordmark .mark::after { content: ""; position: absolute; inset: 3.5px; background: var(--auto); border-radius: 50%; }
+  .wordmark b { font-weight: 600; font-size: 15px; letter-spacing: -.02em; }
+  .wordmark span { color: var(--faint); font-size: 11.5px; }
+
+  h1 {
+    font-size: clamp(30px, 5.4vw, 56px);
+    font-weight: 800; letter-spacing: -.035em; line-height: .96;
+    margin: 0 0 12px; text-wrap: balance;
+  }
+  h1 em { font-style: normal; color: var(--hand); }
+  .standfirst { max-width: 78ch; color: var(--mute); font-size: 14.5px; margin: 0; }
+  .standfirst b { color: var(--bone); font-weight: 600; }
+
+  /* ---------- verdict tiles ---------- */
+  .verdict {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .tile {
+    border: 1px solid var(--line);
+    border-top: 3px solid var(--hue);
+    background: var(--panel);
+    border-radius: 3px;
+    padding: 13px 14px 14px;
+    box-shadow: var(--shadow);
+  }
+  .tile .n {
+    font-size: 34px; font-weight: 800; letter-spacing: -.04em;
+    line-height: 1; font-variant-numeric: tabular-nums;
+    color: var(--hue); display: block; margin-bottom: 8px;
+  }
+  .tile .state { margin-bottom: 6px; }
+  .tile p { margin: 0; font-size: 12px; line-height: 1.4; color: var(--faint); }
+  .tile p b { color: var(--mute); font-weight: 600; }
+
+  .readout {
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    border-radius: 3px;
+    padding: 12px 14px;
+    margin-bottom: 26px;
+    font-size: 13.5px;
+    color: var(--mute);
+  }
+  .readout b { color: var(--bone); font-weight: 600; }
+  .readout .hl { color: var(--hand); font-weight: 600; }
+
+  /* ---------- lanes ---------- */
+  .map { display: grid; gap: 10px; }
+
+  .lane {
+    display: grid;
+    grid-template-columns: 186px minmax(0, 1fr);
+    gap: 16px;
+    border: 1px solid var(--line-soft);
+    border-radius: 4px;
+    padding: 13px;
+    background: var(--panel-2);
+    align-items: start;
+  }
+  @media (max-width: 860px) { .lane { grid-template-columns: minmax(0,1fr); gap: 11px; } }
+
+  .lane > .who .num {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px; letter-spacing: .14em; color: var(--faint);
+  }
+  .lane > .who h2 {
+    margin: 3px 0 5px;
+    font-size: 17px; font-weight: 700; letter-spacing: -.02em;
+  }
+  .lane > .who .side {
+    display: inline-block;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 8.5px; letter-spacing: .14em; text-transform: uppercase;
+    border: 1px solid var(--line); border-radius: 2px;
+    padding: 2px 5px; color: var(--faint); margin-bottom: 7px;
+  }
+  .lane > .who p { margin: 0; font-size: 11.5px; line-height: 1.4; color: var(--faint); }
+
+  .chips {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+    gap: 8px;
+  }
+  @media (min-width: 1000px) {
+    .chips { grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); }
+  }
+
+  .chip {
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--hue);
+    background: var(--panel);
+    border-radius: 3px;
+    padding: 9px 10px 10px;
+    min-width: 0;
+    box-shadow: var(--shadow);
+  }
+  .chip.st-none { border-style: dashed; border-left-style: solid; }
+  .chip .state { margin-bottom: 5px; }
+  .chip b {
+    display: block;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 700; color: var(--bone);
+    letter-spacing: -.01em; overflow-wrap: anywhere;
+  }
+  .chip span {
+    display: block; margin-top: 4px;
+    font-size: 11px; line-height: 1.38; color: var(--faint);
+  }
+  .chip span em { font-style: normal; color: var(--mute); }
+
+  /* ---------- the crossing ---------- */
+  .crossing {
+    display: grid;
+    grid-template-columns: 186px minmax(0, 1fr);
+    gap: 16px;
+    align-items: center;
+    border: 1px solid var(--auto);
+    border-radius: 4px;
+    padding: 13px;
+    background:
+      repeating-linear-gradient(-45deg, var(--auto-wash) 0 9px, transparent 9px 18px),
+      var(--panel-2);
+  }
+  @media (max-width: 860px) { .crossing { grid-template-columns: minmax(0,1fr); gap: 11px; } }
+  .crossing .who h2 { color: var(--auto); }
+
+  /* ---------- human touches ---------- */
+  .touches {
+    margin-top: 26px;
+    border: 1px solid var(--hand);
+    border-radius: 4px;
+    background: var(--panel);
+    padding: 18px 16px 16px;
+  }
+  .touches > .state { margin-bottom: 8px; }
+  .touches h2 { margin: 0 0 6px; font-size: 21px; font-weight: 800; letter-spacing: -.03em; }
+  .touches > p { margin: 0 0 16px; max-width: 70ch; color: var(--mute); font-size: 13.5px; }
+  .touches > p b { color: var(--bone); }
+  .hands { display: grid; grid-template-columns: repeat(auto-fit, minmax(255px, 1fr)); gap: 12px; }
+  .hands section {
+    border: 1px solid var(--line-soft);
+    border-radius: 3px;
+    padding: 12px 13px 13px;
+    background: var(--panel-2);
+  }
+  .hands h3 {
+    margin: 0 0 9px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--line-soft);
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint);
+  }
+  .hands ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; counter-reset: h; }
+  .hands li {
+    font-size: 12.5px; line-height: 1.4; color: var(--faint);
+    display: flex; align-items: baseline; gap: 7px;
+  }
+  .hands li > div { min-width: 0; }
+  .hands li::before {
+    counter-increment: h; content: counter(h);
+    flex: none; width: 12px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px; color: var(--hand); padding-top: 2px;
+  }
+  .hands li b { color: var(--bone); font-weight: 600; display: block; }
+  .hands .once { border-color: var(--hand); }
+  .hands .once li::before { color: var(--hand); }
+
+  /* ---------- footer ---------- */
+  .foot {
+    margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line);
+    display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px; letter-spacing: .06em; color: var(--faint);
+  }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+
+  :focus-visible { outline: 2px solid var(--auto); outline-offset: 2px; }
+</style>
+
+<div class="sheet">
+
+  <header class="top">
+    <div class="wordmark">
+      <span class="mark" aria-hidden="true"></span>
+      <b>healdesk</b>
+      <span class="mono">healdesk.io · the whole motion, one page</span>
+    </div>
+
+    <h1>The machine sells itself.<br><em>Switching it on is still by hand.</em></h1>
+
+    <p class="standfirst">
+      Thirty-three steps carry a stranger to a clinic whose recovered revenue we can
+      prove. <b>A buyer can go from cold email to paid without a person touching
+      anything</b> — but everything after the payment either needs one of us, or has
+      not been wired up yet. Read out of the code, not the plan.
+    </p>
+  </header>
+
+  <div class="verdict">
+    <div class="tile st-auto">
+      <b class="n">16</b>
+      <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+      <p>Runs with nobody watching. <b>The whole path to a paid account is here.</b></p>
+    </div>
+    <div class="tile st-hand">
+      <b class="n">6</b>
+      <span class="state"><span class="g" aria-hidden="true">◑</span> by hand</span>
+      <p>A person acts — five of them us, <b>one of them the clinic, once.</b></p>
+    </div>
+    <div class="tile st-off">
+      <b class="n">5</b>
+      <span class="state"><span class="g" aria-hidden="true">◔</span> built, switched off</span>
+      <p>The code exists and is tested. <b>Nothing calls it yet.</b></p>
+    </div>
+    <div class="tile st-none">
+      <b class="n">6</b>
+      <span class="state"><span class="g" aria-hidden="true">○</span> not built</span>
+      <p>Three on purpose, three still owed. <b>Named, never implied.</b></p>
+    </div>
+  </div>
+
+  <p class="readout">
+    Put plainly: <b>selling is automatic, onboarding is manual, and proving it is
+    written but unplugged.</b> The gap is not in the hard part — the matcher that ties
+    money to visits is finished and tested — it is in the boring wiring:
+    <span class="hl">no mail transport, no timer, no real connector</span>.
+  </p>
+
+  <div class="map">
+
+    <!-- 01 -->
+    <div class="lane">
+      <div class="who">
+        <span class="num">LANE 01</span>
+        <h2>Find them</h2>
+        <span class="side">apps/web · no PHI</span>
+        <p>Two scores, never one number: how easy to sell, and can we measure them.</p>
+      </div>
+      <div class="chips" style="--cols:4">
+        <div class="chip st-hand">
+          <span class="state"><span class="g" aria-hidden="true">◑</span> by hand</span>
+          <b>sweep a metro</b>
+          <span>We run it per city. <em>Maps, four queries, ≤120 places each.</em></span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>enrich + detect</b>
+          <span>Crawl the site, find the booking widget, read ads and job posts.</span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>score, pick an angle</b>
+          <span>Two 0–100 scores and one of five openings, with its evidence.</span>
+        </div>
+        <div class="chip st-none">
+          <span class="state"><span class="g" aria-hidden="true">○</span> not built</span>
+          <b>send the email</b>
+          <span>The pipeline writes a CSV. <em>No sender lives in this repo.</em></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 02 -->
+    <div class="lane">
+      <div class="who">
+        <span class="num">LANE 02</span>
+        <h2>Convince them</h2>
+        <span class="side">apps/web · no PHI</span>
+        <p>AVA talks to owners here, from a generic tree — which is the only reason this side is PHI-free.</p>
+      </div>
+      <div class="chips" style="--cols:3">
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>unlock with an email</b>
+          <span>Ten attempts an hour. Flags a business address.</span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>AVA answers in chat</b>
+          <span>Streams live. No specialty picker — she works it out from the turn.</span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>AVA calls you back</b>
+          <span>Three gates first: <em>number shape, recorded consent, and a cap per destination.</em></span>
+        </div>
+        <div class="chip st-none">
+          <span class="state"><span class="g" aria-hidden="true">○</span> not built</span>
+          <b>keep the lead</b>
+          <span>Every unlock is a lead and it goes to <em>stdout</em>. Nothing stores it.</span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>contact form</b>
+          <span>Mails us, or refuses and prints the address. Never accepts silently.</span>
+        </div>
+        <div class="chip st-hand">
+          <span class="state"><span class="g" aria-hidden="true">◑</span> by hand</span>
+          <b>publish a review</b>
+          <span>Checked upstream, then read by a person. <em>Nothing self-publishes.</em></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 03 -->
+    <div class="lane">
+      <div class="who">
+        <span class="num">LANE 03</span>
+        <h2>Take the money</h2>
+        <span class="side">apps/web · no PHI</span>
+        <p>Six steps, self-serve. Signing is step 5 and paying is step 6, and that order is the law.</p>
+      </div>
+      <div class="chips" style="--cols:4">
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>four questions</b>
+          <span>Specialty, booking platform, attribution mode, phone system.</span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>sign the BAA</b>
+          <span>Scroll to the end, type your name. Stored and hashed <em>before a price is shown</em>.</span>
+        </div>
+        <div class="chip st-off">
+          <span class="state"><span class="g" aria-hidden="true">◔</span> switched off</span>
+          <b>mail their copy</b>
+          <span>Rendered and ready. <em>No mail transport is configured, so it never goes.</em></span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>take the payment</b>
+          <span>Stripe. Core $249 · Growth $449 · Multi $799, no setup fee.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- crossing -->
+    <div class="crossing">
+      <div class="who">
+        <span class="num">THE BOUNDARY</span>
+        <h2>One signed hop</h2>
+        <span class="side">web → app</span>
+        <p>The marketing site holds no connection string. It asks; the PHI side answers.</p>
+      </div>
+      <div class="chips" style="--cols:2">
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>webhook → HMAC → provision</b>
+          <span>Not the success URL: close the tab after paying and the account still appears.</span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>org + clinic, agreement bound</b>
+          <span>And <em>no user, no password, no session</em> — a clinic never signs in to anything.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 04 -->
+    <div class="lane">
+      <div class="who">
+        <span class="num">LANE 04</span>
+        <h2>Turn it on</h2>
+        <span class="side">apps/app · PHI</span>
+        <p>The manual stretch. Everything here is a person, a missing transport, or a missing call.</p>
+      </div>
+      <div class="chips" style="--cols:5">
+        <div class="chip st-hand">
+          <span class="state"><span class="g" aria-hidden="true">◑</span> by hand</span>
+          <b>issue the link</b>
+          <span>An operator clicks it in <em>/admin</em>. Single use, 32 random bytes.</span>
+        </div>
+        <div class="chip st-off">
+          <span class="state"><span class="g" aria-hidden="true">◔</span> switched off</span>
+          <b>email the link</b>
+          <span>Written, and never sent. <em>Today the operator pastes the URL themselves, every time.</em></span>
+        </div>
+        <div class="chip st-hand">
+          <span class="state"><span class="g" aria-hidden="true">◑</span> by hand</span>
+          <b>clinic pastes one credential</b>
+          <span>By design, and this is their entire share of the work. Once, forever.</span>
+        </div>
+        <div class="chip st-none">
+          <span class="state"><span class="g" aria-hidden="true">○</span> not built</span>
+          <b>check it works</b>
+          <span>It says <em>“saved, not yet checked”</em> rather than a cheerful lie.</span>
+        </div>
+        <div class="chip st-off">
+          <span class="state"><span class="g" aria-hidden="true">◔</span> switched off</span>
+          <b>wrap it with KMS</b>
+          <span>The AWS SDK is not in the production build, so live wrapping refuses.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 05 -->
+    <div class="lane">
+      <div class="who">
+        <span class="num">LANE 05</span>
+        <h2>Run the desk</h2>
+        <span class="side">apps/app · PHI</span>
+        <p>Everything past the boundary writes an audit row, even a read that only counts.</p>
+      </div>
+      <div class="chips" style="--cols:5">
+        <div class="chip st-none">
+          <span class="state"><span class="g" aria-hidden="true">○</span> not built</span>
+          <b>answer the patient</b>
+          <span>Deliberately absent. <em>The day AVA takes a real call, that path is PHI.</em></span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>take the webhook</b>
+          <span>Store fast, return 200, queue it. The signature is the authentication.</span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>process off the queue</b>
+          <span>A separate plain-Node worker, so a backfill never fights a request.</span>
+        </div>
+        <div class="chip st-none">
+          <span class="state"><span class="g" aria-hidden="true">○</span> not built</span>
+          <b>pull from the platform</b>
+          <span>Only the fixture adapter is registered — <em>no real vendor account exists yet.</em></span>
+        </div>
+        <div class="chip st-off">
+          <span class="state"><span class="g" aria-hidden="true">◔</span> switched off</span>
+          <b>reconcile a period</b>
+          <span>The worker listens. <em>There is no timer, and nothing enqueues it.</em></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 06 -->
+    <div class="lane">
+      <div class="who">
+        <span class="num">LANE 06</span>
+        <h2>Prove it</h2>
+        <span class="side">apps/app · PHI</span>
+        <p>This is the product. The hard half is done; the plug is missing.</p>
+      </div>
+      <div class="chips" style="--cols:4">
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>match money to visits</b>
+          <span>A deposit is not attendance, and ambiguity is never a coin flip.</span>
+        </div>
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>queue what it can't place</b>
+          <span>With the amount attached. <em>Unmatched money is surfaced, never absorbed.</em></span>
+        </div>
+        <div class="chip st-off">
+          <span class="state"><span class="g" aria-hidden="true">◔</span> switched off</span>
+          <b>build the report</b>
+          <span>Aggregates only — no patient, no treatment, no day. <em>Nothing calls the job.</em></span>
+        </div>
+        <div class="chip st-none">
+          <span class="state"><span class="g" aria-hidden="true">○</span> not built</span>
+          <b>send the report</b>
+          <span>Waiting on SES and a verified sending domain.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 07 -->
+    <div class="lane">
+      <div class="who">
+        <span class="num">LANE 07</span>
+        <h2>Operate</h2>
+        <span class="side">apps/web → apps/app</span>
+        <p>The only console, and it is ours. Manual on purpose, not for want of a cron.</p>
+      </div>
+      <div class="chips" style="--cols:3">
+        <div class="chip st-auto">
+          <span class="state"><span class="g" aria-hidden="true">●</span> automatic</span>
+          <b>sign in with TOTP</b>
+          <span>Five operations are answerable before a session — and only those five.</span>
+        </div>
+        <div class="chip st-hand">
+          <span class="state"><span class="g" aria-hidden="true">◑</span> by hand</span>
+          <b>run the seven ops</b>
+          <span>Clinics, jobs, links, agreements. The reply is a projection, <em>never a patient row</em>.</span>
+        </div>
+        <div class="chip st-hand">
+          <span class="state"><span class="g" aria-hidden="true">◑</span> by hand</span>
+          <b>switch a job on</b>
+          <span>Every job off by default. <em>“We'll remember to turn it off” is not a control.</em></span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- human touches -->
+  <section class="touches st-hand">
+    <span class="state"><span class="g" aria-hidden="true">◑</span> every human touch in the motion</span>
+    <h2>Six hands, and one of them isn't ours</h2>
+    <p>
+      Nothing between the cold email and the cleared payment needs a person. After it,
+      six things do — and the customer's share of all six is
+      <b>a single paste, once, that they never repeat.</b>
+    </p>
+
+    <div class="hands">
+      <section>
+        <h3>Us · five touches</h3>
+        <ol>
+          <li><div><b>Sweep a new metro</b>Run the leadgen pipeline per city; it hands back a scored CSV.</div></li>
+          <li><div><b>Read and publish a review</b>So the first person here to see a testimonial isn't seeing it on the homepage.</div></li>
+          <li><div><b>Issue the connect link</b>One click in /admin after a clinic pays.</div></li>
+          <li><div><b>Send that link</b>Only until a mail transport is configured — then it goes on its own.</div></li>
+          <li><div><b>Switch a job on</b>Deliberate, named, and recorded. This one stays manual.</div></li>
+        </ol>
+      </section>
+      <section class="once">
+        <h3>The clinic · one touch, ever</h3>
+        <ol>
+          <li><div><b>Paste one read-only credential</b>They click a link in an email, follow their platform's wizard, paste one key, and see a read-back of exactly what we can and cannot see. Then they are finished.</div></li>
+        </ol>
+        <p style="margin:12px 0 0;font-size:12px;line-height:1.45;color:var(--faint)">
+          No account, no password, no session, no console. A clinic-facing tool was
+          built once and deleted. <b style="color:var(--mute)">healdesk is a service,
+          not software a clinic operates</b> — so the link <em style="font-style:normal;color:var(--mute)">is</em> the credential.
+        </p>
+      </section>
+    </div>
+  </section>
+
+  <div class="foot">
+    <div class="legend">
+      <span class="state st-auto"><span class="g" aria-hidden="true">●</span> automatic</span>
+      <span class="state st-hand"><span class="g" aria-hidden="true">◑</span> by hand</span>
+      <span class="state st-off"><span class="g" aria-hidden="true">◔</span> built, switched off</span>
+      <span class="state st-none"><span class="g" aria-hidden="true">○</span> not built</span>
+    </div>
+    <span>33 steps · 4 ways in · 20 tables · 3 queues · 0 clinic logins · read from the code, Sept 2026</span>
+  </div>
+
+</div>

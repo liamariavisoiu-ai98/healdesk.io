@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
-import { verifyUnsubscribeToken } from "@/lib/email";
+import { verifyUnsubscribeTarget } from "@/lib/email";
 import { markUnsubscribed } from "@/lib/leads";
+import { updateSetupRequest } from "@/lib/setup-requests";
 import { site } from "@/lib/site";
 
 export const runtime = "nodejs";
@@ -16,11 +17,15 @@ export const dynamic = "force-dynamic";
  */
 async function handle(request: Request): Promise<NextResponse> {
   const url = new URL(request.url);
-  const leadId = verifyUnsubscribeToken(url.searchParams.get("t"));
-  if (!leadId) {
+  const target = verifyUnsubscribeTarget(url.searchParams.get("t"));
+  if (!target) {
     return html("That link is not valid. Email us and we will remove you by hand.", 400);
   }
-  await markUnsubscribed(leadId, "link");
+  // A setup-link email (P4, P5) is about one request, not one lead: stopping
+  // it stops that request's reminder. Still one click, as the privacy policy
+  // promises; unsubscribing too easily only ever errs on the reader's side.
+  if (target.kind === "setup") await updateSetupRequest(target.id, { unsubscribedAt: new Date() });
+  else await markUnsubscribed(target.id, "link");
   if (request.method === "POST") return NextResponse.json({ ok: true });
   return html("Done. You will not get another marketing email from us.", 200);
 }

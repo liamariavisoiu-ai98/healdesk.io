@@ -97,9 +97,6 @@ export default async function Image() {
               maxWidth: 900,
             }}
           >
-            {/* The description, not the subtitle: the subtitle grew to four
-                sentences with the hero rewrite and no longer fits a share
-                card under a two-line headline. */}
             {site.description}
           </div>
         </div>

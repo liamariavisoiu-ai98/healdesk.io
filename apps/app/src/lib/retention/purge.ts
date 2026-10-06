@@ -38,7 +38,7 @@ import type { TenantTx } from "@/lib/tenant";
  * longer has a row of any kind. 90 days because the BAA says "healdesk keeps
  * transcripts and conversation records for 90 days, which Practice may
  * shorten in its portal" (TRANSCRIPT_RETENTION_DAYS in @healdesk/catalog).
- * Until 0042 the default was 730, for a year-over-year revenue report that
+ * Until 0048 the default was 730, for a year-over-year revenue report that
  * is phase two, so every clinic left at the default kept its records eight
  * times as long as its agreement said.
  *

@@ -80,13 +80,19 @@ describe("provision request validation", () => {
     expect(() => validateProvisionRequest(validRequest())).not.toThrow();
   });
 
-  test("requires an average treatment value for estimated attribution", () => {
-    // It is the only input to the figures we report. Without it the first
-    // monthly report would have nothing to say.
+  test("no longer needs an average treatment value, and still refuses a nonsense one", () => {
+    // The monthly revenue report it fed is phase two (design 4.2), so the
+    // funnel stopped asking. A value that is sent is still checked.
+    expect(() =>
+      validateProvisionRequest(validRequest({ averageTreatmentValueUsd: undefined })),
+    ).not.toThrow();
     expect(() =>
       validateProvisionRequest(
-        validRequest({ averageTreatmentValueUsd: undefined }),
+        validRequest({ attributionMode: undefined, averageTreatmentValueUsd: undefined }),
       ),
+    ).not.toThrow();
+    expect(() =>
+      validateProvisionRequest(validRequest({ averageTreatmentValueUsd: -5 })),
     ).toThrow(ProvisioningError);
   });
 
@@ -381,7 +387,7 @@ describeDb("provisioning", () => {
    * the absence is worth more than deleting the test: this is the property that
    * would silently come back if someone restored the insert.
    */
-  test("creates no invitation and no login for the buyer", async () => {
+  test("creates no invitation and no password: the buyer's one sign-in has no credential", async () => {
     const agreementId = await signFor("Invite Clinic", "invitee@example.test");
     const result = await provisionClinic(
       validRequest({ contactEmail: "invitee@example.test", agreementId }),
@@ -395,12 +401,25 @@ describeDb("provisioning", () => {
     );
     expect(invites).toHaveLength(0);
 
-    // No user for the buyer, and none they could be invited to become.
-    const { rows: users } = await getMigratorPool().query(
+    // Since the funnel plan (design D3), the buyer's address is the clinic's
+    // one sign-in: exactly one user, the owner, with no credential of any
+    // kind. Better Auth keeps passwords and providers in `account`, and there
+    // is no row there: the only way in is a single-use link to this address.
+    const { rows: users } = await getMigratorPool().query<{ id: string }>(
       `select id from "user" where email = $1`,
       ["invitee@example.test"],
     );
-    expect(users).toHaveLength(0);
+    expect(users).toHaveLength(1);
+    const { rows: credentials } = await getMigratorPool().query(
+      `select id from account where user_id = $1`,
+      [users[0]!.id],
+    );
+    expect(credentials).toHaveLength(0);
+    const { rows: grants } = await getMigratorPool().query(
+      `select role from app_user_clinic_grants($1)`,
+      [users[0]!.id],
+    );
+    expect(grants).toEqual([{ role: "owner" }]);
 
     // And no standing system principal either. `usr_system_healdesk` existed
     // only to satisfy the invitation's inviterId; a permanent user row that

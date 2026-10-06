@@ -12,8 +12,10 @@ import { createCheckout, isBillingConfigured, isProductionDeployment } from "@/l
 import { isCampaignCode } from "@/lib/attribution";
 import { demoSlugFromCookieHeader } from "@/lib/demo/attribution";
 import { getDemoSession } from "@/lib/demo/sessions";
-import { cohortCreditLive, findLeadById, markCheckoutStarted } from "@/lib/leads";
+import { cohortCreditLive, findLeadById, markCheckoutStarted, normalizeEmail } from "@/lib/leads";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
+import { gateState, refuseOtherEmail, refuseWithoutLink } from "@/lib/setup-gate";
+import { readCookie, SETUP_COOKIE } from "@/lib/setup-link";
 
 /**
  * POST /api/checkout, start a purchase.
@@ -88,6 +90,23 @@ export async function POST(request: Request): Promise<Response> {
    * or in the Stripe webhook, and nowhere else.
    */
   delete payload.idempotencyKey;
+
+  /**
+   * The setup link, while the purchase is by invitation (lib/checkout-mode.ts).
+   *
+   * Checked before anything else about the order, so a browser without a
+   * valid, unused link gets no further than this, and bound to the request's
+   * email, so a forwarded link cannot be used to buy under another address.
+   * Single use is the request's `paid_at`, stamped by the Stripe webhook.
+   */
+  const gate = await gateState(readCookie(request.headers, SETUP_COOKIE));
+  if (gate.mode === "pilot") {
+    const refused = refuseWithoutLink(gate);
+    if (refused) return refused;
+    if (gate.link === "valid" && normalizeEmail(String(payload.contactEmail ?? "")) !== gate.request.emailNormalized) {
+      return refuseOtherEmail(gate.request, "contactEmail");
+    }
+  }
 
   /**
    * The billing terms, validated here on BOTH paths.
@@ -178,7 +197,11 @@ export async function POST(request: Request): Promise<Response> {
    * Session as metadata and are read back by the webhook to close the loop.
    */
   const campaign = isCampaignCode(payload.campaign) ? payload.campaign : null;
-  const claimedLead = typeof payload.leadId === "string" ? await findLeadById(payload.leadId) : null;
+  // With a setup link, the lead is the one the request came from, so the
+  // credit the Day 7 email offered follows the person who was offered it.
+  const setupRequest = gate.mode === "pilot" && gate.link === "valid" ? gate.request : null;
+  const leadSource = setupRequest ? setupRequest.leadId : payload.leadId;
+  const claimedLead = typeof leadSource === "string" && leadSource ? await findLeadById(leadSource) : null;
   delete payload.campaign;
   delete payload.leadId;
   // The personalised demo the buyer came from, from the cookie its "Book
@@ -195,6 +218,7 @@ export async function POST(request: Request): Promise<Response> {
     leadId: claimedLead?.id ?? null,
     offer: claimedLead && cohortCreditLive(claimedLead) ? ("cohort-setup" as const) : null,
     demo: demo?.slug ?? null,
+    setupRequestId: setupRequest?.id ?? null,
   };
 
   // Paid path: hand off to Stripe. The webhook records the account when the

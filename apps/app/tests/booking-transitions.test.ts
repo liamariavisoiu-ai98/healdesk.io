@@ -318,7 +318,7 @@ describeDb("booking_requests transitions (0040)", () => {
            (clinic_id, contact_id, channel, preferred_window, status, token_hash, expires_at,
             decided_at, decided_by_label, confirmed_for, appointment_id, booked_via, vendor_call_id, conversation_id)
          values ($1, $2, 'voice', 'Tuesday 2pm', 'confirmed', $3, now() + interval '7 days',
-                 now(), 'AVA (direct booking)', now() + interval '2 days', $4, 'agent_direct', $5, $6)
+                 now(), 'AYA (direct booking)', now() + interval '2 days', $4, 'agent_direct', $5, $6)
          returning id, status, booked_via`,
         [f.clinicId, f.contactId, randomBytes(32), appt[0]!.id, vendorCallId, f.conversationId],
       );

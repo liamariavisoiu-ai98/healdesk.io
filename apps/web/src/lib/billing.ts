@@ -1,15 +1,15 @@
 import {
   type BillingInterval,
-  METERS,
   COHORT_SETUP_CREDIT,
-  meterPriceLookupKey,
   OVERAGE_RATES_PROVISIONAL,
   type Plan,
+  planMeteredPrices,
   type PriceKind,
   stripeLookupKey,
 } from "@healdesk/catalog";
 import Stripe from "stripe";
 
+import { normalizeSiteUrl } from "@/lib/site";
 
 /**
  * Billing, behind an interface.
@@ -39,17 +39,19 @@ import Stripe from "stripe";
  *
  * ## The metered overage prices, and when they are attached
  *
- * `stripe:setup` creates one metered price per meter (voice minutes, chat
- * conversations). A subscription only bills meter events for a customer when
- * it carries the metered price as an item, so a Session that omits them sells
- * a package whose overage can never be invoiced. They are omitted here ON
- * PURPOSE while `OVERAGE_RATES_PROVISIONAL` is true: the pricing page refuses
- * to print the rates then, and attaching them would bill a number the buyer
- * was never shown.
+ * `stripe:setup` creates one metered price per distinct overage rate on each
+ * meter (voice minutes, chat conversations): three prices on two meters, since
+ * the chat rate differs by package. A subscription only bills meter events for
+ * a customer when it carries a metered price as an item, so a Session that
+ * omits them sells a package whose overage can never be invoiced. They are
+ * omitted here ON PURPOSE while `OVERAGE_RATES_PROVISIONAL` is true: the
+ * pricing page refuses to print the rates then, and attaching them would bill
+ * a number the buyer was never shown.
  *
- * The flag is off: the owner signed the catalog's rates off on 21 September
- * 2026, so `meteredLookupKeysFor()` attaches both prices to a MONTHLY Session
- * (each only for a package that has the channel) with no `quantity`, which is
+ * The flag is off: the owner set the catalog's rates (on 21 September 2026,
+ * then again on 5 October), so `meteredLookupKeysFor()` attaches the
+ * package's own metered prices to a MONTHLY Session (each only for a package
+ * that has the channel, at that package's rate) with no `quantity`, which is
  * what the SDK's reference for `line_items` requires of a metered price.
  *
  * Those rates are still placeholders as far as the v1 spec is concerned:
@@ -142,6 +144,12 @@ export type CheckoutIntent = {
     offer?: "cohort-setup" | null;
     /** The personalised demo's slug, when the buyer came from its "Book Onboarding" (lib/demo). */
     demo?: string | null;
+    /**
+     * The setup request whose link opened this purchase, while purchases are
+     * by invitation. The webhook stamps the request paid, which is what
+     * makes the link single-use (lib/setup-gate.ts).
+     */
+    setupRequestId?: string | null;
   };
 };
 
@@ -208,7 +216,7 @@ export const APP_MARKER = "healdesk";
  * would make both URLs relative, which Stripe rejects anyway.
  */
 export function siteUrl(): string {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL;
+  const configured = normalizeSiteUrl(process.env.NEXT_PUBLIC_SITE_URL);
   if (configured) return configured;
   if (isProductionDeployment()) {
     throw new Error(
@@ -325,6 +333,7 @@ export async function createCheckout(
       ...(intent.attribution?.leadId ? { leadId: intent.attribution.leadId } : {}),
       ...(intent.attribution?.offer ? { offer: intent.attribution.offer } : {}),
       ...(intent.attribution?.demo ? { demo: intent.attribution.demo } : {}),
+      ...(intent.attribution?.setupRequestId ? { setupRequest: intent.attribution.setupRequestId } : {}),
     },
     // Surfaces in the Dashboard next to the payment, so support can find a
     // clinic without opening metadata.
@@ -342,28 +351,12 @@ export async function createCheckout(
 
 /**
  * The metered overage prices a package can bill: the voice meter for a
- * package with voice, the chat meter for one with web or Meta. Pure, so the
- * pairing is testable without Stripe. Which of these a Session actually
- * attaches is `meteredLookupKeysFor()`'s decision.
- *
- * The price is chosen by the package's OWN rate, not by the channel alone.
- * Since 5 October 2026 the single-channel chat package bills $0.40 a
- * conversation and the multi-channel ones $0.30, and both rates live on the
- * one chat meter as separate prices (catalog `meterPriceLookupKey`). Picking
- * by channel alone would attach whichever price was created first and
- * over- or under-bill the rest by a third.
+ * package with voice, the chat meter for one with web or Meta, each at that
+ * package's own rate. Pure, so the pairing is testable without Stripe. Which
+ * of these a Session actually attaches is `meteredLookupKeysFor()`'s decision.
  */
 export function overageLookupKeys(plan: Plan): string[] {
-  const keys: string[] = [];
-  if (plan.channels.voice) {
-    keys.push(meterPriceLookupKey(METERS.voiceMinutes, plan.overagePerVoiceMinuteUsd));
-  }
-  if (plan.channels.web || plan.channels.meta) {
-    keys.push(
-      meterPriceLookupKey(METERS.chatConversations, plan.overagePerChatConversationUsd),
-    );
-  }
-  return keys;
+  return planMeteredPrices(plan).map((price) => price.lookupKey);
 }
 
 /**

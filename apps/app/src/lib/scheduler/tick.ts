@@ -1,3 +1,7 @@
+import { runAnnualOverageJob } from "@/lib/billing/annual-overage";
+import { runBillingHousekeepingJob } from "@/lib/billing/housekeeping";
+import { runUsageAlertsJob } from "@/lib/billing/usage-alerts";
+import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
 import { expireLapsedRequests } from "@/lib/meta/booking-requests";
 import { applyBookingRequirementDefaults } from "@/lib/onboarding/requirements";
 
@@ -23,8 +27,9 @@ import { runWeeklyRecapJob } from "./weekly-recap";
  * costs nothing.
  *
  * The hour gates are UTC and deliberately spread: the purge and the sync run
- * at night; the mailers in the morning; the sweeps every hour because their
- * effect is time-bounded anyway.
+ * at night; the annual overage invoices at 05 and billing housekeeping at
+ * 06; the mailers in the morning; the sweeps every hour because their effect
+ * is time-bounded anyway.
  */
 export type TickOutcome = { job: string; status: string; note?: string };
 
@@ -43,6 +48,14 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   };
 
   await record("billing-sweep", () => runBillingSweepJob({ now }));
+  // The Stripe launch (drizzle/0043). Hourly because each is a pure function
+  // of rows that already exist and decides for itself what is due: the meter
+  // report sends unreported overage, and the alerts job queues each threshold
+  // once per window. The notices it queues are sent from the `notices` queue,
+  // every minute (lib/email/outbox.ts), which replaced the hourly
+  // billing-notices backstop that used to run here.
+  await record("usage-meter-report", () => runUsageMeterReportJob({ now }));
+  await record("usage-alerts", () => runUsageAlertsJob({ now }));
   // Phase two: runJob() reports it "disabled" in v1 whatever its switch says.
   await record("monthly-report", () => runMonthlyReportJob({ now, send: true }));
   await record("weekly-recap", () => runWeeklyRecapJob({ now }));
@@ -60,6 +73,10 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   if (hour === 2) await record("nightly-sync", () => runNightlySyncJob({ now }));
   if (hour === 3) await record("retention-purge", () => runRetentionPurgeJob({ now }));
   if (hour === 4) await record("offboarding-destroy", () => runOffboardingDestroyJob({ now }));
+  // A closed allowance month is invoiced once; the job's own ledger
+  // (overage_invoices, one row per window) makes a re-run a no-op.
+  if (hour === 5) await record("annual-overage-invoice", () => runAnnualOverageJob({ now }));
+  if (hour === 6) await record("billing-housekeeping", () => runBillingHousekeepingJob({ now }));
   if (hour === 9) await record("annual-renewal-reminder", () => runAnnualRenewalReminderJob({ now }));
 
   return out;

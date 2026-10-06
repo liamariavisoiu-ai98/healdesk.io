@@ -1,7 +1,8 @@
 <!-- Source of truth. Exported verbatim from the "Healdesk v1: Products, Behaviour and Limits" doc,
-     tab 1 (https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ), on 2026-10-01.
+     tab 1 (https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ), on 2026-10-06.
      Do not edit this copy: change the doc, then re-export. The "Launch plan" it links to is
      tab 2 of the same doc, and is the only live task list. -->
+
 
 # Healdesk v1: Products, Behaviour and Limits
 
@@ -105,7 +106,7 @@ This is also the honest way to sell the product to a clinic with a full-time rec
 5. The caller picks one. The slot is locked for 60 seconds before the agent says anything confirming.
 6. The agent collects name and callback number, reading the number back digit by digit.
 7. The booking is written to the calendar. A short filler line plays while the write runs so the line never goes silent.
-8. The agent confirms date, time, service and provider, and tells the caller the clinic's system will send the confirmation.
+8. The agent confirms date, time and service, and says the booking is in the clinic's calendar.
 
 ### Failure behaviour
 
@@ -198,6 +199,7 @@ The direction of each vendor's sync decides whether a Healdesk booking is visibl
 | Google Calendar alone | Yes | Nothing to reconcile |
 | Calendly | Yes | Calendly reads connected Google calendars for conflicts, so a Healdesk event removes that slot from their booking page |
 | Cal.com | Yes | Same conflict-checking model |
+| HighLevel | Yes | HighLevel's [own documentation](https://help.gohighlevel.com/support/solutions/articles/155000002374) states it blocks any slot holding an event marked busy in a Google calendar the clinic turns on as a conflict calendar. Google marks a Healdesk event busy by default, so it removes that slot |
 | Mindbody | No | Mindbody's own documentation states the integration runs one direction only, Mindbody to Google. Events created in Google do not sync back |
 | Boulevard | Unverified | Treat as no until confirmed in writing |
 
@@ -289,7 +291,7 @@ Every package runs through the same five stages. Only the connection steps diffe
 
 ### Stage 0, before they pay
 
-The demo already scraped the clinic's site into a structured profile: services, prices, hours, providers, policies, FAQs. That profile carries into the wizard, so the clinic arrives at a form that is already 80 percent filled with its own words.
+The demo already scraped the clinic's site into a structured profile: services, prices, hours, providers, policies, FAQs. That profile carries into the wizard, so the clinic arrives at a form that is already 80 percent filled with its own words. The purchase flow also reads the website the buyer gives, so a buyer who skipped the demo arrives pre-filled too.
 
 **When the scrape fails, or there is nothing to scrape.** Some sites block crawlers, some return unusable markup, and some clinics have no website at all. None of that should end the onboarding.
 
@@ -301,7 +303,7 @@ The demo already scraped the clinic's site into a structured profile: services, 
 
 ### Stage 1, payment
 
-Stripe Checkout. The business associate agreement is accepted inline before checkout completes, with version, timestamp and IP stored. On the first paid invoice the account is created and the wizard opens automatically. Provisioning is gated on the invoice being paid, never on the checkout session alone.
+Stripe Checkout charges the setup fee only. Monthly billing starts the day the assistant first answers a patient. Until then the subscription carries a $0 monthly line, so nothing is a trial, and until every channel in the package is in service the monthly price is that of the channels in service. The agreement (a business associate agreement, or a data protection agreement for a practice HIPAA does not cover) is accepted inline before checkout completes, with version, timestamp and IP stored. On the first paid invoice the account is created and the browser lands in setup. Provisioning is gated on the invoice being paid, never on the checkout session alone. A channel is sold only once it is ready, so there are no opening dates: one that is not ready comes off the product list. The setup fee is never refunded, and the purchase page says so before payment. The clinic then has 30 days to finish setup. While no channel is answering patients it gets a reminder every five days, six in all, and if none is by the end of the 30th day, the subscription is cancelled with nothing refunded and the account is closed, keeping only the signed agreement and the billing records the law requires.
 
 ### Stage 2, the wizard, under fifteen minutes
 
@@ -310,21 +312,21 @@ Four steps, in this order, because each one is more likely to be abandoned than 
 | Step | What the clinic does | Time |
 | --- | --- | --- |
 | 1. Confirm the basics | Reviews the pre-filled name, address, hours, services and prices. Edits anything wrong | 3 to 5 min |
-| 2. Set behaviour | Tone, greeting, deposit toggles, voice coverage mode, who gets escalations and how | 3 min |
+| 2. Set behaviour | Tone, greeting, deposit toggles, voice coverage mode, the direct line and the urgent-help number | 3 min |
 | 3. Connect the calendar | One Google login | 30 sec |
 | 4. Connect the channels | One login per channel bought. Skippable individually | 1 to 3 min |
 
-Step 1 carries the most value and the least friction, which is why it comes first. Payment gateway connection is folded into step 2 as a toggle: clinics that want deposits connect their gateway, clinics that do not skip it and the agent books without one.
+Step 1 carries the most value and the least friction, which is why it comes first. If the buyer was not sure whether the practice bills any health insurance electronically, step 1 asks again, and the answer is recorded as the practice's notice. Payment gateway connection is folded into step 2 as a toggle: clinics that want deposits connect their gateway, clinics that do not skip it and the agent books without one.
 
 **Leaving and coming back.** Every step saves as it is completed. A clinic that stops at step three can close the tab and resume from the link in its welcome email, and the portal shows exactly where it stopped. Whatever was already connected stays live in the meantime. Abandonment is not a broken account, it is a partially live one.
 
-**More than one location.** Healdesk is sold per location. Each location has its own hours, its own number, its own calendar and its own agent configuration, added from the portal and billed as an additional location on the same subscription and the same renewal date. Clinics are asked at the start of the wizard how many locations they are setting up, because discovering the second one halfway through means redoing the hours and the calendar step.
+**More than one location.** Healdesk is sold per location, one per purchase. Each location has its own hours, its own number, its own calendar and its own agent configuration. More locations are added from Billing at the package price again plus its setup fee once, on the same subscription and renewal date, with the allowances pooled. When the website lists several locations, the wizard's first screen asks which one this setup is for.
 
 ### Stage 3, the build, no clinic involvement
 
 The profile compiles into a system prompt with the clinic's do-not-say list and the standard clinical guardrails. Channels are provisioned. An automated test conversation runs benchmark questions against the new agent: a price question, a booking, an off-menu clinical question, a complication report. If it passes, the agent is approved automatically. If anything is flagged, it goes to a short internal review before any channel answers a patient.
 
-No channel goes live before its audit passes. This is the difference between fast and reckless.
+No channel goes live before its audit passes. This is the difference between fast and reckless. The clinic watches the build on a tracker on Home, and once every stage is done it can talk to its own assistant in a preview, where nothing reaches patients and nothing is booked.
 
 ### Stage 4, handoff
 
@@ -370,12 +372,12 @@ Everything here is automatic except one step, and that one step is the most comm
 
 This is the only part of the whole product that requires the clinic to touch something Healdesk cannot reach. It gets its own screen:
 
-- The new Healdesk number is displayed large, with a copy button, and repeated in the welcome email.
+- The new Healdesk number is displayed large, with a copy button, once voice is ready for that clinic, and emailed then. Before that, the screen says not to change call forwarding yet.
 - The clinic picks its carrier or phone system from a list. Exact dial codes and click paths appear for that carrier, matched to the coverage mode chosen: forward-all for full coverage, busy and no-answer forwarding for overflow, scheduled forwarding for after hours only.
 - A "send these instructions to my office manager" button, because the owner buying the product is often not the person who administers the phone line.
 - A "book a five-minute call and we will do it with you" option. This is worth a human's time; a clinic that never forwards never sees value and churns in month one.
 
-Two things shrink this step rather than just documenting it. The number is allocated at payment, not at the end of the wizard, so it travels in the receipt email and the office manager can be forwarding calls before the owner has finished the setup. And the assisted option is offered as a normal choice on the screen, not as a rescue after a failure: a five-minute call at a time they pick, presented with equal weight to the do-it-yourself instructions. The cost of that call is trivial against a clinic that never forwards and churns in month one.
+Two things shrink this step rather than just documenting it. The number is shown only once voice is ready for that clinic, so nobody forwards calls to an assistant that cannot answer yet; from then on the steps can be sent to the office manager in one click. And the assisted option is offered as a normal choice on the screen, not as a rescue after a failure: a five-minute call at a time they pick, presented with equal weight to the do-it-yourself instructions. The cost of that call is trivial against a clinic that never forwards and churns in month one.
 
 ### Confirming it worked
 
@@ -459,7 +461,7 @@ No channel is ever shown as live before it is. A false green light in week one c
 ### The first 48 hours
 
 - Healdesk places a test call and sends a test DM within five minutes of each channel going live, so the clinic experiences its own agent rather than reading that it exists.
-- Any channel still not live after 48 hours triggers one reminder naming the single action outstanding, and for voice, the offer of a five-minute call.
+- While no channel is live, a reminder goes every five days, six in all, naming the single action outstanding, and for voice the offer of a five-minute call. Once a channel is live, any other channel still not live after 48 hours triggers one reminder of the same kind.
 - An account with zero interactions on any channel after 48 hours is flagged internally. Something is wrong with the deployment, not with the clinic.
 
 ### Honest headline timing
@@ -487,17 +489,17 @@ One addition the existing documents do not have: **voice coverage mode**. It bel
 
 ## Account access and credentials
 
-The clinic never creates a password during checkout and never receives one by email.
+The clinic never creates a password and never receives one: every sign-in is an expiring email link. Each clinic has one email address (a shared inbox such as info@ is fine), which is its sign-in, its billing email, the agreement's notice address and where every notification goes (owner decision, 6 October 2026).
 
 ### How they get in
 
-1. Payment completes. The account is created against the billing email, and the browser lands straight in the wizard, already signed in through a one-time link. No login screen between paying and starting.
-2. The welcome email contains a sign-in link, not credentials. Clicking it signs them in and prompts them to set a password if they want one. Magic link alone is enough to keep using the portal.
-3. Second factor is required before anyone can open a conversation transcript, since that is where patient information sits. Toggles, billing and knowledge edits do not require it.
+1. Payment completes. The account is created against the clinic's address, and the browser lands on the welcome page, already signed in through a one-time link. Its first screen protects patient details with Face ID, a passkey on that device, and then setup starts. No login screen between paying and starting.
+2. The welcome email contains a sign-in link, never credentials. There is no password anywhere: every later sign-in is an expiring email link, and a session lasts 14 days.
+3. A passkey, with an authenticator-app backup, is required before anyone opens a conversation or a booking, since that is where patient information sits, and it lapses after 15 minutes idle. Each phone or computer adds its own passkey, so the access log names the device. Toggles, billing and knowledge edits do not require it, except where calls and money go: the direct line, the transfer number, the clinic's address, the payment account and exports.
 
 ### Who gets access
 
-Three named contacts are collected in the wizard, and they are different people in most clinics:
+One sign-in per clinic in v1, shared by its staff. The three named roles below are deferred past v1 (owner decision, 6 October 2026). Until they arrive, the one sign-in can do everything, and the passkey still guards patient information:
 
 | Role | Gets | Why separate |
 | --- | --- | --- |
@@ -505,13 +507,13 @@ Three named contacts are collected in the wizard, and they are different people 
 | Manager | Everything except billing | The person who actually runs the front desk day to day |
 | Billing contact | Invoices and payment method only | Often a bookkeeper who should not read transcripts |
 
-Dunning and payment warnings go to the owner and the billing contact. They never go to the clinic's public inbox, which the AI itself may be answering.
+Dunning and payment warnings go to the clinic's address, like every other email (owner decision, 6 October 2026).
 
-Adding a team member is an email invite from the portal. No seat limits worth enforcing at this size.
+When someone leaves, "Someone left" signs out every session and resets the authenticator backup, and removing a device ends its sessions. Team invitations arrive with the roles.
 
 ### Losing access
 
-Sign-in link expired, owner left the business, email no longer monitored: one "I cannot get in" route on the sign-in page that verifies against the billing details on file and routes to a human. This is the single most common support ticket in any portal and it should not require a support conversation to solve.
+Sign-in link expired, owner left the business, email no longer monitored: one "I cannot get in" route on the sign-in page. It checks the billing details on file and sends a sign-in link to the clinic's address; it never adds a device. Losing the address itself goes to a human: a call to the clinic's published number, then a change of address that takes effect after 72 hours, with notice to the old address and the new one. This is the single most common support ticket in any portal, and its first case should not need a support conversation.
 
 ## Admin portal principles
 
@@ -527,26 +529,22 @@ The user is a clinic owner or a front-desk manager between patients. They are no
 
 ## Portal map
 
-Seven screens. Nothing nested more than one level deep.
+Six screens: Home, Settings, Knowledge, Conversations, Bookings and Billing. Nothing nested more than one level deep, and Help on every screen.
 
 ### 1. Home
 
 What happened, and is everything working.
 
-- Per-channel status: live, paused, or waiting on something, with the outstanding action named.
+- Per-channel status: live, paused, or waiting on something, with the outstanding action named. Before go-live, the build tracker, then Talk to your AYA: a preview of the clinic's own assistant, where nothing reaches patients and nothing is booked.
 - This week in three numbers: conversations handled, appointments booked, deposits collected.
 - Anything needing attention: a broken calendar connection, an expired login, an unpaid invoice, a channel that has gone quiet.
-- One big **Pause AI** switch, reachable from every screen.
+- The **AYA is answering** switch in every screen's header. Off pauses for an hour, until tomorrow morning, or until it is switched back, and a banner shows when and from which device it was paused.
 
-### 2. Channels
+### 2. Settings
 
-One card per channel: phone, website chat, Instagram, Messenger, WhatsApp. Each card shows on or off, its status, and the connect or reconnect button. Voice carries its coverage mode selector. Website chat carries the embed snippet with a copy button.
+Every switch on one page, in cards: channels, how the assistant talks, calendar, payments, the safety net, alerts and sign-in. Each bought channel's card shows on or off, its status, and the connect or reconnect button. Voice carries its coverage mode selector. Website chat carries the embed snippet with a copy button. The switches are listed in full in the next section.
 
-### 3. Behaviour
-
-How the assistant acts. All switches, listed in full in the next section: tone, greetings, upsells, deposits, booking rules, escalation.
-
-### 4. Knowledge
+### 3. Knowledge
 
 Quick edits, no re-scrape needed.
 
@@ -556,25 +554,27 @@ Quick edits, no re-scrape needed.
 - **Never say**: a list of phrases the agent must never use. Pre-seeded with the clinical defaults and editable.
 - **Hours**: including holiday closures, which drive both the agent's answers and the voice forwarding schedule.
 
-### 5. Conversations
+### 4. Conversations
 
 Every call, chat and DM, searchable, with the transcript, the outcome, and whether it produced a booking. Second factor required to open one. Export available.
 
-### 6. Bookings
+### 5. Bookings
 
 What the AI booked, with deposit status, and the queue of anything flagged for manual deposit collection or manual confirmation. This is the screen that proves the product is working, so it should be one click from Home.
 
-### 7. Billing
+### 6. Billing
 
-Current plan, channels included, renewal date, next invoice amount. Usage meters: minutes used against included, conversations used against included, any overage in dollars, days left in the cycle. Overage handling switch. Upgrade and add capacity here. Invoices, payment method and cancellation deep-link into Stripe's own portal rather than being rebuilt.
+Current plan, channels included, renewal date, next invoice amount, and before the plan starts, the date by which setup must be finished. Until every channel in the package is in service, the plan is billed at the price of the channels that are. Usage meters: minutes used against included, conversations used against included, any overage in dollars, days left in the cycle. Overage handling switch. Upgrade and add capacity here. Invoices and the payment method deep-link into Stripe's own portal rather than being rebuilt. Cancellation is the Auto-renew switch, not Stripe's portal: off cancels at period end, and before the plan starts it means the plan never starts and nothing more is charged.
 
 ## Every switch in the portal
+
+Settings shows the Channels, Behaviour and Escalation switches below as cards on one page. Billing keeps its three switches.
 
 ### Channels
 
 | Switch | Options | Default | Effect |
 | --- | --- | --- | --- |
-| Pause AI | On / Off | On | Off stops the assistant answering on every channel at once. Calls fall through to the clinic's own line, the website widget becomes a contact form, DMs go unanswered for staff to see. Nothing is lost, it is fully reversible |
+| AYA is answering (pause) | On / Off for 1 hour, until tomorrow morning, or until switched back | On | Off stops the assistant answering on every channel at once. Calls fall through to the clinic's own line, the website widget becomes a contact form, DMs go unanswered for staff to see. Nothing is lost, it is fully reversible |
 | Phone | On / Off | On | Turns the voice agent on or off on its own |
 | Voice coverage | All calls / Overflow and after hours / After hours only | Overflow and after hours | Changes which calls reach the agent. Shows the matching forwarding instructions again whenever it is changed |
 | Website chat | On / Off | On |  |
@@ -604,11 +604,11 @@ Current plan, channels included, renewal date, next invoice amount. Usage meters
 
 | Switch | Options | Default | Effect |
 | --- | --- | --- | --- |
-| Urgent alerts to | Text or email address | Set in the wizard | Where a complication or urgent symptom goes, immediately |
-| Handover requests to | Text or email address | Same | Where "I want to speak to a person" goes |
+| Urgent alerts | The clinic's address | Always on | Where a complication or urgent symptom goes, immediately, as a pointer into the portal |
+| Handover requests | The clinic's address | Always on | Where "I want to speak to a person" goes |
 | Transfer live calls | On / Off | Off | On lets the voice agent transfer a caller to a real number during opening hours |
 | Transfer number | Phone number | Blank | Only used when the above is on |
-| Daily summary email | On / Off | On | One email a day: what the assistant handled, what it booked, what it escalated |
+| Daily summary email | On / Off | On | Sent at the start of each working day: what the assistant handled, booked and escalated, every booking and booking request with its link, and every request still open. The week's first summary carries the weekly recap |
 
 ### Billing
 
@@ -624,6 +624,8 @@ Defaults matter more than the switches. A clinic that changes nothing should get
 
 A small chat bubble on every screen. Same engine as the product, pointed at Healdesk's own documentation instead of a clinic's.
 
+Help also offers a support phone line on Healdesk's Retell number, whose agent keeps only basic call attributes (Retell's Basic Attributes Only storage: the caller and the time, no recording or transcript) and emails Healdesk that a call came in, so Healdesk can call back; and hello@healdesk.io.
+
 ### What it does
 
 - Answers how-to questions: how to change the greeting, why a channel is not live, what a switch does, how to read an invoice.
@@ -633,7 +635,7 @@ A small chat bubble on every screen. Same engine as the product, pointed at Heal
 
 ### One rule that has to be in the interface
 
-Staff will paste patient details into a support chat if nothing stops them. The input carries a permanent line: this is product support, do not paste patient information here. The support chat is scoped as a non-patient channel and retained accordingly.
+Staff will paste patient details into a support chat if nothing stops them. The input carries a permanent line: this is product support, do not paste patient information here. The support chat is scoped as a non-patient channel and stores nothing: the browser holds the conversation, and an escalation emails Healdesk structured fields, never the chat's text.
 
 ### Why it belongs in the portal rather than email
 
@@ -653,6 +655,10 @@ Every one of these is a deliberate omission. Adding them turns a tool a manager 
 | Raw analytics dashboards | Three numbers on Home and a full conversation list. A clinic owner wants to know it is working, not to slice data |
 | Immediate cancellation in-app | Cancellation is at period end, reversible with one click until the date. Immediate cancellation goes through support so a retention conversation happens |
 | Direct calendar or EMR configuration | One Google connection. Anything more belongs in the clinic's own system |
+
+## Email
+
+Every email goes to the clinic's one address and can be replied to; replies reach hello@healdesk.io. Anything about a patient is a pointer into the portal: never a name, number, time, service or any words from a conversation. Booking requests go out the moment they are made, at any hour, and the daily summary arrives at the start of each working day. The internal health flags stay internal. An incident report reaches a clinic only when Healdesk's operators send one, within the agreement's deadlines. Product email comes from hello@healdesk.io and marketing from noreply@healdesk.io (owner decisions, 6 October 2026).
 
 ## What v1 cannot do
 
@@ -684,7 +690,7 @@ Guardrails are enforced in code around the model, not written into a prompt and 
 - No diagnosis, no prescribing, no treatment plans, no outcome guarantees.
 - No price that is not in the clinic's configured service list. An unknown price becomes an offer to book a consultation.
 - Each clinic's own never-say list is injected into every conversation on every channel.
-- Messages matching complication or urgent-symptom patterns short-circuit the model entirely: fixed response, immediate escalation to the clinic's named contact. The matching happens before the model sees the message, not after.
+- Messages matching complication or urgent-symptom patterns short-circuit the model entirely: fixed response, immediate escalation to the clinic's address. The fixed response tells the person to call 911 in an emergency and gives the clinic's urgent-help number. The matching happens before the model sees the message, not after.
 - Treatment names never appear in a payment description, a Meta message, or the support chat.
 - The clinic cannot edit the prompt, so it cannot remove a guardrail by accident.
 - The assistant identifies itself as an AI assistant in its opening line on every channel, and the clinic cannot turn that off
@@ -701,7 +707,7 @@ This section is the one a clinic's lawyer will read. It is written to survive th
 | Healdesk, contracting as Viixi FZC | Business associate | That agreement with each clinic, plus its own agreements with every subcontractor below |
 | Every vendor in the stack that touches patient data | Subcontractor | A business associate agreement with Healdesk. Required, not optional, under 45 CFR 164.308(b)(2) |
 
-The agreement with the clinic is accepted inline at checkout, with version, timestamp and IP stored against the account. It is a blocking step; checkout does not complete without it.
+The agreement with the clinic is accepted inline at checkout, with version, timestamp and IP stored against the account. It is a blocking step; checkout does not complete without it. A practice HIPAA does not cover (a veterinary clinic, or a cash-pay practice that answers "No" to billing any health insurance electronically) signs Healdesk's data protection agreement instead, and its client data is controlled exactly as PHI. A practice that is not sure signs the business associate agreement. Veterinary practices are sold only once the veterinary urgent set and an emergency referral number are in place. A veterinary booking may record the animal's name and species.
 
 Two things that are easy to get wrong and expensive to get wrong late:
 
@@ -761,7 +767,7 @@ Two gaps stay open by design, and both are handled by scoping rather than by pap
 - Collect the minimum: what a receptionist would write on a callback slip. Nothing clinical, no history, no medication, no diagnosis.
 - No clinical detail in any payment artifact, any Meta message, or the support chat.
 - Vendor-side call recording and transcript retention off everywhere it can be turned off.
-- Transcripts live in Healdesk infrastructure under a stated retention period. Demo sandbox transcripts purge on a 7 to 14 day cycle whether or not the lead ever buys.
+- Transcripts live in Healdesk infrastructure under a stated retention period: 90 days by default, which the clinic can shorten to 30 or 7 days. Demo sandbox transcripts purge on a 7 to 14 day cycle whether or not the lead ever buys.
 - Second factor before any transcript can be opened, and an access log of who opened what.
 - Offboarding is export first, then destroy, on a clock that matches the agreement text.
 - Breach notification runs to the clinic without unreasonable delay and inside 60 days, and vendor notices flow upward into that obligation.
@@ -815,6 +821,8 @@ Meta compares the trade licence against what is typed into Business Manager. The
 
 Each account carries a per-channel state rather than a single live flag. Web goes live in minutes, voice within hours once call forwarding is set, Meta when the clinic clicks connect. The dashboard shows each state honestly. Nothing is marked live before it is.
 
+Until Google verification completes, purchase opens by invitation behind an internal switch: a prospect asks for setup, and Healdesk replies with a setup link. Nothing a client sees calls this a pilot or suggests the company is new, and no client-facing copy promises timing before purchase.
+
 ## Commercial position
 
 ### What v1 can prove, and what it cannot
@@ -836,13 +844,13 @@ One cheap bridge worth building: a single outcome control on each booking in the
 
 ### The guarantee
 
-The setup fee is non-refundable, which is defensible because provisioning work happens immediately. That makes the first month the place where risk has to be reversed.
+The setup fee is never refunded: provisioning work starts the moment it is paid, and a clinic that does not finish its own steps has still cost that work. It has 30 days to finish setup, after which an account with no channel live is closed. That makes the first month the place where risk has to be reversed.
 
 The guarantee is tied to something Healdesk controls and can measure: calls and messages answered. Not to revenue, not to bookings, not to anything that depends on the clinic's own demand, pricing or follow-through. Promising revenue outcomes on a $797 retainer to a clinic whose ad spend you do not control is a refund queue waiting to happen.
 
-The shape: if the assistant does not answer every call and message routed to it during the first month, the first month's retainer is refunded. It is a promise about reliability, which is exactly what a clinic doubts before buying and exactly what the product guarantees.
+The shape: if the assistant does not answer every call and message routed to it during the first month, which runs from the plan start, the first month's retainer is refunded. It is a promise about reliability, which is exactly what a clinic doubts before buying and exactly what the product guarantees.
 
-The exact wording, the refund window and whether the setup fee is refundable before provisioning still need to be settled with counsel and written identically into the pricing page and the service agreement.
+The exact wording and the refund window still need to be settled with counsel and written identically into the pricing page and the service agreement. The setup fee is never refundable, and both say so.
 
 ### Why this rather than the alternatives
 
@@ -884,10 +892,10 @@ One correction on the zero-PHI idea that gets suggested around this: routing tra
 | --- | --- | --- |
 | Voice cost per minute | Retell's own share with a custom LLM is about $0.085 to $0.12 a minute, plus $2 per number a month and $8 a month per concurrent call beyond 20. These are pricing-page figures, unconfirmed. Pay-as-you-go now runs on prepaid credits, and calls stop at a $0 balance | The Claude cost per minute, which is separate and must be measured, then the blended figure on the actual configuration |
 | PII redaction | About a penny a minute | Whether it is on for every clinic or only covered ones |
-| Chat cost per conversation | Not established | The largest unknown in the product. The clinic profile rides in the system prompt on every turn, so a long conversation is not cheap. Needs measuring on real traffic before the top tier's 4,000 included conversations can be priced |
+| Chat cost per conversation | Not established | The largest unknown in the product. The clinic profile rides in the system prompt on every turn, so a long conversation is not cheap. Needs measuring on real traffic before the top tier's 2,000 included conversations can be priced |
 | Concurrency | 20 concurrent calls included on the voice platform's pay-as-you-go, extra slots about $8 each a month | Whether 20 is enough at 15 to 20 clinics |
 | WhatsApp | From 1 October 2026, service messages cost $0.0034 per delivered message in North America, after 1,000 free per number each month | A per-clinic counter to track it |
-| Overage prices | Still unset | Cannot ship a pricing page without them. Set from measured cost times target margin |
+| Overage prices | Set provisionally by the owner on 5 October 2026: $0.80 a voice minute; $0.40 a chat conversation on the single-channel chat package and $0.30 on the rest. Included allowances cut the same day: chat to 1,000 / 2,000 / 1,000 / 2,000 conversations and the top tier's voice to 1,000 minutes | Measured cost times target margin, from pilot traffic (launch step 3.5). Until then the rates are a judgement, and the pricing page marks them provisional |
 
 ### The exercise to run
 
@@ -923,7 +931,7 @@ The current product sheet and site promise things v1 does not do. These need cha
 
 ### Set-up promise
 
-Per channel, not global. Web live the same day, voice live once call forwarding is set, Meta live once the clinic clicks connect. A missed set-up promise in week one is the most expensive thing on this list, because it lands exactly where post-purchase doubt is highest.
+Per channel, not global, and it describes the step rather than the time: website chat goes live once the snippet is pasted, phone once call forwarding is set, Instagram and Messenger once the clinic connects them, WhatsApp once its account has a payment method. No timing is promised before purchase, and a channel is sold only once it is ready, so there are no opening dates. A missed set-up promise in week one is the most expensive thing on this list, because it lands exactly where post-purchase doubt is highest.
 
 ### Pricing consequences
 

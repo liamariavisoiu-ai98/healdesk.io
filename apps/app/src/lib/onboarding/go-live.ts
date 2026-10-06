@@ -15,7 +15,7 @@ import { listClinics, type ClinicOverview } from "@/lib/ops/clinics";
 /**
  * Go-live: the flip from synthetic to production.
  *
- * The database function (drizzle/0033, last redefined in 0042) is the
+ * The database function (drizzle/0033, last redefined in 0048) is the
  * authority and refuses on its own; this wrapper exists to give the operator
  * the list of what is missing BEFORE the call, in the console's words, and to
  * write the security event naming who flipped it. Both checks agree because

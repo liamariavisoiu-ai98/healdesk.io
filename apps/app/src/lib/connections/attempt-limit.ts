@@ -143,6 +143,36 @@ export function withinConnectAttemptLimit(
   return tokenOk && addressOk;
 }
 
+/**
+ * How often one inbox may be sent a sign-in link from /sign-in, and how often
+ * one client may ask at all (plan Part D1). The same two keys, in the same
+ * map, for the same reasons as the connect surface above.
+ *
+ * Each request can put a real email in a clinic's inbox, so the per-inbox
+ * bound is what stops a stranger using the page to flood one: five in ten
+ * minutes is ample for a person who mistyped or lost a link. The per-client
+ * bound stops one caller walking a list of addresses. The address typed is
+ * hashed like a token, so no inbox sits in this map in the clear, and it is
+ * counted whether or not it belongs to an account, so tripping the limit says
+ * nothing about which addresses do.
+ */
+const SIGN_IN_LIMITS = { perInbox: 5, perAddress: 20 } as const;
+
+export function withinSignInRequestLimit(email: string, address: string | null): boolean {
+  const now = Date.now();
+  reclaim(now);
+
+  const inboxOk = take(
+    `sign_in:e:${createHash("sha256").update(email).digest("hex")}`,
+    SIGN_IN_LIMITS.perInbox,
+    now,
+  );
+  const addressOk =
+    address === null ? true : take(`sign_in:a:${address}`, SIGN_IN_LIMITS.perAddress, now);
+
+  return inboxOk && addressOk;
+}
+
 function take(key: string, limit: number, now: number): boolean {
   const existing = windows.get(key);
 

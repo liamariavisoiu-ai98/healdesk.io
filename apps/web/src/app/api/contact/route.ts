@@ -1,7 +1,12 @@
+import { createHash } from "node:crypto";
+
 import { NextResponse } from "next/server";
 
+import { isEmailConfigured, sendSafely } from "@/lib/email";
+import { contactAck } from "@/lib/email/setup-emails";
 import { isBusinessEmail, isValidEmail } from "@/lib/gate";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
+import { replyByDate } from "@/lib/reply-by";
 import { site } from "@/lib/site";
 
 export const runtime = "nodejs";
@@ -23,10 +28,19 @@ export const dynamic = "force-dynamic";
  * points at the mailbox, rather than accepting a message it cannot deliver.
  * The form shows the address alongside itself for exactly that reason.
  *
- * Resend by direct fetch rather than a client library, one POST does not
- * justify a dependency in the marketing app, and the message carries no patient
+ * Through lib/email's `send`, like every other message from this site, so it
+ * carries the same tags and reply-to rules; the message carries no patient
  * information (a clinic operator's business enquiry), which is the condition
  * .env.example puts on using Resend at all.
+ *
+ * ## The acknowledgement (P8)
+ *
+ * The sender gets one email naming the day we reply by, because a form that
+ * answers "thanks" and then goes quiet reads as a form nobody reads. Their
+ * address is unverified, so the acknowledgement echoes nothing they typed but
+ * that address, and goes at most once a day per address (per instance, on
+ * top of the per-IP limit above): the form must not be a way to mail a
+ * stranger.
  */
 
 const RATE_LIMIT = 5;
@@ -91,9 +105,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     at: new Date().toISOString(),
   });
 
-  const apiKey = process.env.RESEND_API_KEY;
-  const sender = process.env.HEALDESK_EMAIL_FROM;
-  if (!apiKey || !sender) {
+  if (!isEmailConfigured()) {
     console.error(
       "[healdesk] contact form received but no transport is configured " +
         "(RESEND_API_KEY, HEALDESK_EMAIL_FROM)",
@@ -101,42 +113,30 @@ export async function POST(request: Request): Promise<NextResponse> {
     return fail(`Our form is down, email us at ${site.email} and we'll reply.`, 503);
   }
 
-  try {
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: sender,
-        to: [site.email],
-        // Replying goes to the prospect rather than to our own From address.
-        reply_to: from,
-        subject: `Website enquiry, ${name}${clinic ? ` (${clinic})` : ""}`,
-        text: [
-          `Name:   ${name}`,
-          `Clinic: ${clinic || "(none)"}`,
-          `Email:  ${from}`,
-          "",
-          message,
-        ].join("\n"),
-      }),
-      signal: AbortSignal.timeout(10_000),
-    });
-
-    if (!response.ok) {
-      const detail = await response.text().catch(() => "");
-      console.error("[healdesk] resend rejected the contact email", {
-        status: response.status,
-        detail: detail.slice(0, 500),
-      });
-      return fail(`We couldn't send that. Email ${site.email} instead.`, 502);
-    }
-  } catch (error) {
-    console.error("[healdesk] contact email threw", error);
+  const toUs = await sendSafely({
+    to: site.email,
+    // Replying goes to the prospect rather than to our own From address.
+    replyTo: from,
+    subject: `Website enquiry, ${name}${clinic ? ` (${clinic})` : ""}`,
+    text: [`Name:   ${name}`, `Clinic: ${clinic || "(none)"}`, `Email:  ${from}`, "", message].join("\n"),
+    tag: "contact",
+  });
+  if (toUs.status === "failed") {
+    console.error("[healdesk] the contact email did not send", { reason: toUs.reason.slice(0, 500) });
     return fail(`We couldn't send that. Email ${site.email} instead.`, 502);
   }
 
-  return NextResponse.json({ ok: true });
+  const replyBy = replyByDate();
+  const addressKey = createHash("sha256").update(from).digest("hex").slice(0, 32);
+  const firstToday = await rateLimit(`contact-ack:${addressKey}`, 1, 24 * 60 * 60 * 1000);
+  if (firstToday.ok) {
+    const ack = contactAck(from, replyBy);
+    const sent = await sendSafely({ to: from, subject: ack.subject, text: ack.text, tag: "contact-ack" });
+    if (sent.status === "failed") {
+      // We have their message; the acknowledgement is a courtesy.
+      console.error("[healdesk] the contact acknowledgement did not send", { reason: sent.reason.slice(0, 200) });
+    }
+  }
+
+  return NextResponse.json({ ok: true, replyBy });
 }

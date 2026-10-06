@@ -127,8 +127,8 @@ key and a local webhook signing secret are in `apps/web/.env.local`. What is lef
 1. **Create the products, prices and meters.** `npm run stripe:setup -w @healdesk/web`
    (add `--dry-run` to see the plan with no key and no calls). The catalog
    (`packages/catalog/src/plans.ts`) has **five packages**, each with a monthly, an annual
-   and a one-time setup price, plus two metered overage prices and **two Billing Meters**
-   (voice minutes, chat conversations). Until it runs, `createCheckout` throws a "run the
+   and a one-time setup price, plus three metered overage prices on **two Billing Meters**
+   (voice minutes at $0.80; chat conversations at $0.40 or $0.30 by package). Until it runs, `createCheckout` throws a "run the
    setup script" error. Run it against the test key, then the live key: it is idempotent
    by `lookup_key`, never edits a price, and reports drift against the catalog. It has
    never been run against a live-mode key.
@@ -220,8 +220,8 @@ RDS instance, not after, because the first item cannot be added later.
 - *KMS:* one customer-managed key; a task-role policy limited to `GenerateDataKey`,
   `Decrypt` and `Encrypt` on it; `HEALDESK_KMS_PROVIDER`, `HEALDESK_KMS_KEY_ID` and
   `AWS_REGION` in every task definition (the KMS client has no region fallback);
-  `@aws-sdk/client-kms` in the image once the bundler inlining in CLAUDE.md is fixed; a
-  rotation runbook.
+  `@aws-sdk/client-kms` is a dependency of apps/app and ships in the image (fixed 6 October
+  2026); a rotation runbook.
 - *S3:* a bucket in the designated region; SSE-KMS with our key; a policy denying non-TLS
   requests; Block Public Access; versioning; lifecycle expiry matched to
   `clinics.retention_media_days`; Config rule `s3-bucket-ssl-requests-only`; no patient
@@ -234,8 +234,10 @@ RDS instance, not after, because the first item cannot be added later.
   default because `lib/queue/boss.ts` passes no `timeout`; a two-minute drain needs
   `timeout: 120_000` there and a `stopTimeout` above it, and Fargate's maximum is 120 s.
 - *Load balancer:* an HTTPS listener with an ACM certificate, HTTP redirected, WebSocket
-  upgrades allowed through to the voice endpoint, the health check on `GET /api/health`
-  status only, rate limiting on the host.
+  upgrades allowed through to the voice endpoint, the health check on
+  `GET /api/health?probe=liveness` (200 whenever the process is up; the plain path answers
+  503 while a critical email is late, which is the uptime check's alarm, not a reason to
+  replace a task), rate limiting on the host.
 - *CloudTrail:* on and kept, encrypted with our key, log-file validation, S3 data events
   on for the PHI bucket, Config rule `cloud-trail-encryption-enabled`.
 - *CloudWatch Logs:* every log group encrypted with our key and set to "Never expire"
@@ -369,7 +371,10 @@ The owner's decisions from 21 September onwards and what each became in code, re
 with the spec on 1 October 2026. Each says whether it still holds. Reopen one by changing
 the code, not by re-asking.
 
-1. **Overage rates — $0.35 a voice minute, $0.25 a chat conversation. Holds, amended.**
+1. **Overage rates — re-set on 5 October 2026: $0.80 a voice minute; $0.40 a chat
+   conversation on the single-channel chat package, $0.30 on the rest** (replacing $0.35
+   and $0.25), with the chat allowances cut to 1,000 / 2,000 / 1,000 / 2,000 and the top
+   tier's voice to 1,000 minutes. Still provisional until measured (launch step 3.5).
    The billing mechanics stand: a monthly subscription carries the metered prices; an
    annual one carries none and its overage is invoiced by hand, monthly in arrears,
    until `annual-overage-invoicing` is built. Nothing bills against the meters until

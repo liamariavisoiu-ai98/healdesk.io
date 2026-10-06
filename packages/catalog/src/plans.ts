@@ -27,26 +27,30 @@
  * lives in one place and the site cannot quote $3,804 while Stripe charges
  * $3,800.
  *
- * ## Overage rates are still unmeasured, and no longer uniform
+ * ## Overage rates are a judgement until measured
  *
- * The owner re-set them on 5 October 2026: $0.80 a voice minute everywhere,
- * $0.40 a chat conversation on the single-channel chat packages and $0.30 on
- * every package that sells two or more channels. They replace the $0.35 and
- * $0.25 signed off on 21 September 2026, and they are still a judgement, not
- * a measurement. The spec (docs/v1-product-spec.md → "Unit economics and
- * infrastructure" → "What still has to be computed") asks for overage to be
- * set from measured cost times a target margin, and nothing has been measured
- * yet: voice costs roughly $0.13 to $0.31 a minute all in, plus about a penny
- * a minute for redaction, and chat cost per conversation is still the
- * product's largest unknown. Any copy that prints these rates must say they
- * are provisional, and the pilot (launch plan 3.5) is what replaces them.
+ * Past the allowance a package bills $0.80 a voice minute, and $0.40 a chat
+ * conversation on the single-channel chat packages (`chat-web`, `chat-meta`) or $0.30 on
+ * every other package with chat. The owner set these on 5 October 2026,
+ * replacing the $0.35 and $0.25 signed off on 21 September, before any cost
+ * had been measured. They are still a judgement, not a measurement: the spec
+ * (docs/v1-product-spec.md → "Unit economics and infrastructure" → "What still
+ * has to be computed") sets overage prices from measured cost times a target
+ * margin, and launch step 3.5 measures that cost on pilot traffic. Retell's
+ * own share is about $0.085 to $0.12 a minute before the Claude cost, plus
+ * about a penny a minute for redaction. Nobody has measured chat cost per
+ * conversation yet. Any copy that prints these rates must say they are
+ * provisional.
  *
- * The chat rate now DIFFERS BY PACKAGE, which the billing layer has to carry.
- * A single metered price per meter cannot bill two rates, so a metered price
- * is keyed by its rate — `meterPriceLookupKey()` below — and a package asks
- * for the price that matches its own. One meter per channel still, because
- * the meter is the event stream and the app sends one event per unit however
- * the clinic is priced.
+ * The chat rate differs by package, so one meter carries two prices: Stripe
+ * holds three metered prices on two meters (`meteredPriceLookupKey()` below),
+ * and checkout gives each subscription the price for its own package's rate.
+ * A plan change must therefore swap the metered items as well as the package
+ * price; Stripe's Customer Portal cannot update a subscription that carries
+ * metered prices at all, so plan changes do not go through it.
+ * Every metered key encodes its rate, like the package keys, so a rate change
+ * cannot silently bill the old rate: checkout fails loudly until
+ * `stripe:setup` has been re-run.
  *
  * `OVERAGE_RATES_PROVISIONAL` still stays false, on purpose. The flag does
  * more than change what the page displays. While it is true,
@@ -56,7 +60,8 @@
  * billed." Flipping it would change what Stripe bills and what the service
  * agreement says. That is a billing and counsel decision, not a copy one.
  * Until someone makes it, false means: the pricing page prints these numbers,
- * the terms name them, and a MONTHLY checkout attaches the two metered prices.
+ * the terms name them, and a MONTHLY checkout attaches its package's metered
+ * prices.
  *
  * Two things are still open, and they are recorded in the task list rather
  * than hidden here. First, nothing reports usage to Stripe's meters yet, so the
@@ -69,18 +74,19 @@
  * ## The allowances are unmeasured too
  *
  * The included voice minutes and chat conversations below were set before
- * anyone measured a real conversation, and cut on 5 October 2026 — chat from
- * 1,500/3,000/1,500/4,000 to 1,000/2,000/1,000/2,000, and the top tier's
- * voice from 1,500 minutes to 1,000, so every voice package now includes the
- * same 1,000. The spec asks for each package to be modelled three ways: light
- * use, expected use, and the allowance fully used. The third matters most,
- * because it is the worst case the pricing promises, and it is the one the
- * cut moves: a smaller allowance lowers the worst case and raises how often
- * overage bills, which is why the overage rate and the allowance were changed
- * together. The spec also names chat cost per conversation as the product's
- * largest unknown, so these are still unmeasured numbers.
- * They are not part of the Stripe lookup keys, so changing one needs no
- * `stripe:setup` re-run.
+ * anyone measured a real conversation. The owner cut them with the rates on 5
+ * October 2026: chat from 1,500 / 3,000 / 1,500 / 4,000 to 1,000 / 2,000 /
+ * 1,000 / 2,000 (single-channel chat, chat-dual, chat with voice, complete),
+ * and the top tier's voice from 1,500 minutes to 1,000. The spec asks for each package to
+ * be modelled three ways: light use, expected use, and the allowance fully
+ * used. The third matters most, because it is the worst case the pricing
+ * promises. The spec also names chat cost per conversation as the product's
+ * largest unknown: the top tier's 2,000 included conversations cannot be
+ * priced until it is measured on real traffic. Change the numbers only after
+ * that exercise. They are not part of the Stripe lookup keys, so changing one
+ * creates no new price, but re-run `stripe:setup` anyway: it rewrites each
+ * Stripe product's description, which states the allowances on Checkout and
+ * on the invoice.
  *
  * ## WhatsApp starts costing the clinic on 1 October 2026
  *
@@ -90,9 +96,9 @@
  * Meta also charges for WhatsApp service replies inside the 24-hour window,
  * and it bills the clinic directly. Healdesk does not resell WhatsApp messages
  * (docs/v1-product-spec.md → "Pricing consequences" and "Meta bot
- * onboarding"). Nobody has pulled Meta's published rate yet, and nothing here
- * counts billable WhatsApp messages per clinic. Both are needed before the
- * pricing page ships.
+ * onboarding"). Meta's rate is $0.0034 per delivered service message in North
+ * America, after 1,000 free per number each month; nothing here counts
+ * billable WhatsApp messages per clinic yet.
  *
  * ## The setup-fee delta on an upgrade is owed, not yet invoiced
  *
@@ -121,6 +127,13 @@
  */
 
 export type Channel = "web" | "meta" | "voice";
+
+/**
+ * Every channel, in `channelList`'s order. The runtime list of `Channel`, so a
+ * database CHECK on a channel column is built from it rather than retyped: a
+ * clinic's channels are rows keyed by these ids, and billing steps up by them.
+ */
+export const CHANNELS: readonly Channel[] = ["web", "meta", "voice"];
 
 export type BillingInterval = "month" | "year";
 
@@ -155,10 +168,11 @@ export type Plan = {
   overagePerVoiceMinuteUsd: number;
   overagePerChatConversationUsd: number;
   /**
-   * Locations the package covers, which is one for every package. The spec
-   * sells Healdesk per location, with each extra location billed on the same
-   * subscription and renewal date. No additional-location price or lookup key
-   * exists yet, so nobody can buy a second location at checkout.
+   * Locations the package covers at checkout, which is one for every package.
+   * Each extra location is added later from the portal on the same
+   * subscription and renewal date, at the package's own price plus its setup
+   * fee (`additionalLocationChargeUsd`), as more quantity of the same package
+   * price; checkout itself still sells one.
    */
   locations: number;
 };
@@ -170,14 +184,12 @@ export type Plan = {
  */
 export const OVERAGE_RATES_PROVISIONAL = false;
 
-/**
- * Owner-set 5 October 2026, unmeasured. Voice is one rate everywhere; chat is
- * cheaper the more channels the package sells, so it is named per tier rather
- * than shared. See the header.
- */
+// Set by the owner on 5 October 2026; provisional until measured cost times a
+// target margin replaces them (see the header). Whole cents only: each rate is
+// encoded in its Stripe lookup key.
 const VOICE_OVERAGE = 0.8;
 const CHAT_OVERAGE_SINGLE_CHANNEL = 0.4;
-const CHAT_OVERAGE_MULTI_CHANNEL = 0.3;
+const CHAT_OVERAGE = 0.3;
 
 /**
  * The founding-cohort setup credit — kept, by decision of 21 September 2026.
@@ -194,10 +206,26 @@ const CHAT_OVERAGE_MULTI_CHANNEL = 0.3;
 export const COHORT_SETUP_CREDIT = {
   /** Stripe coupon id; stripe:setup creates it. */
   couponId: "healdesk-cohort-setup",
-  name: "Founding-cohort setup credit",
+  /**
+   * Shown by Stripe on the Checkout page and the invoice, so it is client
+   * copy: nothing that says we are new. Re-run stripe:setup after changing
+   * it, because the coupon already in Stripe keeps its old name.
+   */
+  name: "Setup credit",
   /** Days after the offer email during which checkout honours it. */
   validDays: 14,
 } as const;
+
+/**
+ * The days a clinic has to finish its own setup (the owner's decision of
+ * 6 October 2026). While no channel is answering patients it gets a reminder
+ * every five days, six in all; at the end of the last day an account with
+ * nothing live is closed, and the setup fee, which is never refunded, is kept.
+ * Provisioning stamps the deadline on the clinic, so changing these moves
+ * only clinics bought afterwards.
+ */
+export const SETUP_WINDOW_DAYS = 30;
+export const SETUP_REMINDER_EVERY_DAYS = 5;
 
 export const plans: readonly Plan[] = [
   {
@@ -249,7 +277,7 @@ export const plans: readonly Plan[] = [
     includedVoiceMinutes: 0,
     includedChatConversations: 2_000,
     overagePerVoiceMinuteUsd: 0,
-    overagePerChatConversationUsd: CHAT_OVERAGE_MULTI_CHANNEL,
+    overagePerChatConversationUsd: CHAT_OVERAGE,
     locations: 1,
   },
   {
@@ -262,7 +290,7 @@ export const plans: readonly Plan[] = [
     includedVoiceMinutes: 1_000,
     includedChatConversations: 1_000,
     overagePerVoiceMinuteUsd: VOICE_OVERAGE,
-    overagePerChatConversationUsd: CHAT_OVERAGE_MULTI_CHANNEL,
+    overagePerChatConversationUsd: CHAT_OVERAGE,
     locations: 1,
   },
   {
@@ -275,7 +303,7 @@ export const plans: readonly Plan[] = [
     includedVoiceMinutes: 1_000,
     includedChatConversations: 1_000,
     overagePerVoiceMinuteUsd: VOICE_OVERAGE,
-    overagePerChatConversationUsd: CHAT_OVERAGE_MULTI_CHANNEL,
+    overagePerChatConversationUsd: CHAT_OVERAGE,
     locations: 1,
   },
   {
@@ -288,7 +316,7 @@ export const plans: readonly Plan[] = [
     includedVoiceMinutes: 1_000,
     includedChatConversations: 2_000,
     overagePerVoiceMinuteUsd: VOICE_OVERAGE,
-    overagePerChatConversationUsd: CHAT_OVERAGE_MULTI_CHANNEL,
+    overagePerChatConversationUsd: CHAT_OVERAGE,
     locations: 1,
   },
 ] as const;
@@ -337,7 +365,7 @@ export const pricingCards: readonly PricingCard[] = [
     id: "chat-voice",
     name: "Web OR Meta + Voice",
     planIds: ["web-voice", "meta-voice"],
-    highlight: "Most clinics",
+    highlight: "Recommended",
   },
   { id: "complete", name: "Complete FrontDesk AI", planIds: ["complete"] },
 ] as const;
@@ -379,6 +407,34 @@ export function chatChannelOf(plan: Plan): ChatChannel {
 }
 
 /** The recurring amount for one billing period, in whole dollars. */
+/**
+ * The $0 recurring price a subscription carries until AYA first answers a
+ * patient (the deferred start, contracts §2). Checkout bills the setup fee and
+ * this; at the first answer Package C swaps it for the package's price. It is
+ * what makes the start deferred without being a trial: Stripe never sees a
+ * trial, so nothing is ever "trialing" and no charge reads "TRIAL OVER".
+ */
+export const PLAN_START_PLACEHOLDER_LOOKUP_KEY = "healdesk_plan_start_placeholder_month";
+export const PLAN_START_PLACEHOLDER_NAME = "Monthly plan: starts when AYA first answers";
+
+const usdWhole = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+/**
+ * The plan-start sentence (plan Part A3): one wording, in the Checkout page's
+ * custom text, on Home and Billing, in the welcome email and in the Terms.
+ * "Monthly billing ($897) starts the day AYA first answers a patient."
+ * Vets' practices say "client" (audienceFor).
+ */
+export function planStartSentence(
+  plan: Plan,
+  interval: BillingInterval,
+  audience: "patient" | "client" = "patient",
+): string {
+  return interval === "year"
+    ? `Annual billing (${usdWhole.format(annualTotalUsd(plan))} a year) starts the day AYA first answers a ${audience}.`
+    : `Monthly billing (${usdWhole.format(plan.monthlyUsd)}) starts the day AYA first answers a ${audience}.`;
+}
+
 export function recurringUsd(plan: Plan, interval: BillingInterval): number {
   return interval === "year" ? annualTotalUsd(plan) : plan.monthlyUsd;
 }
@@ -453,18 +509,44 @@ export function stripeLookupKey(plan: Plan, kind: PriceKind): string {
   return `healdesk_${plan.id}_${kind}_${cents}`;
 }
 
+export type ParsedLookupKey = {
+  planId: string;
+  kind: PriceKind;
+  /** The amount the key was minted with. Compare against the catalog to spot a stale price. */
+  cents: number;
+};
+
 /**
- * The two account-wide meters: one event stream per channel, shared by every
- * package. The app sends one event per unit consumed whatever the clinic pays,
- * so the meter never varies — only the price attached to the subscription does.
+ * The inverse of `stripeLookupKey()`: `healdesk_<plan>_<kind>_<cents>`.
  *
- * A meter can carry SEVERAL metered prices, one per distinct rate, and that is
- * how divergent overage is billed since 5 October 2026: `meterPriceLookupKey()`
- * puts the rate in the key, `stripe:setup` creates one price per rate actually
- * used, and `overageLookupKeys()` in apps/web/src/lib/billing.ts asks for the
- * one matching the package. Stripe's own price tiers were the other option and
- * are not used: tiers bill by VOLUME within one subscription, and what varies
- * here is the package, not the volume.
+ * Plan ids contain hyphens and never underscores, which is what makes the
+ * split unambiguous; plans.test.ts round-trips every plan and kind through
+ * both functions so the two cannot drift apart. (It lived in apps/app until 5
+ * October 2026, when the plan-change and metered-item code there started
+ * needing it in more than one place; apps/app re-exports it.)
+ *
+ * Returns null for anything that is not a package price — the metered
+ * overage prices, scalabid's prices on the same Stripe account, a key from a
+ * plan that has since been removed from the catalog — and the caller decides
+ * what that means for the event it is holding.
+ */
+export function parseLookupKey(key: string): ParsedLookupKey | null {
+  const match = /^healdesk_([a-z0-9-]+)_(month|year|setup)_(\d+)$/.exec(key);
+  if (!match) return null;
+  return {
+    planId: match[1]!,
+    kind: match[2] as PriceKind,
+    cents: Number(match[3]),
+  };
+}
+
+/**
+ * The two account-wide meters. Each counts one unit past the allowance, by
+ * Stripe customer, and backs one metered price per distinct overage rate:
+ * today one voice price ($0.80) and two chat prices ($0.40 on the
+ * single-channel chat packages, $0.30 on the rest). A subscription carries the
+ * price for its own package's rate, so the usage reporter sends every event
+ * to the meter by `eventName` and never has to know the rate.
  */
 export const METERS = {
   voiceMinutes: {
@@ -481,27 +563,121 @@ export const METERS = {
   },
 } as const;
 
-export type Meter = (typeof METERS)[keyof typeof METERS];
+export type MeterId = keyof typeof METERS;
 
 /**
- * The lookup key of the metered price that bills `rateUsd` on `meter`.
- *
- * The rate is in the key, in whole cents, for the same reason the package
- * keys carry their amount (`stripeLookupKey`): a rate change produces a new
- * key, so it is a new price, and nothing can silently keep billing the old
- * one. A fractional-cent rate would not survive the rounding, so it is
- * refused here rather than mis-keyed — `unit_amount_decimal` could carry it,
- * but two rates a hundredth of a cent apart would collide in one key.
+ * An overage rate in whole cents. Throws on a fractional cent, because the
+ * cents are written into the price's lookup key and a key like `_3.5` would
+ * be a second spelling of an amount the code cannot compare.
  */
-export function meterPriceLookupKey(meter: Meter, rateUsd: number): string {
-  const cents = rateUsd * 100;
-  if (!Number.isInteger(Math.round(cents * 1e6) / 1e6) || cents <= 0) {
-    throw new Error(
-      `Overage rate $${rateUsd} for ${meter.eventName} must be a positive whole number of cents.`,
-    );
+export function overageRateCents(rateUsd: number): number {
+  const cents = Math.round(rateUsd * 100);
+  if (!Number.isFinite(rateUsd) || rateUsd <= 0 || Math.abs(cents - rateUsd * 100) > 1e-6) {
+    throw new Error(`Overage rate $${rateUsd} is not a positive whole number of cents.`);
   }
-  return `${meter.lookupKeyPrefix}_${Math.round(cents)}`;
+  return cents;
 }
+
+/**
+ * The lookup key of one metered price: the meter plus the rate in cents, e.g.
+ * `healdesk_meter_chat_conversations_30`. The rate is in the key for the same
+ * reason the amount is in a package key: a rate change cannot silently resolve
+ * to the old price.
+ */
+export function meteredPriceLookupKey(meter: MeterId, rateUsd: number): string {
+  return `${METERS[meter].lookupKeyPrefix}_${overageRateCents(rateUsd)}`;
+}
+
+/**
+ * The metered prices one package bills: the voice meter at its voice rate when
+ * it has voice, the chat meter at its chat rate when it has web or Meta.
+ */
+export function planMeteredPrices(
+  plan: Plan,
+): { meter: MeterId; rateUsd: number; lookupKey: string }[] {
+  const out: { meter: MeterId; rateUsd: number; lookupKey: string }[] = [];
+  if (plan.channels.voice) {
+    out.push({
+      meter: "voiceMinutes",
+      rateUsd: plan.overagePerVoiceMinuteUsd,
+      lookupKey: meteredPriceLookupKey("voiceMinutes", plan.overagePerVoiceMinuteUsd),
+    });
+  }
+  if (plan.channels.web || plan.channels.meta) {
+    out.push({
+      meter: "chatConversations",
+      rateUsd: plan.overagePerChatConversationUsd,
+      lookupKey: meteredPriceLookupKey(
+        "chatConversations",
+        plan.overagePerChatConversationUsd,
+      ),
+    });
+  }
+  return out;
+}
+
+// -----------------------------------------------------------------------------
+// Usage: what one chat conversation and one voice minute are
+// -----------------------------------------------------------------------------
+
+/**
+ * A chat conversation is one person's thread on one channel, from their first
+ * message until this long passes with no message from them; their next
+ * message after that starts a new conversation (owner decision of 5 October
+ * 2026). The same 24 hours as Meta's customer-service window, so "one
+ * conversation" and "one window in which we may reply" are the same thing.
+ */
+export const CHAT_CONVERSATION_SILENCE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Billable voice minutes for ONE call: its length rounded up to the next
+ * whole minute, so 61 seconds is 2 minutes (owner decision of 5 October
+ * 2026). Calls are metered one at a time and never by summing seconds across
+ * calls first. Zero, negative, NaN or infinite durations bill nothing: a
+ * duration we cannot trust is not a reason to charge.
+ */
+export function billableVoiceMinutes(durationSeconds: number): number {
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return 0;
+  return Math.ceil(durationSeconds / 60);
+}
+
+// -----------------------------------------------------------------------------
+// Extra locations
+// -----------------------------------------------------------------------------
+
+/**
+ * What one additional location costs (owner decision of 5 October 2026): the
+ * package's recurring price again — monthly, or the annual total — on the SAME
+ * subscription and renewal date (Stripe prorates the first period), plus the
+ * package's setup fee once. Included minutes and conversations add up across
+ * locations: the pooled allowance is the package allowance × locations.
+ */
+export function additionalLocationChargeUsd(
+  plan: Plan,
+  interval: BillingInterval,
+): { recurringUsd: number; setupFeeUsd: number } {
+  return { recurringUsd: recurringUsd(plan, interval), setupFeeUsd: plan.setupFeeUsd };
+}
+
+// -----------------------------------------------------------------------------
+// Refund windows (terms § 3), here so apps/web's terms and apps/app's refund
+// actions read the same two numbers
+// -----------------------------------------------------------------------------
+
+/**
+ * The one exception to the non-refundable setup fee: refunded when none of the
+ * practice's channels has gone live this many days after its payment, unless
+ * the delay is something still waiting on the practice. Adopted 3 October 2026
+ * (docs/counsel/guarantee-and-refund.md decision 5).
+ */
+export const SETUP_FEE_REFUND_NOT_LIVE_DAYS = 30;
+
+/**
+ * Days after purchase within which the first period's subscription fee is
+ * refundable in full. The setup fee is never refunded under this window
+ * (decision of 21 September 2026).
+ */
+export const FIRST_PERIOD_REFUND_DAYS = 14;
 
 /**
  * What a clinic is displacing, for the comparison on the pricing page.

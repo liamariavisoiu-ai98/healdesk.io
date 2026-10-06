@@ -1,5 +1,5 @@
 {
-  "id": "29c34dc6-f456-4bf6-8025-ee61ac19f6e6",
+  "id": "fc13d840-4a70-4e61-a00f-23cb8fcfc8f5",
   "prevId": "8e891bcd-8f92-4075-b704-91125d9707ea",
   "version": "7",
   "dialect": "postgresql",
@@ -1860,7 +1860,7 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "default": 90
+          "default": 730
         },
         "onboarding": {
           "name": "onboarding",
@@ -2861,12 +2861,6 @@
           "notNull": true,
           "default": "'{\"web\":false,\"meta\":false,\"voice\":false}'::jsonb"
         },
-        "chat_channel_choice": {
-          "name": "chat_channel_choice",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "included_voice_minutes": {
           "name": "included_voice_minutes",
           "type": "integer",
@@ -2986,10 +2980,6 @@
         "entitlements_interval_check": {
           "name": "entitlements_interval_check",
           "value": "\"entitlements\".\"billing_interval\" in ('month', 'year')"
-        },
-        "entitlements_chat_choice_check": {
-          "name": "entitlements_chat_choice_check",
-          "value": "\"entitlements\".\"chat_channel_choice\" is null or \"entitlements\".\"chat_channel_choice\" in ('web', 'meta')"
         },
         "entitlements_overage_mode_check": {
           "name": "entitlements_overage_mode_check",

@@ -29,6 +29,21 @@ export const JOB_WEEKLY_RECAP = "weekly-recap";
 export const JOB_NIGHTLY_SYNC = "nightly-sync";
 export const JOB_OFFBOARDING_DESTROY = "offboarding-destroy";
 /**
+ * The Stripe launch's billing jobs (drizzle/0043), seeded off. Hourly:
+ * reporting overage on monthly plans to Stripe's meters and queueing the 80%
+ * and 100% allowance emails. Daily: invoicing annual plans' overage per closed
+ * month (05 UTC) and the housekeeping purge (06 UTC). Wired in tick.ts.
+ *
+ * `billing-notices` is no longer hourly: the email platform's sender runs it
+ * every minute from the `notices` queue (lib/email/outbox.ts), and its row is
+ * the sender's on/off switch.
+ */
+export const JOB_USAGE_METER_REPORT = "usage-meter-report";
+export const JOB_ANNUAL_OVERAGE_INVOICE = "annual-overage-invoice";
+export const JOB_USAGE_ALERTS = "usage-alerts";
+export const JOB_BILLING_NOTICES = "billing-notices";
+export const JOB_BILLING_HOUSEKEEPING = "billing-housekeeping";
+/**
  * Phase two: the attribution jobs. Their code is kept, but they never run in
  * v1 (env.phaseTwoAttribution()), and the console refuses to switch them on.
  * The 0040 `callback-dialer` job was removed by drizzle/0041.
@@ -139,6 +154,42 @@ export async function runJob(
     // and those can carry PHI.
     const note =
       error instanceof Error ? error.message.slice(0, 500) : "Unknown error";
+    await record(name, "failed", note, now);
+    return { status: "failed", note };
+  }
+}
+
+/**
+ * Run a job that leases its own rows, behind its switch but without the lock.
+ *
+ * For the once-a-minute notices sender (lib/email/outbox.ts). runJob's lock is
+ * 60 minutes so that a crashed monthly run is not mistaken for a live one, and
+ * on a job that runs every minute that same lock would turn one crash into an
+ * hour of no email. The sender does not need it: each notice is claimed by a
+ * conditional UPDATE that leases it for two minutes, so two runs that overlap
+ * never send one row twice. The switch is still read every time, and every
+ * outcome is still recorded on the job row, exactly as runJob does.
+ */
+export async function runSwitchedJob(
+  name: string,
+  work: () => Promise<string>,
+  now: Date = new Date(),
+): Promise<JobOutcome> {
+  const job = await getJob(name);
+  if (!job) throw new Error(`Unknown job: ${name}`);
+
+  if (!job.enabled) {
+    await record(name, "disabled", "Job is switched off.", now);
+    return { status: "disabled" };
+  }
+
+  try {
+    const note = await work();
+    await record(name, "ok", note, now);
+    return { status: "ok", note };
+  } catch (error) {
+    // The message only, never the object, for the reason runJob gives.
+    const note = error instanceof Error ? error.message.slice(0, 500) : "Unknown error";
     await record(name, "failed", note, now);
     return { status: "failed", note };
   }

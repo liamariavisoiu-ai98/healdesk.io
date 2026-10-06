@@ -149,28 +149,35 @@ runs the image.
   placeholders for `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` and
   `HEALDESK_PROVISION_SECRET`, so the image no longer needs a real database URL
   at build time. A bare `next build` outside Docker still fails without one;
-  CI passes only because `DATABASE_URL` sits in the job-level env.
-- **The optional AWS SDKs are baked in as unconditional throws.**
-  `crypto/kms.ts:132` and `reporting/deliver.ts:392` route the import specifier
-  through a `const` "so TypeScript can't resolve it statically". Turbopack
-  resolves it anyway and inlines `throw MODULE_NOT_FOUND` into the server
-  chunk: the 12 September production build still in
-  `apps/app/.next/server/chunks` shows it for both `@aws-sdk/client-kms` and
-  `@aws-sdk/client-sesv2`, and neither that pattern nor `next.config.ts`
-  (`serverExternalPackages` lists only `pg`) has changed since. Neither SDK is
-  in `package-lock.json`, so an image built today carries the same throws, and
-  adding the SDK to the runtime stage after the build cannot undo them. Whether
-  installing it before `next build`, or listing it in
-  `serverExternalPackages`, is enough has not been tested. Consequence: in
-  production `getKeyWrapper()` has no KMS and refuses `LocalKeyWrapper`, and
-  the SES transport can never send. Re-check with a fresh production build
-  after any fix.
+  CI passes only because `DATABASE_URL` sits in the job-level env. The build
+  stage sets `NODE_ENV=production` itself (L54): it inherits `development`
+  from the deps stage, under which `next build` fails prerendering
+  `/_global-error`, so until 6 October 2026 the image did not build at all.
+- **The AWS SDKs load in a production build; fixed 6 October 2026.** They
+  used to be optional, installed nowhere, and imported through a `const`
+  specifier; Turbopack folded the constant and inlined
+  `throw MODULE_NOT_FOUND` into the server chunks, so production had no KMS
+  (and `getKeyWrapper()` refuses `LocalKeyWrapper`) and SES could never send.
+  `@aws-sdk/client-kms` and `@aws-sdk/client-sesv2` are now `dependencies` of
+  `apps/app`, imported lazily by a literal specifier in `crypto/kms.ts` and
+  `reporting/deliver.ts`, and listed in `serverExternalPackages` beside `pg`.
+  Production builds on 6 October settled what had not been tested: listing
+  them without installing them changes nothing; installing them removes the
+  throw but bundles the SDK into the chunks; with both, each chunk `require`s
+  the package and the standalone output traces it in, symlinked the way `pg`
+  already is. An isolated copy of `.next/standalone`, run with
+  `NODE_ENV=production` and `HEALDESK_KMS_PROVIDER=aws-kms` against a fake
+  local AWS endpoint, sealed and opened a secret and sent through SES; the old
+  build, with both SDKs added to its runtime tree, failed both. The SDKs needed
+  no Dockerfile change: `npm ci` runs before `next build`, and the runtime stage
+  copies the workspace `node_modules`. `tests/aws-sdk-clients.test.ts` pins
+  all three; re-check the chunks after a Next upgrade.
 - **Static assets are in the image; the host is not described anywhere.**
   `.next/static` is still not part of Next's standalone output, but the
-  Dockerfile (L64-65) copies it beside `server.js`. There is still no compose
+  Dockerfile (L70-71) copies it beside `server.js`. There is still no compose
   file, `fly.toml`, Terraform or task definition in the repo.
 - **The worker, migrations and queue install ship in the image as separate
-  commands.** The Dockerfile (L67-76) copies the whole workspace
+  commands.** The Dockerfile (L73-82) copies the whole workspace
   `node_modules` (`tsx` is a runtime dependency; `drizzle-kit` is there only
   because the deps stage installs dev dependencies), `src/`, `drizzle/`,
   `drizzle.config.ts` and `scripts/`.
@@ -278,14 +285,14 @@ precedent.
 - The set-up promise is per channel, never global: about fifteen minutes of the
   clinic's attention; website chat live once the snippet is pasted; Instagram
   and Messenger once the clinic connects them; WhatsApp once its WhatsApp
-  account has a payment method; phone once call forwarding is set, usually the
-  same day. Never "live in two minutes".
+  account has a payment method; phone once call forwarding is set. It describes
+  the step, never the time. Never "live in two minutes".
+- **No opening dates.** A channel is sold only once it is ready; one that isn't
+  comes off the product list and out of the copy (owner, 6 October 2026).
 - The overage rates ($0.80 a voice minute; $0.40 a chat conversation on the
-  single-channel package, $0.30 on the rest) were re-set by the owner on
-  5 October 2026 and are still unmeasured. Copy says they are provisional, and
-  the pilot replaces them. The chat rate varies by package, so a metered price
-  is keyed by its rate and a package asks for the one matching its own row —
-  never pick a metered price by channel alone.
+  single-channel chat package and $0.30 on the rest, set by the owner on 5
+  October 2026) are provisional until measured. Copy says so; the billing
+  mechanics stay as they are.
 - "healdesk is a service of Viixi FZC, a company registered under the Sharjah
   Publishing City Free Zone, United Arab Emirates" appears in the site footer
   and on the Terms and Privacy pages. The registered street address is not
@@ -296,34 +303,60 @@ precedent.
 # The clinic portal (v1)
 
 Clinics sign in. v1 has a clinic portal and an onboarding wizard, served by
-`apps/app` because they show transcripts and bookings. Neither is built yet.
-Build them from the spec's "Account access and credentials", "Portal map",
-"Every switch in the portal" and "What the portal does not have".
+`apps/app` because they show transcripts and bookings. They are being built to
+the plan the owner approved on 6 October 2026,
+`docs/design/funnel-onboarding-portal-2026-10-06.md`, from the spec's "Account
+access and credentials", "Portal map", "Every switch in the portal" and "What
+the portal does not have". Where the plan and the spec differ, the plan records
+the spec edits the owner approved.
 
-- **Seven screens, nothing nested more than one level deep:** Home, Channels,
-  Behaviour, Knowledge, Conversations, Bookings, Billing. Invoices, the payment
-  method and cancellation deep-link into Stripe's own portal.
-- **Getting in.** Payment creates the account against the billing email and
-  lands the buyer in the wizard, already signed in through a one-time link. The
-  welcome email carries a sign-in link, never credentials. Setting a password is
-  optional; the magic link alone is enough.
-- **A second factor before any transcript opens**, and every open writes an
-  access-log row. Toggles, billing and knowledge edits do not need it.
-- **Three roles:** owner (everything, including billing and cancellation),
-  manager (everything except billing), billing contact (invoices and payment
-  method only; never transcripts). Dunning goes to the owner and the billing
-  contact, never to the clinic's public inbox.
+- **Six screens, nothing nested more than one level deep:** Home, Settings,
+  Knowledge, Conversations, Bookings, Billing. Settings holds every switch on one
+  page, in cards. Invoices and the payment method deep-link into Stripe's own
+  portal.
+- **One email address per clinic** (a shared inbox such as info@ is fine). It is
+  the clinic's only sign-in, the Stripe billing email, the agreement's notice
+  address and where every notification goes, dunning included. That address
+  overrides the spec's "never the public inbox", by the owner's decision of
+  6 October 2026.
+- **One shared sign-in in v1.** The spec's three roles (owner, manager, billing
+  contact) are deferred: `requirePortal(slug)` checks membership only.
+- **Getting in.** Payment creates the account against the clinic's address and
+  lands the buyer on `/welcome`, signed in through a one-time link. There are no
+  passwords anywhere. Every later sign-in is an expiring email link.
+- **A passkey per device, with an authenticator-app backup, before any
+  transcript or booking opens.** Every open writes an access-log row naming the
+  device's passkey. Toggles, billing and knowledge edits need no step-up, except
+  where calls and money go: the direct line, the transfer number, the clinic's
+  address, the payment account and exports.
 - **The wizard is four steps:** confirm the pre-filled basics; set behaviour
-  (tone, greeting, deposit toggles and the gateway, voice coverage mode,
-  escalation contacts); connect Google Calendar; connect the channels bought.
-  Every step saves as it completes, and a clinic resumes from the link in its
-  welcome email.
+  (tone, greeting, voice coverage mode, the direct line, deposits and the
+  gateway, the urgent-help number); connect Google Calendar; connect the
+  channels bought. Every step saves as it completes, and a clinic resumes from
+  the link in its welcome email.
+- **Email** (the plan's Annex X):
+  - patient-related mail is a pointer into the portal: never a name, number,
+    time, service or any text from a conversation;
+  - one Resend account sends product mail from hello@healdesk.io and marketing
+    from noreply@healdesk.io, and every email can be replied to;
+  - F0's `billing_notices` is the one outbox and `report_deliveries` the ledger.
+- **Billing starts the day AYA first answers a patient, with no Stripe trial**:
+  a $0 monthly line until then, swapped for the package price on the plain
+  subscription at the first answer. There is no subscription schedule and no
+  backstop date (`docs/design/funnel-portal-contracts-2026-10-06.md` §2). Never
+  reintroduce `trial_end`.
+- **The setup fee is never refunded, and a clinic has 30 days to finish
+  setup** (owner, 6 October 2026). While no channel is live it gets a reminder
+  every five days, six in all; at the end of the 30th day with nothing live,
+  the subscription is cancelled and the account closed, keeping only the signed
+  agreement and the billing records the law requires.
 - **Every connection is a login button:** Google Calendar OAuth, Facebook
   login, WhatsApp embedded signup, the gateway's own connect flow. A clinic never
   pastes a key or a credential. The single-use `/connect/[token]` credential
   handover in `apps/app` today belongs to the phase-two read-back.
 - **The support chat** carries a permanent line telling staff not to paste
-  patient information, and is retained as a non-patient channel.
+  patient information, and stores nothing: the browser holds the conversation,
+  and an escalation emails hello@ structured fields, never chat text.
 - **It must never grow** prompt or script editing, a flow builder, per-channel
   behaviour differences, a live staff inbox, outbound campaigns, raw analytics
   dashboards, immediate in-app cancellation, or direct calendar or EMR

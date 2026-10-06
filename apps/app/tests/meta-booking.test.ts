@@ -275,6 +275,10 @@ describeDb("the booking hand-off, end to end", () => {
     // Accept: one decision, relayed as the fixed line through the sealed token.
     const decided = await decideBookingRequest(token, "accepted", { decidedByLabel: "Jo at the desk", deskNote: "Thursday 10am works" }, sender);
     expect(decided).toEqual({ outcome: "decided", followUp: "sent", appointmentId: null, calendarWrite: null });
+    // The fourth message: three replies above, then this follow-up. (It was
+    // the fifth while a callback-consent question sat between them; that
+    // question went with the call-back dialer on 1 October 2026.)
+    expect(sent).toHaveLength(4);
     expect(sent[3]).toMatchObject({ platform: "messenger", externalId: PAGE_ID, recipientId: "user-77", accessToken: "EAAB-page-token-0123456789" });
     expect(sent[3]!.text).toBe(followUpLine("booking Clinic", "accepted"));
     expect(sent[3]!.text).not.toMatch(/Thursday|10am/);

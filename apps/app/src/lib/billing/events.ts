@@ -765,14 +765,19 @@ function isRecurringLine(line: unknown): boolean {
 }
 
 /**
- * The setup fee is the line whose price key ends in `_setup`. When the price
- * is not expanded on the payload — the current API version sends an id — it
- * is the one-time invoice item, because a subscription-mode Session only ever
- * puts one one-time line on the first invoice and that is the fee.
+ * The setup fee is the line whose price key parses as a `setup` price
+ * (`healdesk_<plan>_setup_<cents>`). When the price is not expanded on the
+ * payload — the current API version sends an id — it is the one-time invoice
+ * item, because a subscription-mode Session only ever puts one one-time line
+ * on the first invoice and that is the fee.
+ *
+ * Parsed, not matched on a suffix: the key ends in the amount, so an
+ * `endsWith("_setup")` test never matched a real key and recorded a paid $997
+ * fee as $0 whenever the price arrived expanded.
  */
 function isSetupLine(line: unknown): boolean {
   const key = lookupKeyOf(line);
-  if (key) return key.endsWith("_setup");
+  if (key) return parseLookupKey(key)?.kind === "setup";
   return (
     prop(prop(line, "parent"), "type") === "invoice_item_details" ||
     prop(line, "type") === "invoiceitem"
@@ -824,9 +829,11 @@ function invoicePeriod(invoice: unknown): { start: Date; end: Date } {
 
 /**
  * The package a subscription is on: the first item whose price is ours and
- * not metered. The metered overage prices, when apps/web attaches them (only
- * once the rates stop being provisional — see its lib/billing.ts), are the
- * same two on every subscription and say nothing about the package.
+ * not metered. The metered overage items are skipped here, but they DO depend
+ * on the package since 5 October 2026 (the chat rate is $0.40 on chat-web and
+ * chat-meta and $0.30 elsewhere; packages/catalog `planMeteredPrices`), so a plan change
+ * must also swap them — reading the package from the licensed item alone
+ * says nothing about whether the metered items still match it.
  */
 function planFromSubscription(
   subscription: unknown,

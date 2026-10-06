@@ -17,8 +17,9 @@ export function StepShell({
   onBack,
   onClose,
 }: {
-  step: number;
-  totalSteps: number;
+  /** Both absent on a one-screen form: no progress bar, no "Step 1 of 1". */
+  step?: number;
+  totalSteps?: number;
   eyebrow: string;
   title: string;
   subtitle?: string;
@@ -48,9 +49,13 @@ export function StepShell({
           ) : (
             <span />
           )}
-          <span className="text-muted ml-auto text-xs font-bold tracking-[0.14em] uppercase">
-            Step {step} of {totalSteps}
-          </span>
+          {step && totalSteps ? (
+            <span className="text-muted ml-auto text-xs font-bold tracking-[0.14em] uppercase">
+              Step {step} of {totalSteps}
+            </span>
+          ) : (
+            <span className="ml-auto" />
+          )}
 
           {onClose ? (
             <button
@@ -64,19 +69,21 @@ export function StepShell({
           ) : null}
         </div>
 
-        <div
-          className="bg-line/40 flex h-1 overflow-hidden rounded-full"
-          role="progressbar"
-          aria-valuenow={step}
-          aria-valuemin={1}
-          aria-valuemax={totalSteps}
-          aria-label={`Step ${step} of ${totalSteps}`}
-        >
-          <span
-            className="bg-brand-gradient h-full transition-[width] duration-500 ease-panel"
-            style={{ width: `${(step / totalSteps) * 100}%` }}
-          />
-        </div>
+        {step && totalSteps ? (
+          <div
+            className="bg-line/40 flex h-1 overflow-hidden rounded-full"
+            role="progressbar"
+            aria-valuenow={step}
+            aria-valuemin={1}
+            aria-valuemax={totalSteps}
+            aria-label={`Step ${step} of ${totalSteps}`}
+          >
+            <span
+              className="bg-brand-gradient h-full transition-[width] duration-500 ease-panel"
+              style={{ width: `${(step / totalSteps) * 100}%` }}
+            />
+          </div>
+        ) : null}
       </div>
 
       <p className="text-muted text-xs font-bold tracking-[0.14em] uppercase">
@@ -107,6 +114,11 @@ export function Reassurance() {
   );
 }
 
+/**
+ * The deep gradient, because white on the brand gradient's orange end is
+ * 2.67:1 and this button's label is white body text (globals.css explains
+ * the stops).
+ */
 export function PrimaryButton({
   children,
   disabled,
@@ -123,7 +135,7 @@ export function PrimaryButton({
       type={type}
       disabled={disabled}
       onClick={onClick}
-      className="bg-brand-gradient shadow-brand inline-flex items-center gap-2 rounded-full px-8 py-4 text-base font-bold text-white transition-all duration-200 hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-40"
+      className="bg-brand-gradient-deep shadow-brand inline-flex items-center gap-2 rounded-full px-8 py-4 text-base font-bold text-white transition-all duration-200 hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-40"
     >
       {children}
     </button>

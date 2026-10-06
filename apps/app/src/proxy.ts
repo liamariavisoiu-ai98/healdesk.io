@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 import { NextResponse, type NextRequest } from "next/server";
 
 /**
@@ -8,51 +10,69 @@ import { NextResponse, type NextRequest } from "next/server";
  * docs/hipaa-compliance.md forbids edge on anything touching PHI, and this is
  * one rule the framework now enforces for us.
  *
- * ## Why this file no longer redirects anybody
+ * ## Why it gates nothing
  *
- * It used to send any request without a session cookie to `/sign-in`, because
- * this app had a clinic console behind a login. It has neither any more. The
- * console was deleted on 7 September and its replacement lives at
- * healdesk.io/admin in apps/web, behind one account that never signs in here;
- * `(auth)/sign-in` and `(auth)/accept-invite` went with the invitation system,
- * so the destination of that redirect does not exist. A redirect to a 404 is a
- * worse answer than the 404 itself, and for the signed API calls that make up
- * almost all of this app's traffic it is worse again: a 307 pointing at HTML,
- * in reply to a POST, is a genuinely baffling thing to debug from the caller's
- * side.
+ * Everything here authenticates itself, and a proxy check would protect
+ * neither route handlers nor client-side navigations. The clinic portal's
+ * pages and server actions each call requirePortal, and patient pages
+ * requireStepUp. The signed API routes (`/api/provision`, `/api/agreements`,
+ * `/api/ops`, `/api/checkout/*`) check an HMAC over the body and a timestamp,
+ * the webhooks check their provider's signature, and the single-use link
+ * pages (`/link`, `/connect`, `/booking`) resolve their token server-side.
  *
- * What is left in this app authenticates itself, every one of them, and none of
- * them on a session cookie:
+ * ## What it does
  *
- *   - `/api/provision`, `/api/agreements`, `/api/ops` — an HMAC over the body
- *     and a timestamp, keyed on a secret that never reaches a browser.
- *   - `/api/webhooks` — the payload signature, checked in the adapter against
- *     that clinic's own credential.
- *   - `/api/auth` — Better Auth's own surface. The tables stay because
- *     `clinics.organizationId` is NOT NULL and references `organization`, so
- *     organisations remain a data concept even with nobody logging in.
- *   - `/connect/[token]` — the clinic's single-use credential handover. A
- *     clinic has no session and is never going to have one: they click one link
- *     in one email, paste one credential, and are finished. The route looks the
- *     token up by SHA-256 hash and consumes it with a conditional update the
- *     first time it is spent, and it holds no session before or after. The page
- *     and its server action each re-resolve that token server-side and take the
- *     clinic identity from the row they find, never from anything the browser
- *     sent alongside it.
- *
- * So there is nothing here to gate and nothing to gate it against. The file
- * stays rather than being deleted because `config.matcher` is what keeps the
- * Node runtime assertion above in force, and because the next person to add a
- * page to this app should find this reasoning rather than an empty directory.
- *
- * If a human-facing, session-backed page is ever added here, the check belongs
- * in the page, not in this file: a proxy check protects neither route handlers
- * nor client-side navigations, which is why the old one was explicitly labelled
- * as not a security boundary.
+ * 1. **Tells a page its own path.** A patient page that needs a passkey
+ *    step-up sends the browser to `/c/<slug>/step-up?next=<this page>`, and a
+ *    server component cannot see its own URL, so the path is passed down as a
+ *    request header (PATH_HEADER in lib/portal/step-up.ts), overwriting any
+ *    the client sent. Only the pathname: a query string can carry a search
+ *    term, and `next` ends up in history. It is validated where it is used.
+ * 2. **Gives every request its own script nonce** (plan Part D6). The page's
+ *    Content-Security-Policy allows only scripts carrying that nonce, and
+ *    whatever they load ('strict-dynamic'), so a script injected into a page,
+ *    through a transcript, a clinic's knowledge or anything else rendered
+ *    here, does not run. Next reads the nonce from the request's policy and
+ *    stamps it on its own scripts and inline styles, for every dynamically
+ *    rendered page, which is every page in this app that shows anything of a
+ *    clinic's.
  */
 
-export function proxy(_request: NextRequest) {
-  return NextResponse.next();
+/** Where a form here may send the browser: this app, and the login pages its connect buttons open. */
+const FORM_TARGETS = ["https://accounts.google.com", "https://connect.stripe.com"] as const;
+
+/** The policy for one response. Development keeps eval for React's tooling, and plain http. */
+export function contentSecurityPolicy(
+  nonce: string,
+  production: boolean = process.env.NODE_ENV === "production",
+): string {
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${production ? "" : " 'unsafe-eval'"}`,
+    `style-src 'self' 'nonce-${nonce}'`,
+    "img-src 'self' blob: data:",
+    "font-src 'self'",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    `form-action 'self' ${FORM_TARGETS.join(" ")}`,
+    "frame-ancestors 'none'",
+    ...(production ? ["upgrade-insecure-requests"] : []),
+  ].join("; ");
+}
+
+export function proxy(request: NextRequest) {
+  const nonce = randomBytes(16).toString("base64");
+  const policy = contentSecurityPolicy(nonce);
+
+  const forwarded = new Headers(request.headers);
+  forwarded.set("x-healdesk-path", request.nextUrl.pathname);
+  forwarded.set("x-nonce", nonce);
+  forwarded.set("Content-Security-Policy", policy);
+
+  const response = NextResponse.next({ request: { headers: forwarded } });
+  response.headers.set("Content-Security-Policy", policy);
+  return response;
 }
 
 export const config = {

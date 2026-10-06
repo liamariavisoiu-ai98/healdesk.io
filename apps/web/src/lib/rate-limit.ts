@@ -2,8 +2,8 @@ import { isMarketingStoreConfigured, sheetsClient, type SheetsClient } from "@/l
 import { COUNTERS, dataRange, ensureSheetSchema, recordToRow, rowRange, rowToRecord, type Counter } from "@/lib/sheets/schema";
 
 /**
- * Fixed-window rate limiter: per-instance memory, plus a shared row for the
- * two site-wide daily spend caps.
+ * Fixed-window rate limiter: per-instance memory, plus a shared row for each
+ * of the four site-wide daily spend caps.
  *
  * ## What is shared and what is not, and why
  *
@@ -20,11 +20,12 @@ import { COUNTERS, dataRange, ensureSheetSchema, recordToRow, rowRange, rowToRec
  *
  * The counters that bound the BILL rather than a visitor are different:
  * `chat:global:day` (api/chat and the personalised demo's chat),
- * `callback:global:day` (api/callback) and `webcall:global:day` (the
- * personalised demo's browser calls) cap model turns and voice calls per UTC
- * day across the whole site, and a cap that resets on every cold start is
- * not a cap. Those three, and only those (`GLOBAL_CAP_KEYS`), are backed by
- * the `counters` tab of the marketing Sheet.
+ * `callback:global:day` (api/callback), `site-read:global:day`
+ * (api/clinic-site) and `webcall:global:day` (the personalised demo's browser
+ * calls) cap model turns, voice calls and website reads per UTC day across
+ * the whole site, and a cap that resets on every cold start is not a cap.
+ * Those four, and only those (`GLOBAL_CAP_KEYS`), are backed by the
+ * `counters` tab of the marketing Sheet.
  *
  * ## How the shared path works, and what it gets wrong on purpose
  *
@@ -61,14 +62,20 @@ export type RateLimitResult = {
   retryAfter: number;
 };
 
-/** The only keys that go through the Sheet. Anything else is per-instance memory. */
 /**
- * `webcall:global:day` joined the first two on 6 October 2026: the
- * personalised demo's browser calls (api/demo/[slug]/retell) spend the same
- * voice minutes a dialled call does, under their own ceiling so a busy demo
- * week cannot use up the homepage's "call me".
+ * The only keys that go through the Sheet. Anything else is per-instance
+ * memory. `site-read:global:day` (api/clinic-site) caps the website reads at
+ * checkout, each of which is a model call. `webcall:global:day` (6 October
+ * 2026) caps the personalised demo's browser calls (api/demo/[slug]/retell),
+ * which spend the same voice minutes a dialled call does, under their own
+ * ceiling so a busy demo week cannot use up the homepage's "call me".
  */
-export const GLOBAL_CAP_KEYS: ReadonlySet<string> = new Set(["chat:global:day", "callback:global:day", "webcall:global:day"]);
+export const GLOBAL_CAP_KEYS: ReadonlySet<string> = new Set([
+  "chat:global:day",
+  "callback:global:day",
+  "site-read:global:day",
+  "webcall:global:day",
+]);
 
 export function isGlobalCapKey(key: string): boolean {
   return GLOBAL_CAP_KEYS.has(key);

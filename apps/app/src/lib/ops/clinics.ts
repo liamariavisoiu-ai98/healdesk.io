@@ -64,8 +64,12 @@ export type ClinicOverview = {
   bookingRequirements: string[] | null;
   bookingRequirementsConfirmedAt: Date | null;
   bookingRequirementsSource: "practice" | "operator" | "defaults" | null;
+  // 0043: the clinic whose subscription this location is billed on (null: its
+  // own billing clinic), and when its Stripe Connect account was disconnected.
+  billingClinicId: string | null;
+  stripeConnectDisconnectedAt: Date | null;
   /**
-   * 0042: the version of the agreement in effect (app_agreement_in_effect),
+   * 0048: the version of the agreement in effect (app_agreement_in_effect),
    * or null when none is bound and unterminated. Contract metadata, never
    * patient data. Read outside a tenant, as every caller here does; inside
    * one, RLS hides every other organisation's agreement and this reads null.
@@ -90,6 +94,7 @@ export async function listClinics(): Promise<ClinicOverview[]> {
                booking_mode, direct_booking_elected_at, direct_booking_withdrawn_at,
                timezone_confirmed_at,
                booking_requirements, booking_requirements_confirmed_at, booking_requirements_source,
+               billing_clinic_id, stripe_connect_disconnected_at,
                baa_version
           from app_clinics_overview()`,
   );
@@ -144,6 +149,10 @@ export async function listClinics(): Promise<ClinicOverview[]> {
       ? new Date(row.booking_requirements_confirmed_at as string)
       : null,
     bookingRequirementsSource: (["practice", "operator", "defaults"] as const).find((s) => s === row.booking_requirements_source) ?? null,
+    billingClinicId: (row.billing_clinic_id as string | null) ?? null,
+    stripeConnectDisconnectedAt: row.stripe_connect_disconnected_at
+      ? new Date(row.stripe_connect_disconnected_at as string)
+      : null,
     baaVersion: (row.baa_version as string | null) ?? null,
   }));
 }
@@ -170,7 +179,7 @@ export function blockersFor(clinic: ClinicOverview): ClinicBlocker[] {
     // Before the covered-entity line on purpose: when nothing is blocked the
     // clinic card shows the first item, and on a synthetic clinic this one
     // decides whether it can go live at all (app_mark_clinic_production
-    // refuses it, 0042). Not "blocked": a live clinic keeps running under
+    // refuses it, 0048). Not "blocked": a live clinic keeps running under
     // the agreement it signed while the practice accepts the current one.
     blockers.push({
       level: "attention",

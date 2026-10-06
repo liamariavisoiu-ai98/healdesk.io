@@ -142,7 +142,7 @@ this is only a summary.
   claims
 - ⬜ Pricing — five channel-priced packages in `packages/catalog` (monthly + annual +
   one-time setup fee, no trial) and `stripe:setup` exist, but the pricing page is not
-  final: the overage rates ($0.35/min, $0.25/conversation) are placeholders until measured,
+  final: the overage rates ($0.80/min; $0.40/conversation on the single-channel chat package, $0.30 on the rest, set 5 October 2026) are provisional until measured,
   and WhatsApp service replies inside Meta's window become billable on 1 October 2026
 - ⬜ Provisioning on the first paid invoice — today the Stripe webhook in `apps/web`
   creates the account on `checkout.session.completed`, and `invoice.paid` only activates it

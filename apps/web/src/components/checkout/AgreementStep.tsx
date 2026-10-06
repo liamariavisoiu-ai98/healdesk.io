@@ -15,6 +15,8 @@ import {
 } from "@healdesk/catalog";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { site } from "@/lib/site";
+
 import { ChoiceCard, PrimaryButton, StepShell } from "./StepShell";
 
 /**
@@ -347,7 +349,7 @@ export function AgreementStep({
     <StepShell
       step={step}
       totalSteps={totalSteps}
-      eyebrow="Get started"
+      eyebrow={site.cta.primary.label}
       title="The agreement, before anything else"
       subtitle="Nothing is charged on this step. You'll see the plan and price next."
       onBack={onBack}

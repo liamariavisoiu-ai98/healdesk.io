@@ -6,17 +6,16 @@ import { CitySelect } from "@/components/CitySelect";
 import { site } from "@/lib/site";
 
 /**
- * "Leave a review", a small control under the homepage FAQ, and the form it
- * opens.
+ * "Leave a review", the control beside the score on the review wall (or under
+ * the homepage FAQ while the wall is hidden), and the form it opens.
  *
  * ## It used to be a panel, twice
  *
  * First a card in the bento, then a full-width orange banner carrying the
  * niche deck's circle-flood. Both were too loud for what they are: an invitation
  * aimed at the small minority of visitors who are already customers. It is a
- * two-line text control now. The review wall it once sat beside was
- * placeholder content and is gone (src/lib/reviews.ts); this control is what
- * collects the real ones. Its natural home later is the clinic portal, for a
+ * two-line text control now, and it is what collects the reviews the wall
+ * shows (src/lib/reviews.ts). Its natural home later is the clinic portal, for a
  * signed-in owner.
  *
  * ## Why the customer ID is asked for, and what it is not

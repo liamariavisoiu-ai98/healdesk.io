@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import {
   completeConnect,
@@ -248,6 +248,35 @@ describeDb("phase 8, against the database", () => {
     expect(await sendLiveAlert(c.clinicId, "booked", booked.conversationId, transport)).toBe("sent");
     expect(transport.sent[0]!.message.text).toMatch(/deposit is due/);
     expect(transport.sent[0]!.message.text).not.toMatch(/\+1555|Consultation/);
+  });
+
+  test("a bad BETTER_AUTH_URL costs the desk its email, never the caller's request", async () => {
+    const c = await seedClinic("bad-origin");
+    await makeProduction(c.clinicId, new Date(Date.now() - 10 * DAY));
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      addRecipient(tx, { email: "desk@example-clinic.test", addedBy: "test" }),
+    );
+    // No scheme: publicUrl() refuses to build the desk's link in any
+    // environment. The throw used to escape notifyDesk inside ingestCall's
+    // transaction and roll back the conversation and the request with it.
+    vi.stubEnv("BETTER_AUTH_URL", "app.healdesk.io");
+    try {
+      const deskMail = new FakeTransport();
+      const booked = await ingestCall(
+        call(c.clinicId, { outcome: "booked", booking: { scheduledFor: new Date(Date.now() + 3 * DAY), treatment: "Consultation" } }),
+        ACTOR,
+        { transport: deskMail },
+      );
+      expect(booked.bookingRequestId).not.toBeNull();
+      expect(deskMail.sent).toHaveLength(0);
+      const kept = await inTenant(c.clinicId, (client) =>
+        client.query<{ desk_notified_at: Date | null }>(`select desk_notified_at from booking_requests`),
+      );
+      expect(kept.rows).toEqual([{ desk_notified_at: null }]);
+      expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from conversations`))).rows).toHaveLength(1);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   test("the deposit rule is validated and a stranger's collection method is refused", async () => {

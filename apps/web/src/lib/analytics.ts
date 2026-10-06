@@ -43,7 +43,12 @@ export const EVENTS = {
   checkout_started: ["plan", "interval"],
   checkout_step: ["step", "plan", "interval"],
   contact_submitted: [],
+  setup_requested: ["has_website"],
   call_requested: [],
+  // "Get in touch": the Calendly modal opened, and a call booked in it. The
+  // booking's own payload names the invitee and never leaves GetInTouch.tsx.
+  meeting_opened: [],
+  meeting_booked: [],
 } as const satisfies Record<string, readonly string[]>;
 
 export type EventName = keyof typeof EVENTS;

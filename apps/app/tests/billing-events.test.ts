@@ -130,7 +130,7 @@ function subscription(
           id: "si_metered",
           price: {
             id: "price_meter",
-            lookup_key: "healdesk_meter_voice_minutes",
+            lookup_key: "healdesk_meter_voice_minutes_80",
             recurring: { usage_type: "metered" },
           },
         },
@@ -169,6 +169,8 @@ describe("parseLookupKey", () => {
 
   test("returns null for anything that is not a package price", () => {
     expect(parseLookupKey("healdesk_meter_voice_minutes")).toBeNull();
+    expect(parseLookupKey("healdesk_meter_voice_minutes_80")).toBeNull();
+    expect(parseLookupKey("healdesk_meter_chat_conversations_30")).toBeNull();
     expect(parseLookupKey("scalabid_pro_month_9900")).toBeNull();
     expect(parseLookupKey("healdesk_web-voice_weekly_100")).toBeNull();
     expect(parseLookupKey("")).toBeNull();
@@ -641,5 +643,80 @@ describeDb("handleStripeEvent", () => {
       ),
     );
     expect(rows).toEqual([{ from_status: "canceled", to_status: "canceled", reason: "dispute" }]);
+  });
+});
+
+describeDb("the setup fee on an invoice whose prices arrive expanded", () => {
+  let clinicId: string;
+  const ids: Ids = { customer: "cus_expandedfee", subscription: "sub_expandedfee" };
+
+  beforeAll(async () => {
+    await runMigrations();
+    clinicId = (await seedClinic("expandedfee")).clinicId;
+    await withTenant({ clinicId, actor: { type: "system" } }, (tx) =>
+      seedEntitlements(tx.db, clinicId, {
+        plan: webVoice,
+        interval: "month",
+        stripeCustomerId: ids.customer,
+        stripeSubscriptionId: ids.subscription,
+      }),
+    );
+  }, 60_000);
+
+  afterAll(async () => {
+    await closePools();
+  });
+
+  test("a setup line carrying its lookup key is recorded at its amount, not $0", async () => {
+    // The legacy line shape an older endpoint API version sends: `line.price`
+    // is the full Price object, lookup key included. The setup key ends in the
+    // amount (healdesk_web-voice_setup_99700), so it has to be parsed — a
+    // suffix test for "_setup" never matched and recorded $0.
+    const start = Math.floor(Date.now() / 1000);
+    const end = start + 30 * DAY;
+    const e = event("invoice.paid", {
+      id: "in_expandedfee",
+      object: "invoice",
+      customer: ids.customer,
+      billing_reason: "subscription_create",
+      period_start: start,
+      period_end: start,
+      subscription: ids.subscription,
+      subscription_details: { metadata: { app: "healdesk" } },
+      lines: {
+        object: "list",
+        data: [
+          {
+            id: "il_pkg",
+            amount: webVoice.monthlyUsd * 100,
+            period: { start, end },
+            type: "subscription",
+            price: {
+              id: "price_pkg",
+              lookup_key: stripeLookupKey(webVoice, "month"),
+              recurring: { usage_type: "licensed" },
+            },
+          },
+          {
+            id: "il_fee",
+            amount: webVoice.setupFeeUsd * 100,
+            period: { start, end: start },
+            type: "invoiceitem",
+            price: { id: "price_fee", lookup_key: stripeLookupKey(webVoice, "setup"), recurring: null },
+          },
+        ],
+      },
+    });
+
+    expect(await handleStripeEvent(e)).toMatchObject({ outcome: "processed", clinicId });
+    const { rows } = await inTenant(clinicId, (client) =>
+      client.query<{ status: string; setup_fee_paid_usd: string; current_period_end: Date }>(
+        `select status, setup_fee_paid_usd, current_period_end from entitlements where clinic_id = $1`,
+        [clinicId],
+      ),
+    );
+    expect(rows[0]!.status).toBe("active");
+    expect(rows[0]!.setup_fee_paid_usd).toBe("997.00");
+    expect(rows[0]!.current_period_end.getTime()).toBe(end * 1000);
   });
 });

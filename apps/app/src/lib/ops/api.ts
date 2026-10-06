@@ -57,6 +57,8 @@ import {
   type IncidentClass,
 } from "@/lib/incidents/incidents";
 import { connectAuthorizeUrl } from "@/lib/billing/connect";
+import { applyEmailEvent, isDeliveryStatus } from "@/lib/email/events";
+import { KIND_SHAPE } from "@/lib/email/kind-rules";
 import { markExportDelivered, startOffboarding } from "@/lib/offboarding/offboarding";
 import { startForwardingTest } from "@/lib/onboarding/forwarding-test";
 import { listConnections } from "@/lib/connections/store";
@@ -69,6 +71,7 @@ import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
 import { sendSetupLink } from "@/lib/email/setup-link";
 import { env } from "@/lib/env";
+import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import { writableConnection, writeToCalendar, type CalendarWriteOutcome } from "@/lib/booking/calendar";
 import { directBookingAllowed } from "@/lib/booking/mode";
 import { applyBookingRequirementDefaultsFor, setBookingRequirementsWithin } from "@/lib/onboarding/requirements";
@@ -264,6 +267,12 @@ const OPERATIONS = [
   "issueSetupLink",
   "retryCalendarWrite",
   "listCalendarWrites",
+  // The email platform (Annex X3): a Resend webhook event for mail this app
+  // sent, relayed by apps/web's one webhook. Machine to machine: the relay's
+  // caller verified Resend's signature, and the event carries ids, a status and
+  // a timestamp, never an address. It writes the delivery ledger, which is its
+  // record, and no audit row, so it is not in MUTATING_OPERATIONS.
+  "emailEvent",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -797,6 +806,8 @@ export async function runOperation(
       return opRetryCalendarWrite(args, operator);
     case "listCalendarWrites":
       return opListCalendarWrites(args, operator);
+    case "emailEvent":
+      return opEmailEvent(args);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The
@@ -1174,13 +1185,18 @@ async function opIssueConnectLink(
   const writeGuard = await refuseCalendarWriteLinkWithout(clinic.id, actorFor(operator), operator.request);
   if (writeGuard) return ok(writeGuard);
 
+  // Before minting: a link committed with no origin to put it on is a live
+  // credential nobody receives.
+  const originProblem = publicOriginProblem();
+  if (originProblem) return ok({ status: "error", message: originProblem } satisfies IssueConnectLinkState);
+
   const { token, expiresAt } = await issueConnectionLink(
     clinic.id,
     {},
     { actor: actorFor(operator), request: operator.request },
   );
 
-  const url = `${env.betterAuthUrl().replace(/\/$/, "")}/connect/${token}`;
+  const url = publicUrl(`/connect/${token}`);
 
   let delivery: ConnectLinkDelivery = { attempted: false };
 
@@ -3509,12 +3525,14 @@ async function opIssueSetupLink(
   if (to !== undefined && !EMAIL_SHAPED.test(to)) {
     return ok({ status: "error", message: "That doesn't look like an email address." } satisfies IssueConnectLinkState);
   }
+  const originProblem = publicOriginProblem();
+  if (originProblem) return ok({ status: "error", message: originProblem } satisfies IssueConnectLinkState);
   const { token, expiresAt } = await issueConnectionLink(
     clinic.id,
     { purpose: "setup" },
     { actor: actorFor(operator), request: operator.request },
   );
-  const url = `${env.betterAuthUrl().replace(/\/$/, "")}/setup/${token}`;
+  const url = publicUrl(`/setup/${token}`);
   let delivery: ConnectLinkDelivery = { attempted: false };
   if (to) {
     const result = await sendSetupLink({ to, clinicId: clinic.id, clinicName: clinic.name, specialty: clinic.specialty, url, expiresAt });
@@ -3574,4 +3592,45 @@ async function opListCalendarWrites(
     },
   );
   return ok({ writes });
+}
+
+// -----------------------------------------------------------------------------
+// The email platform: Resend's webhook, relayed (Annex X3)
+// -----------------------------------------------------------------------------
+
+/**
+ * One delivery event for mail this app sent, as apps/web relays it: the type
+ * in the ledger's vocabulary, the event's timestamp, and the tags this app put
+ * on the email (clinic, delivery, kind). Every value is checked for shape
+ * before anything is opened; nothing else in `args` is read, so an address
+ * that strayed into the envelope goes nowhere.
+ */
+async function opEmailEvent(args: Record<string, unknown>): Promise<OpsOutcome> {
+  const type = stringArg(args, "type", 32);
+  if (!type || !isDeliveryStatus(type)) {
+    return opsProblem("A delivery event type is required.", 400, "invalid_args");
+  }
+  const atRaw = stringArg(args, "at", 40);
+  const at = atRaw ? new Date(atRaw) : null;
+  if (!at || Number.isNaN(at.getTime())) {
+    return opsProblem("The event's timestamp is required.", 400, "invalid_args");
+  }
+  const clinic = stringArg(args, "clinic", 64);
+  const delivery = stringArg(args, "delivery", 64);
+  const kind = stringArg(args, "kind", 64);
+  if (
+    (clinic && !UUID_SHAPED.test(clinic)) ||
+    (delivery && !UUID_SHAPED.test(delivery)) ||
+    (kind && !KIND_SHAPE.test(kind))
+  ) {
+    return opsProblem("The event's tags are not ids.", 400, "invalid_args");
+  }
+  const result = await applyEmailEvent({
+    type,
+    at,
+    ...(clinic ? { clinic } : {}),
+    ...(delivery ? { delivery } : {}),
+    ...(kind ? { kind } : {}),
+  });
+  return ok(result);
 }

@@ -32,26 +32,26 @@
  * There is no trial. Provisioning builds a voice agent before the clinic sees
  * anything, and the setup fee is what pays for that — see the catalog header.
  *
- * ## Overage: two meters, one price per distinct rate
+ * ## Overage: two meters, one metered price per rate
  *
  * Voice minutes and chat conversations over the allowance are billed through
  * Stripe Billing Meters: the app sends a meter event per unit consumed, Stripe
  * sums them per period, and a metered Price attached to the subscription turns
  * the sum into an invoice line. Each meter is keyed by its `event_name`, which
- * is what the app sends, and each metered price by a stable lookup_key. The
- * prices are created here unconditionally; whether Checkout ATTACHES them is
- * decided in apps/web/src/lib/billing.ts, and it does not while the rates are
- * provisional (nor does anything send meter events yet).
+ * is what the app sends, and backs one per_unit price for every distinct
+ * overage rate the catalog uses on that channel. Since 5 October 2026 that is
+ * three prices on two meters: voice at $0.80, chat at $0.40 (the
+ * single-channel chat package) and chat at $0.30 (the rest). A subscription
+ * carries only its own package's price, so one event stream bills each clinic
+ * at its own rate.
  *
- * Packages no longer share one chat rate: since 5 October 2026 the
- * single-channel chat package bills $0.40 a conversation and the rest $0.30.
- * A per_unit price carries one amount, so one price per DISTINCT RATE is
- * created on each meter, keyed by that rate (`meterPriceLookupKey` in the
- * catalog). A rate no package uses produces no price, and two packages on the
- * same rate share one. Checkout then attaches the price matching the package
- * it is selling, which is `overageLookupKeys()` in apps/web/src/lib/billing.ts
- * — the pairing that makes this safe, because a price keyed by rate cannot be
- * attached to a package billing a different one.
+ * Each metered price's lookup_key encodes its rate, from
+ * `meteredPriceLookupKey()` (`healdesk_meter_chat_conversations_30`), for the
+ * same reason a package key encodes its amount: a rate change creates a new
+ * price instead of silently resolving to the old one, and the old price is
+ * reported STALE. The prices are created here unconditionally; whether
+ * Checkout ATTACHES them is decided in apps/web/src/lib/billing.ts, and it
+ * does not while the rates are provisional.
  *
  * ## Idempotent by lookup_key, not by name
  *
@@ -64,12 +64,11 @@
  * archive it once nobody is billing on it.
  *
  * Nothing here is destructive: nothing is archived or deleted, and no amount
- * is ever updated. Two writes go beyond create. A product's name and
- * description are brought in line with the catalog, because they are display
- * text the buyer reads on Checkout and every invoice, and changing them moves
- * no money. And `transfer_lookup_key` is used only when the key is held by an
- * INACTIVE price — Stripe keeps lookup keys unique across prices, so without
- * the transfer an archived price would block its own replacement.
+ * is ever updated. Beyond create, a product's name and description are
+ * brought in line with the catalog (see findOrCreateProduct), and
+ * `transfer_lookup_key` is used only when the key is
+ * held by an INACTIVE price — Stripe keeps lookup keys unique across prices,
+ * so without the transfer an archived price would block its own replacement.
  */
 
 import {
@@ -77,11 +76,12 @@ import {
   channelList,
   COHORT_SETUP_CREDIT,
   METERS,
-  meterPriceLookupKey,
+  type MeterId,
   OVERAGE_RATES_PROVISIONAL,
+  overageRateCents,
+  planMeteredPrices,
   plans,
   stripeLookupKey,
-  type Meter,
   type Plan,
   type PriceKind,
 } from "@healdesk/catalog";
@@ -134,26 +134,25 @@ type DesiredPackage = {
   prices: readonly DesiredPrice[];
 };
 
+type DesiredMeteredPrice = {
+  lookupKey: string;
+  /** Per unit (one minute, one conversation), in whole cents. */
+  unitCents: number;
+  /** The packages billed at this rate, for the nickname and the report. */
+  planIds: readonly string[];
+};
+
 type DesiredMeter = {
   eventName: string;
   displayName: string;
-  lookupKey: string;
-  /** Per unit (one minute, one conversation). May be fractional cents. */
-  unitCents: number;
   unitLabel: string;
+  prices: readonly DesiredMeteredPrice[];
 };
 
 type Desired = {
   packages: readonly DesiredPackage[];
   meters: readonly DesiredMeter[];
 };
-
-/** "2 meters, 3 metered prices" — the count is no longer one price per meter. */
-function describeMeters(desired: Desired): string {
-  const meters = new Set(desired.meters.map((m) => m.eventName)).size;
-  const prices = desired.meters.length;
-  return `${meters} meter${meters === 1 ? "" : "s"}, ${prices} metered price${prices === 1 ? "" : "s"}`;
-}
 
 function usd(cents: number): string {
   return `$${(cents / 100).toLocaleString("en-US", {
@@ -233,32 +232,29 @@ function desiredPrices(plan: Plan): DesiredPrice[] {
 }
 
 /**
- * The single rate shared by every package that has the channel.
- *
- * One metered price per DISTINCT rate the catalog actually uses on this
- * meter, lowest first so the output reads in order. Packages sharing a rate
- * share a price; a rate nobody charges is never created. The lookup key
- * carries the rate, so a package can only ever be sold the price that bills
- * what its own row says (catalog `meterPriceLookupKey`).
+ * One metered price per distinct rate on the meter, from the packages that
+ * bill it. `planMeteredPrices()` is the same function checkout uses to pick a
+ * Session's metered prices, so a package can never be sold a key this script
+ * did not create. `overageRateCents()` throws on a zero or fractional-cent
+ * rate, which fires here in a dry run too: a package that sells a channel
+ * must also say what its overage costs.
  */
-function meterPricesFor(
-  meter: Meter,
-  hasChannel: (plan: Plan) => boolean,
-  rateOf: (plan: Plan) => number,
-): DesiredMeter[] {
-  const rates = new Set<number>();
+function desiredMeteredPrices(meter: MeterId): DesiredMeteredPrice[] {
+  const byKey = new Map<string, { unitCents: number; planIds: string[] }>();
   for (const plan of plans) {
-    if (hasChannel(plan) && rateOf(plan) > 0) rates.add(rateOf(plan));
+    for (const price of planMeteredPrices(plan)) {
+      if (price.meter !== meter) continue;
+      const entry = byKey.get(price.lookupKey) ?? {
+        unitCents: overageRateCents(price.rateUsd),
+        planIds: [],
+      };
+      entry.planIds.push(plan.id);
+      byKey.set(price.lookupKey, entry);
+    }
   }
-  return [...rates]
-    .sort((a, b) => a - b)
-    .map((rate) => ({
-      eventName: meter.eventName,
-      displayName: meter.displayName,
-      lookupKey: meterPriceLookupKey(meter, rate),
-      unitCents: rate * 100,
-      unitLabel: meter.unitLabel,
-    }));
+  return [...byKey]
+    .map(([lookupKey, entry]) => ({ lookupKey, ...entry }))
+    .sort((a, b) => b.unitCents - a.unitCents);
 }
 
 function computeDesired(): Desired {
@@ -269,18 +265,12 @@ function computeDesired(): Desired {
       description: describePackage(plan),
       prices: desiredPrices(plan),
     })),
-    meters: [
-      ...meterPricesFor(
-        METERS.voiceMinutes,
-        (p) => p.channels.voice,
-        (p) => p.overagePerVoiceMinuteUsd,
-      ),
-      ...meterPricesFor(
-        METERS.chatConversations,
-        (p) => p.channels.web || p.channels.meta,
-        (p) => p.overagePerChatConversationUsd,
-      ),
-    ],
+    meters: (Object.keys(METERS) as MeterId[]).map((id) => ({
+      eventName: METERS[id].eventName,
+      displayName: METERS[id].displayName,
+      unitLabel: METERS[id].unitLabel,
+      prices: desiredMeteredPrices(id),
+    })),
   };
 }
 
@@ -289,9 +279,9 @@ function computeDesired(): Desired {
 // when anything drifted so a deploy step that runs this cannot shrug it off.
 // ---------------------------------------------------------------------------
 
-type Tally = { created: number; updated: number; verified: number; drift: number; stale: number };
+type Tally = { created: number; verified: number; updated: number; drift: number; stale: number };
 
-const tally: Tally = { created: 0, updated: 0, verified: 0, drift: 0, stale: 0 };
+const tally: Tally = { created: 0, verified: 0, updated: 0, drift: 0, stale: 0 };
 
 function line(glyph: "✓" | "+" | "✗" | "~" | "·", text: string): void {
   console.log(`  ${glyph} ${text}`);
@@ -300,10 +290,6 @@ function line(glyph: "✓" | "+" | "✗" | "~" | "·", text: string): void {
 function created(text: string): void {
   tally.created += 1;
   line("+", text);
-}
-function updated(text: string): void {
-  tally.updated += 1;
-  line("~", text);
 }
 function verified(text: string): void {
   tally.verified += 1;
@@ -349,32 +335,35 @@ async function listOurActivePrices(
   return out;
 }
 
+/**
+ * Find a product by its metadata key, or create it. An existing product's
+ * name and description ARE brought in line with the catalog: they carry the
+ * allowances a buyer reads on Checkout and on the invoice, and a product
+ * created before an allowance change would otherwise keep advertising the old
+ * numbers while apps/app enforces the new ones. That is the one edit this
+ * script makes, because it changes no amount: prices stay immutable here.
+ */
 async function findOrCreateProduct(
   stripe: Stripe,
   products: Stripe.Product[],
   metaKey: string,
   metaValue: string,
-  params: Omit<Stripe.ProductCreateParams, "metadata">,
+  params: Omit<Stripe.ProductCreateParams, "metadata"> & { name: string; description: string },
 ): Promise<Stripe.Product> {
   const found = products.find((p) => p.metadata[metaKey] === metaValue);
   if (found) {
-    // Products are matched by metadata, never by name, so a renamed package
-    // keeps its product, its prices and every subscription on them; only the
-    // text the buyer reads changes.
-    const changes: Partial<Pick<Stripe.ProductUpdateParams, "name" | "description">> = {};
-    if (found.name !== params.name) changes.name = params.name;
-    if (params.description !== undefined && found.description !== params.description) {
-      changes.description = params.description;
-    }
-    if (Object.keys(changes).length === 0) {
+    if (found.name === params.name && (found.description ?? "") === params.description) {
       verified(`product  ${found.name.padEnd(36)} ${found.id}`);
       return found;
     }
-    const product = await stripe.products.update(found.id, changes);
-    products[products.indexOf(found)] = product;
-    const what = changes.name ? `renamed from "${found.name}"` : "description updated";
-    updated(`product  ${product.name.padEnd(36)} ${product.id}  ${what}`);
-    return product;
+    const updated = await stripe.products.update(found.id, {
+      name: params.name,
+      description: params.description,
+    });
+    products[products.indexOf(found)] = updated;
+    tally.updated += 1;
+    line("~", `UPDATED: product  ${updated.name.padEnd(36)} ${updated.id}  (name or description now matches the catalog)`);
+    return updated;
   }
   const product = await stripe.products.create({
     ...params,
@@ -448,13 +437,13 @@ function packagePriceProblems(
 
 function meteredPriceProblems(
   price: Stripe.Price,
-  want: DesiredMeter,
+  want: DesiredMeteredPrice,
   meterId: string,
 ): string[] {
   const problems: string[] = [];
-  // Metered prices are created with unit_amount_decimal so sub-cent rates are
-  // representable; Stripe echoes it back as a Decimal in cents. Compared as
-  // decimals, not floats — 35 and "35.0000" are the same amount.
+  // Metered prices are created with unit_amount_decimal; Stripe echoes it back
+  // as a Decimal in cents. Compared as decimals, not floats — 30 and
+  // "30.0000" are the same amount.
   const have = price.unit_amount_decimal;
   if (have === null || !have.eq(Stripe.Decimal.from(want.unitCents))) {
     problems.push(
@@ -498,7 +487,7 @@ async function syncPackage(
     products,
     PLAN_META,
     pkg.plan.id,
-    { name: pkg.productName, description: pkg.description },
+    { name: pkg.productName, description: pkg.description, statement_descriptor: STATEMENT_DESCRIPTOR },
   );
 
   for (const want of pkg.prices) {
@@ -537,9 +526,9 @@ async function syncPackage(
 }
 
 // ---------------------------------------------------------------------------
-// The founding-cohort setup credit: one coupon per package.
+// The setup credit: one coupon per package.
 //
-// Day 7 of the nurture sequence offers the first cohort their setup fee back
+// Day 7 of the nurture sequence offers the setup fee back
 // (catalog COHORT_SETUP_CREDIT). Checkout honours it by naming the coupon on
 // the Session (`discounts`, lib/billing.ts), and Stripe refuses a Session
 // that names a coupon it does not have — so this runs before any of those
@@ -565,9 +554,20 @@ async function syncCohortCoupons(stripe: Stripe): Promise<void> {
       if (existing.currency !== "usd") problems.push(`currency is ${existing.currency}`);
       if (existing.duration !== "once") problems.push(`duration is ${existing.duration}, want once`);
       if (!existing.valid) problems.push("coupon is no longer valid");
-      if (problems.length === 0) verified(`${label}  ${existing.id}`);
-      // A coupon's amount cannot be changed in place: delete it and re-run.
-      else drift(`${label}  ${existing.id}: ${problems.join("; ")}`);
+      if (problems.length > 0) {
+        // A coupon's amount cannot be changed in place: delete it and re-run.
+        drift(`${label}  ${existing.id}: ${problems.join("; ")}`);
+        continue;
+      }
+      // The name can, and Stripe prints it on Checkout and the invoice, so it
+      // follows the catalog (it lost "Founding-cohort" on 6 October 2026).
+      if (existing.name !== COHORT_SETUP_CREDIT.name) {
+        await stripe.coupons.update(existing.id, { name: COHORT_SETUP_CREDIT.name });
+        tally.updated += 1;
+        line("~", `UPDATED: ${label}  ${existing.id}  (name now matches the catalog)`);
+        continue;
+      }
+      verified(`${label}  ${existing.id}`);
       continue;
     }
     const coupon = await stripe.coupons.create({
@@ -647,37 +647,40 @@ async function syncMeter(
     {
       name: want.displayName,
       description: `Billed per ${want.unitLabel} beyond the package allowance, monthly in arrears.`,
+      statement_descriptor: STATEMENT_DESCRIPTOR,
     },
   );
 
-  const label = `price  ${want.lookupKey.padEnd(40)} ${usd(want.unitCents)}/${want.unitLabel}`;
-  const existing = activePrices.get(want.lookupKey);
-  if (existing) {
-    const problems = meteredPriceProblems(existing, want, meter.id);
-    if (problems.length === 0) verified(`${label}  ${existing.id}`);
-    else drift(`${label}  ${existing.id}: ${problems.join("; ")}`);
-    return;
-  }
+  for (const rate of want.prices) {
+    const label = `price  ${rate.lookupKey.padEnd(40)} ${usd(rate.unitCents)}/${want.unitLabel}`;
+    const existing = activePrices.get(rate.lookupKey);
+    if (existing) {
+      const problems = meteredPriceProblems(existing, rate, meter.id);
+      if (problems.length === 0) verified(`${label}  ${existing.id}`);
+      else drift(`${label}  ${existing.id}: ${problems.join("; ")}`);
+      continue;
+    }
 
-  const holder = await inactiveHolder(stripe, want.lookupKey);
-  const price = await stripe.prices.create({
-    product: product.id,
-    currency: "usd",
-    billing_scheme: "per_unit",
-    // Decimal so a rate like $0.035/min is representable; integer cents are a
-    // valid decimal too, so this is the one form that covers both.
-    unit_amount_decimal: Stripe.Decimal.from(want.unitCents),
-    recurring: { interval: "month", usage_type: "metered", meter: meter.id },
-    lookup_key: want.lookupKey,
-    transfer_lookup_key: holder !== undefined,
-    nickname: `${want.displayName} — ${usd(want.unitCents)}/${want.unitLabel}`,
-    metadata: { [METER_META]: want.eventName },
-  });
-  activePrices.set(want.lookupKey, price);
-  created(
-    `${label}  ${price.id}` +
-      (holder ? `  (lookup_key moved off archived ${holder.id})` : ""),
-  );
+    const holder = await inactiveHolder(stripe, rate.lookupKey);
+    const price = await stripe.prices.create({
+      product: product.id,
+      currency: "usd",
+      billing_scheme: "per_unit",
+      // A decimal amount, which is the form Stripe documents for metered
+      // prices and the one the drift check above compares against.
+      unit_amount_decimal: Stripe.Decimal.from(rate.unitCents),
+      recurring: { interval: "month", usage_type: "metered", meter: meter.id },
+      lookup_key: rate.lookupKey,
+      transfer_lookup_key: holder !== undefined,
+      nickname: `${want.displayName} — ${usd(rate.unitCents)}/${want.unitLabel} (${rate.planIds.join(", ")})`,
+      metadata: { [METER_META]: want.eventName },
+    });
+    activePrices.set(rate.lookupKey, price);
+    created(
+      `${label}  ${price.id}` +
+        (holder ? `  (lookup_key moved off archived ${holder.id})` : ""),
+    );
+  }
 }
 
 /**
@@ -692,7 +695,7 @@ function reportStale(
 ): void {
   const wanted = new Set<string>([
     ...desired.packages.flatMap((p) => p.prices.map((x) => x.lookupKey)),
-    ...desired.meters.map((m) => m.lookupKey),
+    ...desired.meters.flatMap((m) => m.prices.map((x) => x.lookupKey)),
   ]);
   const extra = [...activePrices.keys()].filter((k) => !wanted.has(k)).sort();
   if (extra.length === 0) return;
@@ -727,10 +730,12 @@ function printDryRun(desired: Desired): void {
     console.log(`\n${m.displayName}  (${m.eventName})`);
     line("·", `meter    event_name=${m.eventName}  sum(value) by stripe_customer_id`);
     line("·", `product  ${m.displayName}  [${METER_META}=${m.eventName}]`);
-    line(
-      "·",
-      `price    ${m.lookupKey.padEnd(40)} ${usd(m.unitCents)}/${m.unitLabel}  recurring/month/metered per_unit`,
-    );
+    for (const rate of m.prices) {
+      line(
+        "·",
+        `price    ${rate.lookupKey.padEnd(40)} ${usd(rate.unitCents)}/${m.unitLabel}  recurring/month/metered per_unit  (${rate.planIds.join(", ")})`,
+      );
+    }
   }
   console.log(`\n${COHORT_SETUP_CREDIT.name}`);
   for (const plan of plans) {
@@ -749,46 +754,29 @@ function printDryRun(desired: Desired): void {
 // ---------------------------------------------------------------------------
 
 function printNext(live: boolean): void {
-  const host = live ? "https://healdesk.io" : "https://<staging-domain>";
   console.log(
-    `\nStatement descriptor should read "${STATEMENT_DESCRIPTOR}".\n` +
-      `Set it at dashboard.stripe.com → Settings → Business → ` +
-      `Public details → Statement descriptor.\n` +
-      `Verify it is NOT the scalabid descriptor — one account serves both.\n`,
-  );
-
-  console.log(
-    `Next:\n` +
-      `  1. Webhook endpoint  dashboard.stripe.com → Developers → Webhooks\n` +
-      `     URL:    ${host}/api/webhooks/stripe\n` +
-      `     Events: checkout.session.completed          (records the account, in provisioning)\n` +
-      `             checkout.session.async_payment_succeeded\n` +
-      `             invoice.paid                        (the first one switches service on)\n` +
-      `             invoice.payment_failed\n` +
-      `             invoice.payment_action_required\n` +
-      `             customer.subscription.updated\n` +
-      `             customer.subscription.deleted\n` +
-      `             charge.dispute.created\n` +
-      `     (not customer.subscription.paused/resumed: they only fire when a\n` +
-      `     trial ends without a card, and there is no trial. A Dashboard or\n` +
-      `     portal pause arrives on customer.subscription.updated.)\n` +
-      `     Copy its signing secret into STRIPE_WEBHOOK_SECRET.\n` +
-      `     Locally: stripe listen --forward-to localhost:3000/api/webhooks/stripe\n` +
-      `  2. Customer Portal  Settings → Billing → Customer portal\n` +
-      `     ON:  update payment method; invoice history\n` +
-      `     ON:  cancel subscription — "at end of billing period" ONLY\n` +
-      `     ON:  switch plan — limited to the ${plans.length} healdesk products above,\n` +
-      `          monthly and annual prices only (never the setup or metered prices)\n` +
-      `     OFF: pause subscription\n` +
-      `     OFF: cancel immediately\n` +
-      `  3. Stripe Tax  Settings → Tax → enable, and set a default tax behavior\n` +
+    `\nNext:\n` +
+      `  1. Statement descriptor, Customer Portal and webhook endpoint:\n` +
+      `     npx tsx apps/web/scripts/stripe-account-settings.ts --dry-run, then\n` +
+      `     without --dry-run, with a key that can write Products, Webhook\n` +
+      `     Endpoints and Customer Portal. It sets "${STATEMENT_DESCRIPTOR}" on these products\n` +
+      `     only (one account serves scalabid too), and${live ? " writes the new\n     endpoint's signing secret to a git-ignored file for STRIPE_WEBHOOK_SECRET." : "\n     skips the webhook in test mode; locally run\n     stripe listen --forward-to localhost:3000/api/webhooks/stripe"}\n` +
+      `  2. Stripe Tax  Settings → Tax → enable, and set a default tax behavior\n` +
       `     (prices here are created without tax_behavior and inherit it).\n` +
-      `  4. Subscriptions → Manage failed payments → "on payment failure":\n` +
+      `  3. Subscriptions → Manage failed payments → "on payment failure":\n` +
       `     must NOT cancel the subscription. Leave it active/past_due; healdesk\n` +
       `     owns the terminal transition — the billing-sweep job suspends the\n` +
       `     clinic once its grace window closes, and customer.subscription.updated\n` +
       `     with status=unpaid suspends it too — so a Stripe-side cancel would\n` +
       `     race it. That job ships OFF: enable it from the ops console.\n`,
+  );
+}
+
+function summaryLine(desired: Desired): string {
+  const meteredPrices = desired.meters.reduce((n, m) => n + m.prices.length, 0);
+  return (
+    `${desired.packages.length} packages, ${desired.meters.length} meters ` +
+    `carrying ${meteredPrices} metered prices, no trial`
   );
 }
 
@@ -805,8 +793,9 @@ function parseArgs(argv: readonly string[]): { dryRun: boolean } {
 async function main(): Promise<void> {
   const { dryRun } = parseArgs(process.argv.slice(2));
 
-  // Computed before touching the key so the divergent-rate assertion fires in
-  // a dry run too — it is a catalog problem, not a Stripe one.
+  // Computed before touching the key so a catalog problem (a package selling
+  // a channel with no overage rate, or a rate that is not whole cents) fails
+  // in a dry run too — it is a catalog problem, not a Stripe one.
   const desired = computeDesired();
 
   if (OVERAGE_RATES_PROVISIONAL) {
@@ -819,10 +808,7 @@ async function main(): Promise<void> {
   }
 
   if (dryRun) {
-    console.log(
-      `healdesk → Stripe (dry run)\n` +
-        `${plans.length} packages, ${describeMeters(desired)}, no trial\n`,
-    );
+    console.log(`healdesk → Stripe (dry run)\n${summaryLine(desired)}\n`);
     printDryRun(desired);
     printNext(false);
     return;
@@ -850,7 +836,7 @@ async function main(): Promise<void> {
 
   console.log(
     `healdesk → Stripe (${live ? "LIVE" : "test"} mode)\n` +
-      `${plans.length} packages, ${describeMeters(desired)}, no trial\n`,
+      `${summaryLine(desired)}\n`,
   );
 
   const products = await listActiveProducts(stripe);
@@ -867,7 +853,7 @@ async function main(): Promise<void> {
   reportStale(activePrices, desired);
 
   console.log(
-    `\n${tally.created} created, ${tally.updated} updated, ${tally.verified} verified, ` +
+    `\n${tally.created} created, ${tally.verified} verified, ${tally.updated} updated, ` +
       `${tally.drift} drifted, ${tally.stale} stale.`,
   );
   printNext(live);

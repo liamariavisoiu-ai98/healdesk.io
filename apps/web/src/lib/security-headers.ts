@@ -22,19 +22,14 @@
  *     at build time) and TAN Ashford is a local woff2. No font CDN, so no
  *     fonts.googleapis.com / fonts.gstatic.com here, and adding them would be
  *     a regression, not a fix.
- *   - Video: the hero and the niche cards play from /public (webm + mp4), and
- *     HealdeskSoul's poster is a local PNG. `blob:` is allowed in media-src
+ *   - Video: the niche cards and HealdeskSoul play from /public (webm + mp4),
+ *     and HealdeskSoul's posters are local images (a PNG for the demo panels,
+ *     a WebP for the hero), as are the hero's logos. `blob:` is allowed in media-src
  *     because MediaSource-backed playback surfaces as a blob: URL and it costs
  *     nothing to permit.
- *   - The 3D hero: three.js loads a glTF from /public, decoded by
- *     MeshoptDecoder, which instantiates an EMBEDDED WebAssembly module. That
- *     needs `'wasm-unsafe-eval'` in script-src. It is not `'unsafe-eval'`:
- *     it permits WebAssembly compilation only, not string-to-JS. Without it
- *     the model silently fails to load (HeroModel already degrades gracefully),
- *     so a violation there would not break the page, but it would remove the
- *     hero. HeroModel does not call `MeshoptDecoder.useWorkers()`, so no
- *     blob: worker is needed; if someone turns workers on, add
- *     `worker-src 'self' blob:`.
+ *   - No WebAssembly and no blob: fetches. The 3D hero needed both
+ *     (`'wasm-unsafe-eval'` for its MeshoptDecoder, `blob:` in connect-src for
+ *     its texture) and was removed on 3 October 2026, so both went with it.
  *   - Payment: checkout POSTs to /api/checkout and then `location.assign`s the
  *     Stripe-hosted Checkout URL. There is NO Stripe.js on the page, so
  *     js.stripe.com is deliberately absent from script-src and there is no
@@ -48,6 +43,13 @@
  *     both in connect-src). Nothing else; docs/architecture.md's "No conversion
  *     attribution to ad platforms" is enforced here as much as in layout.tsx:
  *     a tag manager or pixel added without touching this file is blocked.
+ *   - Scheduling: "Get in touch" in the navbar frames Calendly's booking page
+ *     (calendly.com) in a modal, on every page that has the navbar, so
+ *     calendly.com is the one origin frame-src allows site-wide. The frame is
+ *     built by GetInTouch.tsx, not by Calendly's widget.js, so script-src gains
+ *     nothing; what Calendly's page loads inside the frame is under its own
+ *     policy, not this one. The origin must match site.meeting.url, and a test
+ *     holds the two together.
  *   - The voice demo: scripted playback plus a POST to /api/callback that has
  *     AYA ring the visitor. It never opens the microphone, which is why
  *     Permissions-Policy says `microphone=()` rather than `(self)`.
@@ -151,10 +153,12 @@ export const POSTHOG_ASSETS_ORIGIN = "https://us-assets.i.posthog.com";
 export const POSTHOG_INGEST_ORIGIN = "https://us.i.posthog.com";
 /**
  * Google Sheets, framed by /admin/crm and by nothing else. The public site
- * keeps `frame-src 'none'`; next.config.ts applies this to `/admin/:path*`
- * only, through the `frameSources` option below.
+ * does not frame it; next.config.ts applies this to `/admin/:path*` only,
+ * through the `frameSources` option below.
  */
 export const GOOGLE_DOCS_ORIGIN = "https://docs.google.com";
+/** Calendly's booking page, framed by "Get in touch" on every page with the navbar. */
+export const CALENDLY_ORIGIN = "https://calendly.com";
 /** Stripe-hosted Checkout, the only place a form on this site may ever post besides itself. */
 export const STRIPE_CHECKOUT_ORIGIN = "https://checkout.stripe.com";
 
@@ -215,10 +219,11 @@ export type CspDirective = (typeof CSP_DIRECTIVES)[number];
 /**
  * Per-route variations of the policy. Only one exists: the operator console
  * frames the marketing Sheet at /admin/crm, so that route family may frame
- * docs.google.com. Everything else on the site embeds nothing.
+ * docs.google.com. Everything else on the site frames Calendly and nothing
+ * more.
  */
 export type CspOptions = {
-  /** Extra `frame-src` origins. Empty or absent keeps `frame-src 'none'`. */
+  /** Extra `frame-src` origins, beside Calendly's. */
   frameSources?: readonly string[];
   /** Extra `connect-src` origins: the personalised demo's browser call. */
   connectSources?: readonly string[];
@@ -243,7 +248,11 @@ export function cspDirectives(
 ): Record<CspDirective, readonly string[]> {
   const dev = env.nodeEnv === "development";
   const preview = env.vercelEnv === "preview";
-  const frames = [...(preview ? VERCEL_TOOLBAR.frame : []), ...(options.frameSources ?? [])];
+  const frames = [
+    ...(preview ? VERCEL_TOOLBAR.frame : []),
+    CALENDLY_ORIGIN,
+    ...(options.frameSources ?? []),
+  ];
 
   const self = "'self'";
 
@@ -253,8 +262,6 @@ export function cspDirectives(
       self,
       // See "The trade-off" above. Next's own inline bootstrap scripts need it.
       "'unsafe-inline'",
-      // MeshoptDecoder (three.js glTF hero) instantiates embedded WebAssembly.
-      "'wasm-unsafe-eval'",
       POSTHOG_ASSETS_ORIGIN,
       ...(dev ? ["'unsafe-eval'"] : []),
       ...(preview ? VERCEL_TOOLBAR.script : []),
@@ -264,28 +271,21 @@ export function cspDirectives(
     "img-src": [self, "data:", "blob:", ...(preview ? VERCEL_TOOLBAR.img : []), ...(options.imageSources ?? [])],
     // next/font and the local Ashford woff2. No CDN.
     "font-src": [self, ...(preview ? VERCEL_TOOLBAR.font : [])],
-    // The hero and niche videos from /public; blob: for MediaSource playback.
+    // The niche and soul videos from /public; blob: for MediaSource playback.
     "media-src": [self, "blob:"],
     // Our own /api routes (the chat stream, the gate, checkout, the callback)
     // plus PostHog. 'self' also covers the dev server's HMR websocket.
-    //
-    // blob: because three's GLTFLoader unpacks the hero model's embedded JPEG
-    // skin into a blob: URL and then FETCHES it to build the texture. Without
-    // this the fetch is refused, the load logs "Couldn't load texture", and
-    // she renders as an untextured white bust, which is what production
-    // showed for eleven days before anyone read the console. A blob: URL can
-    // only ever name data this page created, so it exfiltrates nothing.
     "connect-src": [
       self,
-      "blob:",
       POSTHOG_INGEST_ORIGIN,
       POSTHOG_ASSETS_ORIGIN,
       ...(preview ? VERCEL_TOOLBAR.connect : []),
       ...(options.connectSources ?? []),
     ],
-    // The site embeds nothing. Stripe Checkout is a redirect, not an iframe.
-    // The one exception is opt-in per route (`frameSources`): /admin/crm.
-    "frame-src": frames.length > 0 ? frames : ["'none'"],
+    // Calendly's booking page, in the "Get in touch" modal, and nothing else.
+    // Stripe Checkout is a redirect, not an iframe. One route family adds an
+    // origin of its own (`frameSources`): /admin/crm.
+    "frame-src": frames,
     "object-src": ["'none'"],
     "base-uri": [self],
     "form-action": [self, STRIPE_CHECKOUT_ORIGIN],

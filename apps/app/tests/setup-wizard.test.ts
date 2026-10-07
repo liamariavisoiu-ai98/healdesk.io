@@ -1126,6 +1126,57 @@ describeDb("the setup wizard", () => {
     expect(() => assertPayloadAllowed(rows[0]!.payload, "setup_closed")).not.toThrow();
   });
 
+  test("starting offboarding for a setup closure queues the closure email in its transaction, once", async () => {
+    // The seam lib/setup/closure-email.ts names, wired: Package C's deletion
+    // handler starts offboarding with the reason "setup_closure", and
+    // startOffboarding queues the email right after the database's stamp.
+    const closing = await provisionDirect("seam-closure");
+    const leaving = await provisionDirect("seam-leaving");
+    const closureEmails = (clinicId: string) =>
+      inTenant(
+        clinicId,
+        async (c) =>
+          (await c.query(`select dedupe_key from billing_notices where kind = 'setup_closed'`))
+            .rows,
+      );
+    const startedAt = async (clinicId: string) =>
+      (
+        await getMigratorPool().query<{ offboarding_started_at: Date | null }>(
+          `select offboarding_started_at from clinics where id = $1`,
+          [clinicId],
+        )
+      ).rows[0]!.offboarding_started_at;
+
+    // A closure that rolls back queues nothing, and starts nothing.
+    await expect(
+      withTenant({ clinicId: closing.clinicId, actor: SERVICE }, async (tx) => {
+        await startOffboarding(tx, "setup_closure");
+        throw new Error("the closure rolled back");
+      }),
+    ).rejects.toThrow("the closure rolled back");
+    expect(await closureEmails(closing.clinicId)).toEqual([]);
+    expect(await startedAt(closing.clinicId)).toBeNull();
+
+    // Committed, it queues one; started again, as a second delivery of the
+    // deletion would, it queues no other.
+    for (let delivery = 0; delivery < 2; delivery += 1) {
+      await withTenant({ clinicId: closing.clinicId, actor: SERVICE }, (tx) =>
+        startOffboarding(tx, "setup_closure"),
+      );
+    }
+    expect(await closureEmails(closing.clinicId)).toEqual([{ dedupe_key: "setup_closed" }]);
+    expect(await startedAt(closing.clinicId)).not.toBeNull();
+
+    // Every other reason, Stripe's own and the ops console's, queues nothing.
+    for (const reason of ["customer.subscription.deleted", "operator"]) {
+      await withTenant({ clinicId: leaving.clinicId, actor: SERVICE }, (tx) =>
+        startOffboarding(tx, reason),
+      );
+    }
+    expect(await closureEmails(leaving.clinicId)).toEqual([]);
+    expect(await startedAt(leaving.clinicId)).not.toBeNull();
+  });
+
   test("the calendar emails (O13) are queued in the caller's transaction, once per key, and never break it", async () => {
     const clinic = await provisionDirect("calendar");
     await withTenant({ clinicId: clinic.clinicId, actor: SERVICE }, async (tx) => {

@@ -19,6 +19,7 @@ import {
 import { recordSecurityEvent } from "@/lib/audit";
 import { describeError, log } from "@/lib/log";
 import { listClinics } from "@/lib/ops/clinics";
+import { queueSetupClosedEmail } from "@/lib/setup/closure-email";
 import type { TenantTx } from "@/lib/tenant";
 import { withTenant } from "@/lib/tenant";
 
@@ -88,9 +89,19 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const DESTROY_AFTER_DAYS = 30;
 export const DESTROY_WITHOUT_EXPORT_AFTER_DAYS = 90;
 
-/** Stamps the start and destroy_after from the database's clock, once; starting again moves neither. */
+/**
+ * Stamps the start and destroy_after from the database's clock, once; starting again moves neither.
+ *
+ * A setup closure, the reason `setup_closure` that Package C's
+ * customer.subscription.deleted handler passes for its own cancellation, also
+ * queues the day-30 closure email here, after the stamp and in the same
+ * transaction: a closure that rolls back sends nothing, and the notice's
+ * dedupe keeps it to one email per clinic however often the deletion arrives
+ * (lib/setup/closure-email.ts). Every other reason queues nothing.
+ */
 export async function startOffboarding(tx: TenantTx, reason: string): Promise<void> {
   await tx.db.execute(sql`select app_start_offboarding(${tx.clinicId}::uuid)`);
+  await queueSetupClosedEmail(tx, reason);
   tx.audit.record({ action: "update", resourceType: "clinic_offboarding", resourceId: tx.clinicId, metadata: { started: true, reason } });
 }
 

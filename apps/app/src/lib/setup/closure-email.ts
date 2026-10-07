@@ -19,16 +19,17 @@ import { helpContacts } from "./help";
  * transaction, so a closure that rolls back sends nothing and a redelivered
  * event sends one email (dedupe `setup_closed`, once per clinic).
  *
- * THE SEAM. Neither `startOffboarding` (lib/offboarding/offboarding.ts, being
- * changed in parallel) nor Package C's handler is this build's to edit, and
- * the `"setup_closure"` call is not on main yet. One line in
- * `startOffboarding`, after its update and inside its transaction, connects
- * them:
+ * THE SEAM. `startOffboarding` (lib/offboarding/offboarding.ts) makes the
+ * call, right after app_start_offboarding() stamps the dates and inside its
+ * transaction, with the reason it was given:
  *
  *     await queueSetupClosedEmail(tx, reason);
  *
- * Any other reason queues nothing, so the line is safe for every caller of
- * startOffboarding, the ops console's included.
+ * and Package C's handler passes `setup_closure` (lib/billing/events.ts,
+ * onSubscriptionDeleted). Any other reason queues nothing, so the call is
+ * safe for every caller of startOffboarding, the ops console's included.
+ * tests/setup-wizard.test.ts drives it through startOffboarding, and
+ * tests/billing-events-lifecycle.test.ts through the deletion event.
  */
 
 export const SETUP_CLOSURE_REASON = "setup_closure";

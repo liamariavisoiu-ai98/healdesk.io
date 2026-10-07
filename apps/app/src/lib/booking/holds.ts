@@ -6,7 +6,7 @@ import type { TenantTx } from "@/lib/tenant";
 /**
  * Slot holds: the time the assistant is holding on a location's calendar
  * (plan §7). The overlap guard, the states and the write-once fields are the
- * database's (drizzle/0056, app_slot_hold_guard and app_slot_hold_transition);
+ * database's (drizzle/0057, app_slot_hold_guard and app_slot_hold_transition);
  * placing, claiming and converting a hold arrive with the booking engine
  * (C12, C13). What is here already is the one step every change of calendar
  * needs: letting go of what the location holds.

@@ -11,7 +11,7 @@ import { getAppPool, getMigratorPool } from "./db";
 import { inTenant, type SeededClinic } from "./factories";
 
 /**
- * SQL-level fixtures for drizzle/0056's calendar tables: the rows the
+ * SQL-level fixtures for drizzle/0057's calendar tables: the rows the
  * database checks, written the way the guards expect them, so the DB suites
  * can exercise the triggers before the calendar libraries exist (C7 and C8
  * build seedCalendarTerms and seedGoogleConnection on those libraries).

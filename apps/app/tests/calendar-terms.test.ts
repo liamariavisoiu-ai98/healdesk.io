@@ -55,7 +55,7 @@ import {
  * the agreement in effect, the terms in effect, elections, and the demo
  * clinic they are tried on before the documents are released.
  *
- * drizzle/0056 holds the rules in the database and
+ * drizzle/0057 holds the rules in the database and
  * tests/google-calendar-schema.test.ts attacks them there; this file proves
  * the libraries ask the same questions, answer them the same way, and do
  * what an election does after it, through the code paths production uses.

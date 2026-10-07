@@ -1599,7 +1599,12 @@ describeDb("the deferred start's billing lifecycle", () => {
       await handleStripeEvent(event("customer.subscription.deleted", deleted), { now: NOW });
 
       expect((await entitlementsOf(clinicId)).status).toBe("canceled");
-      expect(await noticesOf(clinicId)).toEqual([]);
+      // No canceled email: the funnel's closure email, which startOffboarding
+      // queues for the reason setup_closure (lib/setup/closure-email.ts), is
+      // the only one.
+      expect((await noticesOf(clinicId)).map((n) => [n.kind, n.dedupe_key])).toEqual([
+        ["setup_closed", "setup_closed"],
+      ]);
       const { rows } = await inTenant(clinicId, (client) =>
         client.query<{ metadata: Record<string, unknown> }>(
           `select metadata from audit_log where clinic_id = $1 and resource_type = 'clinic_offboarding'`,

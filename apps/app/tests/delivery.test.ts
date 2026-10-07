@@ -430,6 +430,12 @@ describeDb("delivery", () => {
           // and the requests worker's hourly backstop.
           "billing-reconcile",
           "billing-requests",
+          // The setup reminder (drizzle/0056), hourly behind its switch: each
+          // clinic's reminder waits for that clinic's own daytime.
+          "setup-reminders",
+          // The welcome email's backstop: a sweep, not a switched job, because
+          // the welcome it retries goes unswitched at every provisioning.
+          "welcome-email",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;
@@ -438,9 +444,11 @@ describeDb("delivery", () => {
         if (job === "connection-health") continue; // enabled by the test above
         if (job === "booking-requirements-defaults") continue; // §H.5 sweep, not a switched job
         if (job === "booking-request-expiry") continue; // a sweep, not a switched job: pure function of the clock, reports a count
+        if (job === "welcome-email") continue; // a sweep: retries only a welcome provisioning recorded as owed
         expect(status, job).toBe("disabled");
       }
       expect(jobs["booking-request-expiry"]).toBe("ok");
+      expect(jobs["welcome-email"]).toBe("ok");
       expect(out.some((o) => o.status === "threw")).toBe(false);
     });
   });

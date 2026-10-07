@@ -138,7 +138,6 @@ ALTER TABLE "appointments" ADD COLUMN "calendar_write_claimed_at" timestamp with
 ALTER TABLE "appointments" ADD COLUMN "calendar_write_attempts" smallint DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "appointments" ADD COLUMN "calendar_write_lease" uuid;--> statement-breakpoint
 ALTER TABLE "appointments" ADD COLUMN "calendar_event_key" text;--> statement-breakpoint
-ALTER TABLE "clinic_settings" ADD COLUMN "auto_confirm_bookings" boolean DEFAULT true NOT NULL;--> statement-breakpoint
 ALTER TABLE "clinic_settings" ADD COLUMN "auto_confirm_changed_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "clinic_settings" ADD COLUMN "auto_confirm_changed_by_label" text;--> statement-breakpoint
 ALTER TABLE "clinics" ADD COLUMN "client_number" integer DEFAULT nextval('clinics_client_number_seq') NOT NULL;--> statement-breakpoint
@@ -1485,7 +1484,7 @@ COMMENT ON FUNCTION app_reissue_undelivered_booking_token(uuid, bytea) IS
 
 
 -- -----------------------------------------------------------------------------
--- 13b. Destruction takes the calendar's clinic rows (0054's rule, extended)
+-- 13b. Destruction takes the calendar's clinic rows (0054's rule, as 0056 left it, extended)
 -- -----------------------------------------------------------------------------
 -- 0054 made app_mark_clinic_destroyed() refuse while any table with a
 -- clinic_id that destruction does not keep still holds the clinic's rows, and
@@ -1538,9 +1537,9 @@ $$;--> statement-breakpoint
 REVOKE ALL ON FUNCTION app_destroy_clinic_providers(uuid) FROM PUBLIC;--> statement-breakpoint
 GRANT EXECUTE ON FUNCTION app_destroy_clinic_providers(uuid) TO healdesk_app;--> statement-breakpoint
 
--- 0054's app_mark_clinic_destroyed, with the three tables above added to the
--- rows that must be gone before a destruction is recorded. Nothing else
--- changes.
+-- app_mark_clinic_destroyed as the setup wizard's migration (0056) last
+-- defined it, with the three tables above added to the rows that must be gone
+-- before a destruction is recorded. Nothing else changes.
 CREATE OR REPLACE FUNCTION app_mark_clinic_destroyed(target_clinic uuid)
 RETURNS timestamptz
 LANGUAGE plpgsql
@@ -1580,6 +1579,7 @@ BEGIN
      OR EXISTS (SELECT 1 FROM clinic_closures z WHERE z.clinic_id = target_clinic)
      OR EXISTS (SELECT 1 FROM chat_threads h WHERE h.clinic_id = target_clinic)
      OR EXISTS (SELECT 1 FROM meta_inbound_messages m WHERE m.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM clinic_setup_screens s WHERE s.clinic_id = target_clinic)
      OR EXISTS (SELECT 1 FROM slot_holds sh WHERE sh.clinic_id = target_clinic)
      OR EXISTS (SELECT 1 FROM clinic_provider_services ps WHERE ps.clinic_id = target_clinic)
      OR EXISTS (SELECT 1 FROM clinic_providers pr WHERE pr.clinic_id = target_clinic) THEN

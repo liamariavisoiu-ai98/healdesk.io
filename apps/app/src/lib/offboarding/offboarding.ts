@@ -7,6 +7,7 @@ import {
   clinicClosures,
   clinicProviderServices,
   clinics,
+  clinicSetupScreens,
   contacts,
   conversations,
   metaBookingDrafts,
@@ -20,6 +21,7 @@ import {
 import { recordSecurityEvent } from "@/lib/audit";
 import { describeError, log } from "@/lib/log";
 import { listClinics } from "@/lib/ops/clinics";
+import { queueSetupClosedEmail } from "@/lib/setup/closure-email";
 import type { TenantTx } from "@/lib/tenant";
 import { withTenant } from "@/lib/tenant";
 
@@ -89,9 +91,20 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const DESTROY_AFTER_DAYS = 30;
 export const DESTROY_WITHOUT_EXPORT_AFTER_DAYS = 90;
 
-/** Stamps the start and destroy_after from the database's clock, once; starting again moves neither. */
+/**
+ * Stamps the start and destroy_after from the database's clock, once; starting again moves neither.
+ *
+ * A setup closure, the reason `setup_closure` that Package C's
+ * customer.subscription.deleted handler passes for its own cancellation, also
+ * queues the day-30 closure email here, after the stamp and in the same
+ * transaction: a closure that rolls back sends nothing, and the notice's
+ * dedupe keeps it to one email per clinic however often the deletion arrives
+ * (lib/setup/closure-email.ts). Every other reason queues nothing, and the
+ * ops console, whose reason an operator types, refuses that one.
+ */
 export async function startOffboarding(tx: TenantTx, reason: string): Promise<void> {
   await tx.db.execute(sql`select app_start_offboarding(${tx.clinicId}::uuid)`);
+  await queueSetupClosedEmail(tx, reason);
   tx.audit.record({ action: "update", resourceType: "clinic_offboarding", resourceId: tx.clinicId, metadata: { started: true, reason } });
 }
 
@@ -114,7 +127,7 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
     deleted[name] = (await run()).length;
   };
   // Slot holds first: each points at its contact, request and appointment
-  // ON DELETE SET NULL, and a hold in a final state is frozen (0056), so
+  // ON DELETE SET NULL, and a hold in a final state is frozen (0057), so
   // deleting those rows under a hold would ask the trigger to rewrite it.
   await del("slot_holds", () => tx.db.delete(slotHolds).where(eq(slotHolds.clinicId, c)).returning({ id: slotHolds.id }));
   await del("reconciliation_exceptions", () => tx.db.delete(reconciliationExceptions).where(eq(reconciliationExceptions.clinicId, c)).returning({ id: reconciliationExceptions.id }));
@@ -142,6 +155,12 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // ran. The credentials go with the connection row below.
   // Credentials: revoked and their ciphertext gone with the row.
   await del("provider_connections", () => tx.db.delete(providerConnections).where(eq(providerConnections.clinicId, c)).returning({ id: providerConnections.id }));
+  // The setup wizard's progress (0056): setup answers about the practice, no
+  // patient data, and nothing the record needs once the clinic has left.
+  await del("clinic_setup_screens", () => tx.db.delete(clinicSetupScreens).where(eq(clinicSetupScreens.clinicId, c)).returning({ id: clinicSetupScreens.screen }));
+  // Kept: clinic_settings_history (0056), append-only by grant, like the
+  // audit log: the record of who sent calls and urgent callers to which of
+  // the clinic's own numbers, and when. No patient data.
   // Suppressions, consent records and contact attempts stay, by grant as
   // well as by choice: they are the evidence an outbound contact was lawful
   // and that "stop" was honoured, on the TCPA's four-year clock
@@ -155,7 +174,7 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // are deactivated while the clinic is a customer), so
   // app_destroy_clinic_providers() deletes them, on the same
   // due-for-destruction rule as the requests. calendar_elections stay: each
-  // is part of the signed agreement (0056).
+  // is part of the signed agreement (0057).
   await del("clinic_provider_services", () => tx.db.delete(clinicProviderServices).where(eq(clinicProviderServices.clinicId, c)).returning({ id: clinicProviderServices.providerId }));
   const providers = await tx.db.execute<{ n: number }>(sql`select app_destroy_clinic_providers(${c}::uuid) as n`);
   deleted.clinic_providers = providers.rows[0]?.n ?? 0;

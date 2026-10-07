@@ -179,6 +179,11 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "Google refused healdesk's access to a clinic's calendar, so that location now takes booking requests for its staff to confirm. Ask the clinic whether it removed the access on purpose; if not, it reconnects its calendar. Look the clinic up in the console.",
   },
+  welcome_email_unsent: {
+    title: "A welcome email has not reached a clinic",
+    action:
+      "A clinic's welcome email, its order confirmation with the receipt and the Continue setup link, is still unsent an hour after its account was made, or setup moved on before it could go. Check Resend, then email the order details to the clinic's address by hand.",
+  },
 };
 
 /**

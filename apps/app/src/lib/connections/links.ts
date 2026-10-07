@@ -154,7 +154,7 @@ const LINK_ACTOR: ActorContext = {
  * (property 3), because "this is a real link for a different page" is exactly
  * the kind of confirmation a stranger holding a URL should not get.
  * `calendar` connects a location's Google Calendar and records its calendar
- * elections (drizzle/0056, which also gives it an audience and the owner's
+ * elections (drizzle/0057, which also gives it an audience and the owner's
  * flags); the page and the links' issuance arrive with the connect flow.
  */
 export type LinkPurpose = "connect" | "setup" | "meta" | "whatsapp" | "calendar";

@@ -397,8 +397,15 @@
     {
       "idx": 56,
       "version": "7",
-      "when": 1791398812010,
-      "tag": "0056_google_calendar",
+      "when": 1791388533203,
+      "tag": "0056_setup_wizard",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1791400925745,
+      "tag": "0057_google_calendar",
       "breakpoints": true
     }
   ]

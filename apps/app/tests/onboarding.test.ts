@@ -134,6 +134,12 @@ describeDb("onboarding", () => {
     const reopened = await withTenant({ clinicId, actor: ACTOR }, (tx) => reopenStep(tx, "forwarding_configured", "test failed"));
     expect(reopened.forwarding_configured).toBeNull();
     expect(await withTenant({ clinicId, actor: ACTOR }, readOnboarding)).toHaveProperty("hours_confirmed", null);
+    // A reopened step, like every step provisioning seeds open, holds a JSON
+    // null, and completing it stamps it again.
+    const restamped = await withTenant({ clinicId, actor: ACTOR }, (tx) =>
+      completeStep(tx, "forwarding_configured", { at: new Date("2026-09-03T00:00:00Z") }),
+    );
+    expect(restamped.forwarding_configured).toBe("2026-09-03T00:00:00.000Z");
   });
 
   test("the agent script is seeded, edits clear approval, approval stamps the step", async () => {

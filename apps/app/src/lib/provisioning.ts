@@ -39,6 +39,8 @@ import type { RequestContext } from "./audit";
 import { seedEntitlements } from "./billing/entitlements";
 import { replayParkedBillingEvents } from "./billing/events";
 import { setupDeadline } from "./clinic/setup-window";
+import { seedSetup, type SetupSeed } from "./setup/seed";
+import { recordWelcomeOwed } from "./setup/welcome-email";
 
 /**
  * Turning a completed checkout into a clinic.
@@ -221,6 +223,18 @@ export type ProvisionOptions = {
    * has no subscription, and never goes live (ops goLive refuses one).
    */
   demo?: boolean;
+  /**
+   * What the setup wizard starts from (plan C2): the funnel's booking answers
+   * and the website read, from the intent. Absent for a purchase from before
+   * intents, which still gets the defaults and the never-say list.
+   */
+  setup?: SetupSeed;
+  /**
+   * Stripe's hosted page for the paid first invoice, which holds the
+   * setup-fee receipt, as the invoice.paid relay passed it. Kept on the
+   * intent it pays for, so the welcome email (B1) links it on every attempt.
+   */
+  firstInvoiceUrl?: string | null;
 };
 
 export type ProvisionResult = {
@@ -629,6 +643,7 @@ async function provisionOnce({
           stripeSubscriptionId: request.stripeSubscriptionId ?? null,
           provisionedClinicId: clinicId,
           provisionedUserId: ownerUserId,
+          firstInvoiceUrl: options.firstInvoiceUrl ?? null,
         })
         .where(and(eq(checkoutIntents.ref, options.intentRef), isNull(checkoutIntents.consumedAt)))
         .returning({ ref: checkoutIntents.ref });
@@ -652,6 +667,20 @@ async function provisionOnce({
       label: request.contactName.trim() || undefined,
       addedBy: "provisioning",
     });
+    // The setup wizard's starting point (plan C2): settings from the funnel's
+    // answers, knowledge from the website read, the read kept as the drift
+    // baseline, and the never-say list's clinical defaults. The welcome email
+    // (B1) goes after commit, from the provision route.
+    await seedSetup(provisioningTx, {
+      specialty: request.specialty,
+      seed: options.setup ?? {},
+      callRouting: request.callRouting,
+    });
+    // The welcome email is owed from this commit on: its ledger row is
+    // written here, so a send that never runs after commit (the process
+    // exits, its first read fails) still leaves a row the hourly backstop
+    // finds and sends (X1.4, "state is written first").
+    await recordWelcomeOwed(provisioningTx);
     await provisioningTx.audit.flush(tx);
 
     await recordSecurityEvent(tx, {

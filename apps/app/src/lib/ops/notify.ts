@@ -64,6 +64,10 @@ export const OPS_EVENTS = [
   // location's connection broke and it now takes booking requests. Raised
   // once per breakage by markCalendarBroken (lib/connections/google-calendar.ts).
   "calendar_broken",
+  // The setup wizard (M3): a welcome email (B1) still unsent an hour after
+  // provisioning, or one the clinic has moved past before it could go, so
+  // the order confirmation has to be sent by hand.
+  "welcome_email_unsent",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

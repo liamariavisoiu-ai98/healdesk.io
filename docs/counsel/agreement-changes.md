@@ -394,7 +394,9 @@ nothing and removes the argument.
 > **Drafted 6 October 2026. Not released, not offered, not legal advice.**
 > `packages/catalog/src/baa.ts` registers 1.3.0 at `BAA_TEMPLATES[1]` with
 > `approvedByCounsel: false`. Checkout does not offer it, and signing refuses
-> it because `validateSignRequest` accepts only `BAA_TEMPLATES[0]`.
+> it: `validateSignRequest` and `signAgreement` both settle the version
+> through `signableTemplate` (plan C3), which takes only `BAA_TEMPLATES[0]`,
+> or a released version inside its `BAA_RELEASE_OVERLAP` window.
 > Provisioning does not check it: its approval gate reads
 > `currentBaaTemplate()`, not the bound acceptance's version, until plan C15
 > changes that, and C15 must land before the release. The full text is
@@ -684,23 +686,27 @@ which weakens the objection right; that is risk 13 in `brief.md`.
   "manual booking, no agreement with Google" without having said either.
   Earlier templates have no guard, so nothing about them changes.
 - **One builder.** `buildBaaSelections` (`packages/catalog/src/baa-selections.ts`)
-  is what both signing paths are to call (`signAgreement` from plan C3, and
-  the funnel's AgreementStep), so that the displayed and the stored render
-  cannot drift. Neither calls it yet. For a version before 1.3.0 it names a
-  phase-two platform exactly as both paths do today: the one in
+  is what both signing paths call, so that the displayed and the stored
+  render cannot drift: `signAgreement` since plan C3, and the funnel's
+  AgreementStep from its M2. For a version before 1.3.0 it names a
+  phase-two platform exactly as both paths did before it: the one in
   `platformId`, the platform id today's picker sends, which covers every
   entry of `platforms`, Zenoti, PatientNow, Acuity and Vagaro included, though
   no booking system maps to them; or, without one, the booking system's
   `phaseTwoPlatformId`. A test renders 1.2.1 and 1.2.0 through the builder for
-  every platform and for every booking system, and finds the bytes today's
-  paths produce. For 1.3.0 it names the booking system, passes the two
+  every platform and for every booking system, and finds the bytes that
+  derivation produces. For 1.3.0 it names the booking system, passes the two
   answers and ignores `platformId`. The sync is derived inside the
   agreement, never passed, so the browser cannot choose "live" for a one-way
   system.
-- **Release overlap.** `BAA_RELEASE_OVERLAP` is empty, and nothing reads it
-  yet: `validateSignRequest` is to read it from plan C3. At release it keeps
-  1.2.1 signable for 72 hours, across the two deploys, and it is emptied once
-  both production deployments are verified.
+- **Release overlap.** `BAA_RELEASE_OVERLAP` is empty until the release.
+  Since plan C3, `signableTemplate` reads it for both `validateSignRequest`
+  and `signAgreement`: a version listed there signs only if it was released,
+  and only before its deadline, an ISO 8601 instant that carries its own
+  offset. At release it keeps 1.2.1 signable for 72 hours, across the two
+  deploys, unless the release raises the go-live floor
+  (`MIN_ACCEPTABLE_BAA_VERSION`, §10) past 1.2.1, when 1.2.1 is not listed.
+  It is emptied once both production deployments are verified.
 
 Signing (`apps/app/src/lib/agreements.ts`) and provisioning are unchanged by
 this draft.
@@ -841,11 +847,13 @@ release by changing the code, the clause or the site copy:
     note ("fifteen days' notice"). Before 1.3.0 is offered it has to look
     them up through `clauseExplainer(template.version, id)`, or a 1.3.0 buyer
     reads fifteen days beside a clause that gives 24 hours.
-13. **The gates that are not built yet.** Signing refuses 1.3.0 today only
-    because `validateSignRequest` accepts `BAA_TEMPLATES[0]` alone. Plan C3
-    makes it accept a version in `BAA_RELEASE_OVERLAP`, and plan C15 makes
-    provisioning's approval gate read the bound acceptance's version instead
-    of `currentBaaTemplate()`. Both must land before the release.
+13. **The gate that is not built yet.** Signing refuses 1.3.0 today only
+    because `signableTemplate` takes `BAA_TEMPLATES[0]`, or a released
+    version inside its `BAA_RELEASE_OVERLAP` window, and 1.3.0 is neither.
+    Plan C3, which made both signing paths settle the version that way, has
+    landed. Plan C15, which makes provisioning's approval gate read the bound
+    acceptance's version instead of `currentBaaTemplate()`, has not, and
+    must land before the release.
 
 ### 12.12 Golden hashes
 

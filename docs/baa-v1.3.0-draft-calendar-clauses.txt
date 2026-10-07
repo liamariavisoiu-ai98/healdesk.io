@@ -1,8 +1,9 @@
 healdesk Business Associate Agreement — version 1.3.0, DRAFT, rendered 6
 October 2026 for the audit that precedes its release. Not released and not
 offered: approvedByCounsel is false and the template sits at BAA_TEMPLATES[1],
-below 1.2.1. Signing refuses it, because validateSignRequest accepts only
-BAA_TEMPLATES[0]; provisioning does not yet check the bound version, which
+below 1.2.1. Signing refuses it: validateSignRequest and signAgreement take
+only BAA_TEMPLATES[0], or a released version inside its BAA_RELEASE_OVERLAP
+window (plan C3); provisioning does not yet check the bound version, which
 plan C15 changes before the release. The owner releases it after an
 adversarial audit of the full text (plan C19, owner answer Q2). Nothing below
 depends on that release, so releasing it moves no hash; an edit the audit

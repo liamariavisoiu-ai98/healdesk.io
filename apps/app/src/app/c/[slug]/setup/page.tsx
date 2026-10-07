@@ -32,7 +32,9 @@ import {
   type StepNumber,
 } from "@/lib/setup/screens";
 import type { SetupScreenId } from "@/lib/setup/screen-ids";
+import { skipCost } from "@/lib/setup/skip-costs";
 import { loadSetupState, type SetupState } from "@/lib/setup/state";
+import { urgentHelpField } from "@/lib/setup/urgent";
 
 import { HelpPanel } from "../HelpPanel";
 
@@ -215,47 +217,6 @@ function Progress({
   );
 }
 
-/** What skipping each screen costs, worded for this clinic. */
-function skipCost(state: SetupState, screen: SetupScreenId): string {
-  const voice = state.channels.some((c) => c.channel === "voice");
-  const audience = audienceFor(state.clinic.specialty);
-  switch (screen) {
-    case "basics":
-      return "AYA can't tell callers your address or the number to reach you on.";
-    case "hours":
-      return voice
-        ? "phone can't go live without your hours, and AYA can't say when you're open."
-        : "AYA can't say when you're open.";
-    case "services":
-      return "AYA quotes no prices; she offers to book a consultation instead.";
-    case "question":
-      return "AYA answers your most common question less well until you add it in Knowledge.";
-    case "insurance":
-      return "nothing changes now; we'll ask again before AYA answers anyone.";
-    case "tone":
-      return "AYA uses a warm tone and the standard greetings, which name your practice.";
-    case "coverage":
-      return "AYA takes the calls your team misses and every call while you're closed, the recommended setting.";
-    case "direct_line":
-      return "phone can't go live: the direct line is where calls go whenever AYA can't answer.";
-    case "deposits":
-      return "AYA books without asking for a deposit.";
-    case "urgent":
-      return state.clinic.regulatoryRegime === "non-hipaa"
-        ? "AYA can't answer anyone until you give your emergency referral clinic."
-        : voice
-          ? `AYA gives ${audience} with something urgent your direct line.`
-          : `AYA gives ${audience} with something urgent your main number.`;
-    case "calendar":
-      return "bookings arrive as requests your team confirms.";
-    case "providers":
-      return "AYA books any available time.";
-    case "channels":
-    case "backup":
-      return "";
-  }
-}
-
 type Nav = { slug: string; backHref: string | null; home: string };
 
 function renderScreen(state: SetupState, screen: SetupScreenId, nav: Nav) {
@@ -405,19 +366,16 @@ function renderScreen(state: SetupState, screen: SetupScreenId, nav: Nav) {
       );
 
     case "urgent": {
-      const fallback = channels.includes("voice")
-        ? settings.directLineE164
-        : clinic.publishedPhoneE164;
-      const current = settings.urgentHelpE164 ?? fallback;
+      // The clinic's own number only: the default (the direct line, or the
+      // main number without phone) is named beside the field and resolved
+      // when the number is read, so it is never frozen as a copy.
+      const field = urgentHelpField(state);
       return (
         <UrgentScreen
           {...common}
-          urgentHelp={current ? formatPhone(current) : ""}
-          urgentHint={
-            channels.includes("voice")
-              ? "Your direct line unless you give another. AYA never gives your main number, which forwards to her."
-              : "Your main number unless you give another."
-          }
+          urgentHelp={field.value}
+          urgentPlaceholder={field.placeholder}
+          urgentHint={field.hint}
           vet={clinic.regulatoryRegime === "non-hipaa"}
           vetReferral={settings.vetReferralE164 ? formatPhone(settings.vetReferralE164) : ""}
           audience={audience}

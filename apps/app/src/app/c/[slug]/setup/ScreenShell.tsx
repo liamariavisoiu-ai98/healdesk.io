@@ -136,6 +136,8 @@ export function Field(props: {
   inputMode?: "text" | "tel" | "decimal" | "numeric";
   maxLength?: number;
   multiline?: boolean;
+  /** What an empty field stands for, such as a default number; the hint says it too. */
+  placeholder?: string;
 }) {
   const id = useId();
   const hintId = useId();
@@ -143,6 +145,7 @@ export function Field(props: {
     id,
     value: props.value,
     maxLength: props.maxLength,
+    placeholder: props.placeholder || undefined,
     "aria-describedby": props.hint ? hintId : undefined,
     className: "border-line w-full rounded-xl border bg-white px-4 py-3 text-base",
   };

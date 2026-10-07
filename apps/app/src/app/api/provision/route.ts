@@ -39,13 +39,16 @@ import { sendWelcomeEmail } from "@/lib/setup/welcome-email";
  * lib/email/connect-link.ts for the single-use link that replaced the account.
  *
  * It sends exactly one email, and only on a genuine creation: the welcome
- * email (B1, plan Part C4), with the order's terms and a 72-hour "Continue
- * setup" link into the wizard. It goes AFTER provisionClinic's transaction
- * has committed, so a mail failure cannot roll back provisioning and a
- * rollback cannot leave a live link in an inbox, and after the response, so
- * the webhook relay never waits on Resend. A failed send is retried by the
- * setup-reminders job (lib/setup/reminders.ts). The booking-request fields
- * the old setup link asked about are the specialty's defaults, settled at
+ * email (B1, plan Part C4), with the order's terms, the setup-fee receipt
+ * (the paid first invoice's hosted page, which the relay passes as
+ * `hostedInvoiceUrl`) and a 72-hour "Continue setup" link into the wizard. It
+ * goes AFTER provisionClinic's transaction has committed, so a mail failure
+ * cannot roll back provisioning and a rollback cannot leave a live link in an
+ * inbox, and after the response, so the webhook relay never waits on Resend.
+ * Provisioning writes the welcome's ledger row in its own transaction, so a
+ * send that fails, or never runs, is found and sent by the hourly welcome
+ * backstop (lib/setup/welcome-email.ts). The booking-request fields the old
+ * setup link asked about are the specialty's defaults, settled at
  * provisioning (lib/setup/seed.ts).
  *
  * Note the ordering: the signature is verified before the body is parsed as
@@ -100,6 +103,7 @@ export async function POST(request: Request): Promise<Response> {
   const intentRef = intentRefOf(body);
   let provisionRequest: ProvisionRequest;
   let setup: SetupSeed | undefined;
+  let firstInvoiceUrl: string | null = null;
   try {
     if (intentRef) {
       const stripe = body as {
@@ -109,6 +113,7 @@ export async function POST(request: Request): Promise<Response> {
         attempt?: unknown;
         plan?: unknown;
         billingInterval?: unknown;
+        hostedInvoiceUrl?: unknown;
       };
       const intent = await findIntent(intentRef);
       if (!intent) {
@@ -133,6 +138,11 @@ export async function POST(request: Request): Promise<Response> {
       });
       // What the setup wizard starts from: the funnel's answers and the read.
       setup = setupSeedFromIntent(intent);
+      // The paid first invoice's hosted page, the setup-fee receipt the
+      // welcome email links. Anything but a Stripe invoice page is dropped,
+      // never refused: the purchase is paid, and a receipt link is not worth
+      // an account.
+      firstInvoiceUrl = stripeInvoiceUrl(stripe.hostedInvoiceUrl);
     } else {
       provisionRequest = body as ProvisionRequest;
     }
@@ -155,7 +165,7 @@ export async function POST(request: Request): Promise<Response> {
           undefined,
         userAgent: request.headers.get("user-agent") ?? undefined,
       },
-      intentRef ? { intentRef, setup } : {},
+      intentRef ? { intentRef, setup, firstInvoiceUrl } : {},
     );
 
     // 200 on a replay, 201 on a genuine creation.
@@ -207,6 +217,15 @@ export async function POST(request: Request): Promise<Response> {
 function intentRefOf(body: unknown): string | null {
   const ref = (body as { ref?: unknown } | null)?.ref;
   return typeof ref === "string" && ref.length > 0 ? ref : null;
+}
+
+/**
+ * A Stripe-hosted invoice page, or null: https on invoice.stripe.com, printable
+ * ASCII, at most 500 characters, as checkout_intents' CHECK allows.
+ */
+function stripeInvoiceUrl(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 500) return null;
+  return /^https:\/\/invoice\.stripe\.com\/[!-~]+$/.test(value) ? value : null;
 }
 
 /**

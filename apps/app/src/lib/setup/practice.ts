@@ -2,8 +2,10 @@ import { cleanWebsite, isKnownTimeZone } from "@healdesk/catalog";
 import { and, asc, eq, gte } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
-import { clinicClosures, clinics, clinicSettings } from "@/db/schema";
+import { clinicClosures, clinics, clinicSettings, entitlements } from "@/db/schema";
+import { setSetupDeadline } from "@/lib/billing/entitlements";
 import { clinicLocalDate } from "@/lib/clinic/closures";
+import { moveSetupDeadline } from "@/lib/clinic/setup-window";
 import {
   OpeningHoursError,
   parseOpeningHours,
@@ -128,6 +130,11 @@ export async function saveBasics(
     }
   }
 
+  const [before] = await tx.db
+    .select({ timezone: clinics.timezone })
+    .from(clinics)
+    .where(eq(clinics.id, tx.clinicId))
+    .limit(1);
   await tx.db
     .update(clinics)
     .set({
@@ -140,6 +147,7 @@ export async function saveBasics(
       updatedAt: now,
     })
     .where(eq(clinics.id, tx.clinicId));
+  if (before) await moveSetupDeadlineToZone(tx, before.timezone, timezone, now);
   tx.audit.record({
     action: "update",
     resourceType: "clinic_practice",
@@ -150,6 +158,51 @@ export async function saveBasics(
       websiteSet: website !== null,
     },
   });
+}
+
+/**
+ * Keep the setup window on the clinic's own calendar when its time zone is
+ * corrected (here, from 1.1, and from the ops console).
+ *
+ * Provisioning set the deadline to the end of the 30th day in the zone it
+ * guessed: the address's, then the buyer's browser's, then New York. The
+ * reminders, the closure email and the welcome email name that day in the
+ * clinic's zone, so after a correction the named day and the instant the
+ * account closes would no longer agree: an eastward correction promised a
+ * day the account does not live to the end of, a westward one closed it hours
+ * before the end of the named day. The deadline moves to the end of the same
+ * day in the corrected zone: the day stays the one already named (the welcome
+ * email names it at once), and "by the end of that day" becomes true where
+ * the clinic is.
+ *
+ * Never into the past: a correction in the window's last hours that would
+ * close it at once keeps the later deadline. A location (no billing row of
+ * its own) and a clinic with no deadline have nothing to move. Returns
+ * whether the deadline moved.
+ */
+export async function moveSetupDeadlineToZone(
+  tx: TenantTx,
+  fromZone: string,
+  toZone: string,
+  now: Date = new Date(),
+): Promise<boolean> {
+  if (fromZone === toZone || !isKnownTimeZone(fromZone) || !isKnownTimeZone(toZone)) return false;
+  const [row] = await tx.db
+    .select({ deadline: entitlements.setupDeadlineAt })
+    .from(entitlements)
+    .where(eq(entitlements.clinicId, tx.clinicId))
+    .limit(1);
+  if (!row?.deadline || row.deadline.getTime() <= now.getTime()) return false;
+  const moved = moveSetupDeadline(row.deadline, fromZone, toZone);
+  if (moved.getTime() === row.deadline.getTime() || moved.getTime() <= now.getTime()) return false;
+  await setSetupDeadline(tx.db, tx.clinicId, moved);
+  tx.audit.record({
+    action: "update",
+    resourceType: "setup_deadline",
+    resourceId: tx.clinicId,
+    metadata: { reason: "time_zone_corrected", fromZone, toZone },
+  });
+  return true;
 }
 
 // -----------------------------------------------------------------------------

@@ -36,11 +36,22 @@ export type Tracker = {
   previewUnlocked: boolean;
 };
 
-/** What "Your answers set up" needs at the spec's minimum: services with prices, hours, the most-asked question. */
-export function answersMissing(state: Pick<SetupState, "knowledge" | "clinic">): string[] {
+/**
+ * What "Your answers set up" needs at the spec's minimum: services with
+ * prices, hours, the most-asked question. Each is the clinic's own answer,
+ * not what we filled in: hours count once confirmed, and prices once the
+ * services screen is saved, because the price guardrail quotes only the
+ * clinic's list, and a website read (or our starting list) is not that until
+ * the clinic has checked it.
+ */
+export function answersMissing(
+  state: Pick<SetupState, "knowledge" | "clinic" | "progress">,
+): string[] {
   const missing: string[] = [];
   if (!state.knowledge.services.some((s) => s.priceFromUsd !== null))
     missing.push("a service with its price");
+  else if (state.progress.get("services")?.outcome !== "done")
+    missing.push("a check of your prices");
   if (!state.clinic.openingHours || !state.clinic.onboarding.hours_confirmed)
     missing.push("your hours");
   if (!state.knowledge.mostAsked) missing.push("your most-asked question");

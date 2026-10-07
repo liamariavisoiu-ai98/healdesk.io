@@ -1,5 +1,5 @@
 {
-  "id": "a36600ad-fcad-4dab-b65a-488d77ec0e4a",
+  "id": "4eab295c-3b08-4e2f-b26e-5adfb5440f2a",
   "prevId": "36a93597-0914-40c6-ad0e-0001939ab0c0",
   "version": "7",
   "dialect": "postgresql",
@@ -2235,6 +2235,12 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "first_invoice_url": {
+          "name": "first_invoice_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -2277,6 +2283,10 @@
         "checkout_intents_interval_check": {
           "name": "checkout_intents_interval_check",
           "value": "\"checkout_intents\".\"billing_interval\" in ('month', 'year')"
+        },
+        "checkout_intents_first_invoice_url_check": {
+          "name": "checkout_intents_first_invoice_url_check",
+          "value": "\"checkout_intents\".\"first_invoice_url\" is null or (char_length(\"checkout_intents\".\"first_invoice_url\") <= 500 and \"checkout_intents\".\"first_invoice_url\" ~ '^https://invoice\\.stripe\\.com/[!-~]+$')"
         },
         "checkout_intents_profile_status_check": {
           "name": "checkout_intents_profile_status_check",

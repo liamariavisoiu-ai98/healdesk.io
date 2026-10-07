@@ -1064,7 +1064,9 @@ export type AgentService = {
   /**
    * How the menu states the price (catalog SERVICE_PRICE_KINDS), from 0052.
    * Absent on a service written before it, which reads as exact when both
-   * ends are equal and as a range otherwise.
+   * ends are equal, as a "from" price when there is no top, and as a range
+   * otherwise (lib/setup/prices.ts, which also keeps it, the unit and the
+   * deposit through the ops console's form).
    */
   priceKind?: ServicePriceKind | null;
   /** What a per-unit price is per ("unit", "syringe"); only with `per_unit`. */
@@ -2873,9 +2875,21 @@ export const checkoutIntents = pgTable(
     provisionedUserId: text("provisioned_user_id"),
     /** Provisioning refused this intent: /welcome says so instead of waiting. */
     provisionFailedAt: timestamp("provision_failed_at", { withTimezone: true }),
+    /**
+     * Stripe's hosted page for the paid first invoice, where the setup-fee
+     * receipt is, as the invoice.paid relay passed it to provisioning (0052).
+     * The welcome email (B1) links it on every attempt: plan C4, and contracts
+     * §3, under which no separate receipt goes for the welcome's invoice. Null
+     * on a purchase that did not come through Stripe's relay.
+     */
+    firstInvoiceUrl: text("first_invoice_url"),
   },
   (t) => [
     check("checkout_intents_interval_check", sql`${t.billingInterval} in ('month', 'year')`),
+    check(
+      "checkout_intents_first_invoice_url_check",
+      sql`${t.firstInvoiceUrl} is null or (char_length(${t.firstInvoiceUrl}) <= 500 and ${t.firstInvoiceUrl} ~ '^https://invoice\\.stripe\\.com/[!-~]+$')`,
+    ),
     check(
       "checkout_intents_profile_status_check",
       sql`${t.profileStatus} in (${sqlList(CHECKOUT_PROFILE_STATUSES)})`,

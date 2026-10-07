@@ -280,7 +280,10 @@ export function DepositsScreen(
 
 export function UrgentScreen(
   props: Common & {
+    /** The clinic's own urgent number, or empty for the default. */
     urgentHelp: string;
+    /** The default, as it stands now: shown, never filled in. */
+    urgentPlaceholder: string;
     urgentHint: string;
     /** A veterinary practice gives its emergency referral clinic instead. */
     vet: boolean;
@@ -321,6 +324,7 @@ export function UrgentScreen(
           hint={props.urgentHint}
           value={urgent}
           onChange={setUrgent}
+          placeholder={props.urgentPlaceholder}
           type="tel"
           inputMode="tel"
         />

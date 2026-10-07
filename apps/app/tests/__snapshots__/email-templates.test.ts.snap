@@ -880,6 +880,8 @@ exports[`each template's output > welcome, for clients: the snapshot 1`] = `
 <p style="margin:0 0 4px;"><strong>Channels:</strong> Website chat, Phone</p>
 <p style="margin:0 0 4px;"><strong>Billing:</strong> Monthly</p>
 <p style="margin:0 0 4px;"><strong>Monthly price:</strong> $897</p>
+<p style="margin:0 0 4px;"><strong>Setup fee:</strong> Paid</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_1Pfixture/test_YWNjdF8xUGZpeHR1cmU" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Your setup-fee receipt</a></p>
 <p style="margin:0 0 16px;">Monthly billing ($897) starts the day AYA first answers a client. Until then, nothing more is charged. The setup fee is non-refundable.</p>
 <p style="margin:0 0 16px;">To cancel before your plan starts, reply to this email and we&#39;ll cancel it for you. Nothing more is charged.</p>
 <p style="margin:0 0 16px;">Your order is under healdesk&#39;s Terms of Service, version 2026-10-07.1, at healdesk.io/terms.</p>
@@ -919,6 +921,9 @@ Package: Web + Voice
 Channels: Website chat, Phone
 Billing: Monthly
 Monthly price: $897
+Setup fee: Paid
+
+Your setup-fee receipt: https://invoice.stripe.com/i/acct_1Pfixture/test_YWNjdF8xUGZpeHR1cmU
 
 Monthly billing ($897) starts the day AYA first answers a client. Until then, nothing more is charged. The setup fee is non-refundable.
 
@@ -971,6 +976,8 @@ exports[`each template's output > welcome, for patients: the snapshot 1`] = `
 <p style="margin:0 0 4px;"><strong>Channels:</strong> Website chat, Phone</p>
 <p style="margin:0 0 4px;"><strong>Billing:</strong> Monthly</p>
 <p style="margin:0 0 4px;"><strong>Monthly price:</strong> $897</p>
+<p style="margin:0 0 4px;"><strong>Setup fee:</strong> Paid</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_1Pfixture/test_YWNjdF8xUGZpeHR1cmU" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Your setup-fee receipt</a></p>
 <p style="margin:0 0 16px;">Monthly billing ($897) starts the day AYA first answers a patient. Until then, nothing more is charged. The setup fee is non-refundable.</p>
 <p style="margin:0 0 16px;">To cancel before your plan starts, reply to this email and we&#39;ll cancel it for you. Nothing more is charged.</p>
 <p style="margin:0 0 16px;">Your order is under healdesk&#39;s Terms of Service, version 2026-10-07.1, at healdesk.io/terms.</p>
@@ -1010,6 +1017,9 @@ Package: Web + Voice
 Channels: Website chat, Phone
 Billing: Monthly
 Monthly price: $897
+Setup fee: Paid
+
+Your setup-fee receipt: https://invoice.stripe.com/i/acct_1Pfixture/test_YWNjdF8xUGZpeHR1cmU
 
 Monthly billing ($897) starts the day AYA first answers a patient. Until then, nothing more is charged. The setup fee is non-refundable.
 

@@ -8,6 +8,7 @@ import {
   cleanWebsite,
   type BookingSystemId,
   type CalendarAccount,
+  type CallRouting,
   type ClinicProfile,
 } from "@healdesk/catalog";
 import { eq } from "drizzle-orm";
@@ -19,7 +20,7 @@ import { completeStep } from "@/lib/onboarding/steps";
 import type { TenantTx } from "@/lib/tenant";
 
 import { neverSayWithDefaults, serviceFromProfile } from "./knowledge";
-import { toE164 } from "./settings";
+import { coverageModeForRouting, toE164 } from "./settings";
 
 /**
  * What provisioning seeds for the setup wizard (plan Part C2), so the clinic
@@ -28,7 +29,8 @@ import { toE164 } from "./settings";
  * - settings from the funnel's answers: where bookings live, and from it
  *   Auto-confirm, off for a system that does not read Google Calendar (the
  *   one-way and unverified ones, which run manual booking); the kind of
- *   Google account;
+ *   Google account; and, for a purchase that carried a call routing answer,
+ *   the coverage mode it means;
  * - the practice from the website read: the address, the main number, the
  *   website and the weekly hours of the location the read found first (the
  *   wizard asks which location when there are several);
@@ -83,7 +85,18 @@ export function seededProfile(seed: SetupSeed, specialty: string): ClinicProfile
 
 export async function seedSetup(
   tx: TenantTx,
-  input: { specialty: string; seed: SetupSeed; now?: Date },
+  input: {
+    specialty: string;
+    seed: SetupSeed;
+    /**
+     * The purchase's call routing answer, when it carried one (a purchase
+     * from before intents; a funnel purchase leaves it to wizard 2.2).
+     * coverage_mode is the single source, so it starts from the same answer
+     * clinics.call_routing was written with.
+     */
+    callRouting?: CallRouting;
+    now?: Date;
+  },
 ): Promise<void> {
   const now = input.now ?? new Date();
   const { seed } = input;
@@ -134,6 +147,9 @@ export async function seedSetup(
         ? { bookingSystem: system, autoConfirmBookings: bookingSyncFor(system) === "live" }
         : {}),
       ...(seed.calendarAccount ? { calendarAccount: seed.calendarAccount } : {}),
+      ...(input.callRouting
+        ? { coverageMode: coverageModeForRouting(input.callRouting, null) }
+        : {}),
       updatedAt: now,
     })
     .onConflictDoNothing({ target: clinicSettings.clinicId });

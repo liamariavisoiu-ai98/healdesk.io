@@ -26,8 +26,9 @@ import {
 } from "./practice";
 import { neighbours, recordScreen } from "./screens";
 import { SETUP_SCREENS, type SetupScreenId } from "./screen-ids";
-import { saveDirectLine, saveSetupSettings, SetupSettingsError } from "./settings";
+import { saveDirectLine, saveSetupSettings, SetupSettingsError, toE164 } from "./settings";
 import { readSetupState, type SetupState } from "./state";
+import { urgentHelpDefault } from "./urgent";
 
 /**
  * Saving one setup screen (plan Part E): validate what the screen sent, write
@@ -258,10 +259,15 @@ async function writeScreen(
         await saveSetupSettings(tx, { vetReferralE164: referral }, ctx.actorLabel, now);
         return;
       }
-      const urgent = typeof input.urgentHelp === "string" ? input.urgentHelp : "";
+      // Null is "use the default", resolved when the number is read
+      // (lib/setup/urgent.ts). A number typed equal to the default is the
+      // default too, so it follows the direct line instead of freezing it.
+      const urgent = typeof input.urgentHelp === "string" ? input.urgentHelp.trim() : "";
+      const fallback = urgentHelpDefault(state);
+      const sameAsDefault = urgent !== "" && fallback !== null && toE164(urgent) === fallback;
       await saveSetupSettings(
         tx,
-        { urgentHelpE164: urgent.trim() ? urgent : null },
+        { urgentHelpE164: urgent && !sameAsDefault ? urgent : null },
         ctx.actorLabel,
         now,
       );

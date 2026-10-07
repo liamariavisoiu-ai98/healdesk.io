@@ -160,6 +160,11 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "A clinic's first period was charged while its subscription was set to cancel. Check with the clinic whether auto-renew should be on; if not, the first-period refund applies.",
   },
+  welcome_email_unsent: {
+    title: "A welcome email has not reached a clinic",
+    action:
+      "A clinic's welcome email, its order confirmation with the receipt and the Continue setup link, is still unsent an hour after its account was made, or setup moved on before it could go. Check Resend, then email the order details to the clinic's address by hand.",
+  },
 };
 
 /**

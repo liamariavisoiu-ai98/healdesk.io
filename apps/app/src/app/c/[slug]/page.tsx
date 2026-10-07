@@ -10,7 +10,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth";
 import { formatReplyBy } from "@/lib/reply-by";
-import { clinicLocalDate } from "@/lib/clinic/closures";
+import { setupLastDay } from "@/lib/clinic/setup-window";
 import { requirePortal } from "@/lib/portal/access";
 import { portalActor } from "@/lib/portal/actor";
 import { channelNextStep, channelStatusWord, setupSentence } from "@/lib/setup/channels";
@@ -218,7 +218,7 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
                 <p className="text-muted mt-2 text-sm">
                   Setup stays available until{" "}
                   {formatReplyBy(
-                    clinicLocalDate(state.billing.setupDeadlineAt, state.clinic.timezone),
+                    setupLastDay(state.billing.setupDeadlineAt, state.clinic.timezone),
                   )}
                   . If nothing is answering {audience} by the end of that day, the account closes.
                 </p>

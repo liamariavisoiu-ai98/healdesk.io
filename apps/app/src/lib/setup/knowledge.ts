@@ -16,6 +16,8 @@ import { agentConfigs, clinics, type AgentService, type KnowledgeAnswer } from "
 import { MAX_AGENT_SERVICES } from "@/lib/onboarding/agent-config";
 import type { TenantTx } from "@/lib/tenant";
 
+import { priceKindOf } from "./prices";
+
 /**
  * The practice's knowledge: what AYA may say about it (plan Part F3, spec
  * "Knowledge"). It lives on agent_configs, the row that has always held the
@@ -95,16 +97,15 @@ export type ServiceInput = {
   depositUsd?: number | null;
 };
 
-/** A service as the form shows it, from what is stored. */
+/**
+ * A service as the form shows it, from what is stored. A service stored
+ * without a kind (before 0052, or by a writer that does not know kinds) takes
+ * the kind its prices say: a start with no top is a "from" price, never an
+ * exact one, which would make the next save quote the start as the whole
+ * price.
+ */
 export function serviceInputOf(service: AgentService): ServiceInput {
-  const kind =
-    service.priceKind !== undefined
-      ? service.priceKind
-      : service.priceFromUsd === null
-        ? null
-        : service.priceToUsd === null || service.priceToUsd === service.priceFromUsd
-          ? "exact"
-          : "range";
+  const kind = priceKindOf(service);
   return {
     name: service.name,
     priceKind: kind,

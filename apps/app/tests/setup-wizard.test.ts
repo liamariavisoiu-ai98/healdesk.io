@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -16,10 +16,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vit
 import { POST as postIntent } from "@/app/api/checkout/intents/route";
 import { POST as postProvision } from "@/app/api/provision/route";
 import { signAgreement } from "@/lib/agreements";
+import { setupDeadline } from "@/lib/clinic/setup-window";
 import { assertPayloadAllowed } from "@/lib/email/lint";
 import { deliverNotice } from "@/lib/email/outbox";
 import { notifyCalendarState } from "@/lib/notices/calendar-state";
 import { destroyClinicData } from "@/lib/offboarding/offboarding";
+import { runOperation, type Operator } from "@/lib/ops/api";
 import { provisionClinic } from "@/lib/provisioning";
 import type { DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
 import { setJobEnabled, JOB_SETUP_REMINDERS } from "@/lib/scheduler/jobs";
@@ -29,7 +31,13 @@ import { saveSetupScreen, skipSetupScreen, type SaveContext } from "@/lib/setup/
 import { readProgress, resumeScreen } from "@/lib/setup/screens";
 import type { SetupSeed } from "@/lib/setup/seed";
 import { loadSetupState } from "@/lib/setup/state";
-import { sendWelcomeEmail } from "@/lib/setup/welcome-email";
+import { buildTracker } from "@/lib/setup/tracker";
+import { urgentHelpNumber } from "@/lib/setup/urgent";
+import {
+  runWelcomeBackstop,
+  sendWelcomeEmail,
+  WELCOME_RETRY_AFTER_MS,
+} from "@/lib/setup/welcome-email";
 import { consumeSignInLink } from "@/lib/sign-in/links";
 import { withTenant } from "@/lib/tenant";
 
@@ -46,10 +54,11 @@ import { inTenant } from "./setup/factories";
 /**
  * The setup wizard end to end against the database (plan Part E, C2, C4 and
  * Annex X5's B1, O7, O13 and the day-30 closure): what provisioning seeds
- * from the purchase, the welcome email once per clinic, each screen's save
- * and skip, the resume point, the reminders and their schedule, the closure
- * email's seam, the calendar emails, and the grants and destruction rules of
- * the two tables 0052 adds.
+ * from the purchase, the welcome email once per clinic with its receipt and
+ * its backstop, each screen's save and skip, the resume point, the reminders
+ * and their schedule across a time zone correction, the closure email's seam,
+ * the calendar emails, the ops console's writers keeping what setup stores,
+ * and the grants and destruction rules of the two tables 0052 adds.
  */
 
 const SECRET = "setup-wizard-test-secret";
@@ -58,6 +67,7 @@ process.env.BETTER_AUTH_URL ??= "http://localhost:3001";
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const SERVICE = { type: "service", serviceName: "setup-wizard-test" } as const;
+const OPERATOR: Operator = { email: "ops@healdesk.test", request: {} };
 
 function signed(url: string, body: unknown): Request {
   const raw = JSON.stringify(body);
@@ -160,10 +170,13 @@ async function agreementFor(
 
 type Provisioned = { clinicId: string; slug: string; userId: string; email: string };
 
+/** The paid first invoice's hosted page, as the invoice.paid relay passes it. */
+const RECEIPT_URL = "https://invoice.stripe.com/i/acct_1Test/test_c2V0dXAgZmVlIHJlY2VpcHQ";
+
 /** A purchase through an intent and a paid first invoice, as production makes one. */
 async function purchaseAndProvision(
-  options: { bookingSystem?: string; platform?: string } = {},
-): Promise<Provisioned> {
+  options: { bookingSystem?: string; platform?: string; hostedInvoiceUrl?: string | null } = {},
+): Promise<Provisioned & { provisionBody: Record<string, unknown> }> {
   const email = `laura-${randomUUID().slice(0, 8)}@glowspa.test`;
   const platform = options.platform ?? "mindbody";
   const agreementId = await agreementFor(email, platform);
@@ -194,30 +207,43 @@ async function purchaseAndProvision(
   const saved = (await intent.json()) as { ref: string };
   expect(intent.status, JSON.stringify(saved)).toBe(201);
   const sub = `sub_test_${randomUUID().slice(0, 8)}`;
-  const provisioned = await postProvision(
-    signed("http://app.test/api/provision", {
-      ref: saved.ref,
-      idempotencyKey: sub,
-      stripeCustomerId: `cus_test_${randomUUID().slice(0, 8)}`,
-      stripeSubscriptionId: sub,
-      attempt: 1,
-      plan: "web-voice",
-      billingInterval: "month",
-    }),
-  );
+  const provisionBody = {
+    ref: saved.ref,
+    idempotencyKey: sub,
+    stripeCustomerId: `cus_test_${randomUUID().slice(0, 8)}`,
+    stripeSubscriptionId: sub,
+    attempt: 1,
+    plan: "web-voice",
+    billingInterval: "month",
+    hostedInvoiceUrl:
+      options.hostedInvoiceUrl === undefined ? RECEIPT_URL : options.hostedInvoiceUrl,
+  };
+  const provisioned = await postProvision(signed("http://app.test/api/provision", provisionBody));
   const json = (await provisioned.json()) as { clinicId: string; clinicSlug: string };
   expect(provisioned.status).toBe(201);
   const { rows } = await getMigratorPool().query<{ id: string }>(
     `select id from "user" where email = $1`,
     [email],
   );
-  return { clinicId: json.clinicId, slug: json.clinicSlug, userId: rows[0]!.id, email };
+  return {
+    clinicId: json.clinicId,
+    slug: json.clinicSlug,
+    userId: rows[0]!.id,
+    email,
+    provisionBody,
+  };
 }
 
 /** A clinic made by provisioning directly, with the seed given (no intent). */
 async function provisionDirect(
   label: string,
-  options: { plan?: string; isCoveredEntity?: boolean | null; setup?: SetupSeed } = {},
+  options: {
+    plan?: string;
+    isCoveredEntity?: boolean | null;
+    setup?: SetupSeed;
+    timezone?: string;
+    callRouting?: "conditional" | "always";
+  } = {},
 ): Promise<Provisioned> {
   const email = `${label}-${randomUUID().slice(0, 8)}@glowspa.test`;
   const agreementId = await agreementFor(
@@ -235,7 +261,8 @@ async function provisionDirect(
       contactName: "Laura Owner",
       contactEmail: email,
       agreementId,
-      timezone: "America/New_York",
+      timezone: options.timezone ?? "America/New_York",
+      ...(options.callRouting ? { callRouting: options.callRouting } : {}),
       idempotencyKey: `idem-${randomUUID()}`,
     },
     {},
@@ -356,6 +383,29 @@ describeDb("the setup wizard", () => {
       expect(agent.never_say).toEqual([...NEVER_SAY_DEFAULTS]);
     });
 
+    test("the read prices count as set up only once the clinic has saved the services screen", async () => {
+      const clinic = await purchaseAndProvision();
+      const answers = async () => {
+        const state = await loadSetupState({
+          clinicId: clinic.clinicId,
+          userId: clinic.userId,
+          actor: SERVICE,
+        });
+        return buildTracker(state!).stages.find((stage) => stage.id === "answers")!.detail;
+      };
+      expect(await answers()).toContain("a check of your prices");
+      await skipSetupScreen(contextOf(clinic), "services");
+      expect(await answers()).toContain("a check of your prices");
+      expect(
+        await saveSetupScreen(contextOf(clinic), "services", {
+          services: [
+            { name: "Signature facial", priceKind: "exact", price: 199, durationMinutes: 60 },
+          ],
+        }),
+      ).toMatchObject({ ok: true });
+      expect(await answers()).not.toContain("a check of your prices");
+    });
+
     test("a booking system that reads Google Calendar keeps Auto-confirm on", async () => {
       const clinic = await purchaseAndProvision({
         bookingSystem: "google_calendar",
@@ -390,11 +440,13 @@ describeDb("the setup wizard", () => {
   });
 
   describe("the welcome email (B1)", () => {
-    test("goes once per clinic, with the order's terms and a 72-hour link into setup", async () => {
+    test("goes once per clinic, with the order's terms, its receipt and a 72-hour link into setup", async () => {
       const clinic = await purchaseAndProvision();
+      // Provisioning recorded it as owed and the route tried it after commit,
+      // through the console transport in tests, which records "skipped": a
+      // send that reached no one. One row, whatever happened.
+      expect(await welcomeLedger(clinic)).toEqual([expect.objectContaining({ status: "skipped" })]);
       const transport = new FakeTransport();
-      // Provisioning already tried it, through the console transport in
-      // tests, which records "skipped": a send that reached no one.
       expect(await sendWelcomeEmail(clinic.clinicId, { transport })).toBe("sent");
       expect(transport.sent).toHaveLength(1);
       const { target, message } = transport.sent[0]!;
@@ -408,6 +460,10 @@ describeDb("the setup wizard", () => {
         "Website chat: after setup, you paste one line on your website",
       );
       expect(message.text).toContain("The setup fee is non-refundable.");
+      // The setup-fee receipt: the paid first invoice's hosted page, as the
+      // relay passed it (contracts §3: no separate receipt for this invoice).
+      expect(message.text).toContain("Setup fee: Paid");
+      expect(message.text).toContain(`Your setup-fee receipt: ${RECEIPT_URL}`);
       expect(message.tags).toEqual(
         expect.arrayContaining([
           { name: "app", value: "app" },
@@ -435,6 +491,111 @@ describeDb("the setup wizard", () => {
             .rows,
       );
       expect(ledger).toEqual([{ status: "sent", period_key: "welcome" }]);
+    });
+
+    test("a replayed provision makes no second attempt", async () => {
+      const clinic = await purchaseAndProvision();
+      const before = await welcomeLedger(clinic);
+      const again = await postProvision(
+        signed("http://app.test/api/provision", clinic.provisionBody),
+      );
+      expect(again.status).toBe(200);
+      expect(await welcomeLedger(clinic)).toEqual(before);
+    });
+
+    test("a receipt link that is not Stripe's own is left out, never refused", async () => {
+      const clinic = await purchaseAndProvision({
+        hostedInvoiceUrl: "https://evil.example/receipt",
+      });
+      const { rows } = await getMigratorPool().query(
+        `select first_invoice_url from checkout_intents where provisioned_clinic_id = $1`,
+        [clinic.clinicId],
+      );
+      expect(rows).toEqual([{ first_invoice_url: null }]);
+      const transport = new FakeTransport();
+      expect(await sendWelcomeEmail(clinic.clinicId, { transport })).toBe("sent");
+      expect(transport.sent[0]!.message.text).not.toContain("receipt");
+    });
+
+    test("one whose send never ran is owed from provisioning, and the backstop sends it ten minutes on, once", async () => {
+      // provisionClinic itself: no route, so no after-commit send, as when
+      // the process exits before that task runs.
+      const clinic = await provisionDirect("owed");
+      expect(await welcomeLedger(clinic)).toEqual([
+        expect.objectContaining({
+          status: "failed",
+          reason: "owed since provisioning; not yet attempted",
+        }),
+      ]);
+      const transport = new FakeTransport();
+      const start = Date.now();
+      await runWelcomeBackstop({ now: new Date(start + 5 * 60_000), transport });
+      expect(sentFor(transport, clinic)).toHaveLength(0);
+
+      const later = new Date(start + WELCOME_RETRY_AFTER_MS + 60_000);
+      await runWelcomeBackstop({ now: later, transport });
+      const sent = sentFor(transport, clinic);
+      expect(sent).toHaveLength(1);
+      expect(sent[0]!.message.subject).toBe("Welcome to healdesk: your order is confirmed");
+      expect(await welcomeLedger(clinic)).toEqual([expect.objectContaining({ status: "sent" })]);
+      await runWelcomeBackstop({ now: later, transport });
+      expect(sentFor(transport, clinic)).toHaveLength(1);
+    });
+
+    test("one whose send failed goes again ten minutes on, with a fresh link, and not before", async () => {
+      const clinic = await provisionDirect("retry");
+      const attempts: OutgoingEmail[] = [];
+      const failing: EmailTransport = {
+        name: "failing",
+        async send(_target: DeliveryTarget, message: OutgoingEmail) {
+          attempts.push(message);
+          throw new Error("Resend is unreachable");
+        },
+      };
+      expect(await sendWelcomeEmail(clinic.clinicId, { transport: failing })).toBe("failed");
+      expect(attempts).toHaveLength(1);
+      expect(await welcomeLedger(clinic)).toEqual([expect.objectContaining({ status: "failed" })]);
+
+      const transport = new FakeTransport();
+      const start = Date.now();
+      await runWelcomeBackstop({ now: new Date(start + 5 * 60_000), transport });
+      expect(sentFor(transport, clinic)).toHaveLength(0);
+      await runWelcomeBackstop({
+        now: new Date(start + WELCOME_RETRY_AFTER_MS + 60_000),
+        transport,
+      });
+      const sent = sentFor(transport, clinic);
+      expect(sent).toHaveLength(1);
+      // A fresh link, under a fresh key: the failed attempt's never reached anyone.
+      expect(sent[0]!.message.idempotencyKey).not.toBe(attempts[0]!.idempotencyKey);
+      const token = /\/link\/([A-Za-z0-9_-]{43})/.exec(sent[0]!.message.text)![1]!;
+      expect(await consumeSignInLink(token, null)).toMatchObject({ ok: true, purpose: "welcome" });
+    });
+
+    test("one setup has moved past is not sent late: it is marked skipped and ops is told, once", async () => {
+      const clinic = await provisionDirect("lapsed");
+      await inTenant(clinic.clinicId, (c) =>
+        c.query(`update entitlements set setup_deadline_at = $2 where clinic_id = $1`, [
+          clinic.clinicId,
+          new Date(Date.now() - 3_600_000),
+        ]),
+      );
+      const transport = new FakeTransport();
+      const later = new Date(Date.now() + WELCOME_RETRY_AFTER_MS + 60_000);
+      await runWelcomeBackstop({ now: later, transport });
+      await runWelcomeBackstop({ now: later, transport });
+      expect(sentFor(transport, clinic)).toHaveLength(0);
+      expect(await welcomeLedger(clinic)).toEqual([
+        expect.objectContaining({
+          status: "skipped",
+          reason: "not sent: the setup window has ended",
+        }),
+      ]);
+      const { rows } = await getMigratorPool().query(
+        `select repeats from ops_alerts where event = 'welcome_email_unsent' and dedupe_key = $1`,
+        [`clinicId=${clinic.clinicId}`],
+      );
+      expect(rows).toEqual([{ repeats: 0 }]);
     });
   });
 
@@ -570,6 +731,35 @@ describeDb("the setup wizard", () => {
       expect(again.rows[0]!.call_routing).toBe("conditional");
     });
 
+    test("2.2 confirms the call routing when the recommended mode is kept as it was", async () => {
+      // A funnel purchase carries no call routing: wizard 2.2 settles it, and
+      // its commonest answer is the pre-selected, unchanged default.
+      const fresh = await provisionDirect("coverage-default");
+      const before = await getMigratorPool().query(
+        `select call_routing_confirmed_at, onboarding from clinics where id = $1`,
+        [fresh.clinicId],
+      );
+      expect(before.rows[0]!.call_routing_confirmed_at).toBeNull();
+      expect(before.rows[0]!.onboarding.call_routing_chosen).toBeNull();
+      expect(
+        await saveSetupScreen(contextOf(fresh), "coverage", {
+          coverageMode: "overflow_after_hours",
+        }),
+      ).toMatchObject({ ok: true });
+      const { rows } = await getMigratorPool().query(
+        `select call_routing, call_routing_confirmed_at, onboarding from clinics where id = $1`,
+        [fresh.clinicId],
+      );
+      expect(rows[0]!.call_routing).toBe("conditional");
+      expect(rows[0]!.call_routing_confirmed_at).toBeInstanceOf(Date);
+      expect(rows[0]!.onboarding.call_routing_chosen).toBeTruthy();
+      const settings = await inTenant(
+        fresh.clinicId,
+        async (c) => (await c.query(`select coverage_mode from clinic_settings`)).rows[0]!,
+      );
+      expect(settings.coverage_mode).toBe("overflow_after_hours");
+    });
+
     test("2.3 refuses the main number as the direct line, and keeps the before and after of each change", async () => {
       const loop = await saveSetupScreen(contextOf(clinic), "direct_line", {
         directLine: "(512) 555-0100",
@@ -630,6 +820,38 @@ describeDb("the setup wizard", () => {
         urgent_help_e164: "+15125550188",
       });
       expect(rows.history).toEqual([{ field: "urgent_help_e164", after_value: "+15125550188" }]);
+    });
+
+    test("2.5 keeps the urgent number on the direct line's default, so it follows a changed line", async () => {
+      // The direct line is (512) 555-0177 from 2.3. Saving it again as the
+      // urgent number, or leaving the field empty, is the default, not a copy.
+      expect(
+        await saveSetupScreen(contextOf(clinic), "urgent", { urgentHelp: "(512) 555-0177" }),
+      ).toMatchObject({ ok: true });
+      const stored = async () =>
+        inTenant(
+          clinic.clinicId,
+          async (c) =>
+            (await c.query(`select urgent_help_e164 from clinic_settings`)).rows[0]!
+              .urgent_help_e164,
+        );
+      expect(await stored()).toBeNull();
+      expect(await saveSetupScreen(contextOf(clinic), "urgent", { urgentHelp: "" })).toMatchObject({
+        ok: true,
+      });
+      expect(await stored()).toBeNull();
+      await inTenant(clinic.clinicId, (c) =>
+        c.query(`update clinic_settings set direct_line_e164 = $2 where clinic_id = $1`, [
+          clinic.clinicId,
+          "+15125550166",
+        ]),
+      );
+      const state = await loadSetupState({
+        clinicId: clinic.clinicId,
+        userId: clinic.userId,
+        actor: SERVICE,
+      });
+      expect(urgentHelpNumber(state!)).toBe("+15125550166");
     });
 
     test("2.4 sets a deposit per service by name", async () => {
@@ -703,10 +925,16 @@ describeDb("the setup wizard", () => {
   });
 
   describe("the setup reminders (O7)", () => {
-    /** A clinic bought `daysAgo` days before `now`, its window ending 30 days after purchase. */
-    async function boughtDaysAgo(label: string, daysAgo: number, now: Date): Promise<Provisioned> {
-      const clinic = await provisionDirect(label, { plan: "web-voice" });
-      const created = new Date(now.getTime() - daysAgo * 86_400_000);
+    /**
+     * A clinic bought at `created` in `timeZone`, its window ending where
+     * provisioning ends it: the end of the 30th day there (setupDeadline).
+     */
+    async function boughtAt(
+      label: string,
+      created: Date,
+      timeZone = "America/New_York",
+    ): Promise<Provisioned> {
+      const clinic = await provisionDirect(label, { plan: "web-voice", timezone: timeZone });
       await getMigratorPool().query(`update clinics set created_at = $2 where id = $1`, [
         clinic.clinicId,
         created,
@@ -714,10 +942,15 @@ describeDb("the setup wizard", () => {
       await inTenant(clinic.clinicId, (c) =>
         c.query(`update entitlements set setup_deadline_at = $2 where clinic_id = $1`, [
           clinic.clinicId,
-          new Date(created.getTime() + 30 * 86_400_000 + 3_600_000),
+          setupDeadline(created, timeZone),
         ]),
       );
       return clinic;
+    }
+
+    /** A clinic bought `daysAgo` days before `now`. */
+    async function boughtDaysAgo(label: string, daysAgo: number, now: Date): Promise<Provisioned> {
+      return boughtAt(label, new Date(now.getTime() - daysAgo * 86_400_000));
     }
 
     // Noon in New York, where provisionDirect's clinics are.
@@ -791,6 +1024,85 @@ describeDb("the setup wizard", () => {
       expect(outcome.status).toBe("ok");
       await setJobEnabled(JOB_SETUP_REMINDERS, false, await opsUser());
     });
+
+    test("a corrected time zone keeps the named last day, and the sixth reminder goes on it", async () => {
+      // Bought at 22:00 in Los Angeles on 7 October (01:00 on the 8th in New
+      // York), with no address read: provisioning guessed the browser's zone.
+      const clinic = await boughtAt(
+        "corrected",
+        new Date("2026-10-08T05:00:00Z"),
+        "America/Los_Angeles",
+      );
+      const saved = await saveSetupScreen(contextOf(clinic), "basics", {
+        name: "Glow Med Spa",
+        address: "",
+        phone: "",
+        website: "",
+        timezone: "America/New_York",
+      });
+      expect(saved.ok).toBe(true);
+      const deadline = await inTenant(
+        clinic.clinicId,
+        async (c) =>
+          (await c.query(`select setup_deadline_at from entitlements`)).rows[0]!
+            .setup_deadline_at as Date,
+      );
+      // The end of 6 November, the day the welcome email named, in New York.
+      expect(deadline.toISOString()).toBe("2026-11-07T04:59:59.999Z");
+
+      // Noon in New York on 6 November, the last day.
+      expect(await queueSetupReminder(clinic.clinicId, new Date("2026-11-06T17:00:00Z"))).toBe(
+        "queued",
+      );
+      const queued = await inTenant(
+        clinic.clinicId,
+        async (c) =>
+          (
+            await c.query(
+              `select dedupe_key, payload from billing_notices where kind = 'setup_reminder'`,
+            )
+          ).rows,
+      );
+      expect(queued).toEqual([
+        expect.objectContaining({
+          dedupe_key: "setup_reminder:6",
+          payload: expect.objectContaining({ reminderCount: 6, closesOn: "2026-11-06" }),
+        }),
+      ]);
+      // The closure email names the same day.
+      await withTenant({ clinicId: clinic.clinicId, actor: SERVICE }, (tx) =>
+        queueSetupClosedEmail(tx, "setup_closure"),
+      );
+      const closed = await inTenant(
+        clinic.clinicId,
+        async (c) =>
+          (await c.query(`select payload from billing_notices where kind = 'setup_closed'`))
+            .rows[0]!.payload,
+      );
+      expect(closed).toMatchObject({ closedOn: "2026-11-06" });
+    });
+
+    test("the ops console's time zone correction moves the deadline the same way", async () => {
+      const clinic = await boughtAt(
+        "ops-zone",
+        new Date("2026-10-08T02:00:00Z"),
+        "America/New_York",
+      );
+      const result = await runOperation(
+        "setClinicTimezone",
+        { clinicId: clinic.clinicId, timezone: "America/Los_Angeles" },
+        OPERATOR,
+      );
+      expect(result).toMatchObject({ body: { data: { status: "updated" } } });
+      const deadline = await inTenant(
+        clinic.clinicId,
+        async (c) =>
+          (await c.query(`select setup_deadline_at from entitlements`)).rows[0]!
+            .setup_deadline_at as Date,
+      );
+      // No longer 21:00 in Los Angeles on the named day: its end.
+      expect(deadline.toISOString()).toBe("2026-11-07T07:59:59.999Z");
+    });
   });
 
   test("the closure email is queued once, and only for a setup closure", async () => {
@@ -846,6 +1158,119 @@ describeDb("the setup wizard", () => {
     expect((rows[0]!.payload as { calendarUrl: string }).calendarUrl).toBe(
       `${process.env.BETTER_AUTH_URL}/c/${clinic.slug}/setup?s=calendar`,
     );
+  });
+
+  describe("the ops console's writers keep what setup stores", () => {
+    test("an agent-config save keeps each service's kind, unit, deposit and cents", async () => {
+      const clinic = await purchaseAndProvision();
+      // 2.4 sets a deposit on the read per-pulse service.
+      expect(
+        await saveSetupScreen(contextOf(clinic), "deposits", {
+          needsDeposits: true,
+          deposits: { "Laser session": 25 },
+        }),
+      ).toMatchObject({ ok: true });
+      const read = await runOperation("getOnboarding", { clinicId: clinic.clinicId }, OPERATOR);
+      const agent = (
+        read.body as { data: { agent: { greeting: string; services: Record<string, unknown>[] } } }
+      ).data.agent;
+      // What the console's form sent before it knew the new keys: four fields.
+      const stripped = agent.services.map((s) => ({
+        name: s.name,
+        priceFromUsd: s.priceFromUsd,
+        priceToUsd: s.priceToUsd,
+        durationMinutes: s.durationMinutes,
+      }));
+      const saved = await runOperation(
+        "updateAgentConfig",
+        {
+          clinicId: clinic.clinicId,
+          greeting: "Thanks for calling Glow. How can I help?",
+          services: stripped,
+          escalationPhone: null,
+          escalationHours: null,
+          notes: null,
+          depositPolicy: null,
+        },
+        OPERATOR,
+      );
+      expect((saved.body as { data: { status: string } }).data.status).toBe("updated");
+      const services = async () =>
+        inTenant(
+          clinic.clinicId,
+          async (c) =>
+            (await c.query(`select services from agent_configs`)).rows[0]!.services as Record<
+              string,
+              unknown
+            >[],
+        );
+      expect(await services()).toEqual([
+        expect.objectContaining({
+          name: "Signature facial",
+          priceKind: "exact",
+          priceFromUsd: 199,
+          priceToUsd: 199,
+        }),
+        expect.objectContaining({ name: "Chemical peel", priceKind: "from", priceFromUsd: 150 }),
+        expect.objectContaining({
+          name: "Laser session",
+          priceKind: "per_unit",
+          priceFromUsd: 14.5,
+          priceToUsd: null,
+          unit: "pulse",
+          depositUsd: 25,
+        }),
+      ]);
+
+      // And the console as it is now, sending back what it was given.
+      const full = await runOperation(
+        "updateAgentConfig",
+        {
+          clinicId: clinic.clinicId,
+          greeting: "Thanks for calling Glow. How can I help today?",
+          services: agent.services,
+          escalationPhone: null,
+          escalationHours: null,
+          notes: null,
+          depositPolicy: null,
+        },
+        OPERATOR,
+      );
+      expect((full.body as { data: { status: string } }).data.status).toBe("updated");
+      expect((await services())[2]).toMatchObject({
+        priceKind: "per_unit",
+        priceFromUsd: 14.5,
+        unit: "pulse",
+        depositUsd: 25,
+      });
+    });
+
+    test("an operator's call routing moves coverage_mode, and provisioning starts it from the purchase", async () => {
+      const clinic = await provisionDirect("ops-routing");
+      const mode = async () =>
+        inTenant(
+          clinic.clinicId,
+          async (c) =>
+            (await c.query(`select coverage_mode from clinic_settings`)).rows[0]!.coverage_mode,
+        );
+      const route = (callRouting: string) =>
+        runOperation("setPhoneSettings", { clinicId: clinic.clinicId, callRouting }, OPERATOR);
+      await route("always");
+      expect(await mode()).toBe("all_calls");
+      await route("conditional");
+      expect(await mode()).toBe("overflow_after_hours");
+      // After hours only also rings the clinic first: "conditional" keeps it.
+      await saveSetupScreen(contextOf(clinic), "coverage", { coverageMode: "after_hours_only" });
+      await route("conditional");
+      expect(await mode()).toBe("after_hours_only");
+
+      const always = await provisionDirect("bought-always", { callRouting: "always" });
+      const seeded = await inTenant(
+        always.clinicId,
+        async (c) => (await c.query(`select coverage_mode from clinic_settings`)).rows[0]!,
+      );
+      expect(seeded.coverage_mode).toBe("all_calls");
+    });
   });
 
   describe("the tables 0052 adds", () => {
@@ -944,11 +1369,13 @@ describeDb("the setup wizard", () => {
           c.query(`delete from clinic_settings where clinic_id = $1`, [clinic.clinicId]),
         );
       }
-      // The migration's own block, run again as the migrator runs it.
-      const sql = readFileSync(
-        fileURLToPath(new URL("../drizzle/0052_setup_wizard.sql", import.meta.url)),
-        "utf8",
-      );
+      // The migration's own block, run again as the migrator runs it. Found
+      // by its tag, not its number: the number is assigned when the branch
+      // merges (build spec R27).
+      const dir = fileURLToPath(new URL("../drizzle/", import.meta.url));
+      const files = readdirSync(dir).filter((name) => /^\d{4}_setup_wizard\.sql$/.test(name));
+      expect(files).toHaveLength(1);
+      const sql = readFileSync(`${dir}${files[0]}`, "utf8");
       const block = /DO \$\$\s*DECLARE\s*previous text[\s\S]*?END;\s*\$\$;/.exec(sql)?.[0];
       expect(block, "0052 copies call_routing into coverage_mode").toBeDefined();
       await pool.query(block!);
@@ -977,6 +1404,26 @@ describeDb("the setup wizard", () => {
     });
   });
 });
+
+/** The clinic's welcome ledger row: what provisioning recorded and every attempt since. */
+async function welcomeLedger(clinic: Provisioned) {
+  return inTenant(
+    clinic.clinicId,
+    async (c) =>
+      (
+        await c.query(
+          `select status, reason, attempted_at from report_deliveries where kind = 'welcome'`,
+        )
+      ).rows,
+  );
+}
+
+/** What a transport sent to one clinic: the backstop walks every clinic in the database. */
+function sentFor(transport: FakeTransport, clinic: Provisioned) {
+  return transport.sent.filter((s) =>
+    (s.message.tags ?? []).some((t) => t.name === "clinic" && t.value === clinic.clinicId),
+  );
+}
 
 async function progressOf(clinic: Provisioned) {
   return withTenant({ clinicId: clinic.clinicId, actor: SERVICE }, (tx) =>

@@ -2,6 +2,12 @@ import { CHANNEL_NAMES, CHANNELS, NEVER_SAY_DEFAULTS } from "@healdesk/catalog";
 import { afterEach, describe, expect, test } from "vitest";
 
 import type { ChannelState } from "@/lib/channels/state";
+import {
+  moveSetupDeadline,
+  setupDeadline,
+  setupLastDay,
+  setupWindowStart,
+} from "@/lib/clinic/setup-window";
 import { copyProblems } from "@/lib/email/lint";
 import { calendarStep, providersAvailable, rightNowLine } from "@/lib/setup/calendar";
 import {
@@ -21,6 +27,12 @@ import {
   validateAnswer,
   validateServices,
 } from "@/lib/setup/knowledge";
+import {
+  carryServiceDetails,
+  inferPriceKind,
+  priceKindFits,
+  priceKindOf,
+} from "@/lib/setup/prices";
 import { dueReminderNumber, isDaytime, SETUP_REMINDER_COUNT } from "@/lib/setup/reminders";
 import {
   neighbours,
@@ -31,9 +43,16 @@ import {
   type Progress,
   type WizardFacts,
 } from "@/lib/setup/screens";
-import { toE164, usNumber } from "@/lib/setup/settings";
+import {
+  coverageModeForRouting,
+  routingForCoverageMode,
+  toE164,
+  usNumber,
+} from "@/lib/setup/settings";
+import { skipCost } from "@/lib/setup/skip-costs";
 import type { SetupState } from "@/lib/setup/state";
 import { answersMissing, buildTracker, joinWords } from "@/lib/setup/tracker";
+import { urgentHelpField, urgentHelpNumber } from "@/lib/setup/urgent";
 
 /**
  * The setup wizard's rules that need no database (plan Part E): which screens
@@ -374,56 +393,57 @@ describe("the calendar seam", () => {
   });
 });
 
-describe("the build tracker", () => {
-  function setupState(overrides: Partial<SetupState> = {}): SetupState {
-    return {
-      clinic: {
-        id: "c",
-        slug: "glow",
-        name: "Glow",
-        specialty: "med-spa",
-        timezone: "America/New_York",
-        timezoneConfirmed: false,
-        address: null,
-        website: "glowmedspa.com",
-        publishedPhoneE164: null,
-        openingHours: null,
-        siteProfile: null,
-        regulatoryRegime: "hipaa-if-covered",
-        agreementKind: "baa",
-        isCoveredEntity: false,
-        onboarding: {},
-        offboardingStartedAt: null,
-        createdAt: at,
-      },
-      channels: [],
-      settings: {} as SetupState["settings"],
-      knowledge: {
-        services: [],
-        policies: [],
-        quickAnswers: [],
-        mostAsked: null,
-        neverSay: [],
-        promotions: null,
-      },
-      closures: [],
-      progress: new Map(),
-      screens: [],
-      billing: {
-        boughtPlanId: "web-voice",
-        interval: "month",
-        status: "active",
-        firstPaidAt: at,
-        setupDeadlineAt: null,
-        planStartedAt: null,
-      },
-      address: "owner@glow.test",
-      hasPasskey: true,
-      hasBackup: false,
-      ...overrides,
-    };
-  }
+/** A clinic's setup state with nothing answered, for the rules that read it. */
+function setupState(overrides: Partial<SetupState> = {}): SetupState {
+  return {
+    clinic: {
+      id: "c",
+      slug: "glow",
+      name: "Glow",
+      specialty: "med-spa",
+      timezone: "America/New_York",
+      timezoneConfirmed: false,
+      address: null,
+      website: "glowmedspa.com",
+      publishedPhoneE164: null,
+      openingHours: null,
+      siteProfile: null,
+      regulatoryRegime: "hipaa-if-covered",
+      agreementKind: "baa",
+      isCoveredEntity: false,
+      onboarding: {},
+      offboardingStartedAt: null,
+      createdAt: at,
+    },
+    channels: [],
+    settings: {} as SetupState["settings"],
+    knowledge: {
+      services: [],
+      policies: [],
+      quickAnswers: [],
+      mostAsked: null,
+      neverSay: [],
+      promotions: null,
+    },
+    closures: [],
+    progress: new Map(),
+    screens: [],
+    billing: {
+      boughtPlanId: "web-voice",
+      interval: "month",
+      status: "active",
+      firstPaidAt: at,
+      setupDeadlineAt: null,
+      planStartedAt: null,
+    },
+    address: "owner@glow.test",
+    hasPasskey: true,
+    hasBackup: false,
+    ...overrides,
+  };
+}
 
+describe("the build tracker", () => {
   test("each stage's done-rule reads the data, and the preview stays locked while the engine is not built", () => {
     const fresh = buildTracker(setupState());
     expect(fresh.stages.map((s) => [s.id, s.state])).toEqual([
@@ -468,6 +488,7 @@ describe("the build tracker", () => {
         neverSay: [],
         promotions: null,
       },
+      progress: new Map([["services", { outcome: "done", at }]]),
     });
     expect(answersMissing(answered)).toEqual([]);
     const tracker = buildTracker(answered);
@@ -490,5 +511,216 @@ describe("the build tracker", () => {
     const calendar = buildTracker(setupState()).stages.find((s) => s.id === "calendar")!;
     expect(calendar.blocks).toBe(false);
     expect(calendar.detail).toBe("Bookings arrive as requests your team confirms.");
+  });
+});
+
+describe("price kinds through a writer that does not know them", () => {
+  const laser = {
+    name: "Laser session",
+    priceKind: "per_unit" as const,
+    priceFromUsd: 14.5,
+    priceToUsd: null,
+    unit: "pulse",
+    durationMinutes: 30,
+    depositUsd: 50,
+  };
+
+  test("a start with no top reads as a from price, never an exact one", () => {
+    expect(inferPriceKind(null, null)).toBeNull();
+    expect(inferPriceKind(150, null)).toBe("from");
+    expect(inferPriceKind(199, 199)).toBe("exact");
+    expect(inferPriceKind(150, 300)).toBe("range");
+    expect(priceKindFits("per_unit", 14.5, null)).toBe(true);
+    expect(priceKindFits("per_unit", 14.5, 20)).toBe(false);
+    expect(priceKindFits("exact", 150, 199)).toBe(false);
+    // What the ops console used to leave of "$14.50 per pulse": the wizard
+    // read it as an exact $15 and would have saved that.
+    expect(
+      serviceInputOf({
+        name: "Laser session",
+        priceFromUsd: 15,
+        priceToUsd: null,
+        durationMinutes: 30,
+      }),
+    ).toMatchObject({ priceKind: "from", price: 15, maxPrice: null });
+    expect(priceKindOf({ ...laser, unit: null })).toBe("from");
+  });
+
+  test("keeps the stored kind, unit and deposit for a service sent without them", () => {
+    const sent = {
+      name: "Laser session",
+      priceFromUsd: 14.5,
+      priceToUsd: null,
+      durationMinutes: 30,
+    };
+    expect(carryServiceDetails([laser], [sent])).toEqual([laser]);
+    // Matched ignoring case and spacing; a key that was sent is the answer.
+    expect(
+      carryServiceDetails([laser], [{ ...sent, name: " laser  SESSION", depositUsd: null }]),
+    ).toEqual([
+      {
+        name: " laser  SESSION",
+        priceKind: "per_unit",
+        priceFromUsd: 14.5,
+        priceToUsd: null,
+        unit: "pulse",
+        durationMinutes: 30,
+      },
+    ]);
+  });
+
+  test("re-reads the kind from the prices once they no longer fit it", () => {
+    const ranged = carryServiceDetails(
+      [laser],
+      [{ name: "Laser session", priceFromUsd: 14.5, priceToUsd: 20, durationMinutes: 30 }],
+    );
+    expect(ranged[0]).toMatchObject({ priceKind: "range", unit: null, depositUsd: 50 });
+    const unpriced = carryServiceDetails(
+      [laser],
+      [{ name: "Laser session", priceFromUsd: null, priceToUsd: null, durationMinutes: 30 }],
+    );
+    expect(unpriced[0]).toMatchObject({ priceKind: null, unit: null });
+    // A service with nothing stored takes the kind its prices say.
+    expect(
+      carryServiceDetails(
+        [],
+        [{ name: "Peel", priceFromUsd: 150, priceToUsd: 150, durationMinutes: 45 }],
+      )[0],
+    ).toMatchObject({ priceKind: "exact", unit: null });
+  });
+});
+
+describe("which calls reach AYA, both ways round", () => {
+  test("call_routing and coverage_mode always mean the same thing", () => {
+    expect(routingForCoverageMode("all_calls")).toBe("always");
+    expect(routingForCoverageMode("overflow_after_hours")).toBe("conditional");
+    expect(routingForCoverageMode("after_hours_only")).toBe("conditional");
+    expect(coverageModeForRouting("always", "after_hours_only")).toBe("all_calls");
+    expect(coverageModeForRouting("conditional", "all_calls")).toBe("overflow_after_hours");
+    expect(coverageModeForRouting("conditional", "after_hours_only")).toBe("after_hours_only");
+    expect(coverageModeForRouting("conditional", null)).toBe("overflow_after_hours");
+  });
+});
+
+describe("the setup window on the clinic's calendar", () => {
+  // 22:00 in Los Angeles on 7 October is 01:00 on the 8th in New York.
+  const lateEvening = new Date("2026-10-08T05:00:00Z");
+  // 22:00 in New York on 7 October.
+  const evening = new Date("2026-10-08T02:00:00Z");
+
+  test("the last day is the day the deadline ends, and the window counts back from it", () => {
+    const deadline = setupDeadline(evening, "America/Los_Angeles");
+    expect(deadline.toISOString()).toBe("2026-11-07T07:59:59.999Z");
+    expect(setupLastDay(deadline, "America/Los_Angeles")).toBe("2026-11-06");
+    expect(setupWindowStart(deadline, "America/Los_Angeles")).toBe("2026-10-07");
+    // A deadline that is not the end of a day where the clinic is names the
+    // last day it outlives, never the day it closes during.
+    expect(setupLastDay(deadline, "America/New_York")).toBe("2026-11-06");
+  });
+
+  test("a corrected zone keeps the named day and moves the instant to its end there", () => {
+    const deadline = setupDeadline(evening, "America/Los_Angeles");
+    const moved = moveSetupDeadline(deadline, "America/Los_Angeles", "America/New_York");
+    expect(moved.toISOString()).toBe("2026-11-07T04:59:59.999Z");
+    expect(setupLastDay(moved, "America/New_York")).toBe("2026-11-06");
+    // The other way round: the account no longer closes three hours before
+    // the end of the day the emails name.
+    const eastern = setupDeadline(evening, "America/New_York");
+    expect(eastern.toISOString()).toBe("2026-11-07T04:59:59.999Z");
+    const western = moveSetupDeadline(eastern, "America/New_York", "America/Los_Angeles");
+    expect(western.toISOString()).toBe("2026-11-07T07:59:59.999Z");
+  });
+
+  test("the sixth reminder falls on the last day after a correction across midnight", () => {
+    const deadline = moveSetupDeadline(
+      setupDeadline(lateEvening, "America/Los_Angeles"),
+      "America/Los_Angeles",
+      "America/New_York",
+    );
+    const start = setupWindowStart(deadline, "America/New_York");
+    expect(dueReminderNumber(start, "2026-11-06")).toBe(6);
+    expect(dueReminderNumber(start, "2026-11-01")).toBe(5);
+    // Counted forward from the purchase in New York (8 October), the 6 November
+    // reminder was the fifth, and the sixth fell after the account had closed.
+    expect(dueReminderNumber("2026-10-08", "2026-11-06")).toBe(5);
+  });
+});
+
+describe("the urgent-help number", () => {
+  const voice = [{ channel: "voice" }] as unknown as SetupState["channels"];
+  const settings = (over: Partial<SetupState["settings"]>) =>
+    ({ urgentHelpE164: null, directLineE164: "+15125550177", ...over }) as SetupState["settings"];
+
+  test("the field holds only the clinic's own number; the default is named beside it", () => {
+    const fresh = setupState({ channels: voice, settings: settings({}) });
+    expect(urgentHelpField(fresh)).toEqual({
+      value: "",
+      placeholder: "(512) 555-0177",
+      hint: "Leave it empty and AYA gives your direct line, (512) 555-0177, and follows it if that number changes. AYA never gives your main number, which forwards to her.",
+    });
+    const own = setupState({
+      channels: voice,
+      settings: settings({ urgentHelpE164: "+15125550188" }),
+    });
+    expect(urgentHelpField(own).value).toBe("(512) 555-0188");
+  });
+
+  test("the default is resolved when it is read, so it follows the direct line", () => {
+    const before = setupState({ channels: voice, settings: settings({}) });
+    expect(urgentHelpNumber(before)).toBe("+15125550177");
+    const after = setupState({
+      channels: voice,
+      settings: settings({ directLineE164: "+15125550199" }),
+    });
+    expect(urgentHelpNumber(after)).toBe("+15125550199");
+    // Without phone, the main number.
+    const chat = setupState({
+      settings: settings({}),
+      clinic: { ...setupState().clinic, publishedPhoneE164: "+15125550142" },
+    });
+    expect(urgentHelpNumber(chat)).toBe("+15125550142");
+  });
+});
+
+describe("what skipping step 1 costs, from what is stored", () => {
+  const read = { website: "glowmedspa.com" } as unknown as SetupState["clinic"]["siteProfile"];
+  const prefilled = setupState({
+    clinic: {
+      ...setupState().clinic,
+      siteProfile: read,
+      address: "1200 Congress Ave, Austin, TX 78701",
+      publishedPhoneE164: "+15125550142",
+    },
+    knowledge: {
+      ...setupState().knowledge,
+      services: [
+        { name: "Laser session", priceFromUsd: 14.5, priceToUsd: null, durationMinutes: 30 },
+      ],
+    },
+  });
+
+  test("a screen the website read filled says it keeps what was read, unchecked", () => {
+    expect(skipCost(prefilled, "basics")).toBe(
+      "AYA gives callers the address and number we read from your website, unchecked.",
+    );
+    expect(skipCost(prefilled, "services")).toBe(
+      "the prices we read from your website stay unchecked, and AYA isn't built until you check them.",
+    );
+    // An empty practice: the old lines, which are true of it.
+    expect(skipCost(setupState(), "basics")).toBe(
+      "AYA can't tell callers your address or the number to reach you on.",
+    );
+    expect(skipCost(setupState(), "services")).toBe(
+      "AYA quotes no prices; she offers to book a consultation instead.",
+    );
+  });
+
+  test("read prices count as set up only once the services screen is saved", () => {
+    expect(answersMissing(prefilled)).toContain("a check of your prices");
+    const skipped = { ...prefilled, progress: new Map([["services", { outcome: "skipped", at }]]) };
+    expect(answersMissing(skipped as SetupState)).toContain("a check of your prices");
+    const saved = { ...prefilled, progress: new Map([["services", { outcome: "done", at }]]) };
+    expect(answersMissing(saved as SetupState)).not.toContain("a check of your prices");
+    expect(skipCost(saved as SetupState, "services")).toBe("AYA keeps the prices you saved.");
   });
 });

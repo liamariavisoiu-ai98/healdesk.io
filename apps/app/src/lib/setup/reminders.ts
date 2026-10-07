@@ -1,8 +1,7 @@
 import { SETUP_REMINDER_EVERY_DAYS, SETUP_WINDOW_DAYS } from "@healdesk/catalog";
-import { and, eq } from "drizzle-orm";
 
-import { reportDeliveries } from "@/db/schema";
 import { clinicLocalDate } from "@/lib/clinic/closures";
+import { setupLastDay, setupWindowStart } from "@/lib/clinic/setup-window";
 import { DAYTIME_FROM_HOUR, DAYTIME_UNTIL_HOUR } from "@/lib/email/outbox";
 import { describeError, log } from "@/lib/log";
 import { enqueuePlanNotice } from "@/lib/notices/plan-notices";
@@ -15,7 +14,6 @@ import { channelNextStep, isClinicAction } from "./channels";
 import { emailCallUrl, helpContacts } from "./help";
 import { stepsLeft, wizardFinished } from "./screens";
 import { readSetupState } from "./state";
-import { sendWelcomeEmail } from "./welcome-email";
 
 /**
  * The setup reminders (O7; the owner's cadence of 6 October 2026): while none
@@ -35,24 +33,28 @@ import { sendWelcomeEmail } from "./welcome-email";
  * prepared on our side) is not reminded: the reminder names an action, and
  * there is none to name.
  *
- * The same hourly pass is the welcome email's backstop: a welcome whose send
- * failed at provisioning is sent again, with a fresh link, ten minutes on.
+ * The days count back from the deadline, not forward from the purchase: day
+ * 30 is the window's last day on the clinic's calendar (setupLastDay), so the
+ * sixth reminder, "Today is the last day", always goes on the day the account
+ * closes at the end of, whatever zone the deadline was first set in and
+ * however ops has moved it. The welcome email's backstop is not here: it runs
+ * from the tick whatever this job's switch says (lib/setup/welcome-email.ts).
  */
 
 export const SETUP_REMINDER_COUNT = SETUP_WINDOW_DAYS / SETUP_REMINDER_EVERY_DAYS;
 
 const ACTOR = { type: "service", serviceName: "setup-reminders" } as const;
 const DAY_MS = 86_400_000;
-const WELCOME_RETRY_AFTER_MS = 10 * 60_000;
 
 /**
- * Which reminder is due on `today` for a clinic bought on `purchasedOn`
- * (both ISO dates on the clinic's calendar): the latest of days 5 to 30 that
- * has arrived, or null before day 5.
+ * Which reminder is due on `today` for a window counted from `windowStart`
+ * (both ISO dates on the clinic's calendar; the start is the last day less 30
+ * days, setupWindowStart): the latest of days 5 to 30 that has arrived, or
+ * null before day 5.
  */
-export function dueReminderNumber(purchasedOn: string, today: string): number | null {
+export function dueReminderNumber(windowStart: string, today: string): number | null {
   const days = Math.round(
-    (Date.parse(`${today}T12:00:00Z`) - Date.parse(`${purchasedOn}T12:00:00Z`)) / DAY_MS,
+    (Date.parse(`${today}T12:00:00Z`) - Date.parse(`${windowStart}T12:00:00Z`)) / DAY_MS,
   );
   const n = Math.floor(days / SETUP_REMINDER_EVERY_DAYS);
   if (!Number.isFinite(n) || n < 1) return null;
@@ -101,7 +103,7 @@ async function queueWithin(tx: TenantTx, now: Date): Promise<ReminderOutcome> {
   if (billing.planStartedAt || state.channels.some((c) => c.liveAt !== null)) return "live";
 
   const n = dueReminderNumber(
-    clinicLocalDate(clinic.createdAt, clinic.timezone),
+    setupWindowStart(billing.setupDeadlineAt, clinic.timezone),
     clinicLocalDate(now, clinic.timezone),
   );
   if (n === null) return "not_due";
@@ -122,7 +124,7 @@ async function queueWithin(tx: TenantTx, now: Date): Promise<ReminderOutcome> {
       reminderCount: n,
       stepsLeftCount: stepsLeft(state.screens, state.progress),
       rows,
-      closesOn: clinicLocalDate(billing.setupDeadlineAt, clinic.timezone),
+      closesOn: setupLastDay(billing.setupDeadlineAt, clinic.timezone),
       setupUrl: publicUrl(`/c/${clinic.slug}/setup`),
       helpPhoneE164: helpContacts().phoneE164,
       callUrl: state.channels.some((c) => c.channel === "voice") ? emailCallUrl() : null,
@@ -131,22 +133,7 @@ async function queueWithin(tx: TenantTx, now: Date): Promise<ReminderOutcome> {
   return queued ? "queued" : "already_queued";
 }
 
-/** Whether this clinic's welcome email failed and has waited long enough to try again. */
-async function welcomeNeedsRetry(clinicId: string, now: Date): Promise<boolean> {
-  return withTenant({ clinicId, actor: ACTOR }, async (tx) => {
-    const [row] = await tx.db
-      .select({ status: reportDeliveries.status, attemptedAt: reportDeliveries.attemptedAt })
-      .from(reportDeliveries)
-      .where(and(eq(reportDeliveries.clinicId, clinicId), eq(reportDeliveries.kind, "welcome")))
-      .limit(1);
-    return (
-      row?.status === "failed" &&
-      now.getTime() - row.attemptedAt.getTime() >= WELCOME_RETRY_AFTER_MS
-    );
-  });
-}
-
-/** The hourly job: every clinic's due reminder, and the welcome email's backstop. */
+/** The hourly job: every clinic's due reminder. */
 export async function runSetupRemindersJob(options: { now?: Date } = {}): Promise<JobOutcome> {
   const now = options.now ?? new Date();
   return runJob(
@@ -154,7 +141,7 @@ export async function runSetupRemindersJob(options: { now?: Date } = {}): Promis
     async () => {
       if (publicOriginProblem())
         throw new Error("BETTER_AUTH_URL is not set: no reminder could link anywhere.");
-      const counts: Partial<Record<ReminderOutcome | "welcome_resent" | "failed", number>> = {};
+      const counts: Partial<Record<ReminderOutcome | "failed", number>> = {};
       const bump = (key: keyof typeof counts) => {
         counts[key] = (counts[key] ?? 0) + 1;
       };
@@ -162,9 +149,6 @@ export async function runSetupRemindersJob(options: { now?: Date } = {}): Promis
         if (clinic.destroyedAt || clinic.offboardingStartedAt) continue;
         try {
           bump(await queueSetupReminder(clinic.id, now));
-          if (await welcomeNeedsRetry(clinic.id, now)) {
-            if ((await sendWelcomeEmail(clinic.id, { now })) === "sent") bump("welcome_resent");
-          }
         } catch (error) {
           bump("failed");
           log.error("setup reminder failed", { clinicId: clinic.id, error: describeError(error) });
@@ -173,7 +157,7 @@ export async function runSetupRemindersJob(options: { now?: Date } = {}): Promis
       return (
         `${counts.queued ?? 0} queued, ${counts.already_queued ?? 0} already queued, ` +
         `${counts.night ?? 0} waiting for daytime, ${counts.nothing_to_do ?? 0} with nothing to do, ` +
-        `${counts.welcome_resent ?? 0} welcome emails resent, ${counts.failed ?? 0} failed.`
+        `${counts.failed ?? 0} failed.`
       );
     },
     now,

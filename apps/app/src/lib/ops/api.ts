@@ -29,15 +29,21 @@ import {
 } from "@/lib/agreements/search";
 import {
   BOOKING_FIELDS,
+  cleanProfileText,
+  CLINIC_PROFILE_LIMITS,
   currentDirectBookingAddendum,
   EXCLUDED_FIELDS,
+  findClinicalContent,
   forwardingInstructions,
   getConnectionGuide,
   isCarrier,
   isOnboardingStep,
+  isServicePriceKind,
+  isSpecialtyId,
   ONBOARDING_LABELS,
   ONBOARDING_STEPS,
   resolveBookingRequirements,
+  serviceNameScreen,
   type ForwardingInstruction,
   type OnboardingState,
 } from "@healdesk/catalog";
@@ -104,6 +110,8 @@ import { goLive, goLivePreconditions } from "@/lib/onboarding/go-live";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { completeStep, reopenStep } from "@/lib/onboarding/steps";
 import { getJob, listJobs as listJobRecords, PHASE_TWO_JOBS } from "@/lib/scheduler/jobs";
+import { moveSetupDeadlineToZone } from "@/lib/setup/practice";
+import { toCents } from "@/lib/setup/prices";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 import { log } from "@/lib/log";
 
@@ -2756,20 +2764,44 @@ export type AgentConfigState =
   | { status: "updated"; version: number; approvedAt: string | null; auditRecorded: boolean }
   | { status: "error"; message: string };
 
-function readAgentInput(args: Record<string, unknown>): AgentConfigInput | string {
+function readAgentInput(args: Record<string, unknown>, specialty: string): AgentConfigInput | string {
   const greeting = stringArg(args, "greeting", 600);
   if (!greeting) return "The greeting is required.";
   const rawServices = Array.isArray(args.services) ? args.services : [];
+  // Prices to the cent, as the wizard stores them ("$14.50 per pulse"):
+  // rounding to whole dollars rewrote the clinic's own prices on every save.
+  const dollars = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? toCents(v) : null);
+  const minutes = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v) : null);
   const services = rawServices.map((raw) => {
     const r = (raw ?? {}) as Record<string, unknown>;
-    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v) : null);
     return {
       name: typeof r.name === "string" ? r.name.trim().slice(0, 120) : "",
-      priceFromUsd: num(r.priceFromUsd),
-      priceToUsd: num(r.priceToUsd),
-      durationMinutes: num(r.durationMinutes),
+      priceFromUsd: dollars(r.priceFromUsd),
+      priceToUsd: dollars(r.priceToUsd),
+      durationMinutes: minutes(r.durationMinutes),
+      // What the wizard and Knowledge add to a service (0052), which the
+      // console carries and does not edit. Kept as sent; left out or
+      // malformed, it stays undefined and updateAgentConfig takes the stored
+      // service's own (lib/setup/prices.ts).
+      priceKind: r.priceKind === null ? null : isServicePriceKind(r.priceKind) ? r.priceKind : undefined,
+      unit:
+        r.unit === null
+          ? null
+          : typeof r.unit === "string"
+            ? cleanProfileText(r.unit, CLINIC_PROFILE_LIMITS.unit) || null
+            : undefined,
+      depositUsd: r.depositUsd === null ? null : (dollars(r.depositUsd) ?? undefined),
     };
   });
+  // A unit is words AYA says ("$14.50 per pulse"), screened as the wizard
+  // screens it: by the specialty's own rule for its menu.
+  const units = findClinicalContent(
+    Object.fromEntries(services.flatMap((s, i) => (s.unit ? [[`services[${i}].unit`, `per ${s.unit}`]] : []))),
+    serviceNameScreen(isSpecialtyId(specialty) ? specialty : null),
+  );
+  if (units.length > 0) {
+    return `A service's unit mentions ${units[0]!.label} ("${units[0]!.excerpt}"). Name it the way the menu does.`;
+  }
   return {
     greeting,
     services,
@@ -2798,7 +2830,7 @@ async function opUpdateAgentConfig(
 ): Promise<OpsOutcome> {
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies AgentConfigState);
-  const input = readAgentInput(args);
+  const input = readAgentInput(args, clinic.specialty);
   if (typeof input === "string") return ok({ status: "error", message: input } satisfies AgentConfigState);
 
   try {
@@ -3379,7 +3411,11 @@ async function opSetClinicTimezone(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
     async (tx) => {
       const now = new Date();
+      const [before] = await tx.db.select({ timezone: clinics.timezone }).from(clinics).where(eq(clinics.id, tx.clinicId)).limit(1);
       await tx.db.update(clinics).set({ timezone, timezoneConfirmedAt: now, updatedAt: now }).where(eq(clinics.id, tx.clinicId));
+      // The setup window's last day stays the day the emails named, on the
+      // clinic's corrected calendar (lib/setup/practice.ts).
+      if (before) await moveSetupDeadlineToZone(tx, before.timezone, timezone, now);
       tx.audit.record({ action: "update", resourceType: "clinic_timezone", resourceId: tx.clinicId, metadata: { timezone, confirmed: true } });
     },
   );

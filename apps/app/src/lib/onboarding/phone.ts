@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { isCarrier, type CallRouting, type Carrier, type PhoneSystemType } from "@healdesk/catalog";
 
 import { clinics } from "@/db/schema";
+import { keepCoverageModeInStep } from "@/lib/setup/settings";
 import type { TenantTx } from "@/lib/tenant";
 
 import { completeStep } from "./steps";
@@ -34,6 +35,12 @@ export async function setPhoneSettings(tx: TenantTx, input: PhoneSettings): Prom
   if (input.callRouting) {
     set.callRouting = input.callRouting;
     set.callRoutingConfirmedAt = now;
+    // clinic_settings.coverage_mode is the single source of which calls
+    // reach AYA (0052): the wizard shows it back and its forwarding codes
+    // follow it, and Package B's coverageModeOf moves onto it. An operator's
+    // routing answer moves it in this same transaction, or the two columns
+    // would disagree for good.
+    await keepCoverageModeInStep(tx, input.callRouting, now);
   }
   if (input.synthflowNumberE164 !== undefined) {
     if (input.synthflowNumberE164 !== null && !/^\+[1-9]\d{6,14}$/.test(input.synthflowNumberE164)) {

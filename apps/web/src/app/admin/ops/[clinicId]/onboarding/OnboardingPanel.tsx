@@ -301,6 +301,21 @@ function PhoneForm({ view, onSave }: { view: OnboardingView; onSave: Actions["sa
   );
 }
 
+/**
+ * What the clinic set on a service beyond the four fields above, read-only
+ * here: the console carries it back untouched, and a price edited out of its
+ * kind (a top added to a per-unit price) is re-read by apps/app.
+ */
+function serviceDetail(s: AgentService): string | null {
+  const parts: string[] = [];
+  if (s.priceKind === "per_unit" && s.unit) parts.push(`priced per ${s.unit}`);
+  else if (s.priceKind === "from") parts.push("a starting price");
+  if (typeof s.depositUsd === "number" && s.depositUsd > 0) {
+    parts.push(`deposit $${Number.isInteger(s.depositUsd) ? s.depositUsd : s.depositUsd.toFixed(2)}`);
+  }
+  return parts.length ? `Set by the clinic: ${parts.join(" · ")}` : null;
+}
+
 function AgentForm({ view, onSave, onApprove }: { view: OnboardingView; onSave: Actions["saveAgent"]; onApprove: Actions["approveAgent"] }) {
   const [pending, start] = useTransition();
   const [problem, setProblem] = useState<string | null>(null);
@@ -338,15 +353,16 @@ function AgentForm({ view, onSave, onApprove }: { view: OnboardingView; onSave: 
           <textarea name="greeting" defaultValue={agent?.greeting ?? ""} rows={3} className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
         </label>
         <div>
-          <span className="text-muted block text-xs font-bold uppercase">Services and price ranges (whole dollars; blank = offer a consult instead of a price)</span>
+          <span className="text-muted block text-xs font-bold uppercase">Services and price ranges (dollars and cents; blank = offer a consult instead of a price)</span>
           <div className="mt-1 grid gap-2">
             {services.map((s, i) => (
               <div key={i} className="grid grid-cols-[1fr_90px_90px_80px_auto] items-center gap-2 text-sm">
                 <input value={s.name} onChange={(e) => setServices(services.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} placeholder="Service" className="border-line rounded-lg border px-2 py-1.5" />
-                <input value={s.priceFromUsd ?? ""} onChange={(e) => setServices(services.map((x, j) => (j === i ? { ...x, priceFromUsd: e.target.value ? Number(e.target.value) : null } : x)))} placeholder="from $" inputMode="numeric" className="border-line rounded-lg border px-2 py-1.5" />
-                <input value={s.priceToUsd ?? ""} onChange={(e) => setServices(services.map((x, j) => (j === i ? { ...x, priceToUsd: e.target.value ? Number(e.target.value) : null } : x)))} placeholder="to $" inputMode="numeric" className="border-line rounded-lg border px-2 py-1.5" />
+                <input value={s.priceFromUsd ?? ""} onChange={(e) => setServices(services.map((x, j) => (j === i ? { ...x, priceFromUsd: e.target.value ? Number(e.target.value) : null } : x)))} placeholder="from $" inputMode="decimal" className="border-line rounded-lg border px-2 py-1.5" />
+                <input value={s.priceToUsd ?? ""} onChange={(e) => setServices(services.map((x, j) => (j === i ? { ...x, priceToUsd: e.target.value ? Number(e.target.value) : null } : x)))} placeholder="to $" inputMode="decimal" className="border-line rounded-lg border px-2 py-1.5" />
                 <input value={s.durationMinutes ?? ""} onChange={(e) => setServices(services.map((x, j) => (j === i ? { ...x, durationMinutes: e.target.value ? Number(e.target.value) : null } : x)))} placeholder="min" inputMode="numeric" className="border-line rounded-lg border px-2 py-1.5" />
                 <button type="button" onClick={() => setServices(services.filter((_, j) => j !== i))} className="text-muted text-xs underline">remove</button>
+                {serviceDetail(s) ? <span className="text-muted col-span-full text-xs">{serviceDetail(s)}</span> : null}
               </div>
             ))}
             <button type="button" onClick={() => setServices([...services, { name: "", priceFromUsd: null, priceToUsd: null, durationMinutes: null }])} className="text-xs underline justify-self-start">+ add a service</button>

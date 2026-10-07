@@ -14,10 +14,11 @@ import {
   type BookingDetail,
   type BookingSystemId,
   type CalendarAccount,
+  type CallRouting,
   type CoverageModeId,
   type TranscriptRetentionDays,
 } from "@healdesk/catalog";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
 import { clinics, clinicSettings, clinicSettingsHistory } from "@/db/schema";
@@ -196,56 +197,122 @@ export async function saveSetupSettings(
       : value === before;
     if (!same) (changed as Record<string, unknown>)[key] = value;
   }
-  if (Object.keys(changed).length === 0) return current;
 
-  const [row] = await tx.db
-    .insert(clinicSettings)
-    .values({ clinicId: tx.clinicId, ...changed, updatedAt: now })
-    .onConflictDoUpdate({ target: clinicSettings.clinicId, set: { ...changed, updatedAt: now } })
-    .returning();
+  // A coverage mode in the patch is the clinic's answer to "which calls
+  // reach AYA?", whether or not it changes what is stored: the wizard
+  // pre-selects the stored mode, which on a funnel purchase is the column
+  // default, so the commonest answer is the unchanged one. That answer is
+  // what confirms the call routing, which go-live waits for.
+  const routingAnswer = wanted.coverageMode;
+  if (Object.keys(changed).length === 0 && routingAnswer === undefined) return current;
 
-  const history = (Object.keys(changed) as (keyof SetupSettings)[])
-    .filter((key) => HISTORY[key])
-    .map((key) => ({
-      clinicId: tx.clinicId,
-      field: HISTORY[key]!,
-      beforeValue: historyValue(current[key]),
-      afterValue: historyValue(changed[key]),
-      actorLabel: actorLabel.slice(0, 200),
-      changedAt: now,
-    }));
-  if (history.length > 0) await tx.db.insert(clinicSettingsHistory).values(history);
+  let saved = current;
+  if (Object.keys(changed).length > 0) {
+    const [row] = await tx.db
+      .insert(clinicSettings)
+      .values({ clinicId: tx.clinicId, ...changed, updatedAt: now })
+      .onConflictDoUpdate({ target: clinicSettings.clinicId, set: { ...changed, updatedAt: now } })
+      .returning();
+    saved = fromRow(row);
+
+    const history = (Object.keys(changed) as (keyof SetupSettings)[])
+      .filter((key) => HISTORY[key])
+      .map((key) => ({
+        clinicId: tx.clinicId,
+        field: HISTORY[key]!,
+        beforeValue: historyValue(current[key]),
+        afterValue: historyValue(changed[key]),
+        actorLabel: actorLabel.slice(0, 200),
+        changedAt: now,
+      }));
+    if (history.length > 0) await tx.db.insert(clinicSettingsHistory).values(history);
+
+    tx.audit.record({
+      action: "update",
+      resourceType: "clinic_settings",
+      resourceId: tx.clinicId,
+      // Field names and booleans only: the numbers are the clinic's, but a
+      // phone-shaped value never goes in an audit row.
+      metadata: { fields: Object.keys(changed).sort() },
+    });
+  }
 
   // Which calls reach AYA is the single source here; clinics.call_routing is
   // kept in step for the readers still on it (the voice ingest's recovered
-  // reasons, the ops console, Package B's coverage accessor), and the
-  // onboarding step it stamps is the wizard's answer.
-  if (changed.coverageMode !== undefined) {
+  // reasons, the ops console, Package B's coverage accessor), and confirmed,
+  // with the onboarding step it stamps. A changed mode is confirmed now; an
+  // unchanged one keeps the time it was first confirmed.
+  if (routingAnswer !== undefined) {
     await tx.db
       .update(clinics)
       .set({
-        callRouting: changed.coverageMode === "all_calls" ? "always" : "conditional",
-        callRoutingConfirmedAt: now,
+        callRouting: routingForCoverageMode(routingAnswer),
+        callRoutingConfirmedAt:
+          changed.coverageMode !== undefined
+            ? now
+            : sql`coalesce(${clinics.callRoutingConfirmedAt}, ${now.toISOString()}::timestamptz)`,
         updatedAt: now,
       })
       .where(eq(clinics.id, tx.clinicId));
     await completeStep(tx, "call_routing_chosen", { at: now });
   }
-
-  tx.audit.record({
-    action: "update",
-    resourceType: "clinic_settings",
-    resourceId: tx.clinicId,
-    // Field names and booleans only: the numbers are the clinic's, but a
-    // phone-shaped value never goes in an audit row.
-    metadata: { fields: Object.keys(changed).sort() },
-  });
-  return fromRow(row);
+  return saved;
 }
 
 function historyValue(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   return String(value).slice(0, 64);
+}
+
+// -----------------------------------------------------------------------------
+// Which calls reach AYA, both ways round
+// -----------------------------------------------------------------------------
+
+/** clinics.call_routing for a coverage mode: every call is 'always', the other two ring the clinic first. */
+export function routingForCoverageMode(mode: CoverageModeId): CallRouting {
+  return mode === "all_calls" ? "always" : "conditional";
+}
+
+/**
+ * The coverage mode a call_routing answer means, from the mode stored now.
+ * 'always' is All calls. 'conditional' is either mode that rings the clinic
+ * first: a clinic already on After hours only keeps it, and any other
+ * becomes Overflow and after hours, the default.
+ */
+export function coverageModeForRouting(
+  routing: CallRouting,
+  current: CoverageModeId | null,
+): CoverageModeId {
+  if (routing === "always") return "all_calls";
+  return current === "after_hours_only" ? "after_hours_only" : "overflow_after_hours";
+}
+
+/**
+ * Keep coverage_mode, the single source (0052), in step with a call_routing
+ * answer written somewhere else: the ops console's phone settings on the
+ * onboarding call (lib/onboarding/phone.ts). In the caller's transaction, so
+ * the two columns cannot disagree.
+ */
+export async function keepCoverageModeInStep(
+  tx: TenantTx,
+  routing: CallRouting,
+  now: Date = new Date(),
+): Promise<CoverageModeId> {
+  const [row] = await tx.db
+    .select({ coverageMode: clinicSettings.coverageMode })
+    .from(clinicSettings)
+    .where(eq(clinicSettings.clinicId, tx.clinicId))
+    .limit(1);
+  const mode = coverageModeForRouting(routing, row?.coverageMode ?? null);
+  if (row?.coverageMode === mode) return mode;
+  await tx.db
+    .insert(clinicSettings)
+    .values({ clinicId: tx.clinicId, coverageMode: mode, updatedAt: now })
+    .onConflictDoUpdate({
+      target: clinicSettings.clinicId,
+      set: { coverageMode: mode, updatedAt: now },
+    });
+  return mode;
 }
 
 /**

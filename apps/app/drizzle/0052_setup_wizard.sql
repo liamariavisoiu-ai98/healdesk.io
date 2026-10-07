@@ -30,6 +30,7 @@ ALTER TABLE "agent_configs" ADD COLUMN "quick_answers" jsonb DEFAULT '[]'::jsonb
 ALTER TABLE "agent_configs" ADD COLUMN "never_say" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
 ALTER TABLE "agent_configs" ADD COLUMN "most_asked" jsonb;--> statement-breakpoint
 ALTER TABLE "agent_configs" ADD COLUMN "policies" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "checkout_intents" ADD COLUMN "first_invoice_url" text;--> statement-breakpoint
 ALTER TABLE "clinic_settings" ADD COLUMN "tone" text DEFAULT 'warm' NOT NULL;--> statement-breakpoint
 ALTER TABLE "clinic_settings" ADD COLUMN "phone_greeting" text;--> statement-breakpoint
 ALTER TABLE "clinic_settings" ADD COLUMN "chat_greeting" text;--> statement-breakpoint
@@ -54,6 +55,7 @@ ALTER TABLE "clinic_settings_history" ADD CONSTRAINT "clinic_settings_history_cl
 ALTER TABLE "clinic_setup_screens" ADD CONSTRAINT "clinic_setup_screens_clinic_id_clinics_id_fk" FOREIGN KEY ("clinic_id") REFERENCES "public"."clinics"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "clinic_settings_history_clinic_idx" ON "clinic_settings_history" USING btree ("clinic_id","changed_at");--> statement-breakpoint
 ALTER TABLE "billing_notices" ADD CONSTRAINT "billing_notices_kind_check" CHECK ("billing_notices"."kind" in ('payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected'));--> statement-breakpoint
+ALTER TABLE "checkout_intents" ADD CONSTRAINT "checkout_intents_first_invoice_url_check" CHECK ("checkout_intents"."first_invoice_url" is null or (char_length("checkout_intents"."first_invoice_url") <= 500 and "checkout_intents"."first_invoice_url" ~ '^https://invoice\.stripe\.com/[!-~]+$'));--> statement-breakpoint
 ALTER TABLE "clinic_settings" ADD CONSTRAINT "clinic_settings_tone_check" CHECK ("clinic_settings"."tone" in ('warm', 'clinical'));--> statement-breakpoint
 ALTER TABLE "clinic_settings" ADD CONSTRAINT "clinic_settings_greetings_check" CHECK (("clinic_settings"."phone_greeting" is null or char_length("clinic_settings"."phone_greeting") between 1 and 300) and ("clinic_settings"."chat_greeting" is null or char_length("clinic_settings"."chat_greeting") between 1 and 300));--> statement-breakpoint
 ALTER TABLE "clinic_settings" ADD CONSTRAINT "clinic_settings_languages_check" CHECK (cardinality("clinic_settings"."languages") between 1 and 8 and "clinic_settings"."languages" <@ array['en', 'es', 'fr', 'pt', 'zh', 'vi', 'ko', 'ru']::text[]);--> statement-breakpoint
@@ -87,7 +89,10 @@ ALTER TABLE "report_deliveries" ADD CONSTRAINT "report_deliveries_kind_check" CH
 -- go, how long records are kept and whether AYA books on its own. The outbox
 -- and its ledger take the plan's own email kinds (O7, the setup closure, O13)
 -- and the welcome email (B1), which keeps its once-per-clinic state on the
--- ledger because its single-use link can never be stored.
+-- ledger because its single-use link can never be stored; provisioning writes
+-- that ledger row in its own transaction, so a welcome is owed from the
+-- commit. checkout_intents keeps the paid first invoice's hosted page, the
+-- setup-fee receipt the welcome links.
 --
 -- Grants. 0003 sets ALTER DEFAULT PRIVILEGES giving healdesk_app SELECT,
 -- INSERT, UPDATE and DELETE on every table the migrator creates, so all four
@@ -137,9 +142,10 @@ GRANT SELECT, INSERT ON clinic_settings_history TO healdesk_app;--> statement-br
 -- the drift check (M7) moves the baseline once a change is confirmed.
 GRANT UPDATE (address, website, site_profile) ON clinics TO healdesk_app;--> statement-breakpoint
 
--- clinic_settings and agent_configs need no GRANT: both give healdesk_app
--- table-level UPDATE (0043; 0003's default privileges for 0033), which covers
--- a column added later. The audit below pins that they stay writable.
+-- clinic_settings, agent_configs and checkout_intents need no GRANT: each
+-- gives healdesk_app table-level UPDATE (0043; 0003's default privileges for
+-- 0033), which covers a column added later. The audit below pins that they
+-- stay writable.
 
 -- -----------------------------------------------------------------------------
 -- Which calls reach AYA: coverage_mode becomes the single source. A clinic
@@ -148,8 +154,11 @@ GRANT UPDATE (address, website, site_profile) ON clinics TO healdesk_app;--> sta
 -- which is what 'conditional' meant. clinic_settings FORCEs row-level
 -- security, which binds the table's owner too, so the copy walks the clinics
 -- with the tenant set per clinic, exactly as withTenant() does, and restores
--- the setting afterwards. Run once; afterwards the wizard and Settings write
--- coverage_mode and keep call_routing in step for its remaining readers.
+-- the setting afterwards. Run once; afterwards every writer keeps the two in
+-- step in its own transaction: the wizard and Settings write coverage_mode
+-- and call_routing with it (lib/setup/settings.ts), and the two that still
+-- write call_routing, provisioning and the ops console's phone settings,
+-- write the coverage_mode it means (lib/setup/seed.ts, lib/onboarding/phone.ts).
 -- -----------------------------------------------------------------------------
 DO $$
 DECLARE
@@ -168,10 +177,14 @@ $$;--> statement-breakpoint
 -- -----------------------------------------------------------------------------
 -- The setup reminder (O7), seeded OFF like every job: the owner switches it
 -- on with the email launch set (Annex X9), once the notices sender's own
--- switch is on.
+-- switch is on. The welcome email's backstop is not a job and has no row: it
+-- runs from the tick, like the booking-request expiry, because the welcome
+-- itself goes at every provisioning from the day this ships, and its retry
+-- must not wait for a switch that ships off. It can reach only a clinic whose
+-- provisioning recorded a welcome as owed (lib/setup/welcome-email.ts).
 -- -----------------------------------------------------------------------------
 INSERT INTO scheduled_jobs (name, cadence, enabled) VALUES
-  ('setup-reminders', 'Hourly; while none of a clinic''s channels is live, queues the setup reminder due on day 5, 10, 15, 20, 25 or 30 of its setup window, in the clinic''s daytime, and resends a welcome email whose send failed', false)
+  ('setup-reminders', 'Hourly; while none of a clinic''s channels is live, queues the setup reminder due on day 5, 10, 15, 20, 25 or 30 of its setup window, counted back from the window''s last day, in the clinic''s daytime', false)
 ON CONFLICT (name) DO NOTHING;--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
@@ -197,6 +210,10 @@ COMMENT ON COLUMN agent_configs.never_say IS
   'Phrases AYA must never use: the clinical defaults at provisioning, then the clinic''s own. Clinical on purpose, so never screened by findClinicalContent.';--> statement-breakpoint
 COMMENT ON COLUMN clinics.site_profile IS
   'The clinic''s website as read at checkout, screened again under the specialty bought: the setup wizard''s starting point and the drift check''s baseline. Business data, never patient information.';--> statement-breakpoint
+COMMENT ON COLUMN checkout_intents.first_invoice_url IS
+  'Stripe''s hosted page for the paid first invoice, which holds the setup-fee receipt, as the invoice.paid relay passed it to provisioning. The welcome email links it; no separate receipt goes for that invoice. A Stripe URL, never patient data.';--> statement-breakpoint
+COMMENT ON COLUMN entitlements.setup_deadline_at IS
+  'The end of the 30-day setup window: the end of the 30th day after purchase on the clinic''s own calendar, set at provisioning and extended only by ops. When the clinic corrects its time zone (setup''s first screen, or the ops console), it moves to the end of the same day in the corrected zone, so the day every email names stays the day the account closes. A clinic with no live channel by then is closed by a job; the setup fee is not refunded.';--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
 -- The posture, re-asserted: a later widening fails here, not in production.
@@ -217,7 +234,8 @@ BEGIN
           AND has_column_privilege('healdesk_app'::name, 'clinics'::regclass, 'site_profile', 'UPDATE')
           AND has_column_privilege('healdesk_app'::name, 'clinic_settings'::regclass, 'coverage_mode', 'UPDATE')
           AND has_column_privilege('healdesk_app'::name, 'clinic_settings'::regclass, 'auto_confirm_bookings', 'UPDATE')
-          AND has_column_privilege('healdesk_app'::name, 'agent_configs'::regclass, 'never_say', 'UPDATE')) THEN
+          AND has_column_privilege('healdesk_app'::name, 'agent_configs'::regclass, 'never_say', 'UPDATE')
+          AND has_column_privilege('healdesk_app'::name, 'checkout_intents'::regclass, 'first_invoice_url', 'UPDATE')) THEN
     RAISE EXCEPTION 'healdesk_app cannot write a column or row 0052 added for a runtime writer.';
   END IF;
 END;

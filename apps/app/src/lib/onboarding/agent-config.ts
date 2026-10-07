@@ -7,6 +7,7 @@ import {
 } from "@healdesk/catalog";
 
 import { agentConfigs, clinics, type AgentService, type DepositPolicy } from "@/db/schema";
+import { carryServiceDetails } from "@/lib/setup/prices";
 import type { TenantTx } from "@/lib/tenant";
 
 import { completeStep } from "./steps";
@@ -158,14 +159,23 @@ export async function seedAgentConfig(tx: TenantTx, specialty: string, clinicNam
     .onConflictDoNothing({ target: agentConfigs.clinicId });
 }
 
-/** Any edit bumps the version and clears the approval; go-live needs a fresh one. */
+/**
+ * Any edit bumps the version and clears the approval; go-live needs a fresh one.
+ *
+ * The ops console's form edits a service's name, prices and length, and none
+ * of what the setup wizard and Knowledge add to it (0052): the price kind, a
+ * per-unit price's unit and the deposit. Whatever a caller leaves out is
+ * carried from the stored service of the same name, so an operator's edit to
+ * the greeting can never erase them (lib/setup/prices.ts).
+ */
 export async function updateAgentConfig(tx: TenantTx, input: AgentConfigInput): Promise<AgentConfigRow> {
   validateAgentConfig(input);
   const existing = await getAgentConfig(tx);
+  const services = carryServiceDetails(existing?.services ?? [], input.services);
   const now = new Date();
   const values = {
     greeting: input.greeting.trim(),
-    services: input.services,
+    services,
     escalationPhone: input.escalationPhone,
     escalationHours: input.escalationHours?.trim() || null,
     notes: input.notes?.trim() || null,

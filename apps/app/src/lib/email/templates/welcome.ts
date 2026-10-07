@@ -23,8 +23,10 @@ import type { EmailTemplate } from "./types";
  *
  * It is the order's written record from the first day, so it carries the
  * terms the buyer agreed to: the package and billing period, the plan-start
- * sentence and the monthly price, the setup fee's rule, how to cancel, and the
- * Terms version accepted at checkout. Then the way back into setup: a fresh
+ * sentence and the monthly price, the setup fee's rule and its receipt
+ * (Stripe's hosted page for the paid first invoice: no separate receipt goes
+ * for that invoice, contracts §3), how to cancel, and the Terms version
+ * accepted at checkout. Then the way back into setup: a fresh
  * single-use "Continue setup" link for 72 hours, which makes this a link
  * email (X1.5), sent straight and never through the outbox. Each bought
  * channel's status is in words, never a date (owner, 6 October 2026). Help
@@ -46,6 +48,11 @@ export type WelcomePayload = {
   validHours: number;
   /** The Terms version accepted at checkout, or null when the purchase recorded none. */
   version: string | null;
+  /**
+   * Stripe's hosted page for the paid first invoice, where the setup-fee
+   * receipt is; null for a purchase that did not come through Stripe.
+   */
+  receiptUrl: string | null;
   /** The last day of the setup window, as an ISO date on the clinic's calendar. */
   setupEndsOn: string;
   /** The support voicemail line, while the owner has set one. */
@@ -107,8 +114,12 @@ export const renderWelcome: EmailTemplate<WelcomePayload> = (payload, ctx) => {
         ["Channels", payload.channels.map((c) => CHANNEL_NAMES[c]).join(", ")],
         ["Billing", payload.interval === "year" ? "Annual" : "Monthly"],
         price,
+        ...(payload.receiptUrl ? [["Setup fee", "Paid"] as const] : []),
       ],
     },
+    ...(payload.receiptUrl
+      ? [{ type: "action" as const, label: "Your setup-fee receipt", url: payload.receiptUrl }]
+      : []),
     {
       type: "paragraph",
       text: `${planStartSentence(plan, payload.interval, audience)} Until then, nothing more is charged. The setup fee is non-refundable.`,
@@ -168,6 +179,7 @@ export const WELCOME_ENTRY: TemplateEntry<WelcomePayload> = {
       continueUrl: publicUrl(`/link/${FIXTURE_TOKEN}`),
       validHours: 72,
       version: "2026-10-07.1",
+      receiptUrl: "https://invoice.stripe.com/i/acct_1Pfixture/test_YWNjdF8xUGZpeHR1cmU",
       setupEndsOn: "2026-11-06",
       helpPhoneE164: "+18885550100",
       callUrl: publicUrl("/help/call"),

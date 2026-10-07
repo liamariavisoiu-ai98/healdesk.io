@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 
 import { clinics, entitlements } from "@/db/schema";
 import { clinicLocalDate } from "@/lib/clinic/closures";
+import { setupLastDay } from "@/lib/clinic/setup-window";
 import { enqueuePlanNotice } from "@/lib/notices/plan-notices";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -45,9 +46,11 @@ export async function queueSetupClosedEmail(
     .where(eq(clinics.id, tx.clinicId))
     .limit(1);
   if (!row) return false;
-  // The window's last day: the deadline's own date, or today when the account
-  // was closed by hand without one.
-  const closedOn = clinicLocalDate(row.deadline ?? now, row.timezone);
+  // The window's last day, as the reminders named it (setupLastDay), or today
+  // when the account was closed by hand without a deadline.
+  const closedOn = row.deadline
+    ? setupLastDay(row.deadline, row.timezone)
+    : clinicLocalDate(now, row.timezone);
   return enqueuePlanNotice(tx.db, tx.clinicId, "setup_closed", "setup_closed", {
     closedOn,
     helpPhoneE164: helpContacts().phoneE164,

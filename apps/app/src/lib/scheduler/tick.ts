@@ -8,6 +8,7 @@ import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
 import { expireLapsedRequests } from "@/lib/meta/booking-requests";
 import { applyBookingRequirementDefaults } from "@/lib/onboarding/requirements";
 import { runSetupRemindersJob } from "@/lib/setup/reminders";
+import { runWelcomeBackstop } from "@/lib/setup/welcome-email";
 
 import { runAnnualRenewalReminderJob } from "./annual-renewal-reminder";
 import { runBillingSweepJob } from "./billing-sweep";
@@ -84,6 +85,17 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // The setup reminder (O7), hourly: each clinic's due reminder is queued
   // only in its own daytime, so the hour it runs is the clinic's, not UTC's.
   await record("setup-reminders", () => runSetupRemindersJob({ now }));
+  // The welcome email's backstop. Not a switched job: the welcome itself goes
+  // at every provisioning, unswitched, so its retry must not wait for a
+  // switch that ships off. It reaches only a clinic whose provisioning
+  // recorded a welcome as owed and has not sent it (lib/setup/welcome-email.ts).
+  await record("welcome-email", async () => {
+    const result = await runWelcomeBackstop({ now });
+    return {
+      status: "ok",
+      note: `${result.resent} resent, ${result.unsent} still unsent, ${result.failed} failed`,
+    };
+  });
   // Phase two, like the monthly report.
   if (hour === 2) await record("nightly-sync", () => runNightlySyncJob({ now }));
   if (hour === 3) await record("retention-purge", () => runRetentionPurgeJob({ now }));

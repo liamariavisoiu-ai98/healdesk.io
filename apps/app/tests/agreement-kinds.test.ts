@@ -200,9 +200,12 @@ describe("the DPA's Term clause is the offboarding clock in this app", () => {
     );
   });
 
-  test("and dueForDestruction does what the text says, for a clinic whose service ended under it", () => {
+  test("and dueForDestruction destroys no later than the text says, for a clinic whose service ended under it", () => {
     // The rule is read from the agreement the service ended under, and the
-    // DPA's namespaced version maps to this one (DESTRUCTION_RULES).
+    // DPA's namespaced version maps to this one (DESTRUCTION_RULES). The
+    // hourly job keeps BAA 1.3.0's words for it (the calendar session's
+    // decision, 7 October 2026): each of the text's limits met a day early,
+    // which no run of the job can pass.
     expect(destructionRuleFor(currentDpaTemplate().version)).toEqual({
       rule: "export_or_ninety",
       basis: "agreement",
@@ -217,15 +220,16 @@ describe("the DPA's Term clause is the offboarding clock in this app", () => {
       destroyedAt: null,
       destructionAgreementVersion: currentDpaTemplate().version,
     });
-    // Delivered within thirty days: destroyed once thirty days have passed, not before.
-    expect(dueForDestruction(clinic(10), at(29.9))).toBe(false);
-    expect(dueForDestruction(clinic(10), at(30))).toBe(true);
+    // Delivered within thirty days: destroyed a day before they have passed.
+    expect(dueForDestruction(clinic(10), at(28.9))).toBe(false);
+    expect(dueForDestruction(clinic(10), at(DESTROY_AFTER_DAYS - 1))).toBe(true);
     // Delivered later: destroyed at the run after delivery.
     expect(dueForDestruction({ ...clinic(null) }, at(40))).toBe(false);
+    expect(dueForDestruction(clinic(45), at(44.9))).toBe(false);
     expect(dueForDestruction(clinic(45), at(45))).toBe(true);
-    // Never delivered: destroyed once ninety days have passed.
-    expect(dueForDestruction(clinic(null), at(89.9))).toBe(false);
-    expect(dueForDestruction(clinic(null), at(90))).toBe(true);
+    // Never delivered: destroyed a day before ninety days have passed.
+    expect(dueForDestruction(clinic(null), at(88.9))).toBe(false);
+    expect(dueForDestruction(clinic(null), at(DESTROY_WITHOUT_EXPORT_AFTER_DAYS - 1))).toBe(true);
   });
 });
 

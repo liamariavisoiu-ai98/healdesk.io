@@ -32,12 +32,21 @@
 --     the map; tests/destruction-clock.test.ts holds the two together and
 --     fails when a template in the catalog has no entry.
 --   * app_destruction_due() is the floor under both delete functions and the
---     destroyed stamp, and the same rule dueForDestruction applies:
---       thirty days (BAA 1.2.1 and earlier, none, unknown): from day 29, so
---         that the job, which now runs every hour, has the data gone before
---         the thirty days are up whatever hour the clinic left;
---       the DPA's rule (BAA 1.3.0, DPA 1.0.0): from day 30 once the export
---         has been delivered, and from day 90 whether or not it has.
+--     destroyed stamp, and the same rule dueForDestruction applies. Each
+--     limit is met a day early, so that the job, which now runs every hour
+--     for every rule, has the data gone before the limit passes whatever hour
+--     the clinic left:
+--       thirty days (BAA 1.2.1 and earlier, none, unknown): from day 29,
+--         whatever the export;
+--       the export rule (BAA 1.3.0, DPA 1.0.0): from day 29 once the export
+--         has been delivered (from the delivery when that is later), and from
+--         day 89 whether or not it has. That keeps 1.3.0's words exactly:
+--         "thirty days after the Services end if the export has been
+--         delivered by then; otherwise as soon as the export is delivered;
+--         and in any case no later than ninety days" (the calendar session's
+--         decision, 7 October 2026). The DPA states the same rule for a run
+--         "once a day", and its words stand: this destroys no later than
+--         they say.
 --   * app_start_offboarding() takes the moment the service ended (Stripe's
 --     own end of the subscription) and stamps it, clamped to no earlier than
 --     a week before the call and no later than the call.
@@ -52,7 +61,8 @@
 --     the tenant's, on the same floor, and app_mark_clinic_destroyed()
 --     refuses while any is left.
 --   * app_clinics_overview() carries the version the rule was read from.
---   * The offboarding-destroy job runs every hour (lib/scheduler/tick.ts).
+--   * The offboarding-destroy job runs every hour, and every run destroys
+--     every clinic due, on either rule (lib/scheduler/tick.ts).
 --   * Every day these functions count is twenty-four hours, whatever time
 --     zone the caller's session set: each runs with TimeZone pinned to UTC,
 --     and so do 0054's record-clock functions (below, "The caller's time
@@ -148,13 +158,14 @@ GRANT EXECUTE ON FUNCTION app_agreement_at_end(uuid) TO healdesk_app;--> stateme
 -- Whether the clinic's data may be destroyed now, by the database's clock and
 -- the rule of the agreement its service ended under. The floor under
 -- dueForDestruction (lib/offboarding/offboarding.ts), which decides when the
--- job asks: the thirty days' clinic from day 29, the DPA rule's from day 30
--- with the export delivered and from day 90 without. now(), the start of the
--- destroying transaction, is earlier than the moment of any statement in it,
--- so a transaction left open cannot spend its own wait; the dates it reads
--- are written by app_start_offboarding() and app_mark_export_delivered()
--- alone. Its days are counted in UTC, whatever zone the caller set (see the
--- header). Not SECURITY DEFINER: only the three definers below call it.
+-- job asks: the thirty days' clinic from day 29; the export rule's from day
+-- 29 with the export delivered and from day 89 without. now(), the start of
+-- the destroying transaction, is earlier than the moment of any statement in
+-- it, so a transaction left open cannot spend its own wait; the dates it
+-- reads are written by app_start_offboarding() and
+-- app_mark_export_delivered() alone. Its days are counted in UTC, whatever
+-- zone the caller set (see the header). Not SECURITY DEFINER: only the three
+-- definers below call it.
 CREATE OR REPLACE FUNCTION app_destruction_due(target_clinic uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -165,10 +176,9 @@ AS $$
   SELECT coalesce((
     SELECT CASE app_destruction_rule((SELECT e.document_version FROM app_agreement_at_end(c.id) e))
              WHEN 'export_or_ninety' THEN
-                   c.offboarding_started_at <= now() - interval '30 days'
-               AND c.destroy_after <= now()
-               AND (c.export_delivered_at IS NOT NULL
-                    OR c.offboarding_started_at <= now() - interval '90 days')
+                   c.offboarding_started_at <= now() - interval '89 days'
+               OR (c.export_delivered_at IS NOT NULL
+                   AND c.offboarding_started_at <= now() - interval '29 days')
              ELSE c.offboarding_started_at <= now() - interval '29 days'
            END
       FROM clinics c
@@ -541,7 +551,7 @@ GRANT EXECUTE ON FUNCTION app_clinics_overview() TO healdesk_app;--> statement-b
 -- The job's cadence, as the console shows it
 -- -----------------------------------------------------------------------------
 UPDATE scheduled_jobs
-   SET cadence = 'Hourly; destroys each offboarded clinic''s patient data when the agreement its service ended under says: from day 29 under BAA 1.2.1 and earlier, and at the 04 UTC run from day 30 (export delivered) or day 90 under BAA 1.3.0 and the DPA'
+   SET cadence = 'Hourly; destroys each offboarded clinic''s patient data when the agreement its service ended under says: under BAA 1.2.1 and earlier from day 29, export or not; under BAA 1.3.0 and the DPA from day 29 once the export is delivered (from the delivery when later) and from day 89 without it'
  WHERE name = 'offboarding-destroy';--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
@@ -552,7 +562,7 @@ COMMENT ON FUNCTION app_destruction_rule(text) IS
 COMMENT ON FUNCTION app_agreement_at_end(uuid) IS
   'The agreement a clinic was bound to when its service ended: the newest acceptance bound to its organisation that was accepted and bound no later than offboarding_started_at, terminated since or not. No row while the clinic is not offboarding or held none then. The destruction rule is read from it.';--> statement-breakpoint
 COMMENT ON FUNCTION app_destruction_due(uuid) IS
-  'Whether a clinic''s data may be destroyed now, by the database''s clock: under the thirty days (BAA 1.2.1 and earlier, none, unknown) from day 29 after offboarding_started_at; under the DPA''s rule (BAA 1.3.0, DPA 1.0.0) from day 30 once export_delivered_at is set, and from day 90 regardless. Days of twenty-four hours: it runs in UTC, whatever zone the caller set. The floor under app_destroy_booking_requests, app_destroy_contact_evidence and app_mark_clinic_destroyed.';--> statement-breakpoint
+  'Whether a clinic''s data may be destroyed now, by the database''s clock: under the thirty days (BAA 1.2.1 and earlier, none, unknown) from day 29 after offboarding_started_at; under the export rule (BAA 1.3.0, DPA 1.0.0) from day 29 once export_delivered_at is set, and from day 89 regardless. Each a day before the agreement''s thirty or ninety days, for an hourly job. Days of twenty-four hours: it runs in UTC, whatever zone the caller set. The floor under app_destroy_booking_requests, app_destroy_contact_evidence and app_mark_clinic_destroyed.';--> statement-breakpoint
 COMMENT ON FUNCTION app_start_offboarding(uuid, timestamptz) IS
   'Stamps clinics.offboarding_started_at at the end of the service (ended, or the call when NULL), clamped to no earlier than seven days before the call and no later than the call, both by clock_timestamp(); destroy_after thirty days later; once, so starting again moves neither. Days of twenty-four hours: it runs in UTC, whatever zone the caller set. The tenant''s own clinic only. Returns the stamps, whether this call made them, and the end asked for.';--> statement-breakpoint
 COMMENT ON FUNCTION app_mark_export_delivered(uuid) IS
@@ -566,7 +576,7 @@ COMMENT ON FUNCTION app_mark_clinic_destroyed(uuid) IS
 COMMENT ON COLUMN clinics.offboarding_started_at IS
   'When the clinic''s service ended: Stripe''s end of the subscription, or the moment an operator or our own setup closure ended it. Written only by app_start_offboarding(), clamped to the week before the call; a new clinic cannot carry it (clinics_insert_guard).';--> statement-breakpoint
 COMMENT ON COLUMN clinics.destroy_after IS
-  'Thirty days after offboarding_started_at, the thirty days every agreement counts. Under the DPA''s rule (BAA 1.3.0, DPA 1.0.0) destruction is due from it once the export is delivered, and ninety days after the start regardless; under the thirty days (BAA 1.2.1 and earlier) it is due a day before it, whatever the export. app_destruction_due() and lib/offboarding say which. Written only by app_start_offboarding(); a new clinic cannot carry it.';--> statement-breakpoint
+  'Thirty days after offboarding_started_at, the thirty days every agreement counts. Destruction is due a day before it: under the thirty days (BAA 1.2.1 and earlier) whatever the export; under the export rule (BAA 1.3.0, DPA 1.0.0) once the export is delivered, from the delivery when that is later, and a day before ninety days after the start regardless. app_destruction_due() and lib/offboarding say which. Written only by app_start_offboarding(); a new clinic cannot carry it.';--> statement-breakpoint
 COMMENT ON COLUMN clinics.export_delivered_at IS
   'When the offboarding export reached the practice: the operator''s record of the handover, never the moment it was produced. Written only by app_mark_export_delivered(), from the database''s clock, once; a new clinic cannot carry it.';--> statement-breakpoint
 

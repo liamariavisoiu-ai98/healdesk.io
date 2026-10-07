@@ -382,7 +382,7 @@ function Offboarding({ view, actions }: { view: CareView; actions: Actions }) {
           <li>
             {plan.rule === "thirty_days"
               ? `Rule: thirty days (${ruleSource(plan)}). The data is destroyed at ${plan.destroyDueAt}, a day before the thirty days are up, whether or not the export was delivered.`
-              : `Rule: the export, then ninety days (${ruleSource(plan)}). Destroyed by the 04:00 UTC run once the export is recorded, from ${plan.exportDueAt}, and from ${plan.latestDestroyAt} if it never is.`}
+              : `Rule: the export, then ninety days (${ruleSource(plan)}). Destroyed at ${plan.exportDueAt}, a day before the thirty days are up, if the export is recorded by then; otherwise at the first hourly run after it is recorded; and at ${plan.latestDestroyAt}, a day before the ninety days are up, if it never is.`}
           </li>
           <li>
             Switch the agent off at the voice vendor and send the clinic the forwarding-removal codes (onboarding page, &ldquo;To undo&rdquo;).
@@ -397,7 +397,7 @@ function Offboarding({ view, actions }: { view: CareView; actions: Actions }) {
               ? `Export delivered ${c.exportDeliveredOn}. Destruction is due at ${plan.destroyDueAt}.`
               : plan.rule === "thirty_days"
                 ? `Not yet delivered. Deliver it and record the handover before ${plan.destroyDueAt}: every leaving practice is owed its export whether or not it asks (Terms §7), and the data goes then either way. Ops is alerted at day 21.`
-                : `Not yet delivered: owed by ${plan.exportDueAt}. Destruction waits for it until ${plan.latestDestroyAt}.`}
+                : `Not yet delivered: owed by ${plan.exportDueAt}, so the data goes within the thirty days. Destruction waits for it until ${plan.latestDestroyAt}.`}
           </li>
           {vendorStep}
         </ol>

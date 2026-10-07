@@ -5,7 +5,6 @@ import { BAA_TEMPLATES, DPA_TEMPLATES, DPA_VERSION_PREFIX } from "@healdesk/cata
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import {
-  DAILY_DESTRUCTION_HOUR_UTC,
   DESTROY_AFTER_DAYS,
   DESTROY_WITHOUT_EXPORT_AFTER_DAYS,
   DESTRUCTION_RULES,
@@ -16,9 +15,10 @@ import {
   destructionRuleFor,
   dueForDestruction,
   markExportDelivered,
+  NINETY_DAY_LIMIT_DUE_DAYS,
   OFFBOARDING_BACKDATE_LIMIT_DAYS,
   startOffboarding,
-  THIRTY_DAY_RULE_DUE_DAYS,
+  THIRTY_DAY_LIMIT_DUE_DAYS,
   type DestructionInput,
 } from "@/lib/offboarding/offboarding";
 import { listClinics, type ClinicOverview } from "@/lib/ops/clinics";
@@ -47,10 +47,15 @@ import { sessionReach, setLocalZone, zoneShrinking, zoneStretching } from "./set
  * 0.1.0-draft destroy "on termination". Until this change every clinic ran
  * on the DPA's rule, which waits up to ninety days for an export that has not
  * been delivered, so a 1.2.1 practice's patients could be held sixty days
- * past the date it signed for. These tests hold each version to its own rule,
- * the database's floor to the same rule, the clock's start to the week's
- * clamp, and destruction to every row the agreements reach: suppressions,
- * consent records and contact attempts included.
+ * past the date it signed for. BAA 1.3.0 destroys "thirty days after the
+ * Services end if the export has been delivered by then; otherwise as soon as
+ * the export is delivered; and in any case no later than ninety days", and a
+ * once-a-day run could pass each of those by up to a day; the hourly job now
+ * meets each limit a day early, for 1.3.0 and the DPA alike. These tests hold
+ * each version to its own rule and its boundaries, the database's floor to
+ * the same rule, the clock's start to the week's clamp, and destruction to
+ * every row the agreements reach: suppressions, consent records and contact
+ * attempts included.
  */
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
@@ -146,10 +151,10 @@ describe("the dates each rule gives", () => {
     for (const version of THIRTY_DAY_VERSIONS) {
       const clinic = clinicOn(version);
       expect(dueForDestruction(clinic, at(28.99)), version).toBe(false);
-      expect(dueForDestruction(clinic, at(THIRTY_DAY_RULE_DUE_DAYS)), version).toBe(true);
+      expect(dueForDestruction(clinic, at(THIRTY_DAY_LIMIT_DUE_DAYS)), version).toBe(true);
       expect(dueForDestruction(clinic, at(DESTROY_AFTER_DAYS)), version).toBe(true);
       const plan = planOf(clinic);
-      expect(plan).toMatchObject({ rule: "thirty_days", basis: "agreement", dailyRunOnly: false });
+      expect(plan).toMatchObject({ rule: "thirty_days", basis: "agreement" });
       expect(plan.destroyDueAt).toEqual(at(29));
       expect(plan.latestDestroyAt).toEqual(at(29));
       expect(plan.exportDueBy).toEqual(at(29));
@@ -165,30 +170,41 @@ describe("the dates each rule gives", () => {
     }
   });
 
-  test("BAA 1.3.0 and DPA 1.0.0: day 30 with the export delivered; without one, not at day 31 or 89, at its delivery, and at day 90", () => {
+  test("BAA 1.3.0 and DPA 1.0.0: day 29 with the export delivered by then; at a later delivery; day 89 without, so neither limit is passed", () => {
+    const hour = 1 / 24;
     for (const version of EXPORT_RULE_VERSIONS) {
-      // Delivered by day 30: destroyed once thirty days have passed, not before.
-      expect(dueForDestruction(clinicOn(version, 10), at(29.99)), version).toBe(false);
-      expect(dueForDestruction(clinicOn(version, 10), at(30)), version).toBe(true);
-      // None delivered: held.
+      // Delivered by day 30: due a day before the thirty days are up, so the
+      // next hourly run has it gone inside them, and not a moment earlier.
+      expect(dueForDestruction(clinicOn(version, 10), at(28)), version).toBe(false);
+      expect(dueForDestruction(clinicOn(version, 10), at(29 - hour)), version).toBe(false);
+      expect(dueForDestruction(clinicOn(version, 10), at(THIRTY_DAY_LIMIT_DUE_DAYS)), version).toBe(
+        true,
+      );
+      expect(planOf(clinicOn(version, 10)).destroyDueAt, version).toEqual(at(29));
+      // Delivered after day 30: due at the delivery, for the next hourly run.
+      expect(dueForDestruction(clinicOn(version, 40), at(40 - hour)), version).toBe(false);
+      expect(dueForDestruction(clinicOn(version, 40), at(40)), version).toBe(true);
+      expect(planOf(clinicOn(version, 40)).destroyDueAt, version).toEqual(at(40));
+      // Delivered on day 29 itself: due at the delivery, never before it.
+      expect(planOf(clinicOn(version, 29.5)).destroyDueAt, version).toEqual(at(29.5));
+      // None delivered: held past day 30, still held at day 88 h 23, due at
+      // day 89, so the next hourly run never passes ninety days.
       expect(dueForDestruction(clinicOn(version), at(31)), version).toBe(false);
-      expect(dueForDestruction(clinicOn(version), at(89)), version).toBe(false);
-      // Delivered later: the first run after the delivery.
-      expect(dueForDestruction(clinicOn(version, 45), at(44.99)), version).toBe(false);
-      expect(dueForDestruction(clinicOn(version, 45), at(45)), version).toBe(true);
-      // Never delivered: day 90 regardless.
-      expect(
-        dueForDestruction(clinicOn(version), at(DESTROY_WITHOUT_EXPORT_AFTER_DAYS)),
-        version,
-      ).toBe(true);
+      expect(dueForDestruction(clinicOn(version), at(89 - hour)), version).toBe(false);
+      expect(dueForDestruction(clinicOn(version), at(NINETY_DAY_LIMIT_DUE_DAYS)), version).toBe(
+        true,
+      );
+      // A delivery the ninety days already passed does not hold it longer.
+      expect(planOf(clinicOn(version, 95)).destroyDueAt, version).toEqual(at(89));
       const plan = planOf(clinicOn(version));
-      expect(plan).toMatchObject({ rule: "export_or_ninety", dailyRunOnly: true });
-      expect(plan.exportDueBy).toEqual(at(30));
-      expect(plan.destroyDueAt).toEqual(at(90));
-      expect(plan.latestDestroyAt).toEqual(at(90));
-      expect(planOf(clinicOn(version, 10)).destroyDueAt).toEqual(at(30));
-      expect(planOf(clinicOn(version, 45)).destroyDueAt).toEqual(at(45));
+      expect(plan).toMatchObject({ rule: "export_or_ninety", basis: "agreement" });
+      expect(plan.exportDueBy).toEqual(at(29));
+      expect(plan.destroyDueAt).toEqual(at(89));
+      expect(plan.latestDestroyAt).toEqual(at(89));
     }
+    // The limits the agreements state, met a day early.
+    expect(THIRTY_DAY_LIMIT_DUE_DAYS).toBe(DESTROY_AFTER_DAYS - 1);
+    expect(NINETY_DAY_LIMIT_DUE_DAYS).toBe(DESTROY_WITHOUT_EXPORT_AFTER_DAYS - 1);
   });
 
   test("no agreement: the thirty days; an unknown version: the thirty days too, so it is held no longer than any agreement allows", () => {
@@ -212,28 +228,41 @@ describe("the dates each rule gives", () => {
   });
 
   test("the days a notice states are true whatever the hour the service ended", () => {
-    // The thirty days: the hourly run reaches it the moment it is due, so the
-    // last whole day to download is the day before, and the data is gone by
-    // the day the thirty days end.
+    // Either rule: an hourly run may reach the clinic from day 29, so the
+    // last whole day to download is the day before; and the data is gone by
+    // the day its limit ends, thirty days or ninety.
     expect(planOf(clinicOn("1.2.1"))).toMatchObject({
       exportByOn: "2026-11-29",
       destroyByOn: "2026-12-01",
     });
-    // The DPA's rule: the 04 UTC run. Ended at 15:00, the run after day 30 is
-    // the next morning's and the one after day 90 the next morning's too.
-    expect(planOf(clinicOn("dpa/1.0.0"))).toMatchObject({
-      exportByOn: "2026-12-01",
-      destroyByOn: "2027-01-31",
-    });
-    // Ended at 02:00, that day's own 04 UTC run reaches both marks.
-    const early = new Date("2026-11-01T02:00:00Z");
-    expect(
-      planOf({
-        ...clinicOn("1.3.0"),
-        offboardingStartedAt: early,
-        destroyAfter: new Date(early.getTime() + 30 * DAY),
-      }),
-    ).toMatchObject({ exportByOn: "2026-11-30", destroyByOn: "2027-01-30" });
+    for (const version of EXPORT_RULE_VERSIONS) {
+      expect(planOf(clinicOn(version)), version).toMatchObject({
+        exportByOn: "2026-11-29",
+        destroyByOn: "2027-01-30",
+      });
+    }
+    // And at any hour of the day: no run can destroy the data before
+    // exportByOn has ended, a run may on the day after it, and the run after
+    // the latest due moment comes before destroyByOn has ended.
+    const HOUR = 60 * 60 * 1000;
+    const startOf = (day: string) => new Date(`${day}T00:00:00Z`).getTime();
+    for (const time of ["00:00", "00:30", "02:00", "12:00", "23:00", "23:59"]) {
+      const end = new Date(`2026-11-01T${time}:00Z`);
+      for (const version of ["1.2.1", ...EXPORT_RULE_VERSIONS]) {
+        const plan = planOf({
+          ...clinicOn(version),
+          offboardingStartedAt: end,
+          destroyAfter: new Date(end.getTime() + DESTROY_AFTER_DAYS * DAY),
+        });
+        const earliest = end.getTime() + THIRTY_DAY_LIMIT_DUE_DAYS * DAY;
+        const label = `${version} ended ${time}`;
+        expect(startOf(plan.exportByOn) + DAY, label).toBeLessThanOrEqual(earliest);
+        expect(startOf(plan.exportByOn) + 2 * DAY, label).toBeGreaterThan(earliest);
+        expect(plan.latestDestroyAt.getTime() + HOUR, label).toBeLessThanOrEqual(
+          startOf(plan.destroyByOn) + DAY,
+        );
+      }
+    }
   });
 });
 
@@ -298,13 +327,15 @@ async function bindAgreement(
 
 /**
  * Time passing for the offboarding clock: the migrator, which owns clinics,
- * moves the database's stamps back as the hours would.
+ * moves the database's stamps back as the hours would, the export's delivery
+ * with them, so an export delivered on day 10 stays delivered on day 10.
  */
 async function moveBack(clinicId: string, hours: number): Promise<void> {
   await getMigratorPool().query(
     `update clinics
         set offboarding_started_at = offboarding_started_at - make_interval(hours => $2),
-            destroy_after = destroy_after - make_interval(hours => $2)
+            destroy_after = destroy_after - make_interval(hours => $2),
+            export_delivered_at = export_delivered_at - make_interval(hours => $2)
       where id = $1`,
     [clinicId, hours],
   );
@@ -518,13 +549,13 @@ describeDb("the destruction clock in the database", () => {
         text,
       ).rejects.toMatchObject(notDue);
     }
-    let results = await destroyDueClinics(new Date(), { dailyRun: false });
+    let results = await destroyDueClinics(new Date());
     expect(results.map((r) => r.clinicId)).not.toContain(c.clinicId);
 
-    // An hour later it is day 29, and an hourly run, not the daily one,
-    // destroys it with no export delivered.
+    // An hour later it is day 29, and an ordinary hourly run destroys it
+    // with no export delivered.
     await moveBack(c.clinicId, 1);
-    results = await destroyDueClinics(new Date(), { dailyRun: false });
+    results = await destroyDueClinics(new Date());
     expect(results.map((r) => r.clinicId)).toContain(c.clinicId);
     const after = await stamps(c.clinicId);
     expect(after.export_delivered_at).toBeNull();
@@ -556,7 +587,7 @@ describeDb("the destruction clock in the database", () => {
     });
     let results: Awaited<ReturnType<typeof destroyDueClinics>>;
     try {
-      results = await destroyDueClinics(new Date(), { dailyRun: false });
+      results = await destroyDueClinics(new Date());
     } finally {
       spy.mockRestore();
     }
@@ -592,7 +623,7 @@ describeDb("the destruction clock in the database", () => {
     });
     let results: Awaited<ReturnType<typeof destroyDueClinics>>;
     try {
-      results = await destroyDueClinics(new Date(), { dailyRun: false });
+      results = await destroyDueClinics(new Date());
     } finally {
       infoSpy.mockRestore();
       errorSpy.mockRestore();
@@ -606,59 +637,99 @@ describeDb("the destruction clock in the database", () => {
     expect(mine(errors, "destruction failed")).toEqual([]);
   }, 120_000);
 
-  test("a clinic on BAA 1.3.0 or the DPA waits for its export and for the daily run, and the database holds it to the same rule", async () => {
+  /** Held, by the job and by the database's floor under all three of its functions. */
+  async function expectHeld(clinicId: string, label: string): Promise<void> {
+    expect(dueForDestruction(await overviewOf(clinicId), new Date()), label).toBe(false);
+    for (const text of GUARDED) {
+      await expect(
+        asApp(clinicId, (q) => q.query(text, [clinicId])),
+        `${label}: ${text}`,
+      ).rejects.toMatchObject(notDue);
+    }
+    const results = await destroyDueClinics(new Date());
+    expect(
+      results.map((r) => r.clinicId),
+      label,
+    ).not.toContain(clinicId);
+  }
+
+  /** Due by the job and the database, and destroyed by an ordinary hourly run, at whatever hour. */
+  async function expectDestroyed(clinicId: string, label: string): Promise<void> {
+    expect(dueForDestruction(await overviewOf(clinicId), new Date()), label).toBe(true);
+    const allowed = await asApp(clinicId, (q) =>
+      q.query<{ n: number }>(`select app_destroy_booking_requests($1::uuid) as n`, [clinicId]),
+    );
+    expect(allowed.rows[0]!.n, label).toBeGreaterThanOrEqual(0);
+    const results = await destroyDueClinics(new Date());
+    expect(
+      results.map((r) => r.clinicId),
+      label,
+    ).toContain(clinicId);
+    expect(await evidenceCounts(clinicId), label).toEqual({
+      suppressions: 0,
+      consent_records: 0,
+      contact_attempts: 0,
+      contacts: 0,
+    });
+  }
+
+  test("a clinic on BAA 1.3.0 or the DPA with an export delivered by day 30 is held at day 28 h 23 and destroyed at day 29, by any hourly run", async () => {
     for (const version of EXPORT_RULE_VERSIONS) {
-      const c = await offboard(`clock-export-${WORD[version]}`, version);
+      const label = `${version}, delivered at day 10`;
+      const c = await offboard(`clock-early-${WORD[version]}`, version);
       await seedPersonAndEvidence(c.clinicId, "+15550130101");
-      await moveBack(c.clinicId, 31 * 24);
-
-      // Day 31 with no export delivered: held, by the job and by the database.
-      expect(dueForDestruction(await overviewOf(c.clinicId), new Date()), version).toBe(false);
-      for (const text of GUARDED) {
-        await expect(
-          asApp(c.clinicId, (q) => q.query(text, [c.clinicId])),
-          text,
-        ).rejects.toMatchObject(notDue);
-      }
-      let results = await destroyDueClinics(new Date(), { dailyRun: true });
-      expect(
-        results.map((r) => r.clinicId),
-        version,
-      ).not.toContain(c.clinicId);
-
-      // Delivered: due at once, but only the once-a-day run destroys it.
+      await moveBack(c.clinicId, 10 * 24);
       await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
         markExportDelivered(tx, "bundle by SFTP to the practice manager"),
       );
-      expect(dueForDestruction(await overviewOf(c.clinicId), new Date()), version).toBe(true);
-      results = await destroyDueClinics(new Date(), { dailyRun: false });
-      expect(
-        results.map((r) => r.clinicId),
-        version,
-      ).not.toContain(c.clinicId);
-      results = await destroyDueClinics(new Date(), { dailyRun: true });
-      expect(
-        results.map((r) => r.clinicId),
-        version,
-      ).toContain(c.clinicId);
-      expect((await evidenceCounts(c.clinicId)).suppressions, version).toBe(0);
+      // Day 28, then day 28 and twenty-three hours: delivered, and still held.
+      await moveBack(c.clinicId, 18 * 24);
+      await expectHeld(c.clinicId, `${label}, day 28`);
+      await moveBack(c.clinicId, 23);
+      await expectHeld(c.clinicId, `${label}, day 28 h 23`);
+      // An hour later it is day 29: due, a day before the thirty days are up.
+      await moveBack(c.clinicId, 1);
+      await expectDestroyed(c.clinicId, `${label}, day 29`);
+      const after = await stamps(c.clinicId);
+      expect(after.destroyed_at!.getTime() - after.offboarding_started_at!.getTime()).toBeLessThan(
+        DESTROY_AFTER_DAYS * DAY,
+      );
     }
+  }, 120_000);
 
-    // Never delivered: held at day 89, and due at day 90 by the database too.
-    const late = await offboard("clock-export-late", "dpa/1.0.0");
-    await moveBack(late.clinicId, 89 * 24);
-    expect(dueForDestruction(await overviewOf(late.clinicId), new Date())).toBe(false);
-    await expect(
-      asApp(late.clinicId, (q) => q.query(GUARDED[0]!, [late.clinicId])),
-    ).rejects.toMatchObject(notDue);
-    await moveBack(late.clinicId, 24);
-    expect(dueForDestruction(await overviewOf(late.clinicId), new Date())).toBe(true);
-    const allowed = await asApp(late.clinicId, (q) =>
-      q.query<{ n: number }>(`select app_destroy_booking_requests($1::uuid) as n`, [late.clinicId]),
-    );
-    expect(allowed.rows[0]!.n).toBe(0);
-    const results = await destroyDueClinics(new Date(), { dailyRun: true });
-    expect(results.map((r) => r.clinicId)).toContain(late.clinicId);
+  test("a clinic on BAA 1.3.0 or the DPA whose export is delivered after day 30 is destroyed at its delivery", async () => {
+    for (const version of EXPORT_RULE_VERSIONS) {
+      const label = `${version}, delivered at day 40`;
+      const c = await offboard(`clock-later-${WORD[version]}`, version);
+      await seedPersonAndEvidence(c.clinicId, "+15550130151");
+      // Day 40 with no export delivered: held.
+      await moveBack(c.clinicId, 40 * 24);
+      await expectHeld(c.clinicId, `${label}, before it`);
+      // Delivered at day 40: due at once, and the next hourly run destroys it.
+      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+        markExportDelivered(tx, "bundle by SFTP to the practice manager"),
+      );
+      await expectDestroyed(c.clinicId, label);
+    }
+  }, 120_000);
+
+  test("a clinic on BAA 1.3.0 or the DPA with no export delivered is held at day 88 h 23 and destroyed at day 89, so ninety days are never passed", async () => {
+    for (const version of EXPORT_RULE_VERSIONS) {
+      const label = `${version}, never delivered`;
+      const c = await offboard(`clock-never-${WORD[version]}`, version);
+      await seedPersonAndEvidence(c.clinicId, "+15550130171");
+      await moveBack(c.clinicId, 31 * 24);
+      await expectHeld(c.clinicId, `${label}, day 31`);
+      await moveBack(c.clinicId, (NINETY_DAY_LIMIT_DUE_DAYS - 31) * 24 - 1);
+      await expectHeld(c.clinicId, `${label}, day 88 h 23`);
+      await moveBack(c.clinicId, 1);
+      await expectDestroyed(c.clinicId, `${label}, day 89`);
+      const after = await stamps(c.clinicId);
+      expect(after.export_delivered_at, label).toBeNull();
+      expect(after.destroyed_at!.getTime() - after.offboarding_started_at!.getTime()).toBeLessThan(
+        DESTROY_WITHOUT_EXPORT_AFTER_DAYS * DAY,
+      );
+    }
   }, 120_000);
 
   test("from day 21 ops is told once, for a clinic on the thirty days with no export delivered, and never otherwise", async () => {
@@ -675,16 +746,16 @@ describeDb("the destruction clock in the database", () => {
     await moveBack(early.clinicId, 20 * 24);
 
     // Every hour from day 21 the job looks; ops hears once.
-    await destroyDueClinics(new Date(), { dailyRun: false });
-    await destroyDueClinics(new Date(), { dailyRun: false });
-    await destroyDueClinics(new Date(), { dailyRun: true });
+    await destroyDueClinics(new Date());
+    await destroyDueClinics(new Date());
+    await destroyDueClinics(new Date());
 
     for (const c of [flat, none]) {
       const started = (await stamps(c.clinicId)).offboarding_started_at!;
       expect(await alertsFor("export_undelivered_before_destruction", c.clinicId)).toEqual([
         {
           clinicId: c.clinicId,
-          destroyAt: new Date(started.getTime() + THIRTY_DAY_RULE_DUE_DAYS * DAY).toISOString(),
+          destroyAt: new Date(started.getTime() + THIRTY_DAY_LIMIT_DUE_DAYS * DAY).toISOString(),
         },
       ]);
     }
@@ -798,7 +869,7 @@ describeDb("the destruction clock in the database", () => {
       ),
     ).rejects.toMatchObject({ code: "42501" });
 
-    const results = await destroyDueClinics(new Date(), { dailyRun: false });
+    const results = await destroyDueClinics(new Date());
     const mine = results.find((r) => r.clinicId === c.clinicId);
     expect(mine?.deleted).toMatchObject({
       suppressions: 1,
@@ -867,7 +938,7 @@ describeDb("the destruction clock in the database", () => {
 
     // A restore from a backup taken before the export was recorded: the
     // patient is back, the clinic is not destroyed, and nothing says the
-    // export was delivered. On the DPA's rule that is not due before day 90,
+    // export was delivered. On the DPA's rule that is not due before day 89,
     // so the check alone passes it over.
     await getMigratorPool().query(
       `update clinics set destroyed_at = null, export_delivered_at = null where id = $1`,
@@ -899,43 +970,55 @@ describeDb("the destruction clock in the database", () => {
     });
   }, 120_000);
 
-  test("the hourly tick destroys a clinic on the thirty days at whatever hour it is due, and one on BAA 1.3.0 or the DPA only at the daily run", async () => {
+  test("every hourly tick reaches both rules: a tick at any hour destroys whatever is due under each, the old once-a-day hour no different", async () => {
     const admin = await seedClinic("clock-tick-admin");
-    const flat = await offboard("clock-tick-flat", "1.2.1");
-    const v130 = await offboard("clock-tick-next", "1.3.0");
-    const dpa = await offboard("clock-tick-dpa", "dpa/1.0.0");
-    await moveBack(flat.clinicId, 29 * 24 + 1);
-    for (const c of [v130, dpa]) {
-      await moveBack(c.clinicId, 31 * 24);
-      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-        markExportDelivered(tx, "bundle by SFTP to the practice manager"),
-      );
-    }
-    // Ticks on tomorrow's clock, when all three are due: the hour before the
-    // daily run, then the daily run's.
     const tomorrow = new Date(Date.now() + DAY);
-    const hour = (h: number) =>
-      new Date(
-        Date.UTC(tomorrow.getUTCFullYear(), tomorrow.getUTCMonth(), tomorrow.getUTCDate(), h),
-      );
     const destroyed = async (clinicId: string) => (await stamps(clinicId)).destroyed_at !== null;
+    // Words, not digits, in the labels (see WORD above). 04 is the hour the
+    // DPA's rule used to wait for, and 03 and 05 are either side of it.
+    const HOURS: [number, string][] = [
+      [0, "midnight"],
+      [3, "three"],
+      [4, "four"],
+      [5, "five"],
+      [13, "afternoon"],
+      [23, "late"],
+    ];
 
     await setJobEnabled(JOB_OFFBOARDING_DESTROY, true, admin.staffUserId);
     try {
-      const before = await runTick(hour(DAILY_DESTRUCTION_HOUR_UTC - 1));
-      expect(before.find((o) => o.job === "offboarding-destroy")?.status).toBe("ok");
-      expect(await destroyed(flat.clinicId)).toBe(true);
-      expect(await destroyed(v130.clinicId)).toBe(false);
-      expect(await destroyed(dpa.clinicId)).toBe(false);
+      for (const [h, word] of HOURS) {
+        // Due under every branch of both rules: the thirty days at day 29,
+        // 1.3.0 with its export delivered at day 10 now at day 29, and the
+        // DPA with none at day 89. And a 1.3.0 clinic with none at day 31,
+        // which no tick may touch.
+        const flat = await offboard(`clock-tick-${word}-flat`, "1.2.1");
+        const v130 = await offboard(`clock-tick-${word}-next`, "1.3.0");
+        const dpa = await offboard(`clock-tick-${word}-dpa`, "dpa/1.0.0");
+        const held = await offboard(`clock-tick-${word}-held`, "1.3.0");
+        await moveBack(flat.clinicId, 29 * 24 + 1);
+        await moveBack(v130.clinicId, 10 * 24);
+        await withTenant({ clinicId: v130.clinicId, actor: ACTOR }, (tx) =>
+          markExportDelivered(tx, "bundle by SFTP to the practice manager"),
+        );
+        await moveBack(v130.clinicId, 19 * 24 + 1);
+        await moveBack(dpa.clinicId, 89 * 24 + 1);
+        await moveBack(held.clinicId, 31 * 24);
 
-      const daily = await runTick(hour(DAILY_DESTRUCTION_HOUR_UTC));
-      expect(daily.find((o) => o.job === "offboarding-destroy")?.status).toBe("ok");
-      expect(await destroyed(v130.clinicId)).toBe(true);
-      expect(await destroyed(dpa.clinicId)).toBe(true);
+        const at = new Date(
+          Date.UTC(tomorrow.getUTCFullYear(), tomorrow.getUTCMonth(), tomorrow.getUTCDate(), h),
+        );
+        const outcomes = await runTick(at);
+        expect(outcomes.find((o) => o.job === "offboarding-destroy")?.status, word).toBe("ok");
+        expect(await destroyed(flat.clinicId), `${word}: 1.2.1`).toBe(true);
+        expect(await destroyed(v130.clinicId), `${word}: 1.3.0, delivered`).toBe(true);
+        expect(await destroyed(dpa.clinicId), `${word}: DPA, none`).toBe(true);
+        expect(await destroyed(held.clinicId), `${word}: 1.3.0, none at day 31`).toBe(false);
+      }
     } finally {
       await setJobEnabled(JOB_OFFBOARDING_DESTROY, false, admin.staffUserId);
     }
-  }, 120_000);
+  }, 180_000);
 
   // ---------------------------------------------------------------------------
   // The caller's time zone (review of 7 October)
@@ -987,22 +1070,22 @@ describeDb("the destruction clock in the database", () => {
 
   test("a time zone the runtime role sets for itself brings no destruction forward: the floor's days are twenty-four hours", async () => {
     // Two hours short of due by each rule: a 1.2.1 clinic at day 29, a 1.3.0
-    // clinic with its export delivered at day 30, and a DPA clinic with none
-    // at day 90.
+    // clinic with its export delivered at day 29, and a DPA clinic with none
+    // at day 89.
     const flat = await offboard("clock-zone-flat", "1.2.1");
     const next = await offboard("clock-zone-next", "1.3.0");
     const dpa = await offboard("clock-zone-dpa", "dpa/1.0.0");
     await withTenant({ clinicId: next.clinicId, actor: ACTOR }, (tx) =>
       markExportDelivered(tx, "bundle by SFTP to the practice manager"),
     );
-    await moveBack(flat.clinicId, THIRTY_DAY_RULE_DUE_DAYS * 24 - 2);
-    await moveBack(next.clinicId, DESTROY_AFTER_DAYS * 24 - 2);
-    await moveBack(dpa.clinicId, DESTROY_WITHOUT_EXPORT_AFTER_DAYS * 24 - 2);
+    await moveBack(flat.clinicId, THIRTY_DAY_LIMIT_DUE_DAYS * 24 - 2);
+    await moveBack(next.clinicId, THIRTY_DAY_LIMIT_DUE_DAYS * 24 - 2);
+    await moveBack(dpa.clinicId, NINETY_DAY_LIMIT_DUE_DAYS * 24 - 2);
 
     for (const [c, days] of [
-      [flat, THIRTY_DAY_RULE_DUE_DAYS],
-      [next, DESTROY_AFTER_DAYS],
-      [dpa, DESTROY_WITHOUT_EXPORT_AFTER_DAYS],
+      [flat, THIRTY_DAY_LIMIT_DUE_DAYS],
+      [next, THIRTY_DAY_LIMIT_DUE_DAYS],
+      [dpa, NINETY_DAY_LIMIT_DUE_DAYS],
     ] as const) {
       // A zone in which the session's own count of those days falls weeks short.
       const { zone } = await zoneShrinking(`${days} days`);
@@ -1028,7 +1111,7 @@ describeDb("the destruction clock in the database", () => {
     await bindAgreement(c.organizationId, "1.2.1");
     await seedPersonAndEvidence(c.clinicId, "+15550130501");
     const back = await zoneStretching("7 days");
-    const short = await zoneShrinking(`${THIRTY_DAY_RULE_DUE_DAYS} days`);
+    const short = await zoneShrinking(`${THIRTY_DAY_LIMIT_DUE_DAYS} days`);
     for (const text of GUARDED) {
       await expect(
         asApp(c.clinicId, async (q) => {

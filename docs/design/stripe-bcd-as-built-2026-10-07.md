@@ -285,6 +285,8 @@ What the fixes left open:
   (drizzle/0056): `canceledPayload` reads both from `destructionPlan` in
   `lib/offboarding/offboarding.ts`, the function the destruction job reads,
   meanings kept. BAA 1.2.1 and earlier are destroyed at day 29, inside their
-  thirty days; BAA 1.3.0 and the DPA keep the DPA's rule.
+  thirty days; BAA 1.3.0 and the DPA at day 29 once the export is delivered, at
+  its delivery when later, and at day 89 at the latest, inside their thirty
+  and ninety days.
 - The plan's Part J test (every `clinic_id` table is in the destroy list and
   the purge, or in a reasoned keep-list) is M5 work.

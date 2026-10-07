@@ -1711,15 +1711,16 @@ describeDb("the deferred start's billing lifecycle", () => {
           exportByOn: plan.exportByOn,
           destroyByOn: plan.destroyByOn,
         });
-        // And the days are the rule's: inside thirty days of the end on the
-        // thirty days, day 30 and day 90 on the DPA's rule.
+        // And the days are the rule's: on either rule the export by the day
+        // before day 29, when an hourly run may first destroy the data; the
+        // data gone by day 30 on the thirty days and by day 90 on the export
+        // rule, which is due at day 89 at the latest.
         const day = (n: number) =>
           new Date(overview.offboardingStartedAt!.getTime() + n * DAY_MS).toISOString().slice(0, 10);
         if (plan.rule === "thirty_days") {
           expect(notice!.payload, label).toMatchObject({ exportByOn: day(28), destroyByOn: day(30) });
         } else {
-          expect([day(29), day(30)], label).toContain(notice!.payload.exportByOn);
-          expect([day(90), day(91)], label).toContain(notice!.payload.destroyByOn);
+          expect(notice!.payload, label).toMatchObject({ exportByOn: day(28), destroyByOn: day(90) });
         }
         expectLintClean([notice!]);
       }

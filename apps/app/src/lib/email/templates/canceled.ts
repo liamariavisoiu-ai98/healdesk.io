@@ -20,13 +20,17 @@ import type { EmailTemplate } from "./types";
  * The dates are destructionPlan's (lib/offboarding), by the rule of the
  * agreement the clinic's service ended under. On BAA 1.2.1 and earlier the
  * data goes a day before thirty days are up, whatever the export; on BAA
- * 1.3.0 and the DPA it goes at the daily run from day 30 once the export has
- * been delivered (so within 30 days of its delivery), and by `destroyByOn`
- * if it never is. Either way it goes within 30 days of the export's delivery
- * and by `destroyByOn` at the latest, which is what the email says: both
- * days, the second as the latest, and never one exact date, because a clinic
- * told its data stays until the later date would plan around a record that
- * is already gone. Nor does it say the agreement sets these dates; the one in
+ * 1.3.0 and the DPA it goes a day before thirty days are up once the export
+ * has been delivered, at the next hourly run after its delivery when that is
+ * later (so within 30 days of its delivery either way), and a day before
+ * ninety days are up if it never is. `exportByOn` is the date a day before
+ * day 29 on either rule, the last whole day before any run can destroy the
+ * data.
+ * Either way it goes within 30 days of the export's delivery and by
+ * `destroyByOn` at the latest, which is what the email says: both days, the
+ * second as the latest, and never one exact date, because a clinic told its
+ * data stays until the later date would plan around a record that is
+ * already gone. Nor does it say the agreement sets these dates; the one in
  * effect sets its own.
  */
 

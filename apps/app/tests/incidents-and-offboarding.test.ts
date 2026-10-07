@@ -94,11 +94,13 @@ describe("destruction rule", () => {
     expect(dueForDestruction({ ...base, destructionAgreementVersion: "1.2.1", destroyedAt: new Date() }, new Date("2027-01-01"))).toBe(false);
   });
 
-  test("under BAA 1.3.0, after 30 days with the export delivered and after 90 without", () => {
+  test("under BAA 1.3.0, a day before 30 days with the export delivered and a day before 90 without", () => {
     const delivered = { ...base, exportDeliveredAt: new Date(started.getTime() + 5 * DAY) };
-    expect(dueForDestruction(delivered, new Date(started.getTime() + 31 * DAY))).toBe(true);
+    expect(dueForDestruction(delivered, new Date(started.getTime() + 28.9 * DAY))).toBe(false);
+    expect(dueForDestruction(delivered, new Date(started.getTime() + 29 * DAY))).toBe(true);
     expect(dueForDestruction(base, new Date(started.getTime() + 31 * DAY))).toBe(false);
-    expect(dueForDestruction(base, new Date(started.getTime() + 90 * DAY))).toBe(true);
+    expect(dueForDestruction(base, new Date(started.getTime() + 88.9 * DAY))).toBe(false);
+    expect(dueForDestruction(base, new Date(started.getTime() + 89 * DAY))).toBe(true);
   });
 
   test("under BAA 1.2.1, a day before the thirty days are up, export or not", () => {

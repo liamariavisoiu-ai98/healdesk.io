@@ -1379,20 +1379,21 @@ these is closed, by code, a page, a signed paper or a host setting, and
      column's only writer. The portal export, when it is built, stamps it
      once its download has reached Practice.
    - Done: the job runs every hour, and a clinic on the thirty days is due
-     at day 29, so its data is gone before thirty days have passed. A 1.3.0
-     or DPA clinic is destroyed by the 04 UTC run from day 30 (export
-     delivered), from the delivery, or from day 90, which is what the DPA's
-     clause 17 says ("runs once a day ... at the first run once").
-   - Open: 1.3.0's Term clause as it stands says "thirty days after the
-     Services end if the export has been delivered by then; otherwise as
-     soon as the export is delivered; and in any case no later than ninety
-     days after the Services end". The 04 UTC run meets that only to the
-     day: it can come up to a day after day 30, after a delivery and after
-     day 90. Before release either the clause takes the DPA's words, as the
-     redraft intends ("make the text match the product", 7 October 2026),
-     or 1.3.0 gets a rule of its own in `DESTRUCTION_RULES` and
-     `app_destruction_rule()`: run every hour, and due at day 89 without an
-     export.
+     at day 29, so its data is gone before thirty days have passed.
+   - Done (the calendar session's decision, 7 October 2026): 1.3.0's Term
+     clause keeps its words, "thirty days after the Services end if the
+     export has been delivered by then; otherwise as soon as the export is
+     delivered; and in any case no later than ninety days after the Services
+     end", and the code meets them exactly. Every hourly run destroys on
+     this rule too, and a 1.3.0 or DPA clinic is due at day 29 once its
+     export has been delivered (by day 30), at the delivery when that is
+     later, and at day 89 without one, so neither limit is passed whatever
+     the hour (`THIRTY_DAY_LIMIT_DUE_DAYS`, `NINETY_DAY_LIMIT_DUE_DAYS`;
+     `app_destruction_due()` the same in the database). The 04 UTC run,
+     which could come up to a day after day 30, after a delivery and after
+     day 90, is gone. 1.3.0 and the DPA keep one rule. The DPA's clause 17
+     ("runs once a day ... at the first run once") is left as it is: the
+     hourly job destroys no later than it says.
    - Done: `destroyClinicData` also deletes suppressions, consent records and
      contact attempts, through `app_destroy_contact_evidence()` (the runtime
      role keeps no DELETE on them), and `app_mark_clinic_destroyed()` refuses

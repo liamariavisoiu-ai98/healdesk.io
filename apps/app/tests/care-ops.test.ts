@@ -139,7 +139,7 @@ describeDb("care operations", () => {
     expect(view.clinic.destroyAfter).not.toBeNull();
     expect(view.clinic.exportDeliveredAt).toBeNull();
     // No agreement on file: the strictest rule, a day before the thirty days.
-    expect(view.clinic.destruction).toMatchObject({ rule: "thirty_days", basis: "no_agreement", dailyRunOnly: false });
+    expect(view.clinic.destruction).toMatchObject({ rule: "thirty_days", basis: "no_agreement" });
 
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportClinic(tx, "offboarding"));
     const delivered = data<{ status: string }>(

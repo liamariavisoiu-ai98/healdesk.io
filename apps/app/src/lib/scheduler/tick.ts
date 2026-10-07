@@ -6,7 +6,6 @@ import { runBillingRequestsJob } from "@/lib/billing/requests";
 import { runUsageAlertsJob } from "@/lib/billing/usage-alerts";
 import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
 import { expireLapsedRequests } from "@/lib/meta/booking-requests";
-import { DAILY_DESTRUCTION_HOUR_UTC } from "@/lib/offboarding/offboarding";
 import { applyBookingRequirementDefaults } from "@/lib/onboarding/requirements";
 
 import { runAnnualRenewalReminderJob } from "./annual-renewal-reminder";
@@ -35,10 +34,10 @@ import { runWeeklyRecapJob } from "./weekly-recap";
  * at night; the annual overage invoices at 05, billing housekeeping at 06 and
  * the card-expiry check at 07; the DMARC review reminder at 08; the mailers
  * in the morning; the sweeps every hour because their effect is time-bounded
- * anyway. Destruction runs every hour too, so a clinic whose agreement gives
- * thirty days is gone before they are up whatever hour it left; its 04 UTC
- * run is the once-a-day run BAA 1.3.0 and the DPA describe, the only one that
- * destroys a clinic on their rule (lib/offboarding).
+ * anyway. Destruction runs every hour too, and every run destroys every
+ * clinic due on either rule: a clinic is due a day before its agreement's
+ * thirty days, or ninety, are up, so whatever hour it left its data is gone
+ * before them (lib/offboarding).
  */
 export type TickOutcome = { job: string; status: string; note?: string };
 
@@ -86,12 +85,11 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // defaults stamped as its booking requirement set. Same shape as the sweep
   // above: a pure function of the clock over rows that already exist.
   await record("booking-requirements-defaults", async () => ({ status: "ok", note: `${await applyBookingRequirementDefaults(now)} defaulted` }));
-  // Every hour: a clinic on the thirty days is due at day 29, and the next
-  // hourly run destroys it; a clinic on the DPA's rule waits for the 04 UTC
-  // run (lib/offboarding, "Which rule, and why").
-  await record("offboarding-destroy", () =>
-    runOffboardingDestroyJob({ now, dailyRun: hour === DAILY_DESTRUCTION_HOUR_UTC }),
-  );
+  // Every hour, on either rule: a clinic is due at day 29 (on BAA 1.3.0 or
+  // the DPA once its export is delivered, or at the delivery when later) or
+  // at day 89, and the next hourly run destroys it (lib/offboarding, "Which
+  // rule, and why").
+  await record("offboarding-destroy", () => runOffboardingDestroyJob({ now }));
   // Phase two, like the monthly report.
   if (hour === 2) await record("nightly-sync", () => runNightlySyncJob({ now }));
   if (hour === 3) await record("retention-purge", () => runRetentionPurgeJob({ now }));

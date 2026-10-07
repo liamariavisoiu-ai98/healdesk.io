@@ -55,31 +55,41 @@ import { withTenant } from "@/lib/tenant";
  * terminated acceptance, and an operator records a termination whenever they
  * get to it, so at destruction time it may name none.
  *
+ * The job runs every hour, and every run destroys every clinic that is due,
+ * on either rule. Each limit an agreement sets is met a day early: a clinic
+ * is due a day before its thirty days, or its ninety, are up, so whatever
+ * hour its service ended the next hourly run has its data gone before the
+ * limit passes, with most of a day to spare for a worker that was down.
+ *
  *   - BAA 1.2.1, 1.2.0 and 1.1.0-draft say "Within thirty days of
  *     termination healdesk will return or destroy all PHI it holds for
  *     Practice and retain no copies, and will give Practice, on request
  *     before that date, an export". 1.0.0 and 0.1.0-draft say "On
  *     termination healdesk will, if feasible, return or destroy" it and name
  *     no period, so they get the same rule, the strictest there is. The data
- *     goes whether or not the export was delivered, and it goes at day 29, a
- *     day early: the job runs every hour, so whatever hour the practice left
- *     its data is gone before the thirty days are up, with most of a day to
- *     spare for a worker that was down. The export is owed before then to
- *     every leaving practice, whether or not it asks: these agreements give
- *     it "on request", but Terms §7 promises it within thirty days of the
- *     end, and the canceled email tells the practice it is coming, so a
- *     practice has no reason to ask. Ops is told at day 21 when none has been
- *     recorded (export_undelivered_before_destruction).
- *   - DPA 1.0.0 says healdesk delivers the export unasked within thirty
- *     days, and that its destruction "runs once a day" and destroys "at the
- *     first run once thirty days have passed ..., if the export has been
- *     delivered by then; otherwise at the first run after the export is
- *     delivered; and in any case at the first run once ninety days have
- *     passed". BAA 1.3.0 takes the same rule, whose words its redraft gives
- *     it (the draft as it stands still says "no later than ninety days":
- *     docs/counsel/agreement-changes.md §12.14, gate 7). So these clinics are
- *     destroyed only by the day's 04:00 UTC run, from day 30, from the
- *     delivery, or from day 90.
+ *     goes at day 29 whether or not the export was delivered. The export is
+ *     owed before then to every leaving practice, whether or not it asks:
+ *     these agreements give it "on request", but Terms §7 promises it within
+ *     thirty days of the end, and the canceled email tells the practice it is
+ *     coming, so a practice has no reason to ask. Ops is told at day 21 when
+ *     none has been recorded (export_undelivered_before_destruction).
+ *   - BAA 1.3.0 says healdesk delivers the export unasked within thirty days
+ *     and destroys the PHI "thirty days after the Services end if the export
+ *     has been delivered by then; otherwise as soon as the export is
+ *     delivered; and in any case no later than ninety days after the Services
+ *     end". DPA 1.0.0 states the same rule for a destruction that "runs once
+ *     a day": "at the first run once thirty days have passed ..., if the
+ *     export has been delivered by then; otherwise at the first run after the
+ *     export is delivered; and in any case at the first run once ninety days
+ *     have passed". The code keeps 1.3.0's words exactly, for both (the
+ *     calendar session's decision, 7 October 2026): due at day 29 once the
+ *     export has been delivered, at the delivery when that is later, and at
+ *     day 89 whether or not it has. So the ninety days are never passed, and
+ *     neither are the thirty for an export delivered by day 29, which is
+ *     when the export is owed here too: one delivered later is destroyed at
+ *     the next hourly run, which after a delivery in the thirtieth day's last
+ *     hour can come after thirty days have passed. The DPA's words are left
+ *     as they are; this hourly job destroys no later than they say.
  *   - No agreement (a synthetic or legacy clinic): the strictest, the thirty
  *     days.
  *   - A version DESTRUCTION_RULES does not know: the thirty days too, and the
@@ -105,16 +115,16 @@ import { withTenant } from "@/lib/tenant";
  * could stamp a live clinic as due, empty it and put the dates back. The one
  * moment it may pass in, the end of the service, is clamped to the week
  * before the call. Every day the database counts for these dates, the
- * clamp's seven and the floor's twenty-nine, thirty and ninety, is
- * twenty-four hours: the functions run in UTC, because any role may set its
- * own session's time zone and Postgres counts days in it (drizzle/0056's
- * header). app_mark_clinic_destroyed() also refuses while any row
- * destroyClinicData deletes is still there, because once `destroyed_at` is
- * set the job passes the clinic over for good. Its list and the deletes below
- * are one list: tests/booking-request-destruction.test.ts fails if they
- * differ, or if a table with a clinic_id is on neither it nor the list of
- * what stays. Tests that need days to pass move the stamps back as the
- * migrator, which owns the table.
+ * clamp's seven, destroy_after's thirty and the floor's twenty-nine and
+ * eighty-nine, is twenty-four hours: the functions run in UTC, because any
+ * role may set its own session's time zone and Postgres counts days in it
+ * (drizzle/0056's header). app_mark_clinic_destroyed() also refuses while
+ * any row destroyClinicData deletes is still there, because once
+ * `destroyed_at` is set the job passes the clinic over for good. Its list and
+ * the deletes below are one list: tests/booking-request-destruction.test.ts
+ * fails if they differ, or if a table with a clinic_id is on neither it nor
+ * the list of what stays. Tests that need days to pass move the stamps back
+ * as the migrator, which owns the table.
  *
  * ## What goes, and what stays
  *
@@ -155,34 +165,38 @@ import { withTenant } from "@/lib/tenant";
  * not claim to.
  */
 const DAY_MS = 24 * 60 * 60 * 1000;
-const HOUR_MS = 60 * 60 * 1000;
 
-/** The days app_start_offboarding() puts between the start and destroy_after; a test pins the two together. */
+/**
+ * The agreements' thirty days, which app_start_offboarding() puts between
+ * the start and destroy_after; a test pins the two together.
+ */
 export const DESTROY_AFTER_DAYS = 30;
-/** The DPA rule's outer limit: destroyed at the first daily run once this many days have passed, export or not. */
+/** The export rule's outer limit: ninety days after the end, export or not. */
 export const DESTROY_WITHOUT_EXPORT_AFTER_DAYS = 90;
 /**
- * The thirty days' due day: a day early, so the hourly job has the data gone
- * before thirty days have passed since the end whatever hour it ended.
+ * The day destruction is due for a thirty-day limit, a day early: on the
+ * thirty days whatever the export, and on the export rule once the export
+ * is delivered. The job runs every hour, so the data is gone before thirty
+ * days have passed since the end, whatever hour it ended.
  * app_destruction_due() refuses earlier.
  */
-export const THIRTY_DAY_RULE_DUE_DAYS = 29;
+export const THIRTY_DAY_LIMIT_DUE_DAYS = 29;
+/**
+ * The day destruction is due for the ninety-day limit, a day early: the
+ * export rule's, export or not, so the next hourly run never passes ninety
+ * days. app_destruction_due() refuses earlier.
+ */
+export const NINETY_DAY_LIMIT_DUE_DAYS = 89;
 /** When ops is told that a clinic on the thirty days has no export delivered. */
 export const UNDELIVERED_EXPORT_ALERT_DAYS = 21;
-/**
- * The UTC hour of the once-a-day run, the only run that destroys a clinic on
- * the DPA's rule (lib/scheduler/tick.ts runs the job every hour and says
- * which run is this one).
- */
-export const DAILY_DESTRUCTION_HOUR_UTC = 4;
 /** How far back app_start_offboarding() lets the end of the service start the clock. */
 export const OFFBOARDING_BACKDATE_LIMIT_DAYS = 7;
 
 /**
- * thirty_days: destroyed at day 29 whatever the export (BAA 1.2.1 and
- * earlier). export_or_ninety: at the daily run from day 30 if the export was
- * delivered by then, from its delivery if later, and from day 90 regardless
- * (BAA 1.3.0, DPA 1.0.0).
+ * thirty_days: destroyed from day 29 whatever the export (BAA 1.2.1 and
+ * earlier). export_or_ninety: from day 29 if the export was delivered by
+ * then, from its delivery if later, and from day 89 regardless (BAA 1.3.0,
+ * DPA 1.0.0). Every hourly run destroys on either rule.
  */
 export type DestructionRule = "thirty_days" | "export_or_ninety";
 
@@ -243,16 +257,15 @@ export type DestructionPlan = {
   endedAt: Date;
   /**
    * The export is owed by then, whether or not the practice asks (Terms §7):
-   * under the thirty days, before destruction is due; under the DPA's rule,
-   * by day 30.
+   * day 29, the first moment either rule can make the data due. Under the
+   * thirty days the data goes then whatever the export; under the export
+   * rule an export delivered by then keeps the thirty days to the hour.
    */
   exportDueBy: Date;
   /** When the job may destroy the clinic's data, given what has happened so far. */
   destroyDueAt: Date;
   /** The latest destroyDueAt can become, whatever happens next. */
   latestDestroyAt: Date;
-  /** Destroyed only by the once-a-day run, as the agreement describes it. */
-  dailyRunOnly: boolean;
   /**
    * What a notice may tell the practice, as UTC days (YYYY-MM-DD): the last
    * whole day on which an export delivered in time can still be downloaded
@@ -272,55 +285,50 @@ export function destructionPlan(clinic: DestructionInput): DestructionPlan | nul
   if (!endedAt) return null;
   const { rule, basis } = destructionRuleFor(clinic.destructionAgreementVersion);
   const agreementVersion = clinic.destructionAgreementVersion;
-  const thirty = clinic.destroyAfter ?? addDays(endedAt, DESTROY_AFTER_DAYS);
+  // Either rule can make the data due from day 29, and an hourly run can
+  // reach it the moment it is, so the last whole day to download is the day
+  // before.
+  const thirtyDue = addDays(endedAt, THIRTY_DAY_LIMIT_DUE_DAYS);
+  const exportByOn = isoDay(addDays(thirtyDue, -1));
 
   if (rule === "thirty_days") {
-    const due = addDays(endedAt, THIRTY_DAY_RULE_DUE_DAYS);
     return {
       rule,
       basis,
       agreementVersion,
       endedAt,
-      exportDueBy: due,
-      destroyDueAt: due,
-      latestDestroyAt: due,
-      dailyRunOnly: false,
-      // An hourly run can reach it the moment it is due, so the last whole
-      // day to download is the day before; and the data is gone within the
-      // thirty days the agreement gives, with a day to spare.
-      exportByOn: isoDay(addDays(due, -1)),
-      destroyByOn: isoDay(thirty),
+      exportDueBy: thirtyDue,
+      destroyDueAt: thirtyDue,
+      latestDestroyAt: thirtyDue,
+      exportByOn,
+      // Gone within the thirty days the agreement gives, with a day to spare.
+      destroyByOn: isoDay(addDays(endedAt, DESTROY_AFTER_DAYS)),
     };
   }
 
-  const ninety = addDays(endedAt, DESTROY_WITHOUT_EXPORT_AFTER_DAYS);
+  // Thirty days if the export was delivered by then, its delivery if that
+  // is later, and ninety days at the latest: each limit met a day early.
+  const ninetyDue = addDays(endedAt, NINETY_DAY_LIMIT_DUE_DAYS);
   const delivered = clinic.exportDeliveredAt;
   const due =
     delivered === null
-      ? ninety
-      : delivered.getTime() <= thirty.getTime()
-        ? thirty
-        : delivered.getTime() < ninety.getTime()
-          ? delivered
-          : ninety;
+      ? ninetyDue
+      : new Date(Math.min(ninetyDue.getTime(), Math.max(thirtyDue.getTime(), delivered.getTime())));
   return {
     rule,
     basis,
     agreementVersion,
     endedAt,
-    exportDueBy: thirty,
+    exportDueBy: thirtyDue,
     destroyDueAt: due,
-    latestDestroyAt: ninety,
-    dailyRunOnly: true,
-    exportByOn: isoDay(addDays(firstDailyRunThatMayReach(thirty), -1)),
-    destroyByOn: isoDay(firstDailyRunThatMustReach(ninety)),
+    latestDestroyAt: ninetyDue,
+    exportByOn,
+    // Gone within the ninety days, with a day to spare.
+    destroyByOn: isoDay(addDays(endedAt, DESTROY_WITHOUT_EXPORT_AFTER_DAYS)),
   };
 }
 
-/**
- * Whether the clinic's data is due for destruction at `now`, by its plan. The
- * job also keeps a clinic on the DPA's rule for the daily run.
- */
+/** Whether the clinic's data is due for destruction at `now`, by its plan. */
 export function dueForDestruction(
   clinic: DestructionInput & { destroyedAt: Date | null },
   now: Date,
@@ -520,16 +528,10 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
 /**
  * The job: every clinic whose plan says it is due, destroyed, and ops told
  * before a clinic on the thirty days loses an export nobody has recorded as
- * delivered. Runs every hour (tick.ts); `dailyRun` is true for the 04:00 UTC
- * run, the only one that destroys a clinic on the DPA's rule. Defaults to
- * true, so a caller outside the hourly tick (the post-restore check, a test)
- * destroys everything due.
+ * delivered. Runs every hour (tick.ts), and every run destroys every clinic
+ * due, on either rule.
  */
-export async function destroyDueClinics(
-  now: Date = new Date(),
-  options: { dailyRun?: boolean } = {},
-): Promise<DestructionResult[]> {
-  const dailyRun = options.dailyRun ?? true;
+export async function destroyDueClinics(now: Date = new Date()): Promise<DestructionResult[]> {
   const actor = { type: "service", serviceName: "offboarding-destroy" } as const;
   const results: DestructionResult[] = [];
   for (const clinic of await listClinics()) {
@@ -543,7 +545,7 @@ export async function destroyDueClinics(
       });
     }
     await alertBeforeThirtyDayDestruction(clinic.id, clinic.exportDeliveredAt, plan, now);
-    if (!dueForDestruction(clinic, now) || (plan.dailyRunOnly && !dailyRun)) continue;
+    if (!dueForDestruction(clinic, now)) continue;
     let result: DestructionResult;
     try {
       result = await withTenant({ clinicId: clinic.id, actor }, (tx) => destroyClinicData(tx));
@@ -561,7 +563,7 @@ export async function destroyDueClinics(
     // dates it was destroyed on, because a backup older than them brings the
     // clinic back without them: without the end it is not offboarding at all,
     // and on BAA 1.3.0 or the DPA without the export's delivery it would not
-    // be due again until day 90.
+    // be due again until day 89.
     log.info("clinic data destroyed", {
       clinicId: clinic.id,
       count: rows,
@@ -597,14 +599,14 @@ export async function destroyDueClinics(
 
 /**
  * The check after a restore (docs/handover.md, "Restoring"; npm run
- * destroy-due): every clinic due, destroyed now on every rule at once, and the
- * ids of any still due afterwards, for example one whose destruction failed,
- * which the service must not reopen over.
+ * destroy-due): every clinic due, destroyed now, and the ids of any still due
+ * afterwards, for example one whose destruction failed, which the service
+ * must not reopen over.
  */
 export async function destroyEverythingDue(
   now: Date = new Date(),
 ): Promise<{ destroyed: DestructionResult[]; stillDue: string[] }> {
-  const destroyed = await destroyDueClinics(now, { dailyRun: true });
+  const destroyed = await destroyDueClinics(now);
   const stillDue = (await listClinics())
     .filter((clinic) => dueForDestruction(clinic, now))
     .map((clinic) => clinic.id);
@@ -615,8 +617,8 @@ export async function destroyEverythingDue(
  * From day 21 until destruction, one ops alert per clinic on the thirty days
  * with no export recorded as delivered: the data goes at destroyAt whatever
  * the export, and the practice is owed its export before then whether or not
- * it asks (Terms §7; see the header). Never for a clinic on the DPA's rule,
- * whose destruction waits for the export.
+ * it asks (Terms §7; see the header). Never for a clinic on the export rule,
+ * whose destruction waits for the export until day 89.
  */
 async function alertBeforeThirtyDayDestruction(
   clinicId: string,
@@ -698,29 +700,6 @@ function addDays(date: Date, days: number): Date {
 /** The UTC calendar date, YYYY-MM-DD: what every `…On` payload field carries. */
 function isoDay(date: Date): string {
   return date.toISOString().slice(0, 10);
-}
-
-function utcMidnight(date: Date): Date {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-}
-
-/**
- * The daily run happens during its hour (the tick starts it at
- * DAILY_DESTRUCTION_HOUR_UTC and may run late within the hour). The first run
- * that MAY reach `at` is the first whose hour ends after it; the first that
- * MUST is the first whose hour starts at or after it. Each is returned as the
- * run's UTC midnight.
- */
-function firstDailyRunThatMayReach(at: Date): Date {
-  const day = utcMidnight(at);
-  const hourEnds = day.getTime() + (DAILY_DESTRUCTION_HOUR_UTC + 1) * HOUR_MS;
-  return at.getTime() < hourEnds ? day : addDays(day, 1);
-}
-
-function firstDailyRunThatMustReach(at: Date): Date {
-  const day = utcMidnight(at);
-  const hourStarts = day.getTime() + DAILY_DESTRUCTION_HOUR_UTC * HOUR_MS;
-  return at.getTime() <= hourStarts ? day : addDays(day, 1);
 }
 
 function dateOf(value: Date | string | null | undefined): Date | null {

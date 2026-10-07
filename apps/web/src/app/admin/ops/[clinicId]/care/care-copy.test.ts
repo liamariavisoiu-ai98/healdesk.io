@@ -84,7 +84,16 @@ const THIRTY_DAYS = {
   exportDueAt: "2026-11-30 15:00 UTC",
   destroyDueAt: "2026-11-30 15:00 UTC",
   latestDestroyAt: "2026-11-30 15:00 UTC",
-  dailyRunOnly: false,
+} as const;
+
+/** BAA 1.3.0 with no export delivered: due at day 89, and at day 29 once one is. */
+const EXPORT_RULE = {
+  rule: "export_or_ninety",
+  basis: "agreement",
+  agreementVersion: "1.3.0",
+  exportDueAt: "2026-11-30 15:00 UTC",
+  destroyDueAt: "2027-01-29 15:00 UTC",
+  latestDestroyAt: "2027-01-29 15:00 UTC",
 } as const;
 
 describe("the care page's export step", () => {
@@ -114,5 +123,37 @@ describe("the care page's export step", () => {
       "Export delivered 2026-11-10. Destruction is due at 2026-11-30 15:00 UTC.",
     );
     expect(page).not.toContain("Not yet delivered");
+  });
+});
+
+// BAA 1.3.0 destroys "thirty days after the Services end if the export has
+// been delivered by then; otherwise as soon as the export is delivered; and
+// in any case no later than ninety days", and the DPA the same. The job runs
+// every hour for every rule and meets each limit a day early, so the page
+// names the day-29 and day-89 times and no once-a-day run.
+describe("the care page's rule under BAA 1.3.0 and the DPA", () => {
+  test("it gives day 29 with the export, every hourly run after a later delivery, and day 89 without", () => {
+    const page = text(h(CarePanel, { view: leaving(EXPORT_RULE), actions: ACTIONS }));
+    expect(page).toContain(
+      "Destroyed at 2026-11-30 15:00 UTC, a day before the thirty days are up, if the export is recorded by then",
+    );
+    expect(page).toContain("otherwise at the first hourly run after it is recorded");
+    expect(page).toContain(
+      "and at 2027-01-29 15:00 UTC, a day before the ninety days are up, if it never is",
+    );
+    expect(page).toContain("Not yet delivered: owed by 2026-11-30 15:00 UTC");
+    expect(page).not.toMatch(/04:00|once a day|daily/);
+  });
+
+  test("delivered, it says when the data goes", () => {
+    const page = text(
+      h(CarePanel, {
+        view: leaving({ ...EXPORT_RULE, destroyDueAt: "2026-11-30 15:00 UTC" }, "2026-11-10"),
+        actions: ACTIONS,
+      }),
+    );
+    expect(page).toContain(
+      "Export delivered 2026-11-10. Destruction is due at 2026-11-30 15:00 UTC.",
+    );
   });
 });

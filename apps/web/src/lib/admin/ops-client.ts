@@ -2210,7 +2210,6 @@ export type CareView = {
       exportDueAt: string;
       destroyDueAt: string;
       latestDestroyAt: string;
-      dailyRunOnly: boolean;
     } | null;
     /** The clinic's calls and agent deleted at the voice vendor: outstanding until recordedAt. */
     voiceVendorDeletion: {
@@ -2321,7 +2320,6 @@ function readDestruction(value: unknown): CareView["clinic"]["destruction"] {
     exportDueAt: instant(d.exportDueBy, "care.clinic.destruction.exportDueBy").at,
     destroyDueAt: instant(d.destroyDueAt, "care.clinic.destruction.destroyDueAt").at,
     latestDestroyAt: instant(d.latestDestroyAt, "care.clinic.destruction.latestDestroyAt").at,
-    dailyRunOnly: bool(d.dailyRunOnly, "care.clinic.destruction.dailyRunOnly"),
   };
 }
 

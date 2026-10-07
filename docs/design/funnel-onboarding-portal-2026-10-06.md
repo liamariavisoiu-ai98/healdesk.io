@@ -1227,7 +1227,7 @@ Plan mode can't publish anything, which is why the page is the first step after 
   - how many days calls still pass through;
   - how to undo forwarding, by carrier;
   - chat shows a contact form until the snippet is removed;
-  - the export and destruction dates, from `destructionPlan` (lib/offboarding) by the rule of the clinic's own agreement: under BAA 1.2.1 and earlier, a day before 30 days after the end, whatever the export; under BAA 1.3.0 and the DPA, 30 days after the end once the export has been delivered, otherwise when it is, and 90 days after the end at the latest.
+  - the export and destruction dates, from `destructionPlan` (lib/offboarding) by the rule of the clinic's own agreement: under BAA 1.2.1 and earlier, a day before 30 days after the end, whatever the export; under BAA 1.3.0 and the DPA, a day before 30 days after the end once the export has been delivered, otherwise when it is, and a day before 90 days after the end at the latest (an hourly job, so each limit holds whatever the hour).
 - **E3:** the carrier undo codes.
 - **E4:** a link to the read-only portal (sign-in and step-up). The export is never attached. Terms §7 says "we deliver an export", so it isn't waiting to be asked for.
 - **E6:** what was destroyed and when, and what remains and why:

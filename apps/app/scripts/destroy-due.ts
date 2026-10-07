@@ -10,10 +10,10 @@ import { destroyEverythingDue } from "../src/lib/offboarding/offboarding";
  * restore brings back the rows of a clinic destroyed since. With the dates it
  * was destroyed on (the step before this one puts back any the backup did not
  * hold, from the `clinic data destroyed` log line), it is due again, and this
- * destroys it again, on every rule at once (a clinic on the DPA's rule does
- * not wait for the 04 UTC run). It runs whether or not the offboarding-destroy
- * job is switched on, and it exits non-zero while any clinic is still due, for
- * example one whose destruction failed, so the step cannot pass quietly.
+ * destroys it again, on every rule at once, as any hourly run would. It runs
+ * whether or not the offboarding-destroy job is switched on, and it exits
+ * non-zero while any clinic is still due, for example one whose destruction
+ * failed, so the step cannot pass quietly.
  *
  *   npm run destroy-due -w @healdesk/app
  *

@@ -354,8 +354,11 @@ the same rule as the database's floor):
   though these agreements give it only "on request"), so deliver it and record the
   handover before then; ops is alerted at day 21 when none is recorded
   (`export_undelivered_before_destruction`).
-- BAA 1.3.0 and the DPA: the 04 UTC run from day 30 once the export is recorded as
-  delivered, from its delivery when that is later, and from day 90 whatever happens.
+- BAA 1.3.0 and the DPA: day 29 once the export is recorded as delivered, its delivery
+  when that is later, and day 89 whatever happens, each a day inside the thirty days and
+  the ninety that BAA 1.3.0 states. Record the delivery by day 29: one recorded later is
+  destroyed at the next hourly run, which in the thirtieth day's last hour can fall after
+  the thirty days.
 
 The destruction steps, in order:
 
@@ -419,7 +422,7 @@ runs again before the service reopens:
    and `destroy_after` thirty days later, and `export_delivered_at` to
    `exportDeliveredAt`. With its dates back it is due again by the rule it was destroyed
    under; without them it would not be offboarding at all, or, on BAA 1.3.0 or the DPA
-   without its delivery, not due again until day 90.
+   without its delivery, not due again until day 89.
 3. Run `npm run destroy-due -w @healdesk/app` against the restored database with the
    runtime role's `DATABASE_URL`. It destroys every clinic that is due, on every rule at
    once, whether or not the `offboarding-destroy` job is switched on, and exits non-zero

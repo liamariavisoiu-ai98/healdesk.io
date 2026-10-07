@@ -3058,7 +3058,6 @@ export type CareView = {
       exportDueBy: string;
       destroyDueAt: string;
       latestDestroyAt: string;
-      dailyRunOnly: boolean;
     } | null;
     /**
      * The operator step at the voice vendor: the clinic's calls and agent
@@ -3140,7 +3139,6 @@ async function opGetClinicCare(
                 exportDueBy: plan.exportDueBy.toISOString(),
                 destroyDueAt: plan.destroyDueAt.toISOString(),
                 latestDestroyAt: plan.latestDestroyAt.toISOString(),
-                dailyRunOnly: plan.dailyRunOnly,
               }
             : null,
           voiceVendorDeletion: plan

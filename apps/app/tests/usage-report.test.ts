@@ -143,6 +143,41 @@ describeDb("usage reported to Stripe's meters", () => {
     await closePools();
   });
 
+  test("a clinic with a plan change in flight is skipped until the change finishes or is dropped", async () => {
+    // After a lost answer to an annual to monthly change the webhook already
+    // says "month", but the annual months are not claimed yet (review fix).
+    const clinic = await seedMonthly("meter-pending-change");
+    const row = await insertUsage(clinic.clinicId, { overAllowance: 4 });
+    const setPending = (requestId: string | null) =>
+      inTenant(clinic.clinicId, (c) =>
+        c.query(
+          `update entitlements
+              set pending_plan_change_request_id = $2,
+                  pending_plan_change_plan_id = case when $2::text is null then null else 'web-voice' end,
+                  pending_plan_change_interval = case when $2::text is null then null else 'month' end
+            where clinic_id = $1`,
+          [clinic.clinicId, requestId],
+        ),
+      );
+    await setPending("req-pending-1");
+    const fake = createStripeFake({ "billing.meterEvents.create": () => ({ identifier: "x" }) });
+
+    expect(await reportUsageToMeters({ now: NOW, stripe: fake.stripe })).toMatchObject({
+      clinics: 0,
+      reported: 0,
+      deferred: 1,
+    });
+    expect(fake.calls).toEqual([]);
+    expect((await usageRow(clinic.clinicId, row)).stripe_reported_at).toBeNull();
+
+    await setPending(null);
+    expect(await reportUsageToMeters({ now: NOW, stripe: fake.stripe })).toMatchObject({
+      clinics: 1,
+      reported: 1,
+      deferred: 0,
+    });
+  });
+
   test("each row over the allowance becomes one meter event, marked reported only after Stripe accepts it", async () => {
     const clinic = await seedMonthly("meter-basic");
     const accepted = await insertUsage(clinic.clinicId, { overAllowance: 3 });

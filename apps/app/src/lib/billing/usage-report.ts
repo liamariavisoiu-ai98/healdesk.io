@@ -175,6 +175,17 @@ export async function reportUsageToMeters(
       ) {
         continue;
       }
+      // A plan change in flight (review fix): after a lost answer to an annual
+      // to monthly change, the subscription webhook already says "month" while
+      // the change's last step, which claims the annual months and keeps their
+      // rows from this reporter, has not run. Reporting now would send an
+      // annual month's overage to a meter, where it is never billed. The
+      // change finishes or is dropped within the hour (resumePlanChange), and
+      // its rows are reported on the next run.
+      if (row.pendingPlanChangeRequestId !== null) {
+        summary.deferred += 1;
+        continue;
+      }
       const expected = expectedMeteredKeys(row.boughtPlanId ?? row.planCode, "month");
       if (!expected || expected.length === 0) continue;
 

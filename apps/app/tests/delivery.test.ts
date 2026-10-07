@@ -360,6 +360,9 @@ describeDb("delivery", () => {
           // and the requests worker's hourly backstop.
           "billing-reconcile",
           "billing-requests",
+          // The setup reminder (drizzle/0052), hourly behind its switch: each
+          // clinic's reminder waits for that clinic's own daytime.
+          "setup-reminders",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;

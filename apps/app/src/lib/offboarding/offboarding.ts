@@ -5,6 +5,7 @@ import {
   appointments,
   clinicClosures,
   clinics,
+  clinicSetupScreens,
   contacts,
   conversations,
   metaBookingDrafts,
@@ -101,6 +102,12 @@ export async function destroyClinicData(tx: TenantTx, now: Date = new Date()): P
   // ran. The credentials go with the connection row below.
   // Credentials: revoked and their ciphertext gone with the row.
   await del("provider_connections", () => tx.db.delete(providerConnections).where(eq(providerConnections.clinicId, c)).returning({ id: providerConnections.id }));
+  // The setup wizard's progress (0052): setup answers about the practice, no
+  // patient data, and nothing the record needs once the clinic has left.
+  await del("clinic_setup_screens", () => tx.db.delete(clinicSetupScreens).where(eq(clinicSetupScreens.clinicId, c)).returning({ id: clinicSetupScreens.screen }));
+  // Kept: clinic_settings_history (0052), append-only by grant, like the
+  // audit log: the record of who sent calls and urgent callers to which of
+  // the clinic's own numbers, and when. No patient data.
   // Suppressions, consent records and contact attempts stay, by grant as
   // well as by choice: they are the evidence an outbound contact was lawful
   // and that "stop" was honoured, on the TCPA's four-year clock

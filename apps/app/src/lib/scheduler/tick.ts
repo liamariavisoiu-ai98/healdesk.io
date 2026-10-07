@@ -7,6 +7,7 @@ import { runUsageAlertsJob } from "@/lib/billing/usage-alerts";
 import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
 import { expireLapsedRequests } from "@/lib/meta/booking-requests";
 import { applyBookingRequirementDefaults } from "@/lib/onboarding/requirements";
+import { runSetupRemindersJob } from "@/lib/setup/reminders";
 
 import { runAnnualRenewalReminderJob } from "./annual-renewal-reminder";
 import { runBillingSweepJob } from "./billing-sweep";
@@ -80,6 +81,9 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // defaults stamped as its booking requirement set. Same shape as the sweep
   // above: a pure function of the clock over rows that already exist.
   await record("booking-requirements-defaults", async () => ({ status: "ok", note: `${await applyBookingRequirementDefaults(now)} defaulted` }));
+  // The setup reminder (O7), hourly: each clinic's due reminder is queued
+  // only in its own daytime, so the hour it runs is the clinic's, not UTC's.
+  await record("setup-reminders", () => runSetupRemindersJob({ now }));
   // Phase two, like the monthly report.
   if (hour === 2) await record("nightly-sync", () => runNightlySyncJob({ now }));
   if (hour === 3) await record("retention-purge", () => runRetentionPurgeJob({ now }));

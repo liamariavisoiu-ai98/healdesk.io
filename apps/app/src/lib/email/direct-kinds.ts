@@ -17,6 +17,13 @@ import type { NoticeClass, NoticeOwner } from "./kinds";
  * send time and never stores it, which is also why none of these can be an
  * outbox row: the outbox stores its payloads.
  *
+ * One of them has a clinic: the welcome email (B1) goes to a clinic's address
+ * with a fresh "Continue setup" link, so it cannot be an outbox row either.
+ * It keeps its once-per-clinic state on the ledger, report_deliveries, whose
+ * kinds CHECK takes it from `LEDGER_DIRECT_KINDS`, and carries the `clinic`
+ * and `delivery` tags like an outbox send, so the webhook relay can mark its
+ * row.
+ *
  * Pure data, like kinds.ts.
  */
 export type DirectKindAttributes = {
@@ -28,15 +35,17 @@ export type DirectKindAttributes = {
   linkEmail: boolean;
   /** A sign-in that cannot arrive locks the clinic out, so its bounce calls notifyOps. */
   locksOut: boolean;
+  /** Sent to a clinic's address and recorded on the ledger (report_deliveries), keyed per clinic. */
+  ledger: boolean;
 };
 
 function direct(
   annex: string,
   cls: NoticeClass,
   owner: NoticeOwner,
-  flags: { linkEmail: boolean; locksOut: boolean },
+  flags: { linkEmail: boolean; locksOut: boolean; ledger?: boolean },
 ): DirectKindAttributes {
-  return { annex, class: cls, owner, ...flags };
+  return { annex, class: cls, owner, ledger: false, ...flags };
 }
 
 export const DIRECT_KIND_REGISTRY = {
@@ -57,8 +66,25 @@ export const DIRECT_KIND_REGISTRY = {
     linkEmail: false,
     locksOut: true,
   }),
+  /**
+   * B1: the welcome email, once per clinic, at provisioning: the order, the
+   * terms, each channel's status in words, and a 72-hour "Continue setup"
+   * link. A sign-in that cannot arrive locks the clinic out of setup.
+   */
+  welcome: direct("B1", "transactional", "plan", {
+    linkEmail: true,
+    locksOut: true,
+    ledger: true,
+  }),
 } as const;
 
 export type DirectKind = keyof typeof DIRECT_KIND_REGISTRY;
 
 export const DIRECT_KINDS = Object.keys(DIRECT_KIND_REGISTRY) as readonly DirectKind[];
+
+/**
+ * The direct kinds the ledger records (the `ledger` flag), as a literal list
+ * because db/schema.ts builds report_deliveries' kinds CHECK from it.
+ * tests/email-templates.test.ts holds it to the flag.
+ */
+export const LEDGER_DIRECT_KINDS = ["welcome"] as const;

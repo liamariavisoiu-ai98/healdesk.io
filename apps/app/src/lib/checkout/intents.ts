@@ -6,6 +6,7 @@ import {
   type BookingSystemId,
   type CalendarAccount,
   cleanWebsite,
+  clinicTimeZone,
   type ClinicProfile,
   getBaaTemplate,
   getPlan,
@@ -526,6 +527,11 @@ export function provisionRequestFromIntent(
   stripe: { idempotencyKey: string; stripeCustomerId?: string; stripeSubscriptionId?: string },
 ): ProvisionRequest {
   const payload = intent.payload as CheckoutIntentPayload & Partial<ProvisionRequest>;
+  // The clinic's time zone (plan C2): the address the website read found,
+  // then the buyer's browser, then New York. The wizard shows it and asks
+  // when the browser disagrees.
+  const readAddress = parseClinicProfile(intent.profile)?.locations[0]?.address ?? null;
+  const timezone = clinicTimeZone({ address: readAddress, browserTimeZone: payload.timezone });
   return {
     clinicName: payload.clinicName,
     specialty: payload.specialty,
@@ -542,7 +548,7 @@ export function provisionRequestFromIntent(
     agreementId: payload.agreementId,
     ...(payload.attributionMode ? { attributionMode: payload.attributionMode } : {}),
     ...(payload.averageTreatmentValueUsd !== undefined ? { averageTreatmentValueUsd: payload.averageTreatmentValueUsd } : {}),
-    ...(payload.timezone ? { timezone: payload.timezone } : {}),
+    timezone,
     idempotencyKey: stripe.idempotencyKey,
     ...(stripe.stripeCustomerId ? { stripeCustomerId: stripe.stripeCustomerId } : {}),
     ...(stripe.stripeSubscriptionId ? { stripeSubscriptionId: stripe.stripeSubscriptionId } : {}),

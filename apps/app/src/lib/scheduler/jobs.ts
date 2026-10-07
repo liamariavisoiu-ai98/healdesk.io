@@ -60,6 +60,14 @@ export const JOB_SETUP_CLOSURE = "setup-closure";
 export const JOB_BILLING_RECONCILE = "billing-reconcile";
 export const JOB_CARD_EXPIRING = "card-expiring";
 /**
+ * The setup reminder (O7), seeded off by drizzle/0052. Hourly from the tick:
+ * while none of a clinic's channels is live, the reminder due on day 5, 10,
+ * 15, 20, 25 or 30 of its setup window, queued only in the clinic's daytime
+ * (lib/setup/reminders.ts). The owner switches it on with the email launch
+ * set (Annex X9), once the sender's own switch is on.
+ */
+export const JOB_SETUP_REMINDERS = "setup-reminders";
+/**
  * Phase two: the attribution jobs. Their code is kept, but they never run in
  * v1 (env.phaseTwoAttribution()), and the console refuses to switch them on.
  * The 0040 `callback-dialer` job was removed by drizzle/0041.

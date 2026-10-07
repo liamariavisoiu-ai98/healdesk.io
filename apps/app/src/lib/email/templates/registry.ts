@@ -1,11 +1,15 @@
 import type { EmailKind } from "../kind-rules";
 import type { NoticeKind, NoticeOwner } from "../kinds";
 
+import { CALENDAR_RECONNECTED_ENTRY, CALENDAR_STOPPED_ENTRY } from "./calendar_state";
 import { DEVICE_CHANGED_ENTRY } from "./device_changed";
 import { OPS_ALERT_FIXTURE, renderOpsAlert } from "./ops_alert";
 import { ORDER_CONFIRMED_DELAYED_ENTRY } from "./order_confirmed_delayed";
+import { SETUP_CLOSED_ENTRY } from "./setup_closed";
+import { SETUP_REMINDER_ENTRY } from "./setup_reminder";
 import { SIGN_IN_LINK_ENTRY } from "./sign_in_link";
 import type { EmailTemplate } from "./types";
+import { WELCOME_ENTRY } from "./welcome";
 
 /**
  * Which kinds have a template, and who owes the rest.
@@ -37,6 +41,13 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   sign_in_link: SIGN_IN_LINK_ENTRY,
   order_confirmed_delayed: ORDER_CONFIRMED_DELAYED_ENTRY,
   device_changed: DEVICE_CHANGED_ENTRY,
+  // The setup milestone (M3): the welcome email, the setup reminder, the
+  // setup closure and the calendar emails.
+  welcome: WELCOME_ENTRY,
+  setup_reminder: SETUP_REMINDER_ENTRY,
+  setup_closed: SETUP_CLOSED_ENTRY,
+  calendar_stopped: CALENDAR_STOPPED_ENTRY,
+  calendar_reconnected: CALENDAR_RECONNECTED_ENTRY,
 };
 
 export type PendingTemplate = {
@@ -47,7 +58,18 @@ export type PendingTemplate = {
 
 /** Every kind still waiting for its template, with the session that owes it. */
 export const PENDING_TEMPLATES: Record<
-  Exclude<EmailKind, "ops_alert" | "sign_in_link" | "order_confirmed_delayed" | "device_changed">,
+  Exclude<
+    EmailKind,
+    | "ops_alert"
+    | "sign_in_link"
+    | "order_confirmed_delayed"
+    | "device_changed"
+    | "welcome"
+    | "setup_reminder"
+    | "setup_closed"
+    | "calendar_stopped"
+    | "calendar_reconnected"
+  >,
   PendingTemplate
 > = {
   payment_failed: { owner: "package_c", ships: "Package C, Gate A (L27)" },

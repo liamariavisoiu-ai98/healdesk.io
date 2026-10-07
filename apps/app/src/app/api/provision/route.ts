@@ -13,10 +13,7 @@ import {
   type StoredIntent,
 } from "@/lib/checkout/intents";
 import { sendOrderConfirmedDelayed } from "@/lib/checkout/order-delayed";
-import { issueConnectionLink } from "@/lib/connections/links";
-import { sendSetupLink } from "@/lib/email/setup-link";
 import { env } from "@/lib/env";
-import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import {
   ProvisioningError,
   provisionClinic,
@@ -25,6 +22,8 @@ import {
 } from "@/lib/provisioning";
 import { describeError, log } from "@/lib/log";
 import { notifyOps } from "@/lib/ops/notify";
+import { setupSeedFromIntent, type SetupSeed } from "@/lib/setup/seed";
+import { sendWelcomeEmail } from "@/lib/setup/welcome-email";
 
 /**
  * POST /api/provision — turn a completed checkout into an account.
@@ -39,14 +38,15 @@ import { notifyOps } from "@/lib/ops/notify";
  * invite anyone into. See lib/provisioning.ts for why, and
  * lib/email/connect-link.ts for the single-use link that replaced the account.
  *
- * It sends exactly one email, and only on a genuine creation: the setup link
- * (design of 23 September 2026, §H.2), through which the practice confirms
- * which booking-request fields the assistant may ask for. The link is issued
- * AFTER provisionClinic's transaction has committed, so a mail failure cannot
- * roll back provisioning and a rollback cannot leave a live link in an inbox;
- * a mail failure is logged and the link stays issued for the ops console to
- * resend (`issueSetupLink`). If nobody opens it, the specialty defaults apply
- * when it expires (lib/onboarding/requirements.ts).
+ * It sends exactly one email, and only on a genuine creation: the welcome
+ * email (B1, plan Part C4), with the order's terms and a 72-hour "Continue
+ * setup" link into the wizard. It goes AFTER provisionClinic's transaction
+ * has committed, so a mail failure cannot roll back provisioning and a
+ * rollback cannot leave a live link in an inbox, and after the response, so
+ * the webhook relay never waits on Resend. A failed send is retried by the
+ * setup-reminders job (lib/setup/reminders.ts). The booking-request fields
+ * the old setup link asked about are the specialty's defaults, settled at
+ * provisioning (lib/setup/seed.ts).
  *
  * Note the ordering: the signature is verified before the body is parsed as
  * JSON, so an unauthenticated caller can't make us do work.
@@ -57,54 +57,6 @@ export const dynamic = "force-dynamic";
 
 function problem(message: string, status: number, field?: string): Response {
   return Response.json({ error: message, field }, { status });
-}
-
-/**
- * Issue the setup link and mail it. Never throws: the clinic exists and the
- * purchase is complete whatever happens here, and Stripe would retry a 5xx
- * for three days against a clinic that already exists. The outcome is logged
- * by status only — never the URL, which is a live credential.
- */
-async function mailSetupLink(clinicId: string, request: ProvisionRequest): Promise<void> {
-  try {
-    // Checked before minting, so a missing origin leaves no orphaned live link.
-    const originProblem = publicOriginProblem();
-    if (originProblem) {
-      log.error("setup link could not be issued; issue one from the console", {
-        clinicId,
-        error: originProblem,
-      });
-      return;
-    }
-    const { token, expiresAt } = await issueConnectionLink(
-      clinicId,
-      { purpose: "setup" },
-      { actor: { type: "service", serviceName: "provisioning" } },
-    );
-    const url = publicUrl(`/setup/${token}`);
-    const result = await sendSetupLink({
-      to: request.contactEmail.trim().toLowerCase(),
-      clinicId,
-      clinicName: request.clinicName.trim(),
-      specialty: request.specialty,
-      url,
-      expiresAt,
-    });
-    if (result.status === "sent") {
-      log.info("setup link mailed", { clinicId, status: result.status });
-    } else {
-      log.warn("setup link not mailed; resend it from the console", {
-        clinicId,
-        status: result.status,
-        reason: result.reason,
-      });
-    }
-  } catch (error) {
-    log.error("setup link could not be issued; issue one from the console", {
-      clinicId,
-      error: describeError(error),
-    });
-  }
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -147,6 +99,7 @@ export async function POST(request: Request): Promise<Response> {
   // behind it, so every one reaches ops, never only a log line.
   const intentRef = intentRefOf(body);
   let provisionRequest: ProvisionRequest;
+  let setup: SetupSeed | undefined;
   try {
     if (intentRef) {
       const stripe = body as {
@@ -178,6 +131,8 @@ export async function POST(request: Request): Promise<Response> {
         stripeCustomerId: typeof stripe.stripeCustomerId === "string" ? stripe.stripeCustomerId : undefined,
         stripeSubscriptionId: typeof stripe.stripeSubscriptionId === "string" ? stripe.stripeSubscriptionId : undefined,
       });
+      // What the setup wizard starts from: the funnel's answers and the read.
+      setup = setupSeedFromIntent(intent);
     } else {
       provisionRequest = body as ProvisionRequest;
     }
@@ -200,7 +155,7 @@ export async function POST(request: Request): Promise<Response> {
           undefined,
         userAgent: request.headers.get("user-agent") ?? undefined,
       },
-      intentRef ? { intentRef } : {},
+      intentRef ? { intentRef, setup } : {},
     );
 
     // 200 on a replay, 201 on a genuine creation.
@@ -213,11 +168,16 @@ export async function POST(request: Request): Promise<Response> {
     //
     // `replayed` is reported rather than swallowed because it is the only thing
     // standing between a three-day retry schedule and a customer-visible side
-    // effect happening once per redelivery. The setup email below is exactly
+    // effect happening once per redelivery. The welcome email below is exactly
     // such an effect, which is why it sits inside the `!result.replayed`
-    // check; anything else a customer can perceive belongs there too.
+    // check (and its ledger row makes it once per clinic besides); anything
+    // else a customer can perceive belongs there too.
     if (!result.replayed) {
-      await mailSetupLink(result.clinicId, provisionRequest);
+      const clinicId = result.clinicId;
+      await afterResponse(async () => {
+        const outcome = await sendWelcomeEmail(clinicId);
+        log.info("welcome email", { clinicId, outcome });
+      });
     }
 
     return Response.json(

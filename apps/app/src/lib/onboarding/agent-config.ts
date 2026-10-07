@@ -88,6 +88,12 @@ export function defaultAgentConfig(specialty: string, clinicName: string): Agent
   };
 }
 
+/**
+ * The most services a clinic's list may hold: a full med-spa menu, as its
+ * website states it, fits; anything longer is a misreading, not a menu.
+ */
+export const MAX_AGENT_SERVICES = 100;
+
 export function validateAgentConfig(input: AgentConfigInput): void {
   if (!input.greeting.trim() || input.greeting.length > 600) {
     throw new AgentConfigError("The greeting must be between 1 and 600 characters.");
@@ -95,7 +101,9 @@ export function validateAgentConfig(input: AgentConfigInput): void {
   if (input.escalationPhone && !/^\+[1-9]\d{6,14}$/.test(input.escalationPhone)) {
     throw new AgentConfigError("The escalation number must be E.164 (e.g. +14155550100).");
   }
-  if (input.services.length > 40) throw new AgentConfigError("At most 40 services.");
+  if (input.services.length > MAX_AGENT_SERVICES) {
+    throw new AgentConfigError(`At most ${MAX_AGENT_SERVICES} services.`);
+  }
   const deposit = input.depositPolicy ?? null;
   if (deposit) {
     if (deposit.amountUsd !== null && (!Number.isFinite(deposit.amountUsd) || deposit.amountUsd < 0 || deposit.amountUsd > 10_000)) {

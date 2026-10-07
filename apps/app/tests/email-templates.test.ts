@@ -318,9 +318,9 @@ describe("the payload allowlist", () => {
       ],
       [
         "renewal_upcoming",
-        { renewsOn: "2026-11-05", amountCents: 1_200_00, planName: "Complete FrontDesk AI" },
+        { renewsOn: "2026-11-05", amountCents: 1_200_00, planName: "AYA Complete Frontdesk" },
       ],
-      ["plan_changed", { planName: "Web + Voice", interval: "month" }],
+      ["plan_changed", { planName: "AYA Web Chat + Voice", interval: "month" }],
       ["location_added", { locations: 2 }],
       ["canceled", { passThroughDays: 30 }],
       ["cancel_scheduled", { endsAt: "2026-11-05T00:00:00.000Z" }],

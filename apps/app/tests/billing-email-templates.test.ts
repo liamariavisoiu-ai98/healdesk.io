@@ -264,14 +264,14 @@ const VARIANTS: Variant[] = [
   variant("renewal in 30 days", "renewal_upcoming", {
     renewsOn: "2027-11-05",
     amountCents: 1_148_400,
-    planName: "Complete FrontDesk AI",
+    planName: "AYA Complete Frontdesk",
     locations: 1,
     noticeDays: 30,
   }),
   variant("renewal reminder at 21 days, three locations", "renewal_upcoming", {
     renewsOn: "2026-10-27",
     amountCents: 2_581_200,
-    planName: "Web + Voice",
+    planName: "AYA Web Chat + Voice",
     locations: 3,
     noticeDays: 21,
   }),
@@ -315,7 +315,7 @@ const VARIANTS: Variant[] = [
     isPaid: true,
   }),
   variant("plan changed after the start, billed by channels in service", "plan_changed", {
-    planName: "Web + Voice",
+    planName: "AYA Web Chat + Voice",
     interval: "month",
     locations: 1,
     setupFeeDeltaCents: 50_000,
@@ -326,7 +326,7 @@ const VARIANTS: Variant[] = [
     isProrated: false,
   }),
   variant("plan changed after the start to annual billing, prorated", "plan_changed", {
-    planName: "Web + Voice",
+    planName: "AYA Web Chat + Voice",
     interval: "year",
     locations: 1,
     setupFeeDeltaCents: 50_000,
@@ -337,7 +337,7 @@ const VARIANTS: Variant[] = [
     isProrated: true,
   }),
   variant("plan changed before the start", "plan_changed", {
-    planName: "Complete FrontDesk AI",
+    planName: "AYA Complete Frontdesk",
     interval: "month",
     locations: 1,
     setupFeeDeltaCents: 0,
@@ -348,7 +348,7 @@ const VARIANTS: Variant[] = [
     isProrated: false,
   }),
   variant("plan changed before the start, annual, two locations", "plan_changed", {
-    planName: "Web + Voice",
+    planName: "AYA Web Chat + Voice",
     interval: "year",
     locations: 2,
     setupFeeDeltaCents: 100_000,
@@ -359,7 +359,7 @@ const VARIANTS: Variant[] = [
     isProrated: false,
   }),
   variant("plan changed, the phone dropped", "plan_changed", {
-    planName: "Web Chatbot",
+    planName: "AYA Web Chat",
     interval: "month",
     locations: 1,
     setupFeeDeltaCents: 0,
@@ -373,7 +373,7 @@ const VARIANTS: Variant[] = [
     routing: "overflow_after_hours",
   }),
   variant("plan changed, a channel dropped, named by its card", "plan_changed", {
-    planName: "Web OR Meta Chatbot",
+    planName: "AYA Web or Meta Chat",
     interval: "month",
     locations: 1,
     setupFeeDeltaCents: 0,
@@ -432,7 +432,7 @@ const VARIANTS: Variant[] = [
     hasUncheckedLinks: true,
   }),
   variant("plan started on website chat, billed by channels in service", "plan_started", {
-    planName: "Web Chatbot",
+    planName: "AYA Web Chat",
     boughtPlanId: "web-voice",
     channel: "web",
     amountCents: 39_700,
@@ -443,7 +443,7 @@ const VARIANTS: Variant[] = [
     isBilledByChannelsInService: true,
   }),
   variant("plan started days before a retried first charge was paid", "plan_started", {
-    planName: "Web + Voice",
+    planName: "AYA Web Chat + Voice",
     boughtPlanId: "web-voice",
     channel: "voice",
     amountCents: 89_700,
@@ -454,7 +454,7 @@ const VARIANTS: Variant[] = [
     isBilledByChannelsInService: false,
   }),
   variant("plan started on Meta, annual, the whole package", "plan_started", {
-    planName: "Meta Chatbot",
+    planName: "AYA Meta Chat",
     boughtPlanId: "chat-meta",
     channel: "meta",
     amountCents: 380_400,
@@ -465,7 +465,7 @@ const VARIANTS: Variant[] = [
     isBilledByChannelsInService: false,
   }),
   variant("plan started with no first-answer channel", "plan_started", {
-    planName: "AI Voice Agent Alone",
+    planName: "AYA Voice",
     boughtPlanId: "voice",
     channel: null,
     amountCents: 79_700,
@@ -477,7 +477,7 @@ const VARIANTS: Variant[] = [
   }),
   variant("the phone joined a monthly plan", "price_stepped_up", {
     channel: "voice",
-    planName: "Web + Voice",
+    planName: "AYA Web Chat + Voice",
     amountCents: 89_700,
     interval: "month",
     isInvoicedNow: false,
@@ -486,7 +486,7 @@ const VARIANTS: Variant[] = [
   }),
   variant("Meta joined an annual plan, invoiced now", "price_stepped_up", {
     channel: "meta",
-    planName: "Complete FrontDesk AI",
+    planName: "AYA Complete Frontdesk",
     amountCents: 1_148_400,
     interval: "year",
     isInvoicedNow: true,
@@ -495,7 +495,7 @@ const VARIANTS: Variant[] = [
   }),
   variant("the phone joined an annual plan, the card declined", "price_stepped_up", {
     channel: "voice",
-    planName: "Web + Voice",
+    planName: "AYA Web Chat + Voice",
     amountCents: 860_400,
     interval: "year",
     isInvoicedNow: true,
@@ -505,7 +505,7 @@ const VARIANTS: Variant[] = [
   variant("phone waiting on forwarding", "step_up_reminder", {
     channel: "voice",
     joinsOn: "2026-10-13",
-    planName: "Web + Voice",
+    planName: "AYA Web Chat + Voice",
     amountCents: 89_700,
     interval: "month",
     waitingOn: "forwarding",
@@ -513,7 +513,7 @@ const VARIANTS: Variant[] = [
   variant("phone waiting on setup", "step_up_reminder", {
     channel: "voice",
     joinsOn: "2026-10-13",
-    planName: "Meta + Voice",
+    planName: "AYA Meta Chat + Voice",
     amountCents: 89_700,
     interval: "month",
     waitingOn: "setup",
@@ -521,7 +521,7 @@ const VARIANTS: Variant[] = [
   variant("website chat waiting on the snippet", "step_up_reminder", {
     channel: "web",
     joinsOn: "2026-10-13",
-    planName: "Web + Meta Chatbot",
+    planName: "AYA Web + Meta Chat",
     amountCents: 572_400,
     interval: "year",
     waitingOn: "snippet",
@@ -529,7 +529,7 @@ const VARIANTS: Variant[] = [
   variant("Meta waiting on the Facebook login, across the new year", "step_up_reminder", {
     channel: "meta",
     joinsOn: "2027-01-04",
-    planName: "Complete FrontDesk AI",
+    planName: "AYA Complete Frontdesk",
     amountCents: 119_700,
     interval: "month",
     waitingOn: "meta_connect",
@@ -537,7 +537,7 @@ const VARIANTS: Variant[] = [
   variant("Meta waiting on WhatsApp's payment method", "step_up_reminder", {
     channel: "meta",
     joinsOn: "2026-10-13",
-    planName: "Meta + Voice",
+    planName: "AYA Meta Chat + Voice",
     amountCents: 89_700,
     interval: "month",
     waitingOn: "whatsapp_payment_method",
@@ -875,8 +875,8 @@ describe("what each email says", () => {
     expect(patients.text).toContain(
       "AYA answered her first patient in your website chat, so your healdesk plan started on Tuesday 6 October.",
     );
-    expect(patients.text).toContain("We've charged $397 for your first month of Web Chatbot");
-    expect(patients.text).toContain("You bought Web + Voice.");
+    expect(patients.text).toContain("We've charged $397 for your first month of AYA Web Chat");
+    expect(patients.text).toContain("You bought AYA Web Chat + Voice.");
     expect(patients.text).toContain("To cancel online");
     const clients = render(
       named("plan started on website chat, billed by channels in service"),
@@ -1007,7 +1007,7 @@ describe("what each email says", () => {
     // The allowlist reads billedPlanId as an opaque id, so it can hold a retired plan.
     const v = named("plan changed after the start, billed by channels in service");
     const { text } = render({ ...v, payload: { ...v.payload, billedPlanId: "retired-plan" } });
-    expect(text).toContain("Your healdesk plan is now Web + Voice, billed monthly.");
+    expect(text).toContain("Your healdesk plan is now AYA Web Chat + Voice, billed monthly.");
     expect(text).not.toContain("you're billed for");
   });
 

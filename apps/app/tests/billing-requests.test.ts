@@ -785,7 +785,7 @@ describeDb("the billing-request worker", () => {
 
     test("reads the row under its lock, so a plan change committing as the lease frees is priced, not the package before it (review fix)", async () => {
       // Bought Complete, web and voice answering: Web + Voice would be billed.
-      // The clinic moves to Web Chatbot before the start, and changePlan's last
+      // The clinic moves to AYA Web Chat before the start, and changePlan's last
       // transaction commits while the worker is reading the row. Its lease has
       // run out (slow Stripe calls), so the worker's claim waits on the row
       // lock rather than failing, and succeeds the moment the change commits:
@@ -1363,7 +1363,7 @@ describeDb("the billing-request worker", () => {
 
     test("prices the channel in from what Stripe bills now, never dropping a billed channel, and sends L3", async () => {
       // Bought Complete. Stripe bills Web + Voice (voice joined while waiting,
-      // so it is billed but not in service); our row still says Web Chatbot.
+      // so it is billed but not in service); our row still says AYA Web Chat.
       // Meta's first answer: Complete, not Web + Meta, which would drop voice.
       const billing = await seedBilling("step-target", {
         planId: "chat-web",
@@ -1415,7 +1415,7 @@ describeDb("the billing-request worker", () => {
           dedupe_key: `step_up:meta:${priceId(complete)}`,
           payload: {
             channel: "meta",
-            planName: "Complete FrontDesk AI",
+            planName: "AYA Complete Frontdesk",
             amountCents: 119_700,
             interval: "month",
             isInvoicedNow: false,
@@ -1460,7 +1460,7 @@ describeDb("the billing-request worker", () => {
       expect(await noticesOf(billing.clinicId, "price_stepped_up")).toEqual([
         expect.objectContaining({
           payload: expect.objectContaining({
-            planName: "Web + Voice",
+            planName: "AYA Web Chat + Voice",
             amountCents: 717 * 12 * 100 * 2,
             interval: "year",
             isInvoicedNow: true,
@@ -1603,7 +1603,7 @@ describeDb("the billing-request worker", () => {
           dedupe_key: `step_up:voice:${priceId(webVoice)}`,
           payload: {
             channel: "voice",
-            planName: "Web + Voice",
+            planName: "AYA Web Chat + Voice",
             amountCents: 717 * 12 * 100,
             interval: "year",
             isInvoicedNow: true,
@@ -1631,8 +1631,8 @@ describeDb("the billing-request worker", () => {
     });
 
     test("reads the row under its lock, so a downgrade committing as the lease frees never prices a dropped channel back in (review fix)", async () => {
-      // Bought Complete, billed Web Chatbot; voice answers and its step-up is
-      // due. The clinic downgrades to Web Chatbot as the worker reads the row
+      // Bought Complete, billed AYA Web Chat; voice answers and its step-up is
+      // due. The clinic downgrades to AYA Web Chat as the worker reads the row
       // (changePlan's lease has run out, as in the plan start's test).
       const billing = await seedBilling("step-locked", {
         planId: "chat-web",

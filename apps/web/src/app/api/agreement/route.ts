@@ -9,7 +9,7 @@ import {
 import { signRequestRefusal } from "@/lib/checkout/order";
 import { normalizeEmail } from "@/lib/leads";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
-import { gateState, refuseOtherEmail, refuseWithoutLink } from "@/lib/setup-gate";
+import { demoInvitation, gateState, refuseOtherEmail, refuseWithoutLink } from "@/lib/setup-gate";
 import { readCookie, SETUP_COOKIE } from "@/lib/setup-link";
 import { updateSetupRequest } from "@/lib/setup-requests";
 
@@ -150,7 +150,8 @@ export async function POST(request: Request): Promise<Response> {
   let invited: { id: string; signedAt: Date | null } | null = null;
   if (gate.mode === "pilot") {
     const refused = refuseWithoutLink(gate);
-    if (refused) return refused;
+    // A personalised demo is an invitation too (lib/setup-gate.ts).
+    if (refused && !(await demoInvitation(request.headers.get("cookie")))) return refused;
   }
 
   let body: Record<string, unknown>;

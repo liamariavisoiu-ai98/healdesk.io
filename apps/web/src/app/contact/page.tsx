@@ -64,7 +64,11 @@ export default function ContactPage() {
           <p className="text-muted mt-5 text-[20.4px] font-medium">
             Tell us the specialty and where your phone drops, and we&apos;ll tell
             you what {site.agent} would have answered. If you&apos;d rather just
-            hear her,{" "}
+            hear her, call her on{" "}
+            <a href={`tel:${site.demoLine.e164}`} className="text-red-deep underline underline-offset-2">
+              {site.demoLine.display}
+            </a>{" "}
+            or{" "}
             <a href="/#aya" className="text-red-deep underline underline-offset-2">
               have her call you
             </a>

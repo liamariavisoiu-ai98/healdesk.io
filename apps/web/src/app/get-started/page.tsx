@@ -6,7 +6,10 @@ import { CheckoutFlow } from "@/components/checkout/CheckoutFlow";
 import { type LinkNotice, SetupRequestForm } from "@/components/checkout/SetupRequestForm";
 import { Brand } from "@/components/Nav";
 import { DEMO_COOKIE } from "@/lib/demo/attribution";
-import { displayName, getDemoSession, isDemoSlug } from "@/lib/demo/sessions";
+import { REPEAT_VISITS, typicalVisit } from "@/lib/demo/roi";
+import { displayName, getDemoSession, isDemoActive, isDemoSlug, profileOf, type DemoSession } from "@/lib/demo/sessions";
+import { getSpecialty } from "@/lib/specialties";
+import type { DemoCheckout } from "@/components/checkout/DemoPackageExtras";
 import { checkoutStart } from "@/lib/pricing";
 import { replyByDate } from "@/lib/reply-by";
 import { gateState } from "@/lib/setup-gate";
@@ -38,10 +41,31 @@ export const metadata: Metadata = {
  * request goes over it: its clinic name and website, and its address, which
  * the purchase is bound to.
  */
-async function demoPrefill() {
+async function demoFromCookie(): Promise<DemoSession | null> {
   const slug = (await cookies()).get(DEMO_COOKIE)?.value;
-  if (!isDemoSlug(slug)) return undefined;
+  if (!isDemoSlug(slug)) return null;
   const session = await getDemoSession(slug);
+  // The same test as the routes' (lib/setup-gate.ts demoInvitation).
+  return session && session.status === "ready" && !session.claimed ? session : null;
+}
+
+/** What the package step shows a demo buyer: estimates from the demo's own prices, and the offer while it holds. */
+function demoCheckout(session: DemoSession): DemoCheckout {
+  const profile = profileOf(session);
+  const specialty = getSpecialty(session.specialty ?? profile?.specialty ?? "") ?? getSpecialty("med-spa")!;
+  const visit = typicalVisit(profile, specialty.economics);
+  return {
+    clinicName: displayName(session),
+    roi: {
+      ...visit,
+      bookingRate: specialty.economics.bookingRate,
+      repeat: REPEAT_VISITS[specialty.id] ?? null,
+    },
+    offerEndsAt: isDemoActive(session) ? session.expiresAt.toISOString() : undefined,
+  };
+}
+
+function demoPrefill(session: DemoSession | null) {
   if (!session) return undefined;
   return {
     clinicName: displayName(session),
@@ -60,7 +84,8 @@ export default async function GetStartedPage({
   const { plan, interval, link, cancelled } = await searchParams;
   const initialPlan = checkoutStart(plan) ? plan : undefined;
   const initialInterval = isBillingInterval(interval) ? interval : "month";
-  const initialState = await demoPrefill();
+  const demo = await demoFromCookie();
+  const initialState = demoPrefill(demo);
 
   /**
    * While the purchase is by invitation, the setup cookie decides what this
@@ -91,7 +116,7 @@ export default async function GetStartedPage({
       </header>
 
       <main className="px-5 py-12 sm:px-8 sm:py-16">
-        {gate.mode === "pilot" && !invited ? (
+        {gate.mode === "pilot" && !invited && !demo ? (
           <SetupRequestForm replyBy={replyByDate()} notice={notice} />
         ) : (
           <CheckoutFlow
@@ -104,6 +129,7 @@ export default async function GetStartedPage({
             }
             lockedEmail={invited?.email}
             returnedFromPayment={cancelled === "1"}
+            demo={demo && !invited ? demoCheckout(demo) : undefined}
             // Stripe Tax is the server's setting; the page only says so.
             salesTax={process.env.STRIPE_AUTOMATIC_TAX === "true"}
           />

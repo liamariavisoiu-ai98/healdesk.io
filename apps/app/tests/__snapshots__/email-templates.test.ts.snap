@@ -1144,7 +1144,7 @@ exports[`each template's output > order_confirmed_delayed, for clients: the snap
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">Thank you for your order. Your payment went through, and it is safe.</p>
 <p style="margin:0 0 16px;">Setting up Radiance Med Spa&#39;s account needs one step on our side. We&#39;ll email your sign-in link to this address by Wednesday 7 October. There&#39;s nothing you need to do before then.</p>
-<p style="margin:0 0 4px;"><strong>Package:</strong> Web + Voice</p>
+<p style="margin:0 0 4px;"><strong>Package:</strong> AYA Web Chat + Voice</p>
 <p style="margin:0 0 4px;"><strong>Billing:</strong> Monthly</p>
 <p style="margin:0 0 16px;">Monthly billing ($897) starts the day AYA first answers a client. The setup fee is non-refundable.</p>
 <p style="margin:0 0 16px;">If you have a question in the meantime, reply to this email and a person will answer.</p>
@@ -1162,7 +1162,7 @@ exports[`each template's output > order_confirmed_delayed, for clients: the snap
 
 Setting up Radiance Med Spa's account needs one step on our side. We'll email your sign-in link to this address by Wednesday 7 October. There's nothing you need to do before then.
 
-Package: Web + Voice
+Package: AYA Web Chat + Voice
 Billing: Monthly
 
 Monthly billing ($897) starts the day AYA first answers a client. The setup fee is non-refundable.
@@ -1200,7 +1200,7 @@ exports[`each template's output > order_confirmed_delayed, for patients: the sna
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">Thank you for your order. Your payment went through, and it is safe.</p>
 <p style="margin:0 0 16px;">Setting up Radiance Med Spa&#39;s account needs one step on our side. We&#39;ll email your sign-in link to this address by Wednesday 7 October. There&#39;s nothing you need to do before then.</p>
-<p style="margin:0 0 4px;"><strong>Package:</strong> Web + Voice</p>
+<p style="margin:0 0 4px;"><strong>Package:</strong> AYA Web Chat + Voice</p>
 <p style="margin:0 0 4px;"><strong>Billing:</strong> Monthly</p>
 <p style="margin:0 0 16px;">Monthly billing ($897) starts the day AYA first answers a patient. The setup fee is non-refundable.</p>
 <p style="margin:0 0 16px;">If you have a question in the meantime, reply to this email and a person will answer.</p>
@@ -1218,7 +1218,7 @@ exports[`each template's output > order_confirmed_delayed, for patients: the sna
 
 Setting up Radiance Med Spa's account needs one step on our side. We'll email your sign-in link to this address by Wednesday 7 October. There's nothing you need to do before then.
 
-Package: Web + Voice
+Package: AYA Web Chat + Voice
 Billing: Monthly
 
 Monthly billing ($897) starts the day AYA first answers a patient. The setup fee is non-refundable.
@@ -1549,7 +1549,7 @@ exports[`each template's output > plan_changed, for clients: the snapshot 1`] = 
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="supported-color-schemes" content="light dark">
-<title>Your healdesk plan is now Web + Voice</title>
+<title>Your healdesk plan is now AYA Web Chat + Voice</title>
 <style>@media (prefers-color-scheme: dark) {
   body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
   .hd-muted { color: #9da7b3 !important; }
@@ -1558,10 +1558,10 @@ exports[`each template's output > plan_changed, for clients: the snapshot 1`] = 
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Web + Voice, billed monthly.</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">AYA Web Chat + Voice, billed monthly.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">Your healdesk plan is now Web + Voice, billed monthly.</p>
-<p style="margin:0 0 16px;">Until every channel in it is in service, you&#39;re billed for Web Chatbot. Each other channel&#39;s price joins from the day it first answers. A channel that&#39;s ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.</p>
+<p style="margin:0 0 16px;">Your healdesk plan is now AYA Web Chat + Voice, billed monthly.</p>
+<p style="margin:0 0 16px;">Until every channel in it is in service, you&#39;re billed for AYA Web Chat. Each other channel&#39;s price joins from the day it first answers. A channel that&#39;s ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.</p>
 <p style="margin:0 0 16px;">The difference in setup fee, $500, was charged with the change, and that&#39;s all the invoice covers: the price you&#39;re billed hasn&#39;t changed.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_testplatform/test_invoice" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">View the invoice</a></p>
 <p style="margin:0 0 16px;">To cancel online, sign in at https://app.healdesk.test/ and turn auto-renew off in Billing. Your plan then ends when the period you&#39;ve paid for runs out.</p>
@@ -1573,11 +1573,11 @@ exports[`each template's output > plan_changed, for clients: the snapshot 1`] = 
 </div>
 </body>
 </html>",
-  "preheader": "Web + Voice, billed monthly.",
-  "subject": "Your healdesk plan is now Web + Voice",
-  "text": "Your healdesk plan is now Web + Voice, billed monthly.
+  "preheader": "AYA Web Chat + Voice, billed monthly.",
+  "subject": "Your healdesk plan is now AYA Web Chat + Voice",
+  "text": "Your healdesk plan is now AYA Web Chat + Voice, billed monthly.
 
-Until every channel in it is in service, you're billed for Web Chatbot. Each other channel's price joins from the day it first answers. A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.
+Until every channel in it is in service, you're billed for AYA Web Chat. Each other channel's price joins from the day it first answers. A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.
 
 The difference in setup fee, $500, was charged with the change, and that's all the invoice covers: the price you're billed hasn't changed.
 
@@ -1603,7 +1603,7 @@ exports[`each template's output > plan_changed, for patients: the snapshot 1`] =
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="supported-color-schemes" content="light dark">
-<title>Your healdesk plan is now Web + Voice</title>
+<title>Your healdesk plan is now AYA Web Chat + Voice</title>
 <style>@media (prefers-color-scheme: dark) {
   body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
   .hd-muted { color: #9da7b3 !important; }
@@ -1612,10 +1612,10 @@ exports[`each template's output > plan_changed, for patients: the snapshot 1`] =
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Web + Voice, billed monthly.</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">AYA Web Chat + Voice, billed monthly.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">Your healdesk plan is now Web + Voice, billed monthly.</p>
-<p style="margin:0 0 16px;">Until every channel in it is in service, you&#39;re billed for Web Chatbot. Each other channel&#39;s price joins from the day it first answers. A channel that&#39;s ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.</p>
+<p style="margin:0 0 16px;">Your healdesk plan is now AYA Web Chat + Voice, billed monthly.</p>
+<p style="margin:0 0 16px;">Until every channel in it is in service, you&#39;re billed for AYA Web Chat. Each other channel&#39;s price joins from the day it first answers. A channel that&#39;s ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.</p>
 <p style="margin:0 0 16px;">The difference in setup fee, $500, was charged with the change, and that&#39;s all the invoice covers: the price you&#39;re billed hasn&#39;t changed.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_testplatform/test_invoice" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">View the invoice</a></p>
 <p style="margin:0 0 16px;">To cancel online, sign in at https://app.healdesk.test/ and turn auto-renew off in Billing. Your plan then ends when the period you&#39;ve paid for runs out.</p>
@@ -1627,11 +1627,11 @@ exports[`each template's output > plan_changed, for patients: the snapshot 1`] =
 </div>
 </body>
 </html>",
-  "preheader": "Web + Voice, billed monthly.",
-  "subject": "Your healdesk plan is now Web + Voice",
-  "text": "Your healdesk plan is now Web + Voice, billed monthly.
+  "preheader": "AYA Web Chat + Voice, billed monthly.",
+  "subject": "Your healdesk plan is now AYA Web Chat + Voice",
+  "text": "Your healdesk plan is now AYA Web Chat + Voice, billed monthly.
 
-Until every channel in it is in service, you're billed for Web Chatbot. Each other channel's price joins from the day it first answers. A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.
+Until every channel in it is in service, you're billed for AYA Web Chat. Each other channel's price joins from the day it first answers. A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.
 
 The difference in setup fee, $500, was charged with the change, and that's all the invoice covers: the price you're billed hasn't changed.
 
@@ -1666,11 +1666,11 @@ exports[`each template's output > plan_started, for clients: the snapshot 1`] = 
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">$397 for your first month of Web Chatbot.</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">$397 for your first month of AYA Web Chat.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">AYA answered her first client in your website chat, so your healdesk plan started on Tuesday 6 October.</p>
-<p style="margin:0 0 16px;">We&#39;ve charged $397 for your first month of Web Chatbot, which runs to Friday 6 November.</p>
-<p style="margin:0 0 16px;">You bought Web + Voice. Until every channel in it is in service, you&#39;re billed for the ones that are: each other channel&#39;s price joins from the day it first answers, and we&#39;ll email you each time. A channel that&#39;s ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.</p>
+<p style="margin:0 0 16px;">We&#39;ve charged $397 for your first month of AYA Web Chat, which runs to Friday 6 November.</p>
+<p style="margin:0 0 16px;">You bought AYA Web Chat + Voice. Until every channel in it is in service, you&#39;re billed for the ones that are: each other channel&#39;s price joins from the day it first answers, and we&#39;ll email you each time. A channel that&#39;s ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://pay.stripe.com/receipts/invoices/test_receipt" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">View your receipt</a></p>
 <p style="margin:0 0 16px;">To cancel online, sign in at https://app.healdesk.test/ and turn auto-renew off in Billing. Your plan then ends when the period you&#39;ve paid for runs out.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -1681,13 +1681,13 @@ exports[`each template's output > plan_started, for clients: the snapshot 1`] = 
 </div>
 </body>
 </html>",
-  "preheader": "$397 for your first month of Web Chatbot.",
+  "preheader": "$397 for your first month of AYA Web Chat.",
   "subject": "AYA answered her first client: your plan has started",
   "text": "AYA answered her first client in your website chat, so your healdesk plan started on Tuesday 6 October.
 
-We've charged $397 for your first month of Web Chatbot, which runs to Friday 6 November.
+We've charged $397 for your first month of AYA Web Chat, which runs to Friday 6 November.
 
-You bought Web + Voice. Until every channel in it is in service, you're billed for the ones that are: each other channel's price joins from the day it first answers, and we'll email you each time. A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.
+You bought AYA Web Chat + Voice. Until every channel in it is in service, you're billed for the ones that are: each other channel's price joins from the day it first answers, and we'll email you each time. A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.
 
 View your receipt: https://pay.stripe.com/receipts/invoices/test_receipt
 
@@ -1720,11 +1720,11 @@ exports[`each template's output > plan_started, for patients: the snapshot 1`] =
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">$397 for your first month of Web Chatbot.</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">$397 for your first month of AYA Web Chat.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">AYA answered her first patient in your website chat, so your healdesk plan started on Tuesday 6 October.</p>
-<p style="margin:0 0 16px;">We&#39;ve charged $397 for your first month of Web Chatbot, which runs to Friday 6 November.</p>
-<p style="margin:0 0 16px;">You bought Web + Voice. Until every channel in it is in service, you&#39;re billed for the ones that are: each other channel&#39;s price joins from the day it first answers, and we&#39;ll email you each time. A channel that&#39;s ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.</p>
+<p style="margin:0 0 16px;">We&#39;ve charged $397 for your first month of AYA Web Chat, which runs to Friday 6 November.</p>
+<p style="margin:0 0 16px;">You bought AYA Web Chat + Voice. Until every channel in it is in service, you&#39;re billed for the ones that are: each other channel&#39;s price joins from the day it first answers, and we&#39;ll email you each time. A channel that&#39;s ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://pay.stripe.com/receipts/invoices/test_receipt" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">View your receipt</a></p>
 <p style="margin:0 0 16px;">To cancel online, sign in at https://app.healdesk.test/ and turn auto-renew off in Billing. Your plan then ends when the period you&#39;ve paid for runs out.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -1735,13 +1735,13 @@ exports[`each template's output > plan_started, for patients: the snapshot 1`] =
 </div>
 </body>
 </html>",
-  "preheader": "$397 for your first month of Web Chatbot.",
+  "preheader": "$397 for your first month of AYA Web Chat.",
   "subject": "AYA answered her first patient: your plan has started",
   "text": "AYA answered her first patient in your website chat, so your healdesk plan started on Tuesday 6 October.
 
-We've charged $397 for your first month of Web Chatbot, which runs to Friday 6 November.
+We've charged $397 for your first month of AYA Web Chat, which runs to Friday 6 November.
 
-You bought Web + Voice. Until every channel in it is in service, you're billed for the ones that are: each other channel's price joins from the day it first answers, and we'll email you each time. A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.
+You bought AYA Web Chat + Voice. Until every channel in it is in service, you're billed for the ones that are: each other channel's price joins from the day it first answers, and we'll email you each time. A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.
 
 View your receipt: https://pay.stripe.com/receipts/invoices/test_receipt
 
@@ -1774,9 +1774,9 @@ exports[`each template's output > price_stepped_up, for clients: the snapshot 1`
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Web + Voice, at $897 a month.</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">AYA Web Chat + Voice, at $897 a month.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">Phone is now part of your healdesk plan, which makes it Web + Voice, at $897 a month.</p>
+<p style="margin:0 0 16px;">Phone is now part of your healdesk plan, which makes it AYA Web Chat + Voice, at $897 a month.</p>
 <p style="margin:0 0 16px;">The difference for the rest of this month is prorated onto your next invoice.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
@@ -1786,9 +1786,9 @@ exports[`each template's output > price_stepped_up, for clients: the snapshot 1`
 </div>
 </body>
 </html>",
-  "preheader": "Web + Voice, at $897 a month.",
+  "preheader": "AYA Web Chat + Voice, at $897 a month.",
   "subject": "Phone joined your plan: your new price",
-  "text": "Phone is now part of your healdesk plan, which makes it Web + Voice, at $897 a month.
+  "text": "Phone is now part of your healdesk plan, which makes it AYA Web Chat + Voice, at $897 a month.
 
 The difference for the rest of this month is prorated onto your next invoice.
 
@@ -1819,9 +1819,9 @@ exports[`each template's output > price_stepped_up, for patients: the snapshot 1
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Web + Voice, at $897 a month.</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">AYA Web Chat + Voice, at $897 a month.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">Phone is now part of your healdesk plan, which makes it Web + Voice, at $897 a month.</p>
+<p style="margin:0 0 16px;">Phone is now part of your healdesk plan, which makes it AYA Web Chat + Voice, at $897 a month.</p>
 <p style="margin:0 0 16px;">The difference for the rest of this month is prorated onto your next invoice.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
@@ -1831,9 +1831,9 @@ exports[`each template's output > price_stepped_up, for patients: the snapshot 1
 </div>
 </body>
 </html>",
-  "preheader": "Web + Voice, at $897 a month.",
+  "preheader": "AYA Web Chat + Voice, at $897 a month.",
   "subject": "Phone joined your plan: your new price",
-  "text": "Phone is now part of your healdesk plan, which makes it Web + Voice, at $897 a month.
+  "text": "Phone is now part of your healdesk plan, which makes it AYA Web Chat + Voice, at $897 a month.
 
 The difference for the rest of this month is prorated onto your next invoice.
 
@@ -2056,9 +2056,9 @@ exports[`each template's output > renewal_upcoming, for clients: the snapshot 1`
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Your annual Complete FrontDesk AI plan renews for $11,484.</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Your annual AYA Complete Frontdesk plan renews for $11,484.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">Your annual Complete FrontDesk AI plan renews on Friday 5 November 2027, for $11,484. We&#39;ll charge the card on file.</p>
+<p style="margin:0 0 16px;">Your annual AYA Complete Frontdesk plan renews on Friday 5 November 2027, for $11,484. We&#39;ll charge the card on file.</p>
 <p style="margin:0 0 16px;">There&#39;s nothing to do if you&#39;d like to carry on. To stop it renewing, turn auto-renew off in Billing before Friday 5 November 2027.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Manage auto-renew</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -2069,9 +2069,9 @@ exports[`each template's output > renewal_upcoming, for clients: the snapshot 1`
 </div>
 </body>
 </html>",
-  "preheader": "Your annual Complete FrontDesk AI plan renews for $11,484.",
+  "preheader": "Your annual AYA Complete Frontdesk plan renews for $11,484.",
   "subject": "Your healdesk plan renews on 5 November 2027",
-  "text": "Your annual Complete FrontDesk AI plan renews on Friday 5 November 2027, for $11,484. We'll charge the card on file.
+  "text": "Your annual AYA Complete Frontdesk plan renews on Friday 5 November 2027, for $11,484. We'll charge the card on file.
 
 There's nothing to do if you'd like to carry on. To stop it renewing, turn auto-renew off in Billing before Friday 5 November 2027.
 
@@ -2104,9 +2104,9 @@ exports[`each template's output > renewal_upcoming, for patients: the snapshot 1
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Your annual Complete FrontDesk AI plan renews for $11,484.</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Your annual AYA Complete Frontdesk plan renews for $11,484.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">Your annual Complete FrontDesk AI plan renews on Friday 5 November 2027, for $11,484. We&#39;ll charge the card on file.</p>
+<p style="margin:0 0 16px;">Your annual AYA Complete Frontdesk plan renews on Friday 5 November 2027, for $11,484. We&#39;ll charge the card on file.</p>
 <p style="margin:0 0 16px;">There&#39;s nothing to do if you&#39;d like to carry on. To stop it renewing, turn auto-renew off in Billing before Friday 5 November 2027.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Manage auto-renew</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -2117,9 +2117,9 @@ exports[`each template's output > renewal_upcoming, for patients: the snapshot 1
 </div>
 </body>
 </html>",
-  "preheader": "Your annual Complete FrontDesk AI plan renews for $11,484.",
+  "preheader": "Your annual AYA Complete Frontdesk plan renews for $11,484.",
   "subject": "Your healdesk plan renews on 5 November 2027",
-  "text": "Your annual Complete FrontDesk AI plan renews on Friday 5 November 2027, for $11,484. We'll charge the card on file.
+  "text": "Your annual AYA Complete Frontdesk plan renews on Friday 5 November 2027, for $11,484. We'll charge the card on file.
 
 There's nothing to do if you'd like to carry on. To stop it renewing, turn auto-renew off in Billing before Friday 5 November 2027.
 
@@ -2359,7 +2359,7 @@ exports[`each template's output > step_up_reminder, for clients: the snapshot 1`
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">One thing left: set call forwarding on your clinic&#39;s line.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">Phone is ready on our side and waiting on one thing from you: set call forwarding on your clinic&#39;s line; the steps for your carrier are in healdesk.</p>
-<p style="margin:0 0 16px;">On Tuesday 13 October, phone joins your plan whether or not it&#39;s live, which makes it Web + Voice, at $897 a month. If AYA answers there before then, it joins from that first answer instead.</p>
+<p style="margin:0 0 16px;">On Tuesday 13 October, phone joins your plan whether or not it&#39;s live, which makes it AYA Web Chat + Voice, at $897 a month. If AYA answers there before then, it joins from that first answer instead.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">See the forwarding steps</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
@@ -2373,7 +2373,7 @@ exports[`each template's output > step_up_reminder, for clients: the snapshot 1`
   "subject": "Phone joins your plan on 13 October",
   "text": "Phone is ready on our side and waiting on one thing from you: set call forwarding on your clinic's line; the steps for your carrier are in healdesk.
 
-On Tuesday 13 October, phone joins your plan whether or not it's live, which makes it Web + Voice, at $897 a month. If AYA answers there before then, it joins from that first answer instead.
+On Tuesday 13 October, phone joins your plan whether or not it's live, which makes it AYA Web Chat + Voice, at $897 a month. If AYA answers there before then, it joins from that first answer instead.
 
 See the forwarding steps: https://app.healdesk.test/
 
@@ -2407,7 +2407,7 @@ exports[`each template's output > step_up_reminder, for patients: the snapshot 1
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">One thing left: set call forwarding on your clinic&#39;s line.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">Phone is ready on our side and waiting on one thing from you: set call forwarding on your clinic&#39;s line; the steps for your carrier are in healdesk.</p>
-<p style="margin:0 0 16px;">On Tuesday 13 October, phone joins your plan whether or not it&#39;s live, which makes it Web + Voice, at $897 a month. If AYA answers there before then, it joins from that first answer instead.</p>
+<p style="margin:0 0 16px;">On Tuesday 13 October, phone joins your plan whether or not it&#39;s live, which makes it AYA Web Chat + Voice, at $897 a month. If AYA answers there before then, it joins from that first answer instead.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">See the forwarding steps</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
@@ -2421,7 +2421,7 @@ exports[`each template's output > step_up_reminder, for patients: the snapshot 1
   "subject": "Phone joins your plan on 13 October",
   "text": "Phone is ready on our side and waiting on one thing from you: set call forwarding on your clinic's line; the steps for your carrier are in healdesk.
 
-On Tuesday 13 October, phone joins your plan whether or not it's live, which makes it Web + Voice, at $897 a month. If AYA answers there before then, it joins from that first answer instead.
+On Tuesday 13 October, phone joins your plan whether or not it's live, which makes it AYA Web Chat + Voice, at $897 a month. If AYA answers there before then, it joins from that first answer instead.
 
 See the forwarding steps: https://app.healdesk.test/
 

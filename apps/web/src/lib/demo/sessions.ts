@@ -306,3 +306,19 @@ export async function purgeExpiredDemoSessions(
   cache.clear();
   return doomed.length;
 }
+
+/**
+ * The live demo a caller registered for, by the number they said they would
+ * call from (the "Call us" tab, app/api/demo/[slug]/caller). The newest wins
+ * when one owner has several. Read by the demo line's inbound webhook, which
+ * has ten seconds and gets a Sheet read of under one: this reads fresh rather
+ * than from a cache another instance filled before the number was saved.
+ */
+export async function findActiveDemoByCaller(phoneE164: string, now: number = Date.now()): Promise<DemoSession | null> {
+  const client = await store();
+  const matches = (await readAll(client))
+    .map((r) => r.value)
+    .filter((s) => s.phoneE164 === phoneE164 && isDemoActive(s, now))
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  return matches[0] ? remember(matches[0]) : null;
+}

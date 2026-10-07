@@ -88,16 +88,16 @@ describe("what the agent is told", () => {
       email: "Sam@Clinic.com",
       topic: "sales_session",
       preferred_time: "Thursday morning",
-      recommended_package: "Web + Voice",
+      recommended_package: "AYA Web Chat + Voice",
       summary: "Two-chair med spa, Saturdays go to voicemail.",
     });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ ok: true });
     expect(sent).toHaveLength(1);
     expect(sent[0]!.body).toMatchObject({ to: ["hello@healdesk.io"], reply_to: "sam@clinic.com" });
-    expect(String(sent[0]!.body.subject)).toContain("session with sales");
+    expect(String(sent[0]!.body.subject)).toContain("session with the team");
     expect(String(sent[0]!.body.text)).toContain("Thursday morning");
-    expect(String(sent[0]!.body.text)).toContain("Web + Voice");
+    expect(String(sent[0]!.body.text)).toContain("AYA Web Chat + Voice");
     expect(String(sent[0]!.body.text)).toContain("Saturdays go to voicemail");
   });
 
@@ -117,6 +117,42 @@ describe("what the agent is told", () => {
     expect(response.status).toBe(400);
     expect((await response.json()).message).toMatch(/spell it again/);
     expect(sent).toHaveLength(0);
+  });
+
+  test("start: the owner gets the setup link for the package she named, then the team gets the summary", async () => {
+    const response = await post({
+      topic: "start",
+      name: "Sam Rivera",
+      clinic: "Radiance",
+      email: "sam@radiance.com",
+      recommended_package: "AYA Web Chat + Voice",
+      summary: "After six the phone rings out.",
+    });
+    expect(response.status).toBe(200);
+    expect((await response.json()).message).toContain("AYA Web Chat + Voice is in their inbox");
+    expect(sent).toHaveLength(2);
+    // Theirs first: it is the promise AYA makes.
+    expect(sent[0]!.body).toMatchObject({ to: ["sam@radiance.com"], reply_to: "hello@healdesk.io" });
+    expect(String(sent[0]!.body.text)).toContain("/get-started?plan=web-voice");
+    expect(String(sent[0]!.body.text)).toMatch(/^Hi Sam,/);
+    expect(sent[1]!.body).toMatchObject({ to: ["hello@healdesk.io"], reply_to: "sam@radiance.com" });
+    expect(String(sent[1]!.body.text)).toContain("/get-started?plan=web-voice");
+  });
+
+  test("start: a package she did not name exactly links to pricing, never to a guess", async () => {
+    await post({ topic: "start", email: "sam@radiance.com", recommended_package: "the big one" });
+    expect(String(sent[0]!.body.text)).toContain("/pricing");
+    expect(String(sent[0]!.body.text)).not.toContain("get-started?plan=");
+  });
+
+  test("start: if their email fails, AYA is told so and the team is not told otherwise", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("down", { status: 500 })),
+    );
+    const response = await post({ topic: "start", email: "sam@radiance.com", recommended_package: "AYA Web Chat + Voice" });
+    expect(response.status).toBe(502);
+    expect((await response.json()).message).toContain("hello@healdesk.io");
   });
 
   test("with no transport the agent is told to give the address instead", async () => {

@@ -172,10 +172,16 @@ runs the image.
   no Dockerfile change: `npm ci` runs before `next build`, and the runtime stage
   copies the workspace `node_modules`. `tests/aws-sdk-clients.test.ts` pins
   all three; re-check the chunks after a Next upgrade.
-- **Static assets are in the image; the host is not described anywhere.**
+- **Static assets are in the image; the host is described but not built.**
   `.next/static` is still not part of Next's standalone output, but the
-  Dockerfile (L70-71) copies it beside `server.js`. There is still no compose
-  file, `fly.toml`, Terraform or task definition in the repo.
+  Dockerfile (L70-71) copies it beside `server.js`. Since 7 October 2026 the
+  AWS host is Terraform in `infra/aws` (RDS with 35-day backups, ECS on
+  Fargate, the load balancer, KMS, S3, CloudTrail, SES, Config), with its
+  runbook in `infra/aws/README.md`. It is validated and tested against a
+  mocked provider, and has never been applied. The image now carries the RDS
+  CA bundle (`NODE_EXTRA_CA_CERTS`), without which production's certificate
+  check refuses every RDS connection, and `scripts/provision-roles.sql` runs
+  as RDS's master user, which is not a superuser.
 - **The worker, migrations and queue install ship in the image as separate
   commands.** The Dockerfile (L73-82) copies the whole workspace
   `node_modules` (`tsx` is a runtime dependency; `drizzle-kit` is there only

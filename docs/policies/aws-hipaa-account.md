@@ -44,6 +44,14 @@ behind each line are in the handover under "Once AWS lands".
 | Elastic Load Balancing | TLS termination in front of the web tier and the voice endpoint's WebSocket | In transit | HTTPS listener, HTTP redirected |
 | AWS CloudTrail | Every KMS operation and management call; S3 data events for the PHI bucket | No | On, kept, encrypted with our key, log-file validation |
 | Amazon CloudWatch Logs | stdout of both tasks, from the allowlisted, scrubbing logger (`lib/log.ts`) | No | Encrypted with our key; retention "Never expire" (§4.2(c)) |
+| AWS Secrets Manager | The tasks' environment: database URLs, vendor keys, the database role passwords; RDS's managed master password | No (credentials to systems that hold it) | Encrypted with our key; each secret readable only by the ECS execution role that needs it; values never in Terraform state (`infra/aws/secrets.tf`) |
+| Amazon ECR | The `apps/app` image | No | Immutable tags; scan on push |
+| AWS Config | Configuration history and the four rules named in the handover | No | Recorder on; rules as in `infra/aws/config.tf` |
+
+The last three rows, and the build of every row above, are written in
+`infra/aws` (7 October 2026) and not yet applied. Before the first apply the
+Security Official re-reads the Reference for those three services and dates the
+check here.
 
 **Never for PHI:** anything outside this table (§4.2(a)) and any other AWS
 account (§1 and §3.1 leave every other account uncovered). AWS App Runner is

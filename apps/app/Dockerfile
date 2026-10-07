@@ -81,6 +81,16 @@ COPY --from=build --chown=healdesk:healdesk /repo/apps/app/drizzle.config.ts ./a
 COPY --from=build --chown=healdesk:healdesk /repo/apps/app/scripts ./apps/app/scripts
 COPY --from=build --chown=healdesk:healdesk /repo/packages ./packages
 
+# Amazon RDS's certificate authorities. Node trusts only the public roots it
+# ships with, and production verifies the database's certificate
+# (src/db/index.ts sets rejectUnauthorized), so without this bundle every
+# connection to RDS fails. NODE_EXTRA_CA_CERTS adds it to the defaults for the
+# server, the worker and the one-off tasks alike. The file sits in /repo
+# itself: with --chmod, a directory ADD creates gets the file's mode too, and
+# a 644 directory cannot be entered, which Node reports only as a warning.
+ADD --chown=healdesk:healdesk --chmod=644 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /repo/rds-global-bundle.pem
+ENV NODE_EXTRA_CA_CERTS=/repo/rds-global-bundle.pem
+
 USER healdesk
 EXPOSE 3001
 

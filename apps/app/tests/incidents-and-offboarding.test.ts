@@ -21,7 +21,7 @@ import { listClinics } from "@/lib/ops/clinics";
 import { amendContact, exportPatient } from "@/lib/patient-rights/export";
 import { withTenant } from "@/lib/tenant";
 
-import { closePools, getAppPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
+import { closePools, getAppPool, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { inTenant, seedClinic, seedContact, seedConversation } from "./setup/factories";
 
 /**
@@ -218,7 +218,6 @@ describeDb("incidents, exports and offboarding", () => {
   });
 
   test("offboarding stamps the dates, and destruction removes the patients, who messaged the clinic and the closed days but keeps the opt-outs, the audit trail and the channel history", async () => {
-    const started = new Date("2026-06-01T00:00:00Z");
     const leaving = await seedClinic("offboard");
     const staying = await seedClinic("offboard-stay");
     for (const c of [leaving, staying]) {
@@ -241,21 +240,34 @@ describeDb("incidents, exports and offboarding", () => {
       });
     }
 
-    await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) => startOffboarding(tx, "customer.subscription.deleted", started));
+    // The dates are the database's (app_start_offboarding): stamped now, and
+    // destroy_after thirty days on.
+    await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) => startOffboarding(tx, "customer.subscription.deleted"));
     let overview = (await listClinics()).find((c) => c.id === leaving.clinicId)!;
-    expect(overview.offboardingStartedAt?.toISOString()).toBe(started.toISOString());
+    const started = overview.offboardingStartedAt!;
+    expect(Math.abs(Date.now() - started.getTime())).toBeLessThan(60_000);
     expect(overview.destroyAfter?.toISOString()).toBe(new Date(started.getTime() + DESTROY_AFTER_DAYS * DAY).toISOString());
 
     // Starting twice does not move the clock.
-    await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) => startOffboarding(tx, "operator", new Date(started.getTime() + 10 * DAY)));
+    await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) => startOffboarding(tx, "operator"));
     overview = (await listClinics()).find((c) => c.id === leaving.clinicId)!;
     expect(overview.offboardingStartedAt?.toISOString()).toBe(started.toISOString());
 
-    // Day 31, export not yet delivered: nothing happens.
-    expect(await destroyDueClinics(new Date(started.getTime() + 31 * DAY))).toEqual([]);
+    // Thirty-one days on. The runtime role cannot write the dates, so the
+    // migrator, which owns the table, moves them back as the days would.
+    await getMigratorPool().query(
+      `update clinics
+          set offboarding_started_at = offboarding_started_at - interval '31 days',
+              destroy_after = destroy_after - interval '31 days'
+        where id = $1`,
+      [leaving.clinicId],
+    );
 
-    await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) => markExportDelivered(tx, "bundle handed to the practice manager", new Date(started.getTime() + 20 * DAY)));
-    const results = await destroyDueClinics(new Date(started.getTime() + 31 * DAY));
+    // Day 31, export not yet delivered: nothing happens.
+    expect(await destroyDueClinics()).toEqual([]);
+
+    await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) => markExportDelivered(tx, "bundle handed to the practice manager"));
+    const results = await destroyDueClinics();
     expect(results.map((r) => r.clinicId)).toEqual([leaving.clinicId]);
     expect(results[0]!.deleted.conversations).toBe(1);
     expect(results[0]!.deleted.contacts).toBe(1);
@@ -287,6 +299,6 @@ describeDb("incidents, exports and offboarding", () => {
     overview = (await listClinics()).find((c) => c.id === leaving.clinicId)!;
     expect(overview.destroyedAt).not.toBeNull();
     // Destroyed once: the next day's job finds nothing.
-    expect(await destroyDueClinics(new Date(started.getTime() + 32 * DAY))).toEqual([]);
+    expect(await destroyDueClinics(new Date(Date.now() + DAY))).toEqual([]);
   });
 });

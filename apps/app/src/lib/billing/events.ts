@@ -1753,12 +1753,14 @@ async function onSubscriptionDeleted(tx: TenantTx, delivery: Delivery): Promise<
 
   const comment = asString(prop(prop(subscription, "cancellation_details"), "comment"));
   if (comment === SETUP_CLOSURE_COMMENT) {
-    await startOffboarding(tx, "setup_closure", delivery.now);
+    // Stamped by the database (app_start_offboarding), never from the event.
+    await startOffboarding(tx, "setup_closure");
     return;
   }
 
-  // The customer left: start the return-or-destroy clock (lib/offboarding).
-  await startOffboarding(tx, delivery.type, delivery.now);
+  // The customer left: start the return-or-destroy clock (lib/offboarding),
+  // stamped by the database when this is processed.
+  await startOffboarding(tx, delivery.type);
   // A clinic already destroyed has nobody left to tell.
   if (row.status === "purged") return;
   const subscriptionId = asString(prop(subscription, "id")) ?? delivery.ids.subscriptionId;

@@ -1628,6 +1628,15 @@ describeDb("the deferred start's billing lifecycle", () => {
       await handleStripeEvent(event("customer.subscription.deleted", deleted), { now: NOW });
 
       expect((await entitlementsOf(clinicId)).status).toBe("canceled");
+      // The database stamps the offboarding dates when the deletion is
+      // processed (app_start_offboarding), never from the event's clock, so
+      // the email's days are read back from what it stamped.
+      const {
+        rows: [dates],
+      } = await getMigratorPool().query<{ offboarding_started_at: Date; destroy_after: Date }>(
+        `select offboarding_started_at, destroy_after from clinics where id = $1`,
+        [clinicId],
+      );
       const notices = await noticesOf(clinicId, "canceled");
       expect(notices).toEqual([
         {
@@ -1638,8 +1647,10 @@ describeDb("the deferred start's billing lifecycle", () => {
             endedAt: new Date((T - 3600) * 1000).toISOString(),
             isBeforeStart: false,
             channels: ["web", "meta", "voice"],
-            exportByOn: new Date(NOW.getTime() + 30 * DAY_MS).toISOString().slice(0, 10),
-            destroyByOn: new Date(NOW.getTime() + 90 * DAY_MS).toISOString().slice(0, 10),
+            exportByOn: dates!.destroy_after.toISOString().slice(0, 10),
+            destroyByOn: new Date(dates!.offboarding_started_at.getTime() + 90 * DAY_MS)
+              .toISOString()
+              .slice(0, 10),
             carrier: "verizon",
             phoneSystem: "voip",
             routing: "overflow_after_hours",

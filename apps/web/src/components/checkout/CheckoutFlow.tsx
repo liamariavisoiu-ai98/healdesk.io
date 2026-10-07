@@ -233,6 +233,7 @@ export function CheckoutFlow({
     const storedAgreement = readStoredAgreement();
     const signedFor = sameAgreementInputs(storedAgreement?.inputs, agreementInputs(restored));
     const read = readStoredSiteRead();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sessionStorage, read after hydration (see above)
     setState({ ...restored, step: resumeStep(restored, signedFor, returnedFromPayment) });
     setAgreement(storedAgreement);
     setSiteRead(read);

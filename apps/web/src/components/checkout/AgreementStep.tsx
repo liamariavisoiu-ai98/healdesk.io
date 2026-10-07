@@ -9,7 +9,7 @@ import {
   type CoveredAnswer,
   type SpecialtyId,
 } from "@healdesk/catalog";
-import { type ReactNode, type Ref, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
 
 import { site } from "@/lib/site";
 
@@ -150,7 +150,8 @@ export function AgreementStep({
   const unanswered = asks && covered === null;
 
   const [agreed, setAgreed] = useState(false);
-  const [readToEnd, setReadToEnd] = useState(false);
+  /** The end marker has been seen. `readToEnd`, below, is what the step uses. */
+  const [reachedEnd, setReachedEnd] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /**
@@ -186,11 +187,17 @@ export function AgreementStep({
    * The preview, from the real template and the catalog's one renderer, with
    * placeholders for what is still empty so the document reads before it is
    * complete without ever naming a blank party.
+   *
+   * Rendered on every render, not memoized: nearly every render here is a
+   * keystroke in a field the document prints, which changes it anyway, and
+   * the rest (the tick, the end marker, submitting) are a handful per
+   * signature. A useMemo keyed on `copy` was one the React Compiler could not
+   * keep, since `copy.render` may, as far as it can tell, change `copy`.
    */
-  const preview = useMemo(() => {
-    if (!copy || unanswered) return null;
+  let preview: ReturnType<NonNullable<typeof copy>["render"]> | null = null;
+  if (copy && !unanswered) {
     try {
-      return copy.render({
+      preview = copy.render({
         clinicLegalName: clinicName.trim() || "[your practice]",
         specialty,
         isCoveredEntity,
@@ -202,9 +209,9 @@ export function AgreementStep({
         effectiveDate: today,
       });
     } catch {
-      return null;
+      preview = null;
     }
-  }, [copy, unanswered, isCoveredEntity, clinicName, specialty, bookingSystem, calendarAccount, contactName, contactTitle, email, today]);
+  }
 
   /**
    * What the document says apart from its signature block. When this changes
@@ -223,9 +230,16 @@ export function AgreementStep({
     calendarAccount,
   ]);
 
-  useEffect(() => {
-    setReadToEnd(false);
+  // Reset while rendering, as React documents for state that follows a
+  // changed input, so no frame shows the new document with the old tick.
+  const [readKey, setReadKey] = useState(documentKey);
+  if (readKey !== documentKey) {
+    setReadKey(documentKey);
+    setReachedEnd(false);
     setAgreed(false);
+  }
+
+  useEffect(() => {
     scrollRef.current?.scrollTo?.({ top: 0 });
   }, [documentKey]);
 
@@ -237,18 +251,19 @@ export function AgreementStep({
    * The end marker. One observer covers both layouts: inside the scroll box
    * the marker is clipped until the box is scrolled to it, and inline it
    * enters the viewport when the page is. A browser with no observer is let
-   * through rather than left with a Sign button that can never unlock.
+   * through rather than left with a Sign button that can never unlock; that
+   * is worked out while rendering, once the marker exists, which it only
+   * ever does in the browser, so the server's render never differs.
    * Keyed on the marker element itself, which exists only while the document
    * is shown (see `endMarker`).
    */
+  const readToEnd =
+    reachedEnd || (endMarker !== null && typeof IntersectionObserver === "undefined");
+
   useEffect(() => {
     if (!endMarker || readToEnd) return;
-    if (typeof IntersectionObserver === "undefined") {
-      setReadToEnd(true);
-      return;
-    }
     const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) setReadToEnd(true);
+      if (entries.some((entry) => entry.isIntersecting)) setReachedEnd(true);
     });
     observer.observe(endMarker);
     return () => observer.disconnect();

@@ -115,6 +115,38 @@ function button(label: string): HTMLButtonElement {
   return found;
 }
 
+/** The step on its own, hosted the way the flow hosts it, with the covered answer in the host's state. */
+function StepHost({
+  initialSigned,
+  onAnswer,
+}: {
+  initialSigned: AgreementResult | null;
+  onAnswer?: (set: (covered: FunnelState["covered"]) => void) => void;
+}) {
+  const [signed, setSigned] = useState<AgreementResult | null>(initialSigned);
+  const [covered, setCovered] = useState<FunnelState["covered"]>(ANSWERED.covered);
+  onAnswer?.(setCovered);
+  return h(AgreementStep, {
+    step: 3,
+    totalSteps: 4,
+    onBack: () => undefined,
+    clinicName: ANSWERED.clinicName,
+    specialty: ANSWERED.specialty!,
+    bookingSystem: ANSWERED.bookingSystem!,
+    calendarAccount: ANSWERED.calendarAccount!,
+    covered,
+    onCovered: setCovered,
+    contactName: ANSWERED.contactName,
+    contactTitle: ANSWERED.contactTitle,
+    contactEmail: ANSWERED.contactEmail,
+    onContact: () => undefined,
+    signed,
+    onSigned: () => undefined,
+    onContinue: () => undefined,
+    onResign: () => setSigned(null),
+  });
+}
+
 /** Signed view, Sign again, the end of the document scrolled to, the box ticked. */
 async function signAgainAndRead(): Promise<HTMLButtonElement> {
   expect(container.textContent).toContain("Sign again with different answers");
@@ -176,6 +208,37 @@ describe('"Sign again with different answers"', () => {
     await act(async () => root.render(h(Host)));
     const sign = await signAgainAndRead();
     expect(sign.disabled).toBe(false);
+  });
+
+  test("a browser with no IntersectionObserver is let through once the document is drawn", async () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    await act(async () => root.render(h(StepHost, { initialSigned: null })));
+
+    expect(container.querySelector("[data-agreement-end]")).not.toBeNull();
+    expect(container.textContent).toContain("You've read to the end.");
+    expect(container.querySelector("section[inert]")).toBeNull();
+  });
+
+  test("another answer is another document: read-to-end and the tick both reset", async () => {
+    let answer: (covered: FunnelState["covered"]) => void = () => undefined;
+    await act(async () =>
+      root.render(h(StepHost, { initialSigned: null, onAnswer: (set) => (answer = set) })),
+    );
+
+    await act(async () =>
+      FakeObserver.scrollIntoView(container.querySelector("[data-agreement-end]")!),
+    );
+    const tick = container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    await act(async () => tick.click());
+    expect(tick.checked).toBe(true);
+
+    await act(async () => answer("yes"));
+    expect(container.textContent).toContain("Read to the end of the agreement to sign it.");
+    expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(
+      false,
+    );
+    expect(container.querySelector("section[inert]")).not.toBeNull();
+    expect(button("Sign and continue").disabled).toBe(true);
   });
 
   test("a purchase apps/app refuses for its agreement goes back to step 3, to sign again", async () => {

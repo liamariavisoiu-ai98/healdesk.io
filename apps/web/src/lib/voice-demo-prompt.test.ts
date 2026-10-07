@@ -99,6 +99,21 @@ describe("price, precisely", () => {
     expect(flat(VOICE_DEMO_PRICES)).toContain("These overage rates are provisional");
   });
 
+  test("overage is quoted per started block of 100, as it is billed, never per minute", () => {
+    // The owner's decision of 6 October 2026 (docs/v1-product-spec.md,
+    // "Overage prices"). scripts/retell-demo-agent.ts pushes this prompt, so a
+    // per-minute rate left here is said to a real person on the next call.
+    expect(flat(VOICE_DEMO_PRICES)).toContain(
+      "Beyond the included amount, overage is billed in blocks of 100: $80 for each started block " +
+        "of 100 extra phone minutes, and $30 or $40 for each started block of 100 extra chat " +
+        "conversations, depending on the package. A block is charged in full once it is started.",
+    );
+    // Word boundaries, because "extra phone minutes" holds "a phone minute".
+    expect(flat(VOICE_DEMO_PRICES)).not.toMatch(
+      /\ba phone minute|\ba voice minute|\ba chat conversation|\bper minute|\bper conversation|\/min\b|\$0\./i,
+    );
+  });
+
   test("it never invents a discount, and asks before passing details on", () => {
     expect(all).toContain("Never invent or hint at a discount, credit, guarantee or contract term.");
     expect(all).toContain("it's fine for the team to get in touch about this?");

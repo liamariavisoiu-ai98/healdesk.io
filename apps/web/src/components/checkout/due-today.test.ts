@@ -118,28 +118,30 @@ describe("package cards", () => {
     ]);
   });
 
-  test("the overage line quotes each package's own rate", () => {
+  test("the overage line quotes each package's own price for a block of 100", () => {
+    // Billed per started block since 6 October 2026 (docs/v1-product-spec.md,
+    // "Overage prices"); the footnote under the cards says a started block is
+    // billed whole.
     if (OVERAGE_RATES_PROVISIONAL) return;
-    expect(overageLine(getPlan("chat-web")!)).toContain("$0.40/conversation");
-    expect(overageLine(getPlan("chat-dual")!)).toContain("$0.30/conversation");
-    expect(overageLine(getPlan("voice")!)).toContain("$0.80/min");
-    expect(overageLine(getPlan("complete")!)).toContain("$0.80/min");
-    expect(overageLine(getPlan("complete")!)).toContain("$0.30/conversation");
+    expect(overageLine(getPlan("chat-web")!)).toBe("$40 per block of 100 conversations");
+    expect(overageLine(getPlan("chat-meta")!)).toBe("$40 per block of 100 conversations");
+    expect(overageLine(getPlan("chat-dual")!)).toBe("$30 per block of 100 conversations");
+    expect(overageLine(getPlan("voice")!)).toBe("$80 per block of 100 minutes");
+    expect(overageLine(getPlan("complete")!)).toBe(
+      "$80 per block of 100 minutes · $30 per block of 100 conversations",
+    );
   });
 
-  test("no overage number is printed while the rates are provisional", () => {
+  test("no overage number is printed while the rates are provisional, and never a per-unit rate", () => {
     for (const plan of plans) {
       const line = overageLine(plan);
       if (OVERAGE_RATES_PROVISIONAL) {
         expect(line).toBeNull();
       } else {
         expect(line).not.toBeNull();
-        if (plan.overagePerVoiceMinuteUsd === 0) {
-          expect(line).not.toContain("/min");
-        }
-        if (plan.overagePerChatConversationUsd === 0) {
-          expect(line).not.toContain("/conversation");
-        }
+        expect(line).not.toMatch(/\/min|\/conversation|per minute|per conversation|\$0\./);
+        if (!plan.channels.voice) expect(line).not.toContain("minutes");
+        if (!plan.channels.web && !plan.channels.meta) expect(line).not.toContain("conversations");
       }
     }
   });

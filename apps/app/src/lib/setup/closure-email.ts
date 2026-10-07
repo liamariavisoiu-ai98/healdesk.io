@@ -26,10 +26,15 @@ import { helpContacts } from "./help";
  *     await queueSetupClosedEmail(tx, reason);
  *
  * and Package C's handler passes `setup_closure` (lib/billing/events.ts,
- * onSubscriptionDeleted). Any other reason queues nothing, so the call is
- * safe for every caller of startOffboarding, the ops console's included.
- * tests/setup-wizard.test.ts drives it through startOffboarding, and
- * tests/billing-events-lifecycle.test.ts through the deletion event.
+ * onSubscriptionDeleted). Any other reason queues nothing. The reason is
+ * that handler's alone: the ops console's start-offboarding, whose reason is
+ * free text an operator types, refuses it (lib/ops/api.ts), so no one can
+ * tell a clinic its account has closed when nothing was cancelled, or use up
+ * the dedupe the real closure needs. An operator closes an unfinished setup
+ * through Billing's closeUnfinishedSetup, which cancels in Stripe.
+ * tests/setup-wizard.test.ts drives it through startOffboarding and the ops
+ * console, and tests/billing-events-lifecycle.test.ts through the deletion
+ * event.
  */
 
 export const SETUP_CLOSURE_REASON = "setup_closure";

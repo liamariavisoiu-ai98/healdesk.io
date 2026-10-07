@@ -132,6 +132,7 @@ import { goLive, goLivePreconditions } from "@/lib/onboarding/go-live";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { completeStep, reopenStep } from "@/lib/onboarding/steps";
 import { getJob, listJobs as listJobRecords, PHASE_TWO_JOBS } from "@/lib/scheduler/jobs";
+import { SETUP_CLOSURE_REASON } from "@/lib/setup/closure-email";
 import { moveSetupDeadlineToZone } from "@/lib/setup/practice";
 import { toCents } from "@/lib/setup/prices";
 import { withTenant, type TenantTx } from "@/lib/tenant";
@@ -3334,6 +3335,15 @@ async function opStartOffboarding(
   if (clinic.destroyedAt) return care.error("This clinic's data has already been destroyed.");
   const reason = incidentText(stringArg(args, "reason", 300), "reason");
   if (typeof reason !== "string") return care.error(reason.error);
+  // The setup closure's reason belongs to Package C's deletion handler: on it,
+  // startOffboarding queues the clinic's "your account has closed" email
+  // (lib/setup/closure-email.ts), once per clinic. Typed here it would send
+  // that with nothing cancelled, and hold back the real one later.
+  if (reason.toLowerCase() === SETUP_CLOSURE_REASON) {
+    return care.error(
+      `"${SETUP_CLOSURE_REASON}" is kept for the setup window's own closure, which emails the clinic that its account has closed. To close an unfinished setup, use Billing's "Close the unfinished setup". Here, say why the clinic is leaving.`,
+    );
+  }
   await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
     (tx) => startOffboarding(tx, reason),

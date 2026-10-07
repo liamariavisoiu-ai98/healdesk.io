@@ -1273,6 +1273,52 @@ describeDb("the setup wizard", () => {
     expect(await startedAt(leaving.clinicId)).not.toBeNull();
   });
 
+  test("the ops console cannot start offboarding with the setup closure's reason", async () => {
+    // The console's reason is free text an operator types. Only the deletion
+    // handler may pass "setup_closure": typed by hand, it would tell the
+    // clinic its account had closed with nothing cancelled, and the email's
+    // dedupe would then hold back the real one.
+    const clinic = await provisionDirect("ops-closure-reason");
+    const closureEmails = async () =>
+      inTenant(
+        clinic.clinicId,
+        async (c) =>
+          (await c.query(`select dedupe_key from billing_notices where kind = 'setup_closed'`))
+            .rows,
+      );
+    const startedAt = async () =>
+      (
+        await getMigratorPool().query<{ offboarding_started_at: Date | null }>(
+          `select offboarding_started_at from clinics where id = $1`,
+          [clinic.clinicId],
+        )
+      ).rows[0]!.offboarding_started_at;
+
+    for (const reason of ["setup_closure", " Setup_Closure "]) {
+      const refused = await runOperation(
+        "startOffboarding",
+        { clinicId: clinic.clinicId, reason },
+        OPERATOR,
+      );
+      expect((refused.body as { data: { status: string; message?: string } }).data).toEqual({
+        status: "error",
+        message: expect.stringMatching(/Close the unfinished setup/),
+      });
+    }
+    expect(await closureEmails()).toEqual([]);
+    expect(await startedAt()).toBeNull();
+
+    // Any other reason starts it, and queues no closure email.
+    const started = await runOperation(
+      "startOffboarding",
+      { clinicId: clinic.clinicId, reason: "cancelled by phone" },
+      OPERATOR,
+    );
+    expect((started.body as { data: { status: string } }).data.status).toBe("updated");
+    expect(await startedAt()).not.toBeNull();
+    expect(await closureEmails()).toEqual([]);
+  });
+
   test("the calendar emails (O13) are queued in the caller's transaction, once per key, and never break it", async () => {
     const clinic = await provisionDirect("calendar");
     await withTenant({ clinicId: clinic.clinicId, actor: SERVICE }, async (tx) => {

@@ -97,7 +97,8 @@ export const DESTROY_WITHOUT_EXPORT_AFTER_DAYS = 90;
  * queues the day-30 closure email here, after the stamp and in the same
  * transaction: a closure that rolls back sends nothing, and the notice's
  * dedupe keeps it to one email per clinic however often the deletion arrives
- * (lib/setup/closure-email.ts). Every other reason queues nothing.
+ * (lib/setup/closure-email.ts). Every other reason queues nothing, and the
+ * ops console, whose reason an operator types, refuses that one.
  */
 export async function startOffboarding(tx: TenantTx, reason: string): Promise<void> {
   await tx.db.execute(sql`select app_start_offboarding(${tx.clinicId}::uuid)`);

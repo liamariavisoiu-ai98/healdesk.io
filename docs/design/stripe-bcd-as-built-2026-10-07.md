@@ -105,12 +105,16 @@ nobody buys on the per-unit wording unless we hand them a link.
 - **A meter with no allowance in the billed package borrows the bought
   package's allowance** (`effectiveIncluded`), so a waiting channel's first
   answer is neither overage nor capped.
-- **`invoice.paid` reads the live subscription and invoice from Stripe** before
-  its transaction, so delivery order no longer matters, and
-  `stripe_subscription_synced_at` makes a snapshot read earlier than the last
-  one applied a no-op. A payment lifts a suspension only when money was paid
-  against the invoice owed, after a non-payment suspension; a dispute is lifted
-  by support.
+- **Webhooks re-read Stripe before their transaction.**
+  `customer.subscription.updated` applies the live subscription, and
+  `stripe_subscription_synced_at` (the database clock just before that read)
+  skips any read older than the one already applied. `invoice.payment_failed`
+  and `invoice.payment_action_required` re-read the invoice and ignore it if it
+  is now void or paid. `invoice.paid` works from the event's payload: it reads
+  only the first plan invoice's price and, while an invoice is recorded as
+  owed, the customer's other unpaid invoices. A payment lifts a suspension only
+  once nothing else is owed, money was paid, and the suspension was for not
+  paying; a dispute is lifted by support.
 - **Notices are enqueued on the billing clinic** with the dedupe keys in
   `notices.ts`. Critical kinds are delivered right after the commit.
 - **Connect:**
@@ -144,13 +148,13 @@ nobody buys on the per-unit wording unless we hand them a link.
 |---|---|---|
 | `billing-notices` | every minute (the funnel's `notices` queue) | sends the outbox |
 | `billing-requests` | every minute (`billing-minute` queue), and hourly as a backstop | drains requests |
-| `billing-reconcile` | hourly | ensures plan starts and step-ups, waiting channels, deadline closures, location resumes, Connect disconnects after the end |
+| `billing-reconcile` | hourly | ensures plan starts and step-ups, waiting channels, deadline closures, location resumes (settling a location never charged), Connect disconnects after the end, and finishes or drops a plan change pending for more than ten minutes |
 | `setup-closure` | switch only | lets the drainer execute closures |
 | `billing-sweep` | hourly | grace warnings and suspensions |
-| `usage-meter-report` | hourly | reports overage units to Stripe's meters |
+| `usage-meter-report` | every minute (`billing-minute` queue), and hourly as a backstop | reports overage units to Stripe's meters; every minute, because usage reported after an invoice finalizes is never billed |
 | `usage-alerts` | hourly | the 80% and 100% notices |
 | `annual-overage-invoice` | daily, 05 UTC | invoices annual plans' overage per closed month |
-| `billing-housekeeping` | daily, 06 UTC | clears expired checkout records, old message references and Connect states |
+| `billing-housekeeping` | daily, 06 UTC | clears expired checkout records, old message references, Connect states and chat threads idle for 30 days |
 | `card-expiring` | daily, 07 UTC | expiring-card notices |
 | `annual-renewal-reminder` | daily, 09 UTC | `renewal_upcoming` at 30 and 21 days |
 
@@ -172,10 +176,13 @@ The "Stripe launch: your steps" doc has the click-by-click version.
 7. Enable Connect OAuth (Standard) with the redirect URI
    `https://app.healdesk.io/api/connect/stripe`, in both modes.
 8. Switch the jobs on:
-   - Gate A, before the first clinic's setup deadline (its purchase + 30
-     days): `billing-notices`, `billing-requests` and `billing-reconcile`, then
-     `setup-closure` last, because a closure cannot be undone;
-   - before the first plan start: the rest.
+   - `billing-notices` before the first clinic buys;
+   - `billing-requests` and `billing-reconcile` before the first clinic goes
+     live: a plan starts only when the worker carries out its request, anchored
+     at that moment, so any day live before then is never billed;
+   - `setup-closure` last, before the first clinic's 30th day, because a
+     closure cannot be undone;
+   - the rest on the day the first clinic goes live.
 9. Turn Stripe's own failed-payment and expiring-card emails off only once ours
    are live.
 10. Rehearse a plan start, a renewal and a failed payment on a Stripe test clock
@@ -231,18 +238,35 @@ Two findings were refuted:
   (`lib/voice/ingest.ts`): a failure after the call is recorded under-bills,
   which is the safe direction, and the vendor is not asked to retry.
 
+A second review, of the integration (the three fix branches together, and
+the merges with main), confirmed four more problems, fixed here with tests:
+- a plan change's email decided "prorated" by comparing Stripe with our row,
+  which the subscription webhook has usually already updated by the time a
+  retry or the reconcile's resume gets there. The branch that ran is now
+  written on the subscription beside the marker (`hd_plan_change_prorated`)
+  and read back;
+- the suspended and grace-ending emails promised that paying "the invoice"
+  restores the service, but a second unpaid invoice keeps it off. They now say
+  "what you owe", and when a payment moves the owed slot on while the clinic
+  stays suspended for not paying, the clinic is emailed the next invoice,
+  once per invoice;
+- after a lost answer to an annual-to-monthly change, the meter reporter
+  could send an annual month's overage to a meter before the change's last
+  step claimed it. The reporter now skips a clinic while a plan change is
+  pending;
+- annual-overage.ts loaded stripe-actions dynamically inside a try block,
+  which main's aws-sdk-externals test forbids.
+
 What the fixes left open:
 - No ops alert fires for a plan change stuck pending, and there is no console
   op to resume one. The reconcile finishes or drops it after ten minutes; a
   new ops event would need `ops/notify.ts` and `ops_alert.ts`.
-- After a lost answer to an annual-to-monthly change, the subscription
-  webhook can move `billing_interval` before the reconcile's hand-over runs,
-  and the meter reporter could then send pre-switch annual rows to a meter.
-  This is rare, and closing it needs `usage-report.ts` or `events.ts`.
+- While a plan change is pending, the meter reporter waits. After a lost
+  answer that is up to about an hour; if a monthly period ends inside that
+  hour, its last overage is reported after the invoice has finalized and is
+  not billed. That is rare, and under-billing is the safe direction.
 - Nothing alerts ops if Stripe collects an unpaid first invoice inside the
   14-day refund window; the ops panel's refund-window flag still shows it.
-- A step-up applied on Stripe but never recorded locally can make a later
-  setup-only plan change say it was prorated. This is rare.
 
 ## Open items
 

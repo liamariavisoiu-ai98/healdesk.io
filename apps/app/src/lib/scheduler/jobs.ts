@@ -29,10 +29,13 @@ export const JOB_WEEKLY_RECAP = "weekly-recap";
 export const JOB_NIGHTLY_SYNC = "nightly-sync";
 export const JOB_OFFBOARDING_DESTROY = "offboarding-destroy";
 /**
- * The Stripe launch's billing jobs (drizzle/0043), seeded off. Hourly:
- * reporting overage on monthly plans to Stripe's meters and queueing the 80%
- * and 100% allowance emails. Daily: invoicing annual plans' overage per closed
- * month (05 UTC) and the housekeeping purge (06 UTC). Wired in tick.ts.
+ * The Stripe launch's billing jobs (drizzle/0043), seeded off. Every minute
+ * from the `billing-minute` queue, with the hourly tick as a backstop:
+ * reporting overage on monthly plans to Stripe's meters, because usage
+ * reported after an invoice finalizes is never billed. Hourly: queueing the
+ * 80% and 100% allowance emails. Daily: invoicing annual plans' overage per
+ * closed month (05 UTC) and the housekeeping purge (06 UTC). Wired in tick.ts
+ * and workers/index.ts.
  *
  * `billing-notices` is no longer hourly: the email platform's sender runs it
  * every minute from the `notices` queue (lib/email/outbox.ts), and its row is

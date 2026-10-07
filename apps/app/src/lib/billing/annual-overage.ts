@@ -344,11 +344,14 @@ export async function invoiceOverageWindow(
   // differ once a clinic has left annual billing and its rows were handed over.
   const ledger = claimed.row;
 
+  // Loaded here, not imported: stripe-actions imports this module (a plan
+  // change leaving annual billing claims its months here), and a static import
+  // back would make the two a cycle. Outside the try below, because Turbopack
+  // compiles an import it cannot resolve inside a try block into a runtime
+  // throw (tests/aws-sdk-externals.test.ts).
+  const { chargeOneOffInvoice } = await import("./stripe-actions");
+
   try {
-    // Loaded here, not imported: stripe-actions imports this module (a plan
-    // change leaving annual billing claims its months here), and a static
-    // import back would make the two a cycle.
-    const { chargeOneOffInvoice } = await import("./stripe-actions");
     const stripe = options.stripe ?? getStripe();
     const items: OneOffItem[] = [];
     const days = `${windowStartIso.slice(0, 10)} to ${ledger.windowEnd.toISOString().slice(0, 10)}`;

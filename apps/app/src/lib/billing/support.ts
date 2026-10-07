@@ -106,7 +106,18 @@ export async function liftSuspension(input: LiftSuspensionInput): Promise<LiftSu
 // extendSetupDeadline
 // -----------------------------------------------------------------------------
 
-export type ExtendSetupDeadlineInput = { clinicId: string; days: number; actorLabel: string };
+export type ExtendSetupDeadlineInput = {
+  clinicId: string;
+  days: number;
+  actorLabel: string;
+  /**
+   * The deadline the caller saw. When given, the extension is refused once
+   * the stored deadline differs, so a repeated or replayed request (the ops
+   * envelope has a 300-second replay window and no nonce) cannot add the
+   * days twice.
+   */
+  expectedDeadlineAt?: Date;
+};
 
 export type ExtendSetupDeadlineResult =
   { status: "extended"; setupDeadlineAt: string } | { status: "refused" | "busy"; message: string };
@@ -149,6 +160,18 @@ export async function extendSetupDeadline(
     }
     if (!row.setupDeadlineAt) {
       return { status: "refused", message: "This account has no setup deadline to extend." };
+    }
+    // Checked under the row lock, so two copies of one request cannot both
+    // pass: the first moves the deadline and the second finds it moved.
+    if (
+      input.expectedDeadlineAt &&
+      row.setupDeadlineAt.getTime() !== input.expectedDeadlineAt.getTime()
+    ) {
+      return {
+        status: "refused",
+        message:
+          "The setup deadline has changed since this was asked, so nothing was extended. Reload to see the new deadline.",
+      };
     }
     if (!(await claimStripeMutationLease(tx.db, billingClinicId, owner))) {
       return {

@@ -73,7 +73,7 @@
  * write, and says something different in each case.
  */
 
-import { SIGNATURE_HEADER, TIMESTAMP_HEADER, sign } from "@healdesk/catalog";
+import { SIGNATURE_HEADER, TIMESTAMP_HEADER, getPlan, sign } from "@healdesk/catalog";
 import { headers } from "next/headers";
 
 import { requireOperator } from "@/lib/admin/operator";
@@ -173,6 +173,25 @@ type OperatorOp =
   | "resolveIncident"
   | "startOffboarding"
   | "markExportDelivered"
+  // The billing panel (build spec §7 E, R35).
+  | "getClinicBilling"
+  | "setOverageMode"
+  | "setUsageAlerts"
+  | "replayBillingEvent"
+  | "previewRefund"
+  | "commitRefund"
+  | "setClinicSettings"
+  | "setDepositSettings"
+  | "disconnectStripeConnect"
+  | "issueStripeConnectLink"
+  | "retryBillingRequest"
+  | "liftSuspension"
+  | "extendSetupDeadline"
+  | "retryLocationSetup"
+  | "retryOverageInvoice"
+  | "closeUnfinishedSetup"
+  | "replayConnectEvent"
+  | "setAutoRenew"
   | "startForwardingTest"
   | "listClinicHealth"
   | "recordClinicTouch"
@@ -249,6 +268,11 @@ export type OpsErrorCode =
   | "invalid_filter"
   /** Upstream answered, and it was not a success. The status is in our logs. */
   | "refused"
+  /**
+   * Upstream answered with a server error (500, 503 or any 5xx). Unlike a
+   * refusal, a write may have partly happened, and the message says so.
+   */
+  | "failed"
   /** Upstream answered with something this file could not read. */
   | "malformed";
 
@@ -1185,6 +1209,14 @@ async function browser(): Promise<{ ipAddress?: string; userAgent?: string }> {
  * operator can act on: the far side does not accept this address as the
  * administrator, and a filter this page sent was refused. Everything else, a
  * bad signature, clock skew, a 500, is our problem and is described as one.
+ *
+ * A server error is not a refusal (F12). apps/app answers 500 when an
+ * operation threw partway through, after a commit that may already have
+ * happened, and a 503 can come from whatever stands in front of it after the
+ * work began. Telling an operator "nothing was changed" then invites the
+ * second refund or the second link, so a write answered with any 5xx says it
+ * may have been carried out. "Nothing was changed" is kept for the 4xx
+ * answers, which apps/app gives before it runs anything.
  */
 async function refused(
   upstream: Response,
@@ -1220,6 +1252,17 @@ async function refused(
       code: "invalid_filter",
       message:
         "The ops API refused one of these filters. Check the dates and the version, then try again.",
+    };
+  }
+
+  if (upstream.status >= 500) {
+    return {
+      ok: false,
+      code: "failed",
+      message:
+        kind === "write"
+          ? "The ops API failed partway through. It may have carried this out, in whole or in part: reload and check before trying again."
+          : "The ops API failed while answering, so nothing below could be read.",
     };
   }
 
@@ -1409,6 +1452,33 @@ function clean(value: string): string {
       .trim()
       .slice(0, MAX_TEXT)
   );
+}
+
+/** The agent's greeting, as apps/app stores and validates it (agent-config.ts). */
+const MAX_GREETING = 600;
+
+/**
+ * Text a person edits and saves back, read without reflowing it.
+ *
+ * `text()` collapses every run of whitespace into one space and stops at
+ * MAX_TEXT, which is right for a label and wrong for a field the console puts
+ * in a textarea and then re-sends. The agent's greeting is stored with its
+ * line breaks, up to 600 characters; read through `text()` the textarea got a
+ * flattened copy cut at 400, and the next "Save script" wrote that back as a
+ * new version, silently losing text and clearing the clinic's approval (F2).
+ * So this keeps line breaks and tabs, normalises Windows line ends, strips the
+ * other control characters and the bidirectional overrides as `clean()` does,
+ * and caps at the field's own upstream limit, which a stored value never
+ * exceeds.
+ */
+function editable(value: unknown, at: string, max: number): string {
+  if (typeof value !== "string") throw new ShapeError(at);
+  return value
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g, " ")
+    .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, "")
+    .trim()
+    .slice(0, max);
 }
 
 /** A UUID, because every id here is one and every id here ends up in a URL. */
@@ -1946,7 +2016,7 @@ function readOnboardingView(value: unknown): OnboardingView {
     agent: agent
       ? {
           version: count(agent.version, "agent.version"),
-          greeting: text(agent.greeting, "agent.greeting"),
+          greeting: editable(agent.greeting, "agent.greeting", MAX_GREETING),
           services: list(agent.services, "agent.services").map((entry) => {
             const row = object(entry, "service");
             const num = (v: unknown) => (typeof v === "number" ? v : null);
@@ -2270,6 +2340,920 @@ export function openIncident(
   });
 }
 
+// -----------------------------------------------------------------------------
+// Billing: one clinic's subscription, usage, switches and the billing engine's
+// ledgers (build spec §7 E, R35)
+//
+// The projection is apps/app's (lib/ops/billing.ts): no event or notice
+// payload ever crosses, parked events arrive as ids, types and codes, money as
+// integer cents. Every field is still checked here, because a page that offers
+// a refund button must not render half an answer: one field out of shape and
+// the panel shows the malformed state instead.
+// -----------------------------------------------------------------------------
+
+export type BillingStatus =
+  | "demo"
+  | "provisioning"
+  | "active"
+  | "past_due"
+  | "suspended"
+  | "paused"
+  | "canceling"
+  | "canceled"
+  | "purged";
+const BILLING_STATUSES: readonly BillingStatus[] = [
+  "demo",
+  "provisioning",
+  "active",
+  "past_due",
+  "suspended",
+  "paused",
+  "canceling",
+  "canceled",
+  "purged",
+];
+
+export type BillingChannel = "web" | "meta" | "voice";
+const BILLING_CHANNELS: readonly BillingChannel[] = ["web", "meta", "voice"];
+export type ChannelStatusWord = "off" | "paused" | "live" | "waiting" | "setting_up";
+export type ChannelWaitingOn =
+  "setup" | "forwarding" | "snippet" | "meta_connect" | "whatsapp_payment_method";
+const CHANNEL_WAITING_ON: readonly ChannelWaitingOn[] = [
+  "setup",
+  "forwarding",
+  "snippet",
+  "meta_connect",
+  "whatsapp_payment_method",
+];
+export type BillingRequestKind = "plan_start" | "step_up" | "close_setup" | "cancel_now";
+const REQUEST_OUTCOMES = ["done", "skipped", "dead_letter"] as const;
+export type RefundKind = "first_period_cancel" | "guarantee";
+export type DepositUncollectable = "book_and_flag" | "hold_and_alert" | "decline_and_alert";
+export type UsageMeter = "voice_minutes" | "chat_conversations";
+
+/** A catalog package: its id as stored, and its name for the screen (the id again when the catalog no longer sells it). */
+export type PlanRef = { id: string; name: string };
+
+export type ClinicBillingView = {
+  clinic: {
+    id: string;
+    slug: string;
+    name: string;
+    dataClassification: "synthetic" | "production";
+    /** The clinic holding the subscription: this one, or the one this location is billed on. */
+    billingClinicId: string;
+    isLocation: boolean;
+  };
+  /** The billing clinic and every location billed on it, billing clinic first. */
+  group: {
+    clinicId: string;
+    slug: string | null;
+    name: string | null;
+    isBillingClinic: boolean;
+    channels: {
+      channel: BillingChannel;
+      enabled: boolean;
+      status: ChannelStatusWord;
+      readyOn: string | null;
+      waitingOn: ChannelWaitingOn | null;
+      liveOn: string | null;
+      firstAnswerOn: string | null;
+    }[];
+  }[];
+  channelsInService: BillingChannel[];
+  /** Null when the clinic has no billing row (synthetic, demo). */
+  entitlements: {
+    status: BillingStatus;
+    boughtPlan: PlanRef | null;
+    billedPlan: PlanRef;
+    isLegacy: boolean;
+    interval: "month" | "year";
+    locations: number;
+    planStartedAt: string | null;
+    planStartAppliedAt: string | null;
+    isPlanStarted: boolean;
+    paidThroughOn: string | null;
+    graceEndsAt: string | null;
+    cancelAt: string | null;
+    closesOn: string | null;
+    overageMode: "allow" | "hard_cap";
+    usageAlertsEnabled: boolean;
+    firstPeriodRefundedAt: string | null;
+    setupDeadlineAt: string | null;
+    /** The instant exactly as upstream sent it: extending the window sends it back as its precondition. */
+    setupDeadlineIso: string | null;
+    openInvoice: { url: string | null; amountCents: number | null } | null;
+    hasSubscription: boolean;
+    isMutationInFlight: boolean;
+  } | null;
+  usage: {
+    meter: UsageMeter;
+    used: number;
+    included: number;
+    remaining: number;
+    overUnits: number;
+    overageCents: number;
+    percent: number | null;
+    windowStartOn: string | null;
+    windowEndOn: string | null;
+    isWindowOpen: boolean;
+  }[];
+  transitions: {
+    fromStatus: BillingStatus | null;
+    toStatus: BillingStatus;
+    actor: "system" | "client" | "support";
+    reason: string;
+    at: string;
+  }[];
+  notices: {
+    kind: string;
+    createdAt: string;
+    sendAfter: string;
+    sentAt: string | null;
+    attempts: number;
+    recipientsCount: number | null;
+    lastError: string | null;
+  }[];
+  requests: {
+    id: string;
+    kind: BillingRequestKind;
+    channel: BillingChannel | null;
+    reason: "first_answer" | "waiting" | "deadline" | "ops" | "reconcile";
+    requestedAt: string;
+    nextAttemptAt: string;
+    attempts: number;
+    isInFlight: boolean;
+    doneAt: string | null;
+    outcome: "done" | "skipped" | "dead_letter" | null;
+    outcomeReason: string | null;
+    lastError: string | null;
+    isStuck: boolean;
+    isHeldBySwitch: boolean;
+  }[];
+  overageInvoices: {
+    /** The instant exactly as upstream sent it: the retry names the month by it. */
+    windowStartIso: string;
+    windowStartOn: string;
+    windowEndOn: string;
+    voiceUnits: number;
+    chatUnits: number;
+    amountCents: number;
+    status: "pending" | "invoiced" | "failed" | "skipped";
+    invoicedOn: string | null;
+    code: string | null;
+  }[];
+  attentionEvents: {
+    source: "billing" | "connect";
+    stripeEventId: string;
+    type: string;
+    outcome: "failed" | "dead_letter";
+    failures: number;
+    receivedAt: string;
+    code: string;
+  }[];
+  settings: {
+    isPaused: boolean;
+    pausedAt: string | null;
+    pausedUntil: string | null;
+    pausedByLabel: string | null;
+    directLineE164: string | null;
+    directLineSetOn: string | null;
+  };
+  deposits: {
+    depositsEnabled: boolean;
+    bookVoiceWithoutDeposit: boolean;
+    bookChatWithoutDeposit: boolean;
+    depositUncollectable: DepositUncollectable;
+    depositHoldMinutes: number;
+    defaultAmountUsd: number | null;
+    hasDepositAmount: boolean;
+    canEnable: boolean;
+  };
+  connect: {
+    isConnected: boolean;
+    accountLabel: string | null;
+    connectedOn: string | null;
+    disconnectedOn: string | null;
+  };
+  flags: {
+    refundWindowOpen: boolean;
+    refundEligibleUntil: string | null;
+    refundDue: boolean;
+    stuckRequests: number;
+    pendingLocation: { locationNumber: number; chargedOn: string | null } | null;
+  };
+};
+
+/**
+ * A short machine word: a notice kind, an event type, a closed error code,
+ * an outcome reason. Shape-checked rather than run through `text()`, because
+ * each is a vocabulary upstream owns and anything outside the shape is a
+ * contract breach, not prose to tidy up.
+ */
+function token(value: unknown, at: string): string {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_.:-]{1,80}$/.test(value)) {
+    throw new ShapeError(at);
+  }
+  return value;
+}
+
+function optionalToken(value: unknown, at: string): string | null {
+  return value === null || value === undefined ? null : token(value, at);
+}
+
+/** A Stripe event id, which is also what the replay buttons send back. */
+function stripeEventId(value: unknown, at: string): string {
+  if (typeof value !== "string" || !/^evt_[A-Za-z0-9_]{1,250}$/.test(value)) {
+    throw new ShapeError(at);
+  }
+  return value;
+}
+
+function optionalCount(value: unknown, at: string): number | null {
+  return value === null || value === undefined ? null : count(value, at);
+}
+
+/** Dollars, which may carry cents: a finite number, never negative. */
+function dollars(value: unknown, at: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new ShapeError(at);
+  }
+  return value;
+}
+
+/** A clinic line in E.164, as settings.ts stores it. */
+function e164(value: unknown, at: string): string {
+  if (typeof value !== "string" || !/^\+[1-9][0-9]{6,14}$/.test(value)) {
+    throw new ShapeError(at);
+  }
+  return value;
+}
+
+/**
+ * Stripe's hosted invoice page, or null. The panel renders it as a link, so
+ * only Stripe's invoice hosts pass, the same allowlist the billing emails use
+ * upstream; apps/app already drops anything else before it sends.
+ */
+function stripeInvoiceUrl(value: unknown, at: string): string | null {
+  if (value === null || value === undefined) return null;
+  const checked = url(value, at);
+  const host = new URL(checked).hostname;
+  if (
+    !checked.startsWith("https://") ||
+    (host !== "invoice.stripe.com" && host !== "pay.stripe.com")
+  ) {
+    throw new ShapeError(at);
+  }
+  return checked;
+}
+
+function planRef(value: unknown, at: string): PlanRef {
+  const planId = token(value, at);
+  return { id: planId, name: getPlan(planId)?.name ?? planId };
+}
+
+function readClinicBillingView(value: unknown): ClinicBillingView {
+  const data = object(value, "getClinicBilling");
+  const clinic = object(data.clinic, "billing.clinic");
+  const on = (v: unknown, at: string) => optionalInstant(v, at)?.on ?? null;
+  const at = (v: unknown, where: string) => optionalInstant(v, where)?.at ?? null;
+  const entitlements = data.entitlements ? object(data.entitlements, "billing.entitlements") : null;
+  const settings = object(data.settings, "billing.settings");
+  const deposits = object(data.deposits, "billing.deposits");
+  const connect = object(data.connect, "billing.connect");
+  const flags = object(data.flags, "billing.flags");
+  const pendingLocation = flags.pendingLocation
+    ? object(flags.pendingLocation, "billing.flags.pendingLocation")
+    : null;
+  const openInvoice = entitlements?.openInvoice
+    ? object(entitlements.openInvoice, "billing.openInvoice")
+    : null;
+
+  return {
+    clinic: {
+      id: id(clinic.id, "billing.clinic.id"),
+      slug: text(clinic.slug, "billing.clinic.slug"),
+      name: text(clinic.name, "billing.clinic.name"),
+      dataClassification: literal(
+        clinic.dataClassification,
+        ["synthetic", "production"],
+        "billing.clinic.dataClassification",
+      ),
+      billingClinicId: id(clinic.billingClinicId, "billing.clinic.billingClinicId"),
+      isLocation: bool(clinic.isLocation, "billing.clinic.isLocation"),
+    },
+    group: list(data.group, "billing.group").map((entry) => {
+      const member = object(entry, "billing.group.clinic");
+      return {
+        clinicId: id(member.clinicId, "billing.group.clinicId"),
+        slug: optionalText(member.slug, "billing.group.slug"),
+        name: optionalText(member.name, "billing.group.name"),
+        isBillingClinic: bool(member.isBillingClinic, "billing.group.isBillingClinic"),
+        channels: list(member.channels, "billing.group.channels").map((row) => {
+          const c = object(row, "billing.group.channel");
+          return {
+            channel: literal(c.channel, BILLING_CHANNELS, "billing.channel.channel"),
+            enabled: bool(c.enabled, "billing.channel.enabled"),
+            status: literal(
+              c.status,
+              ["off", "paused", "live", "waiting", "setting_up"],
+              "billing.channel.status",
+            ),
+            readyOn: on(c.readyAt, "billing.channel.readyAt"),
+            waitingOn:
+              c.waitingOn === null || c.waitingOn === undefined
+                ? null
+                : literal(c.waitingOn, CHANNEL_WAITING_ON, "billing.channel.waitingOn"),
+            liveOn: on(c.liveAt, "billing.channel.liveAt"),
+            firstAnswerOn: on(c.firstAnswerAt, "billing.channel.firstAnswerAt"),
+          };
+        }),
+      };
+    }),
+    channelsInService: list(data.channelsInService, "billing.channelsInService").map((c) =>
+      literal(c, BILLING_CHANNELS, "billing.channelsInService"),
+    ),
+    entitlements: entitlements
+      ? {
+          status: literal(entitlements.status, BILLING_STATUSES, "billing.status"),
+          boughtPlan:
+            entitlements.boughtPlanId === null || entitlements.boughtPlanId === undefined
+              ? null
+              : planRef(entitlements.boughtPlanId, "billing.boughtPlanId"),
+          billedPlan: planRef(entitlements.billedPlanId, "billing.billedPlanId"),
+          isLegacy: bool(entitlements.isLegacy, "billing.isLegacy"),
+          interval: literal(entitlements.interval, ["month", "year"], "billing.interval"),
+          locations: count(entitlements.locations, "billing.locations"),
+          planStartedAt: at(entitlements.planStartedAt, "billing.planStartedAt"),
+          planStartAppliedAt: at(entitlements.planStartAppliedAt, "billing.planStartAppliedAt"),
+          isPlanStarted: bool(entitlements.isPlanStarted, "billing.isPlanStarted"),
+          paidThroughOn: on(entitlements.paidThrough, "billing.paidThrough"),
+          graceEndsAt: at(entitlements.graceEndsAt, "billing.graceEndsAt"),
+          cancelAt: at(entitlements.cancelAt, "billing.cancelAt"),
+          closesOn: on(entitlements.closesAt, "billing.closesAt"),
+          overageMode: literal(
+            entitlements.overageMode,
+            ["allow", "hard_cap"],
+            "billing.overageMode",
+          ),
+          usageAlertsEnabled: bool(entitlements.usageAlertsEnabled, "billing.usageAlertsEnabled"),
+          firstPeriodRefundedAt: at(
+            entitlements.firstPeriodRefundedAt,
+            "billing.firstPeriodRefundedAt",
+          ),
+          setupDeadlineAt: at(entitlements.setupDeadlineAt, "billing.setupDeadlineAt"),
+          setupDeadlineIso: optionalIsoInstant(
+            entitlements.setupDeadlineAt,
+            "billing.setupDeadlineAt",
+          ),
+          openInvoice: openInvoice
+            ? {
+                url: stripeInvoiceUrl(openInvoice.url, "billing.openInvoice.url"),
+                amountCents: optionalCount(
+                  openInvoice.amountCents,
+                  "billing.openInvoice.amountCents",
+                ),
+              }
+            : null,
+          hasSubscription: bool(entitlements.hasSubscription, "billing.hasSubscription"),
+          isMutationInFlight: bool(entitlements.isMutationInFlight, "billing.isMutationInFlight"),
+        }
+      : null,
+    usage: list(data.usage, "billing.usage").map((entry) => {
+      const u = object(entry, "billing.usage.meter");
+      return {
+        meter: literal(u.meter, ["voice_minutes", "chat_conversations"], "billing.usage.meter"),
+        used: count(u.used, "billing.usage.used"),
+        included: count(u.included, "billing.usage.included"),
+        remaining: count(u.remaining, "billing.usage.remaining"),
+        overUnits: count(u.overUnits, "billing.usage.overUnits"),
+        overageCents: count(u.overageCents, "billing.usage.overageCents"),
+        percent: optionalCount(u.percent, "billing.usage.percent"),
+        windowStartOn: on(u.windowStart, "billing.usage.windowStart"),
+        windowEndOn: on(u.windowEnd, "billing.usage.windowEnd"),
+        isWindowOpen: bool(u.isWindowOpen, "billing.usage.isWindowOpen"),
+      };
+    }),
+    transitions: list(data.transitions, "billing.transitions").map((entry) => {
+      const t = object(entry, "billing.transition");
+      return {
+        fromStatus:
+          t.fromStatus === null || t.fromStatus === undefined
+            ? null
+            : literal(t.fromStatus, BILLING_STATUSES, "billing.transition.fromStatus"),
+        toStatus: literal(t.toStatus, BILLING_STATUSES, "billing.transition.toStatus"),
+        actor: literal(t.actor, ["system", "client", "support"], "billing.transition.actor"),
+        reason: text(t.reason, "billing.transition.reason"),
+        at: instant(t.createdAt, "billing.transition.createdAt").at,
+      };
+    }),
+    notices: list(data.notices, "billing.notices").map((entry) => {
+      const n = object(entry, "billing.notice");
+      return {
+        kind: token(n.kind, "billing.notice.kind"),
+        createdAt: instant(n.createdAt, "billing.notice.createdAt").at,
+        sendAfter: instant(n.sendAfter, "billing.notice.sendAfter").at,
+        sentAt: at(n.sentAt, "billing.notice.sentAt"),
+        attempts: count(n.attempts, "billing.notice.attempts"),
+        recipientsCount: optionalCount(n.recipientsCount, "billing.notice.recipientsCount"),
+        lastError: optionalText(n.lastError, "billing.notice.lastError"),
+      };
+    }),
+    requests: list(data.requests, "billing.requests").map((entry) => {
+      const r = object(entry, "billing.request");
+      return {
+        id: id(r.id, "billing.request.id"),
+        kind: literal(
+          r.kind,
+          ["plan_start", "step_up", "close_setup", "cancel_now"],
+          "billing.request.kind",
+        ),
+        channel:
+          r.channel === null || r.channel === undefined
+            ? null
+            : literal(r.channel, BILLING_CHANNELS, "billing.request.channel"),
+        reason: literal(
+          r.reason,
+          ["first_answer", "waiting", "deadline", "ops", "reconcile"],
+          "billing.request.reason",
+        ),
+        requestedAt: instant(r.requestedAt, "billing.request.requestedAt").at,
+        nextAttemptAt: instant(r.nextAttemptAt, "billing.request.nextAttemptAt").at,
+        attempts: count(r.attempts, "billing.request.attempts"),
+        isInFlight: bool(r.isInFlight, "billing.request.isInFlight"),
+        doneAt: at(r.doneAt, "billing.request.doneAt"),
+        outcome:
+          r.outcome === null || r.outcome === undefined
+            ? null
+            : literal(r.outcome, REQUEST_OUTCOMES, "billing.request.outcome"),
+        outcomeReason: optionalToken(r.outcomeReason, "billing.request.outcomeReason"),
+        lastError: optionalText(r.lastError, "billing.request.lastError"),
+        isStuck: bool(r.isStuck, "billing.request.isStuck"),
+        isHeldBySwitch: bool(r.isHeldBySwitch, "billing.request.isHeldBySwitch"),
+      };
+    }),
+    overageInvoices: list(data.overageInvoices, "billing.overageInvoices").map((entry) => {
+      const o = object(entry, "billing.overage");
+      return {
+        windowStartIso: isoInstant(o.windowStart, "billing.overage.windowStart"),
+        windowStartOn: instant(o.windowStart, "billing.overage.windowStart").on,
+        windowEndOn: instant(o.windowEnd, "billing.overage.windowEnd").on,
+        voiceUnits: count(o.voiceUnits, "billing.overage.voiceUnits"),
+        chatUnits: count(o.chatUnits, "billing.overage.chatUnits"),
+        amountCents: count(o.amountCents, "billing.overage.amountCents"),
+        status: literal(
+          o.status,
+          ["pending", "invoiced", "failed", "skipped"],
+          "billing.overage.status",
+        ),
+        invoicedOn: on(o.invoicedAt, "billing.overage.invoicedAt"),
+        code: optionalToken(o.code, "billing.overage.code"),
+      };
+    }),
+    attentionEvents: list(data.attentionEvents, "billing.attentionEvents").map((entry) => {
+      const e = object(entry, "billing.event");
+      return {
+        source: literal(e.source, ["billing", "connect"], "billing.event.source"),
+        stripeEventId: stripeEventId(e.stripeEventId, "billing.event.stripeEventId"),
+        type: token(e.type, "billing.event.type"),
+        outcome: literal(e.outcome, ["failed", "dead_letter"], "billing.event.outcome"),
+        failures: count(e.failures, "billing.event.failures"),
+        receivedAt: instant(e.receivedAt, "billing.event.receivedAt").at,
+        code: token(e.code, "billing.event.code"),
+      };
+    }),
+    settings: {
+      isPaused: bool(settings.isPaused, "billing.settings.isPaused"),
+      pausedAt: at(settings.pausedAt, "billing.settings.pausedAt"),
+      pausedUntil: at(settings.pausedUntil, "billing.settings.pausedUntil"),
+      pausedByLabel: optionalText(settings.pausedByLabel, "billing.settings.pausedByLabel"),
+      directLineE164:
+        settings.directLineE164 === null || settings.directLineE164 === undefined
+          ? null
+          : e164(settings.directLineE164, "billing.settings.directLineE164"),
+      directLineSetOn: on(settings.directLineSetAt, "billing.settings.directLineSetAt"),
+    },
+    deposits: {
+      depositsEnabled: bool(deposits.depositsEnabled, "billing.deposits.depositsEnabled"),
+      bookVoiceWithoutDeposit: bool(
+        deposits.bookVoiceWithoutDeposit,
+        "billing.deposits.bookVoiceWithoutDeposit",
+      ),
+      bookChatWithoutDeposit: bool(
+        deposits.bookChatWithoutDeposit,
+        "billing.deposits.bookChatWithoutDeposit",
+      ),
+      depositUncollectable: literal(
+        deposits.depositUncollectable,
+        ["book_and_flag", "hold_and_alert", "decline_and_alert"],
+        "billing.deposits.depositUncollectable",
+      ),
+      depositHoldMinutes: count(deposits.depositHoldMinutes, "billing.deposits.depositHoldMinutes"),
+      defaultAmountUsd:
+        deposits.defaultAmountUsd === null || deposits.defaultAmountUsd === undefined
+          ? null
+          : dollars(deposits.defaultAmountUsd, "billing.deposits.defaultAmountUsd"),
+      hasDepositAmount: bool(deposits.hasDepositAmount, "billing.deposits.hasDepositAmount"),
+      canEnable: bool(deposits.canEnable, "billing.deposits.canEnable"),
+    },
+    connect: {
+      isConnected: bool(connect.isConnected, "billing.connect.isConnected"),
+      accountLabel: optionalText(connect.accountLabel, "billing.connect.accountLabel"),
+      connectedOn: on(connect.connectedAt, "billing.connect.connectedAt"),
+      disconnectedOn: on(connect.disconnectedAt, "billing.connect.disconnectedAt"),
+    },
+    flags: {
+      refundWindowOpen: bool(flags.refundWindowOpen, "billing.flags.refundWindowOpen"),
+      refundEligibleUntil:
+        flags.refundEligibleUntil === null || flags.refundEligibleUntil === undefined
+          ? null
+          : date(flags.refundEligibleUntil, "billing.flags.refundEligibleUntil"),
+      refundDue: bool(flags.refundDue, "billing.flags.refundDue"),
+      stuckRequests: count(flags.stuckRequests, "billing.flags.stuckRequests"),
+      pendingLocation: pendingLocation
+        ? {
+            locationNumber: count(pendingLocation.locationNumber, "billing.pendingLocation.number"),
+            chargedOn: on(pendingLocation.chargedAt, "billing.pendingLocation.chargedAt"),
+          }
+        : null,
+    },
+  };
+}
+
+export function fetchClinicBilling(clinicId: string): Promise<OpsResult<ClinicBillingView>> {
+  return callOps("getClinicBilling", "read", { clinicId }, readClinicBillingView);
+}
+
+/** A switch on the panel: whether it changed anything, and whether that is on record. */
+export type BillingSwitchOutcome =
+  ({ status: "updated"; changed: boolean } & Audited) | { status: "refused"; message: string };
+
+function billingSwitch(
+  op: OperatorOp,
+  args: Record<string, unknown>,
+): Promise<OpsResult<BillingSwitchOutcome>> {
+  return callOps(op, "write", args, (value) => {
+    const data = object(value, op);
+    if (state(data, op) !== "updated") return refusal(data, op);
+    return {
+      status: "updated",
+      changed: bool(data.changed, `${op}.changed`),
+      auditRecorded: bool(data.auditRecorded, `${op}.auditRecorded`),
+    };
+  });
+}
+
+export function setOverageMode(clinicId: string, mode: "allow" | "hard_cap") {
+  return billingSwitch("setOverageMode", { clinicId, mode });
+}
+
+export function setUsageAlerts(clinicId: string, on: boolean) {
+  return billingSwitch("setUsageAlerts", { clinicId, on });
+}
+
+/** Pause AI (with an optional end, an ISO instant) and the direct line; absent fields are left alone. */
+export function setClinicSettings(
+  clinicId: string,
+  input: { directLineE164?: string | null; aiPaused?: boolean; aiPausedUntil?: string | null },
+) {
+  return billingSwitch("setClinicSettings", { ...input, clinicId });
+}
+
+/**
+ * The page's clinic is spread last in the writes below that take an input
+ * object: a server action's argument comes from the browser, and an input
+ * that carried its own `clinicId` must not be able to point the write at a
+ * different clinic from the one the page is for.
+ */
+export type DepositSettingsInput = Partial<{
+  depositsEnabled: boolean;
+  bookVoiceWithoutDeposit: boolean;
+  bookChatWithoutDeposit: boolean;
+  depositUncollectable: DepositUncollectable;
+  depositHoldMinutes: number;
+}>;
+
+export function setDepositSettings(clinicId: string, input: DepositSettingsInput) {
+  return billingSwitch("setDepositSettings", { ...input, clinicId });
+}
+
+export type ReplayEventOutcome =
+  | ({ status: "replayed"; outcome: "processed" | "ignored" | "dead_letter" } & Audited)
+  | { status: "refused"; message: string };
+
+function replayEvent(
+  op: "replayBillingEvent" | "replayConnectEvent",
+  eventId: string,
+): Promise<OpsResult<ReplayEventOutcome>> {
+  return callOps(op, "write", { eventId }, (value) => {
+    const data = object(value, op);
+    if (state(data, op) !== "replayed") return refusal(data, op);
+    return {
+      status: "replayed",
+      outcome: literal(data.outcome, ["processed", "ignored", "dead_letter"], `${op}.outcome`),
+      auditRecorded: bool(data.auditRecorded, `${op}.auditRecorded`),
+    };
+  });
+}
+
+export function replayBillingEvent(eventId: string) {
+  return replayEvent("replayBillingEvent", eventId);
+}
+
+export function replayConnectEvent(eventId: string) {
+  return replayEvent("replayConnectEvent", eventId);
+}
+
+export type RefundPreviewOutcome =
+  | {
+      status: "ok";
+      kind: RefundKind;
+      amountCents: number;
+      cancelsPlan: boolean;
+      planStartedOn: string | null;
+      windowEndsOn: string | null;
+    }
+  | { status: "refused"; message: string };
+
+/** What a refund would pay back. A read: Stripe is asked, nothing is written but the audit row. */
+export function previewRefund(
+  clinicId: string,
+  kind: RefundKind,
+): Promise<OpsResult<RefundPreviewOutcome>> {
+  return callOps("previewRefund", "read", { clinicId, kind }, (value) => {
+    const data = object(value, "previewRefund");
+    if (state(data, "previewRefund") !== "ok") return refusal(data, "previewRefund");
+    const optionalDate = (v: unknown, where: string) =>
+      v === null || v === undefined ? null : date(v, where);
+    return {
+      status: "ok",
+      kind: literal(data.kind, ["first_period_cancel", "guarantee"], "previewRefund.kind"),
+      amountCents: count(data.amountCents, "previewRefund.amountCents"),
+      cancelsPlan: bool(data.cancelsPlan, "previewRefund.cancelsPlan"),
+      planStartedOn: optionalDate(data.planStartedOn, "previewRefund.planStartedOn"),
+      windowEndsOn: optionalDate(data.windowEndsOn, "previewRefund.windowEndsOn"),
+    };
+  });
+}
+
+export type RefundOutcome =
+  | ({
+      status: "refunded";
+      amountCents: number;
+      refundedAt: string;
+      isCancelRequested: boolean;
+    } & Audited)
+  | { status: "refused"; message: string };
+
+/**
+ * Refund under Terms § 5. A write in the fullest sense: on a timeout or a
+ * server error the sentence says it may have gone through, and the operator
+ * checks Stripe before asking again (apps/app reuses any part already made).
+ */
+export function commitRefund(
+  clinicId: string,
+  input: { kind: RefundKind; confirmAmountCents: number; reason: string },
+): Promise<OpsResult<RefundOutcome>> {
+  return callOps("commitRefund", "write", { ...input, clinicId }, (value) => {
+    const data = object(value, "commitRefund");
+    if (state(data, "commitRefund") !== "refunded") return refusal(data, "commitRefund");
+    return {
+      status: "refunded",
+      amountCents: count(data.amountCents, "commitRefund.amountCents"),
+      refundedAt: instant(data.refundedAt, "commitRefund.refundedAt").at,
+      isCancelRequested: bool(data.isCancelRequested, "commitRefund.isCancelRequested"),
+      auditRecorded: bool(data.auditRecorded, "commitRefund.auditRecorded"),
+    };
+  });
+}
+
+export type StripeConnectLinkOutcome =
+  | ({ status: "issued"; url: string; expiresAt: string } & Audited)
+  | { status: "refused"; message: string };
+
+/**
+ * Stripe's authorize page with a single-use state, minted upstream and shown
+ * once. Only a link on connect.stripe.com is accepted: anything else would be
+ * a link this console vouched for, sent to a clinic, pointed somewhere else.
+ */
+export function issueStripeConnectLink(
+  clinicId: string,
+): Promise<OpsResult<StripeConnectLinkOutcome>> {
+  return callOps("issueStripeConnectLink", "write", { clinicId }, (value) => {
+    const data = object(value, "issueStripeConnectLink");
+    if (state(data, "issueStripeConnectLink") !== "issued") {
+      return refusal(data, "issueStripeConnectLink");
+    }
+    const link = url(data.url, "issueStripeConnectLink.url");
+    if (!link.startsWith("https://connect.stripe.com/")) {
+      throw new ShapeError("issueStripeConnectLink.url");
+    }
+    return {
+      status: "issued",
+      url: link,
+      expiresAt: text(data.expiresAt, "issueStripeConnectLink.expiresAt"),
+      auditRecorded: bool(data.auditRecorded, "issueStripeConnectLink.auditRecorded"),
+    };
+  });
+}
+
+export type DisconnectOutcome =
+  | ({
+      status: "disconnected";
+      deauthorized: boolean;
+      shared: boolean;
+      cancelledLinks: number;
+      paidLinks: number;
+      uncheckedLinks: number;
+    } & Audited)
+  | { status: "refused"; message: string };
+
+export function disconnectStripeConnect(clinicId: string): Promise<OpsResult<DisconnectOutcome>> {
+  return callOps("disconnectStripeConnect", "write", { clinicId }, (value) => {
+    const data = object(value, "disconnectStripeConnect");
+    if (state(data, "disconnectStripeConnect") !== "disconnected") {
+      return refusal(data, "disconnectStripeConnect");
+    }
+    return {
+      status: "disconnected",
+      deauthorized: bool(data.deauthorized, "disconnectStripeConnect.deauthorized"),
+      shared: bool(data.shared, "disconnectStripeConnect.shared"),
+      cancelledLinks: count(data.cancelledLinks, "disconnectStripeConnect.cancelledLinks"),
+      paidLinks: count(data.paidLinks, "disconnectStripeConnect.paidLinks"),
+      uncheckedLinks: count(data.uncheckedLinks, "disconnectStripeConnect.uncheckedLinks"),
+      auditRecorded: bool(data.auditRecorded, "disconnectStripeConnect.auditRecorded"),
+    };
+  });
+}
+
+export type RetryRequestOutcome =
+  | ({ status: "retried"; kind: BillingRequestKind } & Audited)
+  | { status: "refused"; message: string };
+
+export function retryBillingRequest(
+  clinicId: string,
+  requestId: string,
+): Promise<OpsResult<RetryRequestOutcome>> {
+  return callOps("retryBillingRequest", "write", { clinicId, requestId }, (value) => {
+    const data = object(value, "retryBillingRequest");
+    if (state(data, "retryBillingRequest") !== "retried") {
+      return refusal(data, "retryBillingRequest");
+    }
+    return {
+      status: "retried",
+      kind: literal(
+        data.kind,
+        ["plan_start", "step_up", "close_setup", "cancel_now"],
+        "retryBillingRequest.kind",
+      ),
+      auditRecorded: bool(data.auditRecorded, "retryBillingRequest.auditRecorded"),
+    };
+  });
+}
+
+export type LiftSuspensionOutcome =
+  ({ status: "lifted" } & Audited) | { status: "refused"; message: string };
+
+export function liftSuspension(
+  clinicId: string,
+  reason: string,
+): Promise<OpsResult<LiftSuspensionOutcome>> {
+  return callOps("liftSuspension", "write", { clinicId, reason }, (value) => {
+    const data = object(value, "liftSuspension");
+    if (state(data, "liftSuspension") !== "lifted") return refusal(data, "liftSuspension");
+    return {
+      status: "lifted",
+      auditRecorded: bool(data.auditRecorded, "liftSuspension.auditRecorded"),
+    };
+  });
+}
+
+export type ExtendDeadlineOutcome =
+  | ({ status: "extended"; setupDeadlineAt: string } & Audited)
+  | { status: "refused"; message: string };
+
+/**
+ * More time to finish setup. `fromDeadline` is the deadline the page showed,
+ * exactly as it arrived (`setupDeadlineIso`): apps/app refuses once it has
+ * moved, so a repeated click or a replayed request cannot add the days twice.
+ */
+export function extendSetupDeadline(
+  clinicId: string,
+  input: { days: number; fromDeadline: string },
+): Promise<OpsResult<ExtendDeadlineOutcome>> {
+  return callOps("extendSetupDeadline", "write", { ...input, clinicId }, (value) => {
+    const data = object(value, "extendSetupDeadline");
+    if (state(data, "extendSetupDeadline") !== "extended") {
+      return refusal(data, "extendSetupDeadline");
+    }
+    return {
+      status: "extended",
+      setupDeadlineAt: instant(data.setupDeadlineAt, "extendSetupDeadline.setupDeadlineAt").at,
+      auditRecorded: bool(data.auditRecorded, "extendSetupDeadline.auditRecorded"),
+    };
+  });
+}
+
+export type LocationSetupOutcome =
+  | ({ status: "added"; clinicId: string; slug: string } & Audited)
+  | ({ status: "cleared" } & Audited)
+  | { status: "refused"; message: string };
+
+export function retryLocationSetup(clinicId: string): Promise<OpsResult<LocationSetupOutcome>> {
+  return callOps("retryLocationSetup", "write", { clinicId }, (value) => {
+    const data = object(value, "retryLocationSetup");
+    const status = state(data, "retryLocationSetup");
+    const auditRecorded = () => bool(data.auditRecorded, "retryLocationSetup.auditRecorded");
+    if (status === "added") {
+      return {
+        status: "added",
+        clinicId: id(data.clinicId, "retryLocationSetup.clinicId"),
+        slug: text(data.slug, "retryLocationSetup.slug"),
+        auditRecorded: auditRecorded(),
+      };
+    }
+    if (status === "cleared") return { status: "cleared", auditRecorded: auditRecorded() };
+    return refusal(data, "retryLocationSetup");
+  });
+}
+
+export type OverageRetryOutcome =
+  | ({ status: "invoiced"; amountCents: number; hostedInvoiceUrl: string | null } & Audited)
+  | ({ status: "skipped"; reason: string } & Audited)
+  | { status: "refused"; message: string };
+
+export function retryOverageInvoice(
+  clinicId: string,
+  windowStart: string,
+): Promise<OpsResult<OverageRetryOutcome>> {
+  return callOps("retryOverageInvoice", "write", { clinicId, windowStart }, (value) => {
+    const data = object(value, "retryOverageInvoice");
+    const status = state(data, "retryOverageInvoice");
+    if (status === "invoiced") {
+      return {
+        status: "invoiced",
+        amountCents: count(data.amountCents, "retryOverageInvoice.amountCents"),
+        hostedInvoiceUrl: stripeInvoiceUrl(
+          data.hostedInvoiceUrl,
+          "retryOverageInvoice.hostedInvoiceUrl",
+        ),
+        auditRecorded: bool(data.auditRecorded, "retryOverageInvoice.auditRecorded"),
+      };
+    }
+    if (status === "skipped") {
+      return {
+        status: "skipped",
+        reason: token(data.reason, "retryOverageInvoice.reason"),
+        auditRecorded: bool(data.auditRecorded, "retryOverageInvoice.auditRecorded"),
+      };
+    }
+    return refusal(data, "retryOverageInvoice");
+  });
+}
+
+export type SetupClosureOutcome =
+  | ({ status: "recorded"; isNew: boolean; isSwitchOn: boolean } & Audited)
+  | { status: "refused"; message: string };
+
+/** Destructive: the panel asks for a ticked box, and apps/app refuses without `confirm: true`. */
+export function closeUnfinishedSetup(clinicId: string): Promise<OpsResult<SetupClosureOutcome>> {
+  return callOps("closeUnfinishedSetup", "write", { clinicId, confirm: true }, (value) => {
+    const data = object(value, "closeUnfinishedSetup");
+    if (state(data, "closeUnfinishedSetup") !== "recorded") {
+      return refusal(data, "closeUnfinishedSetup");
+    }
+    return {
+      status: "recorded",
+      isNew: bool(data.isNew, "closeUnfinishedSetup.isNew"),
+      isSwitchOn: bool(data.isSwitchOn, "closeUnfinishedSetup.isSwitchOn"),
+      auditRecorded: bool(data.auditRecorded, "closeUnfinishedSetup.auditRecorded"),
+    };
+  });
+}
+
+export type AutoRenewOutcome =
+  | ({ status: "ok"; closesOn: string | null; changed: boolean } & Audited)
+  | { status: "refused"; message: string };
+
+/**
+ * Auto-renew on the clinic's behalf. `changed` is false when it was already
+ * as asked: apps/app then answers from the record and Stripe is not called.
+ */
+export function setAutoRenew(clinicId: string, on: boolean): Promise<OpsResult<AutoRenewOutcome>> {
+  return callOps("setAutoRenew", "write", { clinicId, on }, (value) => {
+    const data = object(value, "setAutoRenew");
+    if (state(data, "setAutoRenew") !== "ok") return refusal(data, "setAutoRenew");
+    return {
+      status: "ok",
+      closesOn:
+        data.closesOn === null || data.closesOn === undefined
+          ? null
+          : date(data.closesOn, "setAutoRenew.closesOn"),
+      changed: bool(data.changed, "setAutoRenew.changed"),
+      auditRecorded: bool(data.auditRecorded, "setAutoRenew.auditRecorded"),
+    };
+  });
+}
 
 // -----------------------------------------------------------------------------
 // Phase 8: forwarding test, first-weeks health, touches

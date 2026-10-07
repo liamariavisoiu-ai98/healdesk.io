@@ -228,6 +228,29 @@ describeDb(
       expect(JSON.stringify(params)).not.toMatch(/peel|Chemical|\+1555|2026-10-09/i);
     });
 
+    test("never on a call: the ledger refuses a link for any channel but website chat and Meta", async () => {
+      // BAA 1.3.0 release gate 10 (docs/counsel/agreement-changes.md § 12.14):
+      // links only in website chat and on Meta. The type allows only those two;
+      // this is the check behind it, and createDepositLink's first write meets
+      // it before Stripe is called.
+      const c = await depositClinic("link-not-on-a-call");
+      const insert = (channel: string) =>
+        inTenant(c.clinicId, (client) =>
+          client.query(
+            `insert into deposit_payments (clinic_id, channel, amount_cents, stripe_account_id, status)
+             values ($1, $2, 7500, $3, 'creating')`,
+            [c.clinicId, channel, ACCOUNT],
+          ),
+        );
+      await expect(insert("voice")).rejects.toMatchObject({
+        code: "23514",
+        constraint: "deposit_payments_channel_check",
+      });
+      await expect(insert("web")).resolves.toBeDefined();
+      await expect(insert("meta")).resolves.toBeDefined();
+      expect(sessions).toBe(0);
+    });
+
     test("one live link per appointment: a second request gets the same open session back", async () => {
       const c = await depositClinic("link-once");
       const appt = await appointment(c.clinicId);

@@ -7,19 +7,23 @@ import type { TenantTx } from "@/lib/tenant";
  * Incidents: the BAA's promises as rows with deadlines.
  *
  * The agreement (packages/catalog/src/baa.ts, "Reporting breaches and
- * security incidents") commits healdesk to tell the clinic:
+ * security incidents") commits healdesk to tell the clinic, immediately
+ * following discovery and in any case WITHIN 24 HOURS of it, of:
  *
- *   a. within FIVE BUSINESS DAYS of becoming aware of any use or disclosure
- *      the agreement does not permit;
- *   b. within FIVE CALENDAR DAYS of discovering a breach of unsecured PHI;
- *   c. within five business days of any security incident.
+ *   a. any use or disclosure of PHI the agreement does not permit;
+ *   b. any breach of unsecured PHI;
+ *   c. any security incident, a state-law breach of security included.
  *
- * For a clinic that is not a covered entity, BAA 1.3.0's clause "Where
- * Practice is not a covered entity" governs where it differs, and it
- * shortens (b): healdesk tells the practice of a breach "immediately
- * following discovery" wherever a state law requires a business holding data
- * for its owner to tell the owner that soon, as California's does (Cal. Civ.
- * Code 1798.82(b)). Here that is 24 hours from discovery.
+ * That is BAA 1.3.0's one rule for every practice, covered entity or not
+ * (docs/counsel/agreement-changes.md §12.14, release gate 5, PT-14). BAA
+ * 1.2.1 allowed five business days for (a) and (c) and five calendar days
+ * for (b); 24 hours meets those as well, so every clinic gets the 24-hour
+ * clock whichever version it signed, and the runbook works to it
+ * (docs/incident-response.md). For a breach at a clinic that is not a
+ * covered entity, a state law can ask for notice "immediately following
+ * discovery" as well, as California's does of a business holding data for
+ * its owner (Cal. Civ. Code 1798.82(b)). Here that is also 24 hours from
+ * discovery, and whichever of the two clocks is earlier is the one kept.
  *
  * A clock that lives in someone's memory is a clock that is missed. Opening
  * an incident computes `notify_by` from the class, the discovery time and
@@ -44,13 +48,16 @@ export type IncidentClass = "security_incident" | "improper_use_or_disclosure" |
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** The agreement's deadline for (a), (b) and (c): within 24 hours of discovery. */
+const REPORT_WITHIN_MS = DAY_MS;
+
 /** "Immediately following discovery", as a deadline the console can show. */
 const IMMEDIATELY_MS = DAY_MS;
 
 /** California's clock for the owner of the data to notify the people affected. */
 const OWNER_NOTICE_DAYS = 30;
 
-/** Five business days, skipping Saturday and Sunday in UTC. */
+/** Business days, skipping Saturday and Sunday in UTC. */
 export function addBusinessDays(from: Date, days: number): Date {
   const d = new Date(from.getTime());
   let left = days;
@@ -63,20 +70,23 @@ export function addBusinessDays(from: Date, days: number): Date {
 }
 
 /**
- * When the clinic must be told. The status is required, not defaulted: a
- * caller that forgot it would silently get the covered clock, five days
- * where the agreement promises one.
+ * When the clinic must be told: discovery plus 24 hours for a breach, a
+ * security incident and an improper use or disclosure, at every clinic,
+ * covered entity or not. The status is required, not defaulted: for a breach
+ * at a clinic that is not a covered entity the state-law clock runs too, and
+ * the earlier of the two is kept, so a caller that forgot the status would
+ * miss that clock the day it became the shorter one.
  */
 export function notifyDeadline(cls: IncidentClass, discoveredAt: Date, isCoveredEntity: boolean | null): Date {
   switch (cls) {
     case "breach":
-      // Not a covered entity: the state-law clause's "immediately".
-      return isCoveredEntity === false
-        ? new Date(discoveredAt.getTime() + IMMEDIATELY_MS)
-        : new Date(discoveredAt.getTime() + 5 * DAY_MS);
     case "improper_use_or_disclosure":
-    case "security_incident":
-      return addBusinessDays(discoveredAt, 5);
+    case "security_incident": {
+      // A breach at a clinic that is not a covered entity also runs the
+      // state-law clause's "immediately"; the earlier of the two is kept.
+      const stateLaw = cls === "breach" && isCoveredEntity === false;
+      return new Date(discoveredAt.getTime() + (stateLaw ? Math.min(REPORT_WITHIN_MS, IMMEDIATELY_MS) : REPORT_WITHIN_MS));
+    }
     case "service_complaint":
       // Not a BAA clock; a service promise. Two business days to a first reply.
       return addBusinessDays(discoveredAt, 2);
@@ -101,8 +111,9 @@ export type OpenIncidentInput = {
   discoveredAt?: Date;
   openedBy: string;
   /**
-   * From clinics.is_covered_entity. For a breach, false shortens the clinic's
-   * clock to 24 hours and adds the owner's 30-day clock.
+   * From clinics.is_covered_entity. For a breach, false adds the owner's
+   * 30-day clock, and the state-law clock wherever it is shorter than the
+   * 24 hours every clinic gets.
    */
   isCoveredEntity: boolean | null;
 };

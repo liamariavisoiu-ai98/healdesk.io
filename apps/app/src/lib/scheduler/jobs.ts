@@ -29,10 +29,13 @@ export const JOB_WEEKLY_RECAP = "weekly-recap";
 export const JOB_NIGHTLY_SYNC = "nightly-sync";
 export const JOB_OFFBOARDING_DESTROY = "offboarding-destroy";
 /**
- * The Stripe launch's billing jobs (drizzle/0043), seeded off. Hourly:
- * reporting overage on monthly plans to Stripe's meters and queueing the 80%
- * and 100% allowance emails. Daily: invoicing annual plans' overage per closed
- * month (05 UTC) and the housekeeping purge (06 UTC). Wired in tick.ts.
+ * The Stripe launch's billing jobs (drizzle/0043), seeded off. Every minute
+ * from the `billing-minute` queue, with the hourly tick as a backstop:
+ * reporting overage on monthly plans to Stripe's meters, because usage
+ * reported after an invoice finalizes is never billed. Hourly: queueing the
+ * 80% and 100% allowance emails. Daily: invoicing annual plans' overage per
+ * closed month (05 UTC) and the housekeeping purge (06 UTC). Wired in tick.ts
+ * and workers/index.ts.
  *
  * `billing-notices` is no longer hourly: the email platform's sender runs it
  * every minute from the `notices` queue (lib/email/outbox.ts), and its row is
@@ -60,7 +63,14 @@ export const JOB_SETUP_CLOSURE = "setup-closure";
 export const JOB_BILLING_RECONCILE = "billing-reconcile";
 export const JOB_CARD_EXPIRING = "card-expiring";
 /**
- * The setup reminder (O7), seeded off by drizzle/0052. Hourly from the tick:
+ * The DMARC review reminder (the dmarc_review migration), seeded off. Daily at
+ * 08 UTC: on the 14th day after Resend first sent as healdesk.io, one ops
+ * alert, ever, to read the DMARC reports and move the record from p=none to
+ * p=quarantine (dmarc-review.ts). Wired in tick.ts.
+ */
+export const JOB_DMARC_REVIEW = "dmarc-review";
+/**
+ * The setup reminder (O7), seeded off by drizzle/0056. Hourly from the tick:
  * while none of a clinic's channels is live, the reminder due on day 5, 10,
  * 15, 20, 25 or 30 of its setup window, queued only in the clinic's daytime
  * (lib/setup/reminders.ts). The owner switches it on with the email launch

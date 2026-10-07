@@ -1,13 +1,17 @@
 import { reconcilePeriod } from "@/lib/sync/reconcile-store";
 import { monthContaining, previousMonth } from "@/lib/attribution/period";
+import { runBillingRequestsJob } from "@/lib/billing/requests";
+import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
 import { runBillingNoticesJob } from "@/lib/email/outbox";
 import {
   getBoss,
+  QUEUE_BILLING_MINUTE,
   QUEUE_NOTICES,
   QUEUE_PROCESS_WEBHOOK,
   QUEUE_RECONCILE_CLINIC,
   QUEUE_SYNC_CONNECTION,
   QUEUE_TICK,
+  startGuardedClock,
   stopBoss,
   type ProcessWebhookPayload,
   type ReconcileClinicPayload,
@@ -19,6 +23,8 @@ import { processWebhookEvent } from "@/lib/sync/webhooks";
 import { withTenant } from "@/lib/tenant";
 import { clinics } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { selfCheckCredentialKey } from "@/lib/crypto/envelope";
+import { env } from "@/lib/env";
 import { describeError, log } from "@/lib/log";
 
 /**
@@ -39,6 +45,8 @@ import { describeError, log } from "@/lib/log";
  */
 
 async function main(): Promise<void> {
+  await checkCredentialKey();
+
   // `schedule: true` turns on pg-boss's own cron, which is what sends the
   // hourly tick. One process owns the clock; the scheduler tables live in the
   // pgboss schema and survive a restart, so re-registering the schedule below
@@ -131,6 +139,33 @@ async function main(): Promise<void> {
     if (outcome.status === "failed") throw new Error(`notices: ${outcome.note}`);
   });
 
+  // The billing minute clock: the billing-request worker (plan starts,
+  // step-ups, cancellations and setup closures on Stripe) and then the usage
+  // meter report, each behind its own job row's switch and each recording its
+  // own run. Neither takes runJob's 60-minute lock: every request and every
+  // usage row is leased on its own, so a run that overlaps the next does no
+  // harm and a crash costs a minute, not an hour. Guarded, unlike the clocks
+  // above: an environment where `queue:install` has not been re-run since
+  // this queue arrived logs that it is missing and the worker carries on, and
+  // the hourly tick still runs both jobs as their backstop.
+  await startGuardedClock(boss, QUEUE_BILLING_MINUTE, "* * * * *", async () => {
+    const failures: string[] = [];
+    for (const [job, run] of [
+      ["billing-requests", () => runBillingRequestsJob()],
+      ["usage-meter-report", () => runUsageMeterReportJob()],
+    ] as const) {
+      try {
+        const outcome = await run();
+        if (outcome.status === "failed") failures.push(`${job}: ${outcome.note}`);
+      } catch (error) {
+        failures.push(`${job}: ${describeError(error)}`);
+      }
+    }
+    // Thrown only after both have run, so one failing never skips the other,
+    // and pg-boss records the run; the next minute's starts afresh either way.
+    if (failures.length > 0) throw new Error(failures.join("; "));
+  });
+
   // No outbound clock. The call-back dialer of 23 September 2026 was removed
   // (v1 is inbound only): nothing in this process asks a vendor to dial.
 
@@ -143,6 +178,36 @@ async function main(): Promise<void> {
     process.on(signal, () => {
       log.info("draining on signal", { signal });
       void stopBoss().then(() => process.exit(0));
+    });
+  }
+}
+
+/**
+ * Seal and open a throwaway value once, at start, and say what happened.
+ *
+ * Otherwise the first sign that this process cannot reach its key — no task
+ * role, a key policy naming the wrong principal, a key id that is not the key —
+ * is the first real credential it needs, and it fails in front of whoever was
+ * waiting on it. Logged and never fatal: a worker that refused to start over
+ * its key would also stop every job that never touches one.
+ *
+ * This line is the check an operator can read today. The read-only ops
+ * operation getCredentialKeyStatus asks the web tier the same question on
+ * demand, which is a separate answer, since the two processes can run under
+ * different task roles; but nothing in apps/web calls it yet, so it answers
+ * only a signed /api/ops request and no console card shows it.
+ */
+async function checkCredentialKey(): Promise<void> {
+  const started = Date.now();
+  const result = await selfCheckCredentialKey();
+  const fields = { provider: env.kmsProvider(), ms: Date.now() - started };
+
+  if (result.ok) {
+    log.info("credential key self-check passed", fields);
+  } else {
+    log.error("credential key self-check FAILED: no clinic credential can be sealed or opened", {
+      ...fields,
+      code: result.error,
     });
   }
 }

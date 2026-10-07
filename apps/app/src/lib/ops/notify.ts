@@ -55,6 +55,10 @@ export const OPS_EVENTS = [
   "first_period_refund_due",
   "voice_fallback_no_direct_line",
   "plan_start_after_cancel",
+  // The DMARC review reminder (open item 14; the owner, 6 October 2026):
+  // raised once, ever, by the dmarc-review job on the 14th day after Resend
+  // first sent as healdesk.io (lib/scheduler/dmarc-review.ts).
+  "dmarc_review_due",
   // The setup wizard (M3): a welcome email (B1) still unsent an hour after
   // provisioning, or one the clinic has moved past before it could go, so
   // the order confirmation has to be sent by hand.

@@ -1,6 +1,7 @@
 import { eq, sql } from "drizzle-orm";
 
 import { clinicSettings, clinics, type DepositUncollectable } from "@/db/schema";
+import { isPaused } from "@/lib/channels/state";
 import type { TenantTx } from "@/lib/tenant";
 
 /**
@@ -25,6 +26,13 @@ export type ClinicSettings = {
   depositHoldMinutes: number;
   aiPausedAt: Date | null;
   aiPausedByLabel: string | null;
+  /**
+   * When a timed pause ends by itself; null for "until switched back on".
+   * Read only while `aiPausedAt` is set, and only through `isPaused`
+   * (lib/channels/state.ts): a pause whose end has passed is over, whatever
+   * the stamps still say (BD26).
+   */
+  aiPausedUntil: Date | null;
   directLineE164: string | null;
   directLineSetAt: Date | null;
   /** Null when the clinic has never saved a setting (no row). */
@@ -40,6 +48,7 @@ export const DEFAULT_CLINIC_SETTINGS: ClinicSettings = Object.freeze({
   depositHoldMinutes: 60,
   aiPausedAt: null,
   aiPausedByLabel: null,
+  aiPausedUntil: null,
   directLineE164: null,
   directLineSetAt: null,
   updatedAt: null,
@@ -59,14 +68,23 @@ const E164 = /^\+[1-9][0-9]{6,14}$/;
  * What a caller may change. Timestamps are not settable: `aiPaused` stamps
  * `aiPausedAt` and `aiPausedByLabel` from the clock and the actor, and a
  * direct-line change stamps `directLineSetAt`, so neither can be back-dated.
+ *
+ * Deposits are not switched here (R24): turning them on needs a connected
+ * Stripe account and an amount above $0, and setDepositSettings in
+ * lib/billing/deposits.ts is the one writer that checks both.
  */
 export type ClinicSettingsPatch = Partial<{
-  depositsEnabled: boolean;
   bookVoiceWithoutDeposit: boolean;
   bookChatWithoutDeposit: boolean;
   depositUncollectable: DepositUncollectable;
   depositHoldMinutes: number;
   aiPaused: boolean;
+  /**
+   * With `aiPaused: true` only: when the pause ends by itself ("for 1 hour",
+   * "until tomorrow morning"), or null for until someone switches it back.
+   * Must be in the future. Pausing again while paused moves only this.
+   */
+  aiPausedUntil: Date | null;
   /** E.164, or null to clear. Spaces, dashes, dots and brackets are stripped first. */
   directLineE164: string | null;
 }>;
@@ -94,6 +112,7 @@ function fromRow(row: Row | undefined): ClinicSettings {
     depositHoldMinutes: row.depositHoldMinutes,
     aiPausedAt: row.aiPausedAt,
     aiPausedByLabel: row.aiPausedByLabel,
+    aiPausedUntil: row.aiPausedUntil,
     directLineE164: row.directLineE164,
     directLineSetAt: row.directLineSetAt,
     updatedAt: row.updatedAt,
@@ -143,12 +162,25 @@ function requireBoolean(field: keyof ClinicSettingsPatch, value: unknown): boole
  * also guarded in the upsert itself, so two concurrent "pause" saves keep the
  * first one's time and label.
  *
- * Deposits needing a connected Stripe account is a deposits rule and is
- * enforced by lib/billing/deposits.ts, the only writer meant to switch them.
+ * Whether the clinic is paused is always `isPaused` (BD26), never "is
+ * ai_paused_at set": a timed pause ends by itself while its stamps stay
+ * behind. Judged by the stamp alone, a pause saved after a timed one expired
+ * would be taken for "already paused" and dropped, and a new "until switched
+ * back" pause would inherit the old, past end and never hold. So a pause
+ * when not paused writes all three columns (`ai_paused_until` null for
+ * indefinite), a pause while paused moves only its end, and a resume clears
+ * all three.
+ *
+ * Deposits are not switched here at all (R24): turning them on needs a
+ * connected Stripe account and an amount above $0, and setDepositSettings in
+ * lib/billing/deposits.ts is the one writer that checks both. A patch that
+ * names them is a programming error and is refused.
  *
  * The audit entry carries booleans and enums only. The direct line is a
  * phone number, so it is recorded as `directLineSet: true|false`, never the
- * digits (assertNoPhi would refuse them anyway).
+ * digits (assertNoPhi would refuse them anyway); a pause's end is recorded
+ * as `pauseTimed: true|false`, never the date (an ISO date reads as a number
+ * to the guard).
  */
 export async function updateClinicSettings(
   tx: TenantTx,
@@ -156,20 +188,23 @@ export async function updateClinicSettings(
   actorLabel: string,
   now: Date = new Date(),
 ): Promise<ClinicSettings> {
+  if ((patch as Record<string, unknown>).depositsEnabled !== undefined) {
+    throw new Error(
+      "updateClinicSettings does not switch deposits: setDepositSettings (lib/billing/deposits.ts) does, after checking the connected account.",
+    );
+  }
+
   // 1. Validate every named field before touching the database.
   const wanted: {
-    depositsEnabled?: boolean;
     bookVoiceWithoutDeposit?: boolean;
     bookChatWithoutDeposit?: boolean;
     depositUncollectable?: DepositUncollectable;
     depositHoldMinutes?: number;
     aiPaused?: boolean;
+    aiPausedUntil?: Date | null;
     directLine?: string | null;
   } = {};
 
-  if (patch.depositsEnabled !== undefined) {
-    wanted.depositsEnabled = requireBoolean("depositsEnabled", patch.depositsEnabled);
-  }
   if (patch.bookVoiceWithoutDeposit !== undefined) {
     wanted.bookVoiceWithoutDeposit = requireBoolean(
       "bookVoiceWithoutDeposit",
@@ -208,6 +243,22 @@ export async function updateClinicSettings(
   }
   if (patch.aiPaused !== undefined) {
     wanted.aiPaused = requireBoolean("aiPaused", patch.aiPaused);
+  }
+  if (patch.aiPausedUntil !== undefined) {
+    const until: unknown = patch.aiPausedUntil;
+    if (until !== null && (!(until instanceof Date) || Number.isNaN(until.getTime()))) {
+      throw new ClinicSettingsError("aiPausedUntil", "Choose when the pause ends.");
+    }
+    if (wanted.aiPaused !== true) {
+      throw new ClinicSettingsError(
+        "aiPausedUntil",
+        "A pause's end is chosen when pausing the assistant.",
+      );
+    }
+    if (until !== null && until.getTime() <= now.getTime()) {
+      throw new ClinicSettingsError("aiPausedUntil", "The pause must end in the future.");
+    }
+    wanted.aiPausedUntil = until;
   }
   if (patch.directLineE164 !== undefined) {
     // The type check comes first: an untyped body can carry a number or an
@@ -254,7 +305,6 @@ export async function updateClinicSettings(
   const audit: Record<string, boolean | number | string> = {};
 
   const plain = [
-    "depositsEnabled",
     "bookVoiceWithoutDeposit",
     "bookChatWithoutDeposit",
     "depositUncollectable",
@@ -268,20 +318,52 @@ export async function updateClinicSettings(
     audit[key] = next;
   }
 
-  if (wanted.aiPaused !== undefined && wanted.aiPaused !== (current.aiPausedAt !== null)) {
-    if (wanted.aiPaused) {
-      values.aiPausedAt = now;
-      values.aiPausedByLabel = actorLabel;
-      // An existing pause wins over this one if another save got there first.
-      conflictSet.aiPausedAt = sql`coalesce(${clinicSettings.aiPausedAt}, excluded.ai_paused_at)`;
-      conflictSet.aiPausedByLabel = sql`case when ${clinicSettings.aiPausedAt} is null then excluded.ai_paused_by_label else ${clinicSettings.aiPausedByLabel} end`;
-    } else {
-      values.aiPausedAt = null;
-      values.aiPausedByLabel = null;
-      conflictSet.aiPausedAt = null;
-      conflictSet.aiPausedByLabel = null;
-    }
-    audit.aiPaused = wanted.aiPaused;
+  const pausedNow = isPaused(
+    { pausedAt: current.aiPausedAt, pausedUntil: current.aiPausedUntil },
+    now,
+  );
+  if (wanted.aiPaused === true && !pausedNow) {
+    // A new pause: who, since when, and until when (null: until switched
+    // back on). Stale stamps from a timed pause that already ended are
+    // replaced, never inherited.
+    const until = wanted.aiPausedUntil ?? null;
+    values.aiPausedAt = now;
+    values.aiPausedByLabel = actorLabel;
+    values.aiPausedUntil = until;
+    // A pause another save put in place meanwhile wins, but only while it
+    // still holds.
+    const holds = sql`(${clinicSettings.aiPausedAt} is not null and (${clinicSettings.aiPausedUntil} is null or ${clinicSettings.aiPausedUntil} > ${now}))`;
+    conflictSet.aiPausedAt = sql`case when ${holds} then ${clinicSettings.aiPausedAt} else excluded.ai_paused_at end`;
+    conflictSet.aiPausedByLabel = sql`case when ${holds} then ${clinicSettings.aiPausedByLabel} else excluded.ai_paused_by_label end`;
+    conflictSet.aiPausedUntil = sql`case when ${holds} then ${clinicSettings.aiPausedUntil} else excluded.ai_paused_until end`;
+    audit.aiPaused = true;
+    audit.pauseTimed = until !== null;
+  } else if (
+    wanted.aiPaused === true &&
+    wanted.aiPausedUntil !== undefined &&
+    wanted.aiPausedUntil?.getTime() !== current.aiPausedUntil?.getTime()
+  ) {
+    // Paused already: only when it ends moves. Who paused and since when
+    // stay, for the banner's "paused by X since Y".
+    values.aiPausedUntil = wanted.aiPausedUntil;
+    conflictSet.aiPausedUntil = wanted.aiPausedUntil;
+    audit.aiPaused = true;
+    audit.pauseTimed = wanted.aiPausedUntil !== null;
+  } else if (
+    wanted.aiPaused === false &&
+    (current.aiPausedAt !== null ||
+      current.aiPausedByLabel !== null ||
+      current.aiPausedUntil !== null)
+  ) {
+    // A resume clears all three, including the stamps of a timed pause that
+    // had already ended by itself.
+    values.aiPausedAt = null;
+    values.aiPausedByLabel = null;
+    values.aiPausedUntil = null;
+    conflictSet.aiPausedAt = null;
+    conflictSet.aiPausedByLabel = null;
+    conflictSet.aiPausedUntil = null;
+    audit.aiPaused = false;
   }
 
   if (wanted.directLine !== undefined && wanted.directLine !== current.directLineE164) {

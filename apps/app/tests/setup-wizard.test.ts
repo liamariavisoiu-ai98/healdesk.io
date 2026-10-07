@@ -20,7 +20,7 @@ import { setupDeadline } from "@/lib/clinic/setup-window";
 import { assertPayloadAllowed } from "@/lib/email/lint";
 import { deliverNotice } from "@/lib/email/outbox";
 import { notifyCalendarState } from "@/lib/notices/calendar-state";
-import { destroyClinicData } from "@/lib/offboarding/offboarding";
+import { destroyClinicData, startOffboarding } from "@/lib/offboarding/offboarding";
 import { runOperation, type Operator } from "@/lib/ops/api";
 import { provisionClinic } from "@/lib/provisioning";
 import type { DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
@@ -58,7 +58,7 @@ import { inTenant } from "./setup/factories";
  * its backstop, each screen's save and skip, the resume point, the reminders
  * and their schedule across a time zone correction, the closure email's seam,
  * the calendar emails, the ops console's writers keeping what setup stores,
- * and the grants and destruction rules of the two tables 0052 adds.
+ * and the grants and destruction rules of the two tables 0056 adds.
  */
 
 const SECRET = "setup-wizard-test-secret";
@@ -1273,7 +1273,7 @@ describeDb("the setup wizard", () => {
     });
   });
 
-  describe("the tables 0052 adds", () => {
+  describe("the tables 0056 adds", () => {
     test("the settings history is append-only and the progress cannot be moved, by the runtime role", async () => {
       const clinic = await provisionDirect("grants");
       await saveSetupScreen(contextOf(clinic), "urgent", { urgentHelp: "(512) 555-0101" });
@@ -1325,6 +1325,19 @@ describeDb("the setup wizard", () => {
     test("destruction deletes the wizard's progress and keeps the settings history", async () => {
       const clinic = await provisionDirect("destroy");
       await saveSetupScreen(contextOf(clinic), "urgent", { urgentHelp: "(512) 555-0103" });
+      // Destruction runs only once offboarding started thirty days ago by the
+      // database's clock (app_start_offboarding), so start it and move the
+      // stamps back as the migrator, which owns the table.
+      await withTenant({ clinicId: clinic.clinicId, actor: SERVICE }, (tx) =>
+        startOffboarding(tx, "operator"),
+      );
+      await getMigratorPool().query(
+        `update clinics
+            set offboarding_started_at = offboarding_started_at - interval '31 days',
+                destroy_after = destroy_after - interval '31 days'
+          where id = $1`,
+        [clinic.clinicId],
+      );
       const result = await withTenant({ clinicId: clinic.clinicId, actor: SERVICE }, (tx) =>
         destroyClinicData(tx),
       );
@@ -1377,7 +1390,7 @@ describeDb("the setup wizard", () => {
       expect(files).toHaveLength(1);
       const sql = readFileSync(`${dir}${files[0]}`, "utf8");
       const block = /DO \$\$\s*DECLARE\s*previous text[\s\S]*?END;\s*\$\$;/.exec(sql)?.[0];
-      expect(block, "0052 copies call_routing into coverage_mode").toBeDefined();
+      expect(block, "0056 copies call_routing into coverage_mode").toBeDefined();
       await pool.query(block!);
       const modes = await Promise.all(
         [always, conditional].map((clinic) =>

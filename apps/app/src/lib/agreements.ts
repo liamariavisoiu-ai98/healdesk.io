@@ -1,16 +1,29 @@
 import {
+  agreementKindFor,
   assentSentence,
   BAA_ASSENT_LABEL,
+  BAA_RELEASE_OVERLAP,
   BaaRenderError,
+  buildBaaSelections,
   currentBaaTemplate,
   getBaaTemplate,
+  getBookingSystem,
   getPlatform,
+  isBookingSystemId,
+  isCalendarAccount,
+  isPlatformId,
   isSpecialtyId,
   NO_PLATFORM_ID,
   prepareBaa,
-  specialties,
   supportsVerifiedAttribution,
+  templateReadsCalendarAccount,
+  type AgreementKind,
+  type BaaTemplate,
   type BaaVariables,
+  type BookingSystemId,
+  type CalendarAccount,
+  type CoveredAnswer,
+  type Platform,
 } from "@healdesk/catalog";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 
@@ -80,11 +93,35 @@ export type SignAgreementRequest = {
    * later off the clinic row — which does not exist yet at signing time.
    */
   attributionMode: "estimated" | "verified";
-  /** Platform id from the catalog, or "none". */
-  platform: string;
+  /**
+   * The phase-two platform id today's checkout picker sends (`platforms`,
+   * "none" included). A version before 1.3.0 names it in its data-sources
+   * clause, as it always has, so a 1.2.1 document keeps the bytes the
+   * picker's preview hashed. 1.3.0 names the booking system instead, and
+   * takes a platform only as that system's own phase-two platform.
+   * Optional because `bookingSystem` can stand in for it: main's checkout
+   * sends this until the funnel's M2 ships, and M2 sends `bookingSystem`.
+   */
+  platform?: string | null;
+  /**
+   * The answer to "Where do bookings live today?" (booking-systems.ts).
+   * Required by a version that reads it (1.3.0 on), where its sync direction
+   * chooses the calendar clause; an earlier version names its phase-two
+   * platform when `platform` is absent. Absent and null both mean "not sent".
+   */
+  bookingSystem?: BookingSystemId | null;
+  /**
+   * The kind of Google account that holds the calendar the assistant books
+   * into. Required by a version that reads it (1.3.0 on); refused when it is
+   * not one of the three answers, whatever the version.
+   */
+  calendarAccount?: CalendarAccount | null;
   /** The exact label of the button the signer clicked. */
   assentLabel: string;
-  /** Template version the browser rendered. Must be the current one. */
+  /**
+   * Template version the browser rendered: the current one, or one still
+   * inside its release overlap (see signableTemplate).
+   */
   templateVersion: string;
   /**
    * SHA-256 of the document the browser actually displayed.
@@ -120,8 +157,254 @@ export type SignedAgreement = {
 
 const MAX_ASSENT_LABEL = 200;
 
+/**
+ * When a signature is judged, and against which release.
+ *
+ * Each defaults to the real one, and the endpoint passes none of them. They
+ * are injectable because the overlap is empty and 1.3.0 a draft until the
+ * release (plan C19) changes both, and because a window that closes at a
+ * deadline cannot be tested against the wall clock. `current` stands in for
+ * that release, for a test that signs as if it had happened; it decides what
+ * is signable, so nothing else may pass it.
+ */
+export type SignableOptions = {
+  now?: Date;
+  releaseOverlap?: Readonly<Record<string, string>>;
+  current?: BaaTemplate;
+};
+
+/**
+ * Which agreement this request signs, asked of agreementKindFor.
+ *
+ * That function is the one decision (packages/catalog/src/agreement-kind.ts).
+ * This endpoint asks it, and the funnel's agreement step, the checkout
+ * intent, provisioning and the go-live check are to ask it too (funnel plan
+ * Part L), so that none of them can sign a practice to the wrong paper by
+ * deciding separately. The wire keeps `isCoveredEntity`, the field the
+ * agreement itself records; its null ("I don't know") asks exactly as the
+ * funnel's "not_sure" does.
+ *
+ * This endpoint signs only the business associate agreement, and no data
+ * protection agreement exists to sign yet, so a practice the decision sends
+ * anywhere else is refused rather than handed a BAA. Today that is a
+ * veterinary practice, whose patients HIPAA does not reach (it could sign a
+ * BAA here before plan C3): with the DPA unreleased it has nothing to sign
+ * at all. Once the DPA is released, the decision also sends there a practice
+ * HIPAA reaches only when covered that answers "No", and both meet the
+ * second refusal below, which the funnel's DPA change replaces with DPA
+ * signing. `dpaReleased` is for tests; production reads the catalogue's flag.
+ */
+export function agreementKindForRequest(
+  request: { specialty?: unknown; isCoveredEntity?: unknown },
+  options: { dpaReleased?: boolean } = {},
+): AgreementKind {
+  const choice = agreementKindFor({
+    specialty: typeof request.specialty === "string" ? request.specialty : "",
+    covered: coveredAnswerOf(request.isCoveredEntity),
+    dpaReleased: options.dpaReleased,
+  });
+  if (!choice.ok) {
+    throw new AgreementError(
+      choice.reason === "dpa_not_released"
+        ? "This specialty can't sign up yet."
+        : "Unknown specialty.",
+      "specialty",
+    );
+  }
+  if (choice.kind === "dpa") {
+    throw new AgreementError(
+      "This practice signs the Data Protection Agreement, which can't be signed yet.",
+      "specialty",
+    );
+  }
+  return choice.kind;
+}
+
+/** The agreement's covered-entity answer, as the funnel's question words it. */
+function coveredAnswerOf(isCoveredEntity: unknown): CoveredAnswer | null {
+  if (isCoveredEntity === true) return "yes";
+  if (isCoveredEntity === false) return "no";
+  return null;
+}
+
+/**
+ * The template a signature may be made against: the current one, or a
+ * released one still inside its release overlap.
+ *
+ * A release reaches apps/app and apps/web in two deploys, and a buyer who
+ * loaded the agreement before the second would otherwise be refused at the
+ * last step for signing what was, minutes earlier, the current text. So the
+ * version a release replaces stays signable until the deadline the release
+ * writes into BAA_RELEASE_OVERLAP, and not from that instant on. Anything
+ * else that is not current is refused outright rather than silently swapped
+ * for the current text: someone who left the tab open across a revision
+ * must see the new one.
+ *
+ * Both signing entry points ask this, validateSignRequest and signAgreement
+ * (through prepareAgreement), so neither can sign a draft. That reaches past
+ * the endpoint: provisioning binds the acceptance a purchase names, and until
+ * plan C15 its approval gate reads the current template rather than the
+ * bound row's version, so a row signed against a draft would carry an
+ * unreleased text into a live account.
+ */
+export function signableTemplate(version: unknown, options: SignableOptions = {}): BaaTemplate {
+  const template = typeof version === "string" ? getBaaTemplate(version) : undefined;
+  if (!template) {
+    throw new AgreementError("Unknown agreement version.", "templateVersion");
+  }
+  if (template.version === (options.current ?? currentBaaTemplate()).version) return template;
+
+  // Only a released version can be the one a release replaced, so a draft
+  // listed in the overlap by mistake stays refused rather than becoming
+  // signable through the public endpoint until the deadline. A version that
+  // is not listed has no deadline, and NaN compares false.
+  const overlap = options.releaseOverlap ?? BAA_RELEASE_OVERLAP;
+  const closesAt = Object.hasOwn(overlap, template.version)
+    ? overlapClosesAt(overlap[template.version])
+    : Number.NaN;
+  if (template.approvedByCounsel && (options.now ?? new Date()).getTime() < closesAt) {
+    return template;
+  }
+
+  throw new AgreementError(
+    "The agreement has been updated. Please reload and review the current version.",
+    "templateVersion",
+  );
+}
+
+/**
+ * An ISO 8601 date and time that names its own offset: YYYY-MM-DDTHH:mm,
+ * optionally with seconds and milliseconds, then Z or ±HH:mm. The first group
+ * is what was written down to the minute or second, the rest the offset.
+ */
+const ISO_INSTANT =
+  /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?)(?:\.\d{1,3})?(?:Z|([+-])(\d{2}):(\d{2}))$/;
+
+/**
+ * When an overlap deadline falls, in epoch milliseconds, or NaN when it does
+ * not name one instant exactly as written. NaN compares false, so a typo in
+ * the release closes the window rather than holding it open.
+ *
+ * Date.parse alone is too forgiving for that. It reads "Oct 12 2026" and
+ * "2026/10/12", reads a time with no offset in the host's own time zone, and
+ * rolls an impossible date or time forward: 30 February becomes 2 March, and
+ * 24:00 the next midnight. So the form must be the one above, and the parsed
+ * instant, read back in the deadline's own offset, must say what was written.
+ */
+function overlapClosesAt(deadline: string | undefined): number {
+  const match = ISO_INSTANT.exec(deadline ?? "");
+  if (!match) return Number.NaN;
+  const [instant, written = "", sign, hours, minutes] = match;
+  const at = Date.parse(instant);
+  if (Number.isNaN(at)) return Number.NaN;
+
+  const offsetMinutes =
+    sign === undefined ? 0 : (sign === "-" ? -1 : 1) * (Number(hours) * 60 + Number(minutes));
+  const readBack = new Date(at + offsetMinutes * 60_000).toISOString().slice(0, written.length);
+  return readBack === written ? at : Number.NaN;
+}
+
+/** The answers that choose what the document names, however typed. */
+type AnswerFields = {
+  attributionMode?: unknown;
+  platform?: unknown;
+  bookingSystem?: unknown;
+  calendarAccount?: unknown;
+};
+
+/**
+ * An answer that is not one of the catalogue's is refused whatever the
+ * version reads. It is a stale client or a tampered request either way, and
+ * signAgreement records each answer that was sent beside the signature, so
+ * an unknown value would otherwise reach the evidence even where the
+ * document ignores it.
+ */
+function checkKnownAnswers(body: AnswerFields): void {
+  if (body.platform != null && !isPlatformId(body.platform)) {
+    throw new AgreementError("Unknown platform.", "platform");
+  }
+  if (body.bookingSystem != null && !isBookingSystemId(body.bookingSystem)) {
+    throw new AgreementError("Unknown booking system.", "bookingSystem");
+  }
+  if (body.calendarAccount != null && !isCalendarAccount(body.calendarAccount)) {
+    throw new AgreementError("Unknown kind of Google account.", "calendarAccount");
+  }
+}
+
+/**
+ * The answers this version cannot render without, and a system for verified
+ * reporting to read in the document it will render.
+ *
+ * Run by both entry points, validateSignRequest and signAgreement (through
+ * prepareAgreement), because renderBaa's own refusals surface as the generic
+ * "we couldn't prepare your agreement": right for a template bug, useless
+ * for a caller error. Checking here gives both the same precise answer.
+ */
+function checkAnswersFor(template: BaaTemplate, body: AnswerFields): void {
+  if (templateReadsCalendarAccount(template)) {
+    // 1.3.0's calendar clause is chosen by both answers. A default would sign
+    // the practice to manual booking and no agreement with Google without its
+    // having said either, which is why the version's render guard refuses one.
+    if (body.bookingSystem == null) {
+      throw new AgreementError("Answer where the practice's bookings live today.", "bookingSystem");
+    }
+    if (body.calendarAccount == null) {
+      throw new AgreementError(
+        "Answer which kind of Google account holds the practice's calendar.",
+        "calendarAccount",
+      );
+    }
+    // The document names the booking system and ignores `platform`, but the
+    // acceptance keeps a platform that was sent, beside the booking system,
+    // and whatever reads the signed row later may read either. Mindbody kept
+    // beside Cal.com would record a one-way system next to live calendar
+    // terms. So a platform is taken only as the booking system's own phase-two
+    // platform, or "none" for a system that has none; a client of 1.3.0 need
+    // not send one at all.
+    const own = getBookingSystem(body.bookingSystem)?.phaseTwoPlatformId ?? NO_PLATFORM_ID;
+    if (body.platform != null && body.platform !== own) {
+      throw new AgreementError("The platform doesn't match the booking system.", "platform");
+    }
+  } else if (body.platform == null && body.bookingSystem == null) {
+    // An earlier version names the practice's system in its data-sources
+    // clause, and either answer can name it; with neither, nothing can.
+    throw new AgreementError("Answer where the practice's bookings live today.", "bookingSystem");
+  }
+
+  // Verified reporting needs something to read from. Signing an agreement
+  // that describes a connection to nothing would be describing a data flow
+  // that cannot exist.
+  if (body.attributionMode === "verified") {
+    const source = verifiedSourceOf(template, body);
+    if (!source || !supportsVerifiedAttribution(source)) {
+      throw new AgreementError(
+        source
+          ? `Verified reporting needs a system to read from; ${source.name} has none.`
+          : "Verified reporting needs a system to read from; nothing is connected.",
+        "attributionMode",
+      );
+    }
+  }
+}
+
+/**
+ * The phase-two platform verified reporting would read, chosen as
+ * buildBaaSelections chooses what the document names: for a version before
+ * 1.3.0, the picker's platform, else the booking system's; for 1.3.0, the
+ * booking system's alone, because that is the system its document names.
+ */
+function verifiedSourceOf(template: BaaTemplate, body: AnswerFields): Platform | undefined {
+  const system = getBookingSystem(body.bookingSystem);
+  const platformId = typeof body.platform === "string" ? body.platform : null;
+  const id = templateReadsCalendarAccount(template)
+    ? system?.phaseTwoPlatformId
+    : (platformId ?? system?.phaseTwoPlatformId);
+  return id ? getPlatform(id) : undefined;
+}
+
 export function validateSignRequest(
   input: unknown,
+  options: SignableOptions = {},
 ): asserts input is SignAgreementRequest {
   const body = input as Partial<SignAgreementRequest> | null;
   if (!body || typeof body !== "object") {
@@ -137,6 +420,9 @@ export function validateSignRequest(
   if (!isSpecialtyId(body.specialty)) {
     throw new AgreementError("Unknown specialty.", "specialty");
   }
+  // Which agreement, before anything about this one: a practice that cannot
+  // sign it is told so first, not asked to correct its other fields.
+  agreementKindForRequest(body);
 
   // The typed name IS the signature. A single character is not a signature, and
   // an empty one would render a contract signed by nobody.
@@ -171,10 +457,7 @@ export function validateSignRequest(
     throw new AgreementError("Invalid attribution mode.", "attributionMode");
   }
 
-  const platform = getPlatform(body.platform ?? "");
-  if (!platform) {
-    throw new AgreementError("Unknown platform.", "platform");
-  }
+  checkKnownAnswers(body);
 
   // Verified attribution is phase two (v1 spec: attended-and-collected
   // figures are "not available in v1"). Checkout no longer offers it, but a
@@ -186,19 +469,6 @@ export function validateSignRequest(
   if (body.attributionMode === "verified" && !env.phaseTwoAttribution()) {
     throw new AgreementError(
       "Verified reporting is not offered in v1; it stays off until HEALDESK_PHASE_TWO_ATTRIBUTION is \"true\".",
-      "attributionMode",
-    );
-  }
-
-  // Verified attribution needs something to read from. Signing an agreement
-  // that describes a connection to nothing would be describing a data flow
-  // that cannot exist.
-  if (
-    body.attributionMode === "verified" &&
-    !supportsVerifiedAttribution(platform)
-  ) {
-    throw new AgreementError(
-      `Verified reporting needs a system to read from; ${platform.name} has none.`,
       "attributionMode",
     );
   }
@@ -224,82 +494,79 @@ export function validateSignRequest(
     throw new AgreementError("Malformed document hash.", "displayedHash");
   }
 
-  // Refuse a stale template outright rather than silently signing the current
-  // one. Someone who left the tab open across a revision must see the new text.
-  if (!getBaaTemplate(body.templateVersion ?? "")) {
-    throw new AgreementError("Unknown agreement version.", "templateVersion");
-  }
-  if (body.templateVersion !== currentBaaTemplate().version) {
-    throw new AgreementError(
-      "The agreement has been updated. Please reload and review the current version.",
-      "templateVersion",
-    );
-  }
+  // What the answers must be depends on the version they will be rendered
+  // into, so the version is settled first.
+  checkAnswersFor(signableTemplate(body.templateVersion, options), body);
 }
 
-export async function signAgreement(
+/** What prepareBaa returns: the text, its hash, the version and the variant. */
+type PreparedBaa = ReturnType<typeof prepareBaa>;
+
+/**
+ * The document a request signs, exactly as signAgreement will store it.
+ *
+ * It renders the version the request names, no longer always the current
+ * one, because a buyer inside a release overlap signs the version on their
+ * screen. That version is settled by signableTemplate, the rule
+ * validateSignRequest applies, so a direct caller (a test, an operator
+ * script) can sign only what the endpoint would accept: never a draft, and
+ * never a superseded version outside its overlap. Before plan C3 this
+ * rendered the current template whatever the request said, which kept every
+ * caller off a draft; a version taken from the request has to be held to
+ * the same rule here, on the path that writes the row, not only on the
+ * endpoint's.
+ *
+ * The selections come from buildBaaSelections, the one builder the funnel's
+ * preview calls too, so the two renders cannot drift: for a version before
+ * 1.3.0 it names the picker's platform, else the booking system's phase-two
+ * platform, byte for byte as signing did before it; for 1.3.0 it names the
+ * booking system and carries both calendar answers.
+ *
+ * No database, and no clock but the one signableTemplate is given. That is
+ * what lets a test hold the server's render against the browser's without
+ * writing a row.
+ */
+export function prepareAgreement(
   request: SignAgreementRequest,
-  context: RequestContext = {},
-): Promise<SignedAgreement> {
-  const template = currentBaaTemplate();
-  const email = request.signatoryEmail.trim().toLowerCase();
-  const connectedPlatform =
-    request.platform === NO_PLATFORM_ID
-      ? null
-      : (getPlatform(request.platform)?.name ?? null);
-
-  const variables: BaaVariables = {
-    clinicLegalName: request.clinicLegalName.trim(),
-    signatoryName: request.signatoryName.trim(),
-    signatoryTitle: request.signatoryTitle?.trim() || undefined,
-    signatoryEmail: email,
-    // Today, in UTC. The signer's own clock is not authoritative and is not asked.
-    effectiveDate: new Date().toISOString().slice(0, 10),
-    specialty:
-      specialties.find((s) => s.id === request.specialty)?.name ??
-      request.specialty,
-    isCoveredEntity: request.isCoveredEntity,
-    attributionMode: request.attributionMode,
-    connectedPlatform,
-    // Stays false: v1 is inbound only (v1 spec, "No outbound on any product").
-    // The product places no calls and sends no messages to patients, so the
-    // clinic gives no consent warranty, and no 1.2.0 clause reads this.
-    outboundMessaging: false,
-    // Checkout does not ask, and no 1.2.0 clause reads this: v1 books into
-    // the clinic's own Google Calendar with auto-confirm on by default, and
-    // the direct-booking addendum is not part of the agreement. Passed as the
-    // same literal apps/web's AgreementStep.tsx passes, because the rendered
-    // text is hashed on both sides and must come out byte-identical.
-    bookingMode: "desk_confirms",
-    // Null on both sides, identically (AgreementStep.tsx passes the same):
-    // the displayed hash and the stored hash must be equal, so neither side
-    // may change this alone. 1.2.0's Google Calendar clause is unconditional
-    // and Cal.com is not a v1 write target, so nothing selects on this.
-    calendarWrite: null,
-  };
-
-  /**
-   * Re-check the one combination that cannot describe a real data flow.
-   *
-   * validateSignRequest already rejects it on the API path, but signAgreement
-   * is exported and callable, and renderBaa's own refusal surfaces as the
-   * generic "we couldn't prepare your agreement" — correct for a template bug,
-   * useless for a caller error. Checking here means both entry points give the
-   * same precise answer.
-   */
-  if (variables.attributionMode === "verified" && !variables.connectedPlatform) {
+  effectiveDate: string,
+  options: SignableOptions = {},
+): { template: BaaTemplate; variables: BaaVariables; prepared: PreparedBaa } {
+  // Settled first: what the answers must be depends on the version.
+  const template = signableTemplate(request.templateVersion, options);
+  // What this prepares is a business associate agreement. agreementKindForRequest
+  // refuses any other kind itself today; once the DPA can be signed it will
+  // answer "dpa" instead, and this keeps such a practice from a BAA row.
+  if (agreementKindForRequest(request) !== "baa") {
     throw new AgreementError(
-      "Verified reporting needs a system to read from; nothing is connected.",
-      "attributionMode",
+      "This practice signs the Data Protection Agreement, not this one.",
+      "specialty",
     );
   }
+  checkKnownAnswers(request);
+  checkAnswersFor(template, request);
 
-  let prepared: ReturnType<typeof prepareBaa>;
   try {
-    prepared = prepareBaa(template, variables);
+    const variables: BaaVariables = {
+      ...buildBaaSelections({
+        specialtyId: request.specialty,
+        attributionMode: request.attributionMode,
+        bookingSystem: request.bookingSystem ?? null,
+        platformId: request.platform ?? null,
+        isCoveredEntity: request.isCoveredEntity,
+        calendarAccount: request.calendarAccount ?? null,
+        template,
+      }),
+      clinicLegalName: request.clinicLegalName.trim(),
+      signatoryName: request.signatoryName.trim(),
+      signatoryTitle: request.signatoryTitle?.trim() || undefined,
+      signatoryEmail: request.signatoryEmail.trim().toLowerCase(),
+      effectiveDate,
+    };
+    return { template, variables, prepared: prepareBaa(template, variables) };
   } catch (error) {
-    // A template that cannot render is our bug, not the buyer's — but it must
-    // never fall through to storing a half-substituted contract.
+    // A template that cannot render is our bug, not the buyer's: the checks
+    // above have answered every caller error by name. It must never fall
+    // through to storing a half-substituted contract.
     if (error instanceof BaaRenderError) {
       throw new AgreementError(
         "We couldn't prepare your agreement. Nothing has been charged — please contact us.",
@@ -307,6 +574,25 @@ export async function signAgreement(
     }
     throw error;
   }
+}
+
+export async function signAgreement(
+  request: SignAgreementRequest,
+  context: RequestContext = {},
+  options: SignableOptions = {},
+): Promise<SignedAgreement> {
+  // Rendered through the builder the funnel's preview uses, because the
+  // browser hashes what it displayed and the check below refuses a signature
+  // whose document differs from ours by a byte; and only for a version the
+  // endpoint would sign, judged again here because this function is exported
+  // and writes the row however it is reached.
+  const { template, variables, prepared } = prepareAgreement(
+    request,
+    // Today, in UTC. The signer's own clock is not authoritative and is not asked.
+    new Date().toISOString().slice(0, 10),
+    options,
+  );
+  const email = variables.signatoryEmail;
 
   /**
    * The screen and the record must agree, byte for byte.
@@ -337,6 +623,18 @@ export async function signAgreement(
       renderedText: prepared.text,
       variables: {
         ...variables,
+        // The answers, as they were sent, beside the document and outside its
+        // hash. The variables of a version before 1.3.0 hold none of the three
+        // ids, only the name the document gives the platform, which is why
+        // they are kept here: the booking system is what provisioning is to
+        // read into the clinic row (plan C15) rather than asking again, and
+        // the platform is what named a 1.2.1 document. 1.3.0's variables carry
+        // the booking system and the account kind already, as these same
+        // values, and a platform beside them has been checked to be the
+        // booking system's own (checkAnswersFor).
+        ...(request.platform != null ? { platformId: request.platform } : {}),
+        ...(request.bookingSystem != null ? { bookingSystem: request.bookingSystem } : {}),
+        ...(request.calendarAccount != null ? { calendarAccount: request.calendarAccount } : {}),
         // The variant, recorded. Reproducing the document years from now must
         // not depend on the clause predicates still evaluating the same way.
         appliedClauses: prepared.clauseIds,

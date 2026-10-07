@@ -22,7 +22,7 @@ Mindbody, which does not read Google Calendar, so the calendar clause is the
 one under which healdesk connects nothing; and a personal Google account,
 which that clause does not depend on. From the title line on, the sample is
 exactly what packages/catalog/src/dpa.test.ts freezes as dpa/1.0.0 / sample
-(SHA-256 bc4ab48ea0f315f167d3593f21f9fd207a2801abb1a68a71650a55df6010f854).
+(SHA-256 6e70f47ad5d283dfdb4b12195b8c868b77efbefc47dd5b4d2d4d6fa015d4b4fe).
 The clauses that render only for some practices follow in the appendix,
 numbered as they render; nothing else in the text varies. What each sentence
 rests on in the code, and the gaps found, are in docs/counsel/dpa.md. Source:
@@ -132,25 +132,168 @@ EFFECTIVE 6 October 2026
 
 5. WHERE PRACTICE IS NOT A COVERED ENTITY
 
-  healdesk processes Client Information only on Practice's documented
-  instructions, which are the Terms and Practice's portal settings, and for no
-  other purpose. It does not sell or share it, does not retain, use or
-  disclose it outside the direct business relationship with Practice or for
-  any purpose other than providing the Services, and does not combine it with
-  information from any other source except as the Services require. healdesk
-  will give Practice the information it needs to answer a consumer's access,
-  deletion or correction request within ten business days; will tell Practice
-  if it can no longer meet these obligations; will let Practice take
-  reasonable steps to stop and remedy any unauthorised use; and will provide,
-  on request, the documents Practice reasonably needs to verify compliance.
+  healdesk is Practice's service provider and processor under the California
+  Consumer Privacy Act and its regulations (Cal. Civ. Code 1798.100 and
+  following; 11 CCR 7000 and following), the Washington My Health My Data Act
+  (RCW 19.373), Nevada's consumer health data law (NRS 603A.400 to 603A.550)
+  and the Connecticut Data Privacy Act (Conn. Gen. Stat. 42-515 to 42-526), to
+  the extent each applies (together, "the state privacy laws"). Where this
+  clause and another clause of this agreement differ about Client Information,
+  the one that protects Client Information more governs, and where neither
+  protects it more, this clause governs. Any ambiguity is resolved in favour
+  of a meaning that permits compliance with the state privacy laws.
+
+  Practice's documented instructions to healdesk are this agreement and the
+  settings Practice chooses in its portal, within the purposes below. Practice
+  makes Client Information available to healdesk, and healdesk collects it for
+  Practice, only for those limited and specified purposes. healdesk processes
+  Client Information only to:
+
+    a. answer, in Practice's name, the calls, website chats and Instagram,
+       Messenger and WhatsApp messages that people start with Practice, from
+       Practice's own services, prices, hours and policies, using a language
+       model to understand each message and write each reply;
+    b. take a booking request for Practice's staff to confirm in Practice's
+       own system or, where a calendar election for a location provides for
+       it, check that location's calendar, hold a time and add the
+       appointment;
+    c. where Practice takes deposits, send a payment link in a website chat or
+       an Instagram, Messenger or WhatsApp conversation, as the clause headed
+       "Payments" describes, and on a call flag the deposit for Practice's
+       staff;
+    d. pass messages, including urgent ones and requests for a person, to
+       Practice's staff or the contacts Practice names, and pass calls
+       through, or transfer them, to Practice's own lines;
+    e. keep transcripts and records of those conversations and bookings, show
+       them to Practice's staff, and export, correct or delete them when
+       Practice asks;
+    f. count conversations, minutes and bookings, to bill Practice and to
+       report them to it;
+    g. read a conversation that Practice flags, or that a fault or a complaint
+       makes it necessary to read, to correct the assistant for Practice; and
+    h. keep the Services secure, find and fix faults, detect and prevent fraud
+       and abuse, and meet healdesk's own legal obligations.
+
+  The Client Information involved is what people say or write, kept as
+  transcripts with no call audio; their names and telephone numbers; the
+  services and times they ask about, and the other booking details the clause
+  headed "Minimum necessary, and who receives Client Information" lists;
+  messaging-account identifiers; the number or network address a call or chat
+  comes from; and booking and deposit status. Where a calendar election for a
+  location lets healdesk use a calendar, it also includes free and busy times
+  on that calendar and the appointments healdesk adds to it.
+
+  healdesk processes Client Information while Practice uses the Services and,
+  to pass calls through to Practice's direct line, for as long afterwards as
+  the Terms provide. It keeps it no longer than the periods this agreement
+  states. When the Services end, it returns or destroys it, including copies
+  in backups and what its subcontractors hold, as the clause headed "Term,
+  termination, and what happens to the information" provides.
+
+  healdesk will not sell or share Client Information, as Cal. Civ. Code
+  1798.140 defines those words. Except as a state privacy law expressly
+  permits, it will not retain, use or disclose Client Information outside the
+  direct business relationship between healdesk and Practice, or for any
+  purpose other than those above. That rules out any other commercial purpose,
+  and healdesk's own management and administration. It will not combine Client
+  Information with personal information that it receives from or for anyone
+  else, or collects from its own interaction with a person, except to keep the
+  Services secure and to detect and prevent fraud and abuse. healdesk
+  understands the restrictions in this clause and will comply with them.
+
+  healdesk will comply with the obligations the state privacy laws place on it
+  in that role, and give Client Information the same level of privacy
+  protection they require of Practice. It will:
+
+    a. ensure that every person who processes Client Information for it is
+       bound by a duty of confidentiality, and give access only to those who
+       need it for the purposes above;
+    b. help Practice, by appropriate technical and organisational measures and
+       insofar as it is possible, to meet its obligations under those laws,
+       including answering the requests people make under them, giving
+       Practice what it needs within ten business days of being asked;
+    c. when Practice tells it to delete a person's information, delete it
+       within ten business days from healdesk's own records, including the raw
+       copies it keeps of what other services sent it about that person.
+       Copies in its backups are deleted as those backups expire, within 35
+       days after that. healdesk will have each subcontractor that holds the
+       information delete it in time for Practice to meet the deadline the law
+       sets. The only exception is what the clause headed "Subcontractors"
+       says a subcontractor may keep for abuse detection and security, or
+       because a law requires it. That is kept for that purpose and period
+       only, and used for nothing else. healdesk keeps only a record of the
+       request, for no longer than it needs one to make sure the information
+       stays deleted, and uses it for nothing else;
+    d. give Practice the information it holds that Practice needs for any risk
+       assessment, data protection or impact assessment, or cybersecurity
+       audit those laws require of Practice, and misrepresent no fact relevant
+       to one;
+    e. tell Practice promptly after it determines that it can no longer meet
+       its obligations under this clause; and
+    f. notify Practice of any breach of the security of Client Information, as
+       a state breach-notification law defines it, and report it, as the
+       clause headed "Reporting incidents and breaches" provides for a breach.
+       healdesk will also help Practice meet its own duties to secure Client
+       Information and to give notice of a breach.
+
+  Practice may take reasonable and appropriate steps to ensure that healdesk
+  uses Client Information consistently with Practice's obligations under the
+  state privacy laws. On notice, Practice may also take reasonable and
+  appropriate steps to stop and remedy any unauthorised use, including
+  requiring documents showing that healdesk has deleted what it was told to
+  delete. On reasonable request, healdesk will make available all the
+  information in its possession necessary to show that it meets this clause.
+  Practice, or an assessor Practice designates, may assess healdesk's
+  compliance with this clause on reasonable notice, once in any twelve months
+  and after any breach, at Practice's cost, and healdesk will cooperate.
+  healdesk may instead have a qualified and independent assessor assess its
+  policies and technical and organisational measures, using an appropriate and
+  accepted control standard or framework and assessment procedure, and will
+  give Practice the report on request.
+
+  The clause headed "Subcontractors" applies to Client Information, and the
+  notice it gives before a new subcontractor handles Client Information is
+  Practice's opportunity to object. healdesk will bind each subcontractor that
+  handles Client Information, by the written agreement that clause requires,
+  to meet the obligations this clause places on healdesk for that information.
+  The only exception to a subcontractor's duty to delete is what that clause
+  says it may keep for abuse detection and security, or because a law requires
+  it. Practice's payment processor and its Instagram, Messenger and WhatsApp
+  accounts are Practice's own services, which Practice connects, where it uses
+  them, under its own accounts with their providers. So is any Google Calendar
+  that a calendar election connects. They are not healdesk's subcontractors.
+  healdesk sends Client Information to them only to create the payment links
+  the clause headed "Payments" describes; to reply on Instagram, Messenger or
+  WhatsApp inside a conversation the person started there; and, where a
+  calendar election for a location provides for it, to add appointments to
+  that location's calendar.
+
+  Where Practice is a provider of health care under California's
+  Confidentiality of Medical Information Act, healdesk receives medical
+  information for Practice under Cal. Civ. Code 56.10(c)(3) and will not
+  further disclose it in a way that would violate that Act.
+
+  Practice will tell healdesk of any request under the state privacy laws that
+  healdesk must act on, with the information healdesk needs to act on it. It
+  will make sure its own notices, consents and any consumer health data
+  privacy policy cover the processing this clause describes, and will not
+  instruct healdesk to process Client Information in a way those laws forbid.
+  A request made to healdesk directly is handled as the clause headed
+  "Clients' requests" provides.
 
 6. PAYMENTS
 
-  Where Practice takes deposits, healdesk creates a payment link through
-  Practice's own payment processor. The link and the payment carry an amount,
-  a generic description and a reference number, and no service name or
-  clinical detail, including in metadata and the statement descriptor.
-  healdesk never takes card numbers.
+  Where Practice takes deposits, healdesk may send a payment link in a website
+  chat or an Instagram, Messenger or WhatsApp conversation. It creates the
+  link through Practice's own payment processor. On a call it sends none, and
+  flags any deposit for Practice's staff to collect. A link carries no
+  information about the person or the booking except an amount, a generic
+  description and a reference number. The same holds for everything healdesk
+  sends the processor to create it, metadata and any statement descriptor
+  included. Neither ever carries a service name or any clinical detail. The
+  processor tells healdesk whether each link has been paid. Its notice may
+  also carry the payer's details; healdesk keeps none of them. healdesk never
+  takes card numbers.
 
 7. WHAT HEALDESK READS FROM YOUR SYSTEMS
 
@@ -159,24 +302,29 @@ EFFECTIVE 6 October 2026
   The only Client Information healdesk receives is what clients themselves
   give it during a call or chat.
 
-8. PRACTICE'S GOOGLE CALENDAR
+8. GOOGLE CALENDAR
 
-  Practice has told healdesk that its booking system, Mindbody, does not read
-  a Google Calendar for conflicts, or has not been confirmed to. healdesk
-  therefore does not connect to Practice's Google Calendar, reads nothing from
-  it and writes nothing to it, and the assistant does not book appointments
-  itself: it takes each booking as a request, which Practice's staff confirm
-  in Practice's own system.
+  Practice has told healdesk that its booking system is Mindbody, which
+  healdesk's list of booking systems records as not reading a Google Calendar
+  for conflicts. healdesk therefore does not connect to Practice's Google
+  Calendar, reads nothing from it and writes nothing to it. The assistant does
+  not book appointments itself: it takes each booking as a request, which
+  Practice's staff confirm in Practice's own system.
 
-  If Practice changes its booking system, or wants the assistant to book into
-  a Google Calendar, Practice first records a calendar election for that
-  location.
+  If Practice changes the location's booking system to one that reads a Google
+  Calendar for conflicts, Practice first records a calendar election for the
+  location. The assistant books into a Google Calendar only under the clause
+  that election carries.
 
-  This clause governs the calendar of the location Practice sets up when it
-  signs this agreement. For any other location, and for that location once
-  Practice changes the kind of Google account it uses or its booking system,
-  the calendar election Practice records for that location takes the place of
-  this clause for that location.
+  This clause governs the calendar of Practice's first location, the one set
+  up under the first order Practice placed for the Services. The calendar of
+  any other location is governed by the calendar election Practice records for
+  it. Practice also records a calendar election for the first location when it
+  changes that location's booking system or the kind of Google account it uses
+  there, and that election then governs in place of this clause. The kinds of
+  Google account are a Google Workspace account whose administrator has
+  accepted Google's business associate agreement, any other Google Workspace
+  account, and a personal Google account.
 
 9. SAFEGUARDS
 
@@ -250,8 +398,10 @@ EFFECTIVE 6 October 2026
   healdesk keeps a current list of its subcontractors at
   healdesk.io/subprocessors and will give Practice at least 24 hours' notice
   by email before adding one that will handle the information this agreement
-  protects. If Practice objects on reasonable grounds before the change takes
-  effect, Practice may terminate this agreement without penalty.
+  protects. The notice goes to Practice's address in the Notices clause and
+  names the subcontractor, what it will receive and why. If Practice objects
+  on reasonable grounds before the change takes effect, Practice may terminate
+  this agreement without penalty.
 
 12. REPORTING INCIDENTS AND BREACHES
 
@@ -531,7 +681,163 @@ first):
   Veterinary & Pet Spas:
     a veterinary practice or pet spa
 
-A3. Bookings in "Google Calendar only" or "No booking system yet" (replaces
+A3. A booking system that reads Google Calendar ("Google Calendar only",
+"Calendly", "Cal.com", "HighLevel", "No booking system yet"), whatever the
+Google account (replaces clause 5):
+
+5. WHERE PRACTICE IS NOT A COVERED ENTITY
+
+  healdesk is Practice's service provider and processor under the California
+  Consumer Privacy Act and its regulations (Cal. Civ. Code 1798.100 and
+  following; 11 CCR 7000 and following), the Washington My Health My Data Act
+  (RCW 19.373), Nevada's consumer health data law (NRS 603A.400 to 603A.550)
+  and the Connecticut Data Privacy Act (Conn. Gen. Stat. 42-515 to 42-526), to
+  the extent each applies (together, "the state privacy laws"). Where this
+  clause and another clause of this agreement differ about Client Information,
+  the one that protects Client Information more governs, and where neither
+  protects it more, this clause governs. Any ambiguity is resolved in favour
+  of a meaning that permits compliance with the state privacy laws.
+
+  Practice's documented instructions to healdesk are this agreement and the
+  settings Practice chooses in its portal, within the purposes below. Practice
+  makes Client Information available to healdesk, and healdesk collects it for
+  Practice, only for those limited and specified purposes. healdesk processes
+  Client Information only to:
+
+    a. answer, in Practice's name, the calls, website chats and Instagram,
+       Messenger and WhatsApp messages that people start with Practice, from
+       Practice's own services, prices, hours and policies, using a language
+       model to understand each message and write each reply;
+    b. check Practice's calendar, hold a time and add the appointment where
+       the clause headed "Google Calendar", or a calendar election that takes
+       its place, provides for it, and otherwise take a booking request for
+       Practice's staff to confirm;
+    c. where Practice takes deposits, send a payment link in a website chat or
+       an Instagram, Messenger or WhatsApp conversation, as the clause headed
+       "Payments" describes, and on a call flag the deposit for Practice's
+       staff;
+    d. pass messages, including urgent ones and requests for a person, to
+       Practice's staff or the contacts Practice names, and pass calls
+       through, or transfer them, to Practice's own lines;
+    e. keep transcripts and records of those conversations and bookings, show
+       them to Practice's staff, and export, correct or delete them when
+       Practice asks;
+    f. count conversations, minutes and bookings, to bill Practice and to
+       report them to it;
+    g. read a conversation that Practice flags, or that a fault or a complaint
+       makes it necessary to read, to correct the assistant for Practice; and
+    h. keep the Services secure, find and fix faults, detect and prevent fraud
+       and abuse, and meet healdesk's own legal obligations.
+
+  The Client Information involved is what people say or write, kept as
+  transcripts with no call audio; their names and telephone numbers; the
+  services and times they ask about, and the other booking details the clause
+  headed "Minimum necessary, and who receives Client Information" lists;
+  messaging-account identifiers; the number or network address a call or chat
+  comes from; and booking and deposit status. It also includes free and busy
+  times on each calendar that the clause headed "Google Calendar", or a
+  calendar election that takes its place, lets healdesk use, and the
+  appointments healdesk adds to those calendars.
+
+  healdesk processes Client Information while Practice uses the Services and,
+  to pass calls through to Practice's direct line, for as long afterwards as
+  the Terms provide. It keeps it no longer than the periods this agreement
+  states. When the Services end, it returns or destroys it, including copies
+  in backups and what its subcontractors hold, as the clause headed "Term,
+  termination, and what happens to the information" provides.
+
+  healdesk will not sell or share Client Information, as Cal. Civ. Code
+  1798.140 defines those words. Except as a state privacy law expressly
+  permits, it will not retain, use or disclose Client Information outside the
+  direct business relationship between healdesk and Practice, or for any
+  purpose other than those above. That rules out any other commercial purpose,
+  and healdesk's own management and administration. It will not combine Client
+  Information with personal information that it receives from or for anyone
+  else, or collects from its own interaction with a person, except to keep the
+  Services secure and to detect and prevent fraud and abuse. healdesk
+  understands the restrictions in this clause and will comply with them.
+
+  healdesk will comply with the obligations the state privacy laws place on it
+  in that role, and give Client Information the same level of privacy
+  protection they require of Practice. It will:
+
+    a. ensure that every person who processes Client Information for it is
+       bound by a duty of confidentiality, and give access only to those who
+       need it for the purposes above;
+    b. help Practice, by appropriate technical and organisational measures and
+       insofar as it is possible, to meet its obligations under those laws,
+       including answering the requests people make under them, giving
+       Practice what it needs within ten business days of being asked;
+    c. when Practice tells it to delete a person's information, delete it
+       within ten business days from healdesk's own records, including the raw
+       copies it keeps of what other services sent it about that person.
+       Copies in its backups are deleted as those backups expire, within 35
+       days after that. healdesk will have each subcontractor that holds the
+       information delete it in time for Practice to meet the deadline the law
+       sets. The only exception is what the clause headed "Subcontractors"
+       says a subcontractor may keep for abuse detection and security, or
+       because a law requires it. That is kept for that purpose and period
+       only, and used for nothing else. healdesk keeps only a record of the
+       request, for no longer than it needs one to make sure the information
+       stays deleted, and uses it for nothing else;
+    d. give Practice the information it holds that Practice needs for any risk
+       assessment, data protection or impact assessment, or cybersecurity
+       audit those laws require of Practice, and misrepresent no fact relevant
+       to one;
+    e. tell Practice promptly after it determines that it can no longer meet
+       its obligations under this clause; and
+    f. notify Practice of any breach of the security of Client Information, as
+       a state breach-notification law defines it, and report it, as the
+       clause headed "Reporting incidents and breaches" provides for a breach.
+       healdesk will also help Practice meet its own duties to secure Client
+       Information and to give notice of a breach.
+
+  Practice may take reasonable and appropriate steps to ensure that healdesk
+  uses Client Information consistently with Practice's obligations under the
+  state privacy laws. On notice, Practice may also take reasonable and
+  appropriate steps to stop and remedy any unauthorised use, including
+  requiring documents showing that healdesk has deleted what it was told to
+  delete. On reasonable request, healdesk will make available all the
+  information in its possession necessary to show that it meets this clause.
+  Practice, or an assessor Practice designates, may assess healdesk's
+  compliance with this clause on reasonable notice, once in any twelve months
+  and after any breach, at Practice's cost, and healdesk will cooperate.
+  healdesk may instead have a qualified and independent assessor assess its
+  policies and technical and organisational measures, using an appropriate and
+  accepted control standard or framework and assessment procedure, and will
+  give Practice the report on request.
+
+  The clause headed "Subcontractors" applies to Client Information, and the
+  notice it gives before a new subcontractor handles Client Information is
+  Practice's opportunity to object. healdesk will bind each subcontractor that
+  handles Client Information, by the written agreement that clause requires,
+  to meet the obligations this clause places on healdesk for that information.
+  The only exception to a subcontractor's duty to delete is what that clause
+  says it may keep for abuse detection and security, or because a law requires
+  it. Practice's Google Calendar, its payment processor and its Instagram,
+  Messenger and WhatsApp accounts are Practice's own services, which Practice
+  connects, where it uses them, under its own accounts with their providers.
+  They are not healdesk's subcontractors. healdesk sends Client Information to
+  them only to add appointments to the calendar as the clause headed "Google
+  Calendar", or a calendar election that takes its place, provides; to create
+  the payment links the clause headed "Payments" describes; and to reply on
+  Instagram, Messenger or WhatsApp inside a conversation the person started
+  there.
+
+  Where Practice is a provider of health care under California's
+  Confidentiality of Medical Information Act, healdesk receives medical
+  information for Practice under Cal. Civ. Code 56.10(c)(3) and will not
+  further disclose it in a way that would violate that Act.
+
+  Practice will tell healdesk of any request under the state privacy laws that
+  healdesk must act on, with the information healdesk needs to act on it. It
+  will make sure its own notices, consents and any consumer health data
+  privacy policy cover the processing this clause describes, and will not
+  instruct healdesk to process Client Information in a way those laws forbid.
+  A request made to healdesk directly is handled as the clause headed
+  "Clients' requests" provides.
+
+A4. Bookings in "Google Calendar only" or "No booking system yet" (replaces
 clause 7):
 
 7. WHAT HEALDESK READS FROM YOUR SYSTEMS
@@ -541,7 +847,7 @@ clause 7):
   receives is what clients themselves give it during a call or chat, together
   with the calendar access the Google Calendar clause describes.
 
-A4. Bookings in "Calendly" (replaces clause 7):
+A5. Bookings in "Calendly" (replaces clause 7):
 
 7. WHAT HEALDESK READS FROM YOUR SYSTEMS
 
@@ -551,7 +857,7 @@ A4. Bookings in "Calendly" (replaces clause 7):
   give it during a call or chat, together with the calendar access the Google
   Calendar clause describes.
 
-A5. Bookings in "Cal.com" (replaces clause 7):
+A6. Bookings in "Cal.com" (replaces clause 7):
 
 7. WHAT HEALDESK READS FROM YOUR SYSTEMS
 
@@ -561,7 +867,7 @@ A5. Bookings in "Cal.com" (replaces clause 7):
   give it during a call or chat, together with the calendar access the Google
   Calendar clause describes.
 
-A6. Bookings in "HighLevel" (replaces clause 7):
+A7. Bookings in "HighLevel" (replaces clause 7):
 
 7. WHAT HEALDESK READS FROM YOUR SYSTEMS
 
@@ -571,7 +877,7 @@ A6. Bookings in "HighLevel" (replaces clause 7):
   give it during a call or chat, together with the calendar access the Google
   Calendar clause describes.
 
-A7. Bookings in "Boulevard" (replaces clause 7):
+A8. Bookings in "Boulevard" (replaces clause 7):
 
 7. WHAT HEALDESK READS FROM YOUR SYSTEMS
 
@@ -580,7 +886,7 @@ A7. Bookings in "Boulevard" (replaces clause 7):
   The only Client Information healdesk receives is what clients themselves
   give it during a call or chat.
 
-A8. Bookings in "Something else" (replaces clause 7):
+A9. Bookings in "Something else" (replaces clause 7):
 
 7. WHAT HEALDESK READS FROM YOUR SYSTEMS
 
@@ -588,214 +894,271 @@ A8. Bookings in "Something else" (replaces clause 7):
   system and reads nothing from one. The only Client Information healdesk
   receives is what clients themselves give it during a call or chat.
 
-A9. A booking system that reads Google Calendar ("Google Calendar only",
+A10. A booking system that reads Google Calendar ("Google Calendar only",
 "Calendly", "Cal.com", "HighLevel", "No booking system yet"), with a Google
 Workspace account whose administrator has accepted Google's business associate
 agreement (covered; replaces clause 8):
 
-8. PRACTICE'S GOOGLE CALENDAR
+8. GOOGLE CALENDAR
 
-  Practice connects its own Google Calendar by OAuth, under Practice's own
-  agreement with Google; healdesk uses one calendar of the Google account
-  Practice connects, which is that account's main calendar unless Practice
-  chooses another calendar the account owns. Practice has told healdesk that
-  this account belongs to Practice's Google Workspace organisation and that
-  its administrator has accepted Google's business associate agreement, and
-  Practice will record a calendar election promptly if that stops being true.
-  healdesk cannot see whether Google's agreement was accepted and relies on
-  Practice's statement; it adds nothing to a calendar whose Google account
-  does not belong to a Google Workspace or Cloud Identity organisation.
+  Practice connects a Google account it controls by OAuth, under Practice's
+  own agreement with Google. healdesk uses a calendar on which that account
+  has owner access: one of its own calendars, or one another account has
+  shared with it with permission to make changes and manage sharing. Practice
+  chooses the calendar or, where it books by provider, one such calendar for
+  each provider. Until Practice chooses, healdesk uses that account's main
+  calendar. In this clause "the calendar" means each calendar healdesk uses,
+  and every term of this clause applies to each of them.
 
-  healdesk reads the names of the calendars that account owns, so that
-  Practice can choose one; when that calendar is free or busy; and the
-  appointments healdesk itself added to it. Google's permission model also
-  gives healdesk access to the other events on the calendars that account
-  owns, and to when the other calendars it can see are free or busy; healdesk
-  does not read or store them. healdesk holds the OAuth token encrypted and
-  uses it for nothing else. It stops using the token when this agreement ends,
-  and deletes it when Practice disconnects the calendar through healdesk, when
+  Practice has told healdesk that this account belongs to Practice's Google
+  Workspace organisation and that its administrator has accepted Google's
+  business associate agreement. Practice will record a calendar election
+  promptly if either stops being true. healdesk cannot see whether Google's
+  agreement was accepted, and relies on Practice's statement. When Practice
+  chooses a calendar, and again before adding each appointment, healdesk
+  checks that the connected account belongs to a Google Workspace or Cloud
+  Identity organisation and that the calendar belongs to that same
+  organisation. It adds nothing to a calendar that fails either check.
+
+  healdesk reads the names of the calendars on which that account has owner
+  access, so that Practice can choose; when the calendar is free or busy; and
+  the appointments healdesk itself added to it. Google's permissions also
+  reach three further things: the list of every calendar that account is
+  subscribed to, the other events on the calendars it owns, and the
+  availability of the other calendars it has access to. healdesk does not read
+  or store any of them. healdesk holds the OAuth token encrypted and uses it
+  for nothing else. It stops using the token when the Services end. It deletes
+  the token when Practice disconnects the calendar through healdesk, or when
   healdesk finds that Practice has removed healdesk's access in its Google
-  Account, and in any case when healdesk destroys Practice's data at the end
-  of this agreement.
+  Account. In any case it deletes the token when healdesk destroys Practice's
+  data after the Services end.
 
-  healdesk adds an appointment to that calendar when the assistant books one,
+  healdesk adds an appointment to the calendar when the assistant books one,
   and when Practice's staff confirm a booking request through healdesk. Each
-  appointment carries the client's first name, the service asked about as
-  Practice's own service list names it, and the time, and no other information
-  about the client: never a telephone number, an email address or anything
-  clinical. healdesk marks each appointment private, invites no one to it and
-  sets no reminders on it, and it moves, edits or cancels nothing it did not
-  create. Google keeps a deleted event in that calendar's trash for up to 30
+  appointment carries a first name, the service and the time, and no other
+  information about the client or the person booking. It never carries a
+  telephone number, an email address, or anything clinical beyond the name of
+  the service. The first name is the one given by the person booking, who may
+  not be the client the appointment is for; where that name cannot be used, it
+  is the word "Patient". The service is named as in Practice's own service
+  list; where none was given or its name cannot be used, the appointment says
+  "Appointment". healdesk marks each appointment private, invites no one to it
+  and sets no reminders on it. It moves, edits or cancels nothing it did not
+  create. Google keeps a deleted event in the calendar's trash for up to 30
   days under Google's own terms.
 
   Practice acknowledges that Google's business associate agreement is between
   Practice and Google and does not extend to applications Practice authorises,
   and that healdesk's access to the calendar is governed by this agreement.
 
-  This clause governs the calendar of the location Practice sets up when it
-  signs this agreement. For any other location, and for that location once
-  Practice changes the kind of Google account it uses or its booking system,
-  the calendar election Practice records for that location takes the place of
-  this clause for that location.
+  This clause governs the calendar of Practice's first location, the one set
+  up under the first order Practice placed for the Services. The calendar of
+  any other location is governed by the calendar election Practice records for
+  it. Practice also records a calendar election for the first location when it
+  changes that location's booking system or the kind of Google account it uses
+  there, and that election then governs in place of this clause. The kinds of
+  Google account are a Google Workspace account whose administrator has
+  accepted Google's business associate agreement, any other Google Workspace
+  account, and a personal Google account.
 
-A10. A booking system that reads Google Calendar ("Google Calendar only",
+A11. A booking system that reads Google Calendar ("Google Calendar only",
 "Calendly", "Cal.com", "HighLevel", "No booking system yet"), with a Google
 Workspace account without that agreement, or not sure (uncovered; replaces
 clause 8):
 
-8. PRACTICE'S GOOGLE CALENDAR
+8. GOOGLE CALENDAR
 
-  Practice connects its own Google Calendar by OAuth, under Practice's own
-  agreement with Google; healdesk uses one calendar of the Google account
-  Practice connects, which is that account's main calendar unless Practice
-  chooses another calendar the account owns. Practice has told healdesk that
-  this account is in a Google Workspace organisation whose administrator has
-  not accepted Google's business associate agreement, or that Practice does
-  not know whether it has, so no business associate agreement between Practice
-  and Google covers that calendar.
+  Practice connects a Google account it controls by OAuth, under Practice's
+  own agreement with Google. healdesk uses a calendar on which that account
+  has owner access: one of its own calendars, or one another account has
+  shared with it with permission to make changes and manage sharing. Practice
+  chooses the calendar or, where it books by provider, one such calendar for
+  each provider. Until Practice chooses, healdesk uses that account's main
+  calendar. In this clause "the calendar" means each calendar healdesk uses,
+  and every term of this clause applies to each of them.
 
-  healdesk reads the names of the calendars that account owns, so that
-  Practice can choose one; when that calendar is free or busy; and the
-  appointments healdesk itself added to it. Google's permission model also
-  gives healdesk access to the other events on the calendars that account
-  owns, and to when the other calendars it can see are free or busy; healdesk
-  does not read or store them. healdesk holds the OAuth token encrypted and
-  uses it for nothing else. It stops using the token when this agreement ends,
-  and deletes it when Practice disconnects the calendar through healdesk, when
+  Practice has told healdesk that this account is in a Google Workspace
+  organisation whose administrator has not accepted Google's business
+  associate agreement, or that Practice does not know whether the
+  administrator has. Because Practice has not confirmed that Google's
+  agreement covers the calendar, the parties treat it as one that no business
+  associate agreement between Practice and Google covers.
+
+  healdesk reads the names of the calendars on which that account has owner
+  access, so that Practice can choose; when the calendar is free or busy; and
+  the appointments healdesk itself added to it. Google's permissions also
+  reach three further things: the list of every calendar that account is
+  subscribed to, the other events on the calendars it owns, and the
+  availability of the other calendars it has access to. healdesk does not read
+  or store any of them. healdesk holds the OAuth token encrypted and uses it
+  for nothing else. It stops using the token when the Services end. It deletes
+  the token when Practice disconnects the calendar through healdesk, or when
   healdesk finds that Practice has removed healdesk's access in its Google
-  Account, and in any case when healdesk destroys Practice's data at the end
-  of this agreement.
+  Account. In any case it deletes the token when healdesk destroys Practice's
+  data after the Services end.
 
-  Practice nonetheless directs healdesk to add an appointment to that calendar
+  Practice nonetheless directs healdesk to add an appointment to the calendar
   when the assistant books one, and when Practice's staff confirm a booking
-  request through healdesk, knowing that Google will hold it outside any
-  business associate agreement. That disclosure is made at Practice's
-  direction, into an account Practice controls under Practice's own agreement
-  with Google, and Practice is responsible for it, including for any
-  notification or other obligation that arises from Google's handling of what
-  it holds. healdesk's responsibility for it is limited to sending only the
-  details below, only to that calendar, only as this clause describes, and to
-  safeguarding them under this agreement until they are sent. Each appointment
-  carries the client's first name, the service asked about as Practice's own
-  service list names it, and the time, and no other information about the
-  client: never a telephone number, an email address or anything clinical.
-  healdesk marks each appointment private, invites no one to it and sets no
-  reminders on it, and it moves, edits or cancels nothing it did not create.
-  Google keeps a deleted event in that calendar's trash for up to 30 days
-  under Google's own terms.
+  request through healdesk. Practice gives this direction knowing that Google
+  may hold each appointment outside any business associate agreement. That
+  disclosure is made at Practice's direction, through an account Practice
+  controls under Practice's own agreement with Google. Practice is responsible
+  for it, including for any notification or other obligation that arises from
+  Google's handling of what it holds. healdesk's responsibility for it is
+  limited to sending only the details below, only to the calendar, only as
+  this clause describes, and to safeguarding them under this agreement until
+  they are sent. Each appointment carries a first name, the service and the
+  time, and no other information about the client or the person booking. It
+  never carries a telephone number, an email address, or anything clinical
+  beyond the name of the service. The first name is the one given by the
+  person booking, who may not be the client the appointment is for; where that
+  name cannot be used, it is the word "Patient". The service is named as in
+  Practice's own service list; where none was given or its name cannot be
+  used, the appointment says "Appointment". healdesk marks each appointment
+  private, invites no one to it and sets no reminders on it. It moves, edits
+  or cancels nothing it did not create. Google keeps a deleted event in the
+  calendar's trash for up to 30 days under Google's own terms.
 
-  Practice may withdraw this direction at any time by disconnecting the
-  calendar or by telling healdesk; healdesk then adds nothing further to it,
-  and the assistant takes booking requests for Practice's staff to confirm
-  instead.
+  Practice may withdraw this direction at any time, by disconnecting the
+  calendar or by telling healdesk. healdesk then adds nothing further to the
+  calendar, and the assistant takes booking requests for Practice's staff to
+  confirm instead.
 
   Practice acknowledges that healdesk's access to the calendar is governed by
   this agreement.
 
-  This clause governs the calendar of the location Practice sets up when it
-  signs this agreement. For any other location, and for that location once
-  Practice changes the kind of Google account it uses or its booking system,
-  the calendar election Practice records for that location takes the place of
-  this clause for that location.
+  This clause governs the calendar of Practice's first location, the one set
+  up under the first order Practice placed for the Services. The calendar of
+  any other location is governed by the calendar election Practice records for
+  it. Practice also records a calendar election for the first location when it
+  changes that location's booking system or the kind of Google account it uses
+  there, and that election then governs in place of this clause. The kinds of
+  Google account are a Google Workspace account whose administrator has
+  accepted Google's business associate agreement, any other Google Workspace
+  account, and a personal Google account.
 
-A11. A booking system that reads Google Calendar ("Google Calendar only",
+A12. A booking system that reads Google Calendar ("Google Calendar only",
 "Calendly", "Cal.com", "HighLevel", "No booking system yet"), with a personal
 Google account (uncovered; replaces clause 8):
 
-8. PRACTICE'S GOOGLE CALENDAR
+8. GOOGLE CALENDAR
 
-  Practice connects its own Google Calendar by OAuth, under Practice's own
-  agreement with Google; healdesk uses one calendar of the Google account
-  Practice connects, which is that account's main calendar unless Practice
-  chooses another calendar the account owns. Practice has told healdesk that
-  this account is a personal Google account, for which Google offers no
-  business associate agreement, so no business associate agreement between
-  Practice and Google covers that calendar.
+  Practice connects a Google account it controls by OAuth, under Practice's
+  own agreement with Google. healdesk uses a calendar on which that account
+  has owner access: one of its own calendars, or one another account has
+  shared with it with permission to make changes and manage sharing. Practice
+  chooses the calendar or, where it books by provider, one such calendar for
+  each provider. Until Practice chooses, healdesk uses that account's main
+  calendar. In this clause "the calendar" means each calendar healdesk uses,
+  and every term of this clause applies to each of them.
 
-  healdesk reads the names of the calendars that account owns, so that
-  Practice can choose one; when that calendar is free or busy; and the
-  appointments healdesk itself added to it. Google's permission model also
-  gives healdesk access to the other events on the calendars that account
-  owns, and to when the other calendars it can see are free or busy; healdesk
-  does not read or store them. healdesk holds the OAuth token encrypted and
-  uses it for nothing else. It stops using the token when this agreement ends,
-  and deletes it when Practice disconnects the calendar through healdesk, when
+  Practice has told healdesk that this account is a personal Google account,
+  for which Google offers no business associate agreement, so no business
+  associate agreement between Practice and Google covers the calendar.
+
+  healdesk reads the names of the calendars on which that account has owner
+  access, so that Practice can choose; when the calendar is free or busy; and
+  the appointments healdesk itself added to it. Google's permissions also
+  reach three further things: the list of every calendar that account is
+  subscribed to, the other events on the calendars it owns, and the
+  availability of the other calendars it has access to. healdesk does not read
+  or store any of them. healdesk holds the OAuth token encrypted and uses it
+  for nothing else. It stops using the token when the Services end. It deletes
+  the token when Practice disconnects the calendar through healdesk, or when
   healdesk finds that Practice has removed healdesk's access in its Google
-  Account, and in any case when healdesk destroys Practice's data at the end
-  of this agreement.
+  Account. In any case it deletes the token when healdesk destroys Practice's
+  data after the Services end.
 
-  Practice nonetheless directs healdesk to add an appointment to that calendar
+  Practice nonetheless directs healdesk to add an appointment to the calendar
   when the assistant books one, and when Practice's staff confirm a booking
-  request through healdesk, knowing that Google will hold it outside any
-  business associate agreement. That disclosure is made at Practice's
-  direction, into an account Practice controls under Practice's own agreement
-  with Google, and Practice is responsible for it, including for any
-  notification or other obligation that arises from Google's handling of what
-  it holds. healdesk's responsibility for it is limited to sending only the
-  details below, only to that calendar, only as this clause describes, and to
-  safeguarding them under this agreement until they are sent. Each appointment
-  carries the client's first name, the service asked about as Practice's own
-  service list names it, and the time, and no other information about the
-  client: never a telephone number, an email address or anything clinical.
-  healdesk marks each appointment private, invites no one to it and sets no
-  reminders on it, and it moves, edits or cancels nothing it did not create.
-  Google keeps a deleted event in that calendar's trash for up to 30 days
-  under Google's own terms.
+  request through healdesk. Practice gives this direction knowing that Google
+  will hold each appointment outside any business associate agreement. That
+  disclosure is made at Practice's direction, through an account Practice
+  controls under Practice's own agreement with Google. Practice is responsible
+  for it, including for any notification or other obligation that arises from
+  Google's handling of what it holds. healdesk's responsibility for it is
+  limited to sending only the details below, only to the calendar, only as
+  this clause describes, and to safeguarding them under this agreement until
+  they are sent. Each appointment carries a first name, the service and the
+  time, and no other information about the client or the person booking. It
+  never carries a telephone number, an email address, or anything clinical
+  beyond the name of the service. The first name is the one given by the
+  person booking, who may not be the client the appointment is for; where that
+  name cannot be used, it is the word "Patient". The service is named as in
+  Practice's own service list; where none was given or its name cannot be
+  used, the appointment says "Appointment". healdesk marks each appointment
+  private, invites no one to it and sets no reminders on it. It moves, edits
+  or cancels nothing it did not create. Google keeps a deleted event in the
+  calendar's trash for up to 30 days under Google's own terms.
 
-  Practice may withdraw this direction at any time by disconnecting the
-  calendar or by telling healdesk; healdesk then adds nothing further to it,
-  and the assistant takes booking requests for Practice's staff to confirm
-  instead.
+  Practice may withdraw this direction at any time, by disconnecting the
+  calendar or by telling healdesk. healdesk then adds nothing further to the
+  calendar, and the assistant takes booking requests for Practice's staff to
+  confirm instead.
 
   Practice acknowledges that healdesk's access to the calendar is governed by
   this agreement.
 
-  This clause governs the calendar of the location Practice sets up when it
-  signs this agreement. For any other location, and for that location once
-  Practice changes the kind of Google account it uses or its booking system,
-  the calendar election Practice records for that location takes the place of
-  this clause for that location.
+  This clause governs the calendar of Practice's first location, the one set
+  up under the first order Practice placed for the Services. The calendar of
+  any other location is governed by the calendar election Practice records for
+  it. Practice also records a calendar election for the first location when it
+  changes that location's booking system or the kind of Google account it uses
+  there, and that election then governs in place of this clause. The kinds of
+  Google account are a Google Workspace account whose administrator has
+  accepted Google's business associate agreement, any other Google Workspace
+  account, and a personal Google account.
 
-A12. Bookings in "Boulevard", which does not read Google Calendar, or is not
+A13. Bookings in "Boulevard", which does not read Google Calendar, or is not
 confirmed to, whatever the Google account (not used; replaces clause 8):
 
-8. PRACTICE'S GOOGLE CALENDAR
+8. GOOGLE CALENDAR
 
-  Practice has told healdesk that its booking system, Boulevard, does not read
-  a Google Calendar for conflicts, or has not been confirmed to. healdesk
-  therefore does not connect to Practice's Google Calendar, reads nothing from
-  it and writes nothing to it, and the assistant does not book appointments
-  itself: it takes each booking as a request, which Practice's staff confirm
-  in Practice's own system.
+  Practice has told healdesk that its booking system is Boulevard, which
+  healdesk's list of booking systems records as not yet confirmed to read a
+  Google Calendar for conflicts. healdesk therefore does not connect to
+  Practice's Google Calendar, reads nothing from it and writes nothing to it.
+  The assistant does not book appointments itself: it takes each booking as a
+  request, which Practice's staff confirm in Practice's own system.
 
-  If Practice changes its booking system, or wants the assistant to book into
-  a Google Calendar, Practice first records a calendar election for that
-  location.
+  If Practice changes the location's booking system to one that reads a Google
+  Calendar for conflicts, Practice first records a calendar election for the
+  location. The assistant books into a Google Calendar only under the clause
+  that election carries.
 
-  This clause governs the calendar of the location Practice sets up when it
-  signs this agreement. For any other location, and for that location once
-  Practice changes the kind of Google account it uses or its booking system,
-  the calendar election Practice records for that location takes the place of
-  this clause for that location.
+  This clause governs the calendar of Practice's first location, the one set
+  up under the first order Practice placed for the Services. The calendar of
+  any other location is governed by the calendar election Practice records for
+  it. Practice also records a calendar election for the first location when it
+  changes that location's booking system or the kind of Google account it uses
+  there, and that election then governs in place of this clause. The kinds of
+  Google account are a Google Workspace account whose administrator has
+  accepted Google's business associate agreement, any other Google Workspace
+  account, and a personal Google account.
 
-A13. Bookings in "Something else", which is not confirmed to read Google
+A14. Bookings in "Something else", which is not confirmed to read Google
 Calendar, whatever the Google account (not used; replaces clause 8):
 
-8. PRACTICE'S GOOGLE CALENDAR
+8. GOOGLE CALENDAR
 
-  Practice has told healdesk that its booking system does not read a Google
-  Calendar for conflicts, or has not been confirmed to. healdesk therefore
-  does not connect to Practice's Google Calendar, reads nothing from it and
-  writes nothing to it, and the assistant does not book appointments itself:
-  it takes each booking as a request, which Practice's staff confirm in
-  Practice's own system.
+  Practice has told healdesk that its booking system is one that healdesk's
+  list of booking systems does not name, so healdesk has not confirmed that it
+  reads a Google Calendar for conflicts. healdesk therefore does not connect
+  to Practice's Google Calendar, reads nothing from it and writes nothing to
+  it. The assistant does not book appointments itself: it takes each booking
+  as a request, which Practice's staff confirm in Practice's own system.
 
-  If Practice changes its booking system, or wants the assistant to book into
-  a Google Calendar, Practice first records a calendar election for that
-  location.
+  If Practice changes the location's booking system to one that reads a Google
+  Calendar for conflicts, Practice first records a calendar election for the
+  location. The assistant books into a Google Calendar only under the clause
+  that election carries.
 
-  This clause governs the calendar of the location Practice sets up when it
-  signs this agreement. For any other location, and for that location once
-  Practice changes the kind of Google account it uses or its booking system,
-  the calendar election Practice records for that location takes the place of
-  this clause for that location.
+  This clause governs the calendar of Practice's first location, the one set
+  up under the first order Practice placed for the Services. The calendar of
+  any other location is governed by the calendar election Practice records for
+  it. Practice also records a calendar election for the first location when it
+  changes that location's booking system or the kind of Google account it uses
+  there, and that election then governs in place of this clause. The kinds of
+  Google account are a Google Workspace account whose administrator has
+  accepted Google's business associate agreement, any other Google Workspace
+  account, and a personal Google account.

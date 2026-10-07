@@ -28,7 +28,7 @@ import type { SettingsHistoryField } from "@/lib/setup/screen-ids";
 import type { TenantTx } from "@/lib/tenant";
 
 /**
- * The clinic_settings columns the setup wizard and Settings own (0052): how
+ * The clinic_settings columns the setup wizard and Settings own (0056): how
  * AYA talks, which calls reach it, the booking answers, the urgent-help
  * numbers, the transfer, the daily summary and how long records are kept
  * (plan Part J; spec, "Every switch in the portal").
@@ -288,7 +288,7 @@ export function coverageModeForRouting(
 }
 
 /**
- * Keep coverage_mode, the single source (0052), in step with a call_routing
+ * Keep coverage_mode, the single source (0056), in step with a call_routing
  * answer written somewhere else: the ops console's phone settings on the
  * onboarding call (lib/onboarding/phone.ts). In the caller's transaction, so
  * the two columns cannot disagree.

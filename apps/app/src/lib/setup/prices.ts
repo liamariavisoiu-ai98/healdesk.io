@@ -4,7 +4,7 @@ import type { AgentService } from "@/db/schema";
 
 /**
  * How a service's price is stated, and keeping it through every writer of
- * agent_configs.services (0052).
+ * agent_configs.services (0056).
  *
  * The wizard and Knowledge store each service's price kind, the unit of a
  * per-unit price and its deposit. The ops console's agent form predates them:

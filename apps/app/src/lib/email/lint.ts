@@ -133,9 +133,11 @@ function classOfKey(key: string): ValueClass | null {
   if (/E164$/.test(key)) return "phone";
   if (/Masked$/.test(key)) return "masked";
   if (key === "id" || /Ids?$/.test(key)) return "id";
+  // Before the date rule: `waitingOn` names a waiting state ("forwarding"),
+  // not a day, and as a date every L4 payload would be refused at send time.
+  if (CATEGORY_KEYS.has(key)) return "category";
   if (/(At|On)$/.test(key) || key === "windowStart" || key === "windowEnd") return "date";
   if (COUNT_KEYS.has(key) || /(Count|Days|Hours|Minutes|Percent)$/.test(key)) return "count";
-  if (CATEGORY_KEYS.has(key)) return "category";
   return null;
 }
 

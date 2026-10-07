@@ -1,7 +1,10 @@
+import { randomUUID } from "node:crypto";
+
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 
 import { __setMetaRuntimeForTests, POST } from "@/app/api/webhooks/meta/route";
 import { directBookingAllowed } from "@/lib/booking/mode";
+import { metaChannelGreeting } from "@/lib/compliance/disclosure";
 import { attachMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta/channels";
 import {
   cleanBookingFields,
@@ -19,7 +22,7 @@ import type { DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/report
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedClinic } from "./setup/factories";
+import { inTenant, seedClinic, seedEntitled } from "./setup/factories";
 
 /**
  * The booking hand-off (decisions of 21 and 23 September 2026, narrowed by
@@ -112,13 +115,16 @@ function post(body: unknown, secret = APP_SECRET): Promise<Response> {
   );
 }
 
+// Every message carries its own id, as Meta's do: the webhook skips an id it
+// has already handled (BD24), so a shared id would make each message after
+// the first a redelivery.
 const inbound = (text: string, sender = "user-77", pageId = PAGE_ID) => ({
   object: "page",
-  entry: [{ id: pageId, messaging: [{ sender: { id: sender }, recipient: { id: pageId }, message: { mid: "m1", text } }] }],
+  entry: [{ id: pageId, messaging: [{ sender: { id: sender }, recipient: { id: pageId }, message: { mid: `m-${randomUUID()}`, text } }] }],
 });
 const inboundIg = (text: string, sender: string, igId: string) => ({
   object: "instagram",
-  entry: [{ id: igId, messaging: [{ sender: { id: sender }, recipient: { id: igId }, message: { mid: "m1", text } }] }],
+  entry: [{ id: igId, messaging: [{ sender: { id: sender }, recipient: { id: igId }, message: { mid: `m-${randomUUID()}`, text } }] }],
 });
 const inboundWa = (text: string, from: string, phoneNumberId: string) => ({
   object: "whatsapp_business_account",
@@ -162,6 +168,9 @@ describeDb("the booking hand-off, end to end", () => {
   async function liveClinic(label: string, externalId = PAGE_ID, platform: MetaPlatform = "messenger") {
     const c = await seedClinic(label);
     await getMigratorPool().query(`update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`, [c.clinicId]);
+    // A production clinic answers only with a billing row and a live channel
+    // (the answer gate fails closed without them).
+    await seedEntitled(c.clinicId, { channelRows: [{ channel: "meta", liveAt: new Date() }] });
     await inTenant(c.clinicId, (client) => client.query(`insert into report_recipients (clinic_id, email, added_by) values ($1, $2, 'test')`, [c.clinicId, "desk@example-clinic.test"]));
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
       await setPhoneSettings(tx, { publishedPhoneE164: "+14155550199" });
@@ -185,9 +194,11 @@ describeDb("the booking hand-off, end to end", () => {
     const phone = opts.phone ?? "+14155550177";
     __setMetaRuntimeForTests(async () => json("Got it — the practice will call you.", { wants: true, first_name: name, phone, window: "Saturday afternoon" }), sender, transport);
     await post(inboundOn(platform, `${name}, ${phone}, Saturday afternoon please`, senderId, externalId));
-    const clinicName = sent.at(-1)!.text.match(new RegExp(`^Thanks, ${name}! I've passed that along to (.+?), and they'll give you a call`))?.[1];
+    const clinicName = sent.at(-1)!.text.match(new RegExp(`Thanks, ${name}! I've passed that along to (.+?), and they'll give you a call`))?.[1];
     expect(clinicName).toBeDefined();
-    expect(sent.at(-1)!.text).toBe(requestReceivedLine(clinicName!, name));
+    // A new sender, so the thread's first reply: the greeting opens it.
+    const channel = platform === "instagram" ? "instagram_dm" : platform;
+    expect(sent.at(-1)!.text).toBe(`${metaChannelGreeting({ clinicName: clinicName!, channel })} ${requestReceivedLine(clinicName!, name)}`);
     const token = mailed.at(-1)?.message.text.match(/\/booking\/([A-Za-z0-9_-]{43})/)?.[1];
     if (!token) throw new Error("no desk email carried a link");
     return token;
@@ -305,8 +316,10 @@ describeDb("the booking hand-off, end to end", () => {
   test("one message with the three things creates the request at once; nothing else the person wrote survives, and no consent row is written", async () => {
     const c = await liveClinic("booking-redacted", "323456789012345");
     __setMetaRuntimeForTests(async () => json("The practice will call you.", { wants: true, first_name: "Sam", phone: "+14155550177", window: "Saturday afternoon" }), sender, transport);
-    await post(inbound("Sam, +1 415 555 0177, Saturday afternoon please — I'm pregnant so mornings are hard", "user-88", "323456789012345"));
-    expect(sent.at(-1)!.text).toBe(requestReceivedLine("booking-redacted Clinic", "Sam"));
+    // Nothing clinical: a clinical message never reaches the model, so it
+    // makes no request at all (tests/meta-screen-and-greeting.test.ts).
+    await post(inbound("Sam, +1 415 555 0177, Saturday afternoon please — mornings are hard with the school run", "user-88", "323456789012345"));
+    expect(sent.at(-1)!.text).toBe(`${metaChannelGreeting({ clinicName: "booking-redacted Clinic", channel: "messenger" })} ${requestReceivedLine("booking-redacted Clinic", "Sam")}`);
     const stored = await inTenant(c.clinicId, async (client) => ({
       requests: (await client.query(`select 1 from booking_requests`)).rows.length,
       consent: (await client.query(`select 1 from consent_records`)).rows.length,
@@ -314,7 +327,7 @@ describeDb("the booking hand-off, end to end", () => {
     }));
     expect(stored).toEqual({ requests: 1, consent: 0, drafts: 0 });
     const everything = await inTenant(c.clinicId, (client) => client.query<{ row: string }>(`select row_to_json(r)::text as row from booking_requests r union all select row_to_json(a)::text from audit_log a`));
-    expect(everything.rows.map((r) => r.row).join("\n")).not.toMatch(/pregnant/);
+    expect(everything.rows.map((r) => r.row).join("\n")).not.toMatch(/school run/);
 
     const { runOperation } = await import("@/lib/ops/api");
     const view = await runOperation("getOnboarding", { clinicId: c.clinicId }, { email: "ops@healdesk.test", request: {} });
@@ -325,7 +338,7 @@ describeDb("the booking hand-off, end to end", () => {
     const c = await liveClinic("booking-wa", "555000111", "whatsapp");
     __setMetaRuntimeForTests(async () => json("The practice will call you.", { wants: true, first_name: "Ana", phone: "+14155550155", window: "Friday morning" }), sender, transport);
     await post(inboundWa("Ana, 415 555 0155, Friday morning", "15550100123", "555000111"));
-    expect(sent.at(-1)!.text).toBe(requestReceivedLine("booking-wa Clinic", "Ana"));
+    expect(sent.at(-1)!.text).toBe(`${metaChannelGreeting({ clinicName: "booking-wa Clinic", channel: "whatsapp" })} ${requestReceivedLine("booking-wa Clinic", "Ana")}`);
     expect(sent.at(-1)!.text).not.toMatch(/WhatsApp/);
     expect(mailed).toHaveLength(1);
     expect((await inTenant(c.clinicId, (client) => client.query<{ platform: string }>(`select platform from booking_requests`))).rows).toEqual([{ platform: "whatsapp" }]);

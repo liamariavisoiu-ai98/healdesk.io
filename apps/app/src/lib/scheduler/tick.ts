@@ -13,6 +13,7 @@ import { runWelcomeBackstop } from "@/lib/setup/welcome-email";
 import { runAnnualRenewalReminderJob } from "./annual-renewal-reminder";
 import { runBillingSweepJob } from "./billing-sweep";
 import { runConnectionHealthJob } from "./connection-health";
+import { runDmarcReviewJob } from "./dmarc-review";
 import { heartbeat } from "./jobs";
 import { runMonthlyReportJob } from "./monthly-report";
 import { runNightlySyncJob } from "./nightly-sync";
@@ -33,8 +34,9 @@ import { runWeeklyRecapJob } from "./weekly-recap";
  *
  * The hour gates are UTC and deliberately spread: the purge and the sync run
  * at night; the annual overage invoices at 05, billing housekeeping at 06 and
- * the card-expiry check at 07; the mailers in the morning; the sweeps every
- * hour because their effect is time-bounded anyway.
+ * the card-expiry check at 07; the DMARC review reminder at 08; the mailers
+ * in the morning; the sweeps every hour because their effect is time-bounded
+ * anyway.
  */
 export type TickOutcome = { job: string; status: string; note?: string };
 
@@ -107,6 +109,10 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // Once a day, after the night's jobs and before the morning's mail: whether
   // the card on file expires before the next renewal.
   if (hour === 7) await record("card-expiring", () => runCardExpiringJob({ now }));
+  // Once a day is enough for a reminder counted in days: 14 days after Resend
+  // first sent, one ops alert, ever, then nothing (dmarc-review.ts). A missed
+  // 08:00 tick only moves it to the next day's.
+  if (hour === 8) await record("dmarc-review", () => runDmarcReviewJob({ now }));
   if (hour === 9) await record("annual-renewal-reminder", () => runAnnualRenewalReminderJob({ now }));
 
   return out;

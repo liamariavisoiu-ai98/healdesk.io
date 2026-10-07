@@ -39,6 +39,7 @@ import {
   ORDER_REASON,
   SIGN_IN_REASON,
 } from "@/lib/email/templates/context";
+import { renderOpsAlert } from "@/lib/email/templates/ops_alert";
 import { PENDING_TEMPLATES, TEMPLATES, templateFor } from "@/lib/email/templates/registry";
 import type { EmailAudience, TemplateContext } from "@/lib/email/templates/types";
 import { WELCOME_ENTRY } from "@/lib/email/templates/welcome";
@@ -135,12 +136,33 @@ describe("the template registry", () => {
     }
   });
 
-  test("the templates shipped so far: I1, B2, B3 and O3, then B1, O7, the setup closure and O13", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds, then B1, O7, the setup closure and O13", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
       "order_confirmed_delayed",
       "device_changed",
+      "payment_failed",
+      "payment_action_required",
+      "grace_ending",
+      "suspended",
+      "restored",
+      "cancel_scheduled",
+      "cancel_reversed",
+      "canceled",
+      "renewal_upcoming",
+      "overage_invoiced",
+      "plan_changed",
+      "location_added",
+      "connect_disconnected",
+      "plan_started",
+      "price_stepped_up",
+      "step_up_reminder",
+      "allowance_fallback",
+      "receipt",
+      "refund_issued",
+      "card_expiring",
+      "connect_connected",
       "welcome",
       "setup_reminder",
       "setup_closed",
@@ -257,6 +279,20 @@ describe("the welcome email (B1)", () => {
   });
 });
 
+describe("ops alerts beyond the fixture", () => {
+  // The registry's fixture is one event. An alert whose wording is an
+  // instruction someone acts on once, unprompted, gets a snapshot of its own,
+  // so a change to what it tells ops to do shows up in review.
+  test("the DMARC review reminder: the snapshot", () => {
+    expect(
+      renderOpsAlert(
+        { event: "dmarc_review_due", windowStart: "2026-10-06" },
+        contextFor("ops_alert"),
+      ),
+    ).toMatchSnapshot();
+  });
+});
+
 describe("CAN-SPAM", () => {
   // No commercial or optional kind has a template yet, so the machinery is
   // proved on a composed email: what a commercial template will produce.
@@ -325,7 +361,7 @@ describe("the payload allowlist", () => {
           included: 500,
           windowEndsOn: "2026-10-31",
           overageMode: "allow",
-          rateCents: 80,
+          blockRateCents: 8_000,
         },
       ],
       [

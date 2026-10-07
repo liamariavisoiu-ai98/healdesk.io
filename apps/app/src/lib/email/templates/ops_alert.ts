@@ -160,6 +160,15 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "A clinic's first period was charged while its subscription was set to cancel. Check with the clinic whether auto-renew should be on; if not, the first-period refund applies.",
   },
+  // Raised once, ever, by lib/scheduler/dmarc-review.ts. Its one fact is the
+  // first day apps/app's records show Resend sending (windowStart, printed as
+  // "Day"), which is where the reports to read begin. "Since", not "began on":
+  // apps/web may have sent earlier, from a record apps/app cannot read.
+  dmarc_review_due: {
+    title: "Time to review the DMARC reports",
+    action:
+      "Resend has been sending as healdesk.io since the day below, 14 or more days ago. Read healdesk.io's DMARC aggregate reports from that day on: if the only senders they show are Resend and the owner's own mail, change healdesk.io's DMARC record from p=none to p=quarantine. If anything else sends as healdesk.io, find out what it is first.",
+  },
   welcome_email_unsent: {
     title: "A welcome email has not reached a clinic",
     action:

@@ -102,7 +102,8 @@ export async function truncateAll(): Promise<void> {
       ('setup-closure', 'A switch, not a schedule: while on, the billing-requests worker closes accounts left with nothing live at the end of their 30-day setup window', false),
       ('billing-reconcile', 'Hourly; records any plan start, step-up or setup closure that is due but missing, steps up waiting channels after 30 days with a reminder a week before, and re-arms requests that can now go through', false),
       ('card-expiring', 'Daily at 07 UTC; queues the card-expiring email when the card on file expires before a renewal due within 30 days', false),
-      ('setup-reminders', 'Hourly; while none of a clinic''s channels is live, queues the setup reminder due on day 5, 10, 15, 20, 25 or 30 of its setup window, in the clinic''s daytime, and resends a welcome email whose send failed', false)
+      ('dmarc-review', 'Daily at 08 UTC; on the 14th day after Resend first sent as healdesk.io, raises one ops alert, ever, to read the DMARC reports and move the record from p=none to p=quarantine', false),
+      ('setup-reminders', 'Hourly; while none of a clinic''s channels is live, queues the setup reminder due on day 5, 10, 15, 20, 25 or 30 of its setup window, counted back from the window''s last day, in the clinic''s daytime', false)
     on conflict (name) do update set enabled = (excluded.name = 'heartbeat'), updated_by = null
   `);
 }

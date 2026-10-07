@@ -72,8 +72,9 @@ ALTER TABLE "report_deliveries" ADD CONSTRAINT "report_deliveries_kind_check" CH
 -- =============================================================================
 -- The setup wizard (plan Part E, J and C2; milestone M3). Everything above
 -- this line was generated from schema.ts; everything below is the part drizzle
--- cannot express: row-level security, grants, the one-time copy of the call
--- routing, the job seed, the comments and the audit at the end.
+-- cannot express: row-level security, grants, destruction's check, the
+-- one-time copy of the call routing, the job seed, the comments and the audit
+-- at the end.
 --
 -- What this migration adds, in one paragraph. clinic_settings gains every
 -- switch the wizard and Settings own (tone, greetings, languages, add-ons,
@@ -146,6 +147,75 @@ GRANT UPDATE (address, website, site_profile) ON clinics TO healdesk_app;--> sta
 -- gives healdesk_app table-level UPDATE (0043; 0003's default privileges for
 -- 0033), which covers a column added later. The audit below pins that they
 -- stay writable.
+
+-- -----------------------------------------------------------------------------
+-- Destruction checks the wizard's progress before it is recorded.
+-- app_mark_clinic_destroyed() (0054, booking_request_destruction) refuses to
+-- stamp destroyed_at while any row destroyClinicData deletes is still there,
+-- and tests/booking-request-destruction.test.ts holds its list and
+-- destroyClinicData's deletes to one list, and fails on a table with a
+-- clinic_id that is on neither it nor the list of what destruction keeps.
+-- destroyClinicData deletes clinic_setup_screens (lib/offboarding), so the
+-- function checks it too: below is 0054's function exactly as 0054 left it,
+-- with that one table added, and its grants restated as 0054 states them.
+-- clinic_settings_history is kept at destruction, on the test's list of what
+-- stays. CREATE OR REPLACE keeps 0054's comment on the function.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION app_mark_clinic_destroyed(target_clinic uuid)
+RETURNS timestamptz
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  tenant uuid := app_current_clinic_id();
+  started timestamptz;
+  due timestamptz;
+  done timestamptz;
+BEGIN
+  IF tenant IS NULL OR target_clinic IS DISTINCT FROM tenant THEN
+    RAISE EXCEPTION 'app_mark_clinic_destroyed: clinic % is not the tenant of this transaction', target_clinic
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT c.offboarding_started_at, c.destroy_after INTO started, due
+    FROM clinics c
+   WHERE c.id = target_clinic;
+  IF started IS NULL OR due IS NULL OR started > now() - interval '30 days' OR due > now() THEN
+    RAISE EXCEPTION 'Clinic % is not due for destruction; refusing to mark it destroyed.', target_clinic
+      USING ERRCODE = 'check_violation',
+            HINT = 'Destruction runs thirty days after offboarding started (app_start_offboarding), by the database''s clock.';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM booking_requests r WHERE r.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM appointments a WHERE a.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM conversations v WHERE v.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM contacts p WHERE p.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM transactions t WHERE t.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM reconciliation_exceptions x WHERE x.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM meta_booking_drafts d WHERE d.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM webhook_events w WHERE w.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM provider_connections k WHERE k.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM clinic_closures z WHERE z.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM chat_threads h WHERE h.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM meta_inbound_messages m WHERE m.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM clinic_setup_screens s WHERE s.clinic_id = target_clinic) THEN
+    RAISE EXCEPTION 'Clinic % still holds rows that destruction deletes; refusing to mark it destroyed.', target_clinic
+      USING ERRCODE = 'check_violation',
+            HINT = 'destroyClinicData deletes them first, in the same transaction, and then stamps it.';
+  END IF;
+
+  UPDATE clinics c
+     SET destroyed_at = coalesce(c.destroyed_at, now()),
+         updated_at = now()
+   WHERE c.id = target_clinic
+  RETURNING c.destroyed_at INTO done;
+  RETURN done;
+END
+$$;--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_mark_clinic_destroyed(uuid) FROM PUBLIC;--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_mark_clinic_destroyed(uuid) TO healdesk_app;--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
 -- Which calls reach AYA: coverage_mode becomes the single source. A clinic
@@ -222,11 +292,11 @@ DO $$
 BEGIN
   IF has_table_privilege('healdesk_app'::name, 'clinic_settings_history'::regclass, 'DELETE')
      OR has_any_column_privilege('healdesk_app'::name, 'clinic_settings_history'::regclass, 'UPDATE') THEN
-    RAISE EXCEPTION 'healdesk_app can rewrite clinic_settings_history, which 0052 made append-only.';
+    RAISE EXCEPTION 'healdesk_app can rewrite clinic_settings_history, which 0056 made append-only.';
   END IF;
   IF has_column_privilege('healdesk_app'::name, 'clinic_setup_screens'::regclass, 'clinic_id', 'UPDATE')
      OR has_column_privilege('healdesk_app'::name, 'clinic_setup_screens'::regclass, 'screen', 'UPDATE') THEN
-    RAISE EXCEPTION 'healdesk_app can move a clinic_setup_screens row, which 0052 froze.';
+    RAISE EXCEPTION 'healdesk_app can move a clinic_setup_screens row, which 0056 froze.';
   END IF;
   IF NOT (has_table_privilege('healdesk_app'::name, 'clinic_setup_screens'::regclass, 'DELETE')
           AND has_column_privilege('healdesk_app'::name, 'clinics'::regclass, 'address', 'UPDATE')
@@ -236,7 +306,7 @@ BEGIN
           AND has_column_privilege('healdesk_app'::name, 'clinic_settings'::regclass, 'auto_confirm_bookings', 'UPDATE')
           AND has_column_privilege('healdesk_app'::name, 'agent_configs'::regclass, 'never_say', 'UPDATE')
           AND has_column_privilege('healdesk_app'::name, 'checkout_intents'::regclass, 'first_invoice_url', 'UPDATE')) THEN
-    RAISE EXCEPTION 'healdesk_app cannot write a column or row 0052 added for a runtime writer.';
+    RAISE EXCEPTION 'healdesk_app cannot write a column or row 0056 added for a runtime writer.';
   END IF;
 END;
 $$;

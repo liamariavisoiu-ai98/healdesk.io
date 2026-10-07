@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { connectAuthorizeUrl, connectRedirectUri } from "@/lib/billing/connect";
+import { connectRedirectUri, connectReturnUrl, mintConnectState } from "@/lib/billing/connect";
 import { bookingRequestUrl } from "@/lib/meta/booking-requests";
 import { publicOrigin, publicOriginProblem, publicUrl, PublicUrlError } from "@/lib/public-url";
 
@@ -73,15 +73,30 @@ describe("publicUrl", () => {
     expect(publicOriginProblem()).toMatch(/BETTER_AUTH_URL is not set/);
   });
 
-  test("a missing origin hides the Connect button instead of failing the onboarding view", () => {
+  test("a missing origin refuses a Connect link before any state is minted", async () => {
     vi.stubEnv("STRIPE_CONNECT_CLIENT_ID", "ca_test");
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_x");
-    vi.stubEnv("HEALDESK_PROVISION_SECRET", "ci-only-not-a-real-secret");
-    vi.stubEnv("BETTER_AUTH_URL", "https://app.healdesk.io");
-    expect(connectAuthorizeUrl("00000000-0000-4000-8000-000000000001")).toMatch(
-      /^https:\/\/connect\.stripe\.com\/oauth\/authorize\?/,
-    );
     vi.stubEnv("BETTER_AUTH_URL", "app.healdesk.io");
-    expect(connectAuthorizeUrl("00000000-0000-4000-8000-000000000001")).toBeNull();
+    // Refused before the database is touched: there is no tenant to open here.
+    await expect(
+      mintConnectState({ clinicId: "00000000-0000-4000-8000-000000000001", returnTo: "ops" }),
+    ).rejects.toMatchObject({ name: "ConnectError", code: "no_public_origin" });
+  });
+
+  test("the Connect callback's redirects are built on the public origin, never /admin", () => {
+    vi.stubEnv("BETTER_AUTH_URL", "https://app.healdesk.io/");
+    expect(connectReturnUrl({ status: "invalid_state" })).toBe(
+      "https://app.healdesk.io/connect/stripe/done?result=expired",
+    );
+    expect(
+      connectReturnUrl({
+        status: "connected",
+        target: { clinicId: "c", slug: "glow", returnTo: "settings" },
+        accountLabel: null,
+      }),
+    ).toBe("https://app.healdesk.io/c/glow/settings?connect=ok");
+    // A broken origin still redirects, on this app, rather than failing the browser.
+    vi.stubEnv("BETTER_AUTH_URL", "app.healdesk.io");
+    expect(connectReturnUrl({ status: "unbound" })).toBe("/connect/stripe/done?result=failed");
   });
 });

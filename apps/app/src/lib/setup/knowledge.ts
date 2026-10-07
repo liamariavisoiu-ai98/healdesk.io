@@ -21,7 +21,7 @@ import { priceKindOf } from "./prices";
 /**
  * The practice's knowledge: what AYA may say about it (plan Part F3, spec
  * "Knowledge"). It lives on agent_configs, the row that has always held the
- * agent's words: services with their prices, and since 0052 the price kind,
+ * agent's words: services with their prices, and since 0056 the price kind,
  * the unit and the deposit per service, the policies, the quick answers, the
  * most-asked question, the promotions box and the never-say list.
  *
@@ -99,7 +99,7 @@ export type ServiceInput = {
 
 /**
  * A service as the form shows it, from what is stored. A service stored
- * without a kind (before 0052, or by a writer that does not know kinds) takes
+ * without a kind (before 0056, or by a writer that does not know kinds) takes
  * the kind its prices say: a start with no top is a "from" price, never an
  * exact one, which would make the next save quote the start as the whole
  * price.

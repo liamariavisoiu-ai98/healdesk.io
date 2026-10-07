@@ -1,5 +1,5 @@
 {
-  "id": "4eab295c-3b08-4e2f-b26e-5adfb5440f2a",
+  "id": "3cc4f0b2-431a-479f-9c30-f313eb15685f",
   "prevId": "36a93597-0914-40c6-ad0e-0001939ab0c0",
   "version": "7",
   "dialect": "postgresql",
@@ -124,39 +124,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "promotions": {
-          "name": "promotions",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "quick_answers": {
-          "name": "quick_answers",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "never_say": {
-          "name": "never_say",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "most_asked": {
-          "name": "most_asked",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "policies": {
-          "name": "policies",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
         "approved_at": {
           "name": "approved_at",
           "type": "timestamp with time zone",
@@ -196,24 +163,24 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "agent_configs_clinic_id_clinics_id_fk": {
           "name": "agent_configs_clinic_id_clinics_id_fk",
           "tableFrom": "agent_configs",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -366,9 +333,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "appointments_confirmed_idx": {
           "name": "appointments_confirmed_idx",
@@ -387,10 +354,10 @@
             }
           ],
           "isUnique": false,
-          "where": "\"appointments\".\"external_confirmed_at\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"appointments\".\"external_confirmed_at\" is not null",
+          "concurrently": false
         },
         "appointments_conversation_idx": {
           "name": "appointments_conversation_idx",
@@ -409,9 +376,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "appointments_external_idx": {
           "name": "appointments_external_idx",
@@ -436,51 +403,51 @@
             }
           ],
           "isUnique": true,
-          "where": "\"appointments\".\"external_appointment_id\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"appointments\".\"external_appointment_id\" is not null",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "appointments_clinic_id_clinics_id_fk": {
           "name": "appointments_clinic_id_clinics_id_fk",
           "tableFrom": "appointments",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "appointments_contact_id_contacts_id_fk": {
           "name": "appointments_contact_id_contacts_id_fk",
           "tableFrom": "appointments",
-          "tableTo": "contacts",
           "columnsFrom": [
             "contact_id"
           ],
+          "tableTo": "contacts",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         },
         "appointments_conversation_id_conversations_id_fk": {
           "name": "appointments_conversation_id_conversations_id_fk",
           "tableFrom": "appointments",
-          "tableTo": "conversations",
           "columnsFrom": [
             "conversation_id"
           ],
+          "tableTo": "conversations",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -617,9 +584,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "audit_log_resource_idx": {
           "name": "audit_log_resource_idx",
@@ -644,9 +611,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "audit_log_actor_idx": {
           "name": "audit_log_actor_idx",
@@ -671,9 +638,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "audit_log_request_idx": {
           "name": "audit_log_request_idx",
@@ -686,50 +653,50 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "audit_log_clinic_id_clinics_id_fk": {
           "name": "audit_log_clinic_id_clinics_id_fk",
           "tableFrom": "audit_log",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         },
         "audit_log_actor_user_id_user_id_fk": {
           "name": "audit_log_actor_user_id_user_id_fk",
           "tableFrom": "audit_log",
-          "tableTo": "user",
           "columnsFrom": [
             "actor_user_id"
           ],
+          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         },
         "audit_log_actor_connection_id_provider_connections_id_fk": {
           "name": "audit_log_actor_connection_id_provider_connections_id_fk",
           "tableFrom": "audit_log",
-          "tableTo": "provider_connections",
           "columnsFrom": [
             "actor_connection_id"
           ],
+          "tableTo": "provider_connections",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -784,8 +751,8 @@
           "primaryKey": false,
           "notNull": true,
           "generated": {
-            "as": "case when document_version like 'dpa/%' then 'dpa' else 'baa' end",
-            "type": "stored"
+            "type": "stored",
+            "as": "case when document_version like 'dpa/%' then 'dpa' else 'baa' end"
           }
         },
         "rendered_text": {
@@ -873,8 +840,8 @@
           "primaryKey": false,
           "notNull": true,
           "generated": {
-            "as": "(((greatest(accepted_at, coalesce(terminated_at, accepted_at)) at time zone 'UTC') + interval '6 years') at time zone 'UTC')",
-            "type": "stored"
+            "type": "stored",
+            "as": "(((greatest(accepted_at, coalesce(terminated_at, accepted_at)) at time zone 'UTC') + interval '6 years') at time zone 'UTC')"
           }
         }
       },
@@ -896,9 +863,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "baa_acceptances_version_idx": {
           "name": "baa_acceptances_version_idx",
@@ -911,9 +878,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "baa_acceptances_unbound_idx": {
           "name": "baa_acceptances_unbound_idx",
@@ -926,10 +893,10 @@
             }
           ],
           "isUnique": false,
-          "where": "\"baa_acceptances\".\"organization_id\" is null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"baa_acceptances\".\"organization_id\" is null",
+          "concurrently": false
         },
         "baa_acceptances_retention_idx": {
           "name": "baa_acceptances_retention_idx",
@@ -942,38 +909,38 @@
             }
           ],
           "isUnique": false,
-          "where": "\"baa_acceptances\".\"terminated_at\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"baa_acceptances\".\"terminated_at\" is not null",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "baa_acceptances_organization_id_organization_id_fk": {
           "name": "baa_acceptances_organization_id_organization_id_fk",
           "tableFrom": "baa_acceptances",
-          "tableTo": "organization",
           "columnsFrom": [
             "organization_id"
           ],
+          "tableTo": "organization",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "baa_acceptances_user_id_user_id_fk": {
           "name": "baa_acceptances_user_id_user_id_fk",
           "tableFrom": "baa_acceptances",
-          "tableTo": "user",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -1082,10 +1049,10 @@
             }
           ],
           "isUnique": false,
-          "where": "\"billing_events\".\"outcome\" in ('failed', 'dead_letter')",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"billing_events\".\"outcome\" in ('failed', 'dead_letter')",
+          "concurrently": false
         }
       },
       "foreignKeys": {},
@@ -1200,9 +1167,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "billing_notices_pending_idx": {
           "name": "billing_notices_pending_idx",
@@ -1215,25 +1182,25 @@
             }
           ],
           "isUnique": false,
-          "where": "\"billing_notices\".\"sent_at\" is null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"billing_notices\".\"sent_at\" is null",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "billing_notices_clinic_id_clinics_id_fk": {
           "name": "billing_notices_clinic_id_clinics_id_fk",
           "tableFrom": "billing_notices",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1242,7 +1209,7 @@
       "checkConstraints": {
         "billing_notices_kind_check": {
           "name": "billing_notices_kind_check",
-          "value": "\"billing_notices\".\"kind\" in ('payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected')"
+          "value": "\"billing_notices\".\"kind\" in ('payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected')"
         }
       },
       "isRLSEnabled": false
@@ -1359,9 +1326,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "billing_requests_due_idx": {
           "name": "billing_requests_due_idx",
@@ -1374,25 +1341,25 @@
             }
           ],
           "isUnique": false,
-          "where": "\"billing_requests\".\"done_at\" is null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"billing_requests\".\"done_at\" is null",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "billing_requests_clinic_id_clinics_id_fk": {
           "name": "billing_requests_clinic_id_clinics_id_fk",
           "tableFrom": "billing_requests",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1513,24 +1480,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "billing_transitions_clinic_id_clinics_id_fk": {
           "name": "billing_transitions_clinic_id_clinics_id_fk",
           "tableFrom": "billing_transitions",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1737,9 +1704,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "booking_requests_clinic_idx": {
           "name": "booking_requests_clinic_idx",
@@ -1758,9 +1725,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "booking_requests_vendor_call_idx": {
           "name": "booking_requests_vendor_call_idx",
@@ -1779,10 +1746,10 @@
             }
           ],
           "isUnique": true,
-          "where": "\"booking_requests\".\"vendor_call_id\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"booking_requests\".\"vendor_call_id\" is not null",
+          "concurrently": false
         },
         "booking_requests_thread_idx": {
           "name": "booking_requests_thread_idx",
@@ -1807,76 +1774,76 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "booking_requests_clinic_id_clinics_id_fk": {
           "name": "booking_requests_clinic_id_clinics_id_fk",
           "tableFrom": "booking_requests",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "booking_requests_contact_id_contacts_id_fk": {
           "name": "booking_requests_contact_id_contacts_id_fk",
           "tableFrom": "booking_requests",
-          "tableTo": "contacts",
           "columnsFrom": [
             "contact_id"
           ],
+          "tableTo": "contacts",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "booking_requests_conversation_id_conversations_id_fk": {
           "name": "booking_requests_conversation_id_conversations_id_fk",
           "tableFrom": "booking_requests",
-          "tableTo": "conversations",
           "columnsFrom": [
             "conversation_id"
           ],
+          "tableTo": "conversations",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         },
         "booking_requests_connection_id_provider_connections_id_fk": {
           "name": "booking_requests_connection_id_provider_connections_id_fk",
           "tableFrom": "booking_requests",
-          "tableTo": "provider_connections",
           "columnsFrom": [
             "connection_id"
           ],
+          "tableTo": "provider_connections",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         },
         "booking_requests_appointment_id_appointments_id_fk": {
           "name": "booking_requests_appointment_id_appointments_id_fk",
           "tableFrom": "booking_requests",
-          "tableTo": "appointments",
           "columnsFrom": [
             "appointment_id"
           ],
+          "tableTo": "appointments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -1959,10 +1926,10 @@
             }
           ],
           "isUnique": true,
-          "where": "\"channel_events\".\"kind\" = 'first_answer'",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"channel_events\".\"kind\" = 'first_answer'",
+          "concurrently": false
         },
         "channel_events_clinic_idx": {
           "name": "channel_events_clinic_idx",
@@ -1981,24 +1948,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "channel_events_clinic_id_clinics_id_fk": {
           "name": "channel_events_clinic_id_clinics_id_fk",
           "tableFrom": "channel_events",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -2077,15 +2044,15 @@
         "chat_threads_clinic_id_clinics_id_fk": {
           "name": "chat_threads_clinic_id_clinics_id_fk",
           "tableFrom": "chat_threads",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {
@@ -2235,12 +2202,6 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
-        },
-        "first_invoice_url": {
-          "name": "first_invoice_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -2255,9 +2216,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {},
@@ -2265,17 +2226,17 @@
       "uniqueConstraints": {
         "checkout_intents_stripe_subscription_id_unique": {
           "name": "checkout_intents_stripe_subscription_id_unique",
-          "nullsNotDistinct": false,
           "columns": [
             "stripe_subscription_id"
-          ]
+          ],
+          "nullsNotDistinct": false
         },
         "checkout_intents_invite_ref_unique": {
           "name": "checkout_intents_invite_ref_unique",
-          "nullsNotDistinct": false,
           "columns": [
             "invite_ref"
-          ]
+          ],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -2283,10 +2244,6 @@
         "checkout_intents_interval_check": {
           "name": "checkout_intents_interval_check",
           "value": "\"checkout_intents\".\"billing_interval\" in ('month', 'year')"
-        },
-        "checkout_intents_first_invoice_url_check": {
-          "name": "checkout_intents_first_invoice_url_check",
-          "value": "\"checkout_intents\".\"first_invoice_url\" is null or (char_length(\"checkout_intents\".\"first_invoice_url\") <= 500 and \"checkout_intents\".\"first_invoice_url\" ~ '^https://invoice\\.stripe\\.com/[!-~]+$')"
         },
         "checkout_intents_profile_status_check": {
           "name": "checkout_intents_profile_status_check",
@@ -2366,15 +2323,15 @@
         "clinic_channels_clinic_id_clinics_id_fk": {
           "name": "clinic_channels_clinic_id_clinics_id_fk",
           "tableFrom": "clinic_channels",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {
@@ -2435,15 +2392,15 @@
         "clinic_closures_clinic_id_clinics_id_fk": {
           "name": "clinic_closures_clinic_id_clinics_id_fk",
           "tableFrom": "clinic_closures",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {
@@ -2540,10 +2497,10 @@
             }
           ],
           "isUnique": true,
-          "where": "\"clinic_memberships\".\"revoked_at\" is null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"clinic_memberships\".\"revoked_at\" is null",
+          "concurrently": false
         },
         "clinic_memberships_user_idx": {
           "name": "clinic_memberships_user_idx",
@@ -2556,51 +2513,51 @@
             }
           ],
           "isUnique": false,
-          "where": "\"clinic_memberships\".\"revoked_at\" is null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"clinic_memberships\".\"revoked_at\" is null",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "clinic_memberships_clinic_id_clinics_id_fk": {
           "name": "clinic_memberships_clinic_id_clinics_id_fk",
           "tableFrom": "clinic_memberships",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "clinic_memberships_user_id_user_id_fk": {
           "name": "clinic_memberships_user_id_user_id_fk",
           "tableFrom": "clinic_memberships",
-          "tableTo": "user",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "clinic_memberships_granted_by_user_id_fk": {
           "name": "clinic_memberships_granted_by_user_id_fk",
           "tableFrom": "clinic_memberships",
-          "tableTo": "user",
           "columnsFrom": [
             "granted_by"
           ],
+          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -2684,118 +2641,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "tone": {
-          "name": "tone",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'warm'"
-        },
-        "phone_greeting": {
-          "name": "phone_greeting",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "chat_greeting": {
-          "name": "chat_greeting",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "languages": {
-          "name": "languages",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{en}'::text[]"
-        },
-        "suggest_add_ons": {
-          "name": "suggest_add_ons",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "mention_promotions": {
-          "name": "mention_promotions",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "auto_confirm_bookings": {
-          "name": "auto_confirm_bookings",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "booking_detail": {
-          "name": "booking_detail",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'generic'"
-        },
-        "booking_system": {
-          "name": "booking_system",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "calendar_account": {
-          "name": "calendar_account",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "urgent_help_e164": {
-          "name": "urgent_help_e164",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "vet_referral_e164": {
-          "name": "vet_referral_e164",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "transfer_live_calls": {
-          "name": "transfer_live_calls",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "transfer_e164": {
-          "name": "transfer_e164",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "daily_summary": {
-          "name": "daily_summary",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "coverage_mode": {
-          "name": "coverage_mode",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'overflow_after_hours'"
-        },
-        "transcript_retention_days": {
-          "name": "transcript_retention_days",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 90
-        },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamp with time zone",
@@ -2809,15 +2654,15 @@
         "clinic_settings_clinic_id_clinics_id_fk": {
           "name": "clinic_settings_clinic_id_clinics_id_fk",
           "tableFrom": "clinic_settings",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -2835,227 +2680,6 @@
         "clinic_settings_direct_line_check": {
           "name": "clinic_settings_direct_line_check",
           "value": "\"clinic_settings\".\"direct_line_e164\" is null or \"clinic_settings\".\"direct_line_e164\" ~ '^\\+[1-9][0-9]{6,14}$'"
-        },
-        "clinic_settings_tone_check": {
-          "name": "clinic_settings_tone_check",
-          "value": "\"clinic_settings\".\"tone\" in ('warm', 'clinical')"
-        },
-        "clinic_settings_greetings_check": {
-          "name": "clinic_settings_greetings_check",
-          "value": "(\"clinic_settings\".\"phone_greeting\" is null or char_length(\"clinic_settings\".\"phone_greeting\") between 1 and 300) and (\"clinic_settings\".\"chat_greeting\" is null or char_length(\"clinic_settings\".\"chat_greeting\") between 1 and 300)"
-        },
-        "clinic_settings_languages_check": {
-          "name": "clinic_settings_languages_check",
-          "value": "cardinality(\"clinic_settings\".\"languages\") between 1 and 8 and \"clinic_settings\".\"languages\" <@ array['en', 'es', 'fr', 'pt', 'zh', 'vi', 'ko', 'ru']::text[]"
-        },
-        "clinic_settings_booking_detail_check": {
-          "name": "clinic_settings_booking_detail_check",
-          "value": "\"clinic_settings\".\"booking_detail\" in ('generic', 'named_provider')"
-        },
-        "clinic_settings_booking_system_check": {
-          "name": "clinic_settings_booking_system_check",
-          "value": "\"clinic_settings\".\"booking_system\" is null or \"clinic_settings\".\"booking_system\" in ('google_calendar', 'calendly', 'calcom', 'gohighlevel', 'mindbody', 'boulevard', 'other', 'none')"
-        },
-        "clinic_settings_calendar_account_check": {
-          "name": "clinic_settings_calendar_account_check",
-          "value": "\"clinic_settings\".\"calendar_account\" is null or \"clinic_settings\".\"calendar_account\" in ('workspace_baa', 'workspace_no_baa', 'personal')"
-        },
-        "clinic_settings_numbers_check": {
-          "name": "clinic_settings_numbers_check",
-          "value": "(\"clinic_settings\".\"urgent_help_e164\" is null or \"clinic_settings\".\"urgent_help_e164\" ~ '^\\+[1-9][0-9]{6,14}$') and (\"clinic_settings\".\"vet_referral_e164\" is null or \"clinic_settings\".\"vet_referral_e164\" ~ '^\\+[1-9][0-9]{6,14}$') and (\"clinic_settings\".\"transfer_e164\" is null or \"clinic_settings\".\"transfer_e164\" ~ '^\\+[1-9][0-9]{6,14}$')"
-        },
-        "clinic_settings_coverage_mode_check": {
-          "name": "clinic_settings_coverage_mode_check",
-          "value": "\"clinic_settings\".\"coverage_mode\" in ('all_calls', 'overflow_after_hours', 'after_hours_only')"
-        },
-        "clinic_settings_retention_check": {
-          "name": "clinic_settings_retention_check",
-          "value": "\"clinic_settings\".\"transcript_retention_days\" in (90, 30, 7)"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.clinic_settings_history": {
-      "name": "clinic_settings_history",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "clinic_id": {
-          "name": "clinic_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "field": {
-          "name": "field",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "before_value": {
-          "name": "before_value",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "after_value": {
-          "name": "after_value",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "actor_label": {
-          "name": "actor_label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "changed_at": {
-          "name": "changed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "clinic_settings_history_clinic_idx": {
-          "name": "clinic_settings_history_clinic_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "changed_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "clinic_settings_history_clinic_id_clinics_id_fk": {
-          "name": "clinic_settings_history_clinic_id_clinics_id_fk",
-          "tableFrom": "clinic_settings_history",
-          "tableTo": "clinics",
-          "columnsFrom": [
-            "clinic_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "clinic_settings_history_field_check": {
-          "name": "clinic_settings_history_field_check",
-          "value": "\"clinic_settings_history\".\"field\" in ('direct_line_e164', 'transfer_e164', 'urgent_help_e164', 'vet_referral_e164', 'transcript_retention_days', 'auto_confirm_bookings')"
-        },
-        "clinic_settings_history_values_check": {
-          "name": "clinic_settings_history_values_check",
-          "value": "(\"clinic_settings_history\".\"before_value\" is null or char_length(\"clinic_settings_history\".\"before_value\") <= 64) and (\"clinic_settings_history\".\"after_value\" is null or char_length(\"clinic_settings_history\".\"after_value\") <= 64)"
-        },
-        "clinic_settings_history_actor_check": {
-          "name": "clinic_settings_history_actor_check",
-          "value": "char_length(\"clinic_settings_history\".\"actor_label\") between 1 and 200"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.clinic_setup_screens": {
-      "name": "clinic_setup_screens",
-      "schema": "",
-      "columns": {
-        "clinic_id": {
-          "name": "clinic_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "screen": {
-          "name": "screen",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "outcome": {
-          "name": "outcome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "at": {
-          "name": "at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "actor_label": {
-          "name": "actor_label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "clinic_setup_screens_clinic_id_clinics_id_fk": {
-          "name": "clinic_setup_screens_clinic_id_clinics_id_fk",
-          "tableFrom": "clinic_setup_screens",
-          "tableTo": "clinics",
-          "columnsFrom": [
-            "clinic_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "clinic_setup_screens_clinic_id_screen_pk": {
-          "name": "clinic_setup_screens_clinic_id_screen_pk",
-          "columns": [
-            "clinic_id",
-            "screen"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "clinic_setup_screens_screen_check": {
-          "name": "clinic_setup_screens_screen_check",
-          "value": "\"clinic_setup_screens\".\"screen\" in ('basics', 'hours', 'services', 'question', 'insurance', 'tone', 'coverage', 'direct_line', 'deposits', 'urgent', 'calendar', 'providers', 'channels', 'backup')"
-        },
-        "clinic_setup_screens_outcome_check": {
-          "name": "clinic_setup_screens_outcome_check",
-          "value": "\"clinic_setup_screens\".\"outcome\" in ('done', 'skipped')"
-        },
-        "clinic_setup_screens_actor_check": {
-          "name": "clinic_setup_screens_actor_check",
-          "value": "char_length(\"clinic_setup_screens\".\"actor_label\") between 1 and 200"
         }
       },
       "isRLSEnabled": false
@@ -3134,24 +2758,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "clinic_touches_clinic_id_clinics_id_fk": {
           "name": "clinic_touches_clinic_id_clinics_id_fk",
           "tableFrom": "clinic_touches",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -3465,24 +3089,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "address": {
-          "name": "address",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "website": {
-          "name": "website",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "site_profile": {
-          "name": "site_profile",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "data_classification": {
           "name": "data_classification",
           "type": "data_classification",
@@ -3518,9 +3124,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "clinics_org_idx": {
           "name": "clinics_org_idx",
@@ -3533,9 +3139,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "clinics_billing_clinic_idx": {
           "name": "clinics_billing_clinic_idx",
@@ -3548,38 +3154,38 @@
             }
           ],
           "isUnique": false,
-          "where": "\"clinics\".\"billing_clinic_id\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"clinics\".\"billing_clinic_id\" is not null",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "clinics_organization_id_organization_id_fk": {
           "name": "clinics_organization_id_organization_id_fk",
           "tableFrom": "clinics",
-          "tableTo": "organization",
           "columnsFrom": [
             "organization_id"
           ],
+          "tableTo": "organization",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         },
         "clinics_billing_clinic_id_clinics_id_fk": {
           "name": "clinics_billing_clinic_id_clinics_id_fk",
           "tableFrom": "clinics",
-          "tableTo": "clinics",
           "columnsFrom": [
             "billing_clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -3601,14 +3207,6 @@
         "clinics_dpa_never_hipaa": {
           "name": "clinics_dpa_never_hipaa",
           "value": "\"clinics\".\"agreement_kind\" is distinct from 'dpa' or \"clinics\".\"regulatory_regime\" is distinct from 'hipaa'"
-        },
-        "clinics_address_check": {
-          "name": "clinics_address_check",
-          "value": "\"clinics\".\"address\" is null or (char_length(\"clinics\".\"address\") between 1 and 300 and \"clinics\".\"address\" !~ '[[:cntrl:]]')"
-        },
-        "clinics_website_check": {
-          "name": "clinics_website_check",
-          "value": "\"clinics\".\"website\" is null or (char_length(\"clinics\".\"website\") between 4 and 200 and \"clinics\".\"website\" !~ '[[:space:][:cntrl:]]')"
         }
       },
       "isRLSEnabled": false
@@ -3687,9 +3285,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "connection_links_clinic_idx": {
           "name": "connection_links_clinic_idx",
@@ -3708,24 +3306,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "connection_links_clinic_id_clinics_id_fk": {
           "name": "connection_links_clinic_id_clinics_id_fk",
           "tableFrom": "connection_links",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -3827,9 +3425,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "consent_active_idx": {
           "name": "consent_active_idx",
@@ -3848,25 +3446,25 @@
             }
           ],
           "isUnique": false,
-          "where": "\"consent_records\".\"revoked_at\" is null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"consent_records\".\"revoked_at\" is null",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "consent_records_clinic_id_clinics_id_fk": {
           "name": "consent_records_clinic_id_clinics_id_fk",
           "tableFrom": "consent_records",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -3943,24 +3541,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "contact_attempts_clinic_id_clinics_id_fk": {
           "name": "contact_attempts_clinic_id_clinics_id_fk",
           "tableFrom": "contact_attempts",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -4062,9 +3660,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "contacts_external_idx": {
           "name": "contacts_external_idx",
@@ -4089,25 +3687,25 @@
             }
           ],
           "isUnique": true,
-          "where": "\"contacts\".\"external_contact_id\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"contacts\".\"external_contact_id\" is not null",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "contacts_clinic_id_clinics_id_fk": {
           "name": "contacts_clinic_id_clinics_id_fk",
           "tableFrom": "contacts",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -4228,9 +3826,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "conversations_external_call_idx": {
           "name": "conversations_external_call_idx",
@@ -4249,10 +3847,10 @@
             }
           ],
           "isUnique": true,
-          "where": "\"conversations\".\"external_call_id\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"conversations\".\"external_call_id\" is not null",
+          "concurrently": false
         },
         "conversations_contact_idx": {
           "name": "conversations_contact_idx",
@@ -4271,37 +3869,37 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "conversations_clinic_id_clinics_id_fk": {
           "name": "conversations_clinic_id_clinics_id_fk",
           "tableFrom": "conversations",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "conversations_contact_id_contacts_id_fk": {
           "name": "conversations_contact_id_contacts_id_fk",
           "tableFrom": "conversations",
-          "tableTo": "contacts",
           "columnsFrom": [
             "contact_id"
           ],
+          "tableTo": "contacts",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -4421,9 +4019,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "deposit_payments_open_appointment_idx": {
           "name": "deposit_payments_open_appointment_idx",
@@ -4442,48 +4040,48 @@
             }
           ],
           "isUnique": true,
-          "where": "\"deposit_payments\".\"status\" in ('creating', 'open') and \"deposit_payments\".\"appointment_id\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"deposit_payments\".\"status\" in ('creating', 'open') and \"deposit_payments\".\"appointment_id\" is not null",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "deposit_payments_clinic_id_clinics_id_fk": {
           "name": "deposit_payments_clinic_id_clinics_id_fk",
           "tableFrom": "deposit_payments",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "deposit_payments_appointment_id_appointments_id_fk": {
           "name": "deposit_payments_appointment_id_appointments_id_fk",
           "tableFrom": "deposit_payments",
-          "tableTo": "appointments",
           "columnsFrom": [
             "appointment_id"
           ],
+          "tableTo": "appointments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "deposit_payments_checkout_session_id_unique": {
           "name": "deposit_payments_checkout_session_id_unique",
-          "nullsNotDistinct": false,
           "columns": [
             "checkout_session_id"
-          ]
+          ],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -4817,10 +4415,10 @@
             }
           ],
           "isUnique": true,
-          "where": "\"entitlements\".\"stripe_customer_id\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"entitlements\".\"stripe_customer_id\" is not null",
+          "concurrently": false
         },
         "entitlements_stripe_subscription_idx": {
           "name": "entitlements_stripe_subscription_idx",
@@ -4833,25 +4431,25 @@
             }
           ],
           "isUnique": true,
-          "where": "\"entitlements\".\"stripe_subscription_id\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"entitlements\".\"stripe_subscription_id\" is not null",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "entitlements_clinic_id_clinics_id_fk": {
           "name": "entitlements_clinic_id_clinics_id_fk",
           "tableFrom": "entitlements",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -4923,15 +4521,15 @@
         "factor_lockouts_user_id_user_id_fk": {
           "name": "factor_lockouts_user_id_user_id_fk",
           "tableFrom": "factor_lockouts",
-          "tableTo": "user",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -5062,9 +4660,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "incidents_open_idx": {
           "name": "incidents_open_idx",
@@ -5077,25 +4675,25 @@
             }
           ],
           "isUnique": false,
-          "where": "\"incidents\".\"resolved_at\" is null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"incidents\".\"resolved_at\" is null",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "incidents_clinic_id_clinics_id_fk": {
           "name": "incidents_clinic_id_clinics_id_fk",
           "tableFrom": "incidents",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {},
@@ -5170,15 +4768,15 @@
         "meta_booking_drafts_clinic_id_clinics_id_fk": {
           "name": "meta_booking_drafts_clinic_id_clinics_id_fk",
           "tableFrom": "meta_booking_drafts",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {
@@ -5238,24 +4836,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "meta_inbound_messages_clinic_id_clinics_id_fk": {
           "name": "meta_inbound_messages_clinic_id_clinics_id_fk",
           "tableFrom": "meta_inbound_messages",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {
@@ -5372,9 +4970,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {},
@@ -5507,24 +5105,24 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "overage_invoices_clinic_id_clinics_id_fk": {
           "name": "overage_invoices_clinic_id_clinics_id_fk",
           "tableFrom": "overage_invoices",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -5675,9 +5273,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "provider_connections_status_idx": {
           "name": "provider_connections_status_idx",
@@ -5696,24 +5294,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "provider_connections_clinic_id_clinics_id_fk": {
           "name": "provider_connections_clinic_id_clinics_id_fk",
           "tableFrom": "provider_connections",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -5871,9 +5469,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "reconciliation_exceptions_open_idx": {
           "name": "reconciliation_exceptions_open_idx",
@@ -5892,51 +5490,51 @@
             }
           ],
           "isUnique": false,
-          "where": "\"reconciliation_exceptions\".\"resolved_at\" is null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"reconciliation_exceptions\".\"resolved_at\" is null",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "reconciliation_exceptions_clinic_id_clinics_id_fk": {
           "name": "reconciliation_exceptions_clinic_id_clinics_id_fk",
           "tableFrom": "reconciliation_exceptions",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "reconciliation_exceptions_transaction_id_transactions_id_fk": {
           "name": "reconciliation_exceptions_transaction_id_transactions_id_fk",
           "tableFrom": "reconciliation_exceptions",
-          "tableTo": "transactions",
           "columnsFrom": [
             "transaction_id"
           ],
+          "tableTo": "transactions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "reconciliation_exceptions_appointment_id_appointments_id_fk": {
           "name": "reconciliation_exceptions_appointment_id_appointments_id_fk",
           "tableFrom": "reconciliation_exceptions",
-          "tableTo": "appointments",
           "columnsFrom": [
             "appointment_id"
           ],
+          "tableTo": "appointments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -6054,24 +5652,24 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "report_deliveries_clinic_id_clinics_id_fk": {
           "name": "report_deliveries_clinic_id_clinics_id_fk",
           "tableFrom": "report_deliveries",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -6080,7 +5678,7 @@
       "checkConstraints": {
         "report_deliveries_kind_check": {
           "name": "report_deliveries_kind_check",
-          "value": "\"report_deliveries\".\"kind\" in ('monthly', 'weekly', 'alert', 'renewal', 'payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected', 'welcome')"
+          "value": "\"report_deliveries\".\"kind\" in ('monthly', 'weekly', 'alert', 'renewal', 'payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected')"
         },
         "report_deliveries_delivery_status_check": {
           "name": "report_deliveries_delivery_status_check",
@@ -6156,24 +5754,24 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "report_recipients_clinic_id_clinics_id_fk": {
           "name": "report_recipients_clinic_id_clinics_id_fk",
           "tableFrom": "report_recipients",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -6248,15 +5846,15 @@
         "scheduled_jobs_updated_by_user_id_fk": {
           "name": "scheduled_jobs_updated_by_user_id_fk",
           "tableFrom": "scheduled_jobs",
-          "tableTo": "user",
           "columnsFrom": [
             "updated_by"
           ],
+          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -6344,9 +5942,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "security_events_event_idx": {
           "name": "security_events_event_idx",
@@ -6365,37 +5963,37 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "security_events_user_id_user_id_fk": {
           "name": "security_events_user_id_user_id_fk",
           "tableFrom": "security_events",
-          "tableTo": "user",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         },
         "security_events_organization_id_organization_id_fk": {
           "name": "security_events_organization_id_organization_id_fk",
           "tableFrom": "security_events",
-          "tableTo": "organization",
           "columnsFrom": [
             "organization_id"
           ],
+          "tableTo": "organization",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -6489,9 +6087,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "sign_in_links_source_idx": {
           "name": "sign_in_links_source_idx",
@@ -6510,10 +6108,10 @@
             }
           ],
           "isUnique": true,
-          "where": "\"sign_in_links\".\"source_ref\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"sign_in_links\".\"source_ref\" is not null",
+          "concurrently": false
         },
         "sign_in_links_user_idx": {
           "name": "sign_in_links_user_idx",
@@ -6532,24 +6130,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "sign_in_links_user_id_user_id_fk": {
           "name": "sign_in_links_user_id_user_id_fk",
           "tableFrom": "sign_in_links",
-          "tableTo": "user",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -6647,10 +6245,10 @@
             }
           ],
           "isUnique": false,
-          "where": "\"step_ups\".\"revoked_at\" is null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"step_ups\".\"revoked_at\" is null",
+          "concurrently": false
         },
         "step_ups_factor_idx": {
           "name": "step_ups_factor_idx",
@@ -6663,9 +6261,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "step_ups_user_idx": {
           "name": "step_ups_user_idx",
@@ -6684,37 +6282,37 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "step_ups_user_id_user_id_fk": {
           "name": "step_ups_user_id_user_id_fk",
           "tableFrom": "step_ups",
-          "tableTo": "user",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "step_ups_factor_id_user_factors_id_fk": {
           "name": "step_ups_factor_id_user_factors_id_fk",
           "tableFrom": "step_ups",
-          "tableTo": "user_factors",
           "columnsFrom": [
             "factor_id"
           ],
+          "tableTo": "user_factors",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -6811,10 +6409,10 @@
             }
           ],
           "isUnique": false,
-          "where": "\"stripe_connect_events\".\"outcome\" in ('failed', 'dead_letter')",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"stripe_connect_events\".\"outcome\" in ('failed', 'dead_letter')",
+          "concurrently": false
         }
       },
       "foreignKeys": {},
@@ -6962,24 +6560,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "suppressions_clinic_id_clinics_id_fk": {
           "name": "suppressions_clinic_id_clinics_id_fk",
           "tableFrom": "suppressions",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -7101,9 +6699,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "sync_runs_cursor_idx": {
           "name": "sync_runs_cursor_idx",
@@ -7128,38 +6726,38 @@
             }
           ],
           "isUnique": false,
-          "where": "\"sync_runs\".\"status\" in ('ok', 'partial')",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"sync_runs\".\"status\" in ('ok', 'partial')",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "sync_runs_clinic_id_clinics_id_fk": {
           "name": "sync_runs_clinic_id_clinics_id_fk",
           "tableFrom": "sync_runs",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "sync_runs_connection_id_provider_connections_id_fk": {
           "name": "sync_runs_connection_id_provider_connections_id_fk",
           "tableFrom": "sync_runs",
-          "tableTo": "provider_connections",
           "columnsFrom": [
             "connection_id"
           ],
+          "tableTo": "provider_connections",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -7246,9 +6844,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "transactions_appointment_idx": {
           "name": "transactions_appointment_idx",
@@ -7267,9 +6865,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "transactions_external_idx": {
           "name": "transactions_external_idx",
@@ -7294,51 +6892,51 @@
             }
           ],
           "isUnique": true,
-          "where": "\"transactions\".\"external_transaction_id\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"transactions\".\"external_transaction_id\" is not null",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "transactions_clinic_id_clinics_id_fk": {
           "name": "transactions_clinic_id_clinics_id_fk",
           "tableFrom": "transactions",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "transactions_contact_id_contacts_id_fk": {
           "name": "transactions_contact_id_contacts_id_fk",
           "tableFrom": "transactions",
-          "tableTo": "contacts",
           "columnsFrom": [
             "contact_id"
           ],
+          "tableTo": "contacts",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         },
         "transactions_appointment_id_appointments_id_fk": {
           "name": "transactions_appointment_id_appointments_id_fk",
           "tableFrom": "transactions",
-          "tableTo": "appointments",
           "columnsFrom": [
             "appointment_id"
           ],
+          "tableTo": "appointments",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -7482,9 +7080,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "usage_events_window_idx": {
           "name": "usage_events_window_idx",
@@ -7503,9 +7101,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "usage_events_unreported_idx": {
           "name": "usage_events_unreported_idx",
@@ -7524,38 +7122,38 @@
             }
           ],
           "isUnique": false,
-          "where": "\"usage_events\".\"over_allowance\" > 0 and \"usage_events\".\"stripe_reported_at\" is null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"usage_events\".\"over_allowance\" > 0 and \"usage_events\".\"stripe_reported_at\" is null",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "usage_events_clinic_id_clinics_id_fk": {
           "name": "usage_events_clinic_id_clinics_id_fk",
           "tableFrom": "usage_events",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "usage_events_location_clinic_id_clinics_id_fk": {
           "name": "usage_events_location_clinic_id_clinics_id_fk",
           "tableFrom": "usage_events",
-          "tableTo": "clinics",
           "columnsFrom": [
             "location_clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -7642,25 +7240,25 @@
             }
           ],
           "isUnique": true,
-          "where": "\"user_backup_codes\".\"used_at\" is null and \"user_backup_codes\".\"revoked_at\" is null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"user_backup_codes\".\"used_at\" is null and \"user_backup_codes\".\"revoked_at\" is null",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "user_backup_codes_user_id_user_id_fk": {
           "name": "user_backup_codes_user_id_user_id_fk",
           "tableFrom": "user_backup_codes",
-          "tableTo": "user",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -7777,10 +7375,10 @@
             }
           ],
           "isUnique": true,
-          "where": "\"user_factors\".\"credential_id\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"user_factors\".\"credential_id\" is not null",
+          "concurrently": false
         },
         "user_factors_one_totp_idx": {
           "name": "user_factors_one_totp_idx",
@@ -7793,10 +7391,10 @@
             }
           ],
           "isUnique": true,
-          "where": "\"user_factors\".\"kind\" = 'totp' and \"user_factors\".\"revoked_at\" is null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"user_factors\".\"kind\" = 'totp' and \"user_factors\".\"revoked_at\" is null",
+          "concurrently": false
         },
         "user_factors_user_idx": {
           "name": "user_factors_user_idx",
@@ -7815,24 +7413,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "user_factors_user_id_user_id_fk": {
           "name": "user_factors_user_id_user_id_fk",
           "tableFrom": "user_factors",
-          "tableTo": "user",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -7943,9 +7541,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "webauthn_challenges_user_idx": {
           "name": "webauthn_challenges_user_idx",
@@ -7964,24 +7562,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "webauthn_challenges_user_id_user_id_fk": {
           "name": "webauthn_challenges_user_id_user_id_fk",
           "tableFrom": "webauthn_challenges",
-          "tableTo": "user",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -8103,9 +7701,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "webhook_events_unprocessed_idx": {
           "name": "webhook_events_unprocessed_idx",
@@ -8124,25 +7722,25 @@
             }
           ],
           "isUnique": false,
-          "where": "\"webhook_events\".\"processed_at\" is null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"webhook_events\".\"processed_at\" is null",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "webhook_events_clinic_id_clinics_id_fk": {
           "name": "webhook_events_clinic_id_clinics_id_fk",
           "tableFrom": "webhook_events",
-          "tableTo": "clinics",
           "columnsFrom": [
             "clinic_id"
           ],
+          "tableTo": "clinics",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -8247,24 +7845,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "account_user_id_user_id_fk": {
           "name": "account_user_id_user_id_fk",
           "tableFrom": "account",
-          "tableTo": "user",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -8340,9 +7938,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "invitation_email_idx": {
           "name": "invitation_email_idx",
@@ -8355,37 +7953,37 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "invitation_organization_id_organization_id_fk": {
           "name": "invitation_organization_id_organization_id_fk",
           "tableFrom": "invitation",
-          "tableTo": "organization",
           "columnsFrom": [
             "organization_id"
           ],
+          "tableTo": "organization",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "invitation_inviter_id_user_id_fk": {
           "name": "invitation_inviter_id_user_id_fk",
           "tableFrom": "invitation",
-          "tableTo": "user",
           "columnsFrom": [
             "inviter_id"
           ],
+          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -8442,9 +8040,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "member_userId_idx": {
           "name": "member_userId_idx",
@@ -8457,37 +8055,37 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "member_organization_id_organization_id_fk": {
           "name": "member_organization_id_organization_id_fk",
           "tableFrom": "member",
-          "tableTo": "organization",
           "columnsFrom": [
             "organization_id"
           ],
+          "tableTo": "organization",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "member_user_id_user_id_fk": {
           "name": "member_user_id_user_id_fk",
           "tableFrom": "member",
-          "tableTo": "user",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -8549,9 +8147,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {},
@@ -8559,10 +8157,10 @@
       "uniqueConstraints": {
         "organization_slug_unique": {
           "name": "organization_slug_unique",
-          "nullsNotDistinct": false,
           "columns": [
             "slug"
-          ]
+          ],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -8641,34 +8239,34 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "session_user_id_user_id_fk": {
           "name": "session_user_id_user_id_fk",
           "tableFrom": "session",
-          "tableTo": "user",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "user",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "session_token_unique": {
           "name": "session_token_unique",
-          "nullsNotDistinct": false,
           "columns": [
             "token"
-          ]
+          ],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -8731,10 +8329,10 @@
       "uniqueConstraints": {
         "user_email_unique": {
           "name": "user_email_unique",
-          "nullsNotDistinct": false,
           "columns": [
             "email"
-          ]
+          ],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -8796,9 +8394,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {},
@@ -8987,10 +8585,10 @@
     }
   },
   "schemas": {},
+  "views": {},
   "sequences": {},
   "roles": {},
   "policies": {},
-  "views": {},
   "_meta": {
     "columns": {},
     "schemas": {},

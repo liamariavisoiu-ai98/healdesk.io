@@ -369,8 +369,36 @@
     {
       "idx": 52,
       "version": "7",
-      "when": 1791376424635,
-      "tag": "0052_setup_wizard",
+      "when": 1791357095803,
+      "tag": "0052_dmarc_review",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1791361130557,
+      "tag": "0053_stripe_bcd_review",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1791376410526,
+      "tag": "0054_booking_request_destruction",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1791380080862,
+      "tag": "0055_meta_greeting",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1791388533203,
+      "tag": "0056_setup_wizard",
       "breakpoints": true
     }
   ]

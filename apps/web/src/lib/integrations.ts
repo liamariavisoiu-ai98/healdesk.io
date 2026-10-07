@@ -1,13 +1,13 @@
 /**
- * The logos on the hero's orbit, what a screen reader hears in their place,
- * and whose marks they are.
+ * The logos beside AYA in the hero, what a screen reader hears in their
+ * place, and whose marks they are.
  *
- * HeroOrbit draws the ring from RING and labels it with LABEL, and the
- * footer prints TRADEMARKS on every page. They live together so a logo
- * cannot reach the ring without its label and its attribution:
- * src/lib/integrations.test.ts fails if either is missing, or if a logo's
- * file is not in public/. What is on the ring, and why in this order, is in
- * HeroOrbit.tsx.
+ * HeroPortrait places HERO_LOGOS beside her and labels them with LABEL, and
+ * the footer prints TRADEMARKS on every page. They live together so a logo
+ * cannot reach the hero without its label and its attribution:
+ * src/lib/integrations.test.ts fails if either is missing, if a logo's file
+ * is not in public/, or if two logos overlap. What is there, and why in this
+ * order, is in HeroPortrait.tsx.
  *
  * The files are the owner's own downloads, cut out of their backgrounds;
  * Calendly's and HighLevel's are their symbols without the wordmarks, which
@@ -21,8 +21,8 @@
  * rendered from SVG at the canvas size.
  */
 
-export type RingLogo = {
-  /** What the logo stands for on the ring, as the label names it. */
+export type HeroLogo = {
+  /** What the logo stands for, as the label names it. */
   name: string;
   src: string;
   /**
@@ -32,29 +32,67 @@ export type RingLogo = {
    */
   mark: string | null;
   /**
-   * For an open mark only: the share of the logo's half-width the artwork
-   * reaches along its spoke, where a disc stops the hairline showing through
-   * the gaps (globals.css, "The hero orbit"). A solid tile hides the line
-   * itself and has none.
+   * The logo's centre on the hero photo, in percent of its width and height.
+   * HeroPortrait.tsx says how these were found; move them with the photo.
    */
-  disc?: number;
+  at: { x: number; y: number };
 };
 
-/** Clockwise from twelve o'clock. */
-export const RING: readonly RingLogo[] = [
-  { name: "Google Calendar", src: "/integrations/google-calendar.webp", mark: "Google Calendar" },
-  { name: "Cal.com", src: "/integrations/cal-com.webp", mark: "Cal.com" },
-  // A ring, so the same from any direction.
-  { name: "Calendly", src: "/integrations/calendly.webp", mark: "Calendly", disc: 0.94 },
-  // Where the arrows start seen from the soul, at this place on the ring;
-  // measure again if it moves.
-  { name: "HighLevel", src: "/integrations/highlevel.webp", mark: "HighLevel", disc: 0.72 },
-  { name: "Stripe", src: "/integrations/stripe.webp", mark: "Stripe" },
-  { name: "WhatsApp", src: "/integrations/whatsapp.webp", mark: "WhatsApp" },
+/**
+ * Top to bottom down AYA's left side, alternately close to her and further
+ * out: about 120 and 265 photo pixels from her outline, measured row by row.
+ */
+export const HERO_LOGOS: readonly HeroLogo[] = [
+  {
+    name: "website chat",
+    src: "/integrations/website-chat.webp",
+    mark: null,
+    at: { x: 59.93, y: 10.2 },
+  },
+  {
+    name: "Instagram",
+    src: "/integrations/instagram.webp",
+    mark: "Instagram",
+    at: { x: 49.88, y: 20.19 },
+  },
   // The owner's file is Facebook's "f"; the channel it stands for is Messenger.
-  { name: "Messenger", src: "/integrations/facebook.webp", mark: "Facebook" },
-  { name: "Instagram", src: "/integrations/instagram.webp", mark: "Instagram" },
-  { name: "website chat", src: "/integrations/website-chat.webp", mark: null },
+  {
+    name: "Messenger",
+    src: "/integrations/facebook.webp",
+    mark: "Facebook",
+    at: { x: 57.95, y: 30.18 },
+  },
+  {
+    name: "WhatsApp",
+    src: "/integrations/whatsapp.webp",
+    mark: "WhatsApp",
+    at: { x: 49.46, y: 40.06 },
+  },
+  {
+    name: "Google Calendar",
+    src: "/integrations/google-calendar.webp",
+    mark: "Google Calendar",
+    at: { x: 61.24, y: 50.05 },
+  },
+  {
+    name: "Cal.com",
+    src: "/integrations/cal-com.webp",
+    mark: "Cal.com",
+    at: { x: 47.49, y: 60.04 },
+  },
+  {
+    name: "Calendly",
+    src: "/integrations/calendly.webp",
+    mark: "Calendly",
+    at: { x: 53.83, y: 69.93 },
+  },
+  {
+    name: "HighLevel",
+    src: "/integrations/highlevel.webp",
+    mark: "HighLevel",
+    at: { x: 43.0, y: 79.91 },
+  },
+  { name: "Stripe", src: "/integrations/stripe.webp", mark: "Stripe", at: { x: 52.33, y: 89.9 } },
 ];
 
 export const LABEL =

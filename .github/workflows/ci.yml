@@ -92,17 +92,23 @@ jobs:
 
       # The point of the whole job. The step above fails on any failing test;
       # this one fails when the database-backed suites SKIPPED — which is the
-      # silent case, because a suite that skips reports green.
+      # silent case, because a suite that skips reports green. The suites that
+      # need no database now pass well over any floor on their own (1,297
+      # passed beside 779 skipped without one), so a pass count cannot tell;
+      # any skipped or todo test fails the job instead. Nothing in apps/app
+      # skips on purpose: the only conditional skip is describeDb.
+      # apps/app/tests/ci-db-guard.test.ts runs this script.
       - name: Assert the security tests actually ran
         run: |
           node -e '
             const r = require("./test-results.json");
             const passed = r.numPassedTests ?? 0;
-            const skipped = (r.testResults ?? []).filter(f => f.status === "pending").length;
-            console.log(`passed: ${passed}, skipped files: ${skipped}`);
-            if (passed < 200) {
-              console.log("::error::Only " + passed + " tests ran. The database-backed suites skipped —");
-              console.log("::error::tenant isolation, RLS drift and BAA immutability did not execute.");
+            const pending = r.numPendingTests ?? 0;
+            const todo = r.numTodoTests ?? 0;
+            console.log(`passed: ${passed}, pending: ${pending}, todo: ${todo}`);
+            if (pending > 0 || todo > 0 || passed < 200) {
+              console.log("::error::" + passed + " tests passed, " + pending + " skipped, " + todo + " todo. The database-backed suites did not all run —");
+              console.log("::error::tenant isolation, RLS drift, BAA immutability and billing may not have executed.");
               process.exit(1);
             }
           '
@@ -122,3 +128,53 @@ jobs:
       - run: npm run build
         env:
           HEALDESK_LOCAL_KEK: ${{ env.HEALDESK_LOCAL_KEK }}
+
+      # Until 6 October 2026 every production build of apps/app carried the two
+      # AWS SDKs as `throw MODULE_NOT_FOUND`: neither was installed, and inside
+      # a try block Turbopack compiles an import it cannot resolve into a throw
+      # and passes the build with a warning. No deployment could seal a
+      # credential through KMS or send mail through SES, and nothing failed.
+      # tests/aws-sdk-clients.test.ts and tests/aws-sdk-externals.test.ts hold
+      # the source side of the fix; this reads what the build produced. A
+      # missing build fails too, so the check cannot pass by having nothing to
+      # look at.
+      #
+      # The server chunks do not require the packages by name: each SDK is
+      # required as a hashed alias (`@aws-sdk/client-kms-<hash>`) that resolves
+      # only through a symlink in the standalone output's own .next/node_modules.
+      # So the last check loads every SDK module the chunks name, as the server
+      # would, from a copy of the standalone output outside the checkout. Inside
+      # it, Node's lookup walks up past the standalone output into the build's
+      # own aliases and the repo's node_modules, and finds whatever the image
+      # would be missing.
+      - name: Assert the apps/app build loads the AWS SDKs rather than throwing
+        run: |
+          test -d apps/app/.next/server && test -d apps/app/.next/standalone || { echo "::error::apps/app/.next/server or .next/standalone is missing: apps/app was not built."; exit 1; }
+          failed=0
+          for pkg in client-kms client-sesv2; do
+            if grep -rlF "Cannot find module '@aws-sdk/$pkg'" apps/app/.next/server; then
+              echo "::error::The apps/app server build throws MODULE_NOT_FOUND for @aws-sdk/$pkg (files above)."
+              failed=1
+            fi
+            if [ ! -f "apps/app/.next/standalone/node_modules/@aws-sdk/$pkg/package.json" ]; then
+              echo "::error::@aws-sdk/$pkg is not in the apps/app standalone output, so the image would not carry it."
+              failed=1
+            fi
+          done
+          copy="$RUNNER_TEMP/apps-app-standalone"
+          rm -rf "$copy" && cp -a apps/app/.next/standalone "$copy"
+          server="$copy/apps/app/.next/server"
+          specs=$(grep -rhoE --include='*.js' '"@aws-sdk/client-(kms|sesv2)(-[0-9a-f]+)?"' "$server" | tr -d '"' | sort -u || true)
+          for pkg in client-kms client-sesv2; do
+            if ! grep -qE "^@aws-sdk/$pkg(-[0-9a-f]+)?\$" <<< "$specs"; then
+              echo "::error::No apps/app server chunk requires @aws-sdk/$pkg, so nothing in the image loads it."
+              failed=1
+            fi
+          done
+          for spec in $specs; do
+            if ! node -e 'require(require.resolve(process.argv[1], { paths: [process.argv[2]] }))' "$spec" "$server"; then
+              echo "::error::$spec, as the apps/app server chunks require it, does not load from the standalone output."
+              failed=1
+            fi
+          done
+          exit "$failed"

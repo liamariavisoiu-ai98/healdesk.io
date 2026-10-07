@@ -36,7 +36,7 @@ export async function setPhoneSettings(tx: TenantTx, input: PhoneSettings): Prom
     set.callRouting = input.callRouting;
     set.callRoutingConfirmedAt = now;
     // clinic_settings.coverage_mode is the single source of which calls
-    // reach AYA (0052): the wizard shows it back and its forwarding codes
+    // reach AYA (0056): the wizard shows it back and its forwarding codes
     // follow it, and Package B's coverageModeOf moves onto it. An operator's
     // routing answer moves it in this same transaction, or the two columns
     // would disagree for good.

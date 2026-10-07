@@ -8,10 +8,13 @@ import {
   chatChannelOf,
   getPlan,
   getPricingCard,
+  type MeterId,
   offersChatChoice,
+  OVERAGE_BLOCK_UNITS,
   OVERAGE_RATES_PROVISIONAL,
   type Plan,
   planForCard,
+  planMeteredPrices,
   plans,
   type PricingCard,
   planStartSentence,
@@ -114,27 +117,67 @@ export function allowanceRows(plan: Plan): AllowanceRow[] {
   ];
 }
 
+/** What a meter counts: "minutes" where the block is named, "voice minutes" in a sentence. */
+const METER_UNITS: Record<MeterId, { short: string; long: string }> = {
+  voiceMinutes: { short: "minutes", long: "voice minutes" },
+  chatConversations: { short: "conversations", long: "chat conversations" },
+};
+
+const usdCents = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+});
+
+export type OverageBlockPrice = {
+  meter: MeterId;
+  /** "$80": what one started block of OVERAGE_BLOCK_UNITS costs on this meter. */
+  price: string;
+  /** "minutes" or "conversations". */
+  units: string;
+  /** "voice minutes" or "chat conversations". */
+  unitsLong: string;
+};
+
 /**
- * What happens past the allowance, as one line.
+ * The overage a package bills, voice first: one price per meter, for one
+ * started block of the catalog's OVERAGE_BLOCK_UNITS.
+ *
+ * Since 6 October 2026 overage is billed per started block of 100 extra
+ * minutes or conversations, never per unit (docs/v1-product-spec.md,
+ * "Overage prices"). The prices come from `planMeteredPrices()`, the function
+ * that picks the metered prices Stripe bills a package, which prices each
+ * block with `overageBlockCents()`. So a page cannot print a price Stripe does
+ * not charge, and src/lib/overage-copy.test.ts holds every surface to it.
+ */
+export function overageBlockPrices(plan: Plan): OverageBlockPrice[] {
+  return planMeteredPrices(plan).map(({ meter, blockCents }) => ({
+    meter,
+    price: (blockCents % 100 === 0 ? usd : usdCents).format(blockCents / 100),
+    units: METER_UNITS[meter].short,
+    unitsLong: METER_UNITS[meter].long,
+  }));
+}
+
+/**
+ * What happens past the allowance, as one line: "$80 per block of 100
+ * minutes · $30 per block of 100 conversations".
  *
  * `null` while `OVERAGE_RATES_PROVISIONAL` is set: checkout then attaches no
  * metered price, so no number may be printed. The caller renders the
  * published-rate wording instead.
  *
- * With the flag off the rates are printed, but they are still placeholders
- * until measured cost times a target margin replaces them (catalog header,
- * and docs/v1-product-spec.md "What still has to be computed"). Every caller
- * that prints this line also says the rates are provisional.
+ * With the flag off the block prices are printed, but they are still
+ * placeholders until measured cost times a target margin replaces them
+ * (catalog header, and docs/v1-product-spec.md "What still has to be
+ * computed"). Every caller that prints this line also says the prices are
+ * provisional, and that a started block is billed whole.
  */
 export function overageLine(plan: Plan): string | null {
   if (OVERAGE_RATES_PROVISIONAL) return null;
-  const parts: string[] = [];
-  if (plan.overagePerVoiceMinuteUsd > 0) {
-    parts.push(`$${plan.overagePerVoiceMinuteUsd.toFixed(2)}/min`);
-  }
-  if (plan.overagePerChatConversationUsd > 0) {
-    parts.push(`$${plan.overagePerChatConversationUsd.toFixed(2)}/conversation`);
-  }
+  const parts = overageBlockPrices(plan).map(
+    (block) => `${block.price} per block of ${OVERAGE_BLOCK_UNITS} ${block.units}`,
+  );
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 

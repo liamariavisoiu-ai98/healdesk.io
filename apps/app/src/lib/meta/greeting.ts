@@ -36,7 +36,7 @@ import type { MetaPlatform } from "./front-door";
  * (drizzle/0043): one row per person per platform, keyed by an HMAC of the
  * sender id (lib/identifier-ref.ts) and never the id, holding when they last
  * wrote and which conversation that belongs to. Nothing they wrote goes near
- * it. drizzle/0053 adds `greeted_conversation_id`, the conversation whose
+ * it. drizzle/0055 adds `greeted_conversation_id`, the conversation whose
  * first reply has carried the greeting; a reply in any other conversation is
  * a first reply.
  *

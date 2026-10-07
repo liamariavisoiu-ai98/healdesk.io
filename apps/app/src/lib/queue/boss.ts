@@ -45,11 +45,22 @@ export const QUEUE_TICK = "tick-hourly";
  * later cannot wait for the top of the hour.
  */
 export const QUEUE_NOTICES = "notices";
+/**
+ * The billing minute clock: every minute, the billing-request worker (plan
+ * starts, step-ups, cancellations, setup closures; lib/billing/requests.ts)
+ * and the usage meter report (lib/billing/usage-report.ts), each behind its
+ * own job row's switch. A queue of its own because neither can wait for the
+ * hour: a plan start recorded at a clinic's first answer should be charged
+ * that minute, and overage reported after Stripe finalises an invoice is
+ * never billed. The hourly tick runs both as a backstop.
+ */
+export const QUEUE_BILLING_MINUTE = "billing-minute";
 
 /**
  * scripts/install-queue.ts creates exactly these, and pg-boss v10 refuses to
  * work a queue that was never created — `npm run queue:install` must be
- * re-run per environment when this list grows. The 23 September 2026
+ * re-run per environment when this list grows (it grew `billing-minute` with
+ * the Stripe build of 6 October 2026). The 23 September 2026
  * `callback-dialer` queue was removed with the call-back (v1 places no
  * calls); where it was installed, it is simply never worked.
  */
@@ -59,6 +70,7 @@ export const QUEUES = [
   QUEUE_PROCESS_WEBHOOK,
   QUEUE_TICK,
   QUEUE_NOTICES,
+  QUEUE_BILLING_MINUTE,
 ] as const;
 
 export type QueueName = (typeof QUEUES)[number];
@@ -124,6 +136,57 @@ export async function stopBoss(): Promise<void> {
   if (!instance) return;
   await instance.stop({ graceful: true });
   instance = undefined;
+}
+
+/** The two pg-boss calls a clock needs; a fake in tests. */
+export type ClockBoss = {
+  schedule(
+    name: string,
+    cron: string,
+    data?: object,
+    options?: PgBoss.ScheduleOptions,
+  ): Promise<void>;
+  work(
+    name: string,
+    options: PgBoss.WorkOptions,
+    handler: PgBoss.WorkHandler<object>,
+  ): Promise<string>;
+};
+
+/**
+ * Register a cron clock and its handler, and survive a queue that was never
+ * installed: returns false, and logs loudly, instead of throwing.
+ *
+ * pg-boss's `schedule()` throws "Queue … not found" for a queue that
+ * `npm run queue:install` never created, and a throw out of the worker's
+ * start-up takes the whole process down with it, the hourly tick included.
+ * A clock added after an environment was installed (`billing-minute`) must
+ * therefore fail on its own: the tick still runs its work hourly as the
+ * backstop, and the log names the fix. Each fire is one empty job; pg-boss
+ * hands the handler an array, which a clock ignores.
+ */
+export async function startGuardedClock(
+  boss: ClockBoss,
+  queue: QueueName,
+  cron: string,
+  handler: () => Promise<void>,
+): Promise<boolean> {
+  try {
+    await boss.schedule(queue, cron, {}, { tz: "UTC" });
+    await boss.work(queue, { batchSize: 1 }, async () => {
+      await handler();
+    });
+    return true;
+  } catch (error) {
+    log.error(
+      "queue clock not running: run `npm run queue:install` as the migrator",
+      {
+        job: queue,
+        error: describeError(error),
+      },
+    );
+    return false;
+  }
 }
 
 /**

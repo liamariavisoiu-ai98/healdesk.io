@@ -23,8 +23,8 @@
  *     fonts.googleapis.com / fonts.gstatic.com here, and adding them would be
  *     a regression, not a fix.
  *   - Video: the niche cards and HealdeskSoul play from /public (webm + mp4),
- *     and HealdeskSoul's posters are local images (a PNG for the demo panels,
- *     a WebP for the hero), as are the hero's logos. `blob:` is allowed in media-src
+ *     and HealdeskSoul's poster is a local PNG, as are the hero's photo and
+ *     logos, local WebPs. `blob:` is allowed in media-src
  *     because MediaSource-backed playback surfaces as a blob: URL and it costs
  *     nothing to permit.
  *   - No WebAssembly and no blob: fetches. The 3D hero needed both

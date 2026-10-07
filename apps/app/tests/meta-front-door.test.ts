@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { metaEligible, resolveBookingRequirements } from "@healdesk/catalog";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 
@@ -19,7 +21,7 @@ import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedClinic } from "./setup/factories";
+import { inTenant, seedClinic, seedEntitled } from "./setup/factories";
 
 /**
  * The Meta front door: a narrow agent, a deterministic guard, and a webhook
@@ -161,8 +163,20 @@ describe("reading Meta's payloads", () => {
         },
       ],
     });
-    expect(events).toEqual([{ platform: "messenger", externalId: PAGE_ID, senderId: "u1", text: "hi there" }]);
+    expect(events).toEqual([{ platform: "messenger", externalId: PAGE_ID, senderId: "u1", text: "hi there", messageId: "m1" }]);
     expect(parseMetaEvents({ object: "instagram", entry: [{ id: "ig1", messaging: [{ sender: { id: "p" }, recipient: { id: "ig1" }, message: { text: "hours?" } }] }] })[0]!.platform).toBe("instagram");
+  });
+
+  test("Meta's own message id is read on both shapes, for the redelivery check (BD24), and is absent when not sent", () => {
+    const ig = parseMetaEvents({ object: "instagram", entry: [{ id: "ig1", messaging: [{ sender: { id: "p" }, recipient: { id: "ig1" }, message: { mid: "aWdfZAG1", text: "hours?" } }] }] });
+    expect(ig[0]!.messageId).toBe("aWdfZAG1");
+    const wa = parseMetaEvents({
+      object: "whatsapp_business_account",
+      entry: [{ changes: [{ value: { metadata: { phone_number_id: "555000111" }, messages: [{ id: "wamid.HBgLMTU1NTAxMDAxMjMVAgASGBQzQTk", from: "15550100123", type: "text", text: { body: "hi" } }] } }] }],
+    });
+    expect(wa[0]!.messageId).toBe("wamid.HBgLMTU1NTAxMDAxMjMVAgASGBQzQTk");
+    const none = parseMetaEvents({ object: "page", entry: [{ id: PAGE_ID, messaging: [{ sender: { id: "u1" }, recipient: { id: PAGE_ID }, message: { text: "hi" } }] }] });
+    expect(none[0]).not.toHaveProperty("messageId");
   });
 
   test("Meta's timestamp becomes sentAt, never later than now: the window starts when the person wrote", () => {
@@ -213,9 +227,12 @@ function post(body: unknown, secret = APP_SECRET): Promise<Response> {
   );
 }
 
+// Every message carries its own id, as Meta's do: the webhook skips an id it
+// has already handled (BD24), so a shared id would make each message after
+// the first a redelivery.
 const inbound = (text: string, pageId = PAGE_ID) => ({
   object: "page",
-  entry: [{ id: pageId, messaging: [{ sender: { id: "user-42" }, recipient: { id: pageId }, message: { mid: "m", text } }] }],
+  entry: [{ id: pageId, messaging: [{ sender: { id: "user-42" }, recipient: { id: pageId }, message: { mid: `m-${randomUUID()}`, text } }] }],
 });
 
 describeDb("the front door, end to end", () => {
@@ -257,6 +274,9 @@ describeDb("the front door, end to end", () => {
   test("answers only a clinic whose front door is on, sends with the sealed token, and stores nothing the person wrote", async () => {
     const c = await seedClinic("meta");
     await getMigratorPool().query(`update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`, [c.clinicId]);
+    // A production clinic answers only with a billing row and a live channel
+    // (the answer gate fails closed without them).
+    await seedEntitled(c.clinicId, { channelRows: [{ channel: "meta", liveAt: new Date() }] });
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
       await setPhoneSettings(tx, { publishedPhoneE164: "+14155550199" });
       await updateAgentConfig(tx, {
@@ -307,11 +327,18 @@ describeDb("the front door, end to end", () => {
       const contacts = await client.query(`select id from contacts`);
       const audit = await client.query<{ metadata: Record<string, unknown> }>(`select metadata from audit_log where resource_type = 'meta_front_door_reply'`);
       const events = await client.query(`select id from webhook_events`);
-      return { convos: convos.rows.length, contacts: contacts.rows.length, audit: audit.rows, events: events.rows.length };
+      const refs = await client.query<{ ref: string }>(
+        `select party_ref as ref from chat_threads union all select message_ref from meta_inbound_messages union all select source_ref from usage_events`,
+      );
+      return { convos: convos.rows.length, contacts: contacts.rows.length, audit: audit.rows, events: events.rows.length, refs: refs.rows.map((r) => r.ref) };
     });
     expect(stored.convos).toBe(0);
     expect(stored.contacts).toBe(0);
     expect(stored.events).toBe(0);
+    // The thread, the handled messages and the counted conversation are
+    // references only: three messages, one conversation.
+    expect(stored.refs).toHaveLength(1 + 3 + 1);
+    for (const ref of stored.refs) expect(ref).toMatch(/^v1:[0-9a-f]{64}$/);
     expect(stored.audit).toHaveLength(3);
     expect(stored.audit.map((a) => a.metadata.source)).toEqual(["model", "handoff", "handoff"]);
     expect(stored.audit[1]!.metadata.guarded).toBe("an acknowledgement");
@@ -322,6 +349,9 @@ describeDb("the front door, end to end", () => {
     const pageId = "423456789012345";
     const c = await seedClinic("meta-names");
     await getMigratorPool().query(`update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`, [c.clinicId]);
+    // A production clinic answers only with a billing row and a live Meta
+    // channel: the answer gate fails closed without them.
+    await seedEntitled(c.clinicId, { channelRows: [{ channel: "meta", liveAt: new Date() }] });
     const config = {
       greeting: "Hi",
       services: [{ name: "Lip filler", priceFromUsd: 300, priceToUsd: 600, durationMinutes: 30 }],

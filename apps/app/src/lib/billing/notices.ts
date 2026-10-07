@@ -8,6 +8,7 @@ import {
   type UsageMeter,
 } from "@/db/schema";
 import type { CoverageMode } from "@/lib/billing/answering";
+import type { SuspensionCause } from "@/lib/billing/events";
 import type { TenantTx } from "@/lib/tenant";
 
 /**
@@ -43,8 +44,12 @@ export type UsageNoticePayload = {
   /** ISO date (YYYY-MM-DD) the allowance window ends. */
   windowEndsOn: string;
   overageMode: "allow" | "hard_cap";
-  /** The provisional overage rate in cents for this meter on the BOUGHT package. */
-  rateCents: number;
+  /**
+   * The provisional price of one started block of 100 units on this meter, at
+   * the BOUGHT package's rate, in cents. Overage is billed per started block
+   * (catalog OVERAGE_BLOCK_UNITS), so the email never quotes a per-unit rate.
+   */
+  blockRateCents: number;
 };
 
 /**
@@ -103,7 +108,17 @@ export type NoticePayloads = {
    * dispute or ops, with the Stripe event or the grace end that caused it.
    * Critical.
    */
-  suspended: { hostedInvoiceUrl: string | null; amountDueCents: number | null } & ForwardingFacts;
+  suspended: {
+    /**
+     * The cause. A payment lifts a suspension for not paying (grace_expired,
+     * unpaid) and never a dispute's or an operator's (R10), so the email may
+     * blame an invoice, and promise that paying it restores the service, only
+     * for the first two.
+     */
+    kind: SuspensionCause;
+    hostedInvoiceUrl: string | null;
+    amountDueCents: number | null;
+  } & ForwardingFacts;
   /** Dedupe `restored:<invoiceId>`. */
   restored: { receiptUrl: string | null };
   /** Dedupe `<stripeEventId>`, from the webhook only. */
@@ -111,13 +126,21 @@ export type NoticePayloads = {
     endsAt: string;
     isBeforeStart: boolean;
     /**
-     * When auto-renew went off inside the first-period refund window: the
-     * last day of that window (ISO date), so the email can say a refund is
-     * due and the team will be in touch. Null otherwise. R31 calls this
-     * `refundEligibleUntil`; the lint classes a date by a name ending in At
-     * or On, so it is `refundWindowEndsOn` here.
+     * When auto-renew went off inside the first-period refund window and the
+     * first plan invoice has been paid: the last day of that window (ISO
+     * date), so the email can say a refund is due and the team will be in
+     * touch. Null otherwise, including while that invoice is unpaid, when
+     * there is nothing to refund. R31 calls this `refundEligibleUntil`; the
+     * lint classes a date by a name ending in At or On, so it is
+     * `refundWindowEndsOn` here.
      */
     refundWindowEndsOn: string | null;
+    /**
+     * When an invoice is unpaid, the moment grace runs out: AYA stops
+     * answering then unless it is paid (R21), which can be long before the
+     * scheduled end. Null when nothing is owed.
+     */
+    graceEndsAt: string | null;
   };
   /** Dedupe `<stripeEventId>`, from the webhook only. */
   cancel_reversed: { isBeforeStart: boolean };
@@ -153,7 +176,18 @@ export type NoticePayloads = {
     windowEnd: string;
     voiceMinutes: number;
     chatConversationsCount: number;
+    /** The started blocks of 100 each meter was billed as: the invoice lines' quantities. */
+    voiceBlocksCount: number;
+    chatBlocksCount: number;
+    /** The price of one block on each meter, in cents; 0 for a meter the package does not sell. */
+    voiceBlockRateCents: number;
+    chatBlockRateCents: number;
     hostedInvoiceUrl: string | null;
+    /**
+     * The card on file paid the invoice. A declined card leaves it open for
+     * dunning, and the email then says it is due rather than charged.
+     */
+    isPaid: boolean;
   };
   /**
    * Dedupe `plan:<requestId>`. Only our own changePlan enqueues it, never the
@@ -170,6 +204,13 @@ export type NoticePayloads = {
     isBeforeStart: boolean;
     /** The package billed now; null before the plan starts. */
     billedPlanId: string | null;
+    /**
+     * The billed price or interval changed, so Stripe prorated the rest of
+     * the period on the change's invoice (`always_invoice`). False when the
+     * billed package stayed and the only invoice was the setup-fee
+     * difference, and before the start.
+     */
+    isProrated: boolean;
   } & Partial<ForwardingFacts>;
   /** Dedupe `location:<requestId>`. Only our own addLocation enqueues it. */
   location_added: {
@@ -185,7 +226,18 @@ export type NoticePayloads = {
    * Dedupe `disconnected:<sha256(acct)>:<disconnectedAtIso>`, only from the
    * path that stamps the disconnection.
    */
-  connect_disconnected: { disconnectedAt: string; wasByWebhook: boolean; source: ConnectSource };
+  connect_disconnected: {
+    disconnectedAt: string;
+    wasByWebhook: boolean;
+    source: ConnectSource;
+    /**
+     * At least one open deposit link could not be expired or checked (our
+     * access was already revoked, or Stripe could not be reached), so it may
+     * still be paid until it lapses: the email says to check Stripe before
+     * collecting, never that the link stopped working.
+     */
+    hasUncheckedLinks: boolean;
+  };
   /** Dedupe `plan_started`: once per billing clinic. Critical. */
   plan_started: {
     /** The package billed: the channels in service. */
@@ -196,6 +248,13 @@ export type NoticePayloads = {
     channel: Channel | null;
     amountCents: number;
     interval: BillingInterval;
+    /**
+     * The day the plan started: the first plan line's period start, the
+     * value `markPlanStarted` stores and the 14-day refund counts from. Not
+     * the day the notice was raised, which is days later when the first
+     * charge was declined and paid on a retry.
+     */
+    startedOn: string;
     periodEndsOn: string;
     receiptUrl: string | null;
     /** The billed package is smaller than the bought one: billing follows the channels in service. */
@@ -210,6 +269,13 @@ export type NoticePayloads = {
     /** Annual plans are invoiced at once; monthly ones prorate on the next invoice. */
     isInvoicedNow: boolean;
     hostedInvoiceUrl: string | null;
+    /**
+     * The invoice raised now was paid. An annual step-up is applied even when
+     * its card declines (allow_incomplete), leaving that invoice open, and
+     * the email then says it is due rather than charged. Always false on a
+     * monthly plan, which invoices nothing now.
+     */
+    isPaid: boolean;
   };
   /** Dedupe `step_up_reminder:<channel>:<dueDate>`, 7 days before a waiting channel joins. */
   step_up_reminder: {
@@ -233,7 +299,13 @@ export type NoticePayloads = {
     periodStartsOn: string | null;
     periodEndsOn: string | null;
   };
-  /** Dedupe `refund:<refundId>`. Never a setup-fee refund: there is none. */
+  /**
+   * Dedupe `refund:<refundId>`. Never a setup-fee refund: there is none.
+   * A first-period or guarantee refund is one notice from commitRefund, keyed
+   * on its first refund and carrying the whole amount, however many invoices
+   * it was spread across; the webhook enqueues only the other refunds, one
+   * per refund.
+   */
   refund_issued: {
     amountCents: number;
     kind: "first_period_cancel" | "guarantee" | "other";

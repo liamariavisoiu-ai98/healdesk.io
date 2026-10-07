@@ -303,6 +303,38 @@ describeDb("billing foundation", () => {
       });
     });
 
+    test("purges chat threads idle for more than 30 days in every clinic, and keeps the live ones", async () => {
+      // A thread holds an HMAC of the sender's id (a WhatsApp number among
+      // them): kept past its use, it is a record of who messaged the clinic.
+      const now = new Date("2026-10-05T06:00:00Z");
+      const thread = (clinicId: string, partyRef: string, lastInboundAt: Date) =>
+        inTenant(clinicId, (c) =>
+          c.query(
+            `insert into chat_threads (clinic_id, channel, party_ref, conversation_id, conversation_started_at, last_inbound_at)
+             values ($1, 'whatsapp', $2, $3, $4, $4)`,
+            [clinicId, partyRef, randomUUID(), lastInboundAt],
+          ),
+        );
+      const a = await seedClinic("threads-a");
+      const b = await seedClinic("threads-b");
+      await thread(a.clinicId, "v1:idle-a", new Date(now.getTime() - 31 * DAY));
+      await thread(a.clinicId, "v1:live-a", new Date(now.getTime() - 29 * DAY));
+      await thread(b.clinicId, "v1:idle-b", new Date(now.getTime() - 45 * DAY));
+      await thread(b.clinicId, "v1:live-b", new Date(now.getTime() - DAY));
+
+      const result = await purgeBillingHousekeeping(now);
+      expect(result).toMatchObject({ chatThreads: 2, clinicsFailed: 0 });
+      const left = (clinicId: string) =>
+        inTenant(clinicId, async (c) =>
+          (await c.query<{ party_ref: string }>(`select party_ref from chat_threads`)).rows.map(
+            (r) => r.party_ref,
+          ),
+        );
+      expect(await left(a.clinicId)).toEqual(["v1:live-a"]);
+      expect(await left(b.clinicId)).toEqual(["v1:live-b"]);
+      expect((await purgeBillingHousekeeping(now)).chatThreads).toBe(0);
+    });
+
     test("runs only behind its switch, and records what it did", async () => {
       const now = new Date("2026-10-05T06:00:00Z");
       expect(await runBillingHousekeepingJob({ now })).toEqual({ status: "disabled" });
@@ -367,18 +399,20 @@ describeDb("billing foundation", () => {
       // while its switch, the billing-notices job row, is off.
       expect(await runBillingNoticesJob({ now })).toEqual({ status: "disabled" });
       expect(await sendPendingNotices({ now })).toEqual({ sent: 0, failed: 0, skipped: 0, held: 0 });
+      // Real now (Package C-actions): a clinic with no billing row is skipped.
       expect(await reconcileMeteredItems(randomUUID())).toEqual({
         status: "skipped",
-        reason: "Not built yet.",
+        reason: "no_entitlements",
       });
-      // The Stripe build's stubs (S0), each behind its switch.
+      // The Stripe build's jobs (S0's entry points, C-requests' bodies), each
+      // behind its switch.
       expect(await runBillingRequestsJob({ now })).toEqual({ status: "disabled" });
       expect(await runBillingReconcileJob({ now })).toEqual({ status: "disabled" });
       expect(await runCardExpiringJob({ now })).toEqual({ status: "disabled" });
       expect(await drainBillingRequests({ now })).toEqual({ processed: 0, deferred: 0, failed: 0 });
     });
 
-    test("the Stripe build's job stubs record their runs once switched on, and leave no lock behind", async () => {
+    test("the Stripe build's jobs record their runs once switched on, and leave no lock behind", async () => {
       const now = new Date("2026-10-05T07:00:00Z");
       const ops = await seedOpsUser();
       for (const [name, run] of [
@@ -387,7 +421,7 @@ describeDb("billing foundation", () => {
         [JOB_CARD_EXPIRING, () => runCardExpiringJob({ now })],
       ] as const) {
         await setJobEnabled(name, true, ops);
-        expect(await run(), name).toEqual({ status: "ok", note: "Not built yet." });
+        expect(await run(), name).toMatchObject({ status: "ok" });
         const job = await getJob(name);
         expect(job?.lastRunStatus, name).toBe("ok");
         expect(job?.runningSince, name).toBeNull();
@@ -400,7 +434,7 @@ describeDb("billing foundation", () => {
         JOB_BILLING_REQUESTS,
         new Date(now.getTime() - 60_000),
       ]);
-      expect(await runBillingRequestsJob({ now })).toEqual({ status: "ok", note: "Not built yet." });
+      expect(await runBillingRequestsJob({ now })).toMatchObject({ status: "ok" });
       await setJobEnabled(JOB_BILLING_REQUESTS, false, ops);
     });
   });

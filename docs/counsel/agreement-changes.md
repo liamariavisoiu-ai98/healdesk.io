@@ -893,16 +893,16 @@ release they never move.
 
 | Document and variant | SHA-256 |
 | --- | --- |
-| 1.3.0 covered_estimated (the sample) | `ae25aee567b331bdcba230f46ad804a1c2f72475d45a4930518444e3b72add56` |
-| 1.3.0 notcovered_estimated | `55a70866210b727032e47fc92422c04599900cbcf09383a0b41f55544966e9db` |
-| 1.3.0 unknown_estimated | `207e59bc90b654754b3ad3b4270bbe1579ac1f719801a3ae9c67eb9d115c07b6` |
-| 1.3.0 uncovered_nobaa | `c80a223ac9e4955518f69edaede18c5df21e09dd613a7588fa94479ee600a5a6` |
-| 1.3.0 uncovered_personal | `71ccc743d5eb3bb5f6dfcf68a28e78029a9fa77ae842d4a1da3ea33ef688c00d` |
-| 1.3.0 notused_mindbody | `786c8d73421ceaa3e380d47ca8d6ab4a726d6d47dbec1b9546affe2743ada84e` |
-| 1.3.0 notused_other | `1d9ebb06be96d90359d038486de4a78ddf40a97d96eb7f74d02198e2d87144c5` |
-| 1.3.0 live_calcom | `d5d772a408c7ca08917c045adfa3b6b815910ae0857f3123d674ea3c891ac231` |
-| 1.3.0 live_highlevel_personal | `627f0d75f928a27868182105b63776b0f385e81d91cd7f7afb5d2829eb0a450d` |
-| 1.3.0 live_calendly_nobaa | `c92fddeace7c32be33cba22f4ff1d11b8be440b050d7d2e66e66b2b66ccd7994` |
+| 1.3.0 covered_estimated (the sample) | `164d09a2028f07d2e2f087c337a691695cb055bd631a4b030fb4f6331c99d864` |
+| 1.3.0 notcovered_estimated | `f43583194de3443924c0e525539f85b41e9115e08765594518cf157c12f480ea` |
+| 1.3.0 unknown_estimated | `2ae84761f4106c131ee9de924762e69ad0f701de339220b4ffe7ba3358a70e15` |
+| 1.3.0 uncovered_nobaa | `d9bb7699e4506df09541d473701895a23832cbe05834210bacedf64245c6f609` |
+| 1.3.0 uncovered_personal | `719c8126abeea98d1e999febf5d77d1dda491c91704947ceee56560b68e37eea` |
+| 1.3.0 notused_mindbody | `a01db77812b991902fd533d8ab93ce37f96817f9a2175b4e1b8e5d7433303fad` |
+| 1.3.0 notused_other | `4ffe6be3c70b944d4ab4f8bcb868878578e2b94a4eee510d51268b4eb6eb75a0` |
+| 1.3.0 live_calcom | `5a29d3f54a92785736688838cad2c531a00d359f0c372eb6cb2b1c663e3caee9` |
+| 1.3.0 live_highlevel_personal | `97b86592872412de46a24b0390cbccfb7b07a76666bfd485c0491c7da5e2ff9a` |
+| 1.3.0 live_calendly_nobaa | `4eb97ecf0252020cb102b6b7525464512f7db7429ce676076bd20c6b95ce4199` |
 | calendar-election/1.0.0 sample | `63586893a436803155ee71811ea17a8d71800a0d90ce41e1b3d9c596650a02aa` |
 | google-calendar-disclosure/1 | `5b3fa42bf21ce7ab880bb869f16f19d6953f87b576f67b0c431eb8eb273387d5` |
 
@@ -910,7 +910,18 @@ The 1.3.0 hashes were regenerated on 6 October 2026 by the edits in § 12.13,
 and again by the pre-release audit's redraft (§ 12.14), which also moved the
 election's and the disclosure's: neither has been released, accepted or
 shown. The verification of that redraft (7 October) moved the ten 1.3.0
-hashes once more, and not the election's or the disclosure's. 1.3.0 /
+hashes once more, and not the election's or the disclosure's. So did the
+booking-request destruction fix the same day (drizzle/0054), by clause 11's
+sentences on booking requests and contact details: they said a booking
+request was kept with the contact details of the person it concerns, as the
+purge did while requests went with their contact by cascade. A confirmed request holds its appointment, so that rule
+could not hold beside the appointment's own 90 days, and the purge now
+judges a request by its own dates, which nothing moves once it is decided.
+The clause says so: a booking request is kept for 90 days after the latest
+of when it was made, the time it was confirmed for and its appointment's
+time, and a person's contact details while any record of theirs is kept.
+`tests/booking-request-destruction.test.ts` holds the purge to the
+sentence. 1.3.0 /
 covered_verified_boulevard is gone: 1.3.0 refuses verified reporting
 (HRC-17), and the golden test asserts the refusal instead. The 1.3.0
 covered_outbound hash equals covered_estimated, as in every version since
@@ -1309,7 +1320,7 @@ these is closed, by code, a page, a signed paper or a host setting, and
    `metaChannelGreeting()`, the fixed lines included, and no later one does:
    a conversation is the person's thread until 24 hours pass without a
    message from them, and `chat_threads.greeted_conversation_id`
-   (drizzle/0053, `lib/meta/greeting.ts`) records whose first reply carried
+   (drizzle/0055, `lib/meta/greeting.ts`) records whose first reply carried
    it. The webhook records it only once that reply has gone out, so a reply
    `sendMetaReply` drops outside Meta's window (a backlog Meta delivers a
    day late) leaves the greeting to the first reply the person does get.
@@ -1356,10 +1367,13 @@ these is closed, by code, a page, a signed paper or a host setting, and
      job runs once a day).
    - `destroyClinicData` also deletes suppressions, consent records and
      contact attempts, with the grant they need.
-   - Destruction, `eraseContact` and the purge succeed for a practice with a
-     confirmed booking request. `docs/counsel/dpa.md` records that they fail
-     today: the request's `appointment_id ON DELETE SET NULL` meets its
-     confirmed-shape CHECK.
+   - Done: destruction, `eraseContact` and the purge succeed for a practice
+     with a confirmed booking request
+     (`drizzle/0054_booking_request_destruction.sql`). The request's
+     `appointment_id ON DELETE SET NULL` met its confirmed-shape CHECK; the
+     requests now go first, through three functions bound to the practice,
+     and `docs/counsel/dpa.md` § 9 records how.
+     `tests/booking-request-destruction.test.ts` pins each path.
    - The clinic's calls and agent are deleted at Retell by the deadline.
    - A restore re-runs destruction.
 8. **Amendment record (PT-17).** An append-only amendment linked to the
@@ -1367,13 +1381,14 @@ these is closed, by code, a page, a signed paper or a host setting, and
    `exportClinic` and the portal export.
 9. **Retention (PT-28).** The nightly purge switched on for every 1.3.0
    clinic (0032 ships it off), and extended to webhook events that are never
-   processed and to Meta booking drafts. A contact is kept while a booking
-   request made in the last 90 days refers to it. Either
-   `createBookingRequest` touches `contacts.updated_at` when it reuses a
-   contact, or purge step 3 also checks `booking_requests`. Otherwise a
-   returning person's Meta request, which writes no conversation, is
-   deleted, by cascade, when their older call ages out, before clause 11's
-   period ends.
+   processed. Done in drizzle/0054 and `lib/retention/purge.ts`: the purge
+   takes abandoned Meta booking drafts, and a contact is kept while a
+   booking request made in the last 90 days refers to it, because purge
+   step 3 checks `booking_requests` and a person cannot be deleted while a
+   request names them (`booking_requests.contact_id` is ON DELETE NO
+   ACTION), so a returning person's Meta request, which writes no
+   conversation, no longer goes by cascade when their older call ages out. A request is
+   kept for its own period, which clause 11 now states (§ 12.12).
 10. **Payment links (PT-11, ICD-10, SL-08; package D).** Links only in website
     chat and on Meta, carrying only an amount, a generic description and a
     reference, metadata and statement descriptor included, and no payer

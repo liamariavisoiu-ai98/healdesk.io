@@ -112,6 +112,15 @@ export function validateAgentConfig(input: AgentConfigInput): void {
     if (service.priceFromUsd !== null && service.priceToUsd !== null && service.priceFromUsd > service.priceToUsd) {
       throw new AgentConfigError(`"${service.name}": the price range is reversed.`);
     }
+    // Per-service deposit (BD27): 0 means none, blank means the clinic
+    // default. The type check comes first because an untyped body can carry
+    // a string, which must be refused, not compared.
+    const deposit: unknown = service.depositUsd;
+    if (deposit !== undefined && deposit !== null) {
+      if (typeof deposit !== "number" || !Number.isFinite(deposit) || deposit < 0 || deposit > 10_000) {
+        throw new AgentConfigError(`"${service.name}": the deposit must be between $0 and $10,000, or left blank to use the default.`);
+      }
+    }
   }
   const findings = findClinicalContent({
     greeting: input.greeting,

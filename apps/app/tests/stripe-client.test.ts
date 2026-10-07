@@ -62,12 +62,16 @@ describe("expectedMeteredKeys", () => {
   test("monthly plans carry one metered price per meter their package uses, at its rate", async () => {
     const expected = await load(false);
     expect(expected("complete", "month")).toEqual([
-      "healdesk_meter_chat_conversations_30",
-      "healdesk_meter_voice_minutes_80",
+      "healdesk_meter_chat_conversations_block100_3000",
+      "healdesk_meter_voice_minutes_block100_8000",
     ]);
-    expect(expected("chat-web", "month")).toEqual(["healdesk_meter_chat_conversations_40"]);
-    expect(expected("chat-meta", "month")).toEqual(["healdesk_meter_chat_conversations_40"]);
-    expect(expected("voice", "month")).toEqual(["healdesk_meter_voice_minutes_80"]);
+    expect(expected("chat-web", "month")).toEqual([
+      "healdesk_meter_chat_conversations_block100_4000",
+    ]);
+    expect(expected("chat-meta", "month")).toEqual([
+      "healdesk_meter_chat_conversations_block100_4000",
+    ]);
+    expect(expected("voice", "month")).toEqual(["healdesk_meter_voice_minutes_block100_8000"]);
   });
 
   test("annual plans carry none: their overage is invoiced per closed month", async () => {

@@ -5,9 +5,11 @@ import {
   TIMESTAMP_HEADER,
   verify,
 } from "@healdesk/catalog";
+import { after } from "next/server";
 import type Stripe from "stripe";
 
-import { handleStripeEvent } from "@/lib/billing/events";
+import { handleStripeEvent, type HandleResult } from "@/lib/billing/events";
+import { deliverCriticalAfterCommit } from "@/lib/billing/notices";
 import { env } from "@/lib/env";
 import { log } from "@/lib/log";
 
@@ -31,6 +33,18 @@ import { log } from "@/lib/log";
  *
  * Nothing about the buyer or the clinic is logged here: the event id and type
  * are enough to find the row in billing_events.
+ *
+ * ## Critical notices go after the commit
+ *
+ * An event that queued a critical notice (a failed payment, a payment the
+ * bank wants confirmed, a suspension, the plan's start) says so on its
+ * result. handleStripeEvent has committed by the time it returns, so the
+ * notice is handed to deliverCriticalAfterCommit through `after()`: the
+ * clinic hears within seconds, the response to Stripe does not wait for the
+ * email provider, and a send that fails changes nothing about the status
+ * code (the minute queue sends whatever this misses). Never from inside the
+ * event's transaction: an email about something that might yet roll back is
+ * the failure the outbox exists to prevent.
  */
 
 export const runtime = "nodejs";
@@ -93,13 +107,9 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // 3. Apply. One request id per delivery correlates its audit rows.
+  let result: HandleResult;
   try {
-    const result = await handleStripeEvent(body, { requestId: randomUUID() });
-    return Response.json({
-      received: true,
-      outcome: result.outcome,
-      duplicate: result.duplicate,
-    });
+    result = await handleStripeEvent(body, { requestId: randomUUID() });
   } catch (error) {
     // Recorded in billing_events already; this is the retry signal. Never
     // echo the payload — it carries the buyer's contact details.
@@ -110,4 +120,16 @@ export async function POST(request: Request): Promise<Response> {
     });
     return problem("Could not apply event.", 500);
   }
+
+  // 4. Committed: deliver what it queued that cannot wait (see the header).
+  // Outside the try above, so nothing about the email can turn an applied
+  // event into a 500 and a retry. Never rejects.
+  if (result.criticalNotice && result.clinicId) {
+    await deliverCriticalAfterCommit(result.clinicId, { after });
+  }
+  return Response.json({
+    received: true,
+    outcome: result.outcome,
+    duplicate: result.duplicate,
+  });
 }

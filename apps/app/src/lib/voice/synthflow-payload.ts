@@ -14,13 +14,13 @@ import type { VoiceCallEvent } from "./ingest";
  * ## What this trusts, and what it does not
  *
  * The payload supplies OBSERVABLE facts: the call id, the caller's number,
- * when it started and ended, the transcript link, and the
- * variables the agent extracted during the call. It does not supply a verdict
- * on whether the call was "missed": the vendor knows the agent answered, not
- * whether a human would have. `ingestCall()` decides that from the clinic's
- * own routing mode and opening hours, and nothing here pre-empts it. The
- * vendor's own missed-call flag, if it ever sends one, is deliberately not
- * read.
+ * when it started and ended and how long it lasted, the transcript link, and
+ * the variables the agent extracted during the call. It does not supply a
+ * verdict on whether the call was "missed": the vendor knows the agent
+ * answered, not whether a human would have. `ingestCall()` decides that from
+ * the clinic's own routing mode and opening hours, and nothing here pre-empts
+ * it. The vendor's own missed-call flag, if it ever sends one, is
+ * deliberately not read.
  *
  * ## The documented shape, and the aliases kept behind it
  *
@@ -90,6 +90,27 @@ function when(...candidates: unknown[]): Date | undefined {
   return undefined;
 }
 
+/**
+ * Synthflow's `duration`: the call's length in whole or fractional SECONDS
+ * (the documented field; the fixtures' 270 is the 4 m 30 s between their
+ * start and end). A number or a numeric string; anything negative, empty or
+ * not a number is unknown, never zero. The voice minutes billed for the call
+ * are this, rounded up per call (billableVoiceMinutes), so a guess here
+ * would be a charge.
+ */
+function seconds(...candidates: unknown[]): number | undefined {
+  for (const c of candidates) {
+    const n =
+      typeof c === "number"
+        ? c
+        : typeof c === "string" && /^\d+(\.\d+)?$/.test(c.trim())
+          ? Number(c.trim())
+          : NaN;
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return undefined;
+}
+
 function bool(...candidates: unknown[]): boolean | undefined {
   for (const c of candidates) {
     if (typeof c === "boolean") return c;
@@ -147,6 +168,7 @@ export function readSynthflowPayload(raw: unknown, clinicId: string): VoiceCallE
   const startedAt = when(call.start_time, call.started_at, call.start_timestamp, body.start_time, body.timestamp);
   if (!startedAt) throw new VoicePayloadError("The payload carries no start time.");
   const endedAt = when(call.end_time, call.ended_at, call.end_timestamp, body.end_time);
+  const durationSeconds = seconds(call.duration, body.duration);
 
   const outcome = str(vars.outcome, vars.call_outcome, call.outcome)?.toLowerCase();
   const bookedFor = when(vars.booked_for, vars.appointment_time, vars.booking_time);
@@ -159,6 +181,7 @@ export function readSynthflowPayload(raw: unknown, clinicId: string): VoiceCallE
     callerName: str(vars.caller_name, vars.name, lead.name, call.customer_name),
     startedAt,
     endedAt,
+    ...(durationSeconds !== undefined ? { durationSeconds } : {}),
     rangAtClinicFirst: bool(vars.rang_at_clinic_first, call.rang_at_clinic_first),
     clinicLineBusy: bool(vars.clinic_line_busy, call.clinic_line_busy),
     isCallback: bool(vars.is_callback, call.is_callback, call.outbound),

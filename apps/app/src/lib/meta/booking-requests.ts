@@ -426,7 +426,8 @@ export type DeskNoticeVariant = "new" | "fyi_direct";
  *
  * `fyi_direct` (§E.5) is the notice for an appointment the assistant booked
  * itself where the practice elected direct booking: nothing is asked of the
- * desk, and the deposit line is added only when the policy requires one.
+ * desk, and the deposit line is added only when the booked appointment's
+ * deposit was left for the desk to collect.
  */
 export async function notifyDesk(
   tx: TenantTx,
@@ -465,8 +466,17 @@ export async function notifyDesk(
   let subject: string;
   let paragraphs: string[];
   if (variant === "fyi_direct") {
-    const [agent] = await tx.db.select({ depositPolicy: agentConfigs.depositPolicy }).from(agentConfigs).where(eq(agentConfigs.clinicId, tx.clinicId)).limit(1);
-    const deposit = agent?.depositPolicy?.required ? " The assistant said a deposit is due and that you will call to collect it." : "";
+    // The deposit sentence reads the appointment the assistant booked, never
+    // the clinic's policy: whether a deposit was flagged is decided per
+    // booking (lib/billing/deposits.ts depositDecision), so only an
+    // appointment left `pending_front_desk` has one for the desk to collect.
+    const [booked] = await tx.db
+      .select({ depositStatus: appointments.depositStatus })
+      .from(bookingRequests)
+      .innerJoin(appointments, eq(appointments.id, bookingRequests.appointmentId))
+      .where(and(eq(bookingRequests.id, created.id), eq(bookingRequests.clinicId, tx.clinicId)))
+      .limit(1);
+    const deposit = booked?.depositStatus === "pending_front_desk" ? " The assistant said a deposit is due and that you will call to collect it." : "";
     subject = `The assistant booked an appointment — ${clinicName}`;
     paragraphs = [
       `Your assistant booked a caller directly into your calendar, as you elected. Open the link to see who and when. Nothing further is needed unless you want to change it, which you do in your calendar.${deposit}`,

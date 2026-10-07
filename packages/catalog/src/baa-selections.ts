@@ -19,7 +19,8 @@ import { specialties } from "./specialties";
  * C3, and the funnel's AgreementStep — so that the two renders cannot drift:
  * a display name looked up differently on one side, or a field one side
  * forgot, would otherwise surface as a signature refused at the last step.
- * Neither calls it yet; until both do, each still builds its own.
+ * signAgreement calls it; AgreementStep is to from the funnel's M2, and until
+ * then builds its own, which this reproduces byte for byte for 1.2.1.
  *
  * What it decides, so neither caller does:
  *

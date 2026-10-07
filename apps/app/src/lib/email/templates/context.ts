@@ -1,17 +1,17 @@
-import { specialties } from "@healdesk/catalog";
+import { audienceFor as catalogAudienceFor } from "@healdesk/catalog";
 
 import type { EmailAudience } from "./types";
 
 /**
  * Patients or clients (Annex X1.3: "audienceFor decides patients or
  * clients"). A veterinary practice's customers own the animal that is the
- * patient, so its email says "clients"; everyone else's says "patients". Read
- * from the specialty's regulatory regime rather than its id, so a second
- * non-human specialty needs no change here.
+ * patient, so its email says "clients"; everyone else's says "patients". The
+ * rule is the catalog's `audienceFor`, the one every surface asks (plan Part
+ * L), so email cannot word a practice differently from the funnel or the
+ * agreement.
  */
 export function audienceFor(specialty: string | null | undefined): EmailAudience {
-  const found = specialties.find((s) => s.id === specialty);
-  return found?.regulatoryRegime === "non-hipaa" ? "clients" : "patients";
+  return catalogAudienceFor(specialty);
 }
 
 /**

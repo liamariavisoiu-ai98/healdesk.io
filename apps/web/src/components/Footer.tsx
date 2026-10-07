@@ -47,7 +47,7 @@ import { site } from "@/lib/site";
  *   deliver.
  */
 const COMMITMENTS = [
-  "We sign a BAA with every clinic",
+  "We sign a business associate agreement and handle patient data under it",
   "We never use patient data to train models",
   "We write bookings only to the Google Calendar you connect",
   "Encrypted at rest, and in transit wherever we control both ends",

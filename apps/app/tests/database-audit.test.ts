@@ -120,12 +120,13 @@ describeDb("database audit (0031)", () => {
   });
 
   test("every clinics column except the gate columns, the offboarding dates and the record clock's history stays updatable (a new column needs its GRANT)", async () => {
-    // The two BAA gate columns (0031); the three offboarding dates that
-    // app_destroy_booking_requests reads as its floor, which only
-    // app_start_offboarding and app_mark_clinic_destroyed write; and the
-    // record clock's last shortening, which app_purge_booking_requests reads
-    // and only the clinics_record_clock trigger writes
-    // (booking_request_destruction migration).
+    // The two BAA gate columns (0031) and the agreement-kind gate's two
+    // (0051); the three offboarding dates that app_destroy_booking_requests
+    // reads as its floor, which only app_start_offboarding and
+    // app_mark_clinic_destroyed write; and the record clock's last
+    // shortening, which app_purge_booking_requests reads and only the
+    // clinics_record_clock trigger writes (booking_request_destruction
+    // migration).
     const { rows } = await getMigratorPool().query<{ attname: string; ok: boolean }>(`
       select a.attname,
              has_column_privilege('healdesk_app'::name, a.attrelid, a.attnum, 'UPDATE') as ok
@@ -134,11 +135,13 @@ describeDb("database audit (0031)", () => {
     `);
     const locked = rows.filter((r) => !r.ok).map((r) => r.attname).sort();
     expect(locked).toEqual([
+      "agreement_kind",
       "baa_signed_at",
       "data_classification",
       "destroy_after",
       "destroyed_at",
       "offboarding_started_at",
+      "regulatory_regime",
       "retention_record_days_previous",
       "retention_record_days_shortened_at",
     ]);
@@ -235,6 +238,22 @@ describeDb("database audit (0031)", () => {
       );
       expect(rows[0]).toEqual({ data_classification: "synthetic", baa_signed_at: null, went_live_at: null });
     }
+  });
+
+  test("app_mark_clinic_production refuses a DPA clinic until the DPA's release gives go-live a kind-aware rule (0051)", async () => {
+    // 0048's allow-list names BAA versions only, so a practice under the DPA
+    // reads as superseded and cannot go live. That is the safe way round while
+    // the DPA is a draft; releasing it has to change go-live on purpose, and
+    // this test is what makes that change deliberate.
+    const { clinicId, organizationId } = await seedClinic("dpagolive");
+    await readyForGoLive(clinicId);
+    await seedAcceptance(organizationId, "dpa/1.0.0");
+    await expect(
+      getAppPool().query(`select app_mark_clinic_production($1::uuid)`, [clinicId]),
+    ).rejects.toMatchObject({
+      code: "23514",
+      message: expect.stringContaining("version dpa/1.0.0, which has been superseded"),
+    });
   });
 
   test("the SQL allow-list is the catalog's floor, version for version", async () => {

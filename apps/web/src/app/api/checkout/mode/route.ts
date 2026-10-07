@@ -21,12 +21,16 @@ export const dynamic = "force-dynamic";
  *
  * What comes back about the request is what the person who holds the link
  * already gave us: their name, clinic, website and address. Nothing else.
+ * Beside the purchase goes one setting of this server's, whether Stripe Tax
+ * is on, so Review and pay can say "Plus sales tax where it applies".
  */
 export async function GET(request: Request): Promise<Response> {
   const state = await gateState(readCookie(request.headers, SETUP_COOKIE));
   const headers = { "Cache-Control": "no-store" };
 
-  if (state.mode === "public") return Response.json({ mode: "public" }, { headers });
+  const salesTax = process.env.STRIPE_AUTOMATIC_TAX === "true";
+
+  if (state.mode === "public") return Response.json({ mode: "public", salesTax }, { headers });
   if (state.link !== "valid") {
     // The date the form promises a reply by, worked out here so the page and
     // the acknowledgement email can't name different days.
@@ -45,6 +49,7 @@ export async function GET(request: Request): Promise<Response> {
         website: state.request.website,
       },
       creditUntil: until?.toISOString() ?? null,
+      salesTax,
     },
     { headers },
   );

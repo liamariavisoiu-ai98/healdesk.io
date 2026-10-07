@@ -4,6 +4,9 @@ import { BAA_TEMPLATES, currentBaaTemplate, getBaaTemplate } from "./baa";
 import {
   BAA_CLAUSE_EXPLAINERS,
   BAA_CLAUSE_EXPLAINERS_BY_VERSION,
+  BAA_EXPLAINER,
+  BAA_EXPLAINER_TERMS_BY_VERSION,
+  baaExplainerTerms,
   clauseExplainer,
   type BaaExplainerTerm,
 } from "./baa-explainer";
@@ -36,35 +39,41 @@ describe("the notes beside the calendar clauses", () => {
   });
 
   test("say what each clause says, in plain words", () => {
-    // Plan §2.5's notes; the covered and uncovered ones also name the
-    // calendar-list read, as their clauses do (agreement-changes.md §12.5).
+    // Plan §2.5's notes, as the pre-release audit of 6 October 2026 left the
+    // clauses: the calendar-list read and one calendar per provider; the
+    // covered clause's organisation check; "we treat" for an account nobody
+    // has confirmed Google's agreement covers; the first name the person
+    // booking gave; and a move to a system that reads Google Calendar as the
+    // only route to booking live (agreement-changes.md §12.14).
     expect(BAA_CLAUSE_EXPLAINERS["google-calendar-covered"]).toEqual({
       plain:
-        "You connect your own Google Calendar with a Google login, and you've told us your " +
+        "You connect your own Google account with a Google login, and you've told us your " +
         "Workspace administrator has accepted Google's business associate agreement — we can't " +
-        "check that, so it is your statement. healdesk reads the names of your calendars, so you " +
-        "can choose the one it books into, and when that calendar is free or busy; it adds each " +
-        "booking (made by the assistant or confirmed by your staff) as a private event with a " +
-        "first name, the service and the time — never a phone number, an email address or " +
-        "anything clinical — and never touches anything it didn't create",
+        "check that, so it is your statement. healdesk books only into calendars that belong to " +
+        "your own Workspace organisation, and checks that before every booking. It reads the " +
+        "names of your calendars, so you can choose the one it books into (or one per provider), " +
+        "and when those calendars are free or busy; it adds each booking (made by the assistant " +
+        "or confirmed by your staff) as a private event with the first name the person booking " +
+        "gave, the service and the time — never a phone number, an email address or anything " +
+        "clinical beyond the service's name — and never touches anything it didn't create",
       citation: "164.502(b), 164.504(e)(2)(i)",
     });
     expect(BAA_CLAUSE_EXPLAINERS["google-calendar-uncovered"]).toEqual({
       plain:
-        "Google's agreement doesn't cover this calendar (a personal Gmail account can't have " +
-        "one). You are telling us to add bookings anyway — a first name, the service and the " +
-        "time, as private events — and that disclosure to Google is yours to answer for. " +
-        "healdesk reads the names of your calendars, so you can choose the one it books into, " +
-        "and when that calendar is free or busy; it sends nothing else and stops adding " +
-        "bookings as soon as you disconnect",
+        "We treat this calendar as one Google's agreement doesn't cover (a personal Gmail " +
+        "account can't have one). You are telling us to add bookings anyway — a first name, the " +
+        "service and the time, as private events — and that disclosure to Google is yours to " +
+        "answer for. healdesk reads the names of your calendars, so you can choose the one it " +
+        "books into (or one per provider), and when those calendars are free or busy; it sends " +
+        "nothing else and stops adding bookings as soon as you disconnect",
       citation: "164.502(a), 164.504(e)(2)(i)",
     });
     expect(BAA_CLAUSE_EXPLAINERS["google-calendar-not-used"]).toEqual({
       plain:
         "Your booking system doesn't read Google Calendar, or we haven't confirmed that it does, " +
         "so healdesk doesn't connect to your calendar at all. The assistant takes each booking " +
-        "as a request and your staff confirm it in your own system. Switching later means " +
-        "recording a short calendar election",
+        "as a request and your staff confirm it in your own system. Moving to a booking system " +
+        "that checks Google Calendar for conflicts means recording a short calendar election",
       citation: "164.502(b)",
     });
   });
@@ -119,10 +128,15 @@ describe("the subcontractors note", () => {
         "change takes effect",
     );
     expect(note130).not.toMatch(/fifteen/);
+    // Anthropic's agreement in covenant form, as the 1.3.0 clause states it.
+    expect(note130).toContain(
+      "only under a business associate agreement with healdesk, signed before any patient's " +
+        "information reaches it",
+    );
   });
 
   test("is what the offered checkout has always shown, so drafting 1.3.0 changes nothing it shows", () => {
-    // AgreementStep reads BAA_CLAUSE_EXPLAINERS directly, beside 1.2.1.
+    // The signing screen shows 1.2.1's note, through clauseExplainer.
     expect(BAA_CLAUSE_EXPLAINERS.subcontractors).toEqual({
       plain:
         "Every vendor that handles patient information signs the same obligations with " +
@@ -146,7 +160,13 @@ describe("looking a note up", () => {
       BAA_CLAUSE_EXPLAINERS_BY_VERSION["1.3.0"]!.subcontractors,
     );
     expect(clauseExplainer("1.3.0", "minimum-necessary")).toBe(
+      BAA_CLAUSE_EXPLAINERS_BY_VERSION["1.3.0"]!["minimum-necessary"],
+    );
+    expect(clauseExplainer("1.2.1", "minimum-necessary")).toBe(
       BAA_CLAUSE_EXPLAINERS["minimum-necessary"],
+    );
+    expect(clauseExplainer("1.3.0", "google-calendar-covered")).toBe(
+      BAA_CLAUSE_EXPLAINERS["google-calendar-covered"],
     );
     expect(clauseExplainer("1.2.1", "google-calendar")).toBe(
       BAA_CLAUSE_EXPLAINERS["google-calendar"],
@@ -156,5 +176,58 @@ describe("looking a note up", () => {
     expect(clauseExplainer("toString", "subcontractors")).toBe(
       BAA_CLAUSE_EXPLAINERS.subcontractors,
     );
+  });
+});
+
+describe("the bullets above the agreement", () => {
+  /** The bullet citing one subparagraph, in one version's list. */
+  const citing = (terms: readonly BaaExplainerTerm[], citation: string) =>
+    terms.find((t) => t.citation === citation)!.plain;
+
+  test("1.2.1 keeps its bullets word for word, because its clause still says use and materially breaches", () => {
+    expect(baaExplainerTerms("1.2.1")).toBe(BAA_EXPLAINER.terms);
+    expect(baaExplainerTerms(currentBaaTemplate().version)).toBe(BAA_EXPLAINER.terms);
+    expect(citing(BAA_EXPLAINER.terms, "164.504(e)(2)(ii)(J)")).toBe(
+      "At the end of the agreement, return or destroy the patient data we hold and keep no copies " +
+        "— and where that is not feasible, keep protecting it under the same terms and use it only " +
+        "for whatever makes return or destruction infeasible",
+    );
+    expect(citing(BAA_EXPLAINER.terms, "164.504(e)(2)(iii)")).toBe(
+      "Let you terminate the agreement if we materially breach it",
+    );
+  });
+
+  test("1.3.0's say what its Term clause and the regulation say: use and disclosure, and a violation Practice determines", () => {
+    // HRC-03 and HRC-07 widened the clause; a bullet narrower than the clause
+    // beside it is a summary that mis-states the law it cites.
+    const terms = baaExplainerTerms("1.3.0");
+    expect(terms).toBe(BAA_EXPLAINER_TERMS_BY_VERSION["1.3.0"]);
+    expect(terms.map((t) => t.citation)).toEqual(BAA_EXPLAINER.terms.map((t) => t.citation));
+    expect(citing(terms, "164.504(e)(2)(ii)(J)")).toContain(
+      "limit its use and disclosure to whatever makes return or destruction infeasible",
+    );
+    expect(citing(terms, "164.504(e)(2)(iii)")).toBe(
+      "Let you terminate the agreement if you determine that we have violated a material term of it",
+    );
+    const term = getBaaTemplate("1.3.0")!
+      .clauses.find((c) => c.id === "term")!
+      .body({} as never)
+      .replace(/\s+/g, " ");
+    expect(term).toContain(
+      "limit further uses and disclosures of it to those purposes that make its return or destruction infeasible",
+    );
+    expect(term).toContain(
+      "if Practice determines that healdesk has violated a material term of it",
+    );
+    // Every other bullet is the shared one, unchanged.
+    const changed = new Set(["164.504(e)(2)(ii)(J)", "164.504(e)(2)(iii)"]);
+    terms.forEach((t, i) => {
+      if (!changed.has(t.citation)) expect(t).toBe(BAA_EXPLAINER.terms[i]);
+    });
+  });
+
+  test("an unknown version, or a key off the prototype, gets the shared bullets", () => {
+    expect(baaExplainerTerms("9.9.9")).toBe(BAA_EXPLAINER.terms);
+    expect(baaExplainerTerms("toString")).toBe(BAA_EXPLAINER.terms);
   });
 });

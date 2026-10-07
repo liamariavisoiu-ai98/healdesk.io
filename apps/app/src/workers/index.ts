@@ -19,6 +19,8 @@ import { processWebhookEvent } from "@/lib/sync/webhooks";
 import { withTenant } from "@/lib/tenant";
 import { clinics } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { selfCheckCredentialKey } from "@/lib/crypto/envelope";
+import { env } from "@/lib/env";
 import { describeError, log } from "@/lib/log";
 
 /**
@@ -39,6 +41,8 @@ import { describeError, log } from "@/lib/log";
  */
 
 async function main(): Promise<void> {
+  await checkCredentialKey();
+
   // `schedule: true` turns on pg-boss's own cron, which is what sends the
   // hourly tick. One process owns the clock; the scheduler tables live in the
   // pgboss schema and survive a restart, so re-registering the schedule below
@@ -143,6 +147,36 @@ async function main(): Promise<void> {
     process.on(signal, () => {
       log.info("draining on signal", { signal });
       void stopBoss().then(() => process.exit(0));
+    });
+  }
+}
+
+/**
+ * Seal and open a throwaway value once, at start, and say what happened.
+ *
+ * Otherwise the first sign that this process cannot reach its key — no task
+ * role, a key policy naming the wrong principal, a key id that is not the key —
+ * is the first real credential it needs, and it fails in front of whoever was
+ * waiting on it. Logged and never fatal: a worker that refused to start over
+ * its key would also stop every job that never touches one.
+ *
+ * This line is the check an operator can read today. The read-only ops
+ * operation getCredentialKeyStatus asks the web tier the same question on
+ * demand, which is a separate answer, since the two processes can run under
+ * different task roles; but nothing in apps/web calls it yet, so it answers
+ * only a signed /api/ops request and no console card shows it.
+ */
+async function checkCredentialKey(): Promise<void> {
+  const started = Date.now();
+  const result = await selfCheckCredentialKey();
+  const fields = { provider: env.kmsProvider(), ms: Date.now() - started };
+
+  if (result.ok) {
+    log.info("credential key self-check passed", fields);
+  } else {
+    log.error("credential key self-check FAILED: no clinic credential can be sealed or opened", {
+      ...fields,
+      code: result.error,
     });
   }
 }

@@ -45,8 +45,8 @@ import {
  * ## Why the page count is measured rather than assumed
  *
  * `perPage` changes with the breakpoint, so the number of pages does too, and a
- * visitor sitting on page 3 of 3 who narrows their window is suddenly on page 3
- * of 5 with nothing under them. The effect below clamps for exactly that.
+ * visitor sitting on page 5 of 5 who widens their window is suddenly on page 5
+ * of 3 with nothing under them. Reviews clamps the page for exactly that.
  *
  * The slide distance is measured for a duller reason: a page is not one
  * viewport wide, it is one viewport plus one gap, because the gap between the
@@ -540,11 +540,13 @@ export function Reviews({
 
   const pageCount = Math.ceil(reviews.length / perPage);
 
-  // Narrowing the window makes pages, so someone parked on the last one can end
-  // up past the end with nothing under them.
-  useEffect(() => {
-    setPage((current) => Math.min(current, pageCount - 1));
-  }, [pageCount]);
+  // Widening the window takes pages away, so someone parked on the last one can
+  // end up past the end with nothing under them. Clamped while rendering,
+  // because an effect ran a commit late with the track already aimed at the
+  // empty stretch past the last card. The clamped page is written back to state
+  // rather than applied wherever `page` is read, so narrowing the window again
+  // leaves the visitor on the page they were moved to.
+  if (page > pageCount - 1) setPage(pageCount - 1);
 
   const step = useCallback(
     (delta: number) =>

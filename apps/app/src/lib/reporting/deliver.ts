@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { domainToASCII } from "node:url";
 
+import type { SESv2ClientConfig } from "@aws-sdk/client-sesv2";
+
 import { env } from "@/lib/env";
 
 import type { RenderedReport } from "./render";
@@ -434,6 +436,19 @@ type SesClient = {
  * not idempotent, so every retry is a chance at a duplicate message, and the
  * budget is a multiple of it.
  *
+ * ## The bound needs `throwOnRequestTimeout`
+ *
+ * Checked against the SDK this app installs (@aws-sdk/client-sesv2 3.1146,
+ * @smithy/node-http-handler 4.12): `requestTimeout` on its own does not end a
+ * request. When it passes, the handler logs a warning — to console.warn,
+ * around lib/log.ts — and keeps waiting. Only with `throwOnRequestTimeout:
+ * true` does it destroy the request and raise a TimeoutError. Without the
+ * flag, the twenty seconds below bound nothing, and a SendEmail on a socket
+ * that went quiet would wait forever: the exact failure the paragraph above
+ * exists to prevent. So the flag is set, and what follows about a timed-out
+ * send being retried holds because of it. tests/kms.test.ts pins the handler's
+ * behaviour, with the flag and without, against the installed version.
+ *
  * ## Why the request timeout is long, and was wrong at five seconds
  *
  * The SDK treats a request timeout as a retryable error. So with a five-second
@@ -484,15 +499,40 @@ const SES_CONNECT_TIMEOUT_MS = 2_000;
 const SES_REQUEST_TIMEOUT_MS = 20_000;
 const SES_MAX_ATTEMPTS = 2;
 
+/**
+ * The SES client's configuration. Exported for the tests that check it is the
+ * one the client is built from (tests/aws-sdk-externals.test.ts,
+ * tests/ses-wire.test.ts).
+ *
+ * Typed by the SDK itself (`satisfies`), so the timeouts and the attempt budget
+ * above are checked against the client's real configuration rather than an
+ * `unknown`. An empty AWS_REGION counts as unset, as it does for the KMS
+ * client: .env.example ships the variable empty, and the SDK's constructor
+ * refuses an empty region ("Region is missing"). With `??` an empty value
+ * would reach it, and every send would fail.
+ */
+export function sesClientConfig() {
+  return {
+    region: process.env.AWS_REGION || "us-east-1",
+    maxAttempts: SES_MAX_ATTEMPTS,
+    requestHandler: {
+      connectionTimeout: SES_CONNECT_TIMEOUT_MS,
+      requestTimeout: SES_REQUEST_TIMEOUT_MS,
+      throwOnRequestTimeout: true,
+    },
+  } satisfies SESv2ClientConfig;
+}
+
 let cached: SesClient | undefined;
 
 async function client(): Promise<SesClient> {
   if (cached) return cached;
 
-  let mod: typeof import("@aws-sdk/client-sesv2");
-  try {
-    mod = await import("@aws-sdk/client-sesv2");
-  } catch (error) {
+  // Outside any `try`, as in crypto/kms.ts (loadKms says why): inside one,
+  // Turbopack compiles an import it cannot resolve into a throw and only
+  // warns, so a dropped dependency would ship instead of failing the build.
+  // The `.catch()` is not a `try`. tests/aws-sdk-externals.test.ts holds it.
+  const mod = await import("@aws-sdk/client-sesv2").catch((error: unknown) => {
     // The package is a dependency, so a failure here is an install or an image
     // without its node_modules, not a transport nobody set up.
     throw new Error(
@@ -502,18 +542,9 @@ async function client(): Promise<SesClient> {
         "install is incomplete.",
       { cause: error },
     );
-  }
-
-  // Typed by the SDK itself, so the timeouts and the attempt budget above are
-  // checked against the client's real configuration rather than an `unknown`.
-  const instance = new mod.SESv2Client({
-    region: process.env.AWS_REGION ?? "us-east-1",
-    maxAttempts: SES_MAX_ATTEMPTS,
-    requestHandler: {
-      connectionTimeout: SES_CONNECT_TIMEOUT_MS,
-      requestTimeout: SES_REQUEST_TIMEOUT_MS,
-    },
   });
+
+  const instance = new mod.SESv2Client(sesClientConfig());
 
   cached = {
     // SesClient speaks `unknown` so that SesTransport needs no SDK types; every

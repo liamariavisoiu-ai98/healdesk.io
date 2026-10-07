@@ -1,5 +1,5 @@
 {
-  "id": "522e24b8-5f36-4655-8822-a7f0d47a5392",
+  "id": "36a93597-0914-40c6-ad0e-0001939ab0c0",
   "prevId": "c76b2e1c-6d56-43f2-9068-8a8983d0d956",
   "version": "7",
   "dialect": "postgresql",
@@ -745,6 +745,16 @@
           "primaryKey": false,
           "notNull": true
         },
+        "agreement_kind": {
+          "name": "agreement_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "generated": {
+            "as": "case when document_version like 'dpa/%' then 'dpa' else 'baa' end",
+            "type": "stored"
+          }
+        },
         "rendered_text": {
           "name": "rendered_text",
           "type": "text",
@@ -948,6 +958,14 @@
         "baa_acceptances_copy_hash_format": {
           "name": "baa_acceptances_copy_hash_format",
           "value": "\"baa_acceptances\".\"copy_document_sha256\" is null or \"baa_acceptances\".\"copy_document_sha256\" ~ '^[0-9a-f]{64}$'"
+        },
+        "baa_acceptances_agreement_kind_check": {
+          "name": "baa_acceptances_agreement_kind_check",
+          "value": "\"baa_acceptances\".\"agreement_kind\" in ('baa', 'dpa')"
+        },
+        "baa_acceptances_version_namespace": {
+          "name": "baa_acceptances_version_namespace",
+          "value": "\"baa_acceptances\".\"document_version\" not like '%/%' or \"baa_acceptances\".\"document_version\" like 'dpa/%'"
         }
       },
       "isRLSEnabled": false
@@ -1493,54 +1511,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.booking_request_keys": {
-      "name": "booking_request_keys",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "token_hash": {
-          "name": "token_hash",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "written_at": {
-          "name": "written_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "booking_request_keys_token_idx": {
-          "name": "booking_request_keys_token_idx",
-          "columns": [
-            {
-              "expression": "token_hash",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.booking_requests": {
       "name": "booking_requests",
       "schema": "",
@@ -1833,7 +1803,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         },
         "booking_requests_conversation_id_conversations_id_fk": {
@@ -1872,7 +1842,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -2922,6 +2892,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "regulatory_regime": {
+          "name": "regulatory_regime",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agreement_kind": {
+          "name": "agreement_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "retention_media_days": {
           "name": "retention_media_days",
           "type": "integer",
@@ -2935,18 +2917,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": 90
-        },
-        "retention_record_days_previous": {
-          "name": "retention_record_days_previous",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "retention_record_days_shortened_at": {
-          "name": "retention_record_days_shortened_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         },
         "onboarding": {
           "name": "onboarding",
@@ -3226,9 +3196,17 @@
           "name": "clinics_billing_clinic_not_self",
           "value": "\"clinics\".\"billing_clinic_id\" is null or \"clinics\".\"billing_clinic_id\" <> \"clinics\".\"id\""
         },
-        "clinics_retention_record_days_positive": {
-          "name": "clinics_retention_record_days_positive",
-          "value": "\"clinics\".\"retention_record_days\" >= 1"
+        "clinics_regulatory_regime_check": {
+          "name": "clinics_regulatory_regime_check",
+          "value": "\"clinics\".\"regulatory_regime\" is null or \"clinics\".\"regulatory_regime\" in ('hipaa', 'hipaa-if-covered', 'non-hipaa')"
+        },
+        "clinics_agreement_kind_check": {
+          "name": "clinics_agreement_kind_check",
+          "value": "\"clinics\".\"agreement_kind\" is null or \"clinics\".\"agreement_kind\" in ('baa', 'dpa')"
+        },
+        "clinics_dpa_never_hipaa": {
+          "name": "clinics_dpa_never_hipaa",
+          "value": "\"clinics\".\"agreement_kind\" is distinct from 'dpa' or \"clinics\".\"regulatory_regime\" is distinct from 'hipaa'"
         }
       },
       "isRLSEnabled": false

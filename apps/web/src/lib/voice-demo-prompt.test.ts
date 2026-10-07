@@ -137,9 +137,17 @@ describe("the conversation", () => {
   });
 
   test("it claims a BAA, never a certification, and never revenue", () => {
-    expect(all).toContain("we sign a business associate agreement with every clinic");
+    // The spec's line: a practice HIPAA does not reach signs another agreement.
+    expect(all).toContain("we sign a business associate agreement and handle patient data under it");
+    expect(all).not.toMatch(/with every clinic/i);
     expect(all).toContain('Never say healdesk is "HIPAA compliant"');
     expect(all).toContain("Never call anything revenue.");
+  });
+
+  test("it never tells a prospect that healdesk is new", () => {
+    // The owner's rule of 5 October 2026: nothing client-facing signals that we are new.
+    expect(all).not.toMatch(/\bwe're early\b|\bearly access\b|\bpilot\b|\bbeta\b|\bfounding\b|\bcohort\b/i);
+    expect(all).toContain("Never say healdesk is new or early.");
   });
 });
 

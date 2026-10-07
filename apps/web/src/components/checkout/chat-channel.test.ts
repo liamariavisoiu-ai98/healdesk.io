@@ -24,9 +24,13 @@ function card(id: string): PricingCard {
   return found;
 }
 
-function markup(id: string, value: "web" | "meta" = "web"): string {
+function markup(
+  id: string,
+  value: "web" | "meta" = "web",
+  extra: { metaSoldAlone?: boolean; noWebsite?: boolean } = {},
+): string {
   return renderToStaticMarkup(
-    h(ChatChannelField, { card: card(id), value, onChange: () => undefined }),
+    h(ChatChannelField, { card: card(id), value, onChange: () => undefined, ...extra }),
   );
 }
 
@@ -58,5 +62,37 @@ describe("Meta beside the phone stays on sale", () => {
     expect(inputFor(html, "Instagram, Messenger \\+ WhatsApp")).toContain("checked");
     expect(inputFor(html, "Website")).not.toContain("disabled");
     expect(html).not.toContain("waits for Meta to approve our app");
+  });
+});
+
+/**
+ * The flag closed, as it will be if Meta's App Review slips past the first
+ * campaign: the field takes the flag as a prop so this branch is pinned now,
+ * not discovered then.
+ */
+describe("with Meta not sold alone", () => {
+  test("the chatbot card keeps the Meta option on screen, disabled, and says why", () => {
+    const html = markup("chat-single", "web", { metaSoldAlone: false });
+    expect(inputFor(html, "Instagram, Messenger \\+ WhatsApp")).toContain("disabled");
+    expect(inputFor(html, "Website")).not.toContain("disabled");
+    expect(inputFor(html, "Website")).toContain("checked");
+    expect(html).toContain(
+      "On its own, Instagram, Messenger + WhatsApp waits for Meta to approve our app, so this package is website chat for now.",
+    );
+  });
+
+  test("beside the phone, Meta is still a choice", () => {
+    const html = markup("chat-voice", "meta", { metaSoldAlone: false });
+    expect(inputFor(html, "Instagram, Messenger \\+ WhatsApp")).not.toContain("disabled");
+    expect(html).not.toContain("waits for Meta to approve our app");
+  });
+});
+
+describe("with no website", () => {
+  test("website chat cannot be picked, and the option says why", () => {
+    const html = markup("chat-voice", "meta", { noWebsite: true });
+    expect(inputFor(html, "Website")).toContain("disabled");
+    expect(inputFor(html, "Instagram, Messenger \\+ WhatsApp")).not.toContain("disabled");
+    expect(html).toContain("Needs a website");
   });
 });

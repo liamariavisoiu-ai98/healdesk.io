@@ -199,11 +199,9 @@ Fix these before promising a deploy date for `apps/app`.
 
 Every rule below comes from `docs/v1-product-spec.md`. They are enforced in code
 around the model, never left to a prompt. Several of the surfaces they govern are
-not built yet, and some existing code predates them (the account is still
-created on `checkout.session.completed` and only activated by `invoice.paid`;
-`lib/meta/front-door.ts` books nothing and takes booking requests instead). Read
-the code before assuming a rule already holds, and treat a gap as a bug, not a
-precedent.
+not built yet, and some existing code predates them (`lib/meta/front-door.ts`
+books nothing and takes booking requests instead). Read the code before assuming
+a rule already holds, and treat a gap as a bug, not a precedent.
 
 **Channels and contact**
 
@@ -426,3 +424,6 @@ undeclared variable is invisible to the task.
   database-backed security suites **skip silently** without `TEST_APP_URL` —
   CI provisions the two-role Postgres and fails the job if fewer than 200 tests
   pass.
+- Lint: `npm run lint` (ESLint 9 on `apps/web`; each rule choice and its reason
+  is in `apps/web/eslint.config.mjs`). CI runs it and fails the job on any lint
+  error, so run it before pushing.

@@ -8,6 +8,7 @@ import { after } from "next/server";
 import {
   findIntent,
   markIntentFailed,
+  paidTermsMismatch,
   provisionRequestFromIntent,
   type StoredIntent,
 } from "@/lib/checkout/intents";
@@ -139,17 +140,39 @@ export async function POST(request: Request): Promise<Response> {
   // any caller from before intents), or `{ ref, ... }`, the intent apps/app
   // stored when Pay was pressed, now that its first invoice is paid (design
   // D2). The intent's own payload becomes the request, so what provisioning
-  // checks is exactly what was checked before payment.
+  // checks is exactly what was checked before payment, and only while the
+  // intent still names the press of Pay and the terms that were paid.
+  //
+  // Every refusal of a `{ ref }` request is a paid invoice with no account
+  // behind it, so every one reaches ops, never only a log line.
   const intentRef = intentRefOf(body);
   let provisionRequest: ProvisionRequest;
   try {
     if (intentRef) {
-      const stripe = body as { idempotencyKey?: unknown; stripeCustomerId?: unknown; stripeSubscriptionId?: unknown };
+      const stripe = body as {
+        idempotencyKey?: unknown;
+        stripeCustomerId?: unknown;
+        stripeSubscriptionId?: unknown;
+        attempt?: unknown;
+        plan?: unknown;
+        billingInterval?: unknown;
+      };
       const intent = await findIntent(intentRef);
-      if (!intent) return problem("Unknown purchase.", 422, "ref");
+      if (!intent) {
+        await afterResponse(() => notifyOps("provisioning_rejected", { field: "ref", source: "intent" }));
+        return problem("Unknown purchase.", 422, "ref");
+      }
       if (intent.consumedAt && intent.stripeSubscriptionId !== stripe.stripeSubscriptionId) {
+        // A second subscription paid for a purchase already set up: its
+        // setup fee was taken twice. Never marked failed: the first
+        // subscription's account exists and /welcome must keep saying so.
+        await afterResponse(() =>
+          notifyOps("duplicate_subscription", { clinicId: intent.provisionedClinicId, source: "intent" }),
+        );
         return problem("That purchase was set up on another subscription.", 409, "ref");
       }
+      const moved = paidTermsMismatch(intent, stripe);
+      if (moved) throw new ProvisioningError(moved.message, moved.field);
       provisionRequest = provisionRequestFromIntent(intent, {
         idempotencyKey: typeof stripe.idempotencyKey === "string" ? stripe.idempotencyKey : "",
         stripeCustomerId: typeof stripe.stripeCustomerId === "string" ? stripe.stripeCustomerId : undefined,

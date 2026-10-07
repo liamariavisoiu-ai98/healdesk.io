@@ -60,6 +60,13 @@ export const JOB_SETUP_CLOSURE = "setup-closure";
 export const JOB_BILLING_RECONCILE = "billing-reconcile";
 export const JOB_CARD_EXPIRING = "card-expiring";
 /**
+ * The DMARC review reminder (the dmarc_review migration), seeded off. Daily at
+ * 08 UTC: on the 14th day after Resend first sent as healdesk.io, one ops
+ * alert, ever, to read the DMARC reports and move the record from p=none to
+ * p=quarantine (dmarc-review.ts). Wired in tick.ts.
+ */
+export const JOB_DMARC_REVIEW = "dmarc-review";
+/**
  * Phase two: the attribution jobs. Their code is kept, but they never run in
  * v1 (env.phaseTwoAttribution()), and the console refuses to switch them on.
  * The 0040 `callback-dialer` job was removed by drizzle/0041.

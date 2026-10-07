@@ -28,6 +28,13 @@ export type BookingAlertRef = {
   appointmentId?: string;
   bookingRequestId?: string;
   conversationId?: string;
+  /**
+   * L10 only: a deposit link that may already have been paid. Package D sets
+   * it when a Stripe disconnect could not verify an open link, so the email
+   * says to check Stripe before collecting the deposit again. A flag, not a
+   * sentence: the template words it.
+   */
+  mayBePaid?: boolean;
 };
 
 /**

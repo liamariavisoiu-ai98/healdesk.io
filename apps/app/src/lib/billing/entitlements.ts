@@ -627,20 +627,75 @@ export async function recordInvoicePaid(
   });
 }
 
+/** An invoice the clinic owes, as the open-invoice slot records it. */
+export type OpenInvoice = { invoiceId: string; url: string | null; amountDueCents?: number | null };
+
+function openInvoiceValues(invoice: OpenInvoice | null) {
+  return {
+    openInvoiceId: invoice?.invoiceId ?? null,
+    openInvoiceUrl: invoice?.url ?? null,
+    openInvoiceAmountCents: invoice?.amountDueCents ?? null,
+  };
+}
+
 /**
  * An invoice is due and unpaid (payment failed, or the card needs the clinic
  * to confirm): its id, Stripe's hosted pay page and what it asks for.
+ *
+ * Recorded only while no OTHER invoice is (review fix). A clinic can owe two
+ * at once, a renewal and an annual overage or step-up invoice on the same
+ * declined card, and the slot keeps the first: overwriting it lost that debt,
+ * so paying the second cleared grace and set the clinic active while the
+ * first was still unpaid. A different invoice recorded here stays until its
+ * own invoice.paid moves the slot on (`moveOpenInvoice`); this one's email
+ * still links its own page. The same invoice again (Stripe's retry) refreshes
+ * its link and amount. Returns whether this invoice is the one recorded.
  */
 export async function recordOpenInvoice(
   db: Transaction,
   clinicId: string,
-  input: { invoiceId: string; url: string | null; amountDueCents?: number | null },
-): Promise<void> {
-  await updateOrThrow(db, clinicId, {
-    openInvoiceId: input.invoiceId,
-    openInvoiceUrl: input.url,
-    openInvoiceAmountCents: input.amountDueCents ?? null,
-  });
+  input: OpenInvoice,
+): Promise<boolean> {
+  const recorded = await db
+    .update(entitlements)
+    .set({ ...openInvoiceValues(input), updatedAt: new Date() })
+    .where(
+      and(
+        eq(entitlements.clinicId, clinicId),
+        or(isNull(entitlements.openInvoiceId), eq(entitlements.openInvoiceId, input.invoiceId)),
+      ),
+    )
+    .returning({ clinicId: entitlements.clinicId });
+  if (recorded.length > 0) return true;
+  if (!(await getEntitlements(db, clinicId))) throw new EntitlementsNotFoundError(clinicId);
+  return false;
+}
+
+/**
+ * Move the open-invoice slot on after a payment: from `from` to the next
+ * invoice the clinic still owes, or to nothing (review fix). `from` is null
+ * when `recordInvoicePaid` has just cleared the invoice paid, or the id of a
+ * recorded invoice Stripe no longer holds open (settled without our hearing,
+ * or voided). Only while the slot still holds `from`, so an invoice another
+ * delivery recorded meanwhile is never overwritten. Returns whether it moved.
+ */
+export async function moveOpenInvoice(
+  db: Transaction,
+  clinicId: string,
+  from: string | null,
+  to: OpenInvoice | null,
+): Promise<boolean> {
+  const moved = await db
+    .update(entitlements)
+    .set({ ...openInvoiceValues(to), updatedAt: new Date() })
+    .where(
+      and(
+        eq(entitlements.clinicId, clinicId),
+        from === null ? isNull(entitlements.openInvoiceId) : eq(entitlements.openInvoiceId, from),
+      ),
+    )
+    .returning({ clinicId: entitlements.clinicId });
+  return moved.length > 0;
 }
 
 /**

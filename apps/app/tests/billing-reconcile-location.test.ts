@@ -1,8 +1,9 @@
 import { getPlan, recurringUsd } from "@healdesk/catalog";
-import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { claimStripeMutationLease } from "@/lib/billing/entitlements";
 import { reconcileBilling } from "@/lib/billing/reconcile";
+import { __setStripeForTests } from "@/lib/billing/stripe-client";
 import { assertPayloadAllowed } from "@/lib/email/lint";
 import { withTenant } from "@/lib/tenant";
 
@@ -14,6 +15,8 @@ import {
   truncateAll,
 } from "./setup/db";
 import { inTenant, seedClinic, seedEntitled, type SeededClinic } from "./setup/factories";
+import { stripeError } from "./setup/stripe-fake";
+import { createStripeWorld, type StripeWorld } from "./setup/stripe-world";
 
 /**
  * The reconcile's resume of an extra location that was charged but never
@@ -21,7 +24,12 @@ import { inTenant, seedClinic, seedEntitled, type SeededClinic } from "./setup/f
  * standing in as ready: it is called with the location number, the pending
  * marker is cleared and `location_added` queued once; a failure leaves the
  * location pending and tells ops once; nothing runs while another holder has
- * the billing clinic's Stripe mutation lease, or before the charge.
+ * the billing clinic's Stripe mutation lease.
+ *
+ * And its settling of one left pending with no charge on record (review
+ * fix): Stripe's evidence decides, so a charged location is finished, one
+ * never charged is cleared for the clinic to add again, and one that cannot
+ * be settled is told to ops once.
  *
  * Its own file, because the flag is a module constant and only a module mock
  * can turn it on.
@@ -46,6 +54,8 @@ const describeDb = hasTestDatabase ? describe : describe.skip;
 const NOW = new Date("2026-11-02T10:00:00.000Z");
 const HOUR = 60 * 60 * 1000;
 const at = (offsetMs: number) => new Date(NOW.getTime() + offsetMs);
+
+let world: StripeWorld;
 
 type Pending = {
   pending_location_request_id: string | null;
@@ -103,6 +113,9 @@ describeDb("the reconcile's extra-location resume (R14), with createLocationClin
   beforeEach(async () => {
     await truncateAll();
     location.create.mockClear();
+  });
+  afterEach(() => {
+    __setStripeForTests(null);
   });
 
   test("creates the location by its number, clears the marker and queues location_added once", async () => {
@@ -167,22 +180,161 @@ describeDb("the reconcile's extra-location resume (R14), with createLocationClin
     ]);
   });
 
-  test("waits while another holder has the Stripe mutation lease, and never resumes a location not yet charged", async () => {
+  test("waits while another holder has the Stripe mutation lease, charged or not", async () => {
     const busy = await seedPending("resume-busy");
+    const busyUncharged = await seedPending("resume-busy-uncharged", false);
     // Leased the way the resume itself leases, on the later of `now` and the
     // real clock, so the holder's five minutes are still running when the
     // reconcile looks, whatever the date this test runs on.
-    await withTenant({ clinicId: busy.clinicId, actor: { type: "system" } }, (tx) =>
-      claimStripeMutationLease(tx.db, busy.clinicId, "add_location:portal", {
-        now: new Date(Math.max(NOW.getTime(), Date.now())),
-      }),
-    );
-    const uncharged = await seedPending("resume-uncharged", false);
+    for (const clinic of [busy, busyUncharged]) {
+      await withTenant({ clinicId: clinic.clinicId, actor: { type: "system" } }, (tx) =>
+        claimStripeMutationLease(tx.db, clinic.clinicId, "add_location:portal", {
+          now: new Date(Math.max(NOW.getTime(), Date.now())),
+        }),
+      );
+    }
+    // A Stripe that answers, so the assertion below is that nothing asked it.
+    world = createStripeWorld({
+      customerId: "cus_unused",
+      subscriptionId: "sub_unused",
+      items: [],
+      periodStart: 0,
+      periodEnd: 1,
+    });
+    __setStripeForTests(world.stripe);
 
     await reconcileBilling(NOW);
 
     expect(location.create).not.toHaveBeenCalled();
-    expect((await pendingOf(busy.clinicId)).pending_location_request_id).toBe("locreq_2");
-    expect((await pendingOf(uncharged.clinicId)).pending_location_request_id).toBe("locreq_2");
+    expect(world.fake.calls).toEqual([]);
+    for (const clinic of [busy, busyUncharged]) {
+      expect(await pendingOf(clinic.clinicId)).toMatchObject({
+        pending_location_request_id: "locreq_2",
+        stripe_mutation_lease_owner: "add_location:portal",
+      });
+    }
+  });
+
+  describe("a location pending with no charge on record (review fix)", () => {
+    /** Started on Web + Voice, a second location requested, its charge's answer never recorded. */
+    async function seedUncharged(label: string): Promise<SeededClinic> {
+      const clinic = await seedClinic(label);
+      const ids = await seedEntitled(clinic.clinicId, {
+        planId: "web-voice",
+        boughtPlanId: "complete",
+        planStartAppliedAt: at(-10 * 24 * HOUR),
+      });
+      await inTenant(clinic.clinicId, (c) =>
+        c.query(
+          `update entitlements set pending_location_request_id = 'locreq_2', pending_location_count = 2
+            where clinic_id = $1`,
+          [clinic.clinicId],
+        ),
+      );
+      world = createStripeWorld({
+        customerId: ids.stripeCustomerId!,
+        subscriptionId: ids.stripeSubscriptionId!,
+        items: [{ lookupKey: "healdesk_web-voice_month_89700", quantity: 1 }],
+        periodStart: Math.floor(at(-10 * 24 * HOUR).getTime() / 1000),
+        periodEnd: Math.floor(at(20 * 24 * HOUR).getTime() / 1000),
+        customerDefaultPm: "pm_customer",
+        nowSeconds: Math.floor(NOW.getTime() / 1000),
+      });
+      __setStripeForTests(world.stripe);
+      return clinic;
+    }
+
+    async function locationAlerts(clinicId: string) {
+      const { rows } = await getMigratorPool().query<{ fields: Record<string, unknown> }>(
+        `select fields from ops_alerts where event = 'location_charged_not_created' and fields->>'clinicId' = $1`,
+        [clinicId],
+      );
+      return rows.map((r) => r.fields);
+    }
+
+    test("charged on Stripe: the location is finished, and nothing is charged again", async () => {
+      const billing = await seedUncharged("settle-charged");
+      // The update went through (quantity 2, the setup fee, our marker), and
+      // its answer was lost before the charge was recorded.
+      const packageItem = world.state.subscription.items.data[0]!;
+      packageItem.quantity = 2;
+      world.state.subscription.metadata.hd_location = "locreq_2";
+
+      expect(await reconcileBilling(NOW)).toMatchObject({ locationsResumed: 1, locationsHeld: 0 });
+
+      expect(world.fake.callsTo("subscriptions.update")).toHaveLength(0);
+      expect(world.fake.callsTo("invoices.create")).toHaveLength(0);
+      expect(location.create).toHaveBeenCalledTimes(1);
+      expect(location.create).toHaveBeenCalledWith({
+        billingClinicId: billing.clinicId,
+        locationNumber: 2,
+        actor: { type: "service", serviceName: "billing-reconcile" },
+      });
+      expect(await pendingOf(billing.clinicId)).toEqual({
+        pending_location_request_id: null,
+        pending_location_count: null,
+        pending_location_charged_at: null,
+        stripe_mutation_lease_owner: null,
+      });
+      const { rows } = await inTenant(billing.clinicId, (c) =>
+        c.query<{ locations: number }>(`select locations from entitlements where clinic_id = $1`, [
+          billing.clinicId,
+        ]),
+      );
+      expect(rows[0]!.locations).toBe(2);
+      expect((await noticesOf(billing.clinicId)).map((n) => n.dedupe_key)).toEqual([
+        "location:locreq_2",
+      ]);
+      expect(await locationAlerts(billing.clinicId)).toEqual([]);
+    });
+
+    test("never charged: the request is cleared and the attempt's open invoice voided, so the clinic can add it again", async () => {
+      const billing = await seedUncharged("settle-never");
+      const open = world.addInvoice({
+        status: "open",
+        metadata: { hd_kind: "location_setup", hd_ref: "locreq_2" },
+        total: 99_700,
+        amount_due: 99_700,
+      });
+
+      expect(await reconcileBilling(NOW)).toMatchObject({
+        locationsResumed: 0,
+        locationsHeld: 0,
+        locationsCleared: 1,
+      });
+
+      expect(world.fake.callsTo("invoices.voidInvoice").map((call) => call.args[0])).toEqual([
+        open.id,
+      ]);
+      expect(world.fake.callsTo("invoices.pay")).toHaveLength(0);
+      expect(world.fake.callsTo("subscriptions.update")).toHaveLength(0);
+      expect(location.create).not.toHaveBeenCalled();
+      expect(await pendingOf(billing.clinicId)).toMatchObject({
+        pending_location_request_id: null,
+        stripe_mutation_lease_owner: null,
+      });
+      expect(await noticesOf(billing.clinicId)).toEqual([]);
+      expect(await locationAlerts(billing.clinicId)).toEqual([]);
+    });
+
+    test("one Stripe cannot answer about stays pending and is told to ops once", async () => {
+      const billing = await seedUncharged("settle-unanswered");
+      world.fake.on("subscriptions.retrieve", () => {
+        throw stripeError("api", { statusCode: 503 });
+      });
+
+      expect(await reconcileBilling(NOW)).toMatchObject({ locationsResumed: 0, locationsHeld: 1 });
+      await reconcileBilling(at(HOUR));
+
+      expect(location.create).not.toHaveBeenCalled();
+      expect(await pendingOf(billing.clinicId)).toMatchObject({
+        pending_location_request_id: "locreq_2",
+        pending_location_charged_at: null,
+        stripe_mutation_lease_owner: null,
+      });
+      expect(await locationAlerts(billing.clinicId)).toEqual([
+        expect.objectContaining({ requestId: "locreq_2", count: 2 }),
+      ]);
+    });
   });
 });

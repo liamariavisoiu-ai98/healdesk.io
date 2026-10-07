@@ -17,6 +17,7 @@ import {
   billingTransitions,
   clinicChannels,
   clinics,
+  entitlements,
   overageInvoices,
   type BillingActor,
   type BillingEventOutcome,
@@ -44,6 +45,7 @@ import {
   markFirstPlanInvoice,
   markPlanStartApplied,
   markPlanStarted,
+  moveOpenInvoice,
   openAllowanceWindow,
   parseLookupKey,
   recordFirstInvoice,
@@ -56,6 +58,7 @@ import {
   setLocations,
   setMeteredPriceKeys,
   storeStripeIds,
+  type OpenInvoice,
 } from "./entitlements";
 import { enqueueNotice, type ForwardingFacts, type NoticePayloads } from "./notices";
 import { cachedLookupKeyForPriceId } from "./prices";
@@ -127,9 +130,10 @@ import { workerRequestOptions } from "./stripe-helpers";
  *     the state that is true now, so a stale one can no longer undo a newer
  *     one: the subscription itself is the newest record there is. A
  *     cancellation scheduled and reversed before either event is processed
- *     therefore moves nothing and emails nobody, which is the truth. An
- *     update older than one already applied is skipped as well
- *     (newerUpdateApplied), which closes the gap between two concurrent
+ *     therefore moves nothing and emails nobody, which is the truth. When the
+ *     read was taken is kept with what it applied
+ *     (`stripe_subscription_synced_at`), and a read older than the one
+ *     already applied is skipped, which closes the gap between two concurrent
  *     deliveries' reads and their commits.
  *   - `invoice.payment_failed` and `invoice.payment_action_required` re-read
  *     the invoice and ignore one that is `void` or `paid` by now: a
@@ -141,7 +145,9 @@ import { workerRequestOptions } from "./stripe-helpers";
  *
  * `invoice.paid` reads Stripe only for a clinic's first plan invoice, whose
  * line names its price by id alone: the price says which package Stripe
- * billed, which the plan-started email must name. A failed read throws like
+ * billed, which the plan-started email must name; and, while an invoice is
+ * recorded as owed, for the customer's other unpaid invoices, so the slot
+ * moves on to the next one instead of emptying. A failed read throws like
  * any other failure: the event retries and, at MAX_FAILURES, parks.
  *
  * ## Bought and billed (BD7, BD31)
@@ -545,8 +551,16 @@ type Live = {
   refunds?: unknown[];
   /** customer.subscription.updated: the subscription as it stands. */
   subscription?: unknown;
+  /** customer.subscription.updated: when `subscription` was read, by the database's clock. */
+  subscriptionReadAt?: Date;
   /** invoice.paid, for a first plan invoice only: the lookup key of its plan line's price. */
   planLookupKey?: string | null;
+  /**
+   * invoice.paid, while an invoice is recorded as owed: the customer's OTHER
+   * invoices still owed, oldest first (owedInvoicesBeyond). Absent when not
+   * asked, which is never "nothing is owed".
+   */
+  owedInvoices?: OpenInvoice[];
 };
 
 async function readLive(
@@ -574,17 +588,99 @@ async function readLive(
     case "customer.subscription.updated": {
       const id = asString(prop(object, "id"));
       if (!id) throw new Error("A customer.subscription.updated event carries no subscription id.");
+      // Stamped just BEFORE the read, so what is read is at least as new as
+      // the stamp. onSubscriptionUpdated skips a read stamped before the one
+      // already applied, and that loses nothing: a change only the skipped
+      // read saw was made after the applied read's stamp, so its own event,
+      // stamped later still, applies it (or gives way to a read stamped later
+      // again, which holds it too).
+      const readAt = await databaseNow();
       const subscription = await getStripe().subscriptions.retrieve(id, {}, workerRequestOptions());
       if (asString(prop(subscription, "status")) === "trialing") {
         throw new TrialingSubscriptionError();
       }
-      return { subscription };
+      return { subscription, subscriptionReadAt: readAt };
     }
     case "invoice.paid":
-      return { planLookupKey: await firstPlanLookupKey(object, clinicId, context) };
+      return {
+        planLookupKey: await firstPlanLookupKey(object, clinicId, context),
+        owedInvoices: await owedInvoicesBeyond(object, clinicId, context),
+      };
     default:
       return {};
   }
+}
+
+/**
+ * The database's clock, which orders reads taken by different processes:
+ * Stripe's relay reaches whichever web process is free, and two processes'
+ * own clocks can disagree by more than the moments between two reads of one
+ * subscription.
+ */
+async function databaseNow(): Promise<Date> {
+  const result = await unsafeDb.execute<{ now: Date | string }>(
+    sql`select clock_timestamp() as now`,
+  );
+  return new Date(result.rows[0]!.now);
+}
+
+/**
+ * For a paid invoice, the customer's other invoices still owed, oldest first,
+ * or undefined when nothing is recorded as owed (review fix). The slot holds
+ * one invoice; when the invoice paid is the one it holds, the next one owed
+ * takes its place instead of the clinic being taken as paid up, and a
+ * different recorded invoice is kept only while Stripe still holds it open.
+ * Asked only for a deferred-start row with an invoice recorded, so a renewal
+ * of a clinic in good standing never waits on this call; a legacy row's
+ * invoice.paid keeps the behaviour it always had.
+ */
+async function owedInvoicesBeyond(
+  invoice: unknown,
+  clinicId: string,
+  context: HandleContext,
+): Promise<OpenInvoice[] | undefined> {
+  const paidId = asString(prop(invoice, "id"));
+  const customerId = await withTenant(
+    { clinicId, actor: STRIPE_WEBHOOK_ACTOR, request: { requestId: context.requestId } },
+    async (tx) => {
+      const row = await getEntitlements(tx.db, tx.clinicId);
+      if (!row || row.boughtPlanId === null || row.openInvoiceId === null) return null;
+      return row.stripeCustomerId ?? refId(prop(invoice, "customer"));
+    },
+  );
+  if (!customerId) return undefined;
+
+  // One page: a customer owes a handful of invoices at most (a renewal, an
+  // annual overage, a step-up), never a hundred.
+  const page = await getStripe().invoices.list(
+    { customer: customerId, status: "open", limit: 100 },
+    workerRequestOptions(),
+  );
+  const owed: Array<OpenInvoice & { created: number }> = [];
+  for (const open of page.data as unknown[]) {
+    const id = asString(prop(open, "id"));
+    if (!id || id === paidId) continue;
+    // Owed means Stripe has tried to collect it: a renewal it has only just
+    // finalized stays open for about an hour before its first attempt.
+    if (prop(open, "attempted") !== true) continue;
+    // onInvoiceUnpaid's rule: a plan change's or an extra location's setup
+    // fee is voided by its own action on a decline, so it is never owed.
+    const kind = hdKindOf(open);
+    if (kind === "plan_change_setup" || kind === "location_setup") continue;
+    owed.push({
+      invoiceId: id,
+      url: asString(prop(open, "hosted_invoice_url")),
+      amountDueCents: asNumber(prop(open, "amount_due")) ?? 0,
+      created: asNumber(prop(open, "created")) ?? 0,
+    });
+  }
+  // Stripe lists newest first; the slot keeps the oldest debt, as
+  // recordOpenInvoice keeps the one recorded first. A stable sort keeps
+  // Stripe's order between two created in the same second.
+  return owed
+    .reverse()
+    .sort((a, b) => a.created - b.created)
+    .map(({ invoiceId, url, amountDueCents }) => ({ invoiceId, url, amountDueCents }));
 }
 
 /**
@@ -801,7 +897,7 @@ const INVOICES_WITH_THEIR_OWN_EMAIL: ReadonlySet<string> = new Set([
  *
  * Every branch that settles a subscription invoice, and a one-off invoice
  * that was the one the clinic owed, applies R10's status rules
- * (settlePayment).
+ * (settlePayment), once no other invoice is still owed (owedAfterPayment).
  */
 async function onInvoicePaid(tx: TenantTx, delivery: Delivery, effects: Effects): Promise<void> {
   const invoice = delivery.object;
@@ -879,8 +975,10 @@ async function onFirstInvoicePaid(
 /**
  * A one-off invoice (BD7 `manual`). The annual overage's row is marked; the
  * setup fee of a plan change or an extra location has its action's email.
- * R10's status rules apply only when this was the invoice the clinic owed:
- * paying a setup-fee difference while a renewal sits unpaid settles nothing.
+ * R10's status rules apply only when this was the invoice the clinic owed
+ * (or the one recorded is owed no longer), and nothing else is still owed:
+ * paying a setup-fee difference, or an overage invoice, while a renewal sits
+ * unpaid settles nothing.
  */
 async function onOneOffInvoicePaid(
   tx: TenantTx,
@@ -891,16 +989,17 @@ async function onOneOffInvoicePaid(
   const invoice = delivery.object;
   const hdKind = hdKindOf(invoice);
   const amountPaid = amountPaidOf(invoice);
-  const wasOwed = row.openInvoiceId !== null && row.openInvoiceId === invoiceId;
 
   if (hdKind === "annual_overage") {
     await markOverageInvoicePaid(tx, invoice, invoiceId, paidAtOf(invoice, delivery.now));
   }
   await recordInvoicePaid(tx.db, tx.clinicId, { invoiceId });
+  const stillOwed = await owedAfterPayment(tx, row, invoiceId, delivery.live.owedInvoices);
 
-  const { restored } = wasOwed
-    ? await settlePayment(tx, row, invoiceId, amountPaid, delivery.eventId)
-    : { restored: false };
+  const { restored } =
+    row.openInvoiceId !== null && !stillOwed
+      ? await settlePayment(tx, row, amountPaid, delivery.eventId)
+      : { restored: false };
   if (restored) {
     await queueRestored(tx, invoiceId, invoice);
     return;
@@ -937,13 +1036,10 @@ async function onInvoicePaidBeforeStart(
 
   await startPlanFromLine(tx, invoiceId, line, {});
   await recordInvoicePaid(tx.db, tx.clinicId, { invoiceId, paidThrough: line.period.end });
-  const { restored } = await settlePayment(
-    tx,
-    row,
-    invoiceId,
-    amountPaidOf(invoice),
-    delivery.eventId,
-  );
+  const stillOwed = await owedAfterPayment(tx, row, invoiceId, delivery.live.owedInvoices);
+  const { restored } = stillOwed
+    ? { restored: false }
+    : await settlePayment(tx, row, amountPaidOf(invoice), delivery.eventId);
   if (restored) await queueRestored(tx, invoiceId, invoice);
 
   const payload = await planStartedPayload(tx, row, invoice, line, delivery.live.planLookupKey);
@@ -983,7 +1079,10 @@ async function onInvoicePaidAfterStart(
     await recordInvoicePaid(tx.db, tx.clinicId, { invoiceId });
   }
 
-  const { restored } = await settlePayment(tx, row, invoiceId, amountPaid, delivery.eventId);
+  const stillOwed = await owedAfterPayment(tx, row, invoiceId, delivery.live.owedInvoices);
+  const { restored } = stillOwed
+    ? { restored: false }
+    : await settlePayment(tx, row, amountPaid, delivery.eventId);
   if (restored) {
     await queueRestored(tx, invoiceId, invoice);
     return;
@@ -1019,15 +1118,52 @@ const NON_PAYMENT_SUSPENSIONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The open-invoice slot once `invoiceId` is paid (review fix), after
+ * recordInvoicePaid, which cleared the slot if it held this invoice. Returns
+ * whether the clinic still owes an invoice: R10's status rules wait until it
+ * owes none, so grace is not cleared, `past_due` not set active and a
+ * suspension not lifted while another failed invoice is unpaid.
+ *
+ *   - Nothing recorded: nothing is owed.
+ *   - A different invoice recorded, and Stripe still holds it open (or was
+ *     not asked: `owed` is absent only when the slot was empty at the read,
+ *     and was filled since): it is still owed, and stays recorded.
+ *   - This invoice recorded, or one Stripe no longer holds open: the next
+ *     invoice still owed, oldest first, takes the slot; with none, it stays
+ *     empty.
+ *
+ * `row` is the row as locked at the start of the event.
+ */
+async function owedAfterPayment(
+  tx: TenantTx,
+  row: Entitlements,
+  invoiceId: string,
+  owed: readonly OpenInvoice[] | undefined,
+): Promise<boolean> {
+  const recorded = row.openInvoiceId;
+  if (recorded === null) return false;
+  const isStillOwed =
+    recorded !== invoiceId &&
+    (owed === undefined || owed.some((other) => other.invoiceId === recorded));
+  if (isStillOwed) return true;
+  const next = owed?.[0] ?? null;
+  // recordInvoicePaid emptied the slot for this invoice; nothing to move.
+  if (recorded === invoiceId && next === null) return false;
+  await moveOpenInvoice(tx.db, tx.clinicId, recorded === invoiceId ? null : recorded, next);
+  return next !== null;
+}
+
+/**
  * R10's status rules for a paid invoice that settles what the clinic owed.
- * Grace ends, and `past_due` returns to `active` (so does `provisioning`, the
+ * The caller asks only once nothing else is owed (owedAfterPayment). Grace
+ * ends, and `past_due` returns to `active` (so does `provisioning`, the
  * self-heal for a first invoice that never arrived). `suspended` returns to
  * `active` only when every one of these holds, because a suspension is also
  * how a chargeback and an operator withhold service, and paying an invoice
  * must not override either:
  *
  *   - money moved (a $0 invoice proves nothing about the card);
- *   - this invoice is the one recorded as owed, or none is recorded;
+ *   - no invoice is still recorded as owed (the caller's check);
  *   - the clinic was suspended for not paying, and no dispute has been
  *     recorded since (suspendedForNonPayment).
  *
@@ -1042,7 +1178,6 @@ const NON_PAYMENT_SUSPENSIONS: ReadonlySet<string> = new Set([
 async function settlePayment(
   tx: TenantTx,
   row: Entitlements,
-  invoiceId: string,
   amountPaid: number,
   eventId: string,
 ): Promise<{ restored: boolean }> {
@@ -1055,7 +1190,6 @@ async function settlePayment(
     return { restored: false };
   }
   if (status !== "suspended" || amountPaid <= 0) return { restored: false };
-  if (row.openInvoiceId !== null && row.openInvoiceId !== invoiceId) return { restored: false };
   if (!(await suspendedForNonPayment(tx))) return { restored: false };
 
   await transition(tx, "active", paidUp);
@@ -1309,11 +1443,14 @@ async function onLegacyInvoicePaid(
  * failed invoice the action voids before refusing, so nothing is owed.
  *
  * Otherwise the invoice is recorded as the one owed, with Stripe's pay page,
- * and the clinic is told at once (critical). A failed payment also moves
- * `active` to `past_due` and opens the grace window, once: Stripe's smart
- * retries send one of these per attempt, spread over weeks, and a grace
- * period that re-opened on every retry would never close. The email for each
- * invoice goes once whatever the retries (dedupe on the invoice id).
+ * unless an earlier unpaid invoice already is (recordOpenInvoice keeps that
+ * one, and its invoice.paid moves the slot on to this one), and the clinic
+ * is told at once (critical), with this invoice's own page. A failed payment
+ * also moves `active` to `past_due` and opens the grace window, once:
+ * Stripe's smart retries send one of these per attempt, spread over weeks,
+ * and a grace period that re-opened on every retry would never close. The
+ * email for each invoice goes once whatever the retries (dedupe on the
+ * invoice id).
  * `isFirstPlanCharge` tells the clinic nothing had started yet: the plan's
  * paid start (`plan_started_at`) is still unset and this invoice carries a
  * plan line. It is deliberately not R8's "started": the worker marks the plan
@@ -1429,9 +1566,29 @@ async function onSubscriptionUpdated(
   if (stripeStatus === "canceled" || stripeStatus === "incomplete_expired") return;
 
   const row = await lockedEntitlements(tx);
-  if (await newerUpdateApplied(tx, delivery)) {
-    effects.ignored = "a newer subscription update was applied";
-    return;
+  // R11's stale-event guard, under the row lock (review fix). The live read
+  // is taken before this transaction, so two deliveries can commit in the
+  // opposite order to their reads: auto-renew turned off and straight back
+  // on, the first reads "scheduled", the second reads "reversed" and commits,
+  // and the first would then commit "scheduled" over it with no event left
+  // to put it right. A read stamped before the one already applied is
+  // skipped (readLive says why that loses nothing). The stamp is compared
+  // and written in this transaction: the ledger's `processed` mark the guard
+  // used before was written only after the commit, so a delivery waiting on
+  // this lock could check before it existed.
+  const readAt = delivery.live.subscriptionReadAt ?? null;
+  if (readAt) {
+    const syncedAt = row.stripeSubscriptionSyncedAt;
+    if (syncedAt && syncedAt.getTime() > readAt.getTime()) {
+      effects.ignored = "a later read of the subscription was already applied";
+      return;
+    }
+    await tx.db
+      .update(entitlements)
+      .set({
+        stripeSubscriptionSyncedAt: sql`greatest(${entitlements.stripeSubscriptionSyncedAt}, ${readAt}::timestamptz)`,
+      })
+      .where(eq(entitlements.clinicId, tx.clinicId));
   }
 
   const priced = packageItemOf(subscription);
@@ -1519,40 +1676,6 @@ async function onSubscriptionUpdated(
     await move("active", "client", "cancel_reversed");
     await enqueueNotice(tx, "cancel_reversed", eventId, { isBeforeStart: !hasPlanStarted(row) });
   }
-}
-
-/**
- * Whether a NEWER customer.subscription.updated for this clinic has already
- * been applied (§5's stale-event guard, beside R11's live read). Asked under
- * the row lock, so the answer cannot change before this event commits.
- *
- * The live read alone leaves one gap: it is taken before the transaction, so
- * two deliveries processed at once can commit in the opposite order to their
- * reads. Auto-renew turned off and straight back on: the first event reads
- * "scheduled", the second reads "reversed" and commits, and the first would
- * then commit "scheduled" over it, with no further event ever coming to put
- * it right. Skipping an event older than one already applied closes that,
- * and loses nothing: the newer event applied what Stripe held when it was
- * processed, which already includes this older change, and anything changed
- * since has an event of its own on the way. Nothing new is stored: the
- * ledger keeps each event's payload, and its `created` is the comparison.
- */
-async function newerUpdateApplied(tx: TenantTx, delivery: Delivery): Promise<boolean> {
-  const created = Math.floor(delivery.createdAt.getTime() / 1000);
-  const [newer] = await tx.db
-    .select({ id: billingEvents.stripeEventId })
-    .from(billingEvents)
-    .where(
-      and(
-        eq(billingEvents.resolvedClinicId, tx.clinicId),
-        eq(billingEvents.type, "customer.subscription.updated"),
-        eq(billingEvents.outcome, "processed"),
-        ne(billingEvents.stripeEventId, delivery.eventId),
-        sql`(${billingEvents.payload} ->> 'created')::bigint > ${created}`,
-      ),
-    )
-    .limit(1);
-  return newer !== undefined;
 }
 
 /**

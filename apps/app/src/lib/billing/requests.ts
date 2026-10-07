@@ -31,6 +31,7 @@ import {
   applyBilledPlan,
   claimStripeMutationLease,
   getEntitlements,
+  getEntitlementsForUpdate,
   hasPlanStarted,
   markPlanStartApplied,
   releaseStripeMutationLease,
@@ -88,9 +89,9 @@ import { withTenant, type TenantTx } from "@/lib/tenant";
  *     another; a worker that finds it busy waits a minute without spending an
  *     attempt;
  *   - both leases are renewed before EACH Stripe call, and every write after
- *     the claim is fenced on the attempt it claimed (`attempts = n and
- *     done_at is null`), so a worker that stalled past its lease and was
- *     overtaken writes nothing;
+ *     the claim is fenced on the attempt it claimed (`epoch = e and attempts
+ *     = n and done_at is null`), so a worker that stalled past its lease and
+ *     was overtaken writes nothing, even after a re-arm restarted the count;
  *   - Stripe is never called inside a transaction: claim, commit, call, then
  *     record the outcome in a new transaction;
  *   - a failed attempt waits 1, 5, 30, 120, 360, 720, then 1440 minutes, and
@@ -199,6 +200,15 @@ export async function requestCancelNow(
  * re-armed. For the hourly reconcile and the console's retry, in the BILLING
  * clinic's tenant, where every request lives.
  *
+ * The epoch goes up by one (review fix). Attempts restart at 1 for the
+ * backoff and the dead-letter count, so without it the next attempt would
+ * send `…:<id>:1` again, an idempotency key Stripe may still hold a cached
+ * 5xx under for 24 hours: each replayed failure would back off in turn, and a
+ * console Retry pressed after an incident would first reach Stripe half an
+ * hour later. Every key, lease owner and fenced write carries the epoch, so a
+ * re-armed request reaches Stripe afresh and a worker left over from before
+ * the re-arm can write nothing.
+ *
  * A pending request whose lease is still running is left alone and false is
  * returned: re-arming it would let a second worker claim the row while the
  * first is still waiting on Stripe. A finished request can always be
@@ -218,6 +228,7 @@ export async function rearmBillingRequest(
       outcomeReason: null,
       leaseUntil: null,
       attempts: 0,
+      epoch: sql`${billingRequests.epoch} + 1`,
       nextAttemptAt: now,
       reason,
     })
@@ -595,6 +606,8 @@ type Claim = {
   kind: BillingRequestKind;
   channelKey: BillingRequestChannelKey;
   reason: BillingRequestReason;
+  /** How many times the row had been re-armed when it was claimed (review fix). */
+  epoch: number;
   /** This attempt's number: the row's `attempts` after the claim counted it. */
   attempt: number;
   /** This attempt's name on the Stripe mutation lease. */
@@ -683,11 +696,17 @@ function isRequestKind(value: string): value is BillingRequestKind {
   return (BILLING_REQUEST_KINDS as readonly string[]).includes(value);
 }
 
-/** Every write after the claim is conditional on the attempt it claimed (R4). */
+/**
+ * Every write after the claim is conditional on the attempt it claimed (R4),
+ * in the epoch it claimed it in: a re-arm restarts the attempt count, so the
+ * attempt number alone would let a worker stalled from before the re-arm
+ * match the new attempt that bears its number.
+ */
 function fenced(claim: Claim) {
   return and(
     eq(billingRequests.id, claim.id),
     eq(billingRequests.clinicId, claim.clinicId),
+    eq(billingRequests.epoch, claim.epoch),
     eq(billingRequests.attempts, claim.attempt),
     isNull(billingRequests.doneAt),
   );
@@ -743,9 +762,14 @@ class Attempt {
     return fn();
   }
 
-  /** Stripe's idempotency key for this attempt (R4): a new attempt never inherits a cached failure. */
+  /**
+   * Stripe's idempotency key for this attempt (R4): a new attempt never
+   * inherits a cached failure, and neither does a re-armed request, whose
+   * attempts start again from 1 in a new epoch.
+   */
   key(prefix: string): string {
-    return `${prefix}:${this.claim.clinicId}:${this.claim.id}:${this.claim.attempt}`;
+    const { clinicId, id, epoch, attempt } = this.claim;
+    return `${prefix}:${clinicId}:${id}:${epoch}:${attempt}`;
   }
 }
 
@@ -776,8 +800,9 @@ async function claimRequest(row: DueRow, ctx: DrainContext): Promise<Claim | nul
       kind: claimed.kind,
       channelKey: claimed.channelKey,
       reason: claimed.reason,
+      epoch: claimed.epoch,
       attempt: claimed.attempts,
-      owner: `billing_request:${claimed.id}:${claimed.attempts}`,
+      owner: `billing_request:${claimed.id}:${claimed.epoch}:${claimed.attempts}`,
     };
   });
 }
@@ -960,10 +985,14 @@ function refuseTrial(sub: Stripe.Subscription): void {
   if (sub.status === "trialing") throw new RequestFailure("subscription_trialing", true);
 }
 
-async function retrieveSubscription(attempt: Attempt, subscriptionId: string) {
+async function retrieveSubscription(
+  attempt: Attempt,
+  subscriptionId: string,
+  params: Stripe.SubscriptionRetrieveParams = {},
+) {
   const stripe = attempt.stripe();
   return attempt.call(() =>
-    stripe.subscriptions.retrieve(subscriptionId, {}, workerRequestOptions()),
+    stripe.subscriptions.retrieve(subscriptionId, params, workerRequestOptions()),
   );
 }
 
@@ -978,10 +1007,11 @@ async function rereadAfter(
   attempt: Attempt,
   subscriptionId: string,
   error: unknown,
+  params: Stripe.SubscriptionRetrieveParams = {},
 ): Promise<Stripe.Subscription> {
   if (!stripeErrorType(error)) throw error;
   try {
-    return await retrieveSubscription(attempt, subscriptionId);
+    return await retrieveSubscription(attempt, subscriptionId, params);
   } catch (reread) {
     if (reread instanceof LeaseLostError) throw reread;
     throw error;
@@ -1001,7 +1031,12 @@ async function planStartWorker(attempt: Attempt): Promise<WorkerResult> {
     async (
       tx,
     ): Promise<WorkerResult | Proceed<{ row: Entitlements; bought: Plan; billed: Plan }>> => {
-      const row = await getEntitlements(tx.db, claim.clinicId);
+      // Locked (review fix): the package bought, the interval and the
+      // locations decide what the placeholder is swapped for. changePlan's
+      // last transaction writes them and releases the mutation lease together;
+      // committed between a plain read and the lease claim below, it left
+      // this attempt pricing the old package on the lease it had just freed.
+      const row = await getEntitlementsForUpdate(tx.db, claim.clinicId);
       if (!row) return skip("no_entitlements");
       if (hasPlanStarted(row)) return skip("already_started");
       if (CANCEL_PENDING_STATUSES.has(row.status) || row.cancelAt !== null) {
@@ -1013,6 +1048,9 @@ async function planStartWorker(attempt: Attempt): Promise<WorkerResult> {
       }
       if (!row.stripeSubscriptionId || !row.stripeCustomerId) return skip("no_subscription");
       if (group.inService.size === 0) return skip("no_channel_in_service");
+      // A plan change still being completed may have charged for a package
+      // this row does not show yet: wait for it, like a busy lease.
+      if (row.pendingPlanChangeRequestId !== null) return defer(MUTATION_LEASE_WAIT_MS);
       const bought = boughtPlanOf(row);
       if (!bought) return { type: "fail", code: "unknown_plan", permanent: true };
       const billed = planForChannels([...group.inService].filter((c) => bought.channels[c]));
@@ -1202,8 +1240,14 @@ async function stepUpWorker(attempt: Attempt): Promise<WorkerResult> {
   const group = await readBillingGroupChannels(claim.clinicId, attempt.now(), ACTOR);
   const ready = await attempt.inBilling(
     async (tx): Promise<WorkerResult | Proceed<{ row: Entitlements; bought: Plan }>> => {
-      const row = await getEntitlements(tx.db, claim.clinicId);
+      // Locked, as in the plan start (review fix): a downgrade committed
+      // between a plain read and the lease claim would leave `bought` stale,
+      // and the target below could price back in a channel just dropped.
+      const row = await getEntitlementsForUpdate(tx.db, claim.clinicId);
       if (!row || !row.stripeSubscriptionId) return skip("no_subscription");
+      // And for the same reason, no step-up while a plan change is still
+      // being completed: its new package is not on this row yet.
+      if (row.pendingPlanChangeRequestId !== null) return defer(MUTATION_LEASE_WAIT_MS);
       const bought = boughtPlanOf(row);
       if (!bought) return { type: "fail", code: "unknown_plan", permanent: true };
       if (!(await attempt.holdMutationLease(tx))) return defer(MUTATION_LEASE_WAIT_MS);
@@ -1214,11 +1258,14 @@ async function stepUpWorker(attempt: Attempt): Promise<WorkerResult> {
   const { row, bought } = ready.value;
   const subscriptionId = row.stripeSubscriptionId!;
   const stripe = attempt.stripe();
+  // The latest invoice comes with every read: an annual step-up's L3 links
+  // the invoice its update raised, including one an earlier attempt raised.
+  const withInvoice: Stripe.SubscriptionRetrieveParams = { expand: ["latest_invoice"] };
 
   // `current` is read from Stripe just before the update (R7), not from our
   // row: a step-up decided on a stale plan_code could swap away a channel
   // another step-up priced in a minute ago.
-  const sub = await retrieveSubscription(attempt, subscriptionId);
+  const sub = await retrieveSubscription(attempt, subscriptionId, withInvoice);
   refuseTrial(sub);
   if (hasEnded(sub)) return skip("subscription_canceled");
   const item = subscriptionShape(sub).packageItem;
@@ -1232,6 +1279,21 @@ async function stepUpWorker(attempt: Attempt): Promise<WorkerResult> {
   );
   if (!target) return skip("nothing_to_bill");
   if (target.id === current.id) {
+    // Our own marker: an earlier attempt's update went through and its
+    // outcome was never recorded (a lost response, or a crash before the
+    // outcome's transaction). The clinic has been charged for the step-up,
+    // so it finishes as one, with its L3 and its history (review fix).
+    if (sub.metadata?.hd_step_up === claim.id) {
+      return steppedUp(attempt, {
+        channel,
+        target: current,
+        interval,
+        priceId: item.priceId,
+        locations: row.locations,
+        latestInvoice: sub.latest_invoice,
+        isRecovered: true,
+      });
+    }
     // Already priced in (the plan start took it in, or another step-up did):
     // no price change and no email (BD3). Our row follows Stripe either way.
     return {
@@ -1268,19 +1330,59 @@ async function stepUpWorker(attempt: Attempt): Promise<WorkerResult> {
       ),
     );
   } catch (error) {
-    const reread = await rereadAfter(attempt, subscriptionId, error);
+    const reread = await rereadAfter(attempt, subscriptionId, error, withInvoice);
     if (subscriptionShape(reread).packageItem?.priceId !== priceId) throw error;
     updated = reread;
   }
 
+  return steppedUp(attempt, {
+    channel,
+    target,
+    interval,
+    priceId,
+    locations: row.locations,
+    latestInvoice: updated.latest_invoice,
+    isRecovered: false,
+  });
+}
+
+/**
+ * The step-up went through on Stripe: the billed package follows it, the
+ * clinic gets L3 (`price_stepped_up`, once per channel and price) and the
+ * history its note. An annual step-up is invoiced at once, and L3 links that
+ * invoice: only a `subscription_update` invoice, never an older one the
+ * subscription happens to name last.
+ *
+ * `isRecovered` is a step-up an earlier attempt applied (its marker found).
+ * Its L3 dedupe key is the one the earlier attempt would have used, so an L3
+ * already queued is not queued again, and then nothing else is written
+ * either: that outcome was recorded before.
+ */
+function steppedUp(
+  attempt: Attempt,
+  input: {
+    channel: Channel;
+    target: Plan;
+    interval: BillingInterval;
+    priceId: string;
+    locations: number;
+    latestInvoice: unknown;
+    isRecovered: boolean;
+  },
+): Finish {
+  const { claim } = attempt;
+  const { channel, target, interval } = input;
   const invoicedNow = interval === "year";
+  const raised =
+    (input.latestInvoice as { billing_reason?: unknown } | null)?.billing_reason ===
+    "subscription_update";
   const payload = {
     channel,
     planName: target.name,
-    amountCents: Math.round(recurringUsd(target, interval) * 100) * row.locations,
+    amountCents: Math.round(recurringUsd(target, interval) * 100) * input.locations,
     interval,
     isInvoicedNow: invoicedNow,
-    hostedInvoiceUrl: invoicedNow ? hostedInvoiceUrlOf(updated.latest_invoice) : null,
+    hostedInvoiceUrl: invoicedNow && raised ? hostedInvoiceUrlOf(input.latestInvoice) : null,
   };
   return {
     type: "finish",
@@ -1288,7 +1390,13 @@ async function stepUpWorker(attempt: Attempt): Promise<WorkerResult> {
     reason: "stepped_up",
     apply: async (tx) => {
       await applyBilledPlan(tx.db, claim.clinicId, target, interval);
-      await enqueueNotice(tx, "price_stepped_up", `step_up:${channel}:${priceId}`, payload);
+      const queued = await enqueueNotice(
+        tx,
+        "price_stepped_up",
+        `step_up:${channel}:${input.priceId}`,
+        payload,
+      );
+      if (input.isRecovered && !queued) return;
       await recordBillingNote(tx, { actor: "system", reason: "step_up" });
       tx.audit.record({
         action: "update",

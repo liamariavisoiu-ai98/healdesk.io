@@ -194,10 +194,16 @@ function missing(): never {
   throw stripeError("invalid_request", { code: "resource_missing", statusCode: 404 });
 }
 
-/** An unpaid invoice Stripe still holds open, and the event that says so. */
+/** An unpaid invoice Stripe holds open after an attempt to collect it, and the event saying so. */
 function unpaidEvent(type: string, object: Record<string, unknown>): Stripe.Event {
-  world.invoices.set(object.id as string, { ...object, status: "open" });
+  world.invoices.set(object.id as string, { ...object, status: "open", attempted: true });
   return event(type, object);
+}
+
+/** A paid invoice, paid in Stripe too, and the event that says so. */
+function paidEvent(object: Record<string, unknown>): Stripe.Event {
+  world.invoices.set(object.id as string, { ...object, status: "paid", attempted: true });
+  return event("invoice.paid", object);
 }
 
 async function boughtClinic(
@@ -313,6 +319,15 @@ describeDb("the deferred start's billing lifecycle", () => {
     };
     fake = createStripeFake({
       "invoices.retrieve": (id) => world.invoices.get(id as string) ?? missing(),
+      // Newest first, as Stripe lists.
+      "invoices.list": (params) => {
+        const { customer, status } = params as { customer?: string; status?: string };
+        const data = [...world.invoices.values()].filter(
+          (invoice) =>
+            (!customer || invoice.customer === customer) && (!status || invoice.status === status),
+        );
+        return { object: "list", has_more: false, data: data.reverse() };
+      },
       "subscriptions.retrieve": (id) => world.subscriptions.get(id as string) ?? missing(),
       "refunds.list": (params) => ({
         object: "list",
@@ -986,6 +1001,132 @@ describeDb("the deferred start's billing lifecycle", () => {
     });
   });
 
+  describe("two unpaid invoices at once (review fix)", () => {
+    /** Annual and started: its renewal and the annual overage invoice can both fail on its card. */
+    async function annualClinic(label: string) {
+      return boughtClinic(label, {
+        interval: "year",
+        planStartedAt: new Date(NOW.getTime() - 60 * DAY_MS),
+      });
+    }
+    const renewalOf = (ids: Ids) =>
+      invoice(ids, "subscription_cycle", [
+        subscriptionLine(complete.annualMonthlyUsd * 12 * 100, T, T + 365 * DAY),
+      ]);
+    const overageOf = (ids: Ids) =>
+      invoice(ids, "manual", [setupLine(8_000)], { hdKind: "annual_overage" });
+
+    test("the renewal fails, then the overage: paying the overage leaves the clinic past due, still owing the renewal", async () => {
+      const { clinicId, ids } = await annualClinic("renewalfirst");
+      const renewal = renewalOf(ids);
+      const overage = overageOf(ids);
+      await handleStripeEvent(unpaidEvent("invoice.payment_failed", renewal), { now: NOW });
+      const graceEnds = (await entitlementsOf(clinicId)).grace_ends_at!;
+      await handleStripeEvent(unpaidEvent("invoice.payment_failed", overage), { now: NOW });
+
+      // The first debt stays recorded; the second's own email links its page.
+      let row = await entitlementsOf(clinicId);
+      expect(row.open_invoice_id).toBe(renewal.id);
+      expect(row.open_invoice_url).toBe(renewal.hosted_invoice_url);
+      expect(
+        (await noticesOf(clinicId, "payment_failed")).map((n) => [
+          n.dedupe_key,
+          n.payload.hostedInvoiceUrl,
+        ]),
+      ).toEqual([
+        [renewal.id, renewal.hosted_invoice_url],
+        [overage.id, overage.hosted_invoice_url],
+      ]);
+
+      await handleStripeEvent(paidEvent(overage), { now: NOW });
+      row = await entitlementsOf(clinicId);
+      expect(row.status).toBe("past_due");
+      expect(row.grace_ends_at?.getTime()).toBe(graceEnds.getTime());
+      expect(row.open_invoice_id).toBe(renewal.id);
+      expect(row.open_invoice_amount_cents).toBe(renewal.amount_due);
+
+      await handleStripeEvent(paidEvent(renewal), { now: NOW });
+      row = await entitlementsOf(clinicId);
+      expect(row.status).toBe("active");
+      expect(row.grace_ends_at).toBeNull();
+      expect(row.open_invoice_id).toBeNull();
+    });
+
+    test("the overage fails, then the renewal: paying the renewal leaves the clinic past due, still owing the overage", async () => {
+      const { clinicId, ids } = await annualClinic("overagefirst");
+      const renewal = renewalOf(ids);
+      const overage = overageOf(ids);
+      await handleStripeEvent(unpaidEvent("invoice.payment_failed", overage), { now: NOW });
+      const graceEnds = (await entitlementsOf(clinicId)).grace_ends_at!;
+      await handleStripeEvent(unpaidEvent("invoice.payment_failed", renewal), { now: NOW });
+      expect((await entitlementsOf(clinicId)).open_invoice_id).toBe(overage.id);
+
+      await handleStripeEvent(paidEvent(renewal), { now: NOW });
+      let row = await entitlementsOf(clinicId);
+      expect(row.status).toBe("past_due");
+      expect(row.grace_ends_at?.getTime()).toBe(graceEnds.getTime());
+      expect(row.open_invoice_id).toBe(overage.id);
+      expect(row.open_invoice_url).toBe(overage.hosted_invoice_url);
+      expect(row.open_invoice_amount_cents).toBe(8_000);
+
+      await handleStripeEvent(paidEvent(overage), { now: NOW });
+      row = await entitlementsOf(clinicId);
+      expect(row.status).toBe("active");
+      expect(row.grace_ends_at).toBeNull();
+      expect(row.open_invoice_id).toBeNull();
+    });
+
+    test("paying the invoice recorded moves the slot on to the next one still owed, never to nothing", async () => {
+      const { clinicId, ids } = await annualClinic("moveson");
+      const renewal = renewalOf(ids);
+      const overage = overageOf(ids);
+      await handleStripeEvent(unpaidEvent("invoice.payment_failed", renewal), { now: NOW });
+      await handleStripeEvent(unpaidEvent("invoice.payment_failed", overage), { now: NOW });
+
+      await handleStripeEvent(paidEvent(renewal), { now: NOW });
+      let row = await entitlementsOf(clinicId);
+      expect(row.status).toBe("past_due");
+      expect(row.grace_ends_at).not.toBeNull();
+      expect(row.open_invoice_id).toBe(overage.id);
+      expect(row.open_invoice_url).toBe(overage.hosted_invoice_url);
+      expect(row.open_invoice_amount_cents).toBe(8_000);
+      expect(fake.callsTo("invoices.list").at(-1)!.args[0]).toEqual({
+        customer: ids.customer,
+        status: "open",
+        limit: 100,
+      });
+
+      await handleStripeEvent(paidEvent(overage), { now: NOW });
+      row = await entitlementsOf(clinicId);
+      expect(row.status).toBe("active");
+      expect(row.open_invoice_id).toBeNull();
+    });
+
+    test("an invoice recorded as owed that Stripe no longer holds open gives way when another is paid", async () => {
+      const { clinicId, ids } = await annualClinic("voided");
+      const renewal = renewalOf(ids);
+      await handleStripeEvent(unpaidEvent("invoice.payment_failed", renewal), { now: NOW });
+      // Voided in Stripe's Dashboard: no event of ours says so.
+      world.invoices.set(renewal.id as string, { ...renewal, status: "void", attempted: true });
+
+      const stepUp = invoice(ids, "subscription_update", [
+        subscriptionLine(30_000, T, T + 300 * DAY, { proration: true }),
+      ]);
+      await handleStripeEvent(paidEvent(stepUp), { now: NOW });
+      const row = await entitlementsOf(clinicId);
+      expect(row.status).toBe("active");
+      expect(row.grace_ends_at).toBeNull();
+      expect(row.open_invoice_id).toBeNull();
+    });
+
+    test("a paid invoice asks Stripe nothing while nothing is recorded as owed", async () => {
+      const { clinicId, ids } = await annualClinic("nothingowed");
+      await handleStripeEvent(paidEvent(renewalOf(ids)), { now: NOW });
+      expect(fake.callsTo("invoices.list")).toEqual([]);
+      expect((await entitlementsOf(clinicId)).status).toBe("active");
+    });
+  });
+
   describe("customer.subscription.updated, applied from the live subscription (R11, BD8, BD10)", () => {
     test("what Stripe holds now wins over the payload, so delivery order stops mattering", async () => {
       const { clinicId, ids } = await boughtClinic("order", {
@@ -1021,31 +1162,6 @@ describeDb("the deferred start's billing lifecycle", () => {
       expect(row.status).toBe("active");
       expect(row.cancel_at).toBeNull();
 
-      // An event older than one already applied is skipped under the row
-      // lock: here its read raced the reversal and still saw "scheduled",
-      // which applied now would cancel a clinic that turned auto-renew back on.
-      world.subscriptions.set(
-        ids.subscription,
-        subscription(ids, [item], { cancelAtPeriodEnd: true }),
-      );
-      const stale = event(
-        "customer.subscription.updated",
-        subscription(ids, [item], { cancelAtPeriodEnd: true }),
-        T - 60,
-      );
-      expect(await handleStripeEvent(stale, { now: NOW })).toEqual({
-        outcome: "ignored",
-        duplicate: false,
-        clinicId,
-      });
-      expect(await ledger(stale.id)).toMatchObject({
-        outcome: "ignored",
-        error: "a newer subscription update was applied",
-      });
-      row = await entitlementsOf(clinicId);
-      expect(row.status).toBe("active");
-      expect(row.cancel_at).toBeNull();
-
       const notices = await noticesOf(clinicId);
       expect(notices.map((n) => [n.kind, n.dedupe_key])).toEqual([
         ["cancel_scheduled", off.id],
@@ -1058,8 +1174,99 @@ describeDb("the deferred start's billing lifecycle", () => {
       });
       expect(notices[1]!.payload).toEqual({ isBeforeStart: false });
       expectLintClean(notices);
-      expect(fake.callsTo("subscriptions.retrieve")).toHaveLength(3);
+      expect(fake.callsTo("subscriptions.retrieve")).toHaveLength(2);
     });
+
+    test("a read taken before one already applied is skipped under the row lock, even before that one's ledger says processed (review fix)", async () => {
+      const { clinicId, ids } = await boughtClinic("interleaved", {
+        planStartedAt: new Date(NOW.getTime() - 30 * DAY_MS),
+      });
+      const item = { lookupKey: stripeLookupKey(complete, "month"), periodEnd: T + 20 * DAY };
+      // Auto-renew turned off, then straight back on. The "off" delivery reads
+      // the subscription while the cancellation is still scheduled, then stalls
+      // before its transaction; the "on" delivery reads it reversed, commits,
+      // and is held just before its ledger row is marked processed.
+      world.subscriptions.set(
+        ids.subscription,
+        subscription(ids, [item], { cancelAtPeriodEnd: true }),
+      );
+      const off = event(
+        "customer.subscription.updated",
+        subscription(ids, [item], { cancelAtPeriodEnd: true }),
+        T - 50,
+      );
+      const on = event("customer.subscription.updated", subscription(ids, [item]), T - 10);
+
+      let releaseOff!: () => void;
+      const offResumes = new Promise<void>((resolve) => (releaseOff = resolve));
+      let markOffRead!: () => void;
+      const offHasRead = new Promise<void>((resolve) => (markOffRead = resolve));
+      let markLedgerHeld!: (xid: string) => void;
+      const ledgerHeld = new Promise<string>((resolve) => (markLedgerHeld = resolve));
+      const ledgerHolder = await getMigratorPool().connect();
+      let reads = 0;
+      fake.on("subscriptions.retrieve", async (id) => {
+        const live = structuredClone(world.subscriptions.get(id as string)) ?? missing();
+        reads += 1;
+        if (reads === 1) {
+          markOffRead();
+          await offResumes;
+          return live;
+        }
+        // The "on" delivery: hold its ledger row, so its finish() waits.
+        await ledgerHolder.query("begin");
+        await ledgerHolder.query(
+          `select 1 from billing_events where stripe_event_id = $1 for update`,
+          [on.id],
+        );
+        const { rows } = await ledgerHolder.query<{ xid: string }>(
+          `select (pg_current_xact_id()::text::bigint & 4294967295)::text as xid`,
+        );
+        markLedgerHeld(rows[0]!.xid);
+        return live;
+      });
+
+      try {
+        const offDone = handleStripeEvent(off, { now: NOW });
+        await offHasRead;
+        world.subscriptions.set(ids.subscription, subscription(ids, [item]));
+        const onDone = handleStripeEvent(on, { now: NOW });
+
+        // Wait for the "on" delivery's finish() to queue behind the held row:
+        // its tenant transaction, with what it applied, has committed by then.
+        const xid = await ledgerHeld;
+        const deadline = Date.now() + 45_000;
+        for (;;) {
+          const { rows: waiting } = await getMigratorPool().query<{ n: number }>(
+            `select count(*)::int as n from pg_locks
+              where locktype = 'transactionid' and not granted and transactionid::text = $1`,
+            [xid],
+          );
+          if (waiting[0]!.n > 0) break;
+          if (Date.now() > deadline) throw new Error("the newer delivery never reached its ledger");
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(await ledger(on.id)).toMatchObject({ outcome: null });
+
+        releaseOff();
+        expect(await offDone).toEqual({ outcome: "ignored", duplicate: false, clinicId });
+        await ledgerHolder.query("commit");
+        expect(await onDone).toEqual({ outcome: "processed", duplicate: false, clinicId });
+      } finally {
+        releaseOff();
+        await ledgerHolder.query("rollback").catch(() => undefined);
+        ledgerHolder.release();
+      }
+
+      expect(await ledger(off.id)).toMatchObject({
+        outcome: "ignored",
+        error: "a later read of the subscription was already applied",
+      });
+      const row = await entitlementsOf(clinicId);
+      expect(row.status).toBe("active");
+      expect(row.cancel_at).toBeNull();
+      expect(await noticesOf(clinicId, "cancel_scheduled")).toEqual([]);
+    }, 60_000);
 
     test("before the start, E1 closes at the earlier of the period end and the setup deadline", async () => {
       const deadline = new Date(NOW.getTime() + 10 * DAY_MS);

@@ -31,6 +31,7 @@ import {
 } from "@/lib/billing/entitlements";
 import { disconnectStripeConnect } from "@/lib/billing/connect";
 import { enqueueNotice } from "@/lib/billing/notices";
+import { resumeLocationSetup } from "@/lib/billing/stripe-actions";
 import {
   billingGroupClinicIds,
   closeUnfinishedSetup,
@@ -74,11 +75,15 @@ import { withTenant, type TenantTx } from "@/lib/tenant";
  *     live anywhere in the group and the plan has not started;
  *   - an extra location charged but not yet created, resumed once the
  *     funnel's createLocationClinic is ready;
+ *   - an extra location left pending with no charge on record, settled from
+ *     Stripe's evidence once nobody holds the mutation lease;
  *   - a request pending for more than a day, told to ops once.
  *
- * It only records: the billing-requests worker is the only thing here that
- * calls Stripe. Every clinic of a group is read in its own transaction, one
- * after another, never nested.
+ * It only records, with one exception: the billing-requests worker carries
+ * out every request, and the only Stripe calls made from here are the
+ * pending location's settling, which reads Stripe's evidence and never
+ * charges (`resumeLocationSetup`). Every clinic of a group is read in its own
+ * transaction, one after another, never nested.
  */
 
 const ACTOR = { type: "service", serviceName: "billing-reconcile" } as const;
@@ -127,7 +132,8 @@ export type ReconcileAction =
       amountCents: number;
     }
   | { type: "stuck"; request: RequestRef }
-  | { type: "resume_location" };
+  | { type: "resume_location" }
+  | { type: "settle_location"; requestId: string; count: number };
 
 export type ReconcileInput = {
   now: Date;
@@ -325,6 +331,28 @@ export function decideReconcile(input: ReconcileInput): ReconcileAction[] {
     actions.push({ type: "resume_location" });
   }
 
+  // An extra location pending with no charge on record (review fix): the
+  // charge's answer was lost, or the process died around it. Nothing else
+  // would ever settle it, and every retry the clinic makes carries a fresh
+  // request id and is refused while it is pending. Once the mutation lease
+  // is free the original request is no longer in flight, and Stripe's
+  // evidence decides: charged, the location is finished; not, the request
+  // is cleared.
+  const leaseFree =
+    row.stripeMutationLeaseUntil === null || row.stripeMutationLeaseUntil.getTime() < now.getTime();
+  if (
+    row.pendingLocationRequestId &&
+    row.pendingLocationCount &&
+    !row.pendingLocationChargedAt &&
+    leaseFree
+  ) {
+    actions.push({
+      type: "settle_location",
+      requestId: row.pendingLocationRequestId,
+      count: row.pendingLocationCount,
+    });
+  }
+
   return actions;
 }
 
@@ -336,6 +364,8 @@ export type ReconcileSummary = {
   stuck: number;
   locationsResumed: number;
   locationsHeld: number;
+  /** Pending locations Stripe shows were never charged: cleared, for the clinic to add again. */
+  locationsCleared: number;
   connectsDisconnected: number;
   failures: number;
 };
@@ -476,6 +506,7 @@ async function reconcileClinic(
           stuck.push(action.request);
           break;
         case "resume_location":
+        case "settle_location":
           break;
       }
     }
@@ -506,6 +537,60 @@ async function reconcileClinic(
       summary.locationsHeld += 1;
     }
   }
+
+  for (const action of actions) {
+    if (action.type !== "settle_location") continue;
+    const settled = await settleUnchargedLocation(billingClinicId, action, now);
+    if (settled === "resumed") summary.locationsResumed += 1;
+    else if (settled === "cleared") summary.locationsCleared += 1;
+    else summary.locationsHeld += 1;
+  }
+}
+
+/**
+ * Settle an extra location left pending with no charge on record (review
+ * fix), through the console's own resume (`resumeLocationSetup`): it claims
+ * the mutation lease under its own name, so it is `busy` while anything else
+ * holds it; it asks Stripe whether the charge went through (the
+ * subscription's `hd_location` marker, or a paid one-off invoice for the
+ * request); charged, it records the charge and creates the location;
+ * not, it voids any invoice the attempt left open and clears the request, so
+ * the clinic can add the location again. It never charges.
+ *
+ * Whatever it cannot settle (Stripe did not answer, or the location is
+ * charged and still not created) is told to ops once, under the same alert
+ * and identity as a charged location the resume cannot create, so a request
+ * that moves from one to the other is still one email.
+ */
+async function settleUnchargedLocation(
+  billingClinicId: string,
+  pending: { requestId: string; count: number },
+  now: Date,
+): Promise<"resumed" | "cleared" | "busy" | "held"> {
+  const result = await resumeLocationSetup(
+    { clinicId: billingClinicId, actorLabel: ACTOR.serviceName },
+    { now },
+  );
+  if (result.status === "added") return "resumed";
+  if (result.status === "cleared") return "cleared";
+  if (result.status === "busy") return "busy";
+  // A request settled by someone else since this run read it (the clinic's
+  // own retry of it, or an operator) is not one to report.
+  const isStillPending = await withTenant(
+    { clinicId: billingClinicId, actor: ACTOR },
+    async (tx) => {
+      const row = await getEntitlements(tx.db, billingClinicId);
+      return row?.pendingLocationRequestId === pending.requestId;
+    },
+  );
+  if (isStillPending) {
+    await notifyOpsOnce("location_charged_not_created", {
+      clinicId: billingClinicId,
+      requestId: pending.requestId,
+      count: pending.count,
+    });
+  }
+  return "held";
 }
 
 export type LocationResume = "resumed" | "not_ready" | "nothing_pending" | "busy" | "failed";
@@ -670,6 +755,7 @@ export async function reconcileBilling(now: Date = new Date()): Promise<Reconcil
     stuck: 0,
     locationsResumed: 0,
     locationsHeld: 0,
+    locationsCleared: 0,
     connectsDisconnected: 0,
     failures: 0,
   };
@@ -706,6 +792,7 @@ export async function runBillingReconcileJob(options: { now?: Date } = {}): Prom
         `${s.reminders} step-up reminders queued, ${s.stuck} stuck` +
         (s.locationsResumed ? `, ${s.locationsResumed} locations resumed` : "") +
         (s.locationsHeld ? `, ${s.locationsHeld} locations still pending` : "") +
+        (s.locationsCleared ? `, ${s.locationsCleared} uncharged location requests cleared` : "") +
         (s.connectsDisconnected
           ? `, ${s.connectsDisconnected} Stripe accounts disconnected after the end`
           : "") +

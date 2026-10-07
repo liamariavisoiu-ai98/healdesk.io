@@ -16,6 +16,7 @@ import {
   markFirstPlanInvoice,
   markPlanStartApplied,
   markPlanStarted,
+  moveOpenInvoice,
   openAllowanceWindow,
   recordFirstInvoice,
   recordInvoicePaid,
@@ -317,6 +318,52 @@ describeDb("billing writers and recorders", () => {
       });
       expect(after.paidThrough?.toISOString()).toBe("2026-12-01T00:00:00.000Z");
     });
+
+    test("a second unpaid invoice never replaces the first, and the slot moves only from the invoice it holds (review fix)", async () => {
+      const { clinicId } = await seedClinic("invoices-two");
+      await seedEntitled(clinicId);
+      const renewal = {
+        invoiceId: "in_renewal",
+        url: "https://invoice.stripe.com/i/renewal",
+        amountDueCents: 89_700,
+      };
+      const overage = {
+        invoiceId: "in_overage",
+        url: "https://invoice.stripe.com/i/overage",
+        amountDueCents: 8_000,
+      };
+      const record = (invoice: typeof renewal) =>
+        inClinic(clinicId, (tx) => recordOpenInvoice(tx.db, clinicId, invoice));
+      const move = (from: string | null, to: typeof renewal | null) =>
+        inClinic(clinicId, (tx) => moveOpenInvoice(tx.db, clinicId, from, to));
+
+      expect(await record(renewal)).toBe(true);
+      expect(await record(overage)).toBe(false);
+      // Stripe's retry of the recorded invoice refreshes what it asks for.
+      expect(await record({ ...renewal, amountDueCents: 89_000 })).toBe(true);
+      expect(await row(clinicId)).toMatchObject({
+        openInvoiceId: "in_renewal",
+        openInvoiceUrl: renewal.url,
+        openInvoiceAmountCents: 89_000,
+      });
+
+      expect(await move("in_other", overage)).toBe(false);
+      expect(await move(null, overage)).toBe(false);
+      expect(await move("in_renewal", overage)).toBe(true);
+      expect(await row(clinicId)).toMatchObject({
+        openInvoiceId: "in_overage",
+        openInvoiceUrl: overage.url,
+        openInvoiceAmountCents: 8_000,
+      });
+      expect(await move("in_overage", null)).toBe(true);
+      expect(await row(clinicId)).toMatchObject({
+        openInvoiceId: null,
+        openInvoiceUrl: null,
+        openInvoiceAmountCents: null,
+      });
+      expect(await move(null, renewal)).toBe(true);
+      expect((await row(clinicId)).openInvoiceId).toBe("in_renewal");
+    });
   });
 
   describe("the small writers", () => {
@@ -556,6 +603,7 @@ describeDb("billing writers and recorders", () => {
           outcome_reason: string | null;
           lease_until: Date | null;
           attempts: number;
+          epoch: number;
           next_attempt_at: Date;
           reason: string;
           last_error: string | null;
@@ -569,12 +617,16 @@ describeDb("billing writers and recorders", () => {
         outcome_reason: null,
         lease_until: null,
         attempts: 0,
+        // A new epoch (review fix): the restarted attempts never reuse an
+        // idempotency key or lease owner from before the re-arm.
+        epoch: 1,
         reason: "reconcile",
         last_error: "stripe:card_declined",
       });
       expect(rearmed.next_attempt_at.toISOString()).toBe(now.toISOString());
       expect(rows.find((r) => r.id === step_up!.id)).toMatchObject({
         attempts: 1,
+        epoch: 0,
         reason: "first_answer",
       });
     });

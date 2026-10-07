@@ -239,8 +239,11 @@ export async function saveServices(
 }
 
 /**
- * Set or clear the deposit on each service, by name. A name not in the list
- * is refused rather than ignored, so a stale form cannot quietly drop one.
+ * Set or clear the deposit on each service, by name, in BD27's terms
+ * (AgentService.depositUsd): an amount is the service's own deposit, and 0
+ * is none even when the clinic has a default; null clears the service's own,
+ * so it follows the clinic default. A name not in the list is refused rather
+ * than ignored, so a stale form cannot quietly drop one.
  */
 export async function saveServiceDeposits(
   tx: TenantTx,

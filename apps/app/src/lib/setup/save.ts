@@ -225,15 +225,19 @@ async function writeScreen(
     }
 
     case "deposits": {
+      // "No", and an amount left blank under "Yes" (it shows "None"), are no
+      // deposit, stored as 0. BD27 reads a service's 0 as none even when the
+      // clinic has a default, and an absent one as that default
+      // (AgentService.depositUsd), which a clinic answering No never chose.
       const wanted = input.needsDeposits === true;
       const amounts = (input.deposits ?? {}) as Record<string, unknown>;
-      const deposits: Record<string, number | null> = {};
+      const deposits: Record<string, number> = {};
       for (const service of state.knowledge.services) {
         const raw = wanted ? amounts[service.name] : null;
         deposits[service.name] =
-          raw === null || raw === undefined || raw === "" ? null : (raw as number);
+          raw === null || raw === undefined || raw === "" ? 0 : (raw as number);
       }
-      if (wanted && Object.values(deposits).every((d) => d === null || d === 0)) {
+      if (wanted && Object.values(deposits).every((d) => d === 0)) {
         throw new KnowledgeError(
           "deposits",
           "Enter the deposit for at least one treatment, or choose No.",

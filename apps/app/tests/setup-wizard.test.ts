@@ -16,6 +16,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vit
 import { POST as postIntent } from "@/app/api/checkout/intents/route";
 import { POST as postProvision } from "@/app/api/provision/route";
 import { signAgreement } from "@/lib/agreements";
+import {
+  depositDecision,
+  effectiveDepositUsd,
+  findService,
+  readClinicDepositFacts,
+} from "@/lib/billing/deposits";
 import { setupDeadline } from "@/lib/clinic/setup-window";
 import { assertPayloadAllowed } from "@/lib/email/lint";
 import { deliverNotice } from "@/lib/email/outbox";
@@ -867,13 +873,103 @@ describeDb("the setup wizard", () => {
       );
       expect(agent.services).toEqual([
         expect.objectContaining({ name: "Signature facial", depositUsd: 50 }),
-        expect.not.objectContaining({ depositUsd: expect.anything() }),
+        // Left blank, the amount shows "None": no deposit, which BD27 stores as 0.
+        expect.objectContaining({ name: "Consultation", depositUsd: 0 }),
       ]);
       expect(
         await saveSetupScreen(contextOf(clinic), "deposits", { needsDeposits: true, deposits: {} }),
       ).toMatchObject({
         ok: false,
         field: "deposits",
+      });
+    });
+
+    test("2.4's No, and a blank under Yes, ask for no deposit even once the clinic has a default", async () => {
+      // BD27 reads a service's 0 as no deposit and an absent one as the clinic
+      // default (AgentService.depositUsd), which an operator can set in the
+      // console's script form. A clinic that answered No is asked for none.
+      const own = await provisionDirect("deposits-none");
+      const ctx = contextOf(own);
+      expect(
+        await saveSetupScreen(ctx, "services", {
+          services: [
+            { name: "Signature facial", priceKind: "exact", price: 199, durationMinutes: 60 },
+            { name: "Chemical peel", priceKind: "from", price: 150, durationMinutes: 45 },
+          ],
+        }),
+      ).toMatchObject({ ok: true });
+      expect(await saveSetupScreen(ctx, "deposits", { needsDeposits: false })).toMatchObject({
+        ok: true,
+      });
+
+      // The operator then sets a $75 default, sending the services back as read.
+      const read = await runOperation("getOnboarding", { clinicId: own.clinicId }, OPERATOR);
+      const agent = (read.body as { data: { agent: { services: Record<string, unknown>[] } } }).data
+        .agent;
+      const saved = await runOperation(
+        "updateAgentConfig",
+        {
+          clinicId: own.clinicId,
+          greeting: "Thanks for calling Glow. How can I help?",
+          services: agent.services,
+          escalationPhone: null,
+          escalationHours: null,
+          notes: null,
+          depositPolicy: { required: true, amountUsd: 75, collection: "front_desk" },
+        },
+        OPERATOR,
+      );
+      expect((saved.body as { data: { status: string } }).data.status).toBe("updated");
+
+      // The deposit each booking is asked for, by BD27's decision as the voice
+      // tool makes it, and as the chat channels are to: deposits on,
+      // connected, and booking without a deposit off on every channel.
+      const asked = () =>
+        withTenant({ clinicId: own.clinicId, actor: SERVICE }, async (tx) => {
+          const facts = await readClinicDepositFacts(tx);
+          return Object.fromEntries(
+            ["Signature facial", "Chemical peel", "Something new"].map((name) => {
+              const amountUsd = effectiveDepositUsd({
+                service: findService(facts.services, name),
+                policy: facts.policy,
+              });
+              return [
+                name,
+                (["voice", "web", "meta"] as const).map(
+                  (channel) =>
+                    depositDecision({
+                      channel,
+                      depositsEnabled: true,
+                      isConnected: true,
+                      amountUsd,
+                      bookVoiceWithoutDeposit: false,
+                      bookChatWithoutDeposit: false,
+                      uncollectable: "decline_and_alert",
+                      canCollectNow: true,
+                    }).amountUsd,
+                ),
+              ];
+            }),
+          );
+        });
+      expect(await asked()).toEqual({
+        "Signature facial": [null, null, null],
+        "Chemical peel": [null, null, null],
+        // A service the clinic never listed takes the default, as BD27 has it.
+        "Something new": [75, 75, 75],
+      });
+
+      // Yes, with one amount and the other left blank: the blank is none too.
+      expect(
+        await saveSetupScreen(ctx, "deposits", {
+          needsDeposits: true,
+          deposits: { "Signature facial": 50, "Chemical peel": null },
+        }),
+      ).toMatchObject({ ok: true });
+      expect(await asked()).toEqual({
+        "Signature facial": [50, 50, 50],
+        "Chemical peel": [null, null, null],
+        "Something new": [75, 75, 75],
       });
     });
 

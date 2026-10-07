@@ -313,6 +313,9 @@ function serviceDetail(s: AgentService): string | null {
   else if (s.priceKind === "from") parts.push("a starting price");
   if (typeof s.depositUsd === "number" && s.depositUsd > 0) {
     parts.push(`deposit $${Number.isInteger(s.depositUsd) ? s.depositUsd : s.depositUsd.toFixed(2)}`);
+  } else if (s.depositUsd === 0) {
+    // The clinic's "no deposit" (BD27's 0), which a default set below does not override.
+    parts.push("no deposit, so the default below does not apply");
   }
   return parts.length ? `Set by the clinic: ${parts.join(" · ")}` : null;
 }

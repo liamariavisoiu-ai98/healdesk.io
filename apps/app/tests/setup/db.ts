@@ -92,7 +92,7 @@ export async function truncateAll(): Promise<void> {
       ('annual-renewal-reminder', 'Daily; emails the billing contact 30 days before an annual renewal, once per period', false),
       ('weekly-recap', 'Hourly check; sends each live clinic a 7-day recap on its own Monday morning, and a first one on day 7', false),
       ('nightly-sync', 'Daily at 02:00 UTC; enqueues a sync per active connection, staggered; reconcile on the 1st', false),
-      ('offboarding-destroy', 'Daily; destroys the patient data of clinics whose destroy_after has passed and whose export was delivered', false),
+      ('offboarding-destroy', 'Hourly; destroys each offboarded clinic''s patient data when the agreement its service ended under says: from day 29 under BAA 1.2.1 and earlier, and at the 04 UTC run from day 30 (export delivered) or day 90 under BAA 1.3.0 and the DPA', false),
       ('usage-meter-report', 'Hourly; reports overage on monthly plans to Stripe''s meters', false),
       ('annual-overage-invoice', 'Daily at 05 UTC; invoices annual plans'' overage per closed month', false),
       ('usage-alerts', 'Hourly; queues the 80% and 100% allowance emails', false),

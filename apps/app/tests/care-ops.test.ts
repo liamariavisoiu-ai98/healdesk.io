@@ -1,8 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { runOperation, type CareView, type OpenIncidentOutcome, type Operator } from "@/lib/ops/api";
+import { exportClinic } from "@/lib/patient-rights/export";
+import { withTenant } from "@/lib/tenant";
 
-import { closePools, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
+import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { seedClinic } from "./setup/factories";
 
 /**
@@ -15,6 +17,7 @@ import { seedClinic } from "./setup/factories";
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const OPERATOR: Operator = { email: "ops@healdesk.test", request: { ipAddress: "127.0.0.1" } };
+const ACTOR = { type: "service", serviceName: "test" } as const;
 
 function data<T>(outcome: Awaited<ReturnType<typeof runOperation>>): T {
   if (outcome.status !== 200) throw new Error(`ops ${outcome.status}: ${JSON.stringify(outcome.body)}`);
@@ -134,12 +137,107 @@ describeDb("care operations", () => {
     expect(view.clinic.offboardingStartedAt).not.toBeNull();
     expect(view.clinic.destroyAfter).not.toBeNull();
     expect(view.clinic.exportDeliveredAt).toBeNull();
+    // No agreement on file: the strictest rule, a day before the thirty days.
+    expect(view.clinic.destruction).toMatchObject({ rule: "thirty_days", basis: "no_agreement", dailyRunOnly: false });
 
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportClinic(tx, "offboarding"));
     const delivered = data<{ status: string }>(
       await runOperation("markExportDelivered", { clinicId: c.clinicId, how: "bundle by SFTP" }, OPERATOR),
     );
     expect(delivered.status).toBe("updated");
     view = data<CareView>(await runOperation("getClinicCare", { clinicId: c.clinicId }, OPERATOR));
     expect(view.clinic.exportDeliveredAt).not.toBeNull();
-  });
+  }, 120_000);
+
+  // BAA 1.3.0 release gate 7: "delivered" means the export reached the
+  // practice, never that it was produced.
+  test("producing the export stamps nothing; the operator's record of its handover does, once, and not before a bundle exists", async () => {
+    const c = await seedClinic("care-delivered");
+    await runOperation("startOffboarding", { clinicId: c.clinicId, reason: "cancelled by email" }, OPERATOR);
+    const stamp = async () =>
+      (
+        await getMigratorPool().query<{ export_delivered_at: Date | null }>(
+          `select export_delivered_at from clinics where id = $1`,
+          [c.clinicId],
+        )
+      ).rows[0]!.export_delivered_at;
+
+    // Nothing produced: the record is refused, and nothing is stamped.
+    const unproduced = data<{ status: string; message?: string }>(
+      await runOperation("markExportDelivered", { clinicId: c.clinicId, how: "bundle by SFTP" }, OPERATOR),
+    );
+    expect(unproduced.status).toBe("error");
+    expect(unproduced.message).toMatch(/No return bundle has been produced/);
+    expect(await stamp()).toBeNull();
+
+    // Produced, as the patient-export script does: still nothing stamped.
+    const bundle = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportClinic(tx, "offboarding"));
+    expect(bundle.producedAt).toBeTruthy();
+    expect(await stamp()).toBeNull();
+
+    // Handed over and recorded: stamped by the database, at the record.
+    const before = Date.now();
+    const delivered = data<{ status: string }>(
+      await runOperation("markExportDelivered", { clinicId: c.clinicId, how: "bundle by SFTP to the practice manager" }, OPERATOR),
+    );
+    expect(delivered.status).toBe("updated");
+    const first = await stamp();
+    expect(first).not.toBeNull();
+    expect(first!.getTime()).toBeGreaterThanOrEqual(before - 60_000);
+
+    // Once: a second record is refused and the stamp stays.
+    const again = data<{ status: string; message?: string }>(
+      await runOperation("markExportDelivered", { clinicId: c.clinicId, how: "again" }, OPERATOR),
+    );
+    expect(again.status).toBe("error");
+    expect((await stamp())!.getTime()).toBe(first!.getTime());
+  }, 120_000);
+
+  test("the Retell deletion shows as outstanding, with its deadline, until an operator records it", async () => {
+    const c = await seedClinic("care-retell");
+    let view = data<CareView>(await runOperation("getClinicCare", { clinicId: c.clinicId }, OPERATOR));
+    // Not offboarding: there is no step yet, and none can be recorded.
+    expect(view.clinic.voiceVendorDeletion).toBeNull();
+    const early = data<{ status: string; message?: string }>(
+      await runOperation("markVoiceVendorDataDeleted", { clinicId: c.clinicId, how: "deleted in Retell" }, OPERATOR),
+    );
+    expect(early.status).toBe("error");
+
+    await runOperation("startOffboarding", { clinicId: c.clinicId, reason: "cancelled by email" }, OPERATOR);
+    view = data<CareView>(await runOperation("getClinicCare", { clinicId: c.clinicId }, OPERATOR));
+    expect(view.clinic.voiceVendorDeletion).toEqual({
+      deadline: view.clinic.destruction!.destroyDueAt,
+      recordedAt: null,
+      recordedBy: null,
+      how: null,
+    });
+
+    // The operator's note is scanned like every other: no patient in it.
+    const withPhone = data<{ status: string; message?: string }>(
+      await runOperation("markVoiceVendorDataDeleted", { clinicId: c.clinicId, how: "deleted the call from +1 555 010 0123" }, OPERATOR),
+    );
+    expect(withPhone.status).toBe("error");
+
+    const recorded = data<{ status: string }>(
+      await runOperation("markVoiceVendorDataDeleted", { clinicId: c.clinicId, how: "agent and calls deleted in Retell's console" }, OPERATOR),
+    );
+    expect(recorded.status).toBe("updated");
+    view = data<CareView>(await runOperation("getClinicCare", { clinicId: c.clinicId }, OPERATOR));
+    expect(view.clinic.voiceVendorDeletion).toMatchObject({
+      recordedBy: "ops@healdesk.test",
+      how: "agent and calls deleted in Retell's console",
+    });
+    expect(view.clinic.voiceVendorDeletion!.recordedAt).not.toBeNull();
+
+    // Recorded once, as a security event naming the operator.
+    const twice = data<{ status: string; message?: string }>(
+      await runOperation("markVoiceVendorDataDeleted", { clinicId: c.clinicId, how: "again" }, OPERATOR),
+    );
+    expect(twice.status).toBe("error");
+    const { rows } = await getMigratorPool().query<{ actor_label: string }>(
+      `select actor_label from security_events where event = 'voice_vendor_data_deleted' and metadata->>'clinicId' = $1`,
+      [c.clinicId],
+    );
+    expect(rows).toEqual([{ actor_label: "ops@healdesk.test" }]);
+  }, 120_000);
 });

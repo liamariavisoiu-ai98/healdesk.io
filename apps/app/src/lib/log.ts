@@ -82,6 +82,12 @@ export const ALLOWED_LOG_KEYS: ReadonlySet<string> = new Set([
   // (invoice.paid, checkout.session.completed), never anything the event
   // carries.
   "eventType",
+  // Offboarding's dates (lib/offboarding): when a clinic's service ended,
+  // when its export reached it and when its data is destroyed, ISO instants
+  // about a customer's contract, never about a patient.
+  "serviceEndedAt",
+  "exportDeliveredAt",
+  "destroyAt",
   // Counters.
   "count",
   "written",
@@ -97,6 +103,7 @@ export const ALLOWED_LOG_KEYS: ReadonlySet<string> = new Set([
   "ms",
   "attempt",
   "units",
+  "lateDays",
   // Short free text, scrubbed on the way out.
   "reason",
   "error",

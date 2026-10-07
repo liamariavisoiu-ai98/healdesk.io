@@ -18,6 +18,7 @@ type Actions = {
   resolve: (incidentId: string, resolution: string) => Promise<OpsResult<CareOutcome>>;
   startOffboarding: (reason: string) => Promise<OpsResult<CareOutcome>>;
   markExportDelivered: (how: string) => Promise<OpsResult<CareOutcome>>;
+  markVoiceVendorDataDeleted: (how: string) => Promise<OpsResult<CareOutcome>>;
 };
 
 const CLASS_LABELS: Record<IncidentClass, string> = {
@@ -325,27 +326,77 @@ function Offboarding({ view, actions }: { view: CareView; actions: Actions }) {
   const [pending, start] = useTransition();
   const [problem, setProblem] = useState<string | null>(null);
   const c = view.clinic;
+  const plan = c.destruction;
+  const vendor = c.voiceVendorDeletion;
+  const recordVendorDeletion = () => {
+    const how = window.prompt("How were the clinic's calls and agent deleted at Retell? (one line, no patient details)");
+    if (!how) return;
+    start(async () => setProblem(describe(await actions.markVoiceVendorDataDeleted(how))));
+  };
+  const vendorStep = vendor ? (
+    vendor.recordedAt ? (
+      <li>
+        Calls and agent deleted at Retell: recorded {vendor.recordedAt} by {vendor.recordedBy}
+        {vendor.how ? ` (${vendor.how})` : ""}.
+      </li>
+    ) : (
+      <li className="text-red-deep">
+        Outstanding: delete the clinic&rsquo;s calls and agent in Retell&rsquo;s console by {vendor.deadline}, when its data is
+        destroyed here, then record it.
+      </li>
+    )
+  ) : null;
+  const vendorButton =
+    vendor && !vendor.recordedAt ? (
+      <button
+        type="button"
+        disabled={pending}
+        onClick={recordVendorDeletion}
+        className="border-line-strong rounded-full border px-3 py-1 text-xs font-bold"
+      >
+        Record Retell deletion
+      </button>
+    ) : null;
+
   if (c.destroyedOn) {
-    return <p className="text-sm">Patient data destroyed on {c.destroyedOn}. The clinic row, the audit log, the signed agreement and the billing history remain.</p>;
+    return (
+      <div className="text-sm">
+        <p>Patient data destroyed on {c.destroyedOn}. The clinic row, the audit log, the signed agreement and the billing history remain.</p>
+        {vendorStep ? <ol className="mt-2 grid gap-2">{vendorStep}</ol> : null}
+        {problem ? <p className="text-red-deep mt-2 text-xs">{problem}</p> : null}
+        {vendorButton ? <div className="mt-4 flex flex-wrap gap-2">{vendorButton}</div> : null}
+      </div>
+    );
   }
   return (
     <div className="text-sm">
-      {c.offboardingStartedOn ? (
+      {c.offboardingStartedOn && plan ? (
         <ol className="grid gap-2">
-          <li>Offboarding started {c.offboardingStartedOn}. Stripe's subscription end starts this automatically; an operator can too.</li>
           <li>
-            Switch the agent off at Synthflow and send the clinic the forwarding-removal codes (onboarding page, &ldquo;To undo&rdquo;).
+            Service ended {c.offboardingStartedOn}: Stripe&rsquo;s end of the subscription, which starts this automatically, or the
+            day an operator started it.
+          </li>
+          <li>
+            {plan.rule === "thirty_days"
+              ? `Rule: thirty days (${ruleSource(plan)}). The data is destroyed at ${plan.destroyDueAt}, a day before the thirty days are up, whether or not the export was delivered.`
+              : `Rule: the export, then ninety days (${ruleSource(plan)}). Destroyed by the 04:00 UTC run once the export is recorded, from ${plan.exportDueAt}, and from ${plan.latestDestroyAt} if it never is.`}
+          </li>
+          <li>
+            Switch the agent off at the voice vendor and send the clinic the forwarding-removal codes (onboarding page, &ldquo;To undo&rdquo;).
           </li>
           <li>
             Produce the return bundle on the app host:
             <code className="ml-1 rounded bg-black/5 px-1.5 py-0.5 text-xs">npm run patient-export -w @healdesk/app -- --clinic {c.id} --all --requested-by &quot;offboarding&quot;</code>
-            {" "}and hand it over by the channel in docs/incident-response.md. Then record it here.
+            {" "}and hand it over by the channel in docs/incident-response.md. Then record the handover here: producing it records nothing.
           </li>
           <li>
             {c.exportDeliveredOn
-              ? `Export delivered ${c.exportDeliveredOn}. Destruction runs from the daily job on or after ${c.destroyAfterOn}.`
-              : `Not yet delivered. Destruction runs on or after ${c.destroyAfterOn} once the export is recorded, or 90 days after the start if it never is.`}
+              ? `Export delivered ${c.exportDeliveredOn}. Destruction is due at ${plan.destroyDueAt}.`
+              : plan.rule === "thirty_days"
+                ? `Not yet delivered. Deliver any export the practice asked for before ${plan.destroyDueAt}; ops is alerted at day 21.`
+                : `Not yet delivered: owed by ${plan.exportDueAt}. Destruction waits for it until ${plan.latestDestroyAt}.`}
           </li>
+          {vendorStep}
         </ol>
       ) : (
         <p className="text-muted">
@@ -361,7 +412,7 @@ function Offboarding({ view, actions }: { view: CareView; actions: Actions }) {
             onClick={() => {
               const reason = window.prompt("Why is the clinic leaving? (one line, no patient details)");
               if (!reason) return;
-              if (!window.confirm("Start the 30-day destruction clock for this clinic?")) return;
+              if (!window.confirm("Start this clinic's destruction clock now? Its agreement decides when the data goes.")) return;
               start(async () => setProblem(describe(await actions.startOffboarding(reason))));
             }}
             className="border-line-strong rounded-full border px-3 py-1 text-xs font-bold"
@@ -383,7 +434,20 @@ function Offboarding({ view, actions }: { view: CareView; actions: Actions }) {
             Record export delivered
           </button>
         ) : null}
+        {vendorButton}
       </div>
     </div>
   );
+}
+
+/** Where the rule came from, in the console's words. */
+function ruleSource(plan: NonNullable<CareView["clinic"]["destruction"]>): string {
+  switch (plan.basis) {
+    case "agreement":
+      return `agreement ${plan.agreementVersion ?? ""}`.trim();
+    case "no_agreement":
+      return "no agreement on file, so the strictest rule";
+    case "unknown_version":
+      return `agreement ${plan.agreementVersion ?? ""} has no rule mapped, so the strictest`.trim();
+  }
 }

@@ -121,12 +121,12 @@ describeDb("database audit (0031)", () => {
 
   test("every clinics column except the gate columns, the offboarding dates and the record clock's history stays updatable (a new column needs its GRANT)", async () => {
     // The two BAA gate columns (0031) and the agreement-kind gate's two
-    // (0051); the three offboarding dates that app_destroy_booking_requests
-    // reads as its floor, which only app_start_offboarding and
-    // app_mark_clinic_destroyed write; and the record clock's last
-    // shortening, which app_purge_booking_requests reads and only the
-    // clinics_record_clock trigger writes (booking_request_destruction
-    // migration).
+    // (0051); the offboarding dates that app_destruction_due reads as the
+    // floor under the deletes, which only app_start_offboarding,
+    // app_mark_export_delivered and app_mark_clinic_destroyed write
+    // (booking_request_destruction and destruction_clock migrations); and
+    // the record clock's last shortening, which app_purge_booking_requests
+    // reads and only the clinics_record_clock trigger writes.
     const { rows } = await getMigratorPool().query<{ attname: string; ok: boolean }>(`
       select a.attname,
              has_column_privilege('healdesk_app'::name, a.attrelid, a.attnum, 'UPDATE') as ok
@@ -140,6 +140,7 @@ describeDb("database audit (0031)", () => {
       "data_classification",
       "destroy_after",
       "destroyed_at",
+      "export_delivered_at",
       "offboarding_started_at",
       "regulatory_regime",
       "retention_record_days_previous",

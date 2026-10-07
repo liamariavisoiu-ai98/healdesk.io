@@ -60,12 +60,18 @@ import type { TenantTx } from "@/lib/tenant";
  * draft abandoned for a day goes here too, as a backstop to the sweep the
  * clinic's next Meta message runs.
  *
- * ## What is never purged, and why
+ * ## What the record clock never purges, and why
  *
- * `consent_records`, `suppressions` and `contact_attempts` are the evidence
- * that an outbound call was lawful and that "stop" was honoured. The TCPA's
- * limitation period is four years and an opt-out is honoured forever, so
- * deleting these would be destroying the defence, not protecting anyone.
+ * `consent_records`, `suppressions` and `contact_attempts` are not on the
+ * record clock. A suppression is a person's "stop", or the record that their
+ * information was erased (eraseContact below), and has to outlast the rows it
+ * stopped; all three are append-only by grant (0010). None of them stays for
+ * good, though: they go with the rest of the clinic's data when it is
+ * destroyed at offboarding (destroyClinicData in lib/offboarding, through
+ * app_destroy_contact_evidence, drizzle/0055). They were kept past that as
+ * the TCPA evidence that an outbound contact was lawful, but v1 contacts no
+ * one first, so there is nothing for them to evidence, and every agreement's
+ * return-or-destroy clause reaches them (BAA 1.3.0 release gate 7).
  * `audit_log` is append-only by grant. `baa_acceptances` has its own
  * six-year floor (0025) and is never swept by anything.
  *
@@ -356,9 +362,10 @@ export type ErasureResult = {
  * half-collected Meta draft carrying the number. A deleted request's id and
  * token hash are never written again (booking_request_keys). What remains
  * afterwards is a suppression row for the phone number — deliberately. The
- * number is kept so the request itself is honoured forever; keeping it is
- * what the law expects of a do-not-contact list, and it is the one thing an
- * erasure must not erase.
+ * number is kept so the request itself is honoured for as long as healdesk
+ * holds the clinic's data; keeping it is what the law expects of a
+ * do-not-contact list, and it is the one thing an erasure must not erase.
+ * Destruction at offboarding takes it with everything else (lib/offboarding).
  */
 export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promise<ErasureResult> {
   if (!request.phone && !request.email) {

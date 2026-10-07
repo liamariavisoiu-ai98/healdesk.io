@@ -17,6 +17,8 @@ import { transition } from "@/lib/billing/state-machine";
 import { __setStripeForTests } from "@/lib/billing/stripe-client";
 import type { NoticeKind } from "@/lib/email/kinds";
 import { assertPayloadAllowed } from "@/lib/email/lint";
+import { destructionPlan, destructionRuleFor } from "@/lib/offboarding/offboarding";
+import { listClinics } from "@/lib/ops/clinics";
 import { sendRenewalReminders } from "@/lib/scheduler/annual-renewal-reminder";
 import { sweepBilling } from "@/lib/scheduler/billing-sweep";
 import { withTenant } from "@/lib/tenant";
@@ -297,6 +299,19 @@ async function setUsage(clinicId: string, voice: number, chat: number): Promise<
       `update entitlements set used_voice_minutes = $2, used_chat_conversations = $3 where clinic_id = $1`,
       [clinicId, voice, chat],
     ),
+  );
+}
+
+/** An agreement bound to the clinic's organisation, signed a year ago, as the migrator. */
+async function bindAgreementTo(clinicId: string, version: string): Promise<void> {
+  await getMigratorPool().query(
+    `insert into baa_acceptances
+       (organization_id, document_version, document_hash, rendered_text, variables, assent_label,
+        accepted_by_name, accepted_by_email, accepted_at, bound_at)
+     select c.organization_id, $2, repeat('d', 64), 'AGREEMENT (test)', '{}'::jsonb, 'I agree',
+            'Alex Chen', 'alex@ended.test', now() - interval '1 year', now() - interval '1 year'
+       from clinics c where c.id = $1`,
+    [clinicId, version],
   );
 }
 
@@ -1628,15 +1643,18 @@ describeDb("the deferred start's billing lifecycle", () => {
       await handleStripeEvent(event("customer.subscription.deleted", deleted), { now: NOW });
 
       expect((await entitlementsOf(clinicId)).status).toBe("canceled");
-      // The database stamps the offboarding dates when the deletion is
-      // processed (app_start_offboarding), never from the event's clock, so
-      // the email's days are read back from what it stamped.
+      // The database stamps the offboarding dates (app_start_offboarding):
+      // the subscription's own end, here ahead of the database's clock and so
+      // clamped to the moment it was processed. The email's days are the
+      // destruction plan's for what it stamped, and this clinic holds no
+      // agreement, so its rule is the thirty days.
       const {
         rows: [dates],
       } = await getMigratorPool().query<{ offboarding_started_at: Date; destroy_after: Date }>(
         `select offboarding_started_at, destroy_after from clinics where id = $1`,
         [clinicId],
       );
+      const started = dates!.offboarding_started_at.getTime();
       const notices = await noticesOf(clinicId, "canceled");
       expect(notices).toEqual([
         {
@@ -1647,10 +1665,8 @@ describeDb("the deferred start's billing lifecycle", () => {
             endedAt: new Date((T - 3600) * 1000).toISOString(),
             isBeforeStart: false,
             channels: ["web", "meta", "voice"],
-            exportByOn: dates!.destroy_after.toISOString().slice(0, 10),
-            destroyByOn: new Date(dates!.offboarding_started_at.getTime() + 90 * DAY_MS)
-              .toISOString()
-              .slice(0, 10),
+            exportByOn: new Date(started + 28 * DAY_MS).toISOString().slice(0, 10),
+            destroyByOn: dates!.destroy_after.toISOString().slice(0, 10),
             carrier: "verizon",
             phoneSystem: "voip",
             routing: "overflow_after_hours",
@@ -1659,6 +1675,150 @@ describeDb("the deferred start's billing lifecycle", () => {
       ]);
       expectLintClean(notices);
     });
+
+    // The destruction clock (lib/offboarding, drizzle/0055): the email's days
+    // are destructionPlan's, by the agreement the clinic's service ended
+    // under, so the email and the job cannot disagree.
+    test("the canceled email's export and destruction days are the destruction plan's, for each rule", async () => {
+      // Labelled in words, not the version's digits, so no slug ends in a
+      // run the audit's PHI scan reads as a telephone number.
+      for (const [version, word] of [
+        [null, "none"],
+        ["1.2.1", "flat"],
+        ["1.3.0", "next"],
+        ["dpa/1.0.0", "dpa"],
+      ] as const) {
+        const label = `ended-rule-${word}`;
+        const { clinicId, ids } = await boughtClinic(label, {
+          planStartedAt: new Date(NOW.getTime() - 40 * DAY_MS),
+        });
+        if (version) await bindAgreementTo(clinicId, version);
+        const deleted = {
+          ...subscription(ids, [{ lookupKey: stripeLookupKey(complete, "month") }], {
+            status: "canceled",
+          }),
+          ended_at: Math.floor(Date.now() / 1000) - 2 * DAY,
+          cancellation_details: { comment: null, feedback: null, reason: "cancellation_requested" },
+        };
+        await handleStripeEvent(event("customer.subscription.deleted", deleted), { now: NOW });
+
+        const overview = (await listClinics()).find((c) => c.id === clinicId)!;
+        expect(overview.destructionAgreementVersion, label).toBe(version);
+        const plan = destructionPlan(overview)!;
+        expect(plan.rule, label).toBe(destructionRuleFor(version).rule);
+        const [notice] = await noticesOf(clinicId, "canceled");
+        expect(notice!.payload, label).toMatchObject({
+          exportByOn: plan.exportByOn,
+          destroyByOn: plan.destroyByOn,
+        });
+        // And the days are the rule's: inside thirty days of the end on the
+        // thirty days, day 30 and day 90 on the DPA's rule.
+        const day = (n: number) =>
+          new Date(overview.offboardingStartedAt!.getTime() + n * DAY_MS).toISOString().slice(0, 10);
+        if (plan.rule === "thirty_days") {
+          expect(notice!.payload, label).toMatchObject({ exportByOn: day(28), destroyByOn: day(30) });
+        } else {
+          expect([day(29), day(30)], label).toContain(notice!.payload.exportByOn);
+          expect([day(90), day(91)], label).toContain(notice!.payload.destroyByOn);
+        }
+        expectLintClean([notice!]);
+      }
+    }, 120_000);
+
+    test("the clock starts at the subscription's own end: three days late it is that end, ten days late a week back and ops is told once, ahead of now it is now", async () => {
+      const nowS = Math.floor(Date.now() / 1000);
+      const ended = async (label: string, extra: Record<string, unknown>, created = T) => {
+        const { clinicId, ids } = await boughtClinic(label, {
+          planStartedAt: new Date(NOW.getTime() - 40 * DAY_MS),
+        });
+        const deleted = {
+          ...subscription(ids, [{ lookupKey: stripeLookupKey(complete, "month") }], {
+            status: "canceled",
+          }),
+          cancellation_details: { comment: null, feedback: null, reason: "cancellation_requested" },
+          ...extra,
+        };
+        await handleStripeEvent(event("customer.subscription.deleted", deleted, created), {
+          now: NOW,
+        });
+        const {
+          rows: [row],
+        } = await getMigratorPool().query<{
+          offboarding_started_at: Date;
+          destroy_after: Date;
+          db_now: Date;
+        }>(
+          `select offboarding_started_at, destroy_after, now() as db_now from clinics where id = $1`,
+          [clinicId],
+        );
+        const alerts = (
+          await getMigratorPool().query<{ fields: Record<string, unknown>; repeats: number }>(
+            `select fields, repeats from ops_alerts
+              where event = 'offboarding_started_late' and fields->>'clinicId' = $1`,
+            [clinicId],
+          )
+        ).rows;
+        return { clinicId, ids, deleted, row: row!, alerts };
+      };
+
+      // Processed three days after the subscription ended: the clock starts
+      // at the end, to the second, and nobody needs telling.
+      const threeDays = await ended("ended-late-3", { ended_at: nowS - 3 * DAY });
+      expect(threeDays.row.offboarding_started_at.getTime()).toBe((nowS - 3 * DAY) * 1000);
+      expect(
+        threeDays.row.destroy_after.getTime() - threeDays.row.offboarding_started_at.getTime(),
+      ).toBe(30 * DAY_MS);
+      expect(threeDays.alerts).toEqual([]);
+
+      // Processed ten days after: a week back and no further, and ops hears
+      // once, with the end and the days it cost.
+      const tenDays = await ended("ended-late-10", { ended_at: nowS - 10 * DAY });
+      const back = tenDays.row.db_now.getTime() - tenDays.row.offboarding_started_at.getTime();
+      expect(back).toBeGreaterThanOrEqual(7 * DAY_MS);
+      expect(back).toBeLessThan(7 * DAY_MS + 5 * 60_000);
+      expect(tenDays.alerts).toHaveLength(1);
+      expect(tenDays.alerts[0]!.fields).toMatchObject({
+        clinicId: tenDays.clinicId,
+        serviceEndedAt: new Date((nowS - 10 * DAY) * 1000).toISOString(),
+      });
+      expect(tenDays.alerts[0]!.fields.lateDays).toBeGreaterThanOrEqual(2.9);
+      expect(tenDays.alerts[0]!.fields.lateDays).toBeLessThanOrEqual(3.1);
+      // The same end delivered again, as a new event a person replayed: the
+      // stamp stays, and ops is not told twice.
+      await handleStripeEvent(event("customer.subscription.deleted", tenDays.deleted), { now: NOW });
+      const {
+        rows: [again],
+      } = await getMigratorPool().query<{ offboarding_started_at: Date }>(
+        `select offboarding_started_at from clinics where id = $1`,
+        [tenDays.clinicId],
+      );
+      expect(again!.offboarding_started_at).toEqual(tenDays.row.offboarding_started_at);
+      const { rows: after } = await getMigratorPool().query<{ n: number }>(
+        `select count(*)::int as n from ops_alerts
+          where event = 'offboarding_started_late' and fields->>'clinicId' = $1`,
+        [tenDays.clinicId],
+      );
+      expect(after[0]!.n).toBe(1);
+
+      // An end ahead of the database's clock is clamped to now.
+      const ahead = await ended("ended-ahead", { ended_at: nowS + 2 * DAY });
+      expect(
+        Math.abs(ahead.row.db_now.getTime() - ahead.row.offboarding_started_at.getTime()),
+      ).toBeLessThan(5 * 60_000);
+      expect(ahead.alerts).toEqual([]);
+
+      // No ended_at (a fake that omits it): the event's own created, never
+      // canceled_at, which for an end at the period's close is when the
+      // request was made.
+      const created = await ended(
+        "ended-created",
+        { canceled_at: nowS - 6 * DAY, cancel_at_period_end: true },
+        nowS - 2 * DAY,
+      );
+      expect(created.row.offboarding_started_at.getTime()).toBe((nowS - 2 * DAY) * 1000);
+      const [canceled] = await noticesOf(created.clinicId, "canceled");
+      expect(canceled!.payload.endedAt).toBe(new Date((nowS - 2 * DAY) * 1000).toISOString());
+    }, 120_000);
   });
 
   describe("charge.refunded (R11)", () => {

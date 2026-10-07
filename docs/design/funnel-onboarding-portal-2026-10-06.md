@@ -493,7 +493,7 @@ Monthly billing starts the day AYA first answers a patient, and covers only the 
 - **Search:** caller name, phone digits and words, with Today / Yesterday / This week chips and a **Flagged** filter showing whether each correction is live.
 - **Transcripts:** plain text; each open is logged.
 - **Flag this answer:** one click opens an ops ticket (ids and counts only; two flags in 7 days emails ops). An **optional** correction, typed by staff and screened, applies immediately; it is never copied from the transcript.
-- **Export:** behind step-up, logged. A *complete* export after cancellation stamps `export_delivered_at`.
+- **Export:** behind step-up, logged. A *complete* export after cancellation, once its download has reached the practice, stamps `export_delivered_at` (`markExportDelivered`): delivered, never merely produced.
 - **Retention:** step-up, with a confirmation that names the count and the date. The nightly purge allows a same-day undo.
 
 **F5. Bookings** (step-up)
@@ -1227,7 +1227,7 @@ Plan mode can't publish anything, which is why the page is the first step after 
   - how many days calls still pass through;
   - how to undo forwarding, by carrier;
   - chat shows a contact form until the snippet is removed;
-  - the export and destruction dates, using `dueForDestruction`'s rule: 30 days after the end once the export has been downloaded, otherwise 90 days after the end.
+  - the export and destruction dates, from `destructionPlan` (lib/offboarding) by the rule of the clinic's own agreement: under BAA 1.2.1 and earlier, a day before 30 days after the end, whatever the export; under BAA 1.3.0 and the DPA, 30 days after the end once the export has been delivered, otherwise when it is, and 90 days after the end at the latest.
 - **E3:** the carrier undo codes.
 - **E4:** a link to the read-only portal (sign-in and step-up). The export is never attached. Terms §7 says "we deliver an export", so it isn't waiting to be asked for.
 - **E6:** what was destroyed and when, and what remains and why:

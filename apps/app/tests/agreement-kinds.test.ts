@@ -20,6 +20,7 @@ import { agreementKindSufficient, supersedeAgreement, SupersedeError } from "@/l
 import {
   DESTROY_AFTER_DAYS,
   DESTROY_WITHOUT_EXPORT_AFTER_DAYS,
+  destructionRuleFor,
   dueForDestruction,
 } from "@/lib/offboarding/offboarding";
 import { ProvisioningError, provisionClinic, type ProvisionRequest } from "@/lib/provisioning";
@@ -199,7 +200,13 @@ describe("the DPA's Term clause is the offboarding clock in this app", () => {
     );
   });
 
-  test("and dueForDestruction does what the text says", () => {
+  test("and dueForDestruction does what the text says, for a clinic whose service ended under it", () => {
+    // The rule is read from the agreement the service ended under, and the
+    // DPA's namespaced version maps to this one (DESTRUCTION_RULES).
+    expect(destructionRuleFor(currentDpaTemplate().version)).toEqual({
+      rule: "export_or_ninety",
+      basis: "agreement",
+    });
     const day = 86_400_000;
     const ended = new Date("2026-11-01T15:00:00Z");
     const at = (days: number) => new Date(ended.getTime() + days * day);
@@ -208,6 +215,7 @@ describe("the DPA's Term clause is the offboarding clock in this app", () => {
       destroyAfter: at(DESTROY_AFTER_DAYS),
       exportDeliveredAt: exportDays === null ? null : at(exportDays),
       destroyedAt: null,
+      destructionAgreementVersion: currentDpaTemplate().version,
     });
     // Delivered within thirty days: destroyed once thirty days have passed, not before.
     expect(dueForDestruction(clinic(10), at(29.9))).toBe(false);

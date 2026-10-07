@@ -205,15 +205,12 @@ const KEPT_AT_DESTRUCTION: Record<string, string> = {
   clinic_settings: "the portal's switches; no patient",
   clinic_touches: "our own notes on the account, never a patient",
   connection_links: "append-only by grant: single-use credential links, no patient",
-  consent_records: "TCPA evidence on its own four-year clock (BAA 1.3.0 release gate 7)",
-  contact_attempts: "TCPA evidence on its own four-year clock (BAA 1.3.0 release gate 7)",
   deposit_payments: "money records, kept without the appointment they were taken for",
   entitlements: "the plan and its allowances; no patient",
   incidents: "the record of each incident and of its notice",
   overage_invoices: "billing evidence",
   report_deliveries: "the ledger of every email sent to the clinic",
   report_recipients: "the clinic's own addresses for its email",
-  suppressions: "do-not-contact evidence, honoured for good (BAA 1.3.0 release gate 7)",
   sync_runs: "append-only by grant: what each sync ran, no patient",
   usage_events: "billing evidence: the usage ledger the clinic was charged from",
 };
@@ -596,8 +593,9 @@ describeDb("booking requests at destruction, erasure and purge", () => {
     }
 
     // Destruction: never another clinic's from inside this tenant, never a
-    // customer's, and never before thirty days have passed since offboarding
-    // started, by the database's clock.
+    // customer's, and never before its agreement's rule allows, by the
+    // database's clock. This clinic holds no agreement, so the rule is the
+    // thirty days, due at day 29 (drizzle/0055).
     for (const fn of [
       "app_destroy_booking_requests",
       "app_start_offboarding",
@@ -624,10 +622,10 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       startOffboarding(tx, "operator"),
     );
     await expect(destroy()).rejects.toMatchObject(notDue);
-    await backdateOffboarding(live.clinicId, 29);
+    await backdateOffboarding(live.clinicId, 28);
     await expect(destroy()).rejects.toMatchObject(notDue);
     // A destroy_after moved into the past on its own does not shorten the
-    // thirty days: the start is read too.
+    // wait: the start is read too.
     await getMigratorPool().query(
       `update clinics set destroy_after = now() - interval '1 day' where id = $1`,
       [live.clinicId],
@@ -751,7 +749,12 @@ describeDb("booking requests at destruction, erasure and purge", () => {
 
     // The dates the destroy function reads are the database's alone: stamping
     // them, emptying the clinic's requests and putting them back is shut.
-    for (const column of ["offboarding_started_at", "destroy_after", "destroyed_at"]) {
+    for (const column of [
+      "offboarding_started_at",
+      "destroy_after",
+      "destroyed_at",
+      "export_delivered_at",
+    ]) {
       await expect(
         asApp(c.clinicId, (q) =>
           q.query(`update clinics set ${column} = now() - interval '31 days' where id = $1`, [
@@ -1052,6 +1055,7 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       ["offboarding_started_at", "now() - interval '400 days'"],
       ["destroy_after", "now() - interval '370 days'"],
       ["destroyed_at", "now()"],
+      ["export_delivered_at", "now()"],
       ["retention_record_days_previous", "3650"],
       ["retention_record_days_shortened_at", "now()"],
     ] as const) {

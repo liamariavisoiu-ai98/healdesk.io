@@ -243,6 +243,36 @@ describe("ops alerts beyond the fixture", () => {
       ),
     ).toMatchSnapshot();
   });
+
+  // The destruction clock (lib/offboarding): a practice on the thirty days
+  // with no export delivered, from day 21, and a subscription's end the
+  // database could start only a week back. Ids, instants and a count.
+  test("a leaving practice with no export delivered: the snapshot", () => {
+    expect(
+      renderOpsAlert(
+        {
+          event: "export_undelivered_before_destruction",
+          clinicId: CLINIC_ID,
+          destroyAt: "2026-11-30T10:00:00.000Z",
+        },
+        contextFor("ops_alert"),
+      ),
+    ).toMatchSnapshot();
+  });
+
+  test("a subscription's end processed over a week late: the snapshot", () => {
+    expect(
+      renderOpsAlert(
+        {
+          event: "offboarding_started_late",
+          clinicId: CLINIC_ID,
+          serviceEndedAt: "2026-10-27T10:00:00.000Z",
+          lateDays: 3,
+        },
+        contextFor("ops_alert"),
+      ),
+    ).toMatchSnapshot();
+  });
 });
 
 describe("CAN-SPAM", () => {

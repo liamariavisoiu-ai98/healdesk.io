@@ -836,6 +836,10 @@ release by changing the code, the clause or the site copy:
    `dueForDestruction` in `apps/app/src/lib/offboarding/offboarding.ts`). The
    funnel's design flags the same gap for this version
    (`docs/design/funnel-onboarding-portal-2026-10-06.md`, Part L, on main).
+   (Since 7 October 2026 the code keeps each agreement's own rule: 1.2.1 and
+   earlier destroy before thirty days are up whatever the export, and the
+   ninety days apply only where the agreement states them; drizzle/0055 and
+   release gate 7 in §12.14.)
 9. **The Payments clause describes a link nothing creates.** "Where Practice
    takes deposits, healdesk creates a payment link through Practice's own
    payment processor." No code does: deposit links are package D, which is
@@ -1329,16 +1333,42 @@ these is closed, by code, a page, a signed paper or a host setting, and
    kept "so the request itself is honoured forever" changes with it. That is
    what clause 4(c) promises: "only a record of the request, for no longer
    than it needs one to make sure the information stays deleted".
-7. **Offboarding (HRC-02, PT-01).**
-   - The funnel's change lands: 1.2.1 and earlier keep their flat thirty
-     days, by the bound version, and 1.3.0 keeps the DPA's rule, which
-     clause 17 states.
-   - `export_delivered_at` is stamped only once the export has been
-     delivered to Practice, never when it is merely produced.
-   - `dueForDestruction` meets the 30- and 90-day marks as deadlines (the
-     job runs once a day).
-   - `destroyClinicData` also deletes suppressions, consent records and
-     contact attempts, with the grant they need.
+7. **Offboarding (HRC-02, PT-01).** Code in
+   `drizzle/0055_destruction_clock.sql` and
+   `apps/app/src/lib/offboarding/offboarding.ts`, pinned by
+   `tests/destruction-clock.test.ts`.
+   - Done: 1.2.1 and earlier keep their flat thirty days and 1.3.0 and the
+     DPA keep the DPA's rule, which clause 17 states, read from the
+     agreement the clinic was bound to when its service ended, terminated
+     since or not (`app_agreement_at_end`, `DESTRUCTION_RULES`,
+     `destructionPlan`; `app_destruction_due()` is the same rule as the
+     database's floor). No agreement, or a version the map does not know,
+     gets the thirty days. The clock starts at the subscription's own end,
+     which the database takes up to a week back.
+   - Done: `export_delivered_at` is stamped only by the operator's record of
+     the handover, which is refused until a bundle has been produced since
+     offboarding started, through `app_mark_export_delivered()`, the
+     column's only writer. The portal export, when it is built, stamps it
+     once its download has reached Practice.
+   - Done: the job runs every hour, and a clinic on the thirty days is due
+     at day 29, so its data is gone before thirty days have passed. A 1.3.0
+     or DPA clinic is destroyed by the 04 UTC run from day 30 (export
+     delivered), from the delivery, or from day 90, which is what the DPA's
+     clause 17 says ("runs once a day ... at the first run once").
+   - Open: 1.3.0's Term clause as it stands says "thirty days after the
+     Services end if the export has been delivered by then; otherwise as
+     soon as the export is delivered; and in any case no later than ninety
+     days after the Services end". The 04 UTC run meets that only to the
+     day: it can come up to a day after day 30, after a delivery and after
+     day 90. Before release either the clause takes the DPA's words, as the
+     redraft intends ("make the text match the product", 7 October 2026),
+     or 1.3.0 gets a rule of its own in `DESTRUCTION_RULES` and
+     `app_destruction_rule()`: run every hour, and due at day 89 without an
+     export.
+   - Done: `destroyClinicData` also deletes suppressions, consent records and
+     contact attempts, through `app_destroy_contact_evidence()` (the runtime
+     role keeps no DELETE on them), and `app_mark_clinic_destroyed()` refuses
+     while any is left.
    - Done: destruction, `eraseContact` and the purge succeed for a practice
      with a confirmed booking request
      (`drizzle/0054_booking_request_destruction.sql`). The request's
@@ -1346,8 +1376,19 @@ these is closed, by code, a page, a signed paper or a host setting, and
      requests now go first, through three functions bound to the practice,
      and `docs/counsel/dpa.md` § 9 records how.
      `tests/booking-request-destruction.test.ts` pins each path.
-   - The clinic's calls and agent are deleted at Retell by the deadline.
-   - A restore re-runs destruction.
+   - The clinic's calls and agent are deleted at Retell by the deadline. An
+     operator step for now: recorded on the care page as a
+     `voice_vendor_data_deleted` security event, and shown outstanding, with
+     its deadline (the day the data is destroyed here), until it is. Nothing
+     in apps/app reaches Retell yet; the deletion moves into code with the
+     voice runtime.
+   - Done: a restore re-runs destruction. `docs/handover.md` ("Restoring")
+     gives the steps: each destruction's `clinic data destroyed` log line
+     carries the dates it ran on, which the owner puts back where a restore
+     lost them, and `npm run destroy-due -w @healdesk/app`
+     (`destroyEverythingDue`) then destroys every clinic due and exits
+     non-zero while any still is. `tests/destruction-clock.test.ts` restores
+     a destroyed clinic and runs both.
 8. **Amendment record (PT-17).** An append-only amendment linked to the
    booking request or conversation it amends, carried by `exportPatient`,
    `exportClinic` and the portal export.

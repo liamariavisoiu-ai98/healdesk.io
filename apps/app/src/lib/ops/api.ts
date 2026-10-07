@@ -6,6 +6,7 @@ import { and, desc, eq, gt, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { unsafeDb } from "@/db";
 import {
   appointments,
+  auditLog,
   baaAcceptances,
   bookingRequests,
   clinics,
@@ -58,7 +59,15 @@ import {
 } from "@/lib/incidents/incidents";
 import { applyEmailEvent, isDeliveryStatus } from "@/lib/email/events";
 import { KIND_SHAPE } from "@/lib/email/kind-rules";
-import { markExportDelivered, startOffboarding } from "@/lib/offboarding/offboarding";
+import {
+  destructionPlan,
+  markExportDelivered,
+  recordVoiceVendorDeletion,
+  startOffboarding,
+  voiceVendorDeletionOf,
+  type DestructionBasis,
+  type DestructionRule,
+} from "@/lib/offboarding/offboarding";
 import { startForwardingTest } from "@/lib/onboarding/forwarding-test";
 import { listConnections } from "@/lib/connections/store";
 import { selfCheckCredentialKey, type CredentialKeySelfCheck } from "@/lib/crypto/envelope";
@@ -270,6 +279,7 @@ const OPERATIONS = [
   "resolveIncident",
   "startOffboarding",
   "markExportDelivered",
+  "markVoiceVendorDataDeleted",
   // The billing panel (lib/ops/billing.ts; build spec §7 E, R35): one clinic's
   // subscription, usage, switches and the billing engine's ledgers, and the
   // support actions on them. Ids, counts, cents and codes; never a payload.
@@ -351,6 +361,7 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "resolveIncident",
   "startOffboarding",
   "markExportDelivered",
+  "markVoiceVendorDataDeleted",
   // The billing panel's writes. getClinicBilling and previewRefund are reads:
   // the preview asks Stripe and writes nothing but its audit row.
   "setOverageMode",
@@ -847,6 +858,8 @@ export async function runOperation(
       return opStartOffboarding(args, operator);
     case "markExportDelivered":
       return opMarkExportDelivered(args, operator);
+    case "markVoiceVendorDataDeleted":
+      return opMarkVoiceVendorDataDeleted(args, operator);
     case "getClinicBilling":
       return opGetClinicBilling(args, operator);
     case "previewRefund":
@@ -3032,6 +3045,31 @@ export type CareView = {
     exportDeliveredAt: string | null;
     destroyAfter: string | null;
     destroyedAt: string | null;
+    /**
+     * The destruction plan by the agreement the service ended under
+     * (destructionPlan in lib/offboarding), or null while the clinic is not
+     * offboarding. ISO instants, and the rule's name; contract metadata.
+     */
+    destruction: {
+      rule: DestructionRule;
+      basis: DestructionBasis;
+      agreementVersion: string | null;
+      exportDueBy: string;
+      destroyDueAt: string;
+      latestDestroyAt: string;
+      dailyRunOnly: boolean;
+    } | null;
+    /**
+     * The operator step at the voice vendor: the clinic's calls and agent
+     * deleted at Retell by the time its data is destroyed here (destroyDueAt),
+     * outstanding until recorded. Null while the clinic is not offboarding.
+     */
+    voiceVendorDeletion: {
+      deadline: string;
+      recordedAt: string | null;
+      recordedBy: string | null;
+      how: string | null;
+    } | null;
   };
   recipients: { email: string; label: string | null; addedBy: string; addedAt: string }[];
   deliveries: {
@@ -3066,6 +3104,8 @@ async function opGetClinicCare(
 ): Promise<OpsOutcome> {
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return opsProblem("No such clinic.", 404, "invalid_args");
+  const plan = destructionPlan(clinic);
+  const vendorDeletion = plan ? await voiceVendorDeletionOf(clinic.id) : null;
 
   const view = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
@@ -3091,6 +3131,25 @@ async function opGetClinicCare(
           exportDeliveredAt: clinic.exportDeliveredAt?.toISOString() ?? null,
           destroyAfter: clinic.destroyAfter?.toISOString() ?? null,
           destroyedAt: clinic.destroyedAt?.toISOString() ?? null,
+          destruction: plan
+            ? {
+                rule: plan.rule,
+                basis: plan.basis,
+                agreementVersion: plan.agreementVersion,
+                exportDueBy: plan.exportDueBy.toISOString(),
+                destroyDueAt: plan.destroyDueAt.toISOString(),
+                latestDestroyAt: plan.latestDestroyAt.toISOString(),
+                dailyRunOnly: plan.dailyRunOnly,
+              }
+            : null,
+          voiceVendorDeletion: plan
+            ? {
+                deadline: plan.destroyDueAt.toISOString(),
+                recordedAt: vendorDeletion?.recordedAt.toISOString() ?? null,
+                recordedBy: vendorDeletion?.recordedBy ?? null,
+                how: vendorDeletion?.how ?? null,
+              }
+            : null,
         },
         recipients: recipients.map((r) => ({
           email: r.email,
@@ -3309,21 +3368,82 @@ async function opStartOffboarding(
   return care.updated();
 }
 
+/**
+ * The operator's record that the export reached the practice: what
+ * "delivered" means on this path. It refuses until a whole-clinic bundle has
+ * been produced since offboarding started (exportClinic writes the audit row
+ * it looks for), so a delivery cannot be recorded for an export nobody made,
+ * and producing one records nothing: the operator hands it over, then
+ * records how. The stamp is the database's, at this moment
+ * (app_mark_export_delivered).
+ */
 async function opMarkExportDelivered(
   args: Record<string, unknown>,
   operator: Operator,
 ): Promise<OpsOutcome> {
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return care.error("No such clinic.");
-  if (!clinic.offboardingStartedAt) return care.error("Start offboarding first; the export is part of leaving.");
+  const startedAt = clinic.offboardingStartedAt;
+  if (!startedAt) return care.error("Start offboarding first; the export is part of leaving.");
   if (clinic.destroyedAt) return care.error("This clinic's data has already been destroyed.");
+  if (clinic.exportDeliveredAt) return care.error(`The export was recorded as delivered on ${asDate(clinic.exportDeliveredAt)}.`);
   const how = incidentText(stringArg(args, "how", 200), "how");
   if (typeof how !== "string") return care.error(how.error);
-  await withTenant(
+  const delivered = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
-    (tx) => markExportDelivered(tx, how),
+    async (tx) => {
+      const [produced] = await tx.db
+        .select({ id: auditLog.id })
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.clinicId, tx.clinicId),
+            eq(auditLog.action, "export"),
+            eq(auditLog.resourceType, "clinic_bundle"),
+            gt(auditLog.occurredAt, startedAt),
+          ),
+        )
+        .limit(1);
+      if (!produced) return false;
+      await markExportDelivered(tx, how);
+      return true;
+    },
   );
+  if (!delivered) {
+    return care.error(
+      "No return bundle has been produced since offboarding started. Produce it on the app host (npm run patient-export -w @healdesk/app -- --clinic <id> --all), hand it over, then record the handover here.",
+    );
+  }
   await audit(operator, "offboarding_export_delivered", { clinicSlug: clinic.slug });
+  return care.updated();
+}
+
+/**
+ * The operator's record that the clinic's calls and agent were deleted at the
+ * voice vendor (Retell), in the vendor's console: nothing in apps/app talks
+ * to the vendor yet. The care view shows the step outstanding, with its
+ * deadline, until this is recorded; it is recorded once, as a security event
+ * naming the operator (recordVoiceVendorDeletion in lib/offboarding).
+ */
+async function opMarkVoiceVendorDataDeleted(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return care.error("No such clinic.");
+  if (!clinic.offboardingStartedAt) return care.error("Start offboarding first; the vendor's copy goes on the way out.");
+  const earlier = await voiceVendorDeletionOf(clinic.id);
+  if (earlier) return care.error(`Already recorded on ${asDate(earlier.recordedAt)} by ${earlier.recordedBy}.`);
+  const how = incidentText(stringArg(args, "how", 200), "how");
+  if (typeof how !== "string") return care.error(how.error);
+  await recordVoiceVendorDeletion({
+    clinicId: clinic.id,
+    clinicSlug: clinic.slug,
+    how,
+    actorLabel: operator.email,
+    ipAddress: operator.request.ipAddress ?? null,
+    userAgent: operator.request.userAgent ?? null,
+  });
   return care.updated();
 }
 

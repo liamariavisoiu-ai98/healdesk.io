@@ -59,6 +59,13 @@ export const OPS_EVENTS = [
   // raised once, ever, by the dmarc-review job on the 14th day after Resend
   // first sent as healdesk.io (lib/scheduler/dmarc-review.ts).
   "dmarc_review_due",
+  // Offboarding (lib/offboarding, the destruction_clock migration): a clinic
+  // on the thirty days with no export recorded as delivered, raised once by
+  // the destruction job from day 21; and a subscription deletion processed
+  // more than a week after the service ended, which the database's clamp
+  // started a week back and no further.
+  "export_undelivered_before_destruction",
+  "offboarding_started_late",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 
@@ -151,6 +158,7 @@ const NOT_IDENTITY = new Set([
   "months",
   "ms",
   "units",
+  "lateDays",
 ]);
 
 /** What the email may carry: each field the payload allowlist accepts on its own. */

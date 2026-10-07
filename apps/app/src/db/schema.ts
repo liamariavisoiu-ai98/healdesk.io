@@ -2476,6 +2476,28 @@ export const entitlements = pgTable(
      * "pay the open invoice" needs its amount as well as its link.
      */
     openInvoiceAmountCents: integer("open_invoice_amount_cents"),
+    /**
+     * A plan change in flight (review fix, 7 October 2026): the request it was
+     * started under, the package and the interval it moves to. Set under the
+     * Stripe mutation lease before anything is charged and cleared in the
+     * transaction that applies it, exactly as pending_location_* are. Without
+     * it a change whose Stripe response was lost left the bought package
+     * unchanged, and the clinic's retry, which carries a fresh request id,
+     * charged the setup-fee difference a second time. A retry now adopts the
+     * pending request and finds its own charge.
+     */
+    pendingPlanChangeRequestId: text("pending_plan_change_request_id"),
+    pendingPlanChangePlanId: text("pending_plan_change_plan_id"),
+    pendingPlanChangeInterval: text("pending_plan_change_interval").$type<BillingInterval>(),
+    /**
+     * When the subscription state last applied from Stripe was read (review
+     * fix): customer.subscription.updated applies the live subscription it
+     * retrieved before its transaction, and two deliveries can commit in the
+     * opposite order to their reads. Compared and set under the row lock, so a
+     * snapshot read before the one already applied is skipped instead of
+     * overwriting it.
+     */
+    stripeSubscriptionSyncedAt: timestamp("stripe_subscription_synced_at", { withTimezone: true }),
 
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -2511,6 +2533,11 @@ export const entitlements = pgTable(
     // it can be charged only while it is pending; the count is at least two
     // (the clinic itself plus the new one); and the request id is an opaque
     // token, because it rides into Stripe metadata and idempotency keys.
+    // A pending plan change is a request, a package and an interval, set together.
+    check(
+      "entitlements_pending_plan_change_check",
+      sql`(${t.pendingPlanChangeRequestId} is null) = (${t.pendingPlanChangePlanId} is null) and (${t.pendingPlanChangeRequestId} is null) = (${t.pendingPlanChangeInterval} is null) and (${t.pendingPlanChangeInterval} is null or ${t.pendingPlanChangeInterval} in ('month', 'year')) and (${t.pendingPlanChangeRequestId} is null or ${t.pendingPlanChangeRequestId} ~ '^[A-Za-z0-9_-]{1,64}$')`,
+    ),
     check(
       "entitlements_pending_location_check",
       sql`(${t.pendingLocationRequestId} is null) = (${t.pendingLocationCount} is null) and (${t.pendingLocationChargedAt} is null or ${t.pendingLocationRequestId} is not null) and (${t.pendingLocationCount} is null or ${t.pendingLocationCount} >= 2) and (${t.pendingLocationRequestId} is null or ${t.pendingLocationRequestId} ~ '^[A-Za-z0-9_-]{1,64}$')`,
@@ -3138,6 +3165,14 @@ export const billingRequests = pgTable(
     /** While set and in the future, a worker holds the row. */
     leaseUntil: timestamp("lease_until", { withTimezone: true }),
     attempts: integer("attempts").notNull().default(0),
+    /**
+     * How many times the row has been re-armed (review fix). Re-arming resets
+     * `attempts` for the backoff and the dead-letter count, so the attempt
+     * number alone would repeat, and with it the idempotency keys Stripe still
+     * holds a cached failure under. The keys and the lease owner carry the
+     * epoch too, so a re-armed request always reaches Stripe afresh.
+     */
+    epoch: integer("epoch").notNull().default(0),
     /** A closed code and a short reason, never a Stripe payload or an exception's text. */
     lastError: text("last_error"),
     doneAt: timestamp("done_at", { withTimezone: true }),
@@ -3166,6 +3201,7 @@ export const billingRequests = pgTable(
       sql`${t.reason} in (${sqlList(BILLING_REQUEST_REASONS)})`,
     ),
     check("billing_requests_attempts_check", sql`${t.attempts} >= 0`),
+    check("billing_requests_epoch_check", sql`${t.epoch} >= 0`),
     check(
       "billing_requests_last_error_check",
       sql`${t.lastError} is null or char_length(${t.lastError}) <= 300`,

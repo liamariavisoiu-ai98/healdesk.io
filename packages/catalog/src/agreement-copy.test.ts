@@ -4,7 +4,12 @@ import { AGREEMENT_COPY } from "./agreement-copy";
 import { agreementKindFor, COVERED_ANSWERS, type CoveredAnswer } from "./agreement-kind";
 import { audienceFor, audienceSingular } from "./audience";
 import { assentSentence, BAA_ACTION_LABEL, BAA_ASSENT_LABEL, CURRENT_BAA_VERSION } from "./baa";
-import { BAA_CLAUSE_EXPLAINERS, BAA_EXPLAINER, clauseExplainer } from "./baa-explainer";
+import {
+  BAA_CLAUSE_EXPLAINERS,
+  BAA_EXPLAINER,
+  baaExplainerTerms,
+  clauseExplainer,
+} from "./baa-explainer";
 import { CALENDAR_CLAUSE_IDS } from "./calendar-terms";
 import {
   CURRENT_DPA_VERSION,
@@ -31,11 +36,29 @@ describe("AGREEMENT_COPY", () => {
     expect(baa.kind).toBe("baa");
     expect(baa.title).toBe("Business Associate Agreement");
     expect(baa.currentVersion).toBe(CURRENT_BAA_VERSION);
-    expect(baa.explainer).toBe(BAA_EXPLAINER);
+    // 1.2.1, the version signed until the release, shows BAA_EXPLAINER, bullets and all.
+    expect(baa.explainer("1.2.1")).toBe(BAA_EXPLAINER);
+    expect(baa.explainer("1.2.1").terms).toBe(BAA_EXPLAINER.terms);
+    expect(baa.explainer(baa.currentVersion)).toBe(BAA_EXPLAINER);
     expect(baa.clauseNote).toBe(clauseExplainer);
     expect(baa.assentLabel).toBe(BAA_ASSENT_LABEL);
     expect(baa.assentSentence).toBe(assentSentence);
     expect(baa.actionLabel).toBe(BAA_ACTION_LABEL);
+  });
+
+  test("the explainer is read by the version rendered: 1.3.0's bullets above 1.3.0 (gate 11)", () => {
+    const baa = AGREEMENT_COPY.baa;
+    const explainer = baa.explainer("1.3.0");
+    expect(explainer.terms).toBe(baaExplainerTerms("1.3.0"));
+    expect(explainer.terms).not.toEqual(BAA_EXPLAINER.terms);
+    const { terms: _shared, ...frame } = BAA_EXPLAINER;
+    const { terms: _own, ...own } = explainer;
+    expect(own).toEqual(frame);
+    // The two bullets the audit found narrower than 1.3.0's clause (HRC-03, HRC-07).
+    const plain = explainer.terms.map((t) => t.plain).join("\n");
+    expect(plain).not.toMatch(/use it only|materially breach/);
+    expect(plain).toContain("limit its use and disclosure");
+    expect(plain).toContain("if you determine that we have violated a material term of it");
   });
 
   test("the DPA's copy is its own, and BAA_EXPLAINER never appears beside a DPA", () => {
@@ -43,8 +66,10 @@ describe("AGREEMENT_COPY", () => {
     expect(dpa.kind).toBe("dpa");
     expect(dpa.title).toBe("Data Protection Agreement");
     expect(dpa.currentVersion).toBe(CURRENT_DPA_VERSION);
-    expect(dpa.explainer).toBe(DPA_EXPLAINER);
-    expect(dpa.explainer).not.toBe(BAA_EXPLAINER);
+    expect(dpa.explainer(CURRENT_DPA_VERSION)).toBe(DPA_EXPLAINER);
+    for (const version of [CURRENT_DPA_VERSION, "1.2.1", "1.3.0"]) {
+      expect(dpa.explainer(version), version).not.toBe(BAA_EXPLAINER);
+    }
     expect(dpa.assentLabel).toBe(DPA_ASSENT_LABEL);
     expect(dpa.assentSentence).toBe(dpaAssentSentence);
     expect(dpa.actionLabel).toBe(DPA_ACTION_LABEL);

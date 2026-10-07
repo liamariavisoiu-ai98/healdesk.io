@@ -1355,10 +1355,14 @@ these is closed, by code, a page, a signed paper or a host setting, and
       (SUB-01, §12.11 item 12). apps/web's `agreement-kinds.ts` does this
       since the four-step funnel (8d7fcd4).
     - The "Why you're signing this" bullets come through
-      `baaExplainerTerms(template.version)`. apps/web's `agreement-kinds.ts`
-      and the catalog's `AGREEMENT_COPY` still hand out `BAA_EXPLAINER`, so
-      today a 1.3.0 buyer would read "use it only" and "materially breach"
-      above a clause that says more.
+      `baaExplainerTerms(template.version)`. Done: the catalog's
+      `AGREEMENT_COPY[kind].explainer(version)` (`baaExplainerFor`) gives each
+      version its own bullets, and apps/web's `agreement-kinds.ts` builds each
+      entry from the template it renders (`baaAgreementCopy`), so the version
+      shown, its bullets, its text and the version signed are one version.
+      1.2.1 still shows `BAA_EXPLAINER` word for word; a 1.3.0 buyer reads
+      "limit its use and disclosure" and "if you determine that we have
+      violated a material term of it" (`AgreementStep.version.test.ts`).
     - Plan C15 lands: provisioning's approval gate reads the bound
       acceptance's version (§12.11 item 13). Plan C3 has landed (ad02b30):
       both signing paths settle the version through `signableTemplate`.

@@ -1,17 +1,14 @@
 import {
+  AGREEMENT_COPY as CATALOG_COPY,
   agreementPlatformFor,
   type AgreementKind,
   applicableClauses,
-  assentSentence,
-  BAA_ACTION_LABEL,
-  BAA_ASSENT_LABEL,
-  BAA_EXPLAINER,
   type BaaExplainerTerm,
+  type BaaTemplate,
   type BaaVariables,
   type BookingSystemId,
   buildBaaSelections,
   type CalendarAccount,
-  clauseExplainer,
   currentBaaTemplate,
   renderBaa,
   type SpecialtyId,
@@ -28,6 +25,19 @@ import {
  * `agreementKindFor` never answers "dpa", and a step that somehow asked for
  * it would find no entry and sign nothing. The BAA's explainer is the BAA's
  * alone: it never appears beside the other document.
+ *
+ * ## One template, one version, everything said about it
+ *
+ * A kind's entry is built from the template it renders, and everything the
+ * step shows is read off that one template: the version the request signs,
+ * the document, the notes beside its clauses and the bullets of "Why you're
+ * signing this". The bullets come through the catalogue's
+ * `AGREEMENT_COPY[kind].explainer(version)` (`baaExplainerFor`), as the notes
+ * come through `clauseNote(version, id)`, because 1.3.0 words two of them
+ * differently from 1.2.1: a 1.3.0 buyer must not read "use it only" and
+ * "materially breach" above a clause that says more (agreement-changes.md
+ * §12.14, release gate 11). While 1.2.1 is current the entry is exactly what
+ * it was, BAA_EXPLAINER and all.
  */
 
 export type AgreementExplainer = {
@@ -60,11 +70,13 @@ export type AgreementCopy = {
   kind: AgreementKind;
   /** The document's own name. */
   title: string;
+  /** "Why you're signing this", for `version`: its bullets are that version's. */
   explainer: AgreementExplainer;
   /** The fixed half of the assent sentence, sent with the signature as proof this screen showed it. */
   assentLabel: string;
   assentSentence: (clinicLegalName: string) => string;
   actionLabel: string;
+  /** The version the step renders and the signature request names. */
   version: string;
   /** Released by the owner; a draft is flagged on screen and provisions synthetic accounts only. */
   released: boolean;
@@ -78,49 +90,62 @@ export type AgreementCopy = {
   fileStem: string;
 };
 
-const baa: AgreementCopy = {
-  kind: "baa",
-  title: "Business Associate Agreement",
-  explainer: BAA_EXPLAINER,
-  assentLabel: BAA_ASSENT_LABEL,
-  assentSentence,
-  actionLabel: BAA_ACTION_LABEL,
-  version: currentBaaTemplate().version,
-  released: currentBaaTemplate().approvedByCounsel,
-  render(input) {
-    const template = currentBaaTemplate();
-    // Through the catalog's one builder, with the platform the signature
-    // request sends, so the preview and the server's copy are built from the
-    // same selections for whichever template is current.
-    const selections = buildBaaSelections({
-      specialtyId: input.specialty,
-      attributionMode: "estimated",
-      bookingSystem: input.bookingSystem,
-      platformId: agreementPlatformFor(input.bookingSystem),
-      isCoveredEntity: input.isCoveredEntity,
-      calendarAccount: input.calendarAccount,
-      template,
-    });
-    const variables: BaaVariables = {
-      ...selections,
-      clinicLegalName: input.clinicLegalName,
-      signatoryName: input.signatoryName,
-      signatoryTitle: input.signatoryTitle || undefined,
-      signatoryEmail: input.signatoryEmail,
-      effectiveDate: input.effectiveDate,
-    };
-    const text = renderBaa(template, variables);
-    const notes = applicableClauses(template, variables).flatMap((clause) => {
-      const note = clauseExplainer(template.version, clause.id);
-      return note ? [{ id: clause.id, heading: clause.heading, ...note }] : [];
-    });
-    return { text, notes };
-  },
-  fileStem: "healdesk-baa",
-};
+/**
+ * The Business Associate Agreement's entry for one template: the current one
+ * in the funnel, and any other only in a test that shows the step a version
+ * it does not offer yet.
+ */
+export function baaAgreementCopy(template: BaaTemplate): AgreementCopy {
+  const catalog = CATALOG_COPY.baa;
+  return {
+    kind: "baa",
+    title: catalog.title,
+    explainer: catalog.explainer(template.version),
+    assentLabel: catalog.assentLabel,
+    assentSentence: catalog.assentSentence,
+    actionLabel: catalog.actionLabel,
+    version: template.version,
+    released: template.approvedByCounsel,
+    render: (input) => renderBaaPreview(template, input),
+    fileStem: "healdesk-baa",
+  };
+}
+
+/** The document as the server will render it to hash it, and the notes beside its clauses. */
+function renderBaaPreview(
+  template: BaaTemplate,
+  input: AgreementDocumentInput,
+): { text: string; notes: ClauseNote[] } {
+  // Through the catalog's one builder, with the platform the signature
+  // request sends, so the preview and the server's copy are built from the
+  // same selections for this template.
+  const selections = buildBaaSelections({
+    specialtyId: input.specialty,
+    attributionMode: "estimated",
+    bookingSystem: input.bookingSystem,
+    platformId: agreementPlatformFor(input.bookingSystem),
+    isCoveredEntity: input.isCoveredEntity,
+    calendarAccount: input.calendarAccount,
+    template,
+  });
+  const variables: BaaVariables = {
+    ...selections,
+    clinicLegalName: input.clinicLegalName,
+    signatoryName: input.signatoryName,
+    signatoryTitle: input.signatoryTitle || undefined,
+    signatoryEmail: input.signatoryEmail,
+    effectiveDate: input.effectiveDate,
+  };
+  const text = renderBaa(template, variables);
+  const notes = applicableClauses(template, variables).flatMap((clause) => {
+    const note = CATALOG_COPY.baa.clauseNote(template.version, clause.id);
+    return note ? [{ id: clause.id, heading: clause.heading, ...note }] : [];
+  });
+  return { text, notes };
+}
 
 export const AGREEMENT_COPY: { readonly baa: AgreementCopy; readonly dpa?: AgreementCopy } = {
-  baa,
+  baa: baaAgreementCopy(currentBaaTemplate()),
 };
 
 export function agreementCopyFor(kind: AgreementKind): AgreementCopy | null {

@@ -1,12 +1,17 @@
 import {
   agreementKindFor,
   agreementPlatformFor,
+  applicableClauses,
   BAA_EXPLAINER,
+  baaExplainerTerms,
   BOOKING_SYSTEMS,
   type BaaVariables,
+  buildBaaSelections,
   CALENDAR_ACCOUNTS,
+  clauseExplainer,
   COVERED_ANSWERS,
   currentBaaTemplate,
+  getBaaTemplate,
   getPlatform,
   NO_PLATFORM_ID,
   renderBaa,
@@ -15,7 +20,12 @@ import {
 } from "@healdesk/catalog";
 import { describe, expect, test } from "vitest";
 
-import { AGREEMENT_COPY, agreementCopyFor, effectiveDateToday } from "./agreement-kinds";
+import {
+  AGREEMENT_COPY,
+  agreementCopyFor,
+  baaAgreementCopy,
+  effectiveDateToday,
+} from "./agreement-kinds";
 
 /**
  * The preview the buyer reads is the document the server stores.
@@ -136,6 +146,61 @@ describe("AGREEMENT_COPY", () => {
     expect(AGREEMENT_COPY.baa.assentLabel).toBe("I agree to the Business Associate Agreement");
     expect(AGREEMENT_COPY.baa.version).toBe(currentBaaTemplate().version);
     expect(AGREEMENT_COPY.baa.fileStem).toBe("healdesk-baa");
+  });
+
+  test("1.2.1, the version signed until the release, shows exactly BAA_EXPLAINER's bullets", () => {
+    expect(AGREEMENT_COPY.baa.version).toBe("1.2.1");
+    expect(AGREEMENT_COPY.baa.explainer.terms).toBe(BAA_EXPLAINER.terms);
+    expect(baaAgreementCopy(getBaaTemplate("1.2.1")!).explainer).toBe(BAA_EXPLAINER);
+  });
+
+  test("an entry reads everything off its template: 1.3.0 shows 1.3.0's bullets, notes and text (gate 11)", () => {
+    const template = getBaaTemplate("1.3.0")!;
+    const copy = baaAgreementCopy(template);
+    expect(copy.version).toBe("1.3.0");
+    expect(copy.released).toBe(template.approvedByCounsel);
+    expect(copy.explainer.terms).toBe(baaExplainerTerms("1.3.0"));
+    const bullets = copy.explainer.terms.map((t) => t.plain).join("\n");
+    expect(bullets).not.toMatch(/use it only|materially breach/);
+    expect(bullets).toContain("limit its use and disclosure");
+    expect(bullets).toContain("if you determine that we have violated a material term of it");
+
+    const input = {
+      clinicLegalName: "Glow Med Spa LLC",
+      specialty: "med-spa",
+      isCoveredEntity: false,
+      bookingSystem: "google_calendar",
+      calendarAccount: "workspace_no_baa",
+      signatoryName: "Laura Owner",
+      signatoryEmail: "info@glowmedspa.com",
+      effectiveDate: "2026-10-06",
+    } as const;
+    const preview = copy.render(input);
+    expect(preview.text).toContain("Version 1.3.0 — executed electronically");
+    const variables: BaaVariables = {
+      ...buildBaaSelections({
+        specialtyId: input.specialty,
+        attributionMode: "estimated",
+        bookingSystem: input.bookingSystem,
+        platformId: agreementPlatformFor(input.bookingSystem),
+        isCoveredEntity: input.isCoveredEntity,
+        calendarAccount: input.calendarAccount,
+        template,
+      }),
+      clinicLegalName: input.clinicLegalName,
+      signatoryName: input.signatoryName,
+      signatoryEmail: input.signatoryEmail,
+      effectiveDate: input.effectiveDate,
+    };
+    expect(preview.text).toBe(renderBaa(template, variables));
+    expect(preview.notes.map(({ id, plain }) => [id, plain])).toEqual(
+      applicableClauses(template, variables).flatMap((clause) => {
+        const note = clauseExplainer("1.3.0", clause.id);
+        return note ? [[clause.id, note.plain]] : [];
+      }),
+    );
+    // The current entry is untouched by building another.
+    expect(AGREEMENT_COPY.baa.explainer).toBe(BAA_EXPLAINER);
   });
 
   test("has no Data Protection Agreement until it is released, so nothing signs one by accident", () => {

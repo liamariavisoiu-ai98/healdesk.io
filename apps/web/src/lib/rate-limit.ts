@@ -141,7 +141,7 @@ const shared = new Map<string, Shared>();
 let warnedNoStore = false;
 let lastErrorLogAt = 0;
 
-function useSharedStore(): boolean {
+function hasSharedStore(): boolean {
   if (isMarketingStoreConfigured()) return true;
   if (!warnedNoStore) {
     warnedNoStore = true;
@@ -265,7 +265,7 @@ export async function rateLimit(
   limit: number,
   windowMs: number,
 ): Promise<RateLimitResult> {
-  if (!isGlobalCapKey(key) || !useSharedStore()) return rateLimitInMemory(key, limit, windowMs);
+  if (!isGlobalCapKey(key) || !hasSharedStore()) return rateLimitInMemory(key, limit, windowMs);
   try {
     return await rateLimitShared(key, limit, windowMs);
   } catch (error) {
@@ -288,7 +288,7 @@ export async function rateLimit(
  * lock would be the wrong trade for a counter whose charge is deferred.
  */
 export async function isOverLimit(key: string, limit: number): Promise<boolean> {
-  if (!isGlobalCapKey(key) || !useSharedStore()) return isOverLimitInMemory(key, limit);
+  if (!isGlobalCapKey(key) || !hasSharedStore()) return isOverLimitInMemory(key, limit);
   try {
     const client = await counters();
     const now = Date.now();

@@ -199,6 +199,7 @@ const KEPT_AT_DESTRUCTION: Record<string, string> = {
   billing_notices: "billing evidence: the billing-email outbox, no patient",
   billing_requests: "billing evidence, which the runtime role cannot delete (0050)",
   billing_transitions: "billing evidence: the history of the billing status",
+  calendar_elections: "contract evidence: each is part of the signed agreement; append-only for every role, no patient (0056)",
   channel_events: "billing evidence: the plan start and every step-up were charged from it",
   clinic_channels: "the channels bought; no DELETE for the runtime role, and no patient",
   clinic_memberships: "who could reach the clinic's records: access history",

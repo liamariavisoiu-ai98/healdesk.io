@@ -646,6 +646,8 @@ describeDb("database audit (0031)", () => {
         "app_calendar_connections",
         "app_google_account_live_count",
         "app_reissue_undelivered_booking_token",
+        // ... and destruction's provider delete.
+        "app_destroy_clinic_providers",
       ]),
     );
     for (const fn of rows) {

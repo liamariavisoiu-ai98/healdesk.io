@@ -5,6 +5,7 @@ import {
   appointments,
   chatThreads,
   clinicClosures,
+  clinicProviderServices,
   clinics,
   contacts,
   conversations,
@@ -12,6 +13,7 @@ import {
   metaInboundMessages,
   providerConnections,
   reconciliationExceptions,
+  slotHolds,
   transactions,
   webhookEvents,
 } from "@/db/schema";
@@ -111,6 +113,10 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   const del = async (name: string, run: () => Promise<{ id: string }[]>) => {
     deleted[name] = (await run()).length;
   };
+  // Slot holds first: each points at its contact, request and appointment
+  // ON DELETE SET NULL, and a hold in a final state is frozen (0056), so
+  // deleting those rows under a hold would ask the trigger to rewrite it.
+  await del("slot_holds", () => tx.db.delete(slotHolds).where(eq(slotHolds.clinicId, c)).returning({ id: slotHolds.id }));
   await del("reconciliation_exceptions", () => tx.db.delete(reconciliationExceptions).where(eq(reconciliationExceptions.clinicId, c)).returning({ id: reconciliationExceptions.id }));
   await del("transactions", () => tx.db.delete(transactions).where(eq(transactions.clinicId, c)).returning({ id: transactions.id }));
   // Booking requests before the appointments: a confirmed request must keep
@@ -144,6 +150,15 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // The closed days go with the clinic; channel_events stays as billing
   // evidence (see the header).
   await del("clinic_closures", () => tx.db.delete(clinicClosures).where(eq(clinicClosures.clinicId, c)).returning({ id: clinicClosures.closedOn }));
+  // The clinic's providers and which services each offers go with its setup.
+  // The app role deletes the mappings; it has no DELETE on providers (they
+  // are deactivated while the clinic is a customer), so
+  // app_destroy_clinic_providers() deletes them, on the same
+  // due-for-destruction rule as the requests. calendar_elections stay: each
+  // is part of the signed agreement (0056).
+  await del("clinic_provider_services", () => tx.db.delete(clinicProviderServices).where(eq(clinicProviderServices.clinicId, c)).returning({ id: clinicProviderServices.providerId }));
+  const providers = await tx.db.execute<{ n: number }>(sql`select app_destroy_clinic_providers(${c}::uuid) as n`);
+  deleted.clinic_providers = providers.rows[0]?.n ?? 0;
 
   // The number is released with the data. destroyed_at is the database's
   // to stamp, and it refuses a clinic that is not due or still holds any

@@ -1,4 +1,3 @@
-import { plans } from "@healdesk/catalog";
 import type { Metadata } from "next";
 
 import { TrackView } from "@/components/analytics/TrackView";
@@ -24,7 +23,7 @@ export const metadata: Metadata = {
  */
 export default function WhyWaitPage() {
   return (
-    <BuyModalProvider initialPlan={plans[0]!.id}>
+    <BuyModalProvider>
       <TrackView event="why_wait_viewed" />
       <Nav />
       <main className="mx-auto max-w-[1240px] px-5 sm:px-8 lg:px-14">

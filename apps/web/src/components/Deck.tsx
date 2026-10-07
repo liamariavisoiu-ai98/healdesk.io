@@ -152,14 +152,15 @@ export function Deck({
   const reduce = useReducedMotion() ?? false;
 
   // A controlled index that changes from outside (the ledger) is a move too,
-  // and the front card must wait for it to land before it goes live.
-  const lastIndex = useRef(index);
-  useEffect(() => {
-    if (lastIndex.current !== index) {
-      lastIndex.current = index;
-      if (!reduce) setSettled(false);
-    }
-  }, [index, reduce]);
+  // and the front card must wait for it to land before it goes live. It is
+  // caught while rendering, against the last index kept in state, rather than
+  // in an effect: an effect runs after the commit, so the incoming card went
+  // live for one render before being taken back.
+  const [lastIndex, setLastIndex] = useState(index);
+  if (lastIndex !== index) {
+    setLastIndex(index);
+    if (!reduce) setSettled(false);
+  }
 
   /**
    * Orientation, read in an effect rather than during render.

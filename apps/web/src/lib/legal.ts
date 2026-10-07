@@ -1,7 +1,6 @@
 import {
   FIRST_PERIOD_REFUND_DAYS,
   plans,
-  SETUP_FEE_REFUND_NOT_LIVE_DAYS,
   type Plan,
 } from "@healdesk/catalog";
 
@@ -28,8 +27,8 @@ import {
  * the bump fails the build.
  */
 
-export const LEGAL_VERSION = "2026-10-06.4";
-export const LEGAL_LAST_UPDATED = "6 October 2026";
+export const LEGAL_VERSION = "2026-10-07.1";
+export const LEGAL_LAST_UPDATED = "7 October 2026";
 
 export const ENTITY = {
   /** Full legal name, e.g. "Healdesk, Inc." Empty until the founder supplies it. */
@@ -93,24 +92,14 @@ export const ENTITY = {
 
 export const POLICY = {
   /**
-   * Days after purchase within which the first period is refundable in full.
-   * 0 = no refund window. The setup fee is not refunded under this window,
-   * whatever its value (decision of 21 September 2026); its one exception is
-   * `setupFeeRefundNotLiveDays` below. The number lives in the catalog so
-   * apps/app's refund actions read the same one.
+   * Days after the plan start (the day the agent first answers a patient)
+   * within which the first period is refundable in full. 0 = no refund
+   * window. The setup fee is never refunded (owner, 6 October 2026, which
+   * ended the 3 October exception for a Practice with nothing live after 30
+   * days). The number lives in the catalog so apps/app's refund actions read
+   * the same one.
    */
   refundWindowDays: FIRST_PERIOD_REFUND_DAYS,
-  /**
-   * The one exception to the non-refundable setup fee (terms § 3): it is
-   * refunded when none of the Practice's channels has gone live this many days
-   * after its payment, unless the delay is something still waiting on the
-   * Practice. docs/counsel/guarantee-and-refund.md decision 5, adopted on 3
-   * October 2026. Provisioning starts on the first paid invoice, so it should
-   * never have to be paid; a flat "never refundable" for a service never
-   * delivered is the term the FTC Act and a card dispute both reach. The
-   * number lives in the catalog so apps/app's refund actions read the same one.
-   */
-  setupFeeRefundNotLiveDays: SETUP_FEE_REFUND_NOT_LIVE_DAYS,
   /** Whether an annual plan cancelled mid-term is refunded pro rata. */
   annualProRataRefund: false,
   /**
@@ -127,7 +116,7 @@ export const POLICY = {
   guaranteeCallAnswerSeconds: 10,
   guaranteeMessageAnswerSeconds: 60,
   guaranteeAbandonedCallSeconds: 5,
-  /** The guarantee's first month, in days from the day the first channel goes live. */
+  /** The guarantee's first month, in days from the plan start: the day the agent first answers a patient. */
   guaranteeFirstMonthDays: 30,
   /** Days after the first month ends within which the account owner may claim. */
   guaranteeClaimWindowDays: 30,
@@ -211,7 +200,7 @@ export const GUARANTEE_TEXT = {
     {
       lead: "Your first month",
       body:
-        `is the ${POLICY.guaranteeFirstMonthDays} days that start on the day your first channel goes live, as shown in your portal. A channel that goes live later is covered from the day it goes live until the end of those ${POLICY.guaranteeFirstMonthDays} days. A channel that goes live after your first month ends is not covered.`,
+        `is the ${POLICY.guaranteeFirstMonthDays} days that start on your plan start, the day the assistant first answers a patient, as shown in your portal. A channel that goes live later is covered from the day it goes live until the end of those ${POLICY.guaranteeFirstMonthDays} days. A channel that goes live after your first month ends is not covered.`,
     },
     {
       lead: "Routed to it",
@@ -231,7 +220,7 @@ export const GUARANTEE_TEXT = {
     {
       lead: "How to claim.",
       body:
-        `Within ${POLICY.guaranteeClaimWindowDays} days after your first month ends, the account owner emails ${ENTITY.supportEmail} from the owner's address and asks us to check, giving the date, time and channel of any call or message you believe was missed, if you have one. We check our own records and any record you send us: a call record from your phone carrier, or a screenshot of an unanswered message in your Instagram, Messenger or WhatsApp inbox. Send dates and times, not names: black out every phone number on a carrier record or screenshot except its last four digits, and never send a transcript. A call your carrier's record shows forwarded to your healdesk number, or a message your inbox shows with no reply from us within the time above, counts as missed unless our records show it was answered, or show that it never left your carrier or Meta. We tell you our finding within ${POLICY.guaranteeFindingBusinessDays} business days of your claim. If one call or message was missed, we refund your first month's subscription fee to the payment method you paid with, within ${POLICY.guaranteeRefundWithinDays} days of that finding, and tell you what failed. If our own records show a miss, we tell the account owner by email within ${POLICY.guaranteeMissNoticeDays} days of recording it, whether or not you have claimed.`,
+        `Within ${POLICY.guaranteeClaimWindowDays} days after your first month ends, the account owner emails ${ENTITY.supportEmail} from the address on your account and asks us to check, giving the date, time and channel of any call or message you believe was missed, if you have one. We check our own records and any record you send us: a call record from your phone carrier, or a screenshot of an unanswered message in your Instagram, Messenger or WhatsApp inbox. Send dates and times, not names: black out every phone number on a carrier record or screenshot except its last four digits, and never send a transcript. A call your carrier's record shows forwarded to your healdesk number, or a message your inbox shows with no reply from us within the time above, counts as missed unless our records show it was answered, or show that it never left your carrier or Meta. We tell you our finding within ${POLICY.guaranteeFindingBusinessDays} business days of your claim. If one call or message was missed, we refund your first month's subscription fee to the payment method you paid with, within ${POLICY.guaranteeRefundWithinDays} days of that finding, and tell you what failed. If our own records show a miss, we tell the account owner by email within ${POLICY.guaranteeMissNoticeDays} days of recording it, whether or not you have claimed.`,
     },
     {
       lead: "Limits.",

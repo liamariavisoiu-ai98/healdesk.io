@@ -84,6 +84,8 @@ import {
   stripeLookupKey,
   type Plan,
   type PriceKind,
+  PLAN_START_PLACEHOLDER_LOOKUP_KEY,
+  PLAN_START_PLACEHOLDER_NAME,
 } from "@healdesk/catalog";
 import Stripe from "stripe";
 
@@ -149,9 +151,17 @@ type DesiredMeter = {
   prices: readonly DesiredMeteredPrice[];
 };
 
+/** The $0 monthly line every subscription carries until AYA first answers (contracts §2). */
+type DesiredPlaceholder = {
+  lookupKey: string;
+  productName: string;
+  description: string;
+};
+
 type Desired = {
   packages: readonly DesiredPackage[];
   meters: readonly DesiredMeter[];
+  placeholder: DesiredPlaceholder;
 };
 
 function usd(cents: number): string {
@@ -271,6 +281,11 @@ function computeDesired(): Desired {
       unitLabel: METERS[id].unitLabel,
       prices: desiredMeteredPrices(id),
     })),
+    placeholder: {
+      lookupKey: PLAN_START_PLACEHOLDER_LOOKUP_KEY,
+      productName: PLAN_START_PLACEHOLDER_NAME,
+      description: "No charge. Your package's price replaces this line the day AYA first answers.",
+    },
   };
 }
 
@@ -526,6 +541,57 @@ async function syncPackage(
 }
 
 // ---------------------------------------------------------------------------
+// The deferred start's $0 monthly line (contracts §2).
+//
+// Checkout bills the setup fee and this line, so a subscription exists, holds
+// the card and bills nothing monthly until AYA first answers a patient; then
+// the package's price replaces it. A $0 price rather than a trial, so Stripe
+// never treats the wait as one. Verified like a package price: the amount and
+// the shape, because a placeholder that billed anything would be a charge
+// nobody agreed to.
+// ---------------------------------------------------------------------------
+const PLACEHOLDER_META = "healdesk_placeholder";
+
+async function syncPlaceholder(
+  stripe: Stripe,
+  products: Stripe.Product[],
+  activePrices: Map<string, Stripe.Price>,
+  want: DesiredPlaceholder,
+): Promise<void> {
+  console.log(`\n${want.productName}`);
+  const product = await findOrCreateProduct(stripe, products, PLACEHOLDER_META, "plan_start", {
+    name: want.productName,
+    description: want.description,
+    statement_descriptor: STATEMENT_DESCRIPTOR,
+  });
+  const label = `month  ${want.lookupKey.padEnd(40)} ${usd(0)}`;
+  const existing = activePrices.get(want.lookupKey);
+  if (existing) {
+    const problems: string[] = [];
+    if (existing.unit_amount !== 0) problems.push(`amount is ${existing.unit_amount === null ? "unset" : usd(existing.unit_amount)}, must be $0`);
+    if (existing.currency !== "usd") problems.push(`currency is ${existing.currency}`);
+    if (existing.recurring?.interval !== "month") problems.push(`interval is ${existing.recurring?.interval ?? "none"}, must be month`);
+    if (existing.recurring?.usage_type !== "licensed") problems.push("must be licensed, not metered");
+    if (problems.length === 0) verified(`${label}  ${existing.id}`);
+    else drift(`${label}  ${existing.id}: ${problems.join("; ")}`);
+    return;
+  }
+  const holder = await inactiveHolder(stripe, want.lookupKey);
+  const price = await stripe.prices.create({
+    product: product.id,
+    currency: "usd",
+    unit_amount: 0,
+    lookup_key: want.lookupKey,
+    transfer_lookup_key: holder !== undefined,
+    nickname: "Plan start placeholder ($0 until the first answer)",
+    recurring: { interval: "month", usage_type: "licensed" },
+    metadata: { healdesk_price_kind: "plan_start_placeholder" },
+  });
+  activePrices.set(want.lookupKey, price);
+  created(`${label}  ${price.id}` + (holder ? `  (lookup_key moved off archived ${holder.id})` : ""));
+}
+
+// ---------------------------------------------------------------------------
 // The setup credit: one coupon per package.
 //
 // Day 7 of the nurture sequence offers the setup fee back
@@ -696,6 +762,7 @@ function reportStale(
   const wanted = new Set<string>([
     ...desired.packages.flatMap((p) => p.prices.map((x) => x.lookupKey)),
     ...desired.meters.flatMap((m) => m.prices.map((x) => x.lookupKey)),
+    desired.placeholder.lookupKey,
   ]);
   const extra = [...activePrices.keys()].filter((k) => !wanted.has(k)).sort();
   if (extra.length === 0) return;
@@ -737,6 +804,9 @@ function printDryRun(desired: Desired): void {
       );
     }
   }
+  console.log(`\n${desired.placeholder.productName}`);
+  line("·", `product  ${desired.placeholder.productName}  [${PLACEHOLDER_META}=plan_start]`);
+  line("·", `price    ${desired.placeholder.lookupKey.padEnd(40)} ${usd(0).padEnd(8)} recurring/month/licensed`);
   console.log(`\n${COHORT_SETUP_CREDIT.name}`);
   for (const plan of plans) {
     line(
@@ -849,6 +919,7 @@ async function main(): Promise<void> {
   for (const meter of desired.meters) {
     await syncMeter(stripe, products, meters, activePrices, meter);
   }
+  await syncPlaceholder(stripe, products, activePrices, desired.placeholder);
   await syncCohortCoupons(stripe);
   reportStale(activePrices, desired);
 

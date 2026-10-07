@@ -59,6 +59,11 @@ export function useTickingNow(intervalMs: number): number | null {
   const [now, setNow] = useState<number | null>(null);
 
   useEffect(() => {
+    // This effect is the subscription to the browser's clock. It takes its
+    // first reading as it subscribes, rather than leaving the UTC fallback up
+    // for a whole interval after hydration, and it cannot take it any sooner:
+    // read during render, the clock would differ from the server's.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the clock's first reading, at mount
     setNow(Date.now());
     const id = window.setInterval(() => setNow(Date.now()), intervalMs);
     return () => window.clearInterval(id);

@@ -73,6 +73,9 @@ export function ClinicVoicePanel({
     const started = Date.now() - elapsed * 1000;
     const id = window.setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 500);
     return () => window.clearInterval(id);
+    // `elapsed` is this timer's own output, read only as its starting point: zero for a new call.
+    // Re-running on it would restart the interval every second, and the timer would fall behind.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- written by the interval it starts
   }, [state]);
 
   // Leaving the page ends the call rather than leaving the microphone open.

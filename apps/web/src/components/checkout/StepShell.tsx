@@ -1,5 +1,7 @@
 "use client";
 
+import { type ReactNode, type Ref, useId } from "react";
+
 /**
  * Shared chrome for every checkout step.
  *
@@ -16,6 +18,7 @@ export function StepShell({
   children,
   onBack,
   onClose,
+  headingRef,
 }: {
   /** Both absent on a one-screen form: no progress bar, no "Step 1 of 1". */
   step?: number;
@@ -33,6 +36,12 @@ export function StepShell({
    * so without this the buyer can reach a screen with no exit at all.
    */
   onClose?: () => void;
+  /**
+   * The heading, which the flow focuses when the step changes, so a keyboard
+   * or screen reader user starts the new step at its title instead of at the
+   * top of the document or on a button that no longer exists.
+   */
+  headingRef?: Ref<HTMLHeadingElement>;
 }) {
   return (
     <div className="mx-auto w-full max-w-[720px]">
@@ -42,7 +51,7 @@ export function StepShell({
             <button
               type="button"
               onClick={onBack}
-              className="text-muted hover:text-ink text-sm font-semibold transition-colors"
+              className="text-muted hover:text-ink -ml-2 min-h-11 rounded-md px-2 text-sm font-semibold transition-colors"
             >
               ← Back
             </button>
@@ -62,7 +71,7 @@ export function StepShell({
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="text-muted hover:text-ink -mr-1 grid size-7 shrink-0 place-items-center rounded-full text-lg leading-none transition-colors"
+              className="text-muted hover:text-ink -mr-2 grid size-11 shrink-0 place-items-center rounded-full text-lg leading-none transition-colors"
             >
               <span aria-hidden>&times;</span>
             </button>
@@ -89,7 +98,11 @@ export function StepShell({
       <p className="text-muted text-xs font-bold tracking-[0.14em] uppercase">
         {eyebrow}
       </p>
-      <h1 className="font-display mt-2 text-[clamp(31.2px,4.32vw,48px)] leading-[1.06] font-medium tracking-[-0.024em]">
+      <h1
+        ref={headingRef}
+        tabIndex={-1}
+        className="font-display mt-2 text-[clamp(31.2px,4.32vw,48px)] leading-[1.06] font-medium tracking-[-0.024em] outline-none"
+      >
         {title}
       </h1>
       {subtitle ? (
@@ -102,14 +115,14 @@ export function StepShell({
 }
 
 /**
- * The line under every checkout step. "Calendar access only" because the one
- * system healdesk connects to and writes into is the clinic's Google Calendar;
- * the old "Read-only access" stopped being true when v1 started booking.
+ * The line under every checkout step. What healdesk can reach is only what
+ * the clinic signs in to (its calendar, its channels, its payment account),
+ * and never its clinical records: v1 reads no EMR or point of sale.
  */
 export function Reassurance() {
   return (
     <p className="text-muted mt-10 text-center text-xs">
-      Calendar access only · Revoke any time · We never see clinical notes
+      No access to your clinical records · Every connection is a sign-in you can revoke
     </p>
   );
 }
@@ -135,14 +148,14 @@ export function PrimaryButton({
       type={type}
       disabled={disabled}
       onClick={onClick}
-      className="bg-brand-gradient-deep shadow-brand inline-flex items-center gap-2 rounded-full px-8 py-4 text-base font-bold text-white transition-all duration-200 hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-40"
+      className="bg-brand-gradient-deep shadow-brand inline-flex min-h-12 items-center gap-2 rounded-full px-8 py-4 text-base font-bold text-white transition-all duration-200 motion-safe:hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-40"
     >
       {children}
     </button>
   );
 }
 
-/** A large, obviously-clickable choice. Used for every single-select step. */
+/** A large, obviously-clickable choice. */
 export function ChoiceCard({
   selected,
   onSelect,
@@ -200,5 +213,178 @@ export function ChoiceCard({
         </span>
       </div>
     </button>
+  );
+}
+
+/** The small caps label every field and group in the flow carries. */
+export const FIELD_LABEL = "text-[15.6px] font-bold tracking-[0.04em] uppercase";
+
+export type RadioOption<T extends string> = {
+  id: T;
+  label: ReactNode;
+  description?: ReactNode;
+  disabled?: boolean;
+};
+
+/**
+ * One answer from several, as a real radio group.
+ *
+ * Native radio inputs, visually hidden inside their labels, so the arrow keys
+ * move between answers and the space bar picks one exactly as a browser's
+ * own radio group does, and a screen reader hears "radio button, 2 of 5". The
+ * container carries `role="radiogroup"` and the visible question as its name.
+ * Every target is at least 44px tall.
+ *
+ * `layout="chips"` wraps short answers onto lines; `"cards"` stacks answers
+ * that need a sentence each.
+ */
+export function RadioGroup<T extends string>({
+  label,
+  hint,
+  name,
+  options,
+  value,
+  onChange,
+  layout = "chips",
+  invalid,
+  labelClassName = FIELD_LABEL,
+}: {
+  label: ReactNode;
+  hint?: ReactNode;
+  name: string;
+  options: readonly RadioOption<T>[];
+  value: T | null;
+  onChange: (value: T) => void;
+  layout?: "chips" | "cards";
+  invalid?: boolean;
+  labelClassName?: string;
+}) {
+  const id = useId();
+  return (
+    <div role="radiogroup" aria-labelledby={`${id}-label`} aria-describedby={hint ? `${id}-hint` : undefined} aria-invalid={invalid || undefined}>
+      <p id={`${id}-label`} className={labelClassName}>
+        {label}
+      </p>
+      {hint ? (
+        <p id={`${id}-hint`} className="text-muted mt-1.5 text-sm">
+          {hint}
+        </p>
+      ) : null}
+      <div className={layout === "chips" ? "mt-3 flex flex-wrap gap-2" : "mt-3 grid gap-2"}>
+        {options.map((option) => {
+          const checked = option.id === value;
+          return (
+            // A two-column grid: the drawn dot, then the answer and its
+            // description. The input itself is visually hidden (absolutely
+            // placed, so it takes no cell) and sits right before the answer
+            // it names.
+            <label
+              key={option.id}
+              className={[
+                "relative grid min-h-11 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 border transition-colors has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-orange",
+                layout === "chips" ? "rounded-full px-4 py-2.5" : "rounded-xl px-4 py-3",
+                option.disabled
+                  ? "border-line cursor-not-allowed bg-paper-2 opacity-60"
+                  : checked
+                    ? "border-red bg-red/[0.06] cursor-pointer"
+                    : "border-line hover:border-line-strong cursor-pointer bg-white",
+              ].join(" ")}
+            >
+              <span
+                aria-hidden
+                className={[
+                  "row-span-2 mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border-2",
+                  checked ? "border-red bg-red" : "border-line-strong bg-white",
+                ].join(" ")}
+              >
+                {checked ? <span className="size-1.5 rounded-full bg-white" /> : null}
+              </span>
+              <input
+                type="radio"
+                name={name}
+                value={option.id}
+                checked={checked}
+                disabled={option.disabled}
+                onChange={() => onChange(option.id)}
+                className="sr-only"
+              />
+              <span className="col-start-2 block text-sm font-semibold">{option.label}</span>
+              {option.description ? (
+                <span className="text-muted col-start-2 mt-0.5 block text-xs leading-relaxed">
+                  {option.description}
+                </span>
+              ) : null}
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** A labelled text input with an optional hint, in the flow's style. */
+export function TextField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  hint,
+  type = "text",
+  readOnly,
+  disabled,
+  invalid,
+  maxLength,
+  autoComplete,
+  inputMode,
+  inputClassName,
+}: {
+  label: ReactNode;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  hint?: ReactNode;
+  type?: string;
+  readOnly?: boolean;
+  disabled?: boolean;
+  invalid?: boolean;
+  maxLength?: number;
+  autoComplete?: string;
+  inputMode?: "url" | "email" | "text";
+  inputClassName?: string;
+}) {
+  const id = useId();
+  return (
+    <div>
+      <label htmlFor={id} className={`block ${FIELD_LABEL}`}>
+        {label}
+      </label>
+      <input
+        id={id}
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        readOnly={readOnly}
+        disabled={disabled}
+        maxLength={maxLength}
+        autoComplete={autoComplete}
+        inputMode={inputMode}
+        aria-invalid={invalid || undefined}
+        aria-describedby={hint ? `${id}-hint` : undefined}
+        className={[
+          "text-ink placeholder:text-muted mt-2 w-full rounded-xl border px-4 py-3 outline-none transition-colors disabled:opacity-50",
+          readOnly ? "bg-paper-2" : "bg-white",
+          invalid ? "border-red" : "border-line focus:border-orange",
+          // The type size is the caller's when it styles the input at all, so
+          // two font sizes never compete in one class list.
+          inputClassName ?? "text-[19.2px]",
+        ].join(" ")}
+      />
+      {hint ? (
+        <p id={`${id}-hint`} className="text-muted mt-1.5 text-xs">
+          {hint}
+        </p>
+      ) : null}
+    </div>
   );
 }

@@ -33,6 +33,10 @@ export function DemoCountdown({ expiresAt }: { expiresAt: string }) {
   const [now, setNow] = useState<number | null>(null);
 
   useEffect(() => {
+    // This effect subscribes to the browser's clock, and it takes the first
+    // reading as it subscribes. Left to the first tick, the banner would claim
+    // the full seven days for a second after it mounts, whatever is really left.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- first clock reading, at mount
     setNow(Date.now());
     const id = window.setInterval(() => {
       const t = Date.now();

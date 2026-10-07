@@ -1,4 +1,3 @@
-import { plans } from "@healdesk/catalog";
 import type { Metadata } from "next";
 
 import { ContactCard } from "@/components/ContactCard";
@@ -51,7 +50,7 @@ const COMMITMENTS = [
 
 export default function ContactPage() {
   return (
-    <BuyModalProvider initialPlan={plans[0]!.id}>
+    <BuyModalProvider>
       <Nav />
 
       <main className="mx-auto max-w-[1240px] px-5 pt-16 pb-24 sm:px-8 sm:pt-20 lg:px-14">

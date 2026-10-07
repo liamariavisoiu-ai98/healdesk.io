@@ -6,6 +6,7 @@ import {
   downloadCookieOptions,
   issueDownloadToken,
 } from "@/lib/agreement-download";
+import { signRequestRefusal } from "@/lib/checkout/order";
 import { normalizeEmail } from "@/lib/leads";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 import { gateState, refuseOtherEmail, refuseWithoutLink } from "@/lib/setup-gate";
@@ -143,26 +144,39 @@ export async function POST(request: Request): Promise<Response> {
    * for, and every refusal here is one fewer orphaned row in an append-only
    * table. The signatory's address must be the one the link was sent to,
    * because it becomes the clinic's one address. The body is parsed only to
-   * read that address; what is forwarded is still the raw bytes.
+   * check it; what is forwarded is still the raw bytes.
    */
   const gate = await gateState(readCookie(request.headers, SETUP_COOKIE));
   let invited: { id: string; signedAt: Date | null } | null = null;
   if (gate.mode === "pilot") {
     const refused = refuseWithoutLink(gate);
     if (refused) return refused;
-    if (gate.link === "valid") {
-      let signatoryEmail = "";
-      try {
-        signatoryEmail = String((JSON.parse(raw) as { signatoryEmail?: unknown }).signatoryEmail ?? "");
-      } catch {
-        return Response.json({ error: "Invalid request body." }, { status: 400 });
-      }
-      if (normalizeEmail(signatoryEmail) !== gate.request.emailNormalized) {
-        return refuseOtherEmail(gate.request, "signatoryEmail");
-      }
-      invited = { id: gate.request.id, signedAt: gate.request.signedAt };
-    }
   }
+
+  let body: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+    body = parsed as Record<string, unknown>;
+  } catch {
+    return Response.json({ error: "Invalid request body." }, { status: 400 });
+  }
+
+  if (gate.mode === "pilot" && gate.link === "valid") {
+    if (normalizeEmail(String(body.signatoryEmail ?? "")) !== gate.request.emailNormalized) {
+      return refuseOtherEmail(gate.request, "signatoryEmail");
+    }
+    invited = { id: gate.request.id, signedAt: gate.request.signedAt };
+  }
+
+  /**
+   * The calendar answers and the agreement's kind (lib/checkout/order.ts),
+   * before a row is written: apps/app's signing path does not read the
+   * booking system or the Google account yet, so a mismatch caught here is
+   * one the record would otherwise carry silently.
+   */
+  const unsignable = signRequestRefusal(body);
+  if (unsignable) return Response.json(unsignable, { status: 422 });
 
   const timestamp = Math.floor(Date.now() / 1000).toString();
 

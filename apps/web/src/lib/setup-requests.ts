@@ -29,15 +29,11 @@ export { CHANNEL_IDS, type ChannelId } from "@/lib/setup-channels";
 /**
  * A host or URL that looks like a website, as typed minus the scheme and any
  * trailing slash, or null. Shape only: whether the site exists is the site
- * reader's business (M2), not the form's.
+ * reader's business, not the form's. It lives in the catalog because the
+ * purchase checks the same shape in the browser and in apps/app, and a read
+ * profile's website must equal the purchase's to ride on it.
  */
-export function cleanWebsite(value: unknown): string | null {
-  const raw = (typeof value === "string" ? value.trim().slice(0, 200) : "")
-    .replace(/^https?:\/\//i, "")
-    .replace(/\/+$/, "");
-  if (!raw) return null;
-  return /^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}(\/[^\s]*)?$/i.test(raw) ? raw : null;
-}
+export { cleanWebsite } from "@healdesk/catalog";
 
 const STATUSES: readonly SetupRequestStatus[] = ["new", "invited", "paid", "declined"];
 

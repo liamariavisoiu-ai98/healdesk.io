@@ -30,9 +30,10 @@ const field =
 
 export function DemoBuilder() {
   const [state, action, pending] = useActionState<CreateDemoState, FormData>(createDemoAction, { status: "idle" });
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => setCopied(false), [state]);
+  // Which result's link was copied, not a flag to reset: every submission returns a new result,
+  // so "Copied" goes back to "Copy link" on the same render that shows the next link.
+  const [copiedFor, setCopiedFor] = useState<CreateDemoState | null>(null);
+  const copied = copiedFor === state;
 
   const invalid = (name: string) => state.status === "error" && state.field === name;
 
@@ -113,7 +114,7 @@ export function DemoBuilder() {
             <button
               type="button"
               onClick={() => {
-                void navigator.clipboard.writeText(state.url).then(() => setCopied(true));
+                void navigator.clipboard.writeText(state.url).then(() => setCopiedFor(state));
               }}
               className="border-line hover:border-line-strong rounded-lg border bg-white px-3 py-2 text-[14.4px] font-bold"
             >

@@ -77,6 +77,12 @@ jobs:
       - run: npx tsc --noEmit -p packages/catalog
       - run: npx tsc --noEmit -p packages/connectors
 
+      # Lint runs here because nothing else did: Next 16 removed `next lint`,
+      # and `npm run lint` failed before checking a file without anyone
+      # noticing. Errors fail the job; warnings do not. Through turbo, so a
+      # workspace that adds a lint script is covered without editing this file.
+      - run: npm run lint
+
       # One run, machine-readable. The previous version ran the suite twice —
       # once for humans, once to grep the count out of coloured terminal output,
       # which failed because the ANSI escapes sit between "Tests" and the number.

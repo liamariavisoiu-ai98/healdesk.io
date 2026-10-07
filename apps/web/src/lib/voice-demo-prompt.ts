@@ -1,4 +1,11 @@
-import { annualTotalUsd, type Plan, plans } from "@healdesk/catalog";
+import {
+  annualTotalUsd,
+  type MeterId,
+  OVERAGE_BLOCK_UNITS,
+  type Plan,
+  planMeteredPrices,
+  plans,
+} from "@healdesk/catalog";
 
 import { getNiche, getPractice, rootKnowledge } from "./knowledge";
 import { site } from "./site";
@@ -166,14 +173,31 @@ function planLine(plan: Plan): string {
   );
 }
 
+/**
+ * Overage is billed per started block of 100 since 6 October 2026
+ * (docs/v1-product-spec.md, "Overage prices"), so the call quotes the block
+ * and its price, never a per-minute rate. Each meter's block prices are the
+ * ones Stripe bills the packages (`planMeteredPrices`), cheapest first.
+ */
 function overageLine(): string {
-  const rates = (pick: (plan: Plan) => number) =>
-    [...new Set(plans.map(pick).filter((rate) => rate > 0))].sort((a, b) => a - b).map(usd);
+  const blockPrices = (meter: MeterId) =>
+    [
+      ...new Set(
+        plans
+          .flatMap((plan) => planMeteredPrices(plan))
+          .filter((price) => price.meter === meter)
+          .map((price) => price.blockCents),
+      ),
+    ]
+      .sort((a, b) => a - b)
+      .map((cents) => usd(cents / 100));
+  const block = `each started block of ${OVERAGE_BLOCK_UNITS}`;
   return (
-    `  · Beyond the included amount: ${rates((p) => p.overagePerVoiceMinuteUsd).join(" or ")} a ` +
-    `phone minute, and ${rates((p) => p.overagePerChatConversationUsd).join(" or ")} a chat ` +
-    "conversation depending on the package. These overage rates are provisional: mention them " +
-    "only if asked, and say they are provisional."
+    `  · Beyond the included amount, overage is billed in blocks of ${OVERAGE_BLOCK_UNITS}: ` +
+    `${blockPrices("voiceMinutes").join(" or ")} for ${block} extra phone minutes, and ` +
+    `${blockPrices("chatConversations").join(" or ")} for ${block} extra chat conversations, ` +
+    "depending on the package. A block is charged in full once it is started. These overage " +
+    "rates are provisional: mention them only if asked, and say they are provisional."
   );
 }
 

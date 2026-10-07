@@ -287,10 +287,12 @@ a rule already holds, and treat a gap as a bug, not a precedent.
   the step, never the time. Never "live in two minutes".
 - **No opening dates.** A channel is sold only once it is ready; one that isn't
   comes off the product list and out of the copy (owner, 6 October 2026).
-- The overage rates ($0.80 a voice minute; $0.40 a chat conversation on the
-  single-channel chat package and $0.30 on the rest, set by the owner on 5
-  October 2026) are provisional until measured. Copy says so; the billing
-  mechanics stay as they are.
+- Overage is billed per started block of 100 (owner, 6 October 2026): $80 for
+  each started block of 100 extra voice minutes; $40 for each started block of
+  100 extra chat conversations on the single-channel chat package and $30 on
+  the rest. The rates behind them, set by the owner on 5 October 2026, are
+  provisional until measured. Copy says so and quotes the block and its price,
+  never a per-unit rate; being provisional does not change what is billed.
 - "healdesk is a service of Viixi FZC, a company registered under the Sharjah
   Publishing City Free Zone, United Arab Emirates" appears in the site footer
   and on the Terms and Privacy pages. The registered street address is not

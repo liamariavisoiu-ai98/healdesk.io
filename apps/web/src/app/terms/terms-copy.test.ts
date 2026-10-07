@@ -1,3 +1,4 @@
+import { OVERAGE_RATES_PROVISIONAL } from "@healdesk/catalog";
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
@@ -98,6 +99,38 @@ describe("the terms describe v1 as the spec defines it", () => {
       "Within 30 days of the end we deliver an export of your data — transcripts and the booking log — and we then destroy our copies when and as the Business Associate Agreement says.",
     );
     expect(text).not.toContain("before destroying our copies on the schedule");
+  });
+});
+
+describe("usage above the allowance is billed per started block of 100", () => {
+  const text = pageText();
+
+  test("section 3 states the block rule plainly, provisional until measured", () => {
+    // The owner's decision of 6 October 2026 (docs/v1-product-spec.md,
+    // "Overage prices"): $80 for each started block of 100 extra voice
+    // minutes, $40 or $30 for each started block of 100 extra chat
+    // conversations. Stripe bills exactly that from the same catalog, and
+    // src/lib/overage-copy.test.ts holds the table's prices to it.
+    if (OVERAGE_RATES_PROVISIONAL) return;
+    expect(text).toContain(
+      "Usage above the included allowance is billed in blocks: each month, every started block of 100 extra voice minutes or 100 extra chat conversations is billed at your package's block price in the table above, so a single minute or conversation over the allowance is billed as a whole block.",
+    );
+    expect(text).toContain(
+      "These block prices are provisional until we have measured what that usage costs to serve.",
+    );
+    expect(text).toContain(
+      "On a monthly package the blocks are billed in arrears on the next invoice; on an annual package they are invoiced separately, monthly in arrears, at the same prices.",
+    );
+    expect(text).toContain("Extra voice, per started block of 100 minutes");
+    expect(text).toContain("Extra chat, per started block of 100 conversations");
+  });
+
+  test("and nothing in the terms is priced per minute or per conversation", () => {
+    expect(text).not.toContain("per voice minute and per chat conversation");
+    // Word boundaries, because "extra voice minutes" holds "a voice minute".
+    expect(text).not.toMatch(
+      /\/min\b|\/conversation|\bper (?:voice )?minute|\bper (?:chat )?conversation|\ba voice minute|\ba chat conversation|\$0\.\d\d/i,
+    );
   });
 });
 

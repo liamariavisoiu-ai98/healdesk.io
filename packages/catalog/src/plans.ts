@@ -59,7 +59,7 @@
  * more than change what the page displays. While it is true,
  * `meteredLookupKeysFor()` in apps/web/src/lib/billing.ts attaches no metered
  * price to a monthly checkout. The terms also replace their overage sentence
- * with "Until those rates are published, usage above the allowance is not
+ * with "Until those prices are published, usage above the allowance is not
  * billed." Flipping it would change what Stripe bills and what the service
  * agreement says. That is a billing and counsel decision, not a copy one.
  * Until someone makes it, false means: the pricing page prints these numbers,

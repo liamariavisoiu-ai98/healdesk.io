@@ -1,3 +1,5 @@
+import { agreementKindOfVersion, DPA_VERSION_PREFIX, type AgreementKind } from "@healdesk/catalog";
+
 import {
   getTransport,
   type DeliveryTarget,
@@ -7,7 +9,12 @@ import {
 import { log } from "@/lib/log";
 
 /**
- * The counterparty's copy of the business associate agreement.
+ * The counterparty's copy of the business associate agreement, or of the
+ * Data Protection Agreement a practice HIPAA does not reach signs instead
+ * (plan Part L). The email is worded by the kind the stored version carries
+ * (`agreementKindOfVersion`; plan Annex X, P6): the subject, the opening line
+ * and the reason to keep the file name the document that is attached. A
+ * BAA's wording is what it always was.
  *
  * Until this existed, healdesk held the only copy of a contract with two
  * parties to it. The clinic signed on a web page, was shown the text once, and
@@ -109,6 +116,42 @@ export type AgreementCopyResult =
 
 const CONTACT = "hello@healdesk.io";
 
+/**
+ * The words that name the document, by kind. The BAA's are the strings this
+ * email has always carried; the DPA's say what a practice outside HIPAA would
+ * be asked for, and never call its clients patients.
+ */
+const DOCUMENT_WORDS: Readonly<
+  Record<AgreementKind, { noun: string; keepText: readonly string[]; keepHtml: string }>
+> = {
+  baa: {
+    noun: "business associate agreement",
+    keepText: [
+      `Please keep it. This is a contract with two parties to it, and healdesk`,
+      `should not be the only one holding a copy — if your practice is ever asked`,
+      `to produce its business associate agreements, this is the file.`,
+    ],
+    keepHtml:
+      `<p><strong>Please keep it.</strong> This is a contract with two parties to it, ` +
+      `and healdesk should not be the only one holding a copy — if your practice is ` +
+      `ever asked to produce its business associate agreements, this is the file.</p>`,
+  },
+  dpa: {
+    noun: "data protection agreement",
+    keepText: [
+      `Please keep it. This is a contract with two parties to it, and healdesk`,
+      `should not be the only one holding a copy — if your practice is ever asked`,
+      `what it agreed with healdesk about its clients' information, this is the`,
+      `file.`,
+    ],
+    keepHtml:
+      `<p><strong>Please keep it.</strong> This is a contract with two parties to it, ` +
+      `and healdesk should not be the only one holding a copy — if your practice is ` +
+      `ever asked what it agreed with healdesk about its clients' information, this is ` +
+      `the file.</p>`,
+  },
+};
+
 export function renderAgreementCopy(copy: {
   signatoryName: string;
   clinicName: string;
@@ -117,19 +160,18 @@ export function renderAgreementCopy(copy: {
   acceptedAt: Date;
 }): { subject: string; text: string; html: string } {
   const when = formatSignedAt(copy.acceptedAt);
-  const subject = `Your signed business associate agreement for ${copy.clinicName}`;
+  const words = DOCUMENT_WORDS[agreementKindOfVersion(copy.version)];
+  const subject = `Your signed ${words.noun} for ${copy.clinicName}`;
 
   const text = [
-    `Attached, as a PDF, is the business associate agreement you signed for`,
+    `Attached, as a PDF, is the ${words.noun} you signed for`,
     `${copy.clinicName}. It is the document we recorded at signature, word for`,
     `word — the same text that was on your screen.`,
     ``,
     `Signed by ${copy.signatoryName} on ${when}.`,
     `Agreement version ${copy.version}.`,
     ``,
-    `Please keep it. This is a contract with two parties to it, and healdesk`,
-    `should not be the only one holding a copy — if your practice is ever asked`,
-    `to produce its business associate agreements, this is the file.`,
+    ...words.keepText,
     ``,
     `Our reference for it is the SHA-256 of the agreement text:`,
     copy.documentHash,
@@ -143,14 +185,12 @@ export function renderAgreementCopy(copy: {
   ].join("\n");
 
   const html = [
-    `<p>Attached, as a PDF, is the business associate agreement you signed for `,
+    `<p>Attached, as a PDF, is the ${words.noun} you signed for `,
     `<strong>${escapeHtml(copy.clinicName)}</strong>. It is the document we recorded `,
     `at signature, word for word — the same text that was on your screen.</p>`,
     `<p>Signed by ${escapeHtml(copy.signatoryName)} on ${escapeHtml(when)}.<br>`,
     `Agreement version ${escapeHtml(copy.version)}.</p>`,
-    `<p><strong>Please keep it.</strong> This is a contract with two parties to it, `,
-    `and healdesk should not be the only one holding a copy — if your practice is `,
-    `ever asked to produce its business associate agreements, this is the file.</p>`,
+    words.keepHtml,
     `<p>Our reference for it is the SHA-256 of the agreement text:<br>`,
     `<code style="word-break:break-all">${escapeHtml(copy.documentHash)}</code></p>`,
     `<p>If you need another copy, or this reached the wrong address, email `,
@@ -325,6 +365,11 @@ const EMAIL_SHAPED = /[^\s@<>()[\],;:"]+@[^\s@<>()[\],;:"]+\.[^\s@<>()[\],;:"]{2
 function defaultFilename(acceptance: AgreementCopyRequest): string {
   const at = acceptance.acceptedAt;
   const day = `${at.getUTCFullYear()}-${pad(at.getUTCMonth() + 1)}-${pad(at.getUTCDate())}`;
+  if (agreementKindOfVersion(acceptance.version) === "dpa") {
+    // The stem names the kind; the version's own namespace is not repeated.
+    const version = acceptance.version.slice(DPA_VERSION_PREFIX.length);
+    return `healdesk-data-protection-agreement-${version}-${day}.pdf`;
+  }
   return `healdesk-business-associate-agreement-${acceptance.version}-${day}.pdf`;
 }
 

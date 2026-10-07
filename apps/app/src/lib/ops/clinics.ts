@@ -76,7 +76,7 @@ export type ClinicOverview = {
    */
   baaVersion: string | null;
   /**
-   * 0055: the version of the agreement the clinic was bound to when its
+   * 0056: the version of the agreement the clinic was bound to when its
    * service ended (app_agreement_at_end), terminated since or not, or null
    * while it is not offboarding or held none then. The destruction rule is
    * read from it (destructionPlan in lib/offboarding). Contract metadata.

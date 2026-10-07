@@ -595,7 +595,7 @@ describeDb("booking requests at destruction, erasure and purge", () => {
     // Destruction: never another clinic's from inside this tenant, never a
     // customer's, and never before its agreement's rule allows, by the
     // database's clock. This clinic holds no agreement, so the rule is the
-    // thirty days, due at day 29 (drizzle/0055).
+    // thirty days, due at day 29 (drizzle/0056).
     for (const fn of [
       "app_destroy_booking_requests",
       "app_start_offboarding",

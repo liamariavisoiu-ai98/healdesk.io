@@ -51,7 +51,7 @@ import { withTenant } from "@/lib/tenant";
  *
  * Each clinic is destroyed on the rule its own agreement states: the
  * agreement it was bound to when its service ended (app_agreement_at_end in
- * drizzle/0055), terminated since or not. The agreement "in effect" skips a
+ * drizzle/0056), terminated since or not. The agreement "in effect" skips a
  * terminated acceptance, and an operator records a termination whenever they
  * get to it, so at destruction time it may name none.
  *
@@ -480,7 +480,7 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   await del("provider_connections", () => tx.db.delete(providerConnections).where(eq(providerConnections.clinicId, c)).returning({ id: providerConnections.id }));
   // Suppressions, consent records and contact attempts: phone numbers held
   // for the clinic, and append-only by grant (0010), so a definer deletes
-  // them on the same floor (app_destroy_contact_evidence, drizzle/0055). They
+  // them on the same floor (app_destroy_contact_evidence, drizzle/0056). They
   // were kept as TCPA evidence until v1 went inbound only (see the header).
   const evidence = await tx.db.execute<{
     suppressions_deleted: number;

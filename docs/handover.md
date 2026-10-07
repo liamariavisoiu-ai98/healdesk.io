@@ -345,7 +345,7 @@ the database accepts up to a week back, so a deletion processed late still start
 clock when the practice left; one processed more than a week late starts it a week back
 and raises the `offboarding_started_late` ops alert. When the data goes is the rule of
 the agreement the service ended under, terminated since or not (`destructionPlan` in
-`apps/app/src/lib/offboarding/offboarding.ts`; `app_destruction_due()` in drizzle/0055 is
+`apps/app/src/lib/offboarding/offboarding.ts`; `app_destruction_due()` in drizzle/0056 is
 the same rule as the database's floor):
 
 - BAA 1.2.1 and earlier, or no agreement on file: day 29, whatever the export, so the data

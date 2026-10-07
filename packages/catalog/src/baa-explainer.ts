@@ -182,6 +182,40 @@ export function baaExplainerTerms(templateVersion: string): readonly BaaExplaine
     : BAA_EXPLAINER.terms;
 }
 
+/** "Why you're signing this" as a screen shows it: BAA_EXPLAINER's shape, with any version's bullets. */
+export type BaaExplainer = {
+  heading: string;
+  lead: string;
+  objection: string;
+  terms: readonly BaaExplainerTerm[];
+  disclaimer: string;
+};
+
+/** One explainer per version that words its bullets differently, built once. */
+const BAA_EXPLAINERS_BY_VERSION: Readonly<Record<string, BaaExplainer>> = Object.fromEntries(
+  Object.entries(BAA_EXPLAINER_TERMS_BY_VERSION).map(([version, terms]) => [
+    version,
+    { ...BAA_EXPLAINER, terms },
+  ]),
+);
+
+/**
+ * The whole of "Why you're signing this" for one version of the agreement,
+ * its bullets from `baaExplainerTerms`: BAA_EXPLAINER itself for 1.2.1, the
+ * signed version, and for any version that words no bullet differently, so
+ * what that screen shows stays byte for byte what it shows today; for 1.3.0,
+ * the same heading, lead, objection and disclaimer above 1.3.0's bullets.
+ * The signing screen takes the explainer from here with the version it
+ * renders, never BAA_EXPLAINER directly (agreement-changes.md §12.14, release
+ * gate 11).
+ */
+export function baaExplainerFor(templateVersion: string): BaaExplainer {
+  // Own keys only, as baaExplainerTerms: "toString" is no version.
+  return Object.prototype.hasOwnProperty.call(BAA_EXPLAINERS_BY_VERSION, templateVersion)
+    ? BAA_EXPLAINERS_BY_VERSION[templateVersion]!
+    : BAA_EXPLAINER;
+}
+
 /** The clauses that have a note below. */
 export type ExplainedClauseId =
   | "data-sources-none"

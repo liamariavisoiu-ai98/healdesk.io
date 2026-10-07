@@ -1,8 +1,15 @@
-import { annualTotalUsd, OVERAGE_RATES_PROVISIONAL } from "@healdesk/catalog";
+import {
+  annualTotalUsd,
+  type MeterId,
+  OVERAGE_BLOCK_UNITS,
+  OVERAGE_RATES_PROVISIONAL,
+  type Plan,
+} from "@healdesk/catalog";
 import type { Metadata } from "next";
 
 import { LegalPage, Section } from "@/components/LegalPage";
 import { ENTITY, GUARANTEE_TEXT, POLICY, entityDisplayName, packagesForTerms } from "@/lib/legal";
+import { overageBlockPrices } from "@/lib/pricing";
 import { site } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -13,6 +20,11 @@ export const metadata: Metadata = {
 };
 
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+/** A package's price for one started block on a meter, or a dash for a meter it does not bill. */
+function blockPrice(plan: Plan, meter: MeterId): string {
+  return overageBlockPrices(plan).find((block) => block.meter === meter)?.price ?? "—";
+}
 
 /**
  * The terms of service and subscription agreement.
@@ -63,6 +75,13 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * 3 October exception, and an account with nothing live 30 days after payment
  * is closed (section 3); a failed payment is emailed to the account's one
  * address (section 6).
+ *
+ * Revised the same day as LEGAL_VERSION 2026-10-07.2, to the owner's
+ * decision of 6 October 2026 (docs/v1-product-spec.md, "Overage prices"):
+ * usage above the allowance is billed per started block of 100 extra minutes
+ * or conversations, not per unit, and section 3's table prints each package's
+ * block prices from the catalog (`overageBlockPrices`, the prices Stripe
+ * bills), marked provisional until measured.
  */
 export default function TermsPage() {
   const packages = packagesForTerms();
@@ -141,8 +160,14 @@ export default function TermsPage() {
           at <a href="/pricing" className="underline underline-offset-2">/pricing</a> when you
           subscribe. The packages at the date of these terms:
         </p>
+        {/* The block prices are package terms like the allowances, so each
+            package's row carries its own, from the catalog. While the rates
+            are held back (OVERAGE_RATES_PROVISIONAL) there is no price to
+            print and the columns are left out. */}
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-[14.5px]">
+          <table
+            className={`w-full text-[14.5px] ${OVERAGE_RATES_PROVISIONAL ? "min-w-[640px]" : "min-w-[800px]"}`}
+          >
             <thead>
               <tr className="border-line border-b text-left">
                 <th className="py-2 pr-3 font-semibold">Package</th>
@@ -150,7 +175,19 @@ export default function TermsPage() {
                 <th className="py-2 pr-3 font-semibold">Annual (per year)</th>
                 <th className="py-2 pr-3 font-semibold">One-time setup</th>
                 <th className="py-2 pr-3 font-semibold">Voice minutes / mo</th>
-                <th className="py-2 font-semibold">Chat conversations / mo</th>
+                <th className={`py-2 font-semibold ${OVERAGE_RATES_PROVISIONAL ? "" : "pr-3"}`}>
+                  Chat conversations / mo
+                </th>
+                {OVERAGE_RATES_PROVISIONAL ? null : (
+                  <>
+                    <th className="py-2 pr-3 font-semibold">
+                      Extra voice, per started block of {OVERAGE_BLOCK_UNITS} minutes
+                    </th>
+                    <th className="py-2 font-semibold">
+                      Extra chat, per started block of {OVERAGE_BLOCK_UNITS} conversations
+                    </th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -161,19 +198,27 @@ export default function TermsPage() {
                   <td className="py-2 pr-3">{usd.format(annualTotalUsd(p))}</td>
                   <td className="py-2 pr-3">{usd.format(p.setupFeeUsd)}</td>
                   <td className="py-2 pr-3">{p.includedVoiceMinutes ? p.includedVoiceMinutes.toLocaleString("en-US") : "—"}</td>
-                  <td className="py-2">{p.includedChatConversations ? p.includedChatConversations.toLocaleString("en-US") : "—"}</td>
+                  <td className={`py-2 ${OVERAGE_RATES_PROVISIONAL ? "" : "pr-3"}`}>
+                    {p.includedChatConversations ? p.includedChatConversations.toLocaleString("en-US") : "—"}
+                  </td>
+                  {OVERAGE_RATES_PROVISIONAL ? null : (
+                    <>
+                      <td className="py-2 pr-3">{blockPrice(p, "voiceMinutes")}</td>
+                      <td className="py-2">{blockPrice(p, "chatConversations")}</td>
+                    </>
+                  )}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
         <p>
-          <strong>Usage above the included allowance</strong> is billed in arrears on the next
-          invoice, per voice minute and per chat conversation, at the rate published on the
-          pricing page.{" "}
+          <strong>Usage above the included allowance</strong> is billed in blocks: each month,
+          every started block of {OVERAGE_BLOCK_UNITS} extra voice minutes or{" "}
+          {OVERAGE_BLOCK_UNITS} extra chat conversations is billed{" "}
           {OVERAGE_RATES_PROVISIONAL
-            ? "Until those rates are published, usage above the allowance is not billed."
-            : "On a monthly package, usage above the allowance appears on the next invoice at those rates. On an annual package it is invoiced separately, monthly in arrears, at the same rates."}{" "}
+            ? "at the block prices published on the pricing page. Until those prices are published, usage above the allowance is not billed."
+            : "at your package's block price in the table above, so a single minute or conversation over the allowance is billed as a whole block. These block prices are provisional until we have measured what that usage costs to serve. On a monthly package the blocks are billed in arrears on the next invoice; on an annual package they are invoiced separately, monthly in arrears, at the same prices."}{" "}
           Nothing else is charged for usage.
         </p>
         <p>

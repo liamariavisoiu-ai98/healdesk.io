@@ -21,10 +21,13 @@ type Actions = {
   markVoiceVendorDataDeleted: (how: string) => Promise<OpsResult<CareOutcome>>;
 };
 
+// The clocks apps/app computes (lib/incidents/incidents.ts): BAA 1.3.0 gives
+// every clinic 24 hours from discovery for the first three classes, whichever
+// version it signed.
 const CLASS_LABELS: Record<IncidentClass, string> = {
-  security_incident: "Security incident (5 business days to tell the clinic)",
-  improper_use_or_disclosure: "Use or disclosure the BAA does not permit (5 business days)",
-  breach: "Breach of unsecured PHI (5 calendar days)",
+  security_incident: "Security incident (24 hours to tell the clinic)",
+  improper_use_or_disclosure: "Use or disclosure the BAA does not permit (24 hours)",
+  breach: "Breach of unsecured PHI (24 hours)",
   service_complaint: "Service complaint (2 business days to a first reply)",
 };
 
@@ -53,7 +56,7 @@ export function CarePanel({ view, actions }: { view: OpsResult<CareView>; action
       <p className="text-muted mt-1 text-sm">
         {v.clinic.dataClassification}
         {v.clinic.wentLiveOn ? ` · live since ${v.clinic.wentLiveOn}` : " · not live"}
-        {v.clinic.isCoveredEntity === false ? " · not a covered entity (FTC rule applies)" : ""}
+        {v.clinic.isCoveredEntity === false ? " · not a covered entity (state breach law applies)" : ""}
         {" · "}
         <a href={`/admin/ops/${v.clinic.id}/onboarding`} className="underline">onboarding</a>
       </p>
@@ -225,7 +228,7 @@ function IncidentRow({ incident, actions }: { incident: CareView["incidents"][nu
         {incident.notifiedAt
           ? `Clinic told ${incident.notifiedAt}: ${incident.notifiedHow ?? ""}`
           : `Tell the clinic by ${incident.notifyBy}${overdue ? " — OVERDUE" : ""}`}
-        {incident.ftcNotifyBy ? ` · FTC rule: individuals by ${incident.ftcNotifyBy}` : ""}
+        {incident.ftcNotifyBy ? ` · the clinic tells the people affected by ${incident.ftcNotifyBy} (state breach law)` : ""}
       </p>
       {incident.resolution ? <p className="text-muted mt-1 text-xs">{incident.resolution}</p> : null}
       {problem ? <p className="text-red-deep mt-1 text-xs">{problem}</p> : null}

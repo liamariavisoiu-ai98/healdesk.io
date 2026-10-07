@@ -22,6 +22,7 @@ import {
   listCopyDeliveries,
   type CopyTrigger,
 } from "@/lib/agreements";
+import { agreementTemplateReleased } from "@/lib/agreements/kind";
 import {
   AgreementSearchError,
   searchAgreements,
@@ -3544,6 +3545,17 @@ async function opSetMetaFrontDoor(
   }
   if (enabled && !clinic.publishedPhoneE164) {
     return care.error("Enter the clinic's published number first; the front door hands off to it.");
+  }
+  // BAA 1.3.0 release gate 19 (docs/counsel/agreement-changes.md §12.14):
+  // the front door answers real people on Instagram, Messenger and
+  // WhatsApp, so it goes on only for a clinic held to an agreement a
+  // practice may sign: an acceptable BAA version or a released DPA. The
+  // screen it rests on, every inbound message checked for clinical and
+  // urgent content before the model (gate 4), runs unconditionally.
+  if (enabled && !(clinic.baaVersion && agreementTemplateReleased(clinic.baaVersion))) {
+    return care.error(
+      "The clinic's agreement in effect must be a released version before the front door goes on.",
+    );
   }
   await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },

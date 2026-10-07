@@ -45,6 +45,10 @@
  * is "Retell (the website demo call)", beside the product's own Retell row,
  * as Anthropic has one row per organisation.
  * Published as LEGAL_VERSION 2026-10-06.4.
+ *
+ * Change of 7 October 2026 (LEGAL_VERSION 2026-10-07.3): the website demo
+ * Retell row also covers the demo line printed on the site (site.demoLine),
+ * answered by AYA's inbound agent.
  *   - Cal.com is gone: v1 writes bookings only to the clinic's own Google
  *     Calendar, and nothing into Cal.com.
  *   - Google Calendar is not a row. The calendar is the clinic's own, under
@@ -175,8 +179,8 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   },
   {
     name: "Retell (the website demo call)",
-    purpose: "Places the one demo call a visitor asks for on this website, on a separate agent from the product's, and runs the conversation on Anthropic's Claude model",
-    data: "The number you typed, the first name you gave and the specialty you were viewing, and the call's audio and words while it is live. Retell keeps no recording or transcript of the demo call, only its basic record (time, length, how it ended), for 30 days",
+    purpose: "Places the one demo call a visitor asks for on this website and answers the demo line on it, on separate agents from the product's, and runs the conversation on Anthropic's Claude model",
+    data: "For a call you asked for: the number you typed, the first name you gave and the specialty you were viewing. For a call to the demo line: your number. Either way, the call's audio and words while it is live. Retell keeps no recording or transcript of either call, only its basic record (time, length, how it ended), for 30 days",
     // Not confirmed in writing, as for the product's row above.
     region: "",
     handlesPhi: false,

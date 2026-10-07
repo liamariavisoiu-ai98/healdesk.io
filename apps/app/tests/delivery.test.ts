@@ -430,7 +430,7 @@ describeDb("delivery", () => {
           // and the requests worker's hourly backstop.
           "billing-reconcile",
           "billing-requests",
-          // Destruction runs every hour (drizzle/0055), so a clinic whose
+          // Destruction runs every hour (drizzle/0056), so a clinic whose
           // agreement gives thirty days is gone before they are up.
           "offboarding-destroy",
         ].sort(),

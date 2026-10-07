@@ -16,15 +16,18 @@ That design's A1, A2 and portal screens were superseded by the funnel plan.
 Where this record and the code disagree, the code is right: it was tested, and
 this was written from it.
 
-## Release gate: the overage copy
+## Release gate: the overage copy (met at 8672e71)
 
-The new metered prices bill per started block of 100 units. Until the Terms
-(§3), the pricing page and the funnel's Review & pay line say so, **do not run
-`stripe:setup` on live**: it archives the per-minute and per-conversation
-prices those pages still describe. The funnel session writes that copy from
-the catalog's `OVERAGE_BLOCK_UNITS` and `overageBlockCents` once this build is
-on main. Production checkout opens only through setup links that ops mints, so
-nobody buys on the per-unit wording unless we hand them a link.
+The new metered prices bill per started block of 100 units, and running
+`stripe:setup` on live archives the per-minute and per-conversation prices.
+So it waited until the Terms (§3), the pricing page and the funnel's Review &
+pay line said "per started block of 100". The funnel session's 8672e71 (7
+October 2026) put that wording on main and on healdesk.io: Terms 2026-10-07.2
+prints a block price for each package. `apps/web/src/lib/overage-copy.test.ts`
+derives every figure from the catalog's `OVERAGE_BLOCK_UNITS` and
+`overageBlockCents`, and checks the `unit_amount` and `transform_quantity`
+that stripe-setup builds, so the copy and the prices cannot drift apart. The
+gate is met: `stripe:setup` may run live.
 
 ## What a clinic's money does, start to finish
 
@@ -161,8 +164,7 @@ nobody buys on the per-unit wording unless we hand them a link.
 ## Switching it on (owner)
 
 The "Stripe launch: your steps" doc has the click-by-click version.
-1. Release gate first (above): the overage copy must be on main before any
-   live `stripe:setup`.
+1. Release gate (above): met at 8672e71, so live `stripe:setup` may run.
 2. Run `npm run queue:install -w @healdesk/app` as the migrator in every
    environment before the worker deploys.
 3. Run `stripe:setup`. It creates the block-priced metered prices and the $0
@@ -279,6 +281,10 @@ What the fixes left open:
 - The data-destruction dates in the `canceled` email come from
   `canceledPayload` in `events.ts`. The funnel session replaces those two lines
   with its per-agreement function (BAA 1.2.1 and earlier: day 30 flat), keeping
-  `exportByOn` and `destroyByOn` and their meanings.
+  `exportByOn` and `destroyByOn` and their meanings. Done on 7 October 2026
+  (drizzle/0056): `canceledPayload` reads both from `destructionPlan` in
+  `lib/offboarding/offboarding.ts`, the function the destruction job reads,
+  meanings kept. BAA 1.2.1 and earlier are destroyed at day 29, inside their
+  thirty days; BAA 1.3.0 and the DPA keep the DPA's rule.
 - The plan's Part J test (every `clinic_id` table is in the destroy list and
   the purge, or in a reasoned keep-list) is M5 work.

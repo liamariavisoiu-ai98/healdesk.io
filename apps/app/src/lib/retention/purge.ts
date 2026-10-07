@@ -68,7 +68,7 @@ import type { TenantTx } from "@/lib/tenant";
  * stopped; all three are append-only by grant (0010). None of them stays for
  * good, though: they go with the rest of the clinic's data when it is
  * destroyed at offboarding (destroyClinicData in lib/offboarding, through
- * app_destroy_contact_evidence, drizzle/0055). They were kept past that as
+ * app_destroy_contact_evidence, drizzle/0056). They were kept past that as
  * the TCPA evidence that an outbound contact was lawful, but v1 contacts no
  * one first, so there is nothing for them to evidence, and every agreement's
  * return-or-destroy clause reaches them (BAA 1.3.0 release gate 7).

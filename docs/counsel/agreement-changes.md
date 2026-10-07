@@ -838,7 +838,7 @@ release by changing the code, the clause or the site copy:
    (`docs/design/funnel-onboarding-portal-2026-10-06.md`, Part L, on main).
    (Since 7 October 2026 the code keeps each agreement's own rule: 1.2.1 and
    earlier destroy before thirty days are up whatever the export, and the
-   ninety days apply only where the agreement states them; drizzle/0055 and
+   ninety days apply only where the agreement states them; drizzle/0056 and
    release gate 7 in §12.14.)
 9. **The Payments clause describes a link nothing creates.** "Where Practice
    takes deposits, healdesk creates a payment link through Practice's own
@@ -1313,12 +1313,40 @@ these is closed, by code, a page, a signed paper or a host setting, and
    (`apps/web/src/lib/subprocessors.ts`) already tell every customer that
    clinical content is "caught on arrival" or "caught when it arrives",
    which is true only once the screen runs. Switching the front door on sooner needs that copy corrected
-   first (apps/web, with a `LEGAL_VERSION` bump).
+   first (apps/web, with a `LEGAL_VERSION` bump). Done on 7 October 2026.
+   `answerFrontDoor` runs the catalog's `findUrgentContent` (the urgent set,
+   new: none existed) and then `findClinicalContent` over each message before
+   `input.responder`. An urgent message gets `urgentLine` (the AI line, 911,
+   then the clinic's direct line, else its published number) and the urgent
+   alert's hook; a clinical one gets the fixed hand-off line. Neither calls
+   the model, so nothing of the message is extracted, drafted, requested,
+   audited or logged. The first reply of each conversation opens with
+   `metaChannelGreeting()`, the fixed lines included, and no later one does:
+   a conversation is the person's thread until 24 hours pass without a
+   message from them, and `chat_threads.greeted_conversation_id`
+   (drizzle/0055, `lib/meta/greeting.ts`) records whose first reply carried
+   it. The webhook records it only once that reply has gone out, so a reply
+   `sendMetaReply` drops outside Meta's window (a backlog Meta delivers a
+   day late) leaves the greeting to the first reply the person does get.
+   Messenger is in `disclosure.ts`'s channels. The copy above now
+   describes the code, as far as the catalog's vocabulary reaches: a
+   condition it does not name (acne, rosacea) still goes to the model, where
+   the prompt and the reply guard hold it, and nothing of any message is
+   stored but cleaned booking fields. Nothing here switches the front door
+   on; the ops console's `setMetaFrontDoor` still can, for a production
+   clinic with a published number.
 5. **Incident deadline (PT-14).** `notifyDeadline` in
    `apps/app/src/lib/incidents/incidents.ts` returns discovery plus 24 hours
    for a breach, a security incident and an improper use or disclosure, for
    every clinic; its test (`tests/incidents-and-offboarding.test.ts`), its
-   comments, the schema comment and the ops Incidents page follow.
+   comments, the schema comment and the ops Incidents page follow. Done on
+   7 October 2026: it does, keeping the state-law "immediately" for a breach
+   at a clinic that is not a covered entity wherever that is the earlier
+   clock (24 hours today); the service complaint's two business days and the
+   owner's 30-day clock are unchanged. The tests, the comments, the schema
+   comment, the ops care page, `incident-response.md` and the risk analysis
+   follow. An incident opened before keeps the deadline it was opened with,
+   and the runbook says to work to 24 hours for it too.
 6. **Per-person deletion (SL-06, PT-18).** An operator erase path that runs
    `eraseContact` and also deletes the person's `webhook_events`,
    `meta_booking_drafts`, booking requests matched by messaging identifier
@@ -1334,7 +1362,7 @@ these is closed, by code, a page, a signed paper or a host setting, and
    what clause 4(c) promises: "only a record of the request, for no longer
    than it needs one to make sure the information stays deleted".
 7. **Offboarding (HRC-02, PT-01).** Code in
-   `drizzle/0055_destruction_clock.sql` and
+   `drizzle/0056_destruction_clock.sql` and
    `apps/app/src/lib/offboarding/offboarding.ts`, pinned by
    `tests/destruction-clock.test.ts`.
    - Done: 1.2.1 and earlier keep their flat thirty days and 1.3.0 and the
@@ -1391,7 +1419,9 @@ these is closed, by code, a page, a signed paper or a host setting, and
      a destroyed clinic and runs both.
 8. **Amendment record (PT-17).** An append-only amendment linked to the
    booking request or conversation it amends, carried by `exportPatient`,
-   `exportClinic` and the portal export.
+   `exportClinic` and the portal export. The DPA's clause 13 promises the
+   same, as a correction, so its release waits on this gate too (`dpa.md`,
+   gap 22).
 9. **Retention (PT-28).** The nightly purge switched on for every 1.3.0
    clinic (0032 ships it off), and extended to webhook events that are never
    processed. Done in drizzle/0054 and `lib/retention/purge.ts`: the purge
@@ -1411,10 +1441,14 @@ these is closed, by code, a page, a signed paper or a host setting, and
       (SUB-01, §12.11 item 12). apps/web's `agreement-kinds.ts` does this
       since the four-step funnel (8d7fcd4).
     - The "Why you're signing this" bullets come through
-      `baaExplainerTerms(template.version)`. apps/web's `agreement-kinds.ts`
-      and the catalog's `AGREEMENT_COPY` still hand out `BAA_EXPLAINER`, so
-      today a 1.3.0 buyer would read "use it only" and "materially breach"
-      above a clause that says more.
+      `baaExplainerTerms(template.version)`. Done: the catalog's
+      `AGREEMENT_COPY[kind].explainer(version)` (`baaExplainerFor`) gives each
+      version its own bullets, and apps/web's `agreement-kinds.ts` builds each
+      entry from the template it renders (`baaAgreementCopy`), so the version
+      shown, its bullets, its text and the version signed are one version.
+      1.2.1 still shows `BAA_EXPLAINER` word for word; a 1.3.0 buyer reads
+      "limit its use and disclosure" and "if you determine that we have
+      violated a material term of it" (`AgreementStep.version.test.ts`).
     - Plan C15 lands: provisioning's approval gate reads the bound
       acceptance's version (§12.11 item 13). Plan C3 has landed (ad02b30):
       both signing paths settle the version through `signableTemplate`.
@@ -1467,26 +1501,39 @@ switches it, as the shared-module agreement of 6 October provides:
   variant of the state-law clause in its appendix.
 - The DPA's eight golden hashes and `docs/dpa-v1.0.0.txt` are regenerated.
 
-What remains the funnel's to do, before the DPA is released:
+What remained the funnel's to do, before the DPA is released, and what was
+done on 7 October 2026 (`docs/counsel/dpa.md` § 5, items 10 to 15; the DPA's
+golden hashes and `docs/dpa-v1.0.0.txt` regenerated, no BAA hash moved):
 
-- Define "calendar election" in the DPA's own Definitions clause, as BAA
-  1.3.0's clause 1 does, since the shared state-law clause and the location
-  paragraph both use it.
-- Get an election form that names the Data Protection Agreement.
-  `CALENDAR_ELECTIONS[0]` names only the Business Associate Agreement
-  (`dpa.md`, gap 6). Until there is one, the DPA refuses a second location
-  or a change of booking system.
-- Give "without penalty" the same effect in its own Term clause, and move its
-  incident and breach notice to the 24-hour rule.
-- Change the "Clients' requests" and Term clauses. Both say the telephone
+- Done: "calendar election" defined in the DPA's own Definitions clause, in
+  BAA 1.3.0's clause 1 words, an accepted one part of the agreement and of
+  its entire-agreement sentence.
+- Done, in part: an election form that names the Data Protection
+  Agreement, `calendar-election-dpa/1.0.0`
+  (`packages/catalog/src/dpa-calendar-election.ts`), unreleased and frozen,
+  with `calendarElectionFor` to pick a form by the agreement's kind. The
+  calendar session's election rows (plan C6, C7) are not on main, so
+  nothing can record an election of either kind, and the DPA still refuses
+  a second location or a change of booking system; that refusal stays
+  until the form is released and the rows take it (`dpa.md`, gap 6).
+- Done: "without penalty" has 1.3.0's effect (the Services end that day, no
+  Fees after, a refund outside the liability exclusion and the indemnity,
+  and the agreement prevails over the Terms on termination and the Fees),
+  and the incident and breach notice is the 24-hour rule.
+- Done: the instructions, requests and assistance clauses reconciled with the
+  shared clause, one statement of each duty, the more protective kept; and
+  a request made to healdesk is answered only in its reply (PT-24).
+- Done, from review: the requests clause no longer promises, read alone, to
+  correct a booking request in place, which 0039's trigger refuses. It takes
+  1.3.0's clause 14(b) fix (PT-17) in its own words: corrected where the
+  record can change, otherwise appended and linked. That rests on gate 8,
+  so gate 8 holds the DPA's release too (`dpa.md`, gap 22).
+- Done: `docs/counsel/dpa.md` brought up to date.
+- Still to do: the "Clients' requests" and Term clauses say the telephone
   number of a client whose information was deleted is kept as the record of
-  the request, and gates 6 and 7 remove that number. Item c of the shared
-  clause allows only a record kept no longer than needed.
-- Reconcile the DPA's own instructions, requests and assistance clauses with
-  the shared clause where they overlap. Meanwhile the shared clause's
-  precedence sentence makes the more protective one govern.
-- Bring `docs/counsel/dpa.md` up to date: it still describes the two edits
-  and the open choice of the fuller clause.
+  the request; gates 6 and 7 remove that number, and both sentences change
+  with them. Item c of the shared clause, which allows only a record kept no
+  longer than needed, governs meanwhile.
 
 #### Flagged for the owner
 

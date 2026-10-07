@@ -1676,7 +1676,7 @@ describeDb("the deferred start's billing lifecycle", () => {
       expectLintClean(notices);
     });
 
-    // The destruction clock (lib/offboarding, drizzle/0055): the email's days
+    // The destruction clock (lib/offboarding, drizzle/0056): the email's days
     // are destructionPlan's, by the agreement the clinic's service ended
     // under, so the email and the job cannot disagree.
     test("the canceled email's export and destruction days are the destruction plan's, for each rule", async () => {

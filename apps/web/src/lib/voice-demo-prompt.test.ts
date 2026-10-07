@@ -103,6 +103,8 @@ describe("price, precisely", () => {
     // The owner's decision of 6 October 2026 (docs/v1-product-spec.md,
     // "Overage prices"). scripts/retell-demo-agent.ts pushes this prompt, so a
     // per-minute rate left here is said to a real person on the next call.
+    // This pins the sentence as spoken. src/lib/overage-copy.test.ts holds its
+    // block and prices to the catalog, which a literal here cannot do.
     expect(flat(VOICE_DEMO_PRICES)).toContain(
       "Beyond the included amount, overage is billed in blocks of 100: $80 for each started block " +
         "of 100 extra phone minutes, and $30 or $40 for each started block of 100 extra chat " +

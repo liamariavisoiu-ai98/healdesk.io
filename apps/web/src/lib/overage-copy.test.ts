@@ -29,17 +29,18 @@ import { computeDesired, meteredPriceParams } from "../../scripts/stripe-setup";
  * On 6 October 2026 the owner moved overage from per unit to per started
  * block of 100 (docs/v1-product-spec.md, "Overage prices"). The billing moved
  * first: Stripe's metered prices became $80 a block of 100 minutes and $40 or
- * $30 a block of 100 conversations, while the Terms, the pricing cards and
- * Review & pay still quoted $0.80 a minute, and stripe:setup was held back on
- * live until the words caught up (docs/design/stripe-bcd-as-built-2026-10-07.md).
+ * $30 a block of 100 conversations, while the Terms, the pricing cards,
+ * Review & pay and the demo call still quoted $0.80 a minute, and stripe:setup
+ * was held back on live until the words caught up
+ * (docs/design/stripe-bcd-as-built-2026-10-07.md).
  *
  * So every number below is worked out here from the catalog's per-unit rates
  * with `overageBlockCents()` and `OVERAGE_BLOCK_UNITS`, not from the
- * `overageBlockPrices()` the pages print with, and held against what each
- * surface renders and against the price stripe:setup creates: the block price
- * is the metered price's `unit_amount`, and the block size its
- * `transform_quantity`, rounded up, which is what "started" means. A change to
- * the rates, the block or the wording on one side only fails here.
+ * `overageBlockPrices()` or `planMeteredPrices()` the surfaces print with, and
+ * held against what each surface says and against the price stripe:setup
+ * creates: the block price is the metered price's `unit_amount`, and the block
+ * size its `transform_quantity`, rounded up, which is what "started" means. A
+ * change to the rates, the block or the wording on one side only fails here.
  */
 
 const text = (markup: string) =>
@@ -245,6 +246,45 @@ describe("Terms section 3 states the block and each package's block prices", () 
     const want = expected(plan);
     expect(row![column.voiceMinutes]).toBe(want.voiceMinutes ?? "—");
     expect(row![column.chatConversations]).toBe(want.chatConversations ?? "—");
+  });
+});
+
+/**
+ * The demo call's price list covers every package at once, so each meter's
+ * sentence names every block price a package bills on it, cheapest first. The
+ * agent quotes from it to prospects once scripts/retell-demo-agent.ts has
+ * pushed the prompt, so a price typed into the prompt would outlive a catalog
+ * change and be quoted after Stripe had stopped billing it. The prompt carries
+ * the prices whatever OVERAGE_RATES_PROVISIONAL says, so unlike the checks
+ * above this one is not skipped while the flag is set.
+ */
+describe("the demo call quotes the block and every block price the packages bill", () => {
+  /** One meter's block prices across the packages that bill it, from the catalog's rates alone. */
+  const blockPricesOn = (meter: MeterId) =>
+    [
+      ...new Set(
+        plans
+          .filter((plan) => expected(plan)[meter] !== null)
+          .map((plan) => overageBlockCents(rateOf(plan, meter))),
+      ),
+    ]
+      .sort((a, b) => a - b)
+      .map(money)
+      .join(" or ");
+
+  test("the overage sentence on the price list", () => {
+    const words = VOICE_DEMO_PRICES.replace(/\s+/g, " ");
+    const line = words.slice(
+      words.indexOf("Beyond the included amount"),
+      words.indexOf(" These overage rates are provisional"),
+    );
+    const block = `each started block of ${OVERAGE_BLOCK_UNITS}`;
+    expect(line).toBe(
+      `Beyond the included amount, overage is billed in blocks of ${OVERAGE_BLOCK_UNITS}: ` +
+        `${blockPricesOn("voiceMinutes")} for ${block} extra phone minutes, and ` +
+        `${blockPricesOn("chatConversations")} for ${block} extra chat conversations, ` +
+        "depending on the package. A block is charged in full once it is started.",
+    );
   });
 });
 

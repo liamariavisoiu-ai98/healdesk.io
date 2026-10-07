@@ -1,9 +1,12 @@
 import {
   assentSentence,
   currentBaaTemplate,
+  currentDpaTemplate,
+  dpaAssentSentence,
   getBaaTemplate,
   hashBaaText,
   prepareBaa,
+  prepareDpa,
   type BaaVariables,
 } from "@healdesk/catalog";
 import { createHash } from "node:crypto";
@@ -803,5 +806,67 @@ describe("renderAgreementPdf", () => {
     );
     expect(hostile.filename).toMatch(/^healdesk-baa-[a-z0-9._-]+-\d{4}-\d{2}-\d{2}\.pdf$/);
     expect(hostile.filename).not.toMatch(/[/\\\r\n]/);
+  });
+});
+
+/**
+ * A Data Protection Agreement's copy (plan Part L): the same renderer and the
+ * same record of assent, and on every page, in the file's own title and in its
+ * name, the document it is. The BAA's three strings are untouched, which is
+ * what keeps every BAA copy's bytes, and the digests already recorded, where
+ * they were.
+ */
+describe("a Data Protection Agreement's PDF", () => {
+  const DPA = prepareDpa(currentDpaTemplate(), {
+    clinicLegalName: "Golden Paws Veterinary LLC",
+    signatoryName: "Laura Owner",
+    signatoryTitle: "Owner",
+    signatoryEmail: "info@goldenpaws.test",
+    effectiveDate: "2026-08-18",
+    specialty: "veterinary",
+    bookingSystem: "google_calendar",
+    calendarAccount: "personal",
+  });
+  const dpaAcceptance = () =>
+    acceptance({
+      documentVersion: DPA.version,
+      documentHash: DPA.hash,
+      renderedText: DPA.text,
+      assentLabel: dpaAssentSentence("Golden Paws Veterinary LLC"),
+      acceptedByName: "Laura Owner",
+      acceptedByEmail: "info@goldenpaws.test",
+    });
+
+  test("names the data protection agreement on every page, in its title and in its file name", async () => {
+    const pdf = await renderAgreementPdf(dpaAcceptance());
+    const doc = await PDFDocument.load(pdf.bytes);
+    const pageCount = doc.getPageCount();
+    const lines = await drawnLines(pdf.bytes);
+
+    const running = lines.filter((line) => line.startsWith("healdesk data protection agreement"));
+    expect(running).toHaveLength(pageCount);
+    for (const line of running) expect(line).toContain("template dpa/1.0.0");
+    // The DPA's own text speaks of business associate agreements (its status
+    // clause says it is not one); the file's own words never call it one.
+    expect(lines.some((line) => line.startsWith("healdesk business associate agreement"))).toBe(
+      false,
+    );
+    expect(doc.getTitle()).toBe("healdesk Data Protection Agreement dpa/1.0.0");
+    expect(pdf.filename).toBe("healdesk-dpa-1.0.0-2026-08-18.pdf");
+
+    // The agreement itself, verbatim, as for any acceptance.
+    expect(collapsed(lines.join("\n"))).toContain(collapsed(DPA.text.split("\n").slice(0, 2).join(" ")));
+    expect(lines.filter((line) => line.startsWith("SHA-256 of the agreement text"))).toHaveLength(
+      pageCount,
+    );
+  });
+
+  test("leaves a BAA's copy exactly as it was", async () => {
+    const pdf = await renderAgreementPdf(acceptance());
+    const doc = await PDFDocument.load(pdf.bytes);
+    expect(doc.getTitle()).toBe(`healdesk Business Associate Agreement ${SIGNED.version}`);
+    expect(pdf.filename).toBe(`healdesk-baa-${SIGNED.version}-2026-08-18.pdf`);
+    const lines = await drawnLines(pdf.bytes);
+    expect(lines.some((line) => line.startsWith("healdesk data protection agreement"))).toBe(false);
   });
 });

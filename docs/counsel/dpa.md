@@ -15,6 +15,17 @@
 > from the adversarial review of the same day: the veterinary variant no
 > longer states that every signer is a veterinary practice, because the
 > specialty is "Veterinary & Pet Spas" and a grooming spa signs it too.
+>
+> **Since then.** The BAA's pre-release audit (agreement-changes.md § 12.14)
+> gave the DPA the fuller state-law clause, and on 7 October 2026 the
+> funnel's pre-release text followed, as § 12.14 "The funnel's DPA" lists it
+> (§ 5, items 10 to 15): "calendar election" defined and its own election form
+> drafted; the 24-hour incident and breach rule; "without penalty" given its
+> effect; the instructions, requests and assistance clauses reconciled with
+> the shared clause; and a correction the record cannot take appended and
+> linked, as BAA 1.3.0's is (PT-17). Counsel's approval covered the clauses
+> as they stood on 6 October, not these edits, which the owner reads in
+> `docs/dpa-v1.0.0.txt` before the release.
 
 ## 1. What it is, and who signs it
 
@@ -45,25 +56,40 @@ destruction, and adds the processor terms state law asks for.
   numbered (`renderDpa`, `prepareDpa`, `hashDpaText`). A parallel assembler
   rather than the BAA's renderer, so that nothing about the DPA can move a BAA
   golden hash; `apps/app/tests/baa-golden.test.ts` is unchanged and passes.
-- **Quoted, not retyped.** The state-law processor clause and the Payments
-  clause are `STATE_LAW_CLAUSE_BODY` and `PAYMENTS_CLAUSE_BODY` from
-  `baa.ts`. The state-law text is used with exactly two edits, recorded as
-  `DPA_STATE_LAW_EDITS` and pinned by a test: its first words say "Client
-  Information" where the BAA says "patient information", and its last
-  sentence ("…apply to that information as they apply to PHI") is dropped,
-  because here the clauses it names govern Client Information already. The
-  notice of a new subcontractor is `subprocessorNoticeClauseBody()`. The
-  party, notice address and Delaware law are `AGREEMENT_PARTY`, exported from
-  `baa.ts` for this purpose without changing any BAA byte.
+- **Quoted, not retyped.** The state-law processor clause is
+  `stateLawClauseBody({ subject: "Client Information", sync })` from
+  `baa.ts`: the fuller clause BAA 1.3.0 carries, in this document's words
+  (no PHI and no patient, this document's headings for the clauses it names,
+  the CMIA sentence, and its calendar purposes and data following the
+  booking sync), as the BAA's pre-release redraft settled on 6 October 2026
+  (`DPA_STATE_LAW_EDITS` and the two-edit quotation are gone). The Payments
+  clause is `PAYMENTS_CLAUSE_BODY`, word for word. The notice of a new
+  subcontractor is `subprocessorNoticeClauseBody()`. The party, notice
+  address and Delaware law are `AGREEMENT_PARTY`, exported from `baa.ts` for
+  this purpose without changing any BAA byte.
 - **One calendar clause, chosen as BAA 1.3.0 chooses it.**
   `selectCalendarClause` picks covered, uncovered or not-used from the
   booking system and the Google account kind, under the same clause ids, so a
-  location's calendar terms read the same off any acceptance. The words are
-  the selector's, with one change: the person a booking is for is a "client"
-  (`CALENDAR_PERSON_NOUNS`, two phrases), because a veterinary practice's
-  agreement must never call a person a patient. BAA 1.3.0's location
-  paragraph follows, as it does there. A test rebuilds the BAA 1.3.0 clause
-  from the DPA's, for every booking system and account, word for word.
+  location's calendar terms read the same off any acceptance. Its heading is
+  "Google Calendar", as 1.3.0's is. The words are the selector's, with one
+  change: the person a booking is for is a "client" (`CALENDAR_PERSON_NOUNS`:
+  "about the client", and "who may not be the client the appointment is
+  for"), because a veterinary practice's agreement must never call a person
+  a patient. The one exception is the word the event itself carries when the
+  first name cannot be used, quoted as `event.ts` writes it for every
+  practice (`CALENDAR_EVENT_FALLBACK_QUOTED`, `"Patient"`): printing anything
+  else would misdescribe the event. BAA 1.3.0's location paragraph follows,
+  as it does there. A test rebuilds the BAA 1.3.0 clause from the DPA's, for
+  every booking system and account, word for word.
+- **Its own calendar election.** The location paragraph sends a second
+  location, and a change of booking system or account kind, to a calendar
+  election; `calendar-election/1.0.0` names only the BAA. The DPA's form is
+  `calendar-election-dpa/1.0.0` (`packages/catalog/src/dpa-calendar-election.ts`),
+  built from calendar-terms.ts's exported pieces with the clause in the
+  DPA's words (`dpaCalendarClauseBody`) and without the location paragraph,
+  unreleased, frozen by `dpa-calendar-election.test.ts` and printed in
+  Appendix B of the review file. `calendarElectionFor(agreementVersion)`
+  picks the form by the agreement's kind (§ 6, gap 6).
 - **Variables.** Legal name, signatory, title, email, date, the specialty
   (which chooses the status clause and gives the legal descriptor in the
   preamble), the booking system and the Google account kind. Plan, price,
@@ -82,25 +108,25 @@ destruction, and adds the processor terms state law asks for.
 | # | DPA clause | Against 1.2.1 |
 | --- | --- | --- |
 | — | Preamble | 1.2.1's layout; "HEALDESK DATA PROTECTION AGREEMENT", "Version 1.0.0"; says HIPAA does not apply and the PHI safeguards do; the practice named with its legal descriptor ("a veterinary practice or pet spa") |
-| 1 | Definitions | 1.2.1's, plus "client", "Client Information", "security incident" and "breach" in state-law terms; a veterinary practice's clients are the animals' owners or keepers, never the animals |
+| 1 | Definitions | 1.2.1's, plus "client", "Client Information" and "security incident" in state-law terms; a "breach" that includes anything a state breach-notification law treats as a breach of security, and "calendar election", in BAA 1.3.0's words, an accepted one part of the agreement; the agreement prevails over the Terms on Client Information and on termination, the Services and the Fees, as 1.3.0's does. A veterinary practice's clients are the animals' owners or keepers, never the animals |
 | 2 | Practice's status | Replaces practice-status. Veterinary: animals are outside HIPAA. Otherwise: the practice warrants it sends no covered transaction, must say before that changes, and from that notice the assistant pauses until the BAA replaces the DPA, with forwarded calls passing through to the direct line |
-| 3 | Practice's instructions | 1.1.0's practice-duties, in state-law terms, plus the practice's own notice and consent duties |
+| 3 | Practice's instructions | Reconciled with clause 5 (§ 5, item 10): what the instructions are, and the notices and consents, are clause 5's; this clause keeps the unlawful-instruction notice, a client's limits and withdrawn permissions, and the lawful-instruction promise |
 | 4 | Permitted uses | 1.0.0's permitted-uses, narrowed to providing the Services, security and the law. **No aggregation permission** (see § 5) |
-| 5 | Where Practice is not a covered entity | BAA 1.3.0's state-law clause, quoted with the two edits |
+| 5 | Where Practice is not a covered entity | BAA 1.3.0's state-law clause, `stateLawClauseBody` in this document's words |
 | 6 | Payments | BAA 1.3.0's, verbatim |
-| 7 | What healdesk reads | BAA 1.3.0's data-sources clause in client words |
-| 8 | Practice's Google Calendar | BAA 1.3.0's chosen clause (see § 2) |
+| 7 | What healdesk reads | BAA 1.3.0's data-sources clause in client words; calendar access only as the calendar clause, or a calendar election, gives it |
+| 8 | Google Calendar | BAA 1.3.0's chosen clause (see § 2) |
 | 9 | Safeguards | The Security Rule applied as if Client Information were ePHI; 1.2.1's second and third paragraphs (A4's email sentence included) |
-| 10 | Minimum necessary, and who receives Client Information | The booking catalogue as a ceiling (not 1.2.1's list: see § 6, gap 4), the animal's name and species for a vet, the opening-line disclosure, no call audio; then disclosure by category |
+| 10 | Minimum necessary, and who receives Client Information | The booking catalogue as a ceiling (not 1.2.1's list: see § 6, gap 4), the animal's name and species for a vet, the opening-line disclosure, no call audio; then disclosure by category, the calendar as its clause or an election describes |
 | 11 | Subcontractors | 1.2.1's flow-down, without the HIPAA citations; Anthropic's retention in 1.2.1's words; the 24-hour notice |
-| 12 | Reporting incidents and breaches | 1.2.1's three clocks and report contents, without 45 CFR 164.410 |
-| 13 | Clients' requests | The state-law counterpart of patient-rights: access, correction, deletion, and the five-day pass-through |
+| 12 | Reporting incidents and breaches | BAA 1.3.0's one rule, without its HIPAA citations: immediately following discovery and within 24 hours, for all three; the law-enforcement delay; each notice itself the written report, added to promptly, with what Practice needs for its own notices |
+| 13 | Clients' requests | Reconciled with clause 5: the ten-business-day help with any client's request stays, deletion is clause 5's item c, and a request made to healdesk itself, any request, is answered only in healdesk's reply (1.3.0, PT-24); a correction is made in healdesk's copy where the record can be changed, and otherwise appended and linked, as in 1.3.0's clause 14(b) (PT-17) |
 | 14 | Confidentiality | New; a veterinary paragraph |
 | 15 | Not authorised | 1.2.1's four prohibitions; Meta "is not healdesk's subcontractor and is not bound by this agreement" |
-| 16 | Assistance and audit | The records-to-HHS clause, made general |
-| 17 | Term | Written from the offboarding clock in the code (§ 4), not 1.2.1's "within thirty days" |
-| 18 | Liability | 1.2.1's allocation and Terms §§ 13–14, in state-law terms |
-| 19 | Notices and law | 1.2.1's, without HIPAA; Delaware; the notice address is the practice's one address |
+| 16 | Assistance and audit | The records-to-HHS clause, made general; reconciled with clause 5: the state privacy laws' help is clause 5's, every other law's stays here |
+| 17 | Term | Written from the offboarding clock in the code (§ 4), not 1.2.1's "within thirty days"; terminating under the Subcontractors clause is "without penalty": the Services end that day, no Fees after, a refund of Fees paid for later time |
+| 18 | Liability | 1.2.1's allocation and Terms §§ 13–14, in state-law terms; the Term clause's refund outside the exclusion and the indemnity, as 1.3.0's |
+| 19 | Notices and law | 1.2.1's, without HIPAA; Delaware; the notice address is the practice's one address; an accepted calendar election is part of the entire agreement |
 
 Not carried: acting-in-your-place (164.504(e)(2)(ii)(H)) and records-to-HHS,
 which are HIPAA's; own-use's aggregation permission (§ 5).
@@ -127,6 +153,18 @@ Read in the code on 6 October 2026, at origin/main d652a0b.
 | From the covered notice, the assistant is paused until the BAA replaces the DPA (2) | The database refuses a DPA clinic's client data from the write that records `is_covered_entity` as anything but false (`app_clinic_accepts_phi`, drizzle/0051); `app_supersede_agreement` puts the BAA in force; the pause itself is `clinic_settings.ai_paused_at` | `apps/app/drizzle/0051_agreement_kinds.sql`; `apps/app/src/db/schema.ts` |
 | Anthropic's 30 days, two years when flagged, no training (11) | BAA 1.2.1's sentence, from Anthropic's own pages read 1 October 2026 (agreement-changes.md § 4); pinned by a test against the 1.2.1 rendering | `packages/catalog/src/baa.ts` |
 | 24 hours' notice by email, with the right to object (11) | `SUBPROCESSOR_NOTICE_HOURS = 24` | `packages/catalog/src/subprocessor-notice.ts` |
+
+Added on 7 October 2026, read at origin/main c926414:
+
+| Sentence (clause) | The code fact | Where |
+| --- | --- | --- |
+| Notice "immediately following discovery … and in any case within 24 hours", for a use or disclosure not permitted, a breach and a security incident (12) | The runbook works to 24 hours for all three, for every clinic. The console's `notifyDeadline` gives a not-covered clinic's breach a day ("immediately"), but improper use or disclosure and a security incident five business days, for every clinic; gate 5 (another branch) makes it 24 hours for every class and clinic, after which the text and the code agree. Until then the text is the stricter, and the runbook keeps it | `docs/incident-response.md`; `apps/app/src/lib/incidents/incidents.ts` |
+| The notice goes "by email to Practice's address in the Notices clause" (12) | The practice's one address: the signer's, which the checkout intent requires to be the buying address and provisioning makes the account's sign-in | as clause 19, above |
+| "in its reply to the client, tell them that healdesk cannot act on it" (13) | v1 is inbound only: no code path contacts a person after a conversation ends (CLAUDE.md, "Product rules"), so the reply is the one moment to say it; passing the request on is an operator's step | the product rules in the root CLAUDE.md |
+| "delete it as the clause headed … provides" (13); ten business days, raw copies, backups within 35 days (5, item c) | `eraseContact` deletes the person's contacts and conversations, but not their `webhook_events`, Meta drafts, matched booking requests or `chat_threads`, and keeps the number in `suppressions`; nothing reachable runs it. Gate 6 builds the erase path the shared clause promises | `apps/app/src/lib/retention/purge.ts`; agreement-changes.md § 12.14, gate 6 |
+| "It will correct that information as Practice directs"; "Where the record can be changed, healdesk corrects its own copy"; where it "must stay as it was made, such as a booking request or the record of a conversation, healdesk appends the correction to it and links the two"; "Every later use and export of that record then carries the correction" (13) | Only the in-place half has code, and nothing reaches it: `amendContact` corrects a contact's name, telephone number or email and records which fields changed, and only its test calls it, no script or ops operation. A booking request must stay as it was made: 0039's trigger refuses a new `treatment` or `preferred_window`, or any other fact of the request, even for the table owner. A conversation's transcript is written once, at ingestion, and only the purge clears it. Nothing appends a correction or links one to its record, and no export carries one: that is gate 8 (gap 22) | `apps/app/src/lib/patient-rights/export.ts`; `apps/app/drizzle/0039_booking_requests_every_channel.sql`, pinned by `apps/app/tests/booking-transitions.test.ts`; `apps/app/src/lib/voice/ingest.ts`, `apps/app/src/lib/retention/purge.ts`; agreement-changes.md § 12.14, gate 8 |
+| Terminating under the Subcontractors clause: "the Services end on the same day, no Fees accrue … and healdesk refunds" (17) | Nothing automates it: Package C's refund actions answer "not_available" on main, so an operator refunds through Stripe and cancels the subscription the same day, which starts offboarding (`customer.subscription.deleted`) | `apps/app/src/lib/billing/stripe-actions.ts`; `apps/app/src/lib/billing/events.ts` |
+| "Calendar election" and the form that names this agreement (1, 8, 19) | `calendar-election-dpa/1.0.0` exists as text, unreleased. Nothing can record an election of either kind: the election rows and their writer are plan C6 and C7, not on main | `packages/catalog/src/dpa-calendar-election.ts`; docs/design/google-calendar-2026-10-05.md |
 
 ## 5. Choices made in drafting
 
@@ -162,6 +200,95 @@ Read in the code on 6 October 2026, at origin/main d652a0b.
 9. **The supersede function allows DPA→BAA and BAA→BAA only.** DPA→DPA (a
    newer DPA re-accepted) is refused until a DPA 1.1.0 exists to decide it;
    that fails closed.
+10. **Overlaps with the shared clause: one statement of each duty, the more
+    protective kept** (7 October 2026; § 12.14 "The funnel's DPA"). The
+    shared clause cannot be edited from here (it is `baa.ts`'s, frozen with
+    BAA 1.3.0), so the reconciling is done on this side: where the shared
+    clause states a duty at least as protectively, this document's own
+    sentence goes; where this document's is broader, it stays and the
+    shared clause's narrower one is then subsumed, the shared clause's
+    precedence sentence making the more protective govern wherever the two
+    still touch. Merged:
+    - *Instructions (3).* "Practice decides … through the Terms and the
+      settings … which are its instructions" went: the shared clause's
+      "this agreement and the settings Practice chooses in its portal,
+      within the purposes below" is narrower in both ways (this agreement,
+      not the healdesk-written Terms; bounded by purposes), and clause 3
+      now points to it. "Is responsible for any notice the law requires …
+      and any consent" went: the shared clause's covenant to "make sure its
+      own notices, consents and any consumer health data privacy policy
+      cover the processing" is a duty to act, not an allocation. Kept: the
+      unlawful-instruction notice and the limits and withdrawn permissions
+      (the shared clause has neither), and "will not ask healdesk to use or
+      disclose … in a way the law would not permit Practice itself to",
+      which reaches every law where the shared clause's "will not instruct
+      healdesk to process … in a way those laws forbid" reaches the state
+      privacy laws only.
+    - *Requests (13).* The help with a request stays: it reaches every
+      client's request to see, correct or delete, where item b reaches
+      requests under the state privacy laws only, on the same ten business
+      days. "Will correct or delete … as Practice directs" became "correct …
+      as Practice directs, and delete it as the clause headed 'Where
+      Practice is not a covered entity' provides": item c is the more
+      protective deletion duty (ten business days, raw copies, backups
+      within 35 days, subcontractors, only a record of the request kept).
+      The shared clause sends "a request made to healdesk directly" here,
+      but clause 13 covered only "such a request": it now covers any
+      request about a client's information. The telephone-number sentence
+      is left for gates 6 and 7 (§ 6, gap 15).
+    - *Assistance (16).* "The reasonable help it needs … under the laws
+      that apply" restated, more loosely, what items b and d and the
+      assessment paragraph say for the state privacy laws (by appropriate
+      measures, insofar as possible, each request within ten business days;
+      what an assessment needs; documents and assessments on request). For
+      those laws clause 16 now points to the shared clause; for every other
+      law (breach notification, medical and veterinary confidentiality) it
+      keeps its own help, the written questions about the whole agreement
+      and the records to a regulator, none of which the shared clause says.
+    Not reconciled, being outside the three clauses § 12.14 names:
+    permitted uses (4) against the shared purposes, confidentiality (14)
+    against its item a, and the subcontractor flow-down (11) against its
+    subcontractor paragraph. Each is consistent with the shared clause, and
+    the precedence sentence governs meanwhile (§ 6, gap 16).
+11. **"Without penalty" is given the whole of 1.3.0's effect**, which takes
+    three sentences there and here: the Term clause's (the Services end the
+    same day, no Fees after, Fees for later time refunded), the Liability
+    clause's (the refund outside the exclusion and the indemnity), and the
+    Definitions clause's (this agreement prevails over the Terms on
+    termination and the Fees, so the Terms' "not refundable except where
+    these terms … say otherwise" cannot take it back). 1.3.0 also refunds a
+    termination for healdesk's violation; the DPA's termination for a
+    material breach was left as it was, a commercial term for the owner
+    (§ 6, gap 17).
+12. **The 24-hour rule is 1.3.0's, in this document's words**: no 45 CFR
+    citations, "the law that applies" for the law-enforcement delay (Cal.
+    Civ. Code 1798.82(c) provides one), and a client, not a patient, as the
+    person a breach report identifies. A state-law breach of security is a
+    "breach" by definition, as in 1.3.0 (ICD-33), so the shared clause's
+    item f and clause 12 are one rule.
+13. **Inbound only, in the requests clause.** "Tell the client it has done
+    so", after passing a request on within five business days, promised a
+    contact v1 never makes; it now says so in healdesk's reply, as 1.3.0
+    does (PT-24). Not in § 12.14's list; changed because the sentence was
+    untrue of the product.
+14. **Calendar elections, where the DPA's own text speaks of the calendar.**
+    With the term defined and a form drafted, the data-sources clause (7)
+    and the recipient list (10) say the calendar access is the calendar
+    clause's or an election's, as 1.3.0's do, rather than become untrue the
+    day a manual-booking practice's second location records one.
+15. **Corrections, in the requests clause** (7 October 2026, from review).
+    "It will correct that information as Practice directs", read alone,
+    promised to change a booking request in place, which 0039's trigger
+    refuses. BAA 1.3.0's audit found the same promise in its clause 14(b) and
+    fixed it (PT-17). The DPA now says it in 1.3.0's words: corrected in
+    healdesk's copy where the record can be changed, and otherwise appended
+    to the record and linked to it, every later use and export then carrying
+    the correction. It says "correction" where 1.3.0 says "amendment",
+    because a client asks to correct, and cites no 45 CFR. The reconciled
+    sentence before it and the telephone-number sentence after it are
+    unchanged. 1.3.0 rests the appending on 45 CFR 164.526(c)(1), which is
+    HIPAA's; whether an appended correction meets a state privacy law's right
+    to correct, where one applies, is a question for counsel (gap 22).
 
 ## 6. Gaps found between the code, the plan and the text
 
@@ -193,30 +320,57 @@ Read in the code on 6 October 2026, at origin/main d652a0b.
    operator a script like `patient-export`.
 4. **BAA 1.2.1's minimum-necessary list is narrower than the booking
    catalogue** (§ 5, item 4).
-5. **`chat_threads` at destruction: resolved.** It has no writer yet;
-   package B will write it, keyed by a hash of the sender's platform id,
-   which for WhatsApp is a telephone number (0050 made it a keyed
+5. **`chat_threads` at destruction: resolved.** Package B (the Stripe build,
+   on main since 249e3a9) writes it, keyed by a hash of the sender's platform
+   id, which for WhatsApp is a telephone number (0050 made it a keyed
    `identifierRef()` HMAC, since a plain digest of a number can be reversed
    by trying every number). `destroyClinicData` now deletes it and
    `meta_inbound_messages`, and `app_mark_clinic_destroyed()` refuses to
    record a destruction while either holds a row (drizzle/0054), so clause
    17's "no Client Information except" holds for both.
-6. **The calendar election names only the BAA.** `calendar-election/1.0.0`
-   says it takes the place of the calendar clause "of the Business Associate
-   Agreement", and its last sentence defines "this agreement" as that BAA.
-   The DPA's calendar clause, like BAA 1.3.0's, sends a change of booking
-   system or a second location to a calendar election. Before the DPA's
-   release the election has to name the DPA too, or have a DPA version.
+6. **The calendar election: the DPA's form exists, and nothing can record
+   it yet.** `calendar-election/1.0.0` takes the place of the calendar
+   clause "of the Business Associate Agreement" and calls the person a
+   booking is for a patient, so it cannot be handed to a DPA practice. The
+   DPA's own form, `calendar-election-dpa/1.0.0`, is now drafted beside it
+   (§ 2), unreleased, and `calendarElectionFor(agreementVersion)` /
+   `prepareCalendarElectionFor` pick the form by the agreement's kind. What
+   remains: the owner releases the form with the DPA (it is in Appendix B of
+   the review file); and the election rows and their writer (the calendar
+   session's plan C6 and C7, C18 in the portal) take the form through
+   `calendarElectionFor`, never `currentCalendarElection()` alone, and count
+   a draft only for a demo clinic. Until both, a DPA practice cannot give a
+   second location calendar terms or change a location's booking system or
+   account kind, which is the refusal § 12.14 asks for, and it holds today
+   because nothing can: no election can be recorded (C6/C7 are not on
+   main), `addLocation` answers "not_available", `createLocationClinic` is a
+   stub behind `LOCATION_CLINICS_READY = false`, and nothing writes a
+   location's booking system. Whoever lands C7, C18, Package C's
+   `addLocation` or the real `createLocationClinic` keeps that refusal for a
+   DPA organisation until the form is released.
 7. **The Payments clause describes a link nothing creates** (package D;
    agreement-changes.md § 12.11, item 9). Inherited from the quote.
 8. **The state-law clause names "Practice's portal settings"**, a portal not
    built yet (Gate A includes the portal, M3).
-9. **Signing and the PDF are BAA-only.** `validateSignRequest` and
-   `signAgreement` (`apps/app/src/lib/agreements.ts`, owned by another
-   session) render only BAA templates, and the PDF and email copy
-   (`lib/agreements/pdf.ts`, `lib/email/agreement-copy.ts`) are titled for a
-   BAA. The DPA's signing path needs both, built through `prepareDpa`, the
-   per-kind `AGREEMENT_COPY` and the assent labels.
+9. **Signing, the PDF and the copy email: built, and refused until the
+   release.** `validateSignRequest` and `signAgreement`
+   (`apps/app/src/lib/agreements.ts`) sign a DPA through
+   `prepareDpaAgreement`: rendered by `prepareDpa`, stored as `dpa/1.0.0`
+   (so the generated `agreement_kind` is `dpa`) with the DPA's own variables
+   and, beside them, `isCoveredEntity: false`, the platform sent and the
+   variant. It meets the BAA path's refusals by field, its displayed-hash
+   comparison and `signableDpaTemplate`, the BAA's released-templates-only
+   rule for the DPA's one version. The PDF (`lib/agreements/pdf.ts`) and the
+   copy email (`lib/email/agreement-copy.ts`) name the document by the kind
+   its version carries (`healdesk-dpa-1.0.0-<date>.pdf`, "Your signed data
+   protection agreement for …"); a BAA's copy keeps its bytes. In apps/web
+   the agreement step has the DPA's entry (`dpaAgreementCopy`, whose preview
+   a test holds byte for byte against the server's render for every DPA
+   practice, booking system and account kind) and `/api/agreement` forwards
+   it. While `approvedByCounsel` is false, every DPA request is refused as it
+   was (`apps/app/tests/dpa-signing.test.ts`, which signs with the release
+   stood in for and provisions the row once `getDpaTemplate` reports it
+   released).
 10. **Terms §§ 7, 9 and 14 name only the Business Associate Agreement.** The
     plan's "Data Agreement" definition (A6) is what makes them read for a DPA
     practice; until it lands, Terms § 7's "destroy … when and as the Business
@@ -242,6 +396,60 @@ Read in the code on 6 October 2026, at origin/main d652a0b.
 14. **The public notice period.** `/subprocessors` and `/trust` promise every
     customer fifteen days (`POLICY.subprocessorNoticeDays`); the DPA gives
     24 hours, as BAA 1.3.0 does (agreement-changes.md § 12.11, item 10).
+15. **The telephone number kept after a deletion** (13, 17), left as it
+    stands. Both sentences say the number of a client whose information was
+    deleted is kept as the record of the request, as `eraseContact` keeps it
+    in `suppressions` today. The shared clause's item c allows only a record
+    kept no longer than needed, and governs meanwhile by its precedence
+    sentence. Gates 6 and 7 (another branch) remove the number; the two
+    sentences change with them, regenerating the hashes.
+16. **Overlaps not reconciled.** Permitted uses (4), confidentiality (14) and
+    the subcontractor flow-down (11) also overlap the shared clause (its
+    purposes, its item a, its subcontractor paragraph). § 12.14 named only
+    the instructions, requests and assistance clauses; these three agree
+    with the shared clause, and its precedence sentence governs where they
+    touch. Reconcile them in the same way if counsel prefers one statement
+    throughout.
+17. **The refund on a termination for healdesk's breach.** BAA 1.3.0 refunds
+    a termination for healdesk's violation as well as one on objection
+    (HRC-07, an owner flag). The DPA now refunds the objection, which "without
+    penalty" promises, and leaves its termination for a material breach
+    without a refund term. Recommended for the owner: the same refund, which
+    would also say that terminating for breach ends the Services that day.
+18. **"Services" and "Fees" are left to the Terms, which define neither**
+    (ICD-19, ICD-32 for the BAA). The Term clause's refund and the new
+    precedence over the Terms read the words as the Terms use them; BAA
+    1.3.0 defines both, and says the Services end when the subscription
+    does. Recommended before release: the same definitions here.
+19. **The change-in-law termination** points at the Term clause without
+    granting the right or saying the Services end (ICD-30 for the BAA).
+20. **The data sources list the clients only** (PT-04, ICD-11 for the BAA):
+    "the only Client Information healdesk receives is what clients
+    themselves give it", where 1.3.0 lists staff entries and the payment
+    processor's notice too. True while staff enter nothing and no deposit
+    link exists; to be widened before either does.
+21. **The incident deadline in the console** (12). The runbook works to 24
+    hours for every clinic, but `notifyDeadline` still gives a security
+    incident and an improper use or disclosure five business days. Gate 5
+    (another branch) brings it to 24 hours for every class; the DPA should
+    not be released before it lands.
+22. **Correction on request has no code behind it** (13). The clause promises
+    a correction as Practice directs: in healdesk's copy where the record can
+    be changed, and otherwise appended and linked. `amendContact` corrects a
+    contact in place and is tested, but no script or ops operation runs it,
+    as with deletion (gap 3). Nothing can append a correction to a booking
+    request, whose facts 0039's trigger freezes, or to a conversation's
+    record, and no export would carry one. Gate 8 (agreement-changes.md
+    § 12.14) builds that amendment record, linked to the booking request or
+    conversation it corrects and carried by `exportPatient`, `exportClinic`
+    and the portal export. It serves both agreements, since none of those
+    reads the agreement's kind. Both agreements say every later use carries
+    the correction, not only every export, so wherever the portal shows a
+    booking request or a conversation the correction must show with it,
+    which gate 8's list does not yet name. The DPA should not be released
+    before gate 8 lands and `amendContact` has an operator path. Counsel
+    should also say whether an appended correction meets a state privacy
+    law's right to correct (§ 5, item 15).
 
 ## 7. The 1 October § 9 decision, narrowed
 
@@ -301,10 +509,17 @@ its trigger.
       boundary, which clause 15 promises.
 - [ ] The animal's name and species in the booking catalogue, if the owner
       wants them collected (the text allows it; nothing asks for them yet).
-- [ ] The signing path, PDF and copy email for a DPA (gap 9).
-- [ ] The calendar election able to amend a DPA (gap 6).
+- [x] The signing path, PDF and copy email for a DPA (gap 9).
+- [ ] The calendar election able to amend a DPA (gap 6): the form is
+      drafted (`calendar-election-dpa/1.0.0`); its release, and election
+      rows that take it through `calendarElectionFor`, remain.
 - [ ] Gaps 2 and 3 resolved, or the text changed to match. (Gap 5 is
       resolved.)
+- [ ] Corrections have code behind them (gap 22): gate 8's amendment record,
+      appended to and linked with the booking request or conversation it
+      corrects and carried by every later use and export; an operator path
+      for `amendContact`; and counsel's view of an appended correction under
+      the state privacy laws.
 - [ ] `offboarding-destroy` and `retention-purge` switched on for live
       clinics (gap 1).
 - [ ] Go-live admits a released DPA (gap 11): the migration, the TypeScript
@@ -329,12 +544,17 @@ its trigger.
       and a deleted request's id and token can never be used again
       (`booking_request_keys`). tests/booking-request-destruction.test.ts
       pins each.
-- [ ] Decide whether the DPA carries BAA 1.3.0's fuller state-law clause:
-      the specified business purposes, the data categories, the service
-      provider designation, the deletion deadlines, immediate breach notice
-      and the assessment right. Today it quotes only the shared paragraph,
-      whose generic purposes 11 CCR § 7051(a)(2) does not accept, for exactly
-      the practices that clause exists for.
+- [x] The DPA carries BAA 1.3.0's fuller state-law clause
+      (`stateLawClauseBody`, since the BAA's pre-release redraft, c926414).
+- [x] The funnel's pre-release text (agreement-changes.md § 12.14, "The
+      funnel's DPA"): "calendar election" defined, the 24-hour rule,
+      "without penalty" given its effect, the instructions, requests and
+      assistance clauses reconciled, and a correction the record cannot take
+      appended and linked (§ 5, items 10 to 15).
+- [ ] Gates 6 and 7 land, and the telephone-number sentences in clauses 13
+      and 17 change with them (gap 15); gate 5 lands (gap 21).
+- [ ] The owner decides the refund on a termination for healdesk's breach,
+      and the definitions of "Services" and "Fees" (gaps 17, 18).
 - [ ] The Terms read for a DPA practice (A6, "Data Agreement"): §§ 1, 7, 9,
       11, 12, 14 and 19, Privacy § 12 and `/data-deletion` name only the BAA
       today, and a vet's clients are called patients.

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { metaEligible, resolveBookingRequirements } from "@healdesk/catalog";
+import { CURRENT_BAA_VERSION, metaEligible, resolveBookingRequirements } from "@healdesk/catalog";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 
 import { __setMetaRuntimeForTests, GET, POST } from "@/app/api/webhooks/meta/route";
@@ -394,15 +394,43 @@ describeDb("the front door, end to end", () => {
     expect(JSON.stringify(audit.rows)).not.toMatch(/lip/i);
   });
 
-  test("the switch refuses a synthetic clinic and one with no phone to hand off to", async () => {
+  test("the switch refuses a synthetic clinic, one with no phone to hand off to, and one whose agreement in effect is not released (BAA 1.3.0 gate 19)", async () => {
     const { runOperation } = await import("@/lib/ops/api");
     const operator = { email: "ops@healdesk.test", request: {} };
     const c = await seedClinic("meta-switch");
-    const synthetic = await runOperation("setMetaFrontDoor", { clinicId: c.clinicId, enabled: true }, operator);
-    expect((synthetic.body as { data: { status: string; message: string } }).data.message).toMatch(/Go live first/);
+    const turnOn = async () =>
+      (await runOperation("setMetaFrontDoor", { clinicId: c.clinicId, enabled: true }, operator)).body as {
+        data: { status: string; message?: string };
+      };
+    const bind = (version: string, acceptedAt: string) =>
+      getMigratorPool().query(
+        `insert into baa_acceptances (organization_id, document_version, document_hash, rendered_text, variables, assent_label, accepted_by_name, accepted_by_email, accepted_at, bound_at)
+         values ($1, $2, repeat('b', 64), 'BAA', '{}'::jsonb, 'I agree', 'Alex', 'alex@meta-switch.test', $3::timestamptz, now())`,
+        [c.organizationId, version, acceptedAt],
+      );
+    // clinics is not FORCEd, so the row is picked by id, never by the tenant alone.
+    const doorOn = async () =>
+      (
+        await getMigratorPool().query<{ on: boolean }>(`select meta_front_door_enabled as on from clinics where id = $1`, [
+          c.clinicId,
+        ])
+      ).rows[0]!.on;
+
+    expect((await turnOn()).data.message).toMatch(/Go live first/);
     await getMigratorPool().query(`update clinics set data_classification = 'production', baa_signed_at = now() where id = $1`, [c.clinicId]);
-    const noPhone = await runOperation("setMetaFrontDoor", { clinicId: c.clinicId, enabled: true }, operator);
-    expect((noPhone.body as { data: { status: string; message: string } }).data.message).toMatch(/published number/);
+    expect((await turnOn()).data.message).toMatch(/published number/);
+    await getMigratorPool().query(`update clinics set published_phone_e164 = '+14155550123' where id = $1`, [c.clinicId]);
+
+    // No agreement in effect, then an unreleased draft in effect: refused.
+    expect((await turnOn()).data.message).toMatch(/agreement in effect must be a released version/);
+    await bind("1.3.0", new Date(Date.now() - 60 * 60 * 1000).toISOString());
+    expect((await turnOn()).data.message).toMatch(/agreement in effect must be a released version/);
+    expect(await doorOn()).toBe(false);
+
+    // A released version in effect: switched on.
+    await bind(CURRENT_BAA_VERSION, new Date().toISOString());
+    expect((await turnOn()).data.status).toBe("updated");
+    expect(await doorOn()).toBe(true);
   });
 
   test("answerFrontDoor returns null for a clinic whose door is off", async () => {

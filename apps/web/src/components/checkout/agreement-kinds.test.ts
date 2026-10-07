@@ -1,21 +1,40 @@
 import {
   agreementKindFor,
   agreementPlatformFor,
+  applicableClauses,
   BAA_EXPLAINER,
+  baaExplainerTerms,
   BOOKING_SYSTEMS,
   type BaaVariables,
+  buildBaaSelections,
   CALENDAR_ACCOUNTS,
+  clauseExplainer,
   COVERED_ANSWERS,
+  type CoveredAnswer,
   currentBaaTemplate,
+  currentDpaTemplate,
+  DPA_ASSENT_LABEL,
+  DPA_EXPLAINER,
+  dpaClauseExplainer,
+  getBaaTemplate,
   getPlatform,
   NO_PLATFORM_ID,
+  prepareDpa,
   renderBaa,
   specialties,
   specialtyOffered,
+  type DpaVariables,
+  type SpecialtyId,
 } from "@healdesk/catalog";
 import { describe, expect, test } from "vitest";
 
-import { AGREEMENT_COPY, agreementCopyFor, effectiveDateToday } from "./agreement-kinds";
+import {
+  AGREEMENT_COPY,
+  agreementCopyFor,
+  baaAgreementCopy,
+  effectiveDateToday,
+  versionLabel,
+} from "./agreement-kinds";
 
 /**
  * The preview the buyer reads is the document the server stores.
@@ -129,6 +148,116 @@ describe("the agreement the buyer reads is the one apps/app stores", () => {
   });
 });
 
+/** A signer for the DPA's render checks, as the server would date and trim it. */
+const DPA_SIGNER_VARIABLES: DpaVariables = {
+  clinicLegalName: "Golden Paws Veterinary LLC",
+  signatoryName: "Laura Owner",
+  signatoryTitle: "Owner",
+  signatoryEmail: "info@goldenpaws.com",
+  effectiveDate: "2026-10-07",
+  specialty: "veterinary",
+  bookingSystem: "google_calendar",
+  calendarAccount: "personal",
+};
+
+/**
+ * apps/app's prepareDpaAgreement, as it builds the DPA from a signature
+ * request: the names trimmed, the address lower-cased, the specialty by its
+ * id and both calendar answers, and nothing else.
+ */
+function serverRenderDpa(input: {
+  clinicLegalName: string;
+  specialty: SpecialtyId;
+  bookingSystem: (typeof BOOKING_SYSTEMS)[number]["id"];
+  calendarAccount: (typeof CALENDAR_ACCOUNTS)[number];
+  signatoryName: string;
+  signatoryTitle?: string;
+  signatoryEmail: string;
+  effectiveDate: string;
+}): string {
+  return prepareDpa(currentDpaTemplate(), {
+    clinicLegalName: input.clinicLegalName.trim(),
+    signatoryName: input.signatoryName.trim(),
+    signatoryTitle: input.signatoryTitle?.trim() || undefined,
+    signatoryEmail: input.signatoryEmail.trim().toLowerCase(),
+    effectiveDate: input.effectiveDate,
+    specialty: input.specialty,
+    bookingSystem: input.bookingSystem,
+    calendarAccount: input.calendarAccount,
+  }).text;
+}
+
+describe("the DPA the buyer reads is the one apps/app stores, once it is released", () => {
+  // The practices the release sends to the DPA: a veterinary practice, never
+  // asked, and each specialty HIPAA reaches only if covered, answering No.
+  const DPA_PRACTICES = specialties.flatMap((s) =>
+    ([...COVERED_ANSWERS, null] as (CoveredAnswer | null)[]).flatMap((covered) => {
+      const choice = agreementKindFor({ specialty: s.id, covered, dpaReleased: true });
+      return choice.ok && choice.kind === "dpa" ? [{ specialty: s.id, covered }] : [];
+    }),
+  );
+
+  test("the release sends a vet and every No to it, and nobody else", () => {
+    const key = (p: { specialty: string; covered: CoveredAnswer | null }) =>
+      `${p.specialty}:${p.covered}`;
+    expect(DPA_PRACTICES.map(key).sort()).toEqual(
+      [
+        "hair-restoration:no",
+        "massage-chiro:no",
+        "med-spa:no",
+        // A veterinary practice is never asked; whatever arrives, it signs the DPA.
+        "veterinary:null",
+        "veterinary:yes",
+        "veterinary:no",
+        "veterinary:not_sure",
+      ].sort(),
+    );
+  });
+
+  test.each([...new Set(DPA_PRACTICES.map((p) => p.specialty))].map((id) => [id] as const))(
+    "%s: every booking system and Google account, byte for byte, with the DPA's own notes",
+    (specialty) => {
+      const signer = {
+        clinicLegalName: "Golden Paws Veterinary LLC",
+        signatoryName: "Laura Owner",
+        signatoryTitle: "Owner",
+        signatoryEmail: "info@goldenpaws.com",
+        effectiveDate: "2026-10-07",
+      };
+      const copy = AGREEMENT_COPY.dpa;
+      let combinations = 0;
+      for (const system of BOOKING_SYSTEMS) {
+        for (const account of CALENDAR_ACCOUNTS) {
+          const preview = copy.render({
+            ...signer,
+            specialty,
+            isCoveredEntity: false,
+            bookingSystem: system.id,
+            calendarAccount: account,
+          });
+          const label = `${specialty} ${system.id} ${account}`;
+          expect(preview.text, label).toBe(
+            serverRenderDpa({
+              ...signer,
+              specialty,
+              bookingSystem: system.id,
+              calendarAccount: account,
+            }),
+          );
+          // Every note is the DPA's, for a clause this document carries; none is the BAA's.
+          for (const note of preview.notes) {
+            expect(note.plain, label).toBe(dpaClauseExplainer(copy.version, note.id)!.plain);
+            expect(note.citation, label).not.toMatch(/164\./);
+          }
+          combinations += 1;
+        }
+      }
+      expect(combinations).toBe(8 * 3);
+    },
+    RENDER_TIMEOUT_MS,
+  );
+});
+
 describe("AGREEMENT_COPY", () => {
   test("holds the Business Associate Agreement, with its own explainer and assent wording", () => {
     expect(AGREEMENT_COPY.baa.title).toBe("Business Associate Agreement");
@@ -138,9 +267,91 @@ describe("AGREEMENT_COPY", () => {
     expect(AGREEMENT_COPY.baa.fileStem).toBe("healdesk-baa");
   });
 
-  test("has no Data Protection Agreement until it is released, so nothing signs one by accident", () => {
-    expect(AGREEMENT_COPY.dpa).toBeUndefined();
-    expect(agreementCopyFor("dpa")).toBeNull();
+  test("1.2.1, the version signed until the release, shows exactly BAA_EXPLAINER's bullets", () => {
+    expect(AGREEMENT_COPY.baa.version).toBe("1.2.1");
+    expect(AGREEMENT_COPY.baa.explainer.terms).toBe(BAA_EXPLAINER.terms);
+    expect(baaAgreementCopy(getBaaTemplate("1.2.1")!).explainer).toBe(BAA_EXPLAINER);
+  });
+
+  test("an entry reads everything off its template: 1.3.0 shows 1.3.0's bullets, notes and text (gate 11)", () => {
+    const template = getBaaTemplate("1.3.0")!;
+    const copy = baaAgreementCopy(template);
+    expect(copy.version).toBe("1.3.0");
+    expect(copy.released).toBe(template.approvedByCounsel);
+    expect(copy.explainer.terms).toBe(baaExplainerTerms("1.3.0"));
+    const bullets = copy.explainer.terms.map((t) => t.plain).join("\n");
+    expect(bullets).not.toMatch(/use it only|materially breach/);
+    expect(bullets).toContain("limit its use and disclosure");
+    expect(bullets).toContain("if you determine that we have violated a material term of it");
+
+    const input = {
+      clinicLegalName: "Glow Med Spa LLC",
+      specialty: "med-spa",
+      isCoveredEntity: false,
+      bookingSystem: "google_calendar",
+      calendarAccount: "workspace_no_baa",
+      signatoryName: "Laura Owner",
+      signatoryEmail: "info@glowmedspa.com",
+      effectiveDate: "2026-10-06",
+    } as const;
+    const preview = copy.render(input);
+    expect(preview.text).toContain("Version 1.3.0 — executed electronically");
+    const variables: BaaVariables = {
+      ...buildBaaSelections({
+        specialtyId: input.specialty,
+        attributionMode: "estimated",
+        bookingSystem: input.bookingSystem,
+        platformId: agreementPlatformFor(input.bookingSystem),
+        isCoveredEntity: input.isCoveredEntity,
+        calendarAccount: input.calendarAccount,
+        template,
+      }),
+      clinicLegalName: input.clinicLegalName,
+      signatoryName: input.signatoryName,
+      signatoryEmail: input.signatoryEmail,
+      effectiveDate: input.effectiveDate,
+    };
+    expect(preview.text).toBe(renderBaa(template, variables));
+    expect(preview.notes.map(({ id, plain }) => [id, plain])).toEqual(
+      applicableClauses(template, variables).flatMap((clause) => {
+        const note = clauseExplainer("1.3.0", clause.id);
+        return note ? [[clause.id, note.plain]] : [];
+      }),
+    );
+    // The current entry is untouched by building another.
+    expect(AGREEMENT_COPY.baa.explainer).toBe(BAA_EXPLAINER);
+  });
+
+  test("holds the Data Protection Agreement too, unreleased, with its own explainer and assent wording", () => {
+    const dpa = AGREEMENT_COPY.dpa;
+    expect(agreementCopyFor("dpa")).toBe(dpa);
+    expect(dpa.kind).toBe("dpa");
+    expect(dpa.title).toBe("Data Protection Agreement");
+    expect(dpa.explainer).toBe(DPA_EXPLAINER);
+    expect(dpa.explainer).not.toBe(BAA_EXPLAINER);
+    expect(dpa.assentLabel).toBe(DPA_ASSENT_LABEL);
+    expect(dpa.assentSentence("Golden Paws LLC")).not.toMatch(/Business Associate/);
+    expect(dpa.version).toBe(currentDpaTemplate().version);
+    expect(dpa.released).toBe(false);
+    expect(dpa.fileStem).toBe("healdesk-dpa");
+  });
+
+  test("nothing reaches the DPA's entry while it is unreleased: the decision never names it", () => {
+    for (const s of specialties) {
+      for (const covered of [...COVERED_ANSWERS, null] as (CoveredAnswer | null)[]) {
+        const choice = agreementKindFor({ specialty: s.id, covered });
+        if (choice.ok) expect(choice.kind, `${s.id} ${covered}`).toBe("baa");
+      }
+    }
+  });
+
+  test("a version is labelled as the document prints it", () => {
+    expect(versionLabel("1.2.1")).toBe("1.2.1");
+    expect(versionLabel("1.1.0-draft")).toBe("1.1.0-draft");
+    expect(versionLabel("dpa/1.0.0")).toBe("1.0.0");
+    expect(prepareDpa(currentDpaTemplate(), DPA_SIGNER_VARIABLES).text).toContain(
+      `Version ${versionLabel(currentDpaTemplate().version)} — executed electronically`,
+    );
   });
 
   test("dates the document in UTC, as the server does", () => {

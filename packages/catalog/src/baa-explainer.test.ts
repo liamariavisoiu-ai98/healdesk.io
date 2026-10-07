@@ -6,6 +6,7 @@ import {
   BAA_CLAUSE_EXPLAINERS_BY_VERSION,
   BAA_EXPLAINER,
   BAA_EXPLAINER_TERMS_BY_VERSION,
+  baaExplainerFor,
   baaExplainerTerms,
   clauseExplainer,
   type BaaExplainerTerm,
@@ -229,5 +230,33 @@ describe("the bullets above the agreement", () => {
   test("an unknown version, or a key off the prototype, gets the shared bullets", () => {
     expect(baaExplainerTerms("9.9.9")).toBe(BAA_EXPLAINER.terms);
     expect(baaExplainerTerms("toString")).toBe(BAA_EXPLAINER.terms);
+  });
+});
+
+describe("the explainer for one version (gate 11)", () => {
+  test("1.2.1, the signed version, gets BAA_EXPLAINER itself, so its screen does not move a byte", () => {
+    expect(baaExplainerFor("1.2.1")).toBe(BAA_EXPLAINER);
+    expect(baaExplainerFor("1.2.1").terms).toBe(BAA_EXPLAINER.terms);
+    expect(baaExplainerFor(currentBaaTemplate().version)).toBe(BAA_EXPLAINER);
+    // Every released version that words no bullet differently, and anything unknown.
+    for (const version of ["1.2.0", "1.0.0", "9.9.9", "toString", ""]) {
+      expect(baaExplainerFor(version), version).toBe(BAA_EXPLAINER);
+    }
+  });
+
+  test("1.3.0 gets its own bullets under the same heading, lead, objection and disclaimer", () => {
+    const explainer = baaExplainerFor("1.3.0");
+    expect(explainer.terms).toBe(baaExplainerTerms("1.3.0"));
+    expect(explainer.terms).not.toBe(BAA_EXPLAINER.terms);
+    const { terms: _shared, ...frame } = BAA_EXPLAINER;
+    const { terms: _own, ...ownFrame } = explainer;
+    expect(ownFrame).toEqual(frame);
+    // The same object each time it is asked for.
+    expect(baaExplainerFor("1.3.0")).toBe(explainer);
+    const plain = explainer.terms.map((t) => t.plain).join("\n");
+    expect(plain).toContain("limit its use and disclosure");
+    expect(plain).toContain("if you determine that we have violated a material term of it");
+    expect(plain).not.toContain("use it only");
+    expect(plain).not.toContain("materially breach");
   });
 });

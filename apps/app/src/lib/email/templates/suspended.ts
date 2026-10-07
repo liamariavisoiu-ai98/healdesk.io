@@ -11,7 +11,10 @@ import type { EmailTemplate } from "./types";
  * A suspension has more than one cause, and the payload names it (`kind`).
  * Grace running out and Stripe's `unpaid` are suspensions for not paying: the
  * copy blames the unpaid invoice when it has one to point at, and says paying
- * it restores everything, because a payment lifts exactly those two (R10). A
+ * what is owed restores everything, because a payment lifts exactly those two
+ * (R10), once no other invoice is still owed. So it never promises that this
+ * one invoice is enough: a second failed invoice keeps the service suspended,
+ * and paying the first sends this email again for the next. A
  * dispute or an operator's suspension is another matter: paying lifts neither
  * (settlePayment refuses), so that copy never says an invoice caused it and
  * never promises a payment brings AYA back. It asks the clinic to reply, and
@@ -68,7 +71,7 @@ export const renderSuspended: EmailTemplate<SuspendedPayload> = (payload, ctx) =
     {
       type: "paragraph",
       text: paymentRestores
-        ? "Paying the invoice restores everything at once."
+        ? "Paying what you owe healdesk restores everything at once."
         : "Reply to this email and we'll tell you what's needed to restore it.",
     },
     ...undoForwarding(
@@ -81,7 +84,7 @@ export const renderSuspended: EmailTemplate<SuspendedPayload> = (payload, ctx) =
     {
       subject: "AYA has stopped answering: your healdesk service is suspended",
       preheader: paymentRestores
-        ? "Paying the invoice restores everything at once."
+        ? "Paying what you owe healdesk restores everything at once."
         : "Reply to this email and we'll help you restore it.",
       blocks,
     },

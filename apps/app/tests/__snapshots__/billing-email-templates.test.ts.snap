@@ -396,10 +396,10 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 exports[`every branch of every billing template > grace_ending: grace ends tomorrow > the words, as a snapshot 1`] = `
 {
   "preheader": "Your healdesk invoice for $897 is still unpaid.",
-  "subject": "AYA stops answering on 13 October unless your invoice is paid",
+  "subject": "AYA stops answering on 13 October unless what you owe is paid",
   "text": "Your healdesk invoice for $897 is still unpaid. AYA keeps answering until 10:32 am EDT on Tuesday 13 October.
 
-If it's still unpaid then, she stops answering on every channel: forwarded calls pass straight through to your direct line, and website chat becomes a contact form. Paying the invoice afterwards restores everything at once.
+If what you owe healdesk is still unpaid then, she stops answering on every channel: forwarded calls pass straight through to your direct line, and website chat becomes a contact form. Paying it afterwards restores everything at once.
 
 Pay the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
@@ -415,10 +415,10 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 exports[`every branch of every billing template > grace_ending: grace ends, amount and link unknown > the words, as a snapshot 1`] = `
 {
   "preheader": "Your healdesk invoice is still unpaid.",
-  "subject": "AYA stops answering on 12 October unless your invoice is paid",
+  "subject": "AYA stops answering on 12 October unless what you owe is paid",
   "text": "Your healdesk invoice is still unpaid. AYA keeps answering until 10 pm EDT on Monday 12 October.
 
-If it's still unpaid then, she stops answering on every channel: forwarded calls pass straight through to your direct line, and website chat becomes a contact form. Paying the invoice afterwards restores everything at once.
+If what you owe healdesk is still unpaid then, she stops answering on every channel: forwarded calls pass straight through to your direct line, and website chat becomes a contact form. Paying it afterwards restores everything at once.
 
 Update your card: https://app.healdesk.test/
 
@@ -1237,7 +1237,7 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > suspended: suspended for an unpaid invoice, Verizon landline > the words, as a snapshot 1`] = `
 {
-  "preheader": "Paying the invoice restores everything at once.",
+  "preheader": "Paying what you owe healdesk restores everything at once.",
   "subject": "AYA has stopped answering: your healdesk service is suspended",
   "text": "Your healdesk invoice for $897 is unpaid, so we've suspended your service.
 
@@ -1245,7 +1245,7 @@ AYA has stopped answering on every channel: forwarded calls pass straight throug
 
 Pay the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
-Paying the invoice restores everything at once.
+Paying what you owe healdesk restores everything at once.
 
 If your clinic's line forwards to AYA, you can undo that while this is sorted out. From the clinic's own line, dial these Verizon codes:
 
@@ -1286,7 +1286,7 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > suspended: suspended, T-Mobile forwarding every call > the words, as a snapshot 1`] = `
 {
-  "preheader": "Paying the invoice restores everything at once.",
+  "preheader": "Paying what you owe healdesk restores everything at once.",
   "subject": "AYA has stopped answering: your healdesk service is suspended",
   "text": "Your healdesk invoice for $897 is unpaid, so we've suspended your service.
 
@@ -1294,7 +1294,7 @@ AYA has stopped answering on every channel: forwarded calls pass straight throug
 
 Update your card: https://app.healdesk.test/
 
-Paying the invoice restores everything at once.
+Paying what you owe healdesk restores everything at once.
 
 If your clinic's line forwards to AYA, you can undo that while this is sorted out. From the clinic's own line, dial these T-Mobile codes:
 
@@ -1311,7 +1311,7 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > suspended: suspended, a cloud phone system > the words, as a snapshot 1`] = `
 {
-  "preheader": "Paying the invoice restores everything at once.",
+  "preheader": "Paying what you owe healdesk restores everything at once.",
   "subject": "AYA has stopped answering: your healdesk service is suspended",
   "text": "Your healdesk invoice for $897 is unpaid, so we've suspended your service.
 
@@ -1319,7 +1319,7 @@ AYA has stopped answering on every channel: forwarded calls pass straight throug
 
 Pay the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
-Paying the invoice restores everything at once.
+Paying what you owe healdesk restores everything at once.
 
 If your clinic's line forwards to AYA, you can undo that while this is sorted out. Your line forwards by a rule in your phone system's admin:
 
@@ -1336,7 +1336,7 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > suspended: suspended, after hours only on a known carrier > the words, as a snapshot 1`] = `
 {
-  "preheader": "Paying the invoice restores everything at once.",
+  "preheader": "Paying what you owe healdesk restores everything at once.",
   "subject": "AYA has stopped answering: your healdesk service is suspended",
   "text": "Your healdesk invoice for $897 is unpaid, so we've suspended your service.
 
@@ -1344,7 +1344,7 @@ AYA has stopped answering on every channel: forwarded calls pass straight throug
 
 Pay the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
-Paying the invoice restores everything at once.
+Paying what you owe healdesk restores everything at once.
 
 If your clinic's line forwards to AYA, you can undo that while this is sorted out. After-hours forwarding runs on your carrier's schedule, so:
 

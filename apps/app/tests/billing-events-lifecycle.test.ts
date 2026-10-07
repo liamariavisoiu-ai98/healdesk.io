@@ -1142,6 +1142,49 @@ describeDb("the deferred start's billing lifecycle", () => {
       expect(row.open_invoice_id).toBeNull();
     });
 
+    test("suspended for not paying: paying the invoice its email linked keeps the service off and emails the one still owed, once", async () => {
+      const { clinicId, ids } = await annualClinic("suspendedtwo");
+      const renewal = renewalOf(ids);
+      const overage = overageOf(ids);
+      await handleStripeEvent(unpaidEvent("invoice.payment_failed", renewal), { now: NOW });
+      await handleStripeEvent(unpaidEvent("invoice.payment_failed", overage), { now: NOW });
+      // Stripe gives up on the renewal: suspended for not paying.
+      world.subscriptions.set(
+        ids.subscription,
+        subscription(ids, [{ lookupKey: stripeLookupKey(complete, "year") }], { status: "unpaid" }),
+      );
+      await handleStripeEvent(
+        event("customer.subscription.updated", world.subscriptions.get(ids.subscription)!),
+        { now: NOW },
+      );
+      expect((await entitlementsOf(clinicId)).status).toBe("suspended");
+      const [first] = await noticesOf(clinicId, "suspended");
+      expect(first!.payload).toMatchObject({
+        kind: "unpaid",
+        hostedInvoiceUrl: renewal.hosted_invoice_url,
+      });
+
+      const paidRenewal = paidEvent(renewal);
+      await handleStripeEvent(paidRenewal, { now: NOW });
+      const row = await entitlementsOf(clinicId);
+      expect(row.status).toBe("suspended");
+      expect(row.open_invoice_id).toBe(overage.id);
+      const notices = await noticesOf(clinicId, "suspended");
+      expect(notices.map((n) => [n.dedupe_key, n.payload.hostedInvoiceUrl])).toEqual([
+        [first!.dedupe_key, renewal.hosted_invoice_url],
+        [`unpaid:${overage.id}`, overage.hosted_invoice_url],
+      ]);
+      expect(notices[1]!.payload).toMatchObject({ kind: "unpaid", amountDueCents: 8_000 });
+      expectLintClean(notices);
+
+      // The same payment delivered again tells the clinic nothing new.
+      await handleStripeEvent(paidRenewal, { now: NOW });
+      expect(await noticesOf(clinicId, "suspended")).toHaveLength(2);
+
+      await handleStripeEvent(paidEvent(overage), { now: NOW });
+      expect((await entitlementsOf(clinicId)).status).toBe("active");
+    });
+
     test("an invoice recorded as owed that Stripe no longer holds open gives way when another is paid", async () => {
       const { clinicId, ids } = await annualClinic("voided");
       const renewal = renewalOf(ids);

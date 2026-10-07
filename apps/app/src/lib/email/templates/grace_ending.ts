@@ -10,7 +10,9 @@ import type { EmailTemplate } from "./types";
  *
  * The last warning before AYA stops answering, so it gives the exact moment in
  * the clinic's own time, what changes then, and that paying afterwards still
- * restores everything at once (Terms §6). The day is in the subject, since
+ * restores everything at once (Terms §6). It says "what you owe" rather than
+ * "the invoice": a second failed invoice keeps grace running out until both
+ * are paid (R10). The day is in the subject, since
  * that is the line an owner reads on a phone; it says when AYA stops rather
  * than "pay by", because grace can end in the small hours of that day.
  */
@@ -24,7 +26,7 @@ export const renderGraceEnding: EmailTemplate<GraceEndingPayload> = (payload, ct
       : `Your healdesk invoice for ${money(payload.amountDueCents)} is still unpaid.`;
   return compose(
     {
-      subject: `AYA stops answering on ${dayShort(payload.graceEndsAt, ctx)} unless your invoice is paid`,
+      subject: `AYA stops answering on ${dayShort(payload.graceEndsAt, ctx)} unless what you owe is paid`,
       preheader: invoice,
       blocks: [
         {
@@ -33,7 +35,7 @@ export const renderGraceEnding: EmailTemplate<GraceEndingPayload> = (payload, ct
         },
         {
           type: "paragraph",
-          text: `If it's still unpaid then, she stops answering on every channel: ${WHEN_AYA_STOPS}. Paying the invoice afterwards restores everything at once.`,
+          text: `If what you owe healdesk is still unpaid then, she stops answering on every channel: ${WHEN_AYA_STOPS}. Paying it afterwards restores everything at once.`,
         },
         payload.hostedInvoiceUrl
           ? { type: "action", label: "Pay the invoice", url: payload.hostedInvoiceUrl }

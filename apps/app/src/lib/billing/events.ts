@@ -1149,7 +1149,19 @@ async function owedAfterPayment(
   const next = owed?.[0] ?? null;
   // recordInvoicePaid emptied the slot for this invoice; nothing to move.
   if (recorded === invoiceId && next === null) return false;
-  await moveOpenInvoice(tx.db, tx.clinicId, recorded === invoiceId ? null : recorded, next);
+  const moved = await moveOpenInvoice(
+    tx.db,
+    tx.clinicId,
+    recorded === invoiceId ? null : recorded,
+    next,
+  );
+  if (moved && next !== null && row.status === "suspended") {
+    // The suspension email linked the invoice that has just stopped being
+    // owed, and paying it does not restore the service while this one is
+    // unpaid. Say so, linking this one: once per invoice.
+    const cause = await nonPaymentSuspension(tx);
+    if (cause) await queueSuspendedNotice(tx, cause, next.invoiceId);
+  }
   return next !== null;
 }
 
@@ -1211,6 +1223,11 @@ async function settlePayment(
  * (onDispute). Exported for liftSuspension, which words its refusal by it.
  */
 export async function suspendedForNonPayment(tx: TenantTx): Promise<boolean> {
+  return (await nonPaymentSuspension(tx)) !== null;
+}
+
+/** The current suspension's cause when it was for not paying (as suspendedForNonPayment judges it), else null. */
+async function nonPaymentSuspension(tx: TenantTx): Promise<"grace_expired" | "unpaid" | null> {
   const [last] = await tx.db
     .select({ reason: billingTransitions.reason, createdAt: billingTransitions.createdAt })
     .from(billingTransitions)
@@ -1223,7 +1240,7 @@ export async function suspendedForNonPayment(tx: TenantTx): Promise<boolean> {
     )
     .orderBy(desc(billingTransitions.createdAt))
     .limit(1);
-  if (!last || !NON_PAYMENT_SUSPENSIONS.has(last.reason)) return false;
+  if (!last || !NON_PAYMENT_SUSPENSIONS.has(last.reason)) return null;
 
   const [dispute] = await tx.db
     .select({ id: billingTransitions.id })
@@ -1236,7 +1253,8 @@ export async function suspendedForNonPayment(tx: TenantTx): Promise<boolean> {
       ),
     )
     .limit(1);
-  return !dispute;
+  if (dispute) return null;
+  return last.reason === "subscription_unpaid" ? "unpaid" : "grace_expired";
 }
 
 /** `restored` (R10, R22), carrying the receipt link instead of a separate receipt. */

@@ -36,6 +36,7 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
     amountDueCents: 89_700,
   },
   suspended: {
+    kind: "grace_expired",
     hostedInvoiceUrl: INVOICE_URL,
     amountDueCents: 89_700,
     carrier: "verizon",
@@ -47,6 +48,7 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
     endsAt: "2026-11-10T00:00:00.000Z",
     isBeforeStart: false,
     refundWindowEndsOn: "2026-10-24",
+    graceEndsAt: "2026-10-17T09:00:00.000Z",
   },
   cancel_reversed: { isBeforeStart: true },
   canceled: {
@@ -67,13 +69,15 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
     locations: 1,
     noticeDays: 30,
   },
+  // Overage is billed per started block of 100 (6 October 2026): the alerts
+  // quote a block's price, and the invoice notice counts blocks.
   usage_80: {
     meter: "voice_minutes",
     used: 800,
     included: 1_000,
     windowEndsOn: "2026-11-10",
     overageMode: "allow",
-    rateCents: 80,
+    blockRateCents: 8_000,
   },
   usage_100: {
     meter: "chat_conversations",
@@ -81,15 +85,20 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
     included: 2_000,
     windowEndsOn: "2026-11-10",
     overageMode: "hard_cap",
-    rateCents: 30,
+    blockRateCents: 3_000,
   },
   overage_invoiced: {
-    amountCents: 2_400,
+    amountCents: 8_000,
     windowStart: "2026-10-10T00:00:00.000Z",
     windowEnd: "2026-11-10T00:00:00.000Z",
     voiceMinutes: 30,
     chatConversationsCount: 0,
+    voiceBlocksCount: 1,
+    chatBlocksCount: 0,
+    voiceBlockRateCents: 8_000,
+    chatBlockRateCents: 3_000,
     hostedInvoiceUrl: INVOICE_URL,
+    isPaid: false,
   },
   // Voice kept, so no forwarding facts ride along: the shape every plan
   // change has unless it drops voice.
@@ -102,6 +111,7 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
     hasDroppedChannels: false,
     isBeforeStart: false,
     billedPlanId: "web-voice",
+    isProrated: true,
   },
   location_added: {
     locations: 2,
@@ -115,6 +125,7 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
     disconnectedAt: "2026-10-20T15:04:05.000Z",
     wasByWebhook: true,
     source: "stripe",
+    hasUncheckedLinks: true,
   },
   plan_started: {
     planName: "Web Chatbot",
@@ -122,6 +133,7 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
     channel: "web",
     amountCents: 39_700,
     interval: "month",
+    startedOn: "2026-10-10",
     periodEndsOn: "2026-11-10",
     receiptUrl: RECEIPT_URL,
     isBilledByChannelsInService: true,
@@ -133,6 +145,7 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
     interval: "month",
     isInvoicedNow: false,
     hostedInvoiceUrl: null,
+    isPaid: false,
   },
   step_up_reminder: {
     channel: "voice",
@@ -164,16 +177,12 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
 
 /**
  * The keys R31 adds for the undo-forwarding steps and L4's outstanding action.
- * The funnel session adds them to lint.ts's category keys; until that is on
- * this branch the kinds carrying them are typed and kept out of the allowlist
- * check, and they join it once it is.
+ * They are category keys in lint.ts now, and lint.ts checks category keys
+ * before its "…At/…On" date rule, so `waitingOn` is no longer read as a date.
+ * Holding these kinds out of the check is what had hidden that bug, so every
+ * kind is checked.
  */
-const PENDING_LINT_KEYS = ["carrier", "phoneSystem", "routing", "waitingOn"];
-const PENDING_LINT_KINDS: readonly BillingNoticeKind[] = [
-  "suspended",
-  "canceled",
-  "step_up_reminder",
-];
+const R31_KEYS = ["carrier", "phoneSystem", "routing", "waitingOn"];
 
 beforeEach(() => {
   vi.stubEnv("BETTER_AUTH_URL", "https://app.healdesk.test");
@@ -191,16 +200,18 @@ describe("the notice payloads", () => {
 
   test("every payload passes the email platform's allowlist", () => {
     for (const kind of BILLING_NOTICE_KINDS) {
-      if (PENDING_LINT_KINDS.includes(kind)) continue;
       expect(() => assertPayloadAllowed(FIXTURES[kind], kind), kind).not.toThrow();
     }
   });
 
-  test("only the kinds held out of the allowlist check carry the keys it does not know yet", () => {
-    for (const kind of BILLING_NOTICE_KINDS) {
-      const carries = Object.keys(FIXTURES[kind]).some((key) => PENDING_LINT_KEYS.includes(key));
-      expect(carries, kind).toBe(PENDING_LINT_KINDS.includes(kind));
+  test("the R31 keys are read as categories, never as dates", () => {
+    // waitingOn ends in "On"; before lint.ts checked category keys first it was
+    // classed as a date and every step-up reminder was refused when sent.
+    for (const key of R31_KEYS) {
+      expect(() => assertPayloadAllowed({ [key]: "voice" }), key).not.toThrow();
     }
+    expect(() => assertPayloadAllowed({ waitingOn: "2026-10-08" })).not.toThrow();
+    expect(() => assertPayloadAllowed({ waitingOn: "a sentence" })).toThrow();
   });
 
   test("no payload carries a field the allowlist would read as free text", () => {

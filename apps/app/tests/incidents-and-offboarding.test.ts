@@ -21,7 +21,7 @@ import { listClinics } from "@/lib/ops/clinics";
 import { amendContact, exportPatient } from "@/lib/patient-rights/export";
 import { withTenant } from "@/lib/tenant";
 
-import { closePools, getAppPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
+import { closePools, getAppPool, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { inTenant, seedClinic, seedContact, seedConversation } from "./setup/factories";
 
 /**
@@ -217,8 +217,7 @@ describeDb("incidents, exports and offboarding", () => {
     expect(missing).toBe(false);
   });
 
-  test("offboarding stamps the dates, and destruction removes the patients and the closed days but keeps the opt-outs, the audit trail and the channel history", async () => {
-    const started = new Date("2026-06-01T00:00:00Z");
+  test("offboarding stamps the dates, and destruction removes the patients, who messaged the clinic and the closed days but keeps the opt-outs, the audit trail and the channel history", async () => {
     const leaving = await seedClinic("offboard");
     const staying = await seedClinic("offboard-stay");
     for (const c of [leaving, staying]) {
@@ -232,28 +231,49 @@ describeDb("incidents, exports and offboarding", () => {
         await client.query(`insert into clinic_closures (clinic_id, closed_on) values ($1, '2026-12-25')`, [c.clinicId]);
         // Billing evidence: the plan was charged from this row.
         await client.query(`insert into channel_events (clinic_id, channel, kind) values ($1, 'voice', 'first_answer')`, [c.clinicId]);
+        // Keyed hashes of who messaged the clinic, and of a message it was sent.
+        await client.query(
+          `insert into chat_threads (clinic_id, channel, party_ref, conversation_id, conversation_started_at, last_inbound_at) values ($1, 'whatsapp', 'v1:party', gen_random_uuid(), now(), now())`,
+          [c.clinicId],
+        );
+        await client.query(`insert into meta_inbound_messages (clinic_id, platform, message_ref) values ($1, 'whatsapp', 'v1:message')`, [c.clinicId]);
       });
     }
 
-    await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) => startOffboarding(tx, "customer.subscription.deleted", started));
+    // The dates are the database's (app_start_offboarding): stamped now, and
+    // destroy_after thirty days on.
+    await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) => startOffboarding(tx, "customer.subscription.deleted"));
     let overview = (await listClinics()).find((c) => c.id === leaving.clinicId)!;
-    expect(overview.offboardingStartedAt?.toISOString()).toBe(started.toISOString());
+    const started = overview.offboardingStartedAt!;
+    expect(Math.abs(Date.now() - started.getTime())).toBeLessThan(60_000);
     expect(overview.destroyAfter?.toISOString()).toBe(new Date(started.getTime() + DESTROY_AFTER_DAYS * DAY).toISOString());
 
     // Starting twice does not move the clock.
-    await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) => startOffboarding(tx, "operator", new Date(started.getTime() + 10 * DAY)));
+    await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) => startOffboarding(tx, "operator"));
     overview = (await listClinics()).find((c) => c.id === leaving.clinicId)!;
     expect(overview.offboardingStartedAt?.toISOString()).toBe(started.toISOString());
 
-    // Day 31, export not yet delivered: nothing happens.
-    expect(await destroyDueClinics(new Date(started.getTime() + 31 * DAY))).toEqual([]);
+    // Thirty-one days on. The runtime role cannot write the dates, so the
+    // migrator, which owns the table, moves them back as the days would.
+    await getMigratorPool().query(
+      `update clinics
+          set offboarding_started_at = offboarding_started_at - interval '31 days',
+              destroy_after = destroy_after - interval '31 days'
+        where id = $1`,
+      [leaving.clinicId],
+    );
 
-    await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) => markExportDelivered(tx, "bundle handed to the practice manager", new Date(started.getTime() + 20 * DAY)));
-    const results = await destroyDueClinics(new Date(started.getTime() + 31 * DAY));
+    // Day 31, export not yet delivered: nothing happens.
+    expect(await destroyDueClinics()).toEqual([]);
+
+    await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) => markExportDelivered(tx, "bundle handed to the practice manager"));
+    const results = await destroyDueClinics();
     expect(results.map((r) => r.clinicId)).toEqual([leaving.clinicId]);
     expect(results[0]!.deleted.conversations).toBe(1);
     expect(results[0]!.deleted.contacts).toBe(1);
     expect(results[0]!.deleted.clinic_closures).toBe(1);
+    expect(results[0]!.deleted.chat_threads).toBe(1);
+    expect(results[0]!.deleted.meta_inbound_messages).toBe(1);
 
     const left = await inTenant(leaving.clinicId, async (client) => ({
       contacts: (await client.query(`select id from contacts`)).rows.length,
@@ -263,18 +283,22 @@ describeDb("incidents, exports and offboarding", () => {
       audit: (await client.query(`select id from audit_log where resource_type = 'clinic_destruction'`)).rows.length,
       closures: (await client.query(`select closed_on from clinic_closures`)).rows.length,
       channelEvents: (await client.query(`select id from channel_events`)).rows.length,
+      threads: (await client.query(`select party_ref from chat_threads`)).rows.length,
+      messageRefs: (await client.query(`select message_ref from meta_inbound_messages`)).rows.length,
     }));
-    expect(left).toEqual({ contacts: 0, conversations: 0, appointments: 0, suppressions: 1, audit: 1, closures: 0, channelEvents: 1 });
+    expect(left).toEqual({ contacts: 0, conversations: 0, appointments: 0, suppressions: 1, audit: 1, closures: 0, channelEvents: 1, threads: 0, messageRefs: 0 });
 
     const kept = await inTenant(staying.clinicId, async (client) => ({
       contacts: (await client.query(`select id from contacts`)).rows.length,
       closures: (await client.query(`select closed_on from clinic_closures`)).rows.length,
+      threads: (await client.query(`select party_ref from chat_threads`)).rows.length,
+      messageRefs: (await client.query(`select message_ref from meta_inbound_messages`)).rows.length,
     }));
-    expect(kept).toEqual({ contacts: 1, closures: 1 });
+    expect(kept).toEqual({ contacts: 1, closures: 1, threads: 1, messageRefs: 1 });
 
     overview = (await listClinics()).find((c) => c.id === leaving.clinicId)!;
     expect(overview.destroyedAt).not.toBeNull();
     // Destroyed once: the next day's job finds nothing.
-    expect(await destroyDueClinics(new Date(started.getTime() + 32 * DAY))).toEqual([]);
+    expect(await destroyDueClinics(new Date(Date.now() + DAY))).toEqual([]);
   });
 });

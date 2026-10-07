@@ -285,6 +285,36 @@ describe('never "with every clinic"', () => {
   );
 });
 
+/**
+ * Overage is billed per started block of 100 since 6 October 2026
+ * (docs/v1-product-spec.md, "Overage prices"), so no screen of the purchase
+ * may quote a rate per minute or per conversation. The block prices
+ * themselves are held to the catalog in src/lib/overage-copy.test.ts.
+ */
+const PER_UNIT =
+  /\/min\b|\/conversation|\bper (?:voice |phone )?minute|\bper (?:chat )?conversation|\ba voice minute|\ba chat conversation|\$0\.\d\d/i;
+
+describe("no per-unit overage rate, anywhere in the purchase", () => {
+  test("the rule catches the wording it replaced", () => {
+    for (const old of [
+      "$0.80/min",
+      "$0.30/conversation",
+      "Past that: $0.80 a voice minute and $0.30 a chat conversation",
+      "billed per minute or per conversation",
+    ]) {
+      expect(old).toMatch(PER_UNIT);
+    }
+    expect("$80 for each started block of 100 extra voice minutes").not.toMatch(PER_UNIT);
+  });
+
+  test.each(everyScreen().map((screen) => [screen.name, screen] as const))(
+    "%s",
+    (_name, screen) => {
+      expect(text(screen.element)).not.toMatch(PER_UNIT);
+    },
+  );
+});
+
 describe("Review and pay", () => {
   test.each(
     plans.flatMap((plan) =>

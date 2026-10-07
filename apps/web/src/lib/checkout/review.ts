@@ -2,6 +2,7 @@ import {
   additionalLocationChargeUsd,
   type BillingInterval,
   channelList,
+  OVERAGE_BLOCK_UNITS,
   OVERAGE_RATES_PROVISIONAL,
   type Plan,
   planStartSentence,
@@ -9,7 +10,7 @@ import {
   type SpecialtyId,
 } from "@healdesk/catalog";
 
-import { usd } from "@/lib/pricing";
+import { overageBlockPrices, usd } from "@/lib/pricing";
 
 /**
  * What Review and pay says, in the order it says it (plan Part A3, step 4),
@@ -64,23 +65,25 @@ export function includedLine(plan: Plan): string {
 }
 
 /**
- * Past the allowance, at the package's own rates, said to be provisional
- * because they are (CLAUDE.md, "Claims and copy"). While the rates are held
- * back nothing is billed past the allowance, and the line says that instead.
+ * Past the allowance: the package's own price for each started block of 100
+ * extra minutes or conversations, which is how overage is billed since the
+ * owner's decision of 6 October 2026 (docs/v1-product-spec.md, "Overage
+ * prices"), said to be provisional because it is (CLAUDE.md, "Claims and
+ * copy"). The block and its price are the catalog's (`overageBlockPrices`),
+ * never a per-unit rate. While the rates are held back nothing is billed past
+ * the allowance, and the line says that instead.
  */
 export function overageSentence(plan: Plan, interval: BillingInterval): string {
   if (OVERAGE_RATES_PROVISIONAL) {
     return "Past that, nothing is billed until we publish the rates, and you'll see them in writing before they apply.";
   }
-  const rates: string[] = [];
-  if (plan.overagePerVoiceMinuteUsd > 0)
-    rates.push(`$${plan.overagePerVoiceMinuteUsd.toFixed(2)} a voice minute`);
-  if (plan.overagePerChatConversationUsd > 0) {
-    rates.push(`$${plan.overagePerChatConversationUsd.toFixed(2)} a chat conversation`);
-  }
+  const blocks = overageBlockPrices(plan).map(
+    (block) =>
+      `${block.price} for each started block of ${OVERAGE_BLOCK_UNITS} extra ${block.unitsLong}`,
+  );
   const when = interval === "year" ? "invoiced monthly" : "on your next invoice";
   return (
-    `Past that: ${rates.join(" and ")}, ${when}. These rates are provisional until we have ` +
+    `Past that: ${blocks.join(" and ")}, ${when}. These rates are provisional until we have ` +
     "measured what a minute and a conversation cost to serve."
   );
 }

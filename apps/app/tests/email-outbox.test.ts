@@ -535,6 +535,7 @@ describeDb("the outbox sender", () => {
       "suspended",
       "in_6",
       {
+        kind: "grace_expired",
         hostedInvoiceUrl: null,
         amountDueCents: null,
         carrier: null,

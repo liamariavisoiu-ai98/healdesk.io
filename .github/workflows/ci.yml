@@ -92,17 +92,23 @@ jobs:
 
       # The point of the whole job. The step above fails on any failing test;
       # this one fails when the database-backed suites SKIPPED — which is the
-      # silent case, because a suite that skips reports green.
+      # silent case, because a suite that skips reports green. The suites that
+      # need no database now pass well over any floor on their own (1,297
+      # passed beside 779 skipped without one), so a pass count cannot tell;
+      # any skipped or todo test fails the job instead. Nothing in apps/app
+      # skips on purpose: the only conditional skip is describeDb.
+      # apps/app/tests/ci-db-guard.test.ts runs this script.
       - name: Assert the security tests actually ran
         run: |
           node -e '
             const r = require("./test-results.json");
             const passed = r.numPassedTests ?? 0;
-            const skipped = (r.testResults ?? []).filter(f => f.status === "pending").length;
-            console.log(`passed: ${passed}, skipped files: ${skipped}`);
-            if (passed < 200) {
-              console.log("::error::Only " + passed + " tests ran. The database-backed suites skipped —");
-              console.log("::error::tenant isolation, RLS drift and BAA immutability did not execute.");
+            const pending = r.numPendingTests ?? 0;
+            const todo = r.numTodoTests ?? 0;
+            console.log(`passed: ${passed}, pending: ${pending}, todo: ${todo}`);
+            if (pending > 0 || todo > 0 || passed < 200) {
+              console.log("::error::" + passed + " tests passed, " + pending + " skipped, " + todo + " todo. The database-backed suites did not all run —");
+              console.log("::error::tenant isolation, RLS drift, BAA immutability and billing may not have executed.");
               process.exit(1);
             }
           '

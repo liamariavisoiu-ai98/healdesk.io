@@ -31,7 +31,10 @@
  *
  * Past the allowance a package bills $0.80 a voice minute, and $0.40 a chat
  * conversation on the single-channel chat packages (`chat-web`, `chat-meta`) or $0.30 on
- * every other package with chat. The owner set these on 5 October 2026,
+ * every other package with chat, charged per started block of 100 since 6
+ * October 2026 (`OVERAGE_BLOCK_UNITS` below): $80 for each started block of
+ * 100 extra minutes, $40 or $30 for each started block of 100 extra
+ * conversations. The owner set the rates on 5 October 2026,
  * replacing the $0.35 and $0.25 signed off on 21 September, before any cost
  * had been measured. They are still a judgement, not a measurement: the spec
  * (docs/v1-product-spec.md → "Unit economics and infrastructure" → "What still
@@ -56,7 +59,7 @@
  * more than change what the page displays. While it is true,
  * `meteredLookupKeysFor()` in apps/web/src/lib/billing.ts attaches no metered
  * price to a monthly checkout. The terms also replace their overage sentence
- * with "Until those rates are published, usage above the allowance is not
+ * with "Until those prices are published, usage above the allowance is not
  * billed." Flipping it would change what Stripe bills and what the service
  * agreement says. That is a billing and counsel decision, not a copy one.
  * Until someone makes it, false means: the pricing page prints these numbers,
@@ -568,10 +571,12 @@ export function parseLookupKey(key: string): ParsedLookupKey | null {
 /**
  * The two account-wide meters. Each counts one unit past the allowance, by
  * Stripe customer, and backs one metered price per distinct overage rate:
- * today one voice price ($0.80) and two chat prices ($0.40 on the
- * single-channel chat packages, $0.30 on the rest). A subscription carries the
- * price for its own package's rate, so the usage reporter sends every event
- * to the meter by `eventName` and never has to know the rate.
+ * today one voice price ($80 a block of 100 minutes) and two chat prices ($40
+ * a block of 100 conversations on the single-channel chat packages, $30 on the
+ * rest). A subscription carries the price for its own package's rate, so the
+ * usage reporter sends every event to the meter by `eventName`, in single
+ * units, and never has to know the rate or the block: the price turns the
+ * period's units into started blocks (OVERAGE_BLOCK_UNITS).
  */
 export const METERS = {
   voiceMinutes: {
@@ -604,13 +609,55 @@ export function overageRateCents(rateUsd: number): number {
 }
 
 /**
- * The lookup key of one metered price: the meter plus the rate in cents, e.g.
- * `healdesk_meter_chat_conversations_30`. The rate is in the key for the same
- * reason the amount is in a package key: a rate change cannot silently resolve
- * to the old price.
+ * Overage is billed per STARTED block of this many units (the owner's decision
+ * of 6 October 2026, docs/v1-product-spec.md "Overage prices"): $80 for each
+ * started block of 100 extra voice minutes, and $40 (single-channel chat) or
+ * $30 (the rest) for each started block of 100 extra chat conversations. Per
+ * unit amounts left odd figures on every invoice.
+ *
+ * The per-unit rates on each plan stay the source, and a block is the rate
+ * times this. The meters still count single units. Stripe divides a monthly
+ * period's total by this and rounds up (the metered price's
+ * `transform_quantity`, set by stripe-setup), and the annual overage invoice
+ * does the same sum per closed month. So 1 unit over is one block, 100 is one,
+ * and 101 is two.
+ */
+export const OVERAGE_BLOCK_UNITS = 100;
+
+/** The price of one started block, in whole cents: the per-unit rate × OVERAGE_BLOCK_UNITS. */
+export function overageBlockCents(rateUsd: number): number {
+  return overageRateCents(rateUsd) * OVERAGE_BLOCK_UNITS;
+}
+
+/** Started blocks for a number of units over the allowance. None for nothing (or nonsense). */
+export function overageBlocks(units: number): number {
+  if (!Number.isFinite(units) || units <= 0) return 0;
+  return Math.ceil(units / OVERAGE_BLOCK_UNITS);
+}
+
+/**
+ * What `units` over the allowance cost at `rateUsd` a unit, billed in started
+ * blocks, in cents. Nothing over costs nothing whatever the rate, so a meter
+ * the package does not sell (rate 0) and has counted nothing on is $0 rather
+ * than a throw; units over with no rate still throw, because billing them at
+ * $0 would hide a catalog fault.
+ */
+export function overageChargeCents(units: number, rateUsd: number): number {
+  const blocks = overageBlocks(units);
+  return blocks === 0 ? 0 : blocks * overageBlockCents(rateUsd);
+}
+
+/**
+ * The lookup key of one metered price: the meter, the block size and the block
+ * price in cents, e.g. `healdesk_meter_chat_conversations_block100_3000`. Both
+ * numbers are in the key for the same reason the amount is in a package key: a
+ * Stripe price's amount and transform can never change, so a new rate or block
+ * is a new price, and a key that named only the meter would silently resolve to
+ * the old one. The per-unit keys of 5 October
+ * (`healdesk_meter_voice_minutes_80`) are archived by stripe-setup.
  */
 export function meteredPriceLookupKey(meter: MeterId, rateUsd: number): string {
-  return `${METERS[meter].lookupKeyPrefix}_${overageRateCents(rateUsd)}`;
+  return `${METERS[meter].lookupKeyPrefix}_block${OVERAGE_BLOCK_UNITS}_${overageBlockCents(rateUsd)}`;
 }
 
 /**
@@ -619,12 +666,13 @@ export function meteredPriceLookupKey(meter: MeterId, rateUsd: number): string {
  */
 export function planMeteredPrices(
   plan: Plan,
-): { meter: MeterId; rateUsd: number; lookupKey: string }[] {
-  const out: { meter: MeterId; rateUsd: number; lookupKey: string }[] = [];
+): { meter: MeterId; rateUsd: number; blockCents: number; lookupKey: string }[] {
+  const out: { meter: MeterId; rateUsd: number; blockCents: number; lookupKey: string }[] = [];
   if (plan.channels.voice) {
     out.push({
       meter: "voiceMinutes",
       rateUsd: plan.overagePerVoiceMinuteUsd,
+      blockCents: overageBlockCents(plan.overagePerVoiceMinuteUsd),
       lookupKey: meteredPriceLookupKey("voiceMinutes", plan.overagePerVoiceMinuteUsd),
     });
   }
@@ -632,6 +680,7 @@ export function planMeteredPrices(
     out.push({
       meter: "chatConversations",
       rateUsd: plan.overagePerChatConversationUsd,
+      blockCents: overageBlockCents(plan.overagePerChatConversationUsd),
       lookupKey: meteredPriceLookupKey(
         "chatConversations",
         plan.overagePerChatConversationUsd,

@@ -53,6 +53,10 @@
 --     refuses while any is left.
 --   * app_clinics_overview() carries the version the rule was read from.
 --   * The offboarding-destroy job runs every hour (lib/scheduler/tick.ts).
+--   * Every day these functions count is twenty-four hours, whatever time
+--     zone the caller's session set: each runs with TimeZone pinned to UTC,
+--     and so do 0054's record-clock functions (below, "The caller's time
+--     zone").
 --
 -- What a compromised runtime role can still do, said plainly. It holds INSERT
 -- on baa_acceptances, which signing needs, and a column-level REVOKE cannot
@@ -62,8 +66,28 @@
 -- days. With the start backdated by the week the clamp allows, the earliest
 -- it can make anything due is day 29 counted from a week before its call:
 -- twenty-two days after it starts, and the clinic it starts on has its
--- service ended in plain sight. That bound is the floor's; the rule beyond it
--- is the agreement's.
+-- service ended in plain sight. Those are days of twenty-four hours whatever
+-- zone its session sets, which is what the pin to UTC buys. That bound is the
+-- floor's; the rule beyond it is the agreement's.
+--
+-- The caller's time zone (review of 7 October). Any role may set its own
+-- session's TimeZone, the runtime role included, and Postgres counts
+-- interval 'N days' and make_interval(days => n) in that zone: it moves the
+-- local date, keeps the local time and converts back at the new date's
+-- offset, so across a change of offset a day lasts that change longer or
+-- shorter. A POSIX zone may put its two offsets 334 hours apart (each up to
+-- 167 hours from UTC). The first version of this migration counted in the
+-- caller's zone: one such zone stretched the week's clamp to twenty-one days
+-- and pushed the start up to a week past the call, another shrank the
+-- floor's twenty-nine days to fifteen, and together they let the runtime
+-- role start a live clinic's clock and destroy its data in one transaction.
+-- So every function here that counts days, and every definer that refuses
+-- on one, carries SET TimeZone = 'UTC', where a day is twenty-four hours;
+-- the caller's zone is back in force when it returns. 0054's record clock
+-- counted its day of grace and its cutoff the same way, so a clock shortened
+-- in the transaction that purged could bind at once: ALTER FUNCTION pins
+-- app_record_days_in_force(), app_record_cutoff() and
+-- app_purge_booking_requests() without restating their bodies.
 --
 -- Safe to apply in place: apps/app has only ever held synthetic and seed data
 -- (CLAUDE.md, "Until BAA coverage is in place"), and no clinic has offboarded
@@ -129,12 +153,14 @@ GRANT EXECUTE ON FUNCTION app_agreement_at_end(uuid) TO healdesk_app;--> stateme
 -- destroying transaction, is earlier than the moment of any statement in it,
 -- so a transaction left open cannot spend its own wait; the dates it reads
 -- are written by app_start_offboarding() and app_mark_export_delivered()
--- alone. Not SECURITY DEFINER: only the three definers below call it.
+-- alone. Its days are counted in UTC, whatever zone the caller set (see the
+-- header). Not SECURITY DEFINER: only the three definers below call it.
 CREATE OR REPLACE FUNCTION app_destruction_due(target_clinic uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SET search_path = public, pg_temp
+SET TimeZone = 'UTC'
 AS $$
   SELECT coalesce((
     SELECT CASE app_destruction_rule((SELECT e.document_version FROM app_agreement_at_end(c.id) e))
@@ -165,7 +191,10 @@ REVOKE ALL ON FUNCTION app_destruction_due(uuid) FROM PUBLIC;--> statement-break
 -- stamp an end already old). So a deletion processed late, by Stripe's retries
 -- or a replay of a dead letter, starts the clock when the practice left, as
 -- the agreements count it, and a runtime role that passes any other moment
--- moves the clock a week at most. Once stamped, nothing moves either date.
+-- moves the clock a week at most: seven days of twenty-four hours, and
+-- destroy_after thirty of them later, because the function counts in UTC
+-- whatever zone the caller set (see the header). Once stamped, nothing moves
+-- either date.
 --
 -- Returns the stamps, whether this call made them, and the end it was asked
 -- for, so the caller can tell ops when the week's clamp cost the practice
@@ -183,6 +212,7 @@ LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = public, pg_temp
+SET TimeZone = 'UTC'
 AS $$
 DECLARE
   tenant uuid := app_current_clinic_id();
@@ -302,13 +332,17 @@ $$;--> statement-breakpoint
 -- Destruction, on the floor above
 -- -----------------------------------------------------------------------------
 -- 0054's definition with the floor replaced: app_destruction_due() instead of
--- thirty days for every clinic. The message is unchanged.
+-- thirty days for every clinic. The message is unchanged. It and the two
+-- definers below count nothing themselves, and are pinned to UTC all the same,
+-- so no day counted on their behalf, now or after a later edit, is the
+-- caller's (see the header).
 CREATE OR REPLACE FUNCTION app_destroy_booking_requests(target_clinic uuid)
 RETURNS integer
 LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = public, pg_temp
+SET TimeZone = 'UTC'
 AS $$
 DECLARE
   tenant uuid := app_current_clinic_id();
@@ -348,6 +382,7 @@ LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = public, pg_temp
+SET TimeZone = 'UTC'
 AS $$
 DECLARE
   tenant uuid := app_current_clinic_id();
@@ -384,6 +419,7 @@ LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = public, pg_temp
+SET TimeZone = 'UTC'
 AS $$
 DECLARE
   tenant uuid := app_current_clinic_id();
@@ -428,6 +464,21 @@ BEGIN
   RETURN done;
 END
 $$;--> statement-breakpoint
+
+-- -----------------------------------------------------------------------------
+-- 0054's record clock, counted in UTC
+-- -----------------------------------------------------------------------------
+-- The day a shortened record clock waits before it binds
+-- (app_record_days_in_force: shortened_at > now() - interval '1 day') and the
+-- cutoff the clock in force allows (app_record_cutoff: now() -
+-- make_interval(days => in_force)) were counted in the caller's zone, so a
+-- zone that put "a day ago" days ahead of now let the runtime role shorten
+-- the clock and purge on it in one transaction, which the day is there to
+-- stop. ALTER FUNCTION adds the pin to each and to the purge that refuses on
+-- them, and leaves 0054's bodies as they are.
+ALTER FUNCTION app_record_days_in_force(integer, integer, timestamptz) SET TimeZone = 'UTC';--> statement-breakpoint
+ALTER FUNCTION app_record_cutoff() SET TimeZone = 'UTC';--> statement-breakpoint
+ALTER FUNCTION app_purge_booking_requests(timestamptz) SET TimeZone = 'UTC';--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
 -- The console projection, with the version the rule is read from
@@ -501,9 +552,9 @@ COMMENT ON FUNCTION app_destruction_rule(text) IS
 COMMENT ON FUNCTION app_agreement_at_end(uuid) IS
   'The agreement a clinic was bound to when its service ended: the newest acceptance bound to its organisation that was accepted and bound no later than offboarding_started_at, terminated since or not. No row while the clinic is not offboarding or held none then. The destruction rule is read from it.';--> statement-breakpoint
 COMMENT ON FUNCTION app_destruction_due(uuid) IS
-  'Whether a clinic''s data may be destroyed now, by the database''s clock: under the thirty days (BAA 1.2.1 and earlier, none, unknown) from day 29 after offboarding_started_at; under the DPA''s rule (BAA 1.3.0, DPA 1.0.0) from day 30 once export_delivered_at is set, and from day 90 regardless. The floor under app_destroy_booking_requests, app_destroy_contact_evidence and app_mark_clinic_destroyed.';--> statement-breakpoint
+  'Whether a clinic''s data may be destroyed now, by the database''s clock: under the thirty days (BAA 1.2.1 and earlier, none, unknown) from day 29 after offboarding_started_at; under the DPA''s rule (BAA 1.3.0, DPA 1.0.0) from day 30 once export_delivered_at is set, and from day 90 regardless. Days of twenty-four hours: it runs in UTC, whatever zone the caller set. The floor under app_destroy_booking_requests, app_destroy_contact_evidence and app_mark_clinic_destroyed.';--> statement-breakpoint
 COMMENT ON FUNCTION app_start_offboarding(uuid, timestamptz) IS
-  'Stamps clinics.offboarding_started_at at the end of the service (ended, or the call when NULL), clamped to no earlier than seven days before the call and no later than the call, both by clock_timestamp(); destroy_after thirty days later; once, so starting again moves neither. The tenant''s own clinic only. Returns the stamps, whether this call made them, and the end asked for.';--> statement-breakpoint
+  'Stamps clinics.offboarding_started_at at the end of the service (ended, or the call when NULL), clamped to no earlier than seven days before the call and no later than the call, both by clock_timestamp(); destroy_after thirty days later; once, so starting again moves neither. Days of twenty-four hours: it runs in UTC, whatever zone the caller set. The tenant''s own clinic only. Returns the stamps, whether this call made them, and the end asked for.';--> statement-breakpoint
 COMMENT ON FUNCTION app_mark_export_delivered(uuid) IS
   'Stamps clinics.export_delivered_at from clock_timestamp(), once, when the export reaches the practice (the operator''s record of the handover). The tenant''s own clinic, offboarding and not yet destroyed. The only writer of the column: app_destruction_due reads it.';--> statement-breakpoint
 COMMENT ON FUNCTION app_destroy_contact_evidence(uuid) IS
@@ -542,6 +593,19 @@ BEGIN
   END IF;
   IF to_regprocedure('app_start_offboarding(uuid)') IS NOT NULL THEN
     RAISE EXCEPTION 'app_start_offboarding(uuid) still exists beside app_start_offboarding(uuid, timestamptz).';
+  END IF;
+  IF EXISTS (SELECT 1
+               FROM unnest(ARRAY['app_start_offboarding(uuid, timestamptz)',
+                                 'app_destruction_due(uuid)',
+                                 'app_destroy_booking_requests(uuid)',
+                                 'app_destroy_contact_evidence(uuid)',
+                                 'app_mark_clinic_destroyed(uuid)',
+                                 'app_record_days_in_force(integer, integer, timestamptz)',
+                                 'app_record_cutoff()',
+                                 'app_purge_booking_requests(timestamptz)']::regprocedure[]) f(fn)
+               JOIN pg_proc p ON p.oid = f.fn
+              WHERE NOT ('TimeZone=UTC' = ANY (coalesce(p.proconfig, ARRAY[]::text[])))) THEN
+    RAISE EXCEPTION 'A function that counts days for the destruction clock, its floor or the record clock does not pin TimeZone to UTC, so the caller''s zone would set the length of its days.';
   END IF;
   IF has_function_privilege('public', 'app_start_offboarding(uuid, timestamptz)', 'EXECUTE')
      OR has_function_privilege('public', 'app_mark_export_delivered(uuid)', 'EXECUTE')

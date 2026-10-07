@@ -172,11 +172,14 @@ const WORDING: Record<OpsEvent, Wording> = {
   // Raised once per clinic by the destruction job (lib/offboarding) from day
   // 21 after a clinic on the thirty days (BAA 1.2.1 or earlier, or no
   // agreement) left with no export recorded as delivered. Its one fact is
-  // when the data goes (destroyAt).
+  // when the data goes (destroyAt). The export is owed whether or not the
+  // practice asks: those agreements give it "on request", but Terms §7
+  // promises it to every leaving practice and the canceled email tells the
+  // practice it is coming, so it has no reason to ask.
   export_undelivered_before_destruction: {
     title: "A leaving practice has no export delivered",
     action:
-      "This practice's data is destroyed at the time below whether or not its export was delivered: its agreement gives thirty days, or it has none on file. Deliver any export the practice asked for before then, and record the handover on its care page.",
+      "Deliver this practice's export, and record the handover on its care page, before the time below: Terms §7 promises every leaving practice its export within 30 days of the end, whether or not it asks. Its data is destroyed at that time whether or not the export was delivered, because its agreement gives thirty days, or it has none on file.",
   },
   // Raised once by the Stripe webhook (lib/billing/events.ts) when a
   // subscription's end was processed more than a week after it happened, so

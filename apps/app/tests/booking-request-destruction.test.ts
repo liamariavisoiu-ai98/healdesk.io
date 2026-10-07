@@ -21,6 +21,7 @@ import {
   truncateAll,
 } from "./setup/db";
 import { inTenant, seedClinic, seedContact, seedConversation } from "./setup/factories";
+import { sessionReach, setLocalZone, zoneShrinking, zoneStretching } from "./setup/time-zones";
 
 /**
  * Destruction, erasure and the purge, for a clinic whose desk confirmed a
@@ -1032,6 +1033,48 @@ describeDb("booking requests at destruction, erasure and purge", () => {
         purgeClinic(tx, new Date(Date.now() + 2 * DAY)),
       ),
     ).resolves.toMatchObject({ skipped: null, bookingRequestsDeleted: 3 });
+  });
+
+  // Any role may set its own session's TimeZone, and Postgres counts
+  // `interval '1 day'` and `make_interval(days => n)` in it. A POSIX zone with
+  // offsets 334 hours apart put "a day ago" days ahead of now, so a clock
+  // shortened in the transaction that purged bound at once (review of 7
+  // October). The record clock now counts its days in UTC (drizzle/0056).
+  test("a time zone the runtime role sets for itself cannot cut the record clock's day short, or move its cutoff", async () => {
+    const c = await seedClinic("purge-zone");
+    await seedPerson(c.clinicId, "+15550115101", new Date(Date.now() - 3 * DAY));
+    const tooLate = { code: "23514", message: expect.stringMatching(/record clock/) };
+
+    // A zone in which the session's "a day ago" lies ahead of now.
+    const ahead = await zoneShrinking("1 day");
+    const reach = await asApp(c.clinicId, async (q) => {
+      await setLocalZone(q, ahead.zone);
+      return sessionReach(q, "1 day");
+    });
+    expect(reach, ahead.zone).toBeLessThan(0);
+    await expect(
+      asApp(c.clinicId, async (q) => {
+        await setLocalZone(q, ahead.zone);
+        await q.query(`update clinics set retention_record_days = 1 where id = $1`, [c.clinicId]);
+        return q.query(`select app_purge_booking_requests(now())`);
+      }),
+    ).rejects.toMatchObject(tooLate);
+    expect(await counts(c.clinicId)).toEqual(ONE_PERSON);
+
+    // The cutoff is the clock in force, ninety days of twenty-four hours,
+    // in a zone that stretches the session's ninety days and in one that
+    // shrinks them.
+    for (const hostile of [await zoneStretching("90 days"), await zoneShrinking("90 days")]) {
+      const { rows } = await asApp(c.clinicId, async (q) => {
+        await setLocalZone(q, hostile.zone);
+        return q.query<{ exact: boolean; reach: number }>(
+          `select app_record_cutoff() = now() - interval '2160 hours' as exact,
+                  extract(epoch from now() - (now() - interval '90 days'))::float8 / 86400 as reach`,
+        );
+      });
+      expect(Math.abs(rows[0]!.reach - 90), hostile.zone).toBeGreaterThan(10);
+      expect(rows[0]!.exact, hostile.zone).toBe(true);
+    }
   });
 
   test("a clinic is never born offboarding, destroyed or part-way through a record-clock change", async () => {

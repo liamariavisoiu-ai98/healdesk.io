@@ -64,8 +64,11 @@ import { withTenant } from "@/lib/tenant";
  *     goes whether or not the export was delivered, and it goes at day 29, a
  *     day early: the job runs every hour, so whatever hour the practice left
  *     its data is gone before the thirty days are up, with most of a day to
- *     spare for a worker that was down. An export the practice asked for is
- *     owed before then, and ops is told at day 21 when none has been
+ *     spare for a worker that was down. The export is owed before then to
+ *     every leaving practice, whether or not it asks: these agreements give
+ *     it "on request", but Terms §7 promises it within thirty days of the
+ *     end, and the canceled email tells the practice it is coming, so a
+ *     practice has no reason to ask. Ops is told at day 21 when none has been
  *     recorded (export_undelivered_before_destruction).
  *   - DPA 1.0.0 says healdesk delivers the export unasked within thirty
  *     days, and that its destruction "runs once a day" and destroys "at the
@@ -101,7 +104,11 @@ import { withTenant } from "@/lib/tenant";
  * carry them (a trigger): if it could write the dates the floor reads, it
  * could stamp a live clinic as due, empty it and put the dates back. The one
  * moment it may pass in, the end of the service, is clamped to the week
- * before the call. app_mark_clinic_destroyed() also refuses while any row
+ * before the call. Every day the database counts for these dates, the
+ * clamp's seven and the floor's twenty-nine, thirty and ninety, is
+ * twenty-four hours: the functions run in UTC, because any role may set its
+ * own session's time zone and Postgres counts days in it (drizzle/0056's
+ * header). app_mark_clinic_destroyed() also refuses while any row
  * destroyClinicData deletes is still there, because once `destroyed_at` is
  * set the job passes the clinic over for good. Its list and the deletes below
  * are one list: tests/booking-request-destruction.test.ts fails if they
@@ -235,9 +242,9 @@ export type DestructionPlan = {
   /** The end of the service: offboarding_started_at. */
   endedAt: Date;
   /**
-   * The export is owed by then: under the thirty days, one the practice asked
-   * for, before destruction is due; under the DPA's rule, the one healdesk
-   * delivers unasked, by day 30.
+   * The export is owed by then, whether or not the practice asks (Terms §7):
+   * under the thirty days, before destruction is due; under the DPA's rule,
+   * by day 30.
    */
   exportDueBy: Date;
   /** When the job may destroy the clinic's data, given what has happened so far. */
@@ -607,8 +614,9 @@ export async function destroyEverythingDue(
 /**
  * From day 21 until destruction, one ops alert per clinic on the thirty days
  * with no export recorded as delivered: the data goes at destroyAt whatever
- * the export, so any export the practice asked for must reach it first. Never
- * for a clinic on the DPA's rule, whose destruction waits for the export.
+ * the export, and the practice is owed its export before then whether or not
+ * it asks (Terms §7; see the header). Never for a clinic on the DPA's rule,
+ * whose destruction waits for the export.
  */
 async function alertBeforeThirtyDayDestruction(
   clinicId: string,

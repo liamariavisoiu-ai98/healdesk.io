@@ -2568,9 +2568,9 @@ exports[`ops alerts beyond the fixture > a leaving practice with no export deliv
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">This practice&#39;s data is destroyed at the time below whether or not its export was delivered: its agreement gives thirty days, or it has none on file. Deliver any export the practice asked for before then, and record the handover on its care page.</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Deliver this practice&#39;s export, and record the handover on its care page, before the time below: Terms §7 promises every leaving practice its export within 30 days of the end, whether or not it asks. Its data is destroyed at that time whether or not the export was delivered, because its agreement gives thirty days, or it has none on file.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">This practice&#39;s data is destroyed at the time below whether or not its export was delivered: its agreement gives thirty days, or it has none on file. Deliver any export the practice asked for before then, and record the handover on its care page.</p>
+<p style="margin:0 0 16px;">Deliver this practice&#39;s export, and record the handover on its care page, before the time below: Terms §7 promises every leaving practice its export within 30 days of the end, whether or not it asks. Its data is destroyed at that time whether or not the export was delivered, because its agreement gives thirty days, or it has none on file.</p>
 <p style="margin:0 0 4px;"><strong>Event:</strong> export_undelivered_before_destruction</p>
 <p style="margin:0 0 4px;"><strong>Clinic id:</strong> 0c1d2e3f-0000-4000-8000-000000000000</p>
 <p style="margin:0 0 4px;"><strong>Destruction due (UTC):</strong> 2026-11-30T10:00:00.000Z</p>
@@ -2584,9 +2584,9 @@ exports[`ops alerts beyond the fixture > a leaving practice with no export deliv
 </div>
 </body>
 </html>",
-  "preheader": "This practice's data is destroyed at the time below whether or not its export was delivered: its agreement gives thirty days, or it has none on file. Deliver any export the practice asked for before then, and record the handover on its care page.",
+  "preheader": "Deliver this practice's export, and record the handover on its care page, before the time below: Terms §7 promises every leaving practice its export within 30 days of the end, whether or not it asks. Its data is destroyed at that time whether or not the export was delivered, because its agreement gives thirty days, or it has none on file.",
   "subject": "healdesk ops: A leaving practice has no export delivered",
-  "text": "This practice's data is destroyed at the time below whether or not its export was delivered: its agreement gives thirty days, or it has none on file. Deliver any export the practice asked for before then, and record the handover on its care page.
+  "text": "Deliver this practice's export, and record the handover on its care page, before the time below: Terms §7 promises every leaving practice its export within 30 days of the end, whether or not it asks. Its data is destroyed at that time whether or not the export was delivered, because its agreement gives thirty days, or it has none on file.
 
 Event: export_undelivered_before_destruction
 Clinic id: 0c1d2e3f-0000-4000-8000-000000000000

@@ -396,7 +396,7 @@ function Offboarding({ view, actions }: { view: CareView; actions: Actions }) {
             {c.exportDeliveredOn
               ? `Export delivered ${c.exportDeliveredOn}. Destruction is due at ${plan.destroyDueAt}.`
               : plan.rule === "thirty_days"
-                ? `Not yet delivered. Deliver any export the practice asked for before ${plan.destroyDueAt}; ops is alerted at day 21.`
+                ? `Not yet delivered. Deliver it and record the handover before ${plan.destroyDueAt}: every leaving practice is owed its export whether or not it asks (Terms §7), and the data goes then either way. Ops is alerted at day 21.`
                 : `Not yet delivered: owed by ${plan.exportDueAt}. Destruction waits for it until ${plan.latestDestroyAt}.`}
           </li>
           {vendorStep}

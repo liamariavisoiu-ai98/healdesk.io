@@ -349,8 +349,10 @@ the agreement the service ended under, terminated since or not (`destructionPlan
 the same rule as the database's floor):
 
 - BAA 1.2.1 and earlier, or no agreement on file: day 29, whatever the export, so the data
-  is gone before the thirty days the agreement gives. Any export the practice asked for
-  must be delivered before then; ops is alerted at day 21 when none is recorded
+  is gone before the thirty days the agreement gives. Every leaving practice is owed its
+  export whether or not it asks (Terms §7; the canceled email tells it one is coming,
+  though these agreements give it only "on request"), so deliver it and record the
+  handover before then; ops is alerted at day 21 when none is recorded
   (`export_undelivered_before_destruction`).
 - BAA 1.3.0 and the DPA: the 04 UTC run from day 30 once the export is recorded as
   delivered, from its delivery when that is later, and from day 90 whatever happens.
@@ -457,7 +459,12 @@ task name, a queue name or a resource tag.
   time or the setting alone. Where the runtime role can make a delete happen at all, make
   sure it cannot put the row back: `booking_request_keys` refuses a deleted request's id
   or token hash, and it is written at insert, so a re-insert racing the delete is refused
-  too.
+  too. Nor may a guard's days depend on its caller: any role may set its own session's
+  `TimeZone`, and Postgres counts `interval 'N days'` and `make_interval(days => n)` in
+  that zone, so one with offsets 334 hours apart once turned the destruction clock's seven
+  days into twenty-one. The functions that count days for the destruction clock, its floor
+  and the record clock carry `SET TimeZone = 'UTC'` (drizzle/0056), and the tests call each
+  under such a zone; a new guard that counts days needs the same.
 
 `apps/app/tests/rls-drift.test.ts` asks the catalog which tables carry a `clinic_id` and
 demands each one have row-level security enabled **and forced**. If it goes red, someone

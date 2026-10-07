@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { BAA_TEMPLATES, DPA_TEMPLATES, DPA_VERSION_PREFIX } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
@@ -32,6 +35,7 @@ import {
   truncateAll,
 } from "./setup/db";
 import { inTenant, seedClinic, seedContact, seedConversation } from "./setup/factories";
+import { sessionReach, setLocalZone, zoneShrinking, zoneStretching } from "./setup/time-zones";
 
 /**
  * The destruction clock follows the clinic's own agreement (drizzle's
@@ -233,6 +237,28 @@ describe("the dates each rule gives", () => {
   });
 });
 
+describe("the export is owed to every leaving practice, asked for or not", () => {
+  // BAA 1.2.1 gives the export "on request", but Terms §7 promises every
+  // practice one within thirty days of the end, and the canceled email tells
+  // it one is coming, so a practice has no reason to ask. Under the thirty
+  // days the data goes at day 29 whatever the export, so a runbook that said
+  // to deliver "any export the practice asked for" let one that was told to
+  // expect its records lose them for good. The ops alert's wording is held in
+  // tests/email-templates.test.ts, the care page's in apps/web.
+  test("the handover's runbook tells the operator to deliver it before day 29, unasked", () => {
+    const handover = readFileSync(
+      fileURLToPath(new URL("../../../docs/handover.md", import.meta.url)),
+      "utf8",
+    );
+    const from = handover.indexOf("- BAA 1.2.1 and earlier, or no agreement on file");
+    expect(from).toBeGreaterThan(-1);
+    const bullet = handover.slice(from, handover.indexOf("\n- ", from + 1)).replace(/\s+/g, " ");
+    expect(bullet).toContain("whether or not it asks");
+    expect(bullet).toContain("Terms §7");
+    expect(bullet).not.toMatch(/asked for/);
+  });
+});
+
 // -----------------------------------------------------------------------------
 // In the database
 // -----------------------------------------------------------------------------
@@ -371,6 +397,22 @@ const GUARDED = [
   `select app_destroy_booking_requests($1::uuid)`,
   `select * from app_destroy_contact_evidence($1::uuid)`,
   `select app_mark_clinic_destroyed($1::uuid)`,
+];
+
+/**
+ * Every function that counts days for the destruction clock, its floor or the
+ * record clock (0054), and the definers that refuse on them: each must count
+ * in UTC, whatever zone its caller's session set.
+ */
+const DAY_COUNTING_FUNCTIONS = [
+  "app_start_offboarding(uuid, timestamptz)",
+  "app_destruction_due(uuid)",
+  "app_destroy_booking_requests(uuid)",
+  "app_destroy_contact_evidence(uuid)",
+  "app_mark_clinic_destroyed(uuid)",
+  "app_record_days_in_force(integer, integer, timestamptz)",
+  "app_record_cutoff()",
+  "app_purge_booking_requests(timestamptz)",
 ];
 
 async function offboard(
@@ -893,5 +935,119 @@ describeDb("the destruction clock in the database", () => {
     } finally {
       await setJobEnabled(JOB_OFFBOARDING_DESTROY, false, admin.staffUserId);
     }
+  }, 120_000);
+
+  // ---------------------------------------------------------------------------
+  // The caller's time zone (review of 7 October)
+  // ---------------------------------------------------------------------------
+  // Any role may set its own session's TimeZone, and Postgres counts
+  // `interval 'N days'` in it, so a POSIX zone with offsets 334 hours apart
+  // stretched the week's clamp to nearly three and shrank the floor's
+  // twenty-nine days to fifteen: enough for the runtime role to start a live
+  // clinic's clock and destroy its data in one transaction. Every function
+  // that counts days for the clock or the floor now counts them in UTC.
+
+  test("every function that counts days for the clock, the floor or the record clock pins its time zone to UTC", async () => {
+    for (const fn of DAY_COUNTING_FUNCTIONS) {
+      const { rows } = await getMigratorPool().query<{ proconfig: string[] | null }>(
+        `select proconfig from pg_proc where oid = $1::regprocedure`,
+        [fn],
+      );
+      expect(rows[0]?.proconfig ?? [], fn).toContain("TimeZone=UTC");
+    }
+  });
+
+  test("a time zone the runtime role sets for itself cannot stretch the week's clamp, push the start past the call, or change the thirty days after it", async () => {
+    const c = await seedClinic("clock-zone-clamp");
+    const week = OFFBOARDING_BACKDATE_LIMIT_DAYS * DAY;
+    // One zone puts the session's "a week ago" nearly three weeks back, the
+    // other days ahead of now.
+    for (const hostile of [await zoneStretching("7 days"), await zoneShrinking("7 days")]) {
+      const start = await asApp(c.clinicId, async (q) => {
+        await setLocalZone(q, hostile.zone);
+        const reach = await sessionReach(q, "7 days");
+        // Measured in SQL: a timestamp the session prints in a zone 167 hours
+        // off UTC is one node-pg cannot parse back.
+        const { rows } = await q.query<{ back_ms: number; span_ms: number }>(
+          `select extract(epoch from clock_timestamp() - s.started_at)::float8 * 1000 as back_ms,
+                  extract(epoch from s.due_at - s.started_at)::float8 * 1000 as span_ms
+             from app_start_offboarding($1::uuid, '-infinity') s`,
+          [c.clinicId],
+        );
+        return { reach, ...rows[0]! };
+      });
+      expect(Math.abs(start.reach - OFFBOARDING_BACKDATE_LIMIT_DAYS), hostile.zone).toBeGreaterThan(
+        5,
+      );
+      expect(start.back_ms, hostile.zone).toBeGreaterThanOrEqual(week);
+      expect(start.back_ms, hostile.zone).toBeLessThan(week + 60_000);
+      expect(start.span_ms, hostile.zone).toBe(DESTROY_AFTER_DAYS * DAY);
+    }
+  }, 120_000);
+
+  test("a time zone the runtime role sets for itself brings no destruction forward: the floor's days are twenty-four hours", async () => {
+    // Two hours short of due by each rule: a 1.2.1 clinic at day 29, a 1.3.0
+    // clinic with its export delivered at day 30, and a DPA clinic with none
+    // at day 90.
+    const flat = await offboard("clock-zone-flat", "1.2.1");
+    const next = await offboard("clock-zone-next", "1.3.0");
+    const dpa = await offboard("clock-zone-dpa", "dpa/1.0.0");
+    await withTenant({ clinicId: next.clinicId, actor: ACTOR }, (tx) =>
+      markExportDelivered(tx, "bundle by SFTP to the practice manager"),
+    );
+    await moveBack(flat.clinicId, THIRTY_DAY_RULE_DUE_DAYS * 24 - 2);
+    await moveBack(next.clinicId, DESTROY_AFTER_DAYS * 24 - 2);
+    await moveBack(dpa.clinicId, DESTROY_WITHOUT_EXPORT_AFTER_DAYS * 24 - 2);
+
+    for (const [c, days] of [
+      [flat, THIRTY_DAY_RULE_DUE_DAYS],
+      [next, DESTROY_AFTER_DAYS],
+      [dpa, DESTROY_WITHOUT_EXPORT_AFTER_DAYS],
+    ] as const) {
+      // A zone in which the session's own count of those days falls weeks short.
+      const { zone } = await zoneShrinking(`${days} days`);
+      const reach = await asApp(c.clinicId, async (q) => {
+        await setLocalZone(q, zone);
+        return sessionReach(q, `${days} days`);
+      });
+      expect(reach, zone).toBeLessThan(days - 10);
+      for (const text of GUARDED) {
+        await expect(
+          asApp(c.clinicId, async (q) => {
+            await setLocalZone(q, zone);
+            return q.query(text, [c.clinicId]);
+          }),
+          `${days} days, ${text}`,
+        ).rejects.toMatchObject(notDue);
+      }
+    }
+  }, 120_000);
+
+  test("the runtime role cannot start a live clinic's clock and destroy its data in one transaction, whatever zones it sets", async () => {
+    const c = await seedClinic("clock-zone-chain");
+    await bindAgreement(c.organizationId, "1.2.1");
+    await seedPersonAndEvidence(c.clinicId, "+15550130501");
+    const back = await zoneStretching("7 days");
+    const short = await zoneShrinking(`${THIRTY_DAY_RULE_DUE_DAYS} days`);
+    for (const text of GUARDED) {
+      await expect(
+        asApp(c.clinicId, async (q) => {
+          await setLocalZone(q, back.zone);
+          await q.query(`select * from app_start_offboarding($1::uuid, '-infinity')`, [
+            c.clinicId,
+          ]);
+          await setLocalZone(q, short.zone);
+          return q.query(text, [c.clinicId]);
+        }),
+        text,
+      ).rejects.toMatchObject(notDue);
+    }
+    expect(await evidenceCounts(c.clinicId)).toEqual({
+      suppressions: 1,
+      consent_records: 1,
+      contact_attempts: 1,
+      contacts: 1,
+    });
+    expect((await stamps(c.clinicId)).offboarding_started_at).toBeNull();
   }, 120_000);
 });

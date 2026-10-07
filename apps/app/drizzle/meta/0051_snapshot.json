@@ -3165,6 +3165,10 @@
         "clinics_billing_clinic_not_self": {
           "name": "clinics_billing_clinic_not_self",
           "value": "\"clinics\".\"billing_clinic_id\" is null or \"clinics\".\"billing_clinic_id\" <> \"clinics\".\"id\""
+        },
+        "clinics_retention_record_days_positive": {
+          "name": "clinics_retention_record_days_positive",
+          "value": "\"clinics\".\"retention_record_days\" >= 1"
         }
       },
       "isRLSEnabled": false

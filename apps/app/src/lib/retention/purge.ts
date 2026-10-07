@@ -50,9 +50,10 @@ import type { TenantTx } from "@/lib/tenant";
  * lead the deletes because a confirmed one must keep its appointment (CHECK,
  * 0039) and cannot be rewritten (trigger, 0041), and the runtime role has no
  * DELETE on them, so app_purge_booking_requests() deletes them, refusing a
- * cutoff later than the clinic's own clock. A Meta draft abandoned for a day
- * goes here too, as a backstop to the sweep the clinic's next Meta message
- * runs.
+ * cutoff later than the clinic's own clock or than now(). The clock is never
+ * below a day (a CHECK on clinics), so no setting carries that cutoff to a
+ * booking still ahead. A Meta draft abandoned for a day goes here too, as a
+ * backstop to the sweep the clinic's next Meta message runs.
  *
  * ## What is never purged, and why
  *
@@ -368,7 +369,7 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
 
   if (ids.length) {
     const theirAppointments = await tx.db
-      .select({ id: appointments.id, conversationId: appointments.conversationId })
+      .select({ id: appointments.id })
       .from(appointments)
       .where(and(eq(appointments.clinicId, tx.clinicId), inArray(appointments.contactId, ids)));
     const aIds = theirAppointments.map((r) => r.id);
@@ -390,9 +391,6 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
         ),
       );
     const tIds = theirTransactions.map((r) => r.id);
-    const theirAppointmentConversations = theirAppointments
-      .map((r) => r.conversationId)
-      .filter((id): id is string => id !== null);
 
     if (tIds.length || aIds.length) {
       await tx.db.delete(reconciliationExceptions).where(
@@ -412,45 +410,32 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
         .returning({ id: transactions.id });
       result.transactionsDeleted = gone.length;
     }
-    // Their booking requests, before the appointments a confirmed one holds
-    // (CHECK, 0039; trigger, 0041). The app role has no DELETE on them, so
-    // app_erase_booking_requests() takes one person's, and any pointing at
-    // that person's appointments, inside this tenant; the contact itself goes
-    // below, in this same transaction, as the cascade would have taken them.
-    for (const id of ids) {
-      const requests = await tx.db.execute<{ n: number }>(
-        sql`select app_erase_booking_requests(${id}::uuid) as n`,
-      );
-      result.bookingRequestsDeleted += requests.rows[0]?.n ?? 0;
-    }
-    if (aIds.length) {
-      const gone = await tx.db
-        .delete(appointments)
-        .where(and(eq(appointments.clinicId, tx.clinicId), inArray(appointments.id, aIds)))
-        .returning({ id: appointments.id });
-      result.appointmentsDeleted = gone.length;
-    }
-    // Their conversations: the ones tied to them directly, and the ones
-    // that produced their appointments — a call that led to a booking is
-    // about the person who booked, whether or not the caller was matched.
-    const viaAppointments = theirAppointmentConversations;
-    const convos = await tx.db
-      .delete(conversations)
-      .where(
-        and(
-          eq(conversations.clinicId, tx.clinicId),
-          or(
-            inArray(conversations.contactId, ids),
-            viaAppointments.length ? inArray(conversations.id, viaAppointments) : sql`false`,
-          ),
-        ),
+    // The rest goes in one call, from their booking requests down to the
+    // people: their requests, whatever the desk decided, and any pointing at
+    // their appointments; their appointments; their conversations and the
+    // ones that produced their appointments (a call that led to a booking is
+    // about the person who booked, whether or not the caller was matched);
+    // then the contacts. The requests have to lead, because a confirmed one
+    // holds its appointment (CHECK, 0039; trigger, 0041), and the app role
+    // has no DELETE on them, so app_erase_contacts() does it as their owner.
+    // It takes the people in the same call, so a request still leaves only
+    // with its person, and it fails with nothing removed if anything else
+    // still refers to them.
+    const [erased] = (
+      await tx.db.execute<{
+        requests_deleted: number;
+        appointments_deleted: number;
+        conversations_deleted: number;
+      }>(
+        sql`select * from app_erase_contacts(array[${sql.join(
+          ids.map((id) => sql`${id}`),
+          sql`, `,
+        )}]::uuid[])`,
       )
-      .returning({ id: conversations.id });
-    result.conversationsDeleted = convos.length;
-
-    await tx.db
-      .delete(contacts)
-      .where(and(eq(contacts.clinicId, tx.clinicId), inArray(contacts.id, ids)));
+    ).rows;
+    result.bookingRequestsDeleted = erased?.requests_deleted ?? 0;
+    result.appointmentsDeleted = erased?.appointments_deleted ?? 0;
+    result.conversationsDeleted = erased?.conversations_deleted ?? 0;
   }
 
   // A half-collected Meta draft has no contact, only the number typed into

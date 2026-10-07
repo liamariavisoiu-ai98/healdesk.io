@@ -311,18 +311,20 @@ a Next route. Every job ships switched off and is enabled from the ops console; 
 ### Retention and offboarding
 
 Two clocks per clinic, on the `clinics` row: `retention_media_days` (90) clears
-transcript references; `retention_record_days` (90) deletes conversation, appointment,
-booking request and transaction rows and then contacts nothing refers to (a booking request
-goes on its appointment's date when it produced one). `retention-purge` runs both nightly and writes
-one audit row per clinic with counts. `baa_acceptances` has its own six-year floor.
+transcript references; `retention_record_days` (90, never below a day) deletes
+conversation, appointment, booking request and transaction rows and then contacts nothing
+refers to (a booking request goes on its appointment's date when it produced one).
+`retention-purge` runs both nightly and writes one audit row per clinic with counts.
+`baa_acceptances` has its own six-year floor.
 Vendor-side retention (Retell's per-agent setting) is a setting, not a delete we run:
 set it to the minimum and screenshot it. Single-patient erasure is `eraseContact()` in
 `apps/app/src/lib/retention/purge.ts`. Set the host's snapshot retention to 35 days.
 
 When Stripe sends `customer.subscription.deleted` (or an operator starts it), the clinic
-gets `offboarding_started_at` and a `destroy_after` thirty days out. In between: switch
-the clinic's voice agent off at the vendor and send it the forwarding-removal codes, so
-its calls fall through to its own line; produce the return bundle with
+gets `offboarding_started_at` and a `destroy_after` thirty days out, both stamped by the
+database (`app_start_offboarding()`); the runtime role cannot write either. In between:
+switch the clinic's voice agent off at the vendor and send it the forwarding-removal
+codes, so its calls fall through to its own line; produce the return bundle with
 `npm run patient-export -w @healdesk/app -- --clinic <id> --all --requested-by "…"`, hand
 it over, and record it on the care page. `offboarding-destroy` deletes every patient row
 once `destroy_after` has passed and the export is recorded (or 90 days after the start),
@@ -351,6 +353,10 @@ task name, a queue name or a resource tag.
   `tests/database-audit.test.ts` fails until the grant is added.
 - **Nothing writes the two gate columns except `app_mark_clinic_production()`**, and
   nothing binds an agreement except `app_bind_agreement()`. Both are `SECURITY DEFINER`.
+  Likewise only `app_start_offboarding()` and `app_mark_clinic_destroyed()` write
+  `offboarding_started_at`, `destroy_after` and `destroyed_at`, from the database's clock,
+  because `app_destroy_booking_requests()` reads them as its floor. A guard in a
+  `SECURITY DEFINER` function binds nothing if it reads a column the runtime role can write.
 
 `apps/app/tests/rls-drift.test.ts` asks the catalog which tables carry a `clinic_id` and
 demands each one have row-level security enabled **and forced**. If it goes red, someone

@@ -119,7 +119,11 @@ describeDb("database audit (0031)", () => {
     });
   });
 
-  test("every clinics column except the two gate columns stays updatable (a new column needs its GRANT)", async () => {
+  test("every clinics column except the gate columns and the offboarding dates stays updatable (a new column needs its GRANT)", async () => {
+    // The two BAA gate columns (0031), and the three offboarding dates that
+    // app_destroy_booking_requests reads as its floor, which only
+    // app_start_offboarding and app_mark_clinic_destroyed write
+    // (booking_request_destruction migration).
     const { rows } = await getMigratorPool().query<{ attname: string; ok: boolean }>(`
       select a.attname,
              has_column_privilege('healdesk_app'::name, a.attrelid, a.attnum, 'UPDATE') as ok
@@ -127,7 +131,13 @@ describeDb("database audit (0031)", () => {
        where a.attrelid = 'clinics'::regclass and a.attnum > 0 and not a.attisdropped
     `);
     const locked = rows.filter((r) => !r.ok).map((r) => r.attname).sort();
-    expect(locked).toEqual(["baa_signed_at", "data_classification"]);
+    expect(locked).toEqual([
+      "baa_signed_at",
+      "data_classification",
+      "destroy_after",
+      "destroyed_at",
+      "offboarding_started_at",
+    ]);
   });
 
   test("app_mark_clinic_production refuses without a bound agreement and copies its date with one", async () => {

@@ -343,6 +343,11 @@ export const clinics = pgTable(
      * clock: they are the evidence that a call was lawful and that an
      * opt-out was honoured, and deleting evidence is not a privacy control.
      * The purge job (lib/retention/purge.ts) is the only reader.
+     *
+     * The record clock is never below a day (a CHECK below):
+     * app_purge_booking_requests bounds its cutoff by it, and a clock of zero
+     * or less would let that cutoff run past now(), to the requests behind
+     * bookings still ahead.
      */
     retentionMediaDays: integer("retention_media_days").notNull().default(90),
     retentionRecordDays: integer("retention_record_days").notNull().default(90),
@@ -430,11 +435,16 @@ export const clinics = pgTable(
     wentLiveAt: timestamp("went_live_at", { withTimezone: true }),
 
     // --- Offboarding: the BAA's return-or-destroy clause, as dates. ---
+    // offboarding_started_at, destroy_after and destroyed_at are the
+    // database's: the runtime role has no UPDATE on them, and only
+    // app_start_offboarding() and app_mark_clinic_destroyed() write them, from
+    // the database's clock, because app_destroy_booking_requests() reads them
+    // as its floor (booking_request_destruction migration).
     /** The clinic left (subscription deleted, or an operator ended it). */
     offboardingStartedAt: timestamp("offboarding_started_at", { withTimezone: true }),
     /** The export was produced and handed over; destruction may proceed after destroy_after. */
     exportDeliveredAt: timestamp("export_delivered_at", { withTimezone: true }),
-    /** Hard-delete of every PHI row is allowed from this instant. */
+    /** Hard-delete of every PHI row is allowed from this instant, thirty days after the start. */
     destroyAfter: timestamp("destroy_after", { withTimezone: true }),
     /** The destruction ran. The clinic row and its audit trail remain; nothing else does. */
     destroyedAt: timestamp("destroyed_at", { withTimezone: true }),
@@ -480,6 +490,7 @@ export const clinics = pgTable(
       "clinics_billing_clinic_not_self",
       sql`${t.billingClinicId} is null or ${t.billingClinicId} <> ${t.id}`,
     ),
+    check("clinics_retention_record_days_positive", sql`${t.retentionRecordDays} >= 1`),
   ],
 );
 
@@ -1250,9 +1261,11 @@ export const bookingRequests = pgTable(
     // no DELETE here on purpose; referential actions run as the table owner.
     // Destruction, erasure and the purge cannot rely on the cascade alone (a
     // confirmed request holds its appointment, which holds the contact), so
-    // they delete requests first, through the SECURITY DEFINER functions
-    // app_destroy_booking_requests, app_erase_booking_requests and
-    // app_purge_booking_requests, each scoped to its own tenant.
+    // they delete requests first, through SECURITY DEFINER functions scoped
+    // to their tenant, each bound to state the app role cannot write:
+    // app_erase_contacts takes the person in the same call,
+    // app_destroy_booking_requests needs offboarding stamped thirty days ago
+    // by the database, and app_purge_booking_requests the clinic's clock.
     contactId: uuid("contact_id")
       .notNull()
       .references(() => contacts.id, { onDelete: "cascade" }),
@@ -1313,7 +1326,7 @@ export const bookingRequests = pgTable(
      * rewritten (trigger, 0041), so SET NULL could only ever fail, and fail
      * as "cannot be re-decided". An appointment a request points at cannot be
      * deleted until the request is; the request goes first, through the
-     * delete functions named on contactId above.
+     * functions named on contactId above.
      */
     appointmentId: uuid("appointment_id").references(() => appointments.id),
     /**

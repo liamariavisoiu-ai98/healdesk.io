@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import {
+  DESTROY_AFTER_DAYS,
   destroyDueClinics,
   markExportDelivered,
   startOffboarding,
@@ -34,6 +35,14 @@ import { inTenant, seedClinic, seedContact, seedConversation } from "./setup/fac
  * the clock and deleted on request; these tests hold the three deletes to
  * that, for every shape a request ends in, and hold live use to the rule that
  * a decided request stays decided.
+ *
+ * Live use includes the delete functions themselves. The runtime role keeps
+ * INSERT on booking_requests and the no-rewrite trigger is BEFORE UPDATE
+ * only, so a request it could delete at will it could put back with another
+ * decision. The review of 7 October found all three functions open to that;
+ * the tests below hold erasure to taking the person in the same call, and
+ * destruction and the purge to dates and a clock the runtime role cannot
+ * stamp past what they allow.
  */
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
@@ -141,6 +150,21 @@ async function counts(clinicId: string): Promise<Counts> {
   });
 }
 
+/**
+ * Time passing, for the offboarding clock. The runtime role cannot write the
+ * dates app_start_offboarding() stamps, so the migrator, which owns clinics,
+ * moves them back as the days would.
+ */
+async function backdateOffboarding(clinicId: string, days: number): Promise<void> {
+  await getMigratorPool().query(
+    `update clinics
+        set offboarding_started_at = offboarding_started_at - make_interval(days => $2),
+            destroy_after = destroy_after - make_interval(days => $2)
+      where id = $1`,
+    [clinicId, days],
+  );
+}
+
 /** What one seeded person leaves in a clinic. */
 const ONE_PERSON: Counts = {
   booking_requests: 3,
@@ -168,7 +192,6 @@ describeDb("booking requests at destruction, erasure and purge", () => {
   });
 
   test("destruction removes a clinic's confirmed, pending and declined requests with everything else, and nothing of another clinic", async () => {
-    const started = new Date("2026-06-01T00:00:00Z");
     const leaving = await seedClinic("destroy-br");
     const staying = await seedClinic("destroy-br-stay");
     const gone = await seedPerson(
@@ -188,17 +211,15 @@ describeDb("booking requests at destruction, erasure and purge", () => {
     );
 
     await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) =>
-      startOffboarding(tx, "customer.subscription.deleted", started),
+      startOffboarding(tx, "customer.subscription.deleted"),
     );
+    // Thirty-one days on, by the database's own stamps.
+    await backdateOffboarding(leaving.clinicId, 31);
     await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) =>
-      markExportDelivered(
-        tx,
-        "bundle handed to the practice manager",
-        new Date(started.getTime() + 5 * DAY),
-      ),
+      markExportDelivered(tx, "bundle handed to the practice manager"),
     );
 
-    const results = await destroyDueClinics(new Date(started.getTime() + 31 * DAY));
+    const results = await destroyDueClinics();
     expect(results.map((r) => r.clinicId)).toEqual([leaving.clinicId]);
     expect(results[0]!.deleted).toMatchObject({
       booking_requests: 3,
@@ -226,6 +247,12 @@ describeDb("booking requests at destruction, erasure and purge", () => {
     expect(after.deposits).toEqual([{ appointment_id: null }]);
     expect(after.audit).toHaveLength(1);
     expect(after.audit[0]!.metadata.booking_requests).toBe(3);
+    // The record that it ran is the database's, stamped in the same transaction.
+    const { rows: stamped } = await getMigratorPool().query<{ destroyed_at: Date | null }>(
+      `select destroyed_at from clinics where id = $1`,
+      [leaving.clinicId],
+    );
+    expect(stamped[0]!.destroyed_at).not.toBeNull();
   });
 
   test("erasure removes one person's confirmed, pending and declined requests, their appointment and their draft, and nobody else's", async () => {
@@ -439,17 +466,19 @@ describeDb("booking requests at destruction, erasure and purge", () => {
     expect(JSON.stringify(audit.rows[0]!.metadata)).not.toMatch(/\+1555/);
   });
 
-  test("the three delete functions reach only their own tenant, and only what destruction, erasure or the clock already requires", async () => {
+  test("the delete functions reach only their own tenant, and only what destruction, erasure or the clock already requires", async () => {
     const live = await seedClinic("guard-br");
     const other = await seedClinic("guard-br-other");
     const person = await seedPerson(live.clinicId, "+15550109001", new Date());
     const theirs = await seedPerson(other.clinicId, "+15550109002", new Date());
 
-    // No tenant, no delete.
+    // No tenant: no delete, and no date stamped.
     for (const [text, values] of [
       [`select app_destroy_booking_requests($1::uuid)`, [live.clinicId]],
-      [`select app_erase_booking_requests($1::uuid)`, [person.contactId]],
+      [`select * from app_erase_contacts(array[$1]::uuid[])`, [person.contactId]],
       [`select app_purge_booking_requests(now() - interval '1 year')`, []],
+      [`select app_start_offboarding($1::uuid)`, [live.clinicId]],
+      [`select app_mark_clinic_destroyed($1::uuid)`, [live.clinicId]],
     ] as const) {
       await expect(asApp(null, (c) => c.query(text, [...values]))).rejects.toMatchObject({
         code: "42501",
@@ -457,39 +486,57 @@ describeDb("booking requests at destruction, erasure and purge", () => {
     }
 
     // Destruction: never another clinic's from inside this tenant, never a
-    // customer's, and never before the clinic's own destroy_after.
-    await expect(
+    // customer's, and never before thirty days have passed since offboarding
+    // started, by the database's clock.
+    for (const fn of [
+      "app_destroy_booking_requests",
+      "app_start_offboarding",
+      "app_mark_clinic_destroyed",
+    ]) {
+      await expect(
+        asApp(live.clinicId, (c) => c.query(`select ${fn}($1::uuid)`, [other.clinicId])),
+      ).rejects.toMatchObject({ code: "42501" });
+    }
+    const notDue = { code: "23514", message: expect.stringMatching(/not due for destruction/) };
+    const destroy = () =>
       asApp(live.clinicId, (c) =>
-        c.query(`select app_destroy_booking_requests($1::uuid)`, [other.clinicId]),
-      ),
-    ).rejects.toMatchObject({ code: "42501" });
-    await expect(
+        c.query<{ n: number }>(`select app_destroy_booking_requests($1::uuid) as n`, [
+          live.clinicId,
+        ]),
+      );
+    const markDestroyed = () =>
       asApp(live.clinicId, (c) =>
-        c.query(`select app_destroy_booking_requests($1::uuid)`, [live.clinicId]),
-      ),
-    ).rejects.toMatchObject({
-      code: "23514",
-      message: expect.stringMatching(/not due for destruction/),
-    });
+        c.query(`select app_mark_clinic_destroyed($1::uuid)`, [live.clinicId]),
+      );
+    await expect(destroy()).rejects.toMatchObject(notDue);
+    await expect(markDestroyed()).rejects.toMatchObject(notDue);
     await withTenant({ clinicId: live.clinicId, actor: ACTOR }, (tx) =>
       startOffboarding(tx, "operator"),
     );
-    await expect(
-      asApp(live.clinicId, (c) =>
-        c.query(`select app_destroy_booking_requests($1::uuid)`, [live.clinicId]),
-      ),
-    ).rejects.toMatchObject({
-      code: "23514",
-      message: expect.stringMatching(/not due for destruction/),
-    });
+    await expect(destroy()).rejects.toMatchObject(notDue);
+    await backdateOffboarding(live.clinicId, 29);
+    await expect(destroy()).rejects.toMatchObject(notDue);
+    // A destroy_after moved into the past on its own does not shorten the
+    // thirty days: the start is read too.
+    await getMigratorPool().query(
+      `update clinics set destroy_after = now() - interval '1 day' where id = $1`,
+      [live.clinicId],
+    );
+    await expect(destroy()).rejects.toMatchObject(notDue);
+    await expect(markDestroyed()).rejects.toMatchObject(notDue);
+    await backdateOffboarding(live.clinicId, 1);
+    expect((await destroy()).rows[0]!.n).toBe(3);
 
     // Erasure: another clinic's person is invisible, so nothing goes.
     const erased = await asApp(live.clinicId, (c) =>
-      c.query<{ n: number }>(`select app_erase_booking_requests($1::uuid) as n`, [
-        theirs.contactId,
-      ]),
+      c.query(`select * from app_erase_contacts(array[$1]::uuid[])`, [theirs.contactId]),
     );
-    expect(erased.rows[0]!.n).toBe(0);
+    expect(erased.rows[0]).toEqual({
+      requests_deleted: 0,
+      appointments_deleted: 0,
+      conversations_deleted: 0,
+      contacts_deleted: 0,
+    });
 
     // The purge: never ahead of the clinic's own record clock, and inside it
     // nothing of today's goes.
@@ -501,8 +548,160 @@ describeDb("booking requests at destruction, erasure and purge", () => {
     );
     expect(purged.rows[0]!.n).toBe(0);
 
+    // Every call above ran as the runtime role and rolled back.
     expect(await counts(live.clinicId)).toEqual(ONE_PERSON);
     expect(await counts(other.clinicId)).toEqual(ONE_PERSON);
+  });
+
+  test("an erasure takes the person with their requests: the runtime role cannot remove a confirmed request and keep its person", async () => {
+    const c = await seedClinic("erase-whole");
+    const person = await seedPerson(c.clinicId, "+15550111001", new Date());
+    const neighbour = await seedPerson(c.clinicId, "+15550111002", new Date());
+    const erase = `select * from app_erase_contacts(array[$1]::uuid[])`;
+
+    // Something else still refers to the person, here a sale: the call fails
+    // with nothing removed, so no request leaves while its person stays.
+    await inTenant(c.clinicId, (client) =>
+      client.query(
+        `insert into transactions (clinic_id, contact_id, amount_usd, collected_at)
+         values ($1, $2, 120, now())`,
+        [c.clinicId, person.contactId],
+      ),
+    );
+    await expect(
+      asApp(c.clinicId, (q) => q.query(erase, [person.contactId])),
+    ).rejects.toMatchObject({
+      code: "23503",
+      constraint: "transactions_contact_id_contacts_id_fk",
+    });
+    expect((await counts(c.clinicId)).booking_requests).toBe(6);
+
+    // Once nothing else does, the person goes with the requests, in the one
+    // call: the contact, the booking, the call and all three requests, and
+    // nothing of the neighbour's.
+    const after = await asApp(c.clinicId, async (q) => {
+      await q.query(`delete from transactions where contact_id = $1`, [person.contactId]);
+      const erased = (await q.query(erase, [person.contactId])).rows[0];
+      const left = async (table: string, column: string) =>
+        (
+          await q.query<{ n: number }>(
+            `select count(*)::int as n from ${table} where ${column} = $1`,
+            [person.contactId],
+          )
+        ).rows[0]!.n;
+      return {
+        erased,
+        left: {
+          contacts: await left("contacts", "id"),
+          booking_requests: await left("booking_requests", "contact_id"),
+          appointments: await left("appointments", "contact_id"),
+          conversations: await left("conversations", "contact_id"),
+        },
+        requests: (
+          await q.query<{ id: string }>(`select id from booking_requests order by id`)
+        ).rows.map((r) => r.id),
+      };
+    });
+    expect(after.erased).toEqual({
+      requests_deleted: 3,
+      appointments_deleted: 1,
+      conversations_deleted: 1,
+      contacts_deleted: 1,
+    });
+    expect(after.left).toEqual({
+      contacts: 0,
+      booking_requests: 0,
+      appointments: 0,
+      conversations: 0,
+    });
+    expect(after.requests).toEqual(
+      [neighbour.confirmed, neighbour.pending, neighbour.declined].sort(),
+    );
+
+    // And no other function takes a request ahead of its person: the only
+    // definers that delete booking requests are these three, each bound to
+    // state the runtime role cannot write.
+    const { rows } = await getMigratorPool().query<{ proname: string }>(
+      `select p.proname
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.prosecdef
+          and p.prosrc ~* 'delete\\s+from\\s+(public\\.)?booking_requests'
+        order by p.proname`,
+    );
+    expect(rows.map((r) => r.proname)).toEqual([
+      "app_destroy_booking_requests",
+      "app_erase_contacts",
+      "app_purge_booking_requests",
+    ]);
+  });
+
+  test("in live use the runtime role cannot stamp a clinic due for destruction, nor set its record clock below a day", async () => {
+    const c = await seedClinic("live-clock");
+    await seedPerson(c.clinicId, "+15550112001", new Date());
+
+    // The dates the destroy function reads are the database's alone: stamping
+    // them, emptying the clinic's requests and putting them back is shut.
+    for (const column of ["offboarding_started_at", "destroy_after", "destroyed_at"]) {
+      await expect(
+        asApp(c.clinicId, (q) =>
+          q.query(`update clinics set ${column} = now() - interval '31 days' where id = $1`, [
+            c.clinicId,
+          ]),
+        ),
+      ).rejects.toMatchObject({
+        code: "42501",
+        message: expect.stringMatching(/permission denied/),
+      });
+    }
+    await expect(
+      asApp(c.clinicId, (q) =>
+        q.query(`select app_destroy_booking_requests($1::uuid)`, [c.clinicId]),
+      ),
+    ).rejects.toMatchObject({ code: "23514", message: expect.stringMatching(/not due/) });
+
+    // Starting offboarding stamps both from the database's clock, thirty days
+    // apart, and starting again moves neither.
+    const stamps = async () =>
+      (
+        await getMigratorPool().query<{ started: Date; due: Date; now: Date }>(
+          `select offboarding_started_at as started, destroy_after as due, now() as now
+             from clinics where id = $1`,
+          [c.clinicId],
+        )
+      ).rows[0]!;
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      startOffboarding(tx, "operator"),
+    );
+    const first = await stamps();
+    expect(first.due.getTime() - first.started.getTime()).toBe(DESTROY_AFTER_DAYS * DAY);
+    expect(first.now.getTime() - first.started.getTime()).toBeLessThan(60_000);
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      startOffboarding(tx, "customer.subscription.deleted"),
+    );
+    expect(await stamps()).toMatchObject({ started: first.started, due: first.due });
+
+    // The record clock is the practice's to shorten, never below a day, so
+    // the purge's cutoff never passes now(), whatever the clock says.
+    for (const days of [0, -100_000]) {
+      await expect(
+        asApp(c.clinicId, (q) =>
+          q.query(`update clinics set retention_record_days = $2 where id = $1`, [
+            c.clinicId,
+            days,
+          ]),
+        ),
+      ).rejects.toMatchObject({
+        code: "23514",
+        constraint: "clinics_retention_record_days_positive",
+      });
+    }
+    await expect(
+      asApp(c.clinicId, async (q) => {
+        await q.query(`update clinics set retention_record_days = 1 where id = $1`, [c.clinicId]);
+        return q.query(`select app_purge_booking_requests(now() + interval '1 minute')`);
+      }),
+    ).rejects.toMatchObject({ code: "23514", message: expect.stringMatching(/record clock/) });
+    expect(await counts(c.clinicId)).toEqual(ONE_PERSON);
   });
 
   test("live use is unchanged: a confirmed request is never re-decided, rewritten, deleted, or left without its appointment", async () => {
@@ -534,8 +733,8 @@ describeDb("booking requests at destruction, erasure and purge", () => {
     ).rejects.toMatchObject({ code: "42501", message: expect.stringMatching(/permission denied/) });
 
     // Its appointment cannot be deleted out from under it, by the runtime role
-    // or by the owner: the request has to go first, and only the three
-    // functions above may take it.
+    // or by the owner: the request has to go first, and only the functions
+    // above may take it.
     await expect(
       asApp(c.clinicId, (q) =>
         q.query(`delete from appointments where id = $1`, [person.appointmentId]),

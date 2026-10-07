@@ -37,7 +37,15 @@ import { withTenant } from "@/lib/tenant";
  * It deletes every PHI row for the clinic and revokes its connections.
  * Booking requests go first, through app_destroy_booking_requests(), because
  * a confirmed one holds its appointment; the function refuses a clinic whose
- * destroy_after has not passed by the database's clock.
+ * offboarding did not start thirty days ago by the database's clock.
+ *
+ * So the dates are the database's. `offboarding_started_at`, `destroy_after`
+ * and `destroyed_at` are stamped by app_start_offboarding() and
+ * app_mark_clinic_destroyed(), from the database's clock, and the runtime
+ * role has no UPDATE on them: if it could write the dates the delete function
+ * reads, it could stamp a live clinic as due, empty its requests and put the
+ * dates back. Tests that need thirty days to pass move the stamps back as the
+ * migrator, which owns the table.
  *
  * What stays: the clinic row (a customer we had), the audit log
  * (append-only, and the record that the destruction happened), the signed
@@ -59,18 +67,13 @@ import { withTenant } from "@/lib/tenant";
  * this job cannot reach it and does not claim to.
  */
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** The days app_start_offboarding() puts between the start and destroy_after; a test pins the two together. */
 export const DESTROY_AFTER_DAYS = 30;
 export const DESTROY_WITHOUT_EXPORT_AFTER_DAYS = 90;
 
-export async function startOffboarding(tx: TenantTx, reason: string, now: Date = new Date()): Promise<void> {
-  await tx.db
-    .update(clinics)
-    .set({
-      offboardingStartedAt: sql`coalesce(${clinics.offboardingStartedAt}, ${now})`,
-      destroyAfter: sql`coalesce(${clinics.destroyAfter}, ${new Date(now.getTime() + DESTROY_AFTER_DAYS * DAY_MS)})`,
-      updatedAt: now,
-    })
-    .where(eq(clinics.id, tx.clinicId));
+/** Stamps the start and destroy_after from the database's clock, once; starting again moves neither. */
+export async function startOffboarding(tx: TenantTx, reason: string): Promise<void> {
+  await tx.db.execute(sql`select app_start_offboarding(${tx.clinicId}::uuid)`);
   tx.audit.record({ action: "update", resourceType: "clinic_offboarding", resourceId: tx.clinicId, metadata: { started: true, reason } });
 }
 
@@ -86,7 +89,7 @@ export type DestructionResult = { clinicId: string; deleted: Record<string, numb
  * closed days, gone. Consent evidence, suppressions, audit, agreements and
  * billing stay.
  */
-export async function destroyClinicData(tx: TenantTx, now: Date = new Date()): Promise<DestructionResult> {
+export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult> {
   const c = tx.clinicId;
   const deleted: Record<string, number> = {};
   const del = async (name: string, run: () => Promise<{ id: string }[]>) => {
@@ -98,8 +101,8 @@ export async function destroyClinicData(tx: TenantTx, now: Date = new Date()): P
   // its appointment (CHECK, 0039) and cannot be rewritten (trigger, 0041), so
   // its appointment cannot go while it stands, and waiting for the contact's
   // cascade (0037) never gets that far. The app role has no DELETE on them;
-  // app_destroy_booking_requests() deletes this tenant's, once destroy_after
-  // has passed by the database's clock.
+  // app_destroy_booking_requests() deletes this tenant's, once offboarding
+  // started thirty days ago by the database's clock.
   const requests = await tx.db.execute<{ n: number }>(sql`select app_destroy_booking_requests(${c}::uuid) as n`);
   deleted.booking_requests = requests.rows[0]?.n ?? 0;
   await del("appointments", () => tx.db.delete(appointments).where(eq(appointments.clinicId, c)).returning({ id: appointments.id }));
@@ -123,7 +126,10 @@ export async function destroyClinicData(tx: TenantTx, now: Date = new Date()): P
   // evidence (see the header).
   await del("clinic_closures", () => tx.db.delete(clinicClosures).where(eq(clinicClosures.clinicId, c)).returning({ id: clinicClosures.closedOn }));
 
-  await tx.db.update(clinics).set({ destroyedAt: now, synthflowNumberE164: null, updatedAt: now }).where(eq(clinics.id, c));
+  // The number is released with the data. destroyed_at is the database's
+  // to stamp, and it refuses a clinic that is not due (see the header).
+  await tx.db.update(clinics).set({ synthflowNumberE164: null }).where(eq(clinics.id, c));
+  await tx.db.execute(sql`select app_mark_clinic_destroyed(${c}::uuid)`);
   const total = Object.values(deleted).reduce((a, b) => a + b, 0);
   tx.audit.record({
     action: "delete",
@@ -152,7 +158,7 @@ export async function destroyDueClinics(now: Date = new Date()): Promise<Destruc
   for (const clinic of await listClinics()) {
     if (!dueForDestruction(clinic, now)) continue;
     try {
-      const result = await withTenant({ clinicId: clinic.id, actor }, (tx) => destroyClinicData(tx, now));
+      const result = await withTenant({ clinicId: clinic.id, actor }, (tx) => destroyClinicData(tx));
       await recordSecurityEvent(unsafeDb, {
         event: "clinic_data_destroyed",
         actorLabel: "offboarding-destroy",

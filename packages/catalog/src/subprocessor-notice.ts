@@ -1,22 +1,27 @@
 /**
  * Notice before a new subcontractor handles the information an agreement
- * protects: 24 hours, by email, with the practice's right to object.
+ * protects: 24 hours, by email to the practice's notice address, naming the
+ * subcontractor, with the practice's right to object.
  *
  * The owner decided on 6 October 2026 that the agreements after BAA 1.2.1
  * give 24 hours' notice rather than fifteen days, keeping the right to object
  * (docs/design/funnel-portal-contracts-2026-10-06.md §6). It is recorded as a
  * counsel risk (docs/counsel/brief.md): a day is far shorter than the usual
- * fifteen to thirty, so it weakens the objection right it keeps. BAA 1.2.1
- * keeps its fifteen days for anyone who signed it; a released clause never
- * changes.
+ * fifteen to thirty, so it weakens the objection right it keeps. Counsel
+ * approved the 24-hour notice, as the owner reported on 6 October 2026
+ * (agreement-changes.md §12.14). BAA 1.2.1 keeps its fifteen days for anyone
+ * who signed it; a released clause never changes.
  *
  * The text lives here, once, because two documents are to carry it: BAA
  * 1.3.0's `subcontractors` clause (baa.ts), and the funnel's data protection
- * agreement once that is written. It is worded for both, which is why it
- * says "the information this agreement protects" rather than PHI. Once a
- * document that renders it is released, this sentence is frozen with that
- * document's golden hashes (apps/app/tests/baa-golden.test.ts): a new wording
- * is a new function beside this one, never an edit to it.
+ * agreement. It is worded for both, which is why it says "the information
+ * this agreement protects" rather than PHI, and names "the Notices clause",
+ * which both agreements have. The pre-release audit of 6 October 2026 added
+ * where the notice goes and what it says (SUB-01, PT-08, PT-15), in place:
+ * neither document is released. Once a document that renders it is released,
+ * this sentence is frozen with that document's golden hashes
+ * (apps/app/tests/baa-golden.test.ts): a new wording is a new function beside
+ * this one, never an edit to it.
  */
 
 /** How far ahead, in hours, the practice is told about a new subcontractor. */
@@ -27,16 +32,19 @@ export const SUBPROCESSOR_NOTICE_HEADING = "Notice of a new subcontractor";
 
 /**
  * The notice and the objection right, unwrapped; the document wraps it. The
- * objection right is what BAA 1.3.0's Term clause calls "the
- * subcontractor-objection right above", so it terminates "this agreement"
- * without naming a clause another document may number differently.
+ * objection right is what BAA 1.3.0's Term clause calls terminating "under the
+ * Subcontractors clause", and gives its content there: the Services end the
+ * same day, no Fees accrue afterwards, and Fees paid for later time are
+ * refunded. A document that carries this sentence has to give "without
+ * penalty" the same effect in its own Term clause.
  */
 export function subprocessorNoticeClauseBody(): string {
   return (
     `healdesk keeps a current list of its subcontractors at healdesk.io/subprocessors and ` +
     `will give Practice at least ${SUBPROCESSOR_NOTICE_HOURS} hours' notice by email before ` +
-    `adding one that will handle the information this agreement protects. If Practice objects ` +
-    `on reasonable grounds before the change takes effect, Practice may terminate this ` +
-    `agreement without penalty.`
+    `adding one that will handle the information this agreement protects. The notice goes to ` +
+    `Practice's address in the Notices clause and names the subcontractor, what it will receive ` +
+    `and why. If Practice objects on reasonable grounds before the change takes effect, Practice ` +
+    `may terminate this agreement without penalty.`
   );
 }

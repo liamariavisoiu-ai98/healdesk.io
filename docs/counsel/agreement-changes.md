@@ -401,7 +401,9 @@ nothing and removes the argument.
 > **Drafted 6 October 2026. Not released, not offered, not legal advice.**
 > `packages/catalog/src/baa.ts` registers 1.3.0 at `BAA_TEMPLATES[1]` with
 > `approvedByCounsel: false`. Checkout does not offer it, and signing refuses
-> it because `validateSignRequest` accepts only `BAA_TEMPLATES[0]`.
+> it: `validateSignRequest` and `signAgreement` both settle the version
+> through `signableTemplate` (plan C3), which takes only `BAA_TEMPLATES[0]`,
+> or a released version inside its `BAA_RELEASE_OVERLAP` window.
 > Provisioning does not check it: its approval gate reads
 > `currentBaaTemplate()`, not the bound acceptance's version, until plan C15
 > changes that, and C15 must land before the release. The full text is
@@ -411,6 +413,11 @@ nothing and removes the argument.
 > gate: against 45 CFR 164.504(e), the code's actual behaviour, the spec, the
 > terms and the privacy page. The audit's findings are to be recorded here,
 > and the owner is told the release was made without counsel.
+>
+> That audit ran on 6 October 2026 and redrafted most clauses (§ 12.14).
+> Sections 12.1–12.13 describe the first draft; where they quote its wording,
+> § 12.14 and the regenerated text govern, and § 12.14's release gates come
+> before the release.
 
 ### 12.1 Why a new version
 
@@ -489,7 +496,9 @@ Numbers are the rendered sample's (a live system, a covered account).
 | 14–20 | Patient rights, acting in your place, not authorised, term, liability, records, notices and law | 1.2.1's |
 
 Twenty-three clauses are registered and twenty render: one of the two
-data-sources clauses and one of the three calendar clauses.
+data-sources clauses and one of the three calendar clauses. (Since § 12.14,
+twenty-two: `data-sources-verified` is no longer registered, and the render
+guard refuses verified reporting.)
 
 ### 12.4 The three calendar clauses
 
@@ -527,16 +536,16 @@ down. On 6 October 2026:
 
 | Promise | Kept by | Built? |
 | --- | --- | --- |
-| Reads the names of the calendars the account owns, free or busy for the one calendar, and its own events; reads no other event | `packages/connectors/src/google/adapter.ts`: the calendar list asks `minAccessRole=owner`; free/busy asks only for the chosen calendar; `verify()` lists events with a filter no event matches and asks for no event fields | Yes (plan C1) |
-| An event carries a first name, the service as the practice's list names it, and the time; private, no invitees, no reminders; nothing moved, edited or cancelled that healdesk did not create | `packages/connectors/src/google/event.ts`; the adapter refuses to cancel an event without healdesk's marker | Yes (C1) |
+| Reads the names of the calendars on which the account has owner access, free or busy for the calendars it uses, and its own events; reads no other event | `packages/connectors/src/google/adapter.ts`: the calendar list asks `minAccessRole=owner`; free/busy asks only for the chosen calendar; `verify()` lists events with a filter no event matches and asks for no event fields | Yes for one calendar (plan C1); one per provider from C6, C8 and C12 (§ 12.14, gate 2) |
+| An event carries the first name the person booking gave (else "Patient"), the service as the practice's list names it (else "Appointment"), and the time; nothing clinical beyond the service's name; private, no invitees, no reminders; nothing moved, edited or cancelled that healdesk did not create | `packages/connectors/src/google/event.ts` (`sanitizeFirstName`, `eventServiceLabel`); the adapter refuses to cancel an event without healdesk's marker | Yes (C1) |
 | The token is held encrypted and used for nothing else | The sealed credential envelope (`apps/app/src/lib/connections/store.ts`) | Envelope yes; Google rows from C7–C8 |
-| Use stops when the agreement ends; the token is deleted on a disconnect through healdesk, when healdesk finds access removed at Google, and at destruction | Plan § 4.12 and § 9: `eraseCredentials`, `markCalendarBroken`, `sweepCalendarTerms`, destruction | No (C7, C8, C10) |
-| Covered: nothing added to a calendar outside a Workspace or Cloud Identity organisation | Reconciliation at connect (plan § 4.11) and `app_calendar_write_permitted` (§ 11.6). Both look only at the connected account (its `hd`) and the terms, never at whose calendar is chosen. The calendar list asks `minAccessRole=owner` with no organisation filter (`CALENDAR_LIST_QUERY` in the adapter), and Google lists as `owner` a calendar another account has shared in with "make changes and manage sharing", which may belong to a personal account or another domain (§ 12.11, item 7) | No (C6, C8; the chosen calendar's organisation is not checked anywhere yet) |
+| Use stops when the Services end; the token is deleted on a disconnect through healdesk, when healdesk finds access removed at Google, and at destruction | Plan § 4.12 and § 9: `eraseCredentials`, `markCalendarBroken`, `sweepCalendarTerms`, destruction | No (C7, C8, C10) |
+| Covered: healdesk checks, when a calendar is chosen and again before each write, that the account belongs to a Workspace or Cloud Identity organisation and that the calendar belongs to that same organisation, and adds nothing to a calendar that fails | Reconciliation at connect (plan § 4.11) and `app_calendar_write_permitted` (§ 11.6) look only at the connected account (its `hd`) and the terms. The calendar list asks `minAccessRole=owner` with no organisation filter (`CALENDAR_LIST_QUERY` in the adapter), and Google lists as `owner` a calendar another account has shared in with "make changes and manage sharing". The owner's decision 4 of 6 October 2026 makes C8 the guardrail (§ 12.14, gate 1) | No (C8) |
 | Uncovered: withdrawal stops further writes; not used: nothing connected | The start route refuses not-used terms; a not-used election erases any connection (plan § 2.6, § 4.12) | No (C7, C8) |
-| Payments: a payment link through Practice's own processor, carrying an amount, a generic description and a reference number, and no service name or clinical detail, metadata and statement descriptor included | Nothing yet. Deposit links are package D, which is paused; on a call the assistant states a deposit and never sends a link ("there is none", `depositLine` in `apps/app/src/lib/voice/tools.ts`) | No (package D; § 12.11, item 9) |
+| Payments: healdesk may send a link in website chat or on Instagram, Messenger or WhatsApp, through Practice's own processor; on a call none, and the deposit is flagged for staff; a link, and what healdesk sends the processor, carry only an amount, a generic description and a reference number; no payer details kept from the processor's notice | On a call: `depositLine` in `apps/app/src/lib/voice/tools.ts` states the deposit and sends nothing. Links: nothing yet; deposit links are package D, which is paused | On a call, yes; links, no (package D; § 12.14, gate 10) |
 | Payments: healdesk never takes card numbers | Nothing in `apps/app` asks for, parses or stores a card number, and 1.2.1's minimum-necessary clause says the same. One a patient volunteers would sit in the conversation transcript like any other words; the audit weighs that against "never takes" | Yes, by absence |
-| State law: processes patient information only on Practice's documented instructions ("the Terms and Practice's portal settings") and for no other purpose; does not sell or share it, use it outside the relationship, or combine it with other sources beyond what the Services require | Nothing in the code sells, shares or combines it. The portal the instructions name is not built yet (the funnel session builds it), and the own-use clause's permissions sit beside this one (§ 12.11, items 3 and 11) | By design, until the audit confirms |
-| State law: gives Practice what it needs for a consumer's access, deletion or correction request within ten business days | Operator tools in `apps/app/src/lib/patient-rights/export.ts`: `exportPatient` (access) and `amendContact` (correction). Nothing deletes one person's records on request | Partly (no deletion) |
+| State law: processes patient information only on Practice's documented instructions (this agreement and the portal settings) and for purposes a–i; does not sell or share it as 1798.140 defines the words; combines it with other sources only for security and fraud | Nothing in the code sells, shares or combines it across clinics (identifier references are keyed per clinic). The portal the instructions name is not built yet (the funnel session builds it) | By design |
+| State law: gives Practice what it needs for a consumer's access, deletion or correction request within ten business days; deletes one person's information within ten business days, raw copies from other services included, and from backups within 35 days after | Operator tools in `apps/app/src/lib/patient-rights/export.ts`: `exportPatient` (access) and `amendContact` (correction). Nothing reachable deletes one person's records on request | Partly (no deletion; § 12.14, gate 6) |
 | State law: tells Practice if healdesk can no longer meet these obligations; lets it stop and remedy unauthorised use; provides compliance documents on request | Operating processes, none written down | No (a written process) |
 
 The release audit checks each row against the code. No clause promises a
@@ -654,7 +663,9 @@ The Payments and state-law texts are exported once
 (`PAYMENTS_CLAUSE_BODY`, `STATE_LAW_CLAUSE_BODY` in `baa.ts`) for the funnel's
 data protection agreement, which the funnel plan (Part L) says shares them.
 The state-law text's last sentence names PHI, so a document without PHI has
-to word that sentence for itself.
+to word that sentence for itself. (Since § 12.14 the state-law text is the
+function `stateLawClauseBody`, which renders either agreement's wording, and
+the Payments clause names no patient, so the DPA shares it as it is.)
 
 ### 12.7 24 hours' notice of a new subcontractor
 
@@ -672,7 +683,9 @@ documents that carry it, the BAA and the funnel's DPA:
 > takes effect, Practice may terminate this agreement without penalty."
 
 1.2.1 keeps its fifteen days for anyone who signs it. The Term clause's "the
-subcontractor-objection right above" still points at clause 13. The signing
+subcontractor-objection right above" still points at clause 13 (since
+§ 12.14 it says "under the Subcontractors clause", and the notice also says
+where it goes and what it names). The signing
 screen's note beside the subcontractors clause names each version's own
 period (§ 12.5, item 9). The public register (`/subprocessors`) and `/trust`
 still promise every customer at least fifteen days
@@ -691,23 +704,27 @@ which weakens the objection right; that is risk 13 in `brief.md`.
   "manual booking, no agreement with Google" without having said either.
   Earlier templates have no guard, so nothing about them changes.
 - **One builder.** `buildBaaSelections` (`packages/catalog/src/baa-selections.ts`)
-  is what both signing paths are to call (`signAgreement` from plan C3, and
-  the funnel's AgreementStep), so that the displayed and the stored render
-  cannot drift. Neither calls it yet. For a version before 1.3.0 it names a
-  phase-two platform exactly as both paths do today: the one in
+  is what both signing paths call, so that the displayed and the stored
+  render cannot drift: `signAgreement` since plan C3, and the funnel's
+  AgreementStep from its M2. For a version before 1.3.0 it names a
+  phase-two platform exactly as both paths did before it: the one in
   `platformId`, the platform id today's picker sends, which covers every
   entry of `platforms`, Zenoti, PatientNow, Acuity and Vagaro included, though
   no booking system maps to them; or, without one, the booking system's
   `phaseTwoPlatformId`. A test renders 1.2.1 and 1.2.0 through the builder for
-  every platform and for every booking system, and finds the bytes today's
-  paths produce. For 1.3.0 it names the booking system, passes the two
+  every platform and for every booking system, and finds the bytes that
+  derivation produces. For 1.3.0 it names the booking system, passes the two
   answers and ignores `platformId`. The sync is derived inside the
   agreement, never passed, so the browser cannot choose "live" for a one-way
   system.
-- **Release overlap.** `BAA_RELEASE_OVERLAP` is empty, and nothing reads it
-  yet: `validateSignRequest` is to read it from plan C3. At release it keeps
-  1.2.1 signable for 72 hours, across the two deploys, and it is emptied once
-  both production deployments are verified.
+- **Release overlap.** `BAA_RELEASE_OVERLAP` is empty until the release.
+  Since plan C3, `signableTemplate` reads it for both `validateSignRequest`
+  and `signAgreement`: a version listed there signs only if it was released,
+  and only before its deadline, an ISO 8601 instant that carries its own
+  offset. At release it keeps 1.2.1 signable for 72 hours, across the two
+  deploys, unless the release raises the go-live floor
+  (`MIN_ACCEPTABLE_BAA_VERSION`, §10) past 1.2.1, when 1.2.1 is not listed.
+  It is emptied once both production deployments are verified.
 
 Signing (`apps/app/src/lib/agreements.ts`) and provisioning are unchanged by
 this draft.
@@ -848,11 +865,24 @@ release by changing the code, the clause or the site copy:
     note ("fifteen days' notice"). Before 1.3.0 is offered it has to look
     them up through `clauseExplainer(template.version, id)`, or a 1.3.0 buyer
     reads fifteen days beside a clause that gives 24 hours.
-13. **The gates that are not built yet.** Signing refuses 1.3.0 today only
-    because `validateSignRequest` accepts `BAA_TEMPLATES[0]` alone. Plan C3
-    makes it accept a version in `BAA_RELEASE_OVERLAP`, and plan C15 makes
-    provisioning's approval gate read the bound acceptance's version instead
-    of `currentBaaTemplate()`. Both must land before the release.
+13. **The gate that is not built yet.** Signing refuses 1.3.0 today only
+    because `signableTemplate` takes `BAA_TEMPLATES[0]`, or a released
+    version inside its `BAA_RELEASE_OVERLAP` window, and 1.3.0 is neither.
+    Plan C3, which made both signing paths settle the version that way, has
+    landed. Plan C15, which makes provisioning's approval gate read the bound
+    acceptance's version instead of `currentBaaTemplate()`, has not, and
+    must land before the release.
+
+The pre-release audit (§ 12.14) settled these: items 1 (ICD-17), 2
+(ICD-25), 3 (ICD-05, SL-01), 4 (ICD-11), 8 (HRC-02) and 11 (PT-29) are fixed
+in the text; item 7 is fixed in the text and kept in code by C8 (HRC-04);
+item 9 is fixed in the text ("may") with package D a release gate (PT-11);
+items 5, 10, 12 and 13 are release gates in § 12.14; item 6 stands as the
+owner decided it, and decision 1 of 6 October 2026 confirmed risk 12. Item
+12's clause notes are done: apps/web's `agreement-kinds.ts` reads them
+through `clauseExplainer(template.version, …)` since the four-step funnel.
+The explainer's bullets are not yet read by version; gate 11 now covers
+them.
 
 ### 12.12 Golden hashes
 
@@ -863,22 +893,28 @@ release they never move.
 
 | Document and variant | SHA-256 |
 | --- | --- |
-| 1.3.0 covered_estimated (the sample) | `f32de0d518b57ff3284b45884c37f236a4937cf35c7733b431ad8bef409840e4` |
-| 1.3.0 notcovered_estimated | `ceb44c88bb79b01c9d9f9ff217ba5aab591fed0408e3b0d8aa0294cbd3eadf5e` |
-| 1.3.0 unknown_estimated | `4ff0953d550f9358e6388f9dd0d480e119c6d4429176939b2ac997a6ed9374bb` |
-| 1.3.0 covered_verified_boulevard | `91eaa631af6b18c953941943a316f90286b8de99a92f634a7704aabf3154dd7f` |
-| 1.3.0 uncovered_nobaa | `07d2bbd1a6d7a51e1352545353a951cb5b52d09f6657a5803a73001b104bbad6` |
-| 1.3.0 uncovered_personal | `a376e4556a5aa1e767eca781283207369fd02aed4d9269c23fa0e97736889a62` |
-| 1.3.0 notused_mindbody | `5c2dba0df5068c8be226852e75d199572dcfeed366f0306d0703dcbf655655c0` |
-| 1.3.0 notused_other | `31165055e024520ea0aea3e6348cee7696854a0fbf0c99606c6738636f8575bf` |
-| 1.3.0 live_calcom | `1dd79799121ed865bcd25dc0383f6a54e27e32a517d706c01a2e071dfd1f92f3` |
-| 1.3.0 live_highlevel_personal | `55bdd4992b8c3c28165eb8ccad380ecd2f46beb7bb67cface81fe220c0bfff73` |
-| 1.3.0 live_calendly_nobaa | `623914a33d429367d07fca13875fe19968f1ff6fb243da6a1e58992d1f4ca117` |
-| calendar-election/1.0.0 sample | `d047b3894a46da62c737b2058e7dfedd1134c7c0f8be4517962c6e43b91be8be` |
-| google-calendar-disclosure/1 | `a33d569240d4a87171888b0340bcff155a6a69a9097a333dc9a7ef8c3497a83a` |
+| 1.3.0 covered_estimated (the sample) | `ae25aee567b331bdcba230f46ad804a1c2f72475d45a4930518444e3b72add56` |
+| 1.3.0 notcovered_estimated | `55a70866210b727032e47fc92422c04599900cbcf09383a0b41f55544966e9db` |
+| 1.3.0 unknown_estimated | `207e59bc90b654754b3ad3b4270bbe1579ac1f719801a3ae9c67eb9d115c07b6` |
+| 1.3.0 uncovered_nobaa | `c80a223ac9e4955518f69edaede18c5df21e09dd613a7588fa94479ee600a5a6` |
+| 1.3.0 uncovered_personal | `71ccc743d5eb3bb5f6dfcf68a28e78029a9fa77ae842d4a1da3ea33ef688c00d` |
+| 1.3.0 notused_mindbody | `786c8d73421ceaa3e380d47ca8d6ab4a726d6d47dbec1b9546affe2743ada84e` |
+| 1.3.0 notused_other | `1d9ebb06be96d90359d038486de4a78ddf40a97d96eb7f74d02198e2d87144c5` |
+| 1.3.0 live_calcom | `d5d772a408c7ca08917c045adfa3b6b815910ae0857f3123d674ea3c891ac231` |
+| 1.3.0 live_highlevel_personal | `627f0d75f928a27868182105b63776b0f385e81d91cd7f7afb5d2829eb0a450d` |
+| 1.3.0 live_calendly_nobaa | `c92fddeace7c32be33cba22f4ff1d11b8be440b050d7d2e66e66b2b66ccd7994` |
+| calendar-election/1.0.0 sample | `63586893a436803155ee71811ea17a8d71800a0d90ce41e1b3d9c596650a02aa` |
+| google-calendar-disclosure/1 | `5b3fa42bf21ce7ab880bb869f16f19d6953f87b576f67b0c431eb8eb273387d5` |
 
-The eleven 1.3.0 hashes above were regenerated on 6 October 2026 by the edits
-in §12.13; the election and the disclosure did not move.
+The 1.3.0 hashes were regenerated on 6 October 2026 by the edits in § 12.13,
+and again by the pre-release audit's redraft (§ 12.14), which also moved the
+election's and the disclosure's: neither has been released, accepted or
+shown. The verification of that redraft (7 October) moved the ten 1.3.0
+hashes once more, and not the election's or the disclosure's. 1.3.0 /
+covered_verified_boulevard is gone: 1.3.0 refuses verified reporting
+(HRC-17), and the golden test asserts the refusal instead. The 1.3.0
+covered_outbound hash equals covered_estimated, as in every version since
+1.2.0.
 
 ### 12.13 The owner's choices between two 1.3.0 texts (6 October 2026)
 
@@ -905,6 +941,579 @@ says it governs where they differ, so the narrower reading holds, but the audit
 should decide whether the paragraph's own sentence stays. The go-live floor
 (`MIN_ACCEPTABLE_BAA_VERSION`, migration 0048) is 1.2.1 while 1.3.0 is a
 draft. Whether releasing 1.3.0 raises it is part of that release.
+
+### 12.14 Pre-release audit, 6 October 2026
+
+> **Not legal advice.** This records the adversarial audit of the full merged
+> 1.3.0 text that the owner's answer Q2 makes the condition of its release,
+> what it found, what was done with each finding, and what must still happen
+> before 1.3.0 is released. 1.3.0 stays at `BAA_TEMPLATES[1]` with
+> `approvedByCounsel: false` until every release gate below is closed.
+
+#### Method
+
+Four auditors each read the whole of the merged 1.3.0 text through one lens:
+
+1. **HIPAA**: every element of 45 CFR 164.504(e)(2)–(e)(5), 164.314(a),
+   164.410 and the Privacy Rule provisions the clauses cite, read in the
+   eCFR;
+2. **internal consistency**: every clause against every other, every defined
+   term and every cross-reference;
+3. **state law**: the processor and service-provider terms of the CCPA and
+   11 CCR 7050–7051 (the CPPA's 2026 text), Washington's My Health My Data
+   Act, Nevada's NRS 603A, the Connecticut Data Privacy Act, and California's
+   CMIA and breach law;
+4. **product truth**: every factual sentence against
+   `docs/v1-product-spec.md`, the code on main (74dc279) and the public pages.
+
+They read all 45 distinct documents checkout can produce (every booking
+system, Google account kind and covered-entity answer) and the three
+phase-two renders. A second agent per lens then tried to refute each finding
+against the renders and the primary sources. 94 findings were confirmed (6
+blockers, 46 major, 42 minor after verification) and none was left uncertain.
+Four drafters then redrafted one clause group each (frame, state law, data
+and calendar, lifecycle) under the owner's decisions below and the
+cross-clause decisions in the redraft brief, and one integrator merged them,
+resolved what each draft needed from the others, and rendered every variant
+again (every line inside 78 columns, every cross-reference naming a heading
+of the same document; now pinned by `packages/catalog/src/baa.test.ts` and
+`apps/app/tests/baa-golden.test.ts`).
+
+Primary sources read for the redraft, beyond the audit's: the eCFR API for 45
+CFR 160.103, 164.304, 164.314, 164.402, 164.404, 164.410, 164.412, 164.500,
+164.501, 164.502, 164.504, 164.506, 164.514, 164.520–164.530 (6 October 2026);
+the HHS sample business associate agreement (archived); Conn. Gen. Stat.
+chapter 743jj (cga.ct.gov); RCW 19.373.040, .060 and .100 (app.leg.wa.gov);
+the CPPA's 2026 approved regulation text (11 CCR 7022, 7050, 7051); Cal. Civ.
+Code 56.10 and 1798.82 (leginfo, read through web.archive.org captures of 2
+January and 23 September 2026, since leginfo refuses automated access); and
+Google's OAuth scopes page.
+
+#### The owner's four decisions (6 October 2026)
+
+Put to the owner in chat at about 18:10 Dubai time as the four blockers the
+HIPAA lens had raised (before the verification pass, which confirmed all
+four), the owner answered, verbatim:
+
+1. On HRC-01 (a covered practice directing writes into a Google calendar no
+   business associate agreement covers): "If the practice decides to do it
+   itself, it's their problem and you need to not overthink it from our end.
+   So let's keep it as it is."
+2. On HRC-02 (destruction promised at 30 days, while the product keeps data
+   up to 90 when no export was downloaded, and backups are unmentioned):
+   "Ok.", recorded the same evening as: make 1.3.0's Term clause say what the
+   product does.
+3. On HRC-03 (the infeasibility sentence limits further uses, not
+   disclosures): "So what? Implement what you think is best here."
+4. On HRC-04 (the covered clause's calendar picker could offer a calendar
+   shared in from another account or domain): "Yes, guardrail it."
+
+And: "The rest, do your job". Everything else below is Claude's decision
+under that instruction; the commercial ones are flagged for the owner.
+
+#### Counsel's approval, as the owner reported it
+
+The owner reported on 6 October 2026 (open items, "counsel", 12:09 Dubai
+time) that counsel reviewed five questions and "approved them all to go ahead
+and implement": the DPA's clauses, the plan-start and refund terms, the
+notice a practice gives if it starts billing insurance, **the calendar
+version of the BAA**, and **the 24-hour subprocessor notice**. That approval
+was given before the fuller state-law, own-use, term and acting-in-your-place
+texts were merged in (6dc50a7, 15:13 the same day) and before this redraft,
+so it covers the calendar clauses and the 24-hour notice as they then stood:
+not the merged text, and not this redraft's edits to the calendar clauses
+(each calendar per provider, the organisation check, "treat" for a Workspace
+nobody has confirmed, what an event carries). The release rests on this
+audit and its gates (Q2), not on counsel's approval of the merged text.
+
+#### What changed, in short
+
+Clause by clause, the comment above `CLAUSES_1_3` in
+`packages/catalog/src/baa.ts` lists the changes; the regenerated text is
+`docs/baa-v1.3.0-draft-calendar-clauses.txt`. The cross-clause decisions:
+
+- **One breach and incident rule for every practice**: notice immediately
+  following discovery and within 24 hours, subject to 164.412's
+  law-enforcement delay. The notice is itself the written report, as
+  complete as healdesk can then make it, with everything 164.410(c) and
+  164.404(c) require (the identification of each individual included),
+  supplemented promptly as learned. It also meets Cal. Civ. Code 1798.82(b),
+  and "breach" includes a state-law breach of security.
+- **Destruction as the product does it** (decision 2), in the rule and words
+  the funnel's DPA 1.0.0 states and `dueForDestruction` keeps (redraft brief,
+  7 October 2026): the export delivered unasked within 30 days after the
+  Services end; destruction 30 days after they end if the export has been
+  delivered by then, otherwise as soon as it is delivered, and in any case no
+  later than 90 days, whether or not it has been; "delivered", never
+  "downloaded". Backups within 35 days after that (`BACKUP_RETENTION_DAYS`),
+  the one backup figure the document uses; further uses and disclosures
+  limited (decision 3).
+- **Termination**: Practice may terminate on determining a material
+  violation (164.504(e)(2)(iii)); ending the agreement ends the Services the
+  same day, and the Services end when the subscription does, however it
+  ends, the pass-through to the direct line after it not continuing them; the
+  agreement prevails over the Terms on termination and Fees; the refund on
+  termination for healdesk's violation or on objection is outside the
+  liability clause's exclusion and Practice's indemnity.
+- **Covenants, not statements of fact**, for Anthropic's agreement ("signed
+  before any patient's information reaches it") and for where PHI is kept
+  (at rest only in the United States, encrypted, and only with subcontractors
+  that do the same).
+- **The state-law clause** (`stateLawClauseBody`, shared with the funnel's
+  DPA) states each thing once; the more protective clause governs; its
+  calendar purposes and data follow the booking sync; CMIA moved to clause 3
+  for every practice.
+- **Headings**: clause 6 is "Google Calendar" (so "the Google Calendar
+  clause" names it exactly), clause 5 "What healdesk reads from Practice's
+  systems", clause 15 "Where healdesk acts in Practice's place"; clause 20
+  says a clause named by words from its heading is the clause whose heading
+  contains them. The phase-two `data-sources-verified` is no longer
+  registered: 22 clauses, 20 rendering.
+
+§12.13's note that "the clause says it governs where they differ, so the
+narrower reading holds" was wrong: the precedence sentence ranked clause 4
+against other clauses, never against its own paragraphs (ICD-03, SL-01). The
+redraft removes the overlap instead.
+
+#### Verification of the redraft (7 October 2026)
+
+Verifiers then checked the integrated redraft against every finding, all 45
+renders and the code on main, and raised one major issue and ten minor ones.
+Each is closed below, in the text, a release gate or the DPA switch:
+
+- **The written report had no deadline** (major; HRC-05, HRC-12, PT-16).
+  Clause 12 timed the 24-hour notice and later additions, but not the report
+  under them, which carries the identification of each individual
+  (164.410(c)(1)) and the 164.404(c) items, so it could have come after the
+  sixty days 164.410(b) allows. Each notice is now itself the written report,
+  as complete as healdesk can then make it, added to promptly. The runbook
+  already sends it that way (`incident-response.md`, step 5).
+- **Destruction when the export never arrives** (HRC-02, PT-01). Clause 17
+  said "within thirty days after termination, or by the day after Practice
+  downloads the export if that is later". For a practice that never
+  downloads, the second date never comes, so read literally only "within
+  thirty days" applied, which the product does not keep. It now states the
+  DPA's rule, as the brief of 7 October requires: destruction 30 days after
+  the Services end if the export has been delivered by then, otherwise as
+  soon as it is delivered, and in any case no later than 90 days, "whether
+  or not the export has been delivered". The verifier's own wording
+  ("downloaded") was not used, because the brief rules that word out.
+- **The refund against clause 18** (HRC-07, SUB-03). Clause 18 excluded all
+  liability "arising out of or relating to this agreement", and Practice's
+  indemnity reached "the Services". It now says that nothing in it limits
+  the refund the Term clause provides, and that the indemnity does not
+  extend to a claim for it, as Terms §13 keeps its own refund outside its
+  limits.
+- **The pass-through kept the Services running** (ICD-19, PT-25). "Services"
+  meant everything provided under the Terms, the pass-through after the end
+  included, so a practice that left forwarding on could argue that the
+  agreement, and with it the export and destruction clocks, never ended.
+  Clause 1 now says the Services end when the subscription does, however it
+  ends, and that the pass-through after it does not continue them.
+  Offboarding starts at that point.
+- **The first location** (ICD-26). The location paragraph anchored on "the
+  order Practice placed when it accepted this agreement". A 1.2.1 practice
+  that accepts 1.3.0 places no order when it does, so no location was
+  covered. It now names Practice's first location, the one set up under the
+  first order Practice placed for the Services. The election does not carry
+  that paragraph, so its hash did not move.
+- **The explainer's bullets** (HRC-03, HRC-07, adjacent). "Why you're
+  signing this" paraphrased (e)(2)(ii)(J) as "use it only" and (e)(2)(iii)
+  as "if we materially breach it": narrower than the regulation and than
+  1.3.0's clause 17. `baaExplainerTerms(version)` now gives 1.3.0 "limit its
+  use and disclosure" and "if you determine that we have violated a material
+  term of it". 1.2.1 keeps its bullets word for word, because its clause
+  still says "use" and "materially breaches". Gate 11 has the screen read
+  them by version.
+- **The erasure's suppression row** (SL-06). Clause 4(c) allows only a
+  record of the request, kept no longer than healdesk needs it to keep the
+  information deleted and used for nothing else. `eraseContact` keeps the
+  telephone number in `suppressions` permanently. The text stays as it is,
+  because it is the lawful promise: 11 CCR 7022 allows a record of the
+  request only "for the purpose of ensuring that the consumer's personal
+  information remains deleted", and Washington's My Health My Data Act has
+  no such exception for consumer health data. The code changes instead,
+  under gate 6.
+- **Booking requests and the purge** (PT-28). A returning person's Meta
+  request reuses their contact without touching `updated_at`, so the purge
+  would delete it, by cascade, as soon as their older call aged out. Gate 9
+  now keeps a contact while a booking request made in the last 90 days
+  refers to it.
+- **The interim Meta copy** (PT-12). Terms §9, `/trust` and the
+  `/subprocessors` Meta row tell every customer today that clinical content
+  is caught when it arrives, while `front-door.ts` hands the raw text to the
+  model first. Gate 4 now keeps the Meta front door off for every clinic
+  until the screen runs, or the copy changes first.
+- **The DPA switch** (two issues). Widening `CALENDAR_PERSON_NOUNS` for
+  "Patient" would have made the DPA misdescribe the event `event.ts` writes,
+  and the DPA does not define "calendar election". Both are covered under
+  "The funnel's DPA" below.
+
+The re-run afterwards: every 1.3.0 document renders inside 78 columns, and
+every cross-reference resolves (`baa.test.ts`). The frozen 1.2.1, 1.2.0,
+1.0.0 and draft hashes did not move, and neither did the election's or the
+disclosure's. The ten 1.3.0 hashes and the DPA's eight moved (§ 12.12;
+`dpa.test.ts`).
+
+#### All 94 findings
+
+One disposition each: TEXT (fixed in 1.3.0's text), OWNER-KEPT, CODE-MINE
+(the calendar build), CODE-ROUTED (another session's code, a release gate)
+or PAGE-C19 (a public page changed at release). None was found not to be a
+defect. Severity is the verifier's.
+
+| ID | Severity | Disposition | What was done |
+| --- | --- | --- | --- |
+| HRC-01 | blocker | OWNER-KEPT | The uncovered calendar clause stays open to a covered practice, practice-directed, first name, service and time (decision 1). Clauses 3 and 9 keep the regulation's words, with no calendar carve-out, so a covered practice's direction is its own risk, its cost borne under clause 18 (e, g). Owner-accepted risk (brief.md risk 12). |
+| HRC-02 | blocker | TEXT | Clause 17 says what the product does, in the DPA's rule: the export delivered unasked within 30 days after the Services end; destruction at 30 days if it has been delivered by then, otherwise as soon as it is, and never later than 90 days whether or not it has been; backups within 35 days. Offboarding code is a release gate. |
+| HRC-03 | blocker | TEXT | Clause 17 limits further uses and disclosures of what cannot be returned or destroyed (164.504(e)(2)(ii)(J)). |
+| HRC-04 | blocker | CODE-MINE | Clause 6 (covered) now says healdesk checks, at choice and before every write, that the account is managed and the calendar belongs to its organisation; C8 keeps it (release gate). |
+| HRC-05 | major | TEXT | Clause 12's report carries 164.410(c) and the 164.404(c) items: identification of each individual, dates of breach and discovery, steps individuals should take, mitigation, any law-enforcement delay. Each notice is itself that report, as complete as healdesk can then make it, so it is due within the 24 hours (verification, 7 October). |
+| HRC-06 | minor | TEXT | Clause 12 states 164.412's law-enforcement delay. |
+| HRC-07 | major | TEXT | Clause 17: Practice terminates on determining a material violation; termination ends the Services; no Fees after, and a refund, on termination for violation or objection (owner flag), which clause 18's exclusion and Practice's indemnity do not reach. |
+| HRC-08 | minor | TEXT | Clause 3 names the own-use clause as its exception and tracks 164.504(e)(2)(i) ("if done by Practice"). |
+| HRC-09 | major | TEXT | Clause 4 rebuilt: one statement each of instructions, purposes, data, retention, combination and sale or share. |
+| HRC-10 | major | TEXT | Clause 16's ban stays absolute by recipient, with an express exception for the Meta replies; the accepted risk (R4) is stated in paragraphs of its own. |
+| HRC-11 | major | TEXT | Clause 13 states Anthropic's agreement as a covenant: content reaches it only under a BAA signed before any patient's information does. Terms §9 follows at release. |
+| HRC-12 | major | TEXT | CMIA undertaking moved to clause 3, for every practice; the one 24-hour rule meets 1798.82(b) whatever the status; 4(f) points to clause 12. |
+| HRC-13 | major | TEXT | Clause 10: PHI at rest only in the United States and encrypted, a covenant reaching subcontractors. Retell's region in writing is a release gate (R6). |
+| HRC-14 | minor | TEXT | Clause 17: the record of disclosures goes to Practice with the export; healdesk's copy holds references only and is kept as its own practice, not as a duty 164.530(j) puts on it. |
+| HRC-15 | minor | TEXT | Clause 11: "asks the person booking for no more than"; anything else said is kept only in that transcript; Meta clinical content not kept. |
+| HRC-16 | minor | TEXT | Clause 4's calendar purpose, data and recipient render by the booking sync; a manual practice has them only under an election. |
+| HRC-17 | minor | TEXT | The render guard refuses verified reporting; `data-sources-verified` is not registered in 1.3.0. |
+| ICD-01 | major | TEXT | Clauses 3 and 9 carry the own-use exception (164.504(e)(2)(i)(A); the HHS sample BAA). |
+| ICD-02 | major | OWNER-KEPT | As HRC-01. No reconciling sentence in clause 3 or 9: it would make the agreement authorise what 164.504(e)(2)(i) forbids. |
+| ICD-03 | major | TEXT | As HRC-09: instructions are this agreement and the portal settings; purposes specific (11 CCR 7051(a)(2)). |
+| ICD-04 | major | TEXT | As HRC-16: manual variants claim no calendar connection, data or send. |
+| ICD-05 | major | TEXT | Clause 4 purpose (i): de-identified statistics, used only to measure and improve the Services; clause 8 permits for a non-covered period only what clause 4 permits. |
+| ICD-06 | major | TEXT | One end for the data: clause 4 defers to clause 17 (export, 30/90 days, 35-day backups, a subcontractor's retention for its purpose and period only). |
+| ICD-07 | major | TEXT | Clause 4(c) excepts what clause 13 lets a subcontractor keep for abuse detection and security, or by law, for that purpose and period only. |
+| ICD-09 | minor | TEXT | Clause 4's sentence on the record of disclosures removed; clause 17 is the one statement. |
+| ICD-10 | major | TEXT | Payment links are clause 4's purpose (c) and a permitted send, by reference to clause 7. |
+| ICD-11 | minor | TEXT | Clause 5 names every source of PHI; clause 4's data list matches it, with no email. |
+| ICD-12 | blocker | TEXT | As HRC-11. |
+| ICD-13 | major | PAGE-C19 | `/subprocessors` and `/trust` move to 24 hours for 1.3.0, the notice address and the objection timing at release; clause 13 now says where the notice goes and what it names. |
+| ICD-14 | major | TEXT | As HRC-10. |
+| ICD-16 | minor | TEXT | Clause 18 drops "as section 14 of the Terms provides"; carries §14's indemnitees, triggers and defence paragraph and §13's cap; the carve-out now reaches the exclusion too, as §13's does (owner flag). |
+| ICD-17 | major | TEXT | A Workspace nobody has confirmed: the parties treat the calendar as uncovered, and Google "may" hold the appointment. |
+| ICD-18 | major | TEXT | The party line gives the registered address (legal.ts); the Delaware mailbox appears only in clause 20, as a mailing address with its disclaimer. |
+| ICD-19 | minor | TEXT | Clause 1 defines "Services" and "Fees", and says the Services end when the subscription does, the pass-through after it not continuing them; the preamble points to the Definitions clause. |
+| ICD-20 | minor | TEXT | "a practice in the field of {specialty}", in the catalogue's own words. |
+| ICD-21 | minor | TEXT | Clause 2 reworded: no capital NOT, one name for the transaction, "so believes". |
+| ICD-22 | minor | TEXT | Clause 20's rule for clause names; clause 6 headed "Google Calendar"; clause 4 names clauses by exact heading; every reference checked in every variant. |
+| ICD-23 | minor | TEXT | Clause 1 defines patient information, HIPAA, its two Rules, covered entity and business associate; "PHI" throughout; clause 18 names state privacy, consumer-health-privacy and breach-notification laws. |
+| ICD-24 | minor | TEXT | "Practice" in clauses 3, 14 and 15; headings "What healdesk reads from Practice's systems" and "Where healdesk acts in Practice's place". |
+| ICD-25 | minor | TEXT | The not-used clause credits the classification to healdesk's list and says "for the location". |
+| ICD-26 | minor | TEXT | Clause 1 defines a calendar election and makes an accepted one part of the agreement; the location paragraph names Practice's first location, the one set up under its first order (which a practice moving from 1.2.1 also has), and the account kinds; clause 20's entire-agreement sentence includes elections. |
+| ICD-27 | minor | TEXT | Clause 5: no credentials to the system "or to any other booking, practice-management or point-of-sale system". |
+| ICD-28 | minor | TEXT | Clause 6: nothing clinical "beyond the name of the service". |
+| ICD-29 | minor | TEXT | As HRC-15. |
+| ICD-30 | minor | TEXT | Clause 20 grants the change-in-law termination itself, ending the Services; the Term clause then applies (owner flag: no refund term). |
+| ICD-31 | minor | TEXT | One notice address for Practice, its account's email; a notice is effective when delivered; the Delaware courts have exclusive jurisdiction. |
+| ICD-32 | minor | TEXT | Export unasked within 30 days; "termination" is the day the agreement and the Services end; token use stops when the Services end. |
+| ICD-33 | minor | TEXT | Clause 1's "breach" includes a state-law breach of security, which clause 12 reports within 24 hours. |
+| ICD-34 | minor | TEXT | As HRC-12. |
+| ICD-35 | minor | TEXT | As HRC-17. |
+| SL-01 | major | TEXT | As HRC-09: the shared paragraph's duplicate sentences gone; "sell or share" only as 1798.140 defines them; own management and administration ruled out except as state law expressly permits. |
+| SL-02 | major | TEXT | The more protective clause governs; clause 4's looser allowances (six-month backups, combining identifiable data for statistics, calendar purposes for manual practices) are gone. |
+| SL-03 | major | TEXT | Combination only for security and fraud; statistics only from information already de-identified (clauses 4 and 8). |
+| SL-04 | minor | PAGE-C19 | Clause 8 carries the state de-identification conditions once, for every practice; `/privacy` must publish the commitment before release. |
+| SL-05 | major | TEXT | Clause 4(c) carves out the subcontractor retention, and the flow-down is a covenant; vendor terms carrying processor terms are a release gate. |
+| SL-06 | major | CODE-ROUTED | Per-person deletion stays ten business days (raw copies from other services included) with 35-day backups, and only a record of the request is kept, no longer than needed; the erase path (leaving no telephone number in `suppressions`), vendor deletion and runbook are a release gate (gate 6). |
+| SL-08 | major | TEXT | As ICD-10. |
+| SL-09 | minor | TEXT | As HRC-16. |
+| SL-10 | minor | TEXT | Backups deleted "within 35 days after" deletion from healdesk's own records. |
+| SL-11 | minor | TEXT | "an appropriate and accepted control standard or framework and assessment procedure" (Conn. Gen. Stat. 42-521(b)(5)). |
+| SUB-01 | major | PAGE-C19 | As ICD-13; the signing screen must show 1.3.0's notes through `clauseExplainer`. |
+| SUB-02 | major | PAGE-C19 | Instagram, Messenger and WhatsApp stay Practice's own services in clause 4; Meta's row on `/subprocessors` becomes a note at release. |
+| SUB-03 | major | TEXT | Termination on objection ends the Services; no Fees after, and a refund (owner flag) outside clause 18's exclusion and indemnity. |
+| SUB-04 | minor | TEXT | As HRC-11; Terms §9 follows at release. |
+| OU-01 | minor | TEXT | Clause 8: the recipient notifies healdesk of any instance in which the confidentiality of the PHI has been breached (164.504(e)(4)(ii)(B)(2)). |
+| PT-01 | blocker | TEXT | As HRC-02; destruction must also reach suppressions, consent records and contact attempts, and the clinic's calls at Retell (release gates). |
+| PT-02 | major | TEXT | Clause 11 lists what the booking-field catalogue can ask, the call-only optional fields included, and no email. |
+| PT-03 | major | TEXT | Clause 10's exception covers answering, passing through to the direct line (also after the Services end, as the Terms provide) and live transfer; "no calls to patients and no SMS"; clause 4 purpose (d). |
+| PT-04 | major | TEXT | As ICD-11. |
+| PT-05 | major | TEXT | As HRC-16. |
+| PT-06 | major | TEXT | "The calendar" is each calendar healdesk uses, one per provider included, and every rule applies to each; C6 and C8 build it. |
+| PT-07 | major | TEXT | The not-used clause offers only the route that exists: an election for a system that reads Google Calendar. |
+| PT-08 | major | PAGE-C19 | As ICD-13. |
+| PT-09 | major | TEXT | As HRC-11. |
+| PT-10 | major | TEXT | As HRC-13. |
+| PT-11 | major | TEXT | Clause 7: a link only in website chat and on Meta ("may"), none on a call; only an amount, a generic description and a reference; no payer details kept. Package D builds to it (release gate). |
+| PT-12 | major | CODE-ROUTED | Clause 16 says each Meta message is checked for clinical content before the model sees it and kept nowhere; the front door must do so before release, and stays off for every clinic until it does, since the public copy already says so (gate 4). |
+| PT-13 | major | CODE-ROUTED | The first reply in each Meta conversation must open with `metaChannelGreeting` before release. |
+| PT-14 | major | CODE-ROUTED | The console's `notifyDeadline` must give 24 hours for every class and clinic; its test is outside this redraft. The runbook works to 24 hours now. |
+| PT-15 | major | TEXT | Clause 20 defines Practice's one notice address; the runbook and template send there, and by phone. |
+| PT-16 | major | TEXT | The runbook and template identify each affected patient by secure transfer with every breach report, and give the breach date and the steps patients should take. |
+| PT-17 | major | TEXT | Clause 14(b): corrected where the record can change, otherwise appended and linked (164.526(c)(1)); the amendment record is a release gate. |
+| PT-18 | major | CODE-ROUTED | As SL-06: raw webhook copies deleted within the ten business days. |
+| PT-19 | major | TEXT | As ICD-18. |
+| PT-20 | minor | CODE-MINE | Clause 6 names the three further things Google's permissions reach, the subscribed-calendar list included; C8's organisation filter keeps the covered promise. |
+| PT-21 | minor | TEXT | As ICD-17. |
+| PT-24 | minor | TEXT | Clause 14: a request made to healdesk itself is answered only in healdesk's reply; no later contact. |
+| PT-25 | minor | TEXT | As ICD-19, including when the Services end. |
+| PT-26 | minor | TEXT | As ICD-16. |
+| PT-27 | minor | TEXT | As ICD-20. |
+| PT-28 | minor | TEXT | Clause 11 states each record's retention as the purge runs it; the purge on for every 1.3.0 clinic, a contact kept while a recent booking request refers to it, and Retell's retention no longer than the clinic's, are release gates. |
+| PT-29 | minor | TEXT | The sentence naming clauses that do not exist is gone. |
+| PT-30 | minor | TEXT | Clause 6: the first name the person booking gave, else "Patient"; the service, else "Appointment" (event.ts). |
+| PT-31 | minor | TEXT | One combination rule; matching a request to the same clinic's contact is outside it, and per-clinic references link no one across clinics. |
+
+Totals: TEXT 80, OWNER-KEPT 2, CODE-MINE 2, CODE-ROUTED 5, PAGE-C19 5.
+
+#### Release gates
+
+1.3.0 is not released, and `approvedByCounsel` stays false, until each of
+these is closed, by code, a page, a signed paper or a host setting, and
+§12.4's table reads "Yes" throughout.
+
+**Calendar build (CODE-MINE)**
+
+1. **The covered-calendar guardrail (C8; HRC-04, PT-20; owner decision 4).**
+   A covered clinic books only into calendars that its connected Workspace
+   account owns inside its own organisation: covered terms refused unless
+   the ID token shows a managed account (`hd`); the calendar list asked with
+   `showOwnOrganizationOnly` beside `minAccessRole=owner`; every chosen
+   calendar, provider calendars included, checked at choice and again in the
+   write gate before every insert, failing closed.
+2. **Named providers (PT-06).** One calendar per provider and the
+   service-to-provider mapping (C6's `clinic_providers`, C8/C9's
+   `saveProviders`, C12/C13's per-provider availability, holds and writes),
+   with every calendar passing the same terms and ownership checks as the
+   shared one.
+3. **Token use stops when the Services end (ICD-32)**, and the token is
+   deleted on disconnect, on finding access removed at Google, and at
+   destruction (C7, C8, C10); withdrawal of the uncovered direction stops
+   writes, and not-used terms refuse a connection (C7, C8).
+
+**Other sessions' code (CODE-ROUTED)**
+
+4. **Meta front door (PT-12, PT-13).** `front-door.ts` screens each inbound
+   message for clinical and urgent content before `input.responder`, sending
+   the fixed hand-off or urgent line without calling the model, and the
+   first reply of each conversation opens with `metaChannelGreeting()`
+   (Messenger added to `disclosure.ts`'s channels). Until both land,
+   `metaFrontDoorEnabled` stays false for every clinic, whatever agreement it
+   signed. Terms §9, `/trust` and the `/subprocessors` Meta row
+   (`apps/web/src/lib/subprocessors.ts`) already tell every customer that
+   clinical content is "caught on arrival" or "caught when it arrives",
+   which is true only once the screen runs. Switching the front door on sooner needs that copy corrected
+   first (apps/web, with a `LEGAL_VERSION` bump).
+5. **Incident deadline (PT-14).** `notifyDeadline` in
+   `apps/app/src/lib/incidents/incidents.ts` returns discovery plus 24 hours
+   for a breach, a security incident and an improper use or disclosure, for
+   every clinic; its test (`tests/incidents-and-offboarding.test.ts`), its
+   comments, the schema comment and the ops Incidents page follow.
+6. **Per-person deletion (SL-06, PT-18).** An operator erase path that runs
+   `eraseContact` and also deletes the person's `webhook_events`,
+   `meta_booking_drafts`, booking requests matched by messaging identifier
+   and `chat_threads`, tells the voice vendor and other subcontractors to
+   delete, and records it; a "Deletion requests" runbook section; a
+   retention rule for `chat_threads`. The erase path leaves no telephone
+   number in `suppressions`. It records the request without the number, or
+   with a keyed hash used only to re-apply the deletion after a restore. It
+   keeps that record no longer than the 35-day backup window
+   (`BACKUP_RETENTION_DAYS`) plus any restore in progress, and nothing reads
+   it for contact decisions. `eraseContact`'s comment that the number is
+   kept "so the request itself is honoured forever" changes with it. That is
+   what clause 4(c) promises: "only a record of the request, for no longer
+   than it needs one to make sure the information stays deleted".
+7. **Offboarding (HRC-02, PT-01).**
+   - The funnel's change lands: 1.2.1 and earlier keep their flat thirty
+     days, by the bound version, and 1.3.0 keeps the DPA's rule, which
+     clause 17 states.
+   - `export_delivered_at` is stamped only once the export has been
+     delivered to Practice, never when it is merely produced.
+   - `dueForDestruction` meets the 30- and 90-day marks as deadlines (the
+     job runs once a day).
+   - `destroyClinicData` also deletes suppressions, consent records and
+     contact attempts, with the grant they need.
+   - Destruction, `eraseContact` and the purge succeed for a practice with a
+     confirmed booking request. `docs/counsel/dpa.md` records that they fail
+     today: the request's `appointment_id ON DELETE SET NULL` meets its
+     confirmed-shape CHECK.
+   - The clinic's calls and agent are deleted at Retell by the deadline.
+   - A restore re-runs destruction.
+8. **Amendment record (PT-17).** An append-only amendment linked to the
+   booking request or conversation it amends, carried by `exportPatient`,
+   `exportClinic` and the portal export.
+9. **Retention (PT-28).** The nightly purge switched on for every 1.3.0
+   clinic (0032 ships it off), and extended to webhook events that are never
+   processed and to Meta booking drafts. A contact is kept while a booking
+   request made in the last 90 days refers to it. Either
+   `createBookingRequest` touches `contacts.updated_at` when it reuses a
+   contact, or purge step 3 also checks `booking_requests`. Otherwise a
+   returning person's Meta request, which writes no conversation, is
+   deleted, by cascade, when their older call ages out, before clause 11's
+   period ends.
+10. **Payment links (PT-11, ICD-10, SL-08; package D).** Links only in website
+    chat and on Meta, carrying only an amount, a generic description and a
+    reference, metadata and statement descriptor included, and no payer
+    details kept from the processor's notices.
+11. **The signing screen and the release mechanics.**
+    - The clause notes come through `clauseExplainer(template.version, id)`
+      (SUB-01, §12.11 item 12). apps/web's `agreement-kinds.ts` does this
+      since the four-step funnel (8d7fcd4).
+    - The "Why you're signing this" bullets come through
+      `baaExplainerTerms(template.version)`. apps/web's `agreement-kinds.ts`
+      and the catalog's `AGREEMENT_COPY` still hand out `BAA_EXPLAINER`, so
+      today a 1.3.0 buyer would read "use it only" and "materially breach"
+      above a clause that says more.
+    - Plan C15 lands: provisioning's approval gate reads the bound
+      acceptance's version (§12.11 item 13). Plan C3 has landed (ad02b30):
+      both signing paths settle the version through `signableTemplate`.
+
+**Public pages at release (PAGE-C19)**, with a `LEGAL_VERSION` bump:
+
+12. `/privacy` publishes the de-identification commitment clause 8 points to
+    (SL-04), and §11 says "the calendar, or one per provider".
+13. `/subprocessors` and `/trust`: 24 hours' notice under 1.3.0 or later and
+    15 days under earlier versions, sent to the notice address, naming the
+    vendor, what it receives and why, with objection before the change takes
+    effect (ICD-13, SUB-01, PT-08); Meta's row becomes a note beside Google
+    Calendar and the payment processor, with the "three kinds of row" text,
+    `subprocessors.ts`'s header and `/trust`'s scoped-subprocessor sentence
+    (SUB-02).
+14. Terms §9 states Anthropic's agreement in covenant form (HRC-11, SUB-04);
+    Terms §4, §7 and §15 say that terminating the BAA ends the subscription
+    the same day, with the refund clause 17 gives (HRC-07, SUB-03); §9 and
+    §14 may say "consistently with" for "in the same way" (ICD-16).
+
+**Paper and settings**
+
+15. Retell's US region and encryption at rest confirmed in writing, and its
+    register row filled, before any PHI reaches it (HRC-13, PT-10; R6).
+16. The executed AWS, Anthropic, Retell and database-provider terms each
+    carry service-provider or processor terms for patient information that
+    is not PHI (Cal. Civ. Code 1798.140(ag), Conn. Gen. Stat.
+    42-521(b)(4)), or the exception is named (SL-05).
+17. Anthropic's business associate agreement signed before any patient's
+    information reaches it, as clause 13 promises.
+18. Host backups at 35 days at most, with no manual snapshot holding PHI
+    kept longer (`BACKUP_RETENTION_DAYS`); Retell's per-agent transcript
+    retention no longer than the clinic's period.
+
+**The funnel's DPA** (`packages/catalog/src/dpa.ts`, on main since the funnel
+merged) shares `stateLawClauseBody`, the Payments clause, the calendar clause
+bodies, the location paragraph and the subcontractor notice. This commit
+switches it, as the shared-module agreement of 6 October provides:
+
+- Its state-law clause is now `stateLawClauseBody({ subject: "Client
+  Information", sync })`, so `DPA_STATE_LAW_EDITS` and
+  `DPA_STATE_LAW_CLAUSE_BODY` are gone.
+- `CALENDAR_PERSON_NOUNS` follows the calendar clauses' new wording: "about
+  the client", and "who may not be the client the appointment is for".
+- The quoted fallback word stays "Patient", exactly as `event.ts` writes it
+  for every practice, and is exempt from the no-"patient" check
+  (`CALENDAR_EVENT_FALLBACK_QUOTED`). A DPA that printed "Client" there would
+  misdescribe the event healdesk writes.
+- `dpa-review.ts` follows the renamed calendar heading and prints the live
+  variant of the state-law clause in its appendix.
+- The DPA's eight golden hashes and `docs/dpa-v1.0.0.txt` are regenerated.
+
+What remains the funnel's to do, before the DPA is released:
+
+- Define "calendar election" in the DPA's own Definitions clause, as BAA
+  1.3.0's clause 1 does, since the shared state-law clause and the location
+  paragraph both use it.
+- Get an election form that names the Data Protection Agreement.
+  `CALENDAR_ELECTIONS[0]` names only the Business Associate Agreement
+  (`dpa.md`, gap 6). Until there is one, the DPA refuses a second location
+  or a change of booking system.
+- Give "without penalty" the same effect in its own Term clause, and move its
+  incident and breach notice to the 24-hour rule.
+- Change the "Clients' requests" and Term clauses. Both say the telephone
+  number of a client whose information was deleted is kept as the record of
+  the request, and gates 6 and 7 remove that number. Item c of the shared
+  clause allows only a record kept no longer than needed.
+- Reconcile the DPA's own instructions, requests and assistance clauses with
+  the shared clause where they overlap. Meanwhile the shared clause's
+  precedence sentence makes the more protective one govern.
+- Bring `docs/counsel/dpa.md` up to date: it still describes the two edits
+  and the open choice of the fuller clause.
+
+#### Flagged for the owner
+
+- **Refund on termination** (HRC-07, SUB-03): where Practice terminates for
+  healdesk's violation or on a subcontractor objection, no Fees accrue after
+  that day and Fees paid for later time are refunded. A commercial term the
+  owner has not seen; Claude took it so that a covered practice never keeps
+  paying for a service it can no longer lawfully use. Since the verification
+  of 7 October, clause 18's exclusion does not limit it and Practice's
+  indemnity does not reach a claim for it, as Terms §13 treats its own
+  refund; without that, the refund could be read as excluded.
+- **A change-in-law termination** (ICD-30) ends the Services with no refund
+  term. Recommended: the same refund.
+- **The liability carve-out** (ICD-16) now reaches the exclusion as well as
+  the cap, as Terms §13's does: a small change in Practice's favour.
+- **De-identified statistics** (ICD-05, SL-03) may be used only to measure
+  and improve the Services, not for marketing.
+- **R3**, service of process on a UAE entity, is still open.
+
+#### 1.2.1 keeps the defects it shares
+
+1.2.1 is released, and released documents never change: a practice that
+signed it signed those bytes. It keeps every defect it shares with the
+audited text until that practice accepts 1.3.0, and whether the release
+raises `MIN_ACCEPTABLE_BAA_VERSION` to require that is part of the release.
+Where 1.2.1 promises less than the product does, operating to 1.3.0's
+standard meets both (the runbook now notifies every clinic within 24 hours).
+The shared defects:
+
+- clause 15 (Term): destruction promised at 30 days and an export only on
+  request, backups unmentioned (HRC-02, PT-01, ICD-32); infeasibility limits
+  further use only, not disclosure (HRC-03); termination for "materially
+  breaches", not for a violation Practice determines, and no statement that
+  ending the agreement ends the Services (HRC-07, SUB-03); the six-year record
+  of disclosures put on healdesk as a regulatory duty (HRC-14);
+- clause 10 (Reporting): no steps individuals should take, no 164.412 delay
+  (HRC-05, HRC-06); five days where California requires notice immediately
+  following discovery (HRC-12);
+- clause 11 (Subcontractors): Anthropic's agreement in the present tense
+  (HRC-11, ICD-12, PT-09, SUB-04); the objection right ends the agreement
+  only (SUB-03);
+- clause 8 (Safeguards): "held on United States infrastructure", a flat
+  statement about every vendor (HRC-13, PT-10); the telephone exception
+  covers answering only, not pass-through or transfer (PT-03);
+- clause 9 (Minimum necessary): "and no more", "a telephone number or email
+  address", and retention stated for transcripts only (HRC-15, ICD-29,
+  PT-02, PT-28); the opening-line promise on Meta (PT-13);
+- clause 14 (Prohibited): the Meta replies inside the advertising ban, and
+  "handles no clinical content" (HRC-10, ICD-14, PT-12);
+- clause 3 (Permitted uses): no own-use exception (ICD-01, HRC-08);
+- clause 4 (Data sources): "the only patient information … is what patients
+  themselves give it" (PT-04, ICD-11), and "practice-management or
+  point-of-sale" naming booking systems (ICD-27);
+- clause 5 (Google Calendar): one calendar where the spec books by provider,
+  and the calendar-list read unstated (PT-06, PT-20);
+- clause 12 (Patient rights): amendments always corrected in place (PT-17),
+  and the patient told after the conversation (PT-24);
+- clause 6 (Own use): "notify healdesk of any breach of its confidentiality"
+  (OU-01);
+- the preamble and clause 18 (Notices): the Delaware mailbox as the party's
+  address (ICD-18, PT-19), the specialty lower-cased (ICD-20, PT-27),
+  "Services" and "Fees" left to the Terms, which define neither (ICD-19,
+  PT-25), notices to the signatory's email only, and no exclusive venue
+  (ICD-31, PT-15), the change-in-law termination pointing at the Term clause
+  (ICD-30);
+- clause 16 (Liability): "as section 14 of the Terms provides" with a
+  different list (ICD-16, PT-26);
+- clause 2 (Practice's status): the capital NOT (ICD-21); throughout:
+  clauses named without a rule for resolving names (ICD-22), "patient
+  information" and "PHI" undefined or in three forms (ICD-23), the legal
+  name for "Practice" (ICD-24);
+- the phase-two `data-sources-verified` clause still renders if signing ever
+  allows verified reporting (HRC-17, ICD-35), fenced only by
+  `HEALDESK_PHASE_TWO_ATTRIBUTION`.
+
+#### Golden hashes
+
+The ten 1.3.0 hashes, the election's and the disclosure's were regenerated
+by this redraft, and the ten 1.3.0 hashes again by its verification of 7
+October (clauses 1, 6's location paragraph, 12, 17 and 18); §12.12 lists
+them. The election and the disclosure did not move in that round. The DPA's
+golden hashes (`packages/catalog/src/dpa.test.ts`) and `docs/dpa-v1.0.0.txt`
+moved with the shared clauses.
 
 ---
 

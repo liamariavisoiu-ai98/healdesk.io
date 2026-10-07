@@ -61,6 +61,8 @@ import { KIND_SHAPE } from "@/lib/email/kind-rules";
 import { markExportDelivered, startOffboarding } from "@/lib/offboarding/offboarding";
 import { startForwardingTest } from "@/lib/onboarding/forwarding-test";
 import { listConnections } from "@/lib/connections/store";
+import { selfCheckCredentialKey, type CredentialKeySelfCheck } from "@/lib/crypto/envelope";
+import { credentialKeyConfiguration, type CredentialKeyConfiguration } from "@/lib/crypto/kms";
 import { bookingRequestCounts } from "@/lib/meta/booking-requests";
 import { attachMetaChannel, isMetaPlatform, META_PROVIDERS, setMetaFrontDoor } from "@/lib/meta/channels";
 import type { MetaPlatform } from "@/lib/meta/front-door";
@@ -313,6 +315,10 @@ const OPERATIONS = [
   // a timestamp, never an address. It writes the delivery ledger, which is its
   // record, and no audit row, so it is not in MUTATING_OPERATIONS.
   "emailEvent",
+  // The credential key (lib/crypto): which wrapper, the tail of which key, and
+  // a live seal-and-open of a throwaway value. Never the key's full ARN, never
+  // a credential, never an AWS error message.
+  "getCredentialKeyStatus",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -903,6 +909,8 @@ export async function runOperation(
       return opListCalendarWrites(args, operator);
     case "emailEvent":
       return opEmailEvent(args);
+    case "getCredentialKeyStatus":
+      return opGetCredentialKeyStatus();
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The
@@ -3744,4 +3752,38 @@ async function opEmailEvent(args: Record<string, unknown>): Promise<OpsOutcome> 
     ...(kind ? { kind } : {}),
   });
   return ok(result);
+}
+
+// -----------------------------------------------------------------------------
+// The credential key
+// -----------------------------------------------------------------------------
+
+export type CredentialKeyStatus = CredentialKeyConfiguration & {
+  selfCheck: CredentialKeySelfCheck;
+};
+
+/**
+ * Whether this deployment can seal and open a clinic's credentials, asked now.
+ *
+ * Live rather than the worker's start-up result, because the operator's
+ * question is "now", and the worker may have started before the task role or
+ * the key policy was put right. A read, so unaudited like the other reads: it
+ * writes nothing, and on KMS its two calls are CloudTrail events already.
+ *
+ * The self-check keeps to its own budget, inside the twelve seconds apps/web's
+ * ops client waits, so a KMS that does not answer comes back as `timeout`
+ * rather than as a caller that gave up. What crosses is the projection in
+ * kms.ts and a category word — never the full ARN, which names the account,
+ * and never an AWS error message.
+ *
+ * Nothing in apps/web calls this yet: its ops client has no function for it
+ * and /admin no card. Until one does, it answers only a request signed with
+ * the provision secret, and the worker's start-up log line is the check an
+ * operator can read.
+ */
+async function opGetCredentialKeyStatus(): Promise<OpsOutcome> {
+  return ok({
+    ...credentialKeyConfiguration(),
+    selfCheck: await selfCheckCredentialKey(),
+  } satisfies CredentialKeyStatus);
 }

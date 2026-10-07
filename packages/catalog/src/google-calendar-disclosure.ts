@@ -28,7 +28,12 @@ import { createHash } from "node:crypto";
  * processed, never that they are signed.
  *
  * Version /1 has never been shown to anyone, so the calendar-list permission
- * (owner, 6 October 2026) changed it in place rather than making a /2.
+ * (owner, 6 October 2026) changed it in place rather than making a /2, and so
+ * did the pre-release audit of the calendar clauses the same day
+ * (agreement-changes.md §12.14: a calendar per provider, PT-06; the
+ * subscribed-calendar list Google's permission reaches, PT-20; the first name
+ * the person booking gave, PT-30; nothing clinical beyond the service's name,
+ * ICD-28). It says what the calendar clauses say, and no more.
  */
 
 export type GoogleCalendarDisclosure = {
@@ -60,18 +65,19 @@ export const GOOGLE_CALENDAR_DISCLOSURE: GoogleCalendarDisclosure = {
   version: GOOGLE_CALENDAR_DISCLOSURE_VERSION,
   heading: "Connecting your Google Calendar",
   paragraphs: [
-    "healdesk, a service of Viixi FZC, is asking for {clinicName} to connect to one calendar of " +
-      "the Google account you sign in with next: its main calendar, unless you choose another " +
-      "calendar that account owns.",
-    "What healdesk reads: the names of the calendars in that account, so you can choose which " +
-      "one healdesk books into; when that calendar is free or busy; and the appointments " +
-      "healdesk itself adds to it. Google's permission also reaches the other events on your " +
-      "calendars and when your other calendars are free or busy; healdesk does not read or " +
-      "store them.",
+    "healdesk, a service of Viixi FZC, is asking for {clinicName} to connect the Google account " +
+      "you sign in with next. healdesk books into that account's main calendar, unless you choose " +
+      "another calendar it owns or manages, or one for each provider if you book by provider.",
+    "What healdesk reads: the names of the calendars that account owns or manages, so you can " +
+      "choose where healdesk books; when each calendar it books into is free or busy; and the " +
+      "appointments healdesk itself adds. Google's permission also reaches the list of every " +
+      "calendar you subscribe to, the other events on your calendars and when your other " +
+      "calendars are free or busy; healdesk does not read or store them.",
     "What healdesk adds: each booking your assistant makes, and each booking your staff confirm " +
-      "through healdesk, as a private event with the patient's first name, the service and the " +
-      "time — never a phone number, an email address or anything clinical — with no guests and " +
-      "no reminders. healdesk never changes or deletes an event it did not add.",
+      "through healdesk, as a private event with the first name the person booking gave, the " +
+      "service and the time — never a phone number, an email address, or anything clinical " +
+      "beyond the service's name — with no guests and no reminders. healdesk never changes or " +
+      "deletes an event it did not add.",
     "Where the information goes: healdesk keeps the connection encrypted on servers in the " +
       "United States. When your assistant offers a patient times, the free times it read are " +
       "processed by healdesk's AI model provider, Anthropic, and, on a call, spoken to the " +
@@ -92,8 +98,8 @@ export const GOOGLE_CALENDAR_DISCLOSURE: GoogleCalendarDisclosure = {
   },
   privacyHref: "https://healdesk.io/privacy#google",
   tickLabel:
-    "I allow healdesk to see when this calendar is free or busy and to add the bookings it " +
-    "makes, as described above.",
+    "I allow healdesk to see when the calendars it books into are free or busy and to add the " +
+    "bookings it makes, as described above.",
   timeRecipients: ["Anthropic (the product)", "Retell"],
   baaWording: "conditional",
 };

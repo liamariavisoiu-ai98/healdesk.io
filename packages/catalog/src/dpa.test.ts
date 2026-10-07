@@ -8,13 +8,19 @@ import {
   PAYMENTS_CLAUSE_BODY,
   PAYMENTS_CLAUSE_HEADING,
   prepareBaa,
-  STATE_LAW_CLAUSE_BODY,
   STATE_LAW_CLAUSE_HEADING,
+  stateLawClauseBody,
   type BaaVariables,
 } from "./baa";
-import { BOOKING_SYSTEMS, bookingSystemName, type BookingSystemId } from "./booking-systems";
+import {
+  BOOKING_SYSTEMS,
+  bookingSyncFor,
+  bookingSystemName,
+  type BookingSystemId,
+} from "./booking-systems";
 import {
   CALENDAR_ACCOUNTS,
+  CALENDAR_CLAUSE_HEADING,
   CALENDAR_CLAUSE_IDS,
   CALENDAR_LOCATION_PARAGRAPH,
   selectCalendarClause,
@@ -22,14 +28,13 @@ import {
 import {
   ANTHROPIC_RETENTION,
   applicableDpaClauses,
+  CALENDAR_EVENT_FALLBACK_QUOTED,
   CALENDAR_PERSON_NOUNS,
   CURRENT_DPA_VERSION,
   currentDpaTemplate,
   DPA_ACTION_LABEL,
   DPA_ASSENT_LABEL,
   DPA_PRACTICE_DESCRIPTORS,
-  DPA_STATE_LAW_CLAUSE_BODY,
-  DPA_STATE_LAW_EDITS,
   DPA_TEMPLATES,
   DpaRenderError,
   dpaAssentSentence,
@@ -92,14 +97,14 @@ const VARIANTS: Record<string, Partial<DpaVariables>> = {
 
 /** variant → sha256 of the assembled text. Frozen from the draft; see the header. */
 const GOLDEN: Record<string, string> = {
-  sample: "bc4ab48ea0f315f167d3593f21f9fd207a2801abb1a68a71650a55df6010f854",
-  notcovered_live_covered: "949fc016193ee6fa363c842fce2916cd0c1812b3376b2257489f80d8f8b08622",
-  notcovered_live_uncovered: "2a4cb0c9f3961dee6cb68dee30c40b0f96af1e2ce23d11f4a1fa62cf560c5806",
-  notcovered_live_personal: "d53e5a4518ec3bf6c0e8b406d128064108f27e5f551826e9a59ece1abbe1e42c",
-  notcovered_notused_other: "70c6c967944dd65b293752df2b53898eb0ead1c16d5ef04042225426ddac5573",
-  vet_live_covered: "8d6b55b91f1e29d9e8548eb907fe9af54f63d01d00d4932defc198663e6e1a75",
-  vet_live_personal: "273a2f69ea5b080fa5a740f5e1dbea7b024173fb54da927826b3c6dc1cfaf51e",
-  vet_notused_mindbody: "759839ef6f1352ba6de1a3578dbd9439d756218454c6c74bf93d3ccca2a98b59",
+  sample: "6e70f47ad5d283dfdb4b12195b8c868b77efbefc47dd5b4d2d4d6fa015d4b4fe",
+  notcovered_live_covered: "a9b939303a18289fad30bedfa9bc38c81d6a340e05d426e3315b0d87fac70b5a",
+  notcovered_live_uncovered: "8258a6aca17c4137374156f2b89030e19f35168b8c4d8cfdb4be9c5f62c09dad",
+  notcovered_live_personal: "192357affc33bc37fa11eb90d97bac0c23084abb55ebd8801f6928d481bfb271",
+  notcovered_notused_other: "8c465518f7b3d0fcc92ca0c45932e4c3a5cf69071f315cbad5595ef433ecde58",
+  vet_live_covered: "036aa97e6a0d4d6c9e900cf4bf332a4b56c9ce5da2da6399a8f65840ea12302f",
+  vet_live_personal: "bb328dc770e1c6578d4ebb32021a5dcf4d0fce64444fa4d5c54f9b5ffa3e92ea",
+  vet_notused_mindbody: "13462ff90ced0ede65fd21a3729372013696043b48b2d7339c595f14612805f6",
 };
 
 const template = () => currentDpaTemplate();
@@ -217,6 +222,8 @@ describe("DPA structure", () => {
     );
   });
 
+  // Renders the DPA for every answer the funnel can give: seconds of work, which a
+  // loaded machine stretches past the five-second default.
   test("exactly one status clause and one calendar clause, for every answer the funnel can give", () => {
     const calendarIds = Object.values(CALENDAR_CLAUSE_IDS) as string[];
     for (const answers of everyAnswer()) {
@@ -235,7 +242,7 @@ describe("DPA structure", () => {
         isVeterinaryPractice(answers as DpaVariables) ? "status-veterinary" : "status-not-covered",
       );
     }
-  });
+  }, 60_000);
 
   test("every clause predicate is total: it answers a boolean, whatever it is given", () => {
     const junk: unknown[] = [
@@ -306,6 +313,8 @@ describe("DPA structure", () => {
     );
   });
 
+  // Renders the DPA thirty-two times with the longest names: seconds of work, which a
+  // loaded machine stretches past the five-second default.
   test("every line fits in 78 columns, the party and signatory lines included", () => {
     for (const answers of [...Object.values(VARIANTS), ...everyAnswer().slice(0, 24)]) {
       const text = render({
@@ -316,13 +325,17 @@ describe("DPA structure", () => {
       }).text;
       for (const line of text.split("\n")) expect(line.length, line).toBeLessThanOrEqual(78);
     }
-  });
+  }, 60_000);
 });
 
 describe("what the DPA says", () => {
+  // Renders the DPA for every answer the funnel can give: seconds of work, which a
+  // loaded machine stretches past the five-second default.
   test("a veterinary practice's agreement never calls a person a patient, and neither does any other", () => {
     for (const answers of everyAnswer()) {
-      const text = render(answers).text;
+      // The one exception is the word the calendar event itself carries,
+      // quoted as event.ts writes it for every practice: it names no person.
+      const text = render(answers).text.split(CALENDAR_EVENT_FALLBACK_QUOTED).join("");
       expect(text, JSON.stringify(answers)).not.toMatch(/\bpatients?\b/i);
     }
     const vet = unwrap(render(VARIANTS.vet_live_covered!).text);
@@ -333,7 +346,12 @@ describe("what the DPA says", () => {
     // this too, so nothing may state that every signer is a veterinary practice.
     expect(vet).not.toMatch(/(?<!Where )Practice is a veterinary practice[.,]/);
     expect(vet).toContain("the animal's owner or keeper. An animal is never a client.");
-    expect(vet).toContain("Each appointment carries the client's first name");
+    expect(vet).toContain(
+      "Each appointment carries a first name, the service and the time, and no other information about the client or the person booking.",
+    );
+    expect(vet).toContain(
+      'The first name is the one given by the person booking, who may not be the client the appointment is for; where that name cannot be used, it is the word "Patient".',
+    );
     expect(vet).toContain("and the name and species of the animal.");
     expect(vet).toContain(
       "Where Practice is a veterinary practice, state law may require it to keep what it knows about the animals in its care",
@@ -343,7 +361,7 @@ describe("what the DPA says", () => {
     expect(status).not.toMatch(
       /warrants|direct line|business associate agreement, which then replaces/,
     );
-  });
+  }, 60_000);
 
   test("a practice that answered No warrants it, must say when that changes, and is paused until the BAA replaces this", () => {
     const text = unwrap(section(render({}).text, "Practice's status"));
@@ -400,21 +418,44 @@ describe("what the DPA says", () => {
     expect(unwrap(render({}).text)).toContain(`Anthropic ${ANTHROPIC_RETENTION}`);
   });
 
-  test("the state-law and Payments clauses quote baa.ts's constants, with only the edits recorded", () => {
-    const [from, to] = DPA_STATE_LAW_EDITS.opening;
-    expect(STATE_LAW_CLAUSE_BODY).toBe(
-      `${from}${DPA_STATE_LAW_CLAUSE_BODY.slice(to.length)} ${DPA_STATE_LAW_EDITS.droppedLastSentence}`,
-    );
-    expect(DPA_STATE_LAW_CLAUSE_BODY).not.toMatch(/\bPHI\b|patient/);
-    const text = render({}).text;
-    expect(section(text, STATE_LAW_CLAUSE_HEADING)).toContain(
-      `${STATE_LAW_CLAUSE_HEADING.toUpperCase()}\n\n`,
-    );
-    expect(unwrap(section(text, STATE_LAW_CLAUSE_HEADING))).toContain(DPA_STATE_LAW_CLAUSE_BODY);
-    expect(unwrap(section(text, PAYMENTS_CLAUSE_HEADING))).toBe(
+  test("the state-law clause is baa.ts's shared function in this document's words, and Payments its constant", () => {
+    // The fuller clause BAA 1.3.0 carries, agreed between the funnel and the
+    // BAA's pre-release redraft on 6 October 2026: stateLawClauseBody with
+    // the subject "Client Information", its calendar text following the
+    // booking sync, word for word.
+    for (const answers of Object.values(VARIANTS)) {
+      const variables = { ...SAMPLE, ...answers };
+      const text = render(answers).text;
+      const label = JSON.stringify(answers);
+      const body = stateLawClauseBody({
+        subject: "Client Information",
+        sync: bookingSyncFor(variables.bookingSystem),
+      });
+      expect(body, label).not.toMatch(/\bPHI\b|patient/i);
+      expect(section(text, STATE_LAW_CLAUSE_HEADING), label).toBe(
+        `5. ${STATE_LAW_CLAUSE_HEADING.toUpperCase()}\n\n${body}\n`,
+      );
+    }
+    expect(unwrap(section(render({}).text, PAYMENTS_CLAUSE_HEADING))).toBe(
       unwrap(`6. ${PAYMENTS_CLAUSE_HEADING.toUpperCase()} ${PAYMENTS_CLAUSE_BODY}`),
     );
   });
+
+  test("names other clauses by heading only where it has that heading", () => {
+    // The shared state-law clause names this document's clauses by their
+    // exact headings (baa.ts, STATE_LAW_HEADINGS.dpa); a heading changed here
+    // has to change there too.
+    for (const answers of everyAnswer()) {
+      const text = render(answers).text;
+      const headings = [...text.matchAll(/^\d+\. (.+)$/gm)].map((m) => m[1]!);
+      for (const [, heading] of unwrap(text).matchAll(/the clause headed "([^"]+)"/g)) {
+        expect(
+          headings.filter((h) => h === heading!.toUpperCase()),
+          `${JSON.stringify(answers)}: "${heading}"`,
+        ).toHaveLength(1);
+      }
+    }
+  }, 60_000);
 
   // Renders BAA 1.3.0 and the DPA for every answer: seconds of work, which a
   // loaded machine stretches past the five-second default.
@@ -445,16 +486,13 @@ describe("what the DPA says", () => {
       expect(prepared.clauseIds, label).toContain(selected.clauseId);
       expect(baa.clauseIds, label).toContain(selected.clauseId);
       // Word for word the BAA's clause once the client is called a patient again.
-      let dpaClause = unwrap(section(prepared.text, "Practice's Google Calendar")).replace(
+      let dpaClause = unwrap(section(prepared.text, CALENDAR_CLAUSE_HEADING)).replace(
         /^\d+\. /,
         "",
       );
       for (const [patient, client] of CALENDAR_PERSON_NOUNS)
         dpaClause = dpaClause.split(client).join(patient);
-      const baaClause = unwrap(section(baa.text, "Practice's Google Calendar")).replace(
-        /^\d+\. /,
-        "",
-      );
+      const baaClause = unwrap(section(baa.text, CALENDAR_CLAUSE_HEADING)).replace(/^\d+\. /, "");
       expect(dpaClause, label).toBe(baaClause);
       expect(unwrap(prepared.text), label).toContain(unwrap(CALENDAR_LOCATION_PARAGRAPH));
     }
@@ -580,6 +618,8 @@ describe("docs/dpa-v1.0.0.txt", () => {
     expect(doc).toContain(GOLDEN.sample);
   });
 
+  // Renders the DPA for every answer the funnel can give: seconds of work, which a
+  // loaded machine stretches past the five-second default.
   test("every clause that renders only for some practices is printed as it renders", () => {
     const flat = unwrap(read());
     for (const answers of everyAnswer()) {
@@ -591,8 +631,9 @@ describe("docs/dpa-v1.0.0.txt", () => {
       for (const heading of [
         "Definitions",
         "Practice's status",
+        STATE_LAW_CLAUSE_HEADING,
         "What healdesk reads from your systems",
-        "Practice's Google Calendar",
+        CALENDAR_CLAUSE_HEADING,
         "Minimum necessary, and who receives Client Information",
         "Confidentiality",
       ]) {
@@ -600,5 +641,5 @@ describe("docs/dpa-v1.0.0.txt", () => {
         expect(flat, `${heading} for ${JSON.stringify(answers)}`).toContain(body);
       }
     }
-  });
+  }, 60_000);
 });

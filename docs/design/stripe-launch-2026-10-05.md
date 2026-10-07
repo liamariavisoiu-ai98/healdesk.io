@@ -69,6 +69,13 @@
 > The founder's own Stripe steps (Dashboard settings, webhooks, keys, Connect)
 > are in the "Stripe launch: your steps" doc
 > (https://claude.ai/code/artifact/53c7b203-694a-4d48-9837-be24a0285074).
+>
+> **The calendar build's seams, 7 October 2026.** The owner let the Google Calendar
+> build take the voice booking path below B's gate, `insertAppointment`,
+> `notifyDesk`, `decideBookingRequest`, provisioning and the console's booking and
+> calendar cards (5 October). What B, C, D and E keep, and what they get from it,
+> is in `docs/design/google-calendar-2026-10-05.md` §6, and what is still to be
+> settled with them in its §9.
 
 > The section and finding references below ("the billing-core map F5", "the
 > web-checkout map §5(d)" and so on) point at seven read-only engineering maps of

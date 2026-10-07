@@ -218,10 +218,15 @@ RDS instance, not after, because the first item cannot be added later.
   the RDS CA trusted in the container (production sets `rejectUnauthorized: true` and
   fails without it); Config rule `rds-storage-encrypted`; a restore drill.
 - *KMS:* one customer-managed key; a task-role policy limited to `GenerateDataKey`,
-  `Decrypt` and `Encrypt` on it; `HEALDESK_KMS_PROVIDER`, `HEALDESK_KMS_KEY_ID` and
-  `AWS_REGION` in every task definition (the KMS client has no region fallback);
+  `Decrypt` and `Encrypt` on it; `HEALDESK_KMS_PROVIDER=aws-kms` and `HEALDESK_KMS_KEY_ID`
+  in every task definition, the key ID as the key's full ARN
+  (`arn:aws:kms:us-east-1:<account>:key/<key id>`), since an alias, a bare ID, a
+  multi-Region key or another region is refused; `AWS_REGION` unset or `us-east-1`, since
+  the KMS client falls back to us-east-1 and refuses any other region;
   `@aws-sdk/client-kms` is a dependency of apps/app and ships in the image (fixed 6 October
-  2026); a rotation runbook.
+  2026); the worker's start-up log line ("credential key self-check passed") to confirm
+  the task role reaches the key (the read-only ops operation `getCredentialKeyStatus` asks
+  the web tier the same, but nothing in `/admin` calls it yet); a rotation runbook.
 - *S3:* a bucket in the designated region; SSE-KMS with our key; a policy denying non-TLS
   requests; Block Public Access; versioning; lifecycle expiry matched to
   `clinics.retention_media_days`; Config rule `s3-bucket-ssl-requests-only`; no patient

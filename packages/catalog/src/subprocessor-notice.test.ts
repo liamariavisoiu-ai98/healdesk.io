@@ -14,6 +14,11 @@ describe("notice before a new subcontractor", () => {
     const body = subprocessorNoticeClauseBody();
     expect(body).toContain("at least 24 hours' notice by email before adding one");
     expect(body).toContain("healdesk.io/subprocessors");
+    // Where the notice goes and what it says (pre-release audit: SUB-01, PT-08, PT-15).
+    expect(body).toContain(
+      "The notice goes to Practice's address in the Notices clause and names the subcontractor, " +
+        "what it will receive and why.",
+    );
     expect(body).toContain(
       "If Practice objects on reasonable grounds before the change takes effect, Practice may " +
         "terminate this agreement without penalty.",

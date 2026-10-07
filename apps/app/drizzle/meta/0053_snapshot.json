@@ -1,5 +1,5 @@
 {
-  "id": "ae50135f-3733-4bb9-b86b-57e9bd86dcdb",
+  "id": "f0b21a2e-e655-4803-817e-911f999336d8",
   "prevId": "3cc4f0b2-431a-479f-9c30-f313eb15685f",
   "version": "7",
   "dialect": "postgresql",
@@ -300,43 +300,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "duration_minutes": {
-          "name": "duration_minutes",
-          "type": "smallint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "booking_origin": {
-          "name": "booking_origin",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "calendar_write_claimed_at": {
-          "name": "calendar_write_claimed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "calendar_write_attempts": {
-          "name": "calendar_write_attempts",
-          "type": "smallint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "calendar_write_lease": {
-          "name": "calendar_write_lease",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "calendar_event_key": {
-          "name": "calendar_event_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -490,24 +453,7 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "appointments_duration_check": {
-          "name": "appointments_duration_check",
-          "value": "\"appointments\".\"duration_minutes\" is null or \"appointments\".\"duration_minutes\" between 5 and 480"
-        },
-        "appointments_booking_origin_check": {
-          "name": "appointments_booking_origin_check",
-          "value": "\"appointments\".\"booking_origin\" is null or \"appointments\".\"booking_origin\" in ('assistant', 'desk')"
-        },
-        "appointments_calendar_write_attempts_check": {
-          "name": "appointments_calendar_write_attempts_check",
-          "value": "\"appointments\".\"calendar_write_attempts\" >= 0"
-        },
-        "appointments_calendar_event_key_check": {
-          "name": "appointments_calendar_event_key_check",
-          "value": "\"appointments\".\"calendar_event_key\" is null or \"appointments\".\"calendar_event_key\" ~ '^(hold:)?[0-9a-f-]{36}$'"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.audit_log": {
@@ -1331,6 +1277,13 @@
           "notNull": true,
           "default": 0
         },
+        "epoch": {
+          "name": "epoch",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
         "last_error": {
           "name": "last_error",
           "type": "text",
@@ -1439,6 +1392,10 @@
         "billing_requests_attempts_check": {
           "name": "billing_requests_attempts_check",
           "value": "\"billing_requests\".\"attempts\" >= 0"
+        },
+        "billing_requests_epoch_check": {
+          "name": "billing_requests_epoch_check",
+          "value": "\"billing_requests\".\"epoch\" >= 0"
         },
         "billing_requests_last_error_check": {
           "name": "billing_requests_last_error_check",
@@ -1904,269 +1861,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.calendar_elections": {
-      "name": "calendar_elections",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "clinic_id": {
-          "name": "clinic_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agreement_id": {
-          "name": "agreement_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "sequence": {
-          "name": "sequence",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "source": {
-          "name": "source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "terms_kind": {
-          "name": "terms_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "clause_id": {
-          "name": "clause_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "calendar_account": {
-          "name": "calendar_account",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "booking_sync": {
-          "name": "booking_sync",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "booking_system": {
-          "name": "booking_system",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "document_version": {
-          "name": "document_version",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "document_hash": {
-          "name": "document_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "document_released": {
-          "name": "document_released",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "owner_confirmed": {
-          "name": "owner_confirmed",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "rendered_text": {
-          "name": "rendered_text",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "elected_by_label": {
-          "name": "elected_by_label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "elected_by_user_id": {
-          "name": "elected_by_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "link_id": {
-          "name": "link_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "link_sent_to": {
-          "name": "link_sent_to",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ip_address": {
-          "name": "ip_address",
-          "type": "inet",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "user_agent": {
-          "name": "user_agent",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "elected_at": {
-          "name": "elected_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "calendar_elections_clinic_sequence_idx": {
-          "name": "calendar_elections_clinic_sequence_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "sequence",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "calendar_elections_clinic_id_clinics_id_fk": {
-          "name": "calendar_elections_clinic_id_clinics_id_fk",
-          "tableFrom": "calendar_elections",
-          "tableTo": "clinics",
-          "columnsFrom": [
-            "clinic_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "calendar_elections_agreement_id_baa_acceptances_id_fk": {
-          "name": "calendar_elections_agreement_id_baa_acceptances_id_fk",
-          "tableFrom": "calendar_elections",
-          "tableTo": "baa_acceptances",
-          "columnsFrom": [
-            "agreement_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "calendar_elections_sequence_check": {
-          "name": "calendar_elections_sequence_check",
-          "value": "\"calendar_elections\".\"sequence\" >= 1"
-        },
-        "calendar_elections_source_check": {
-          "name": "calendar_elections_source_check",
-          "value": "\"calendar_elections\".\"source\" in ('agreement', 'calendar_link', 'portal')"
-        },
-        "calendar_elections_terms_kind_check": {
-          "name": "calendar_elections_terms_kind_check",
-          "value": "\"calendar_elections\".\"terms_kind\" in ('covered', 'uncovered', 'not_used')"
-        },
-        "calendar_elections_clause_check": {
-          "name": "calendar_elections_clause_check",
-          "value": "\"calendar_elections\".\"clause_id\" = 'google-calendar-' || replace(\"calendar_elections\".\"terms_kind\", '_', '-')"
-        },
-        "calendar_elections_account_check": {
-          "name": "calendar_elections_account_check",
-          "value": "\"calendar_elections\".\"calendar_account\" in ('workspace_baa', 'workspace_no_baa', 'personal')"
-        },
-        "calendar_elections_sync_check": {
-          "name": "calendar_elections_sync_check",
-          "value": "\"calendar_elections\".\"booking_sync\" in ('live', 'manual')"
-        },
-        "calendar_elections_booking_system_check": {
-          "name": "calendar_elections_booking_system_check",
-          "value": "\"calendar_elections\".\"booking_system\" ~ '^[a-z][a-z0-9_]{0,39}$'"
-        },
-        "calendar_elections_version_check": {
-          "name": "calendar_elections_version_check",
-          "value": "btrim(\"calendar_elections\".\"document_version\") <> ''"
-        },
-        "calendar_elections_hash_check": {
-          "name": "calendar_elections_hash_check",
-          "value": "\"calendar_elections\".\"document_hash\" ~ '^[0-9a-f]{64}$'"
-        },
-        "calendar_elections_label_check": {
-          "name": "calendar_elections_label_check",
-          "value": "char_length(btrim(\"calendar_elections\".\"elected_by_label\")) between 2 and 200"
-        },
-        "calendar_elections_kind_consistent": {
-          "name": "calendar_elections_kind_consistent",
-          "value": "(\"calendar_elections\".\"booking_sync\" = 'manual' and \"calendar_elections\".\"terms_kind\" = 'not_used')\n        or (\"calendar_elections\".\"booking_sync\" = 'live' and \"calendar_elections\".\"calendar_account\" = 'workspace_baa' and \"calendar_elections\".\"terms_kind\" = 'covered')\n        or (\"calendar_elections\".\"booking_sync\" = 'live' and \"calendar_elections\".\"calendar_account\" <> 'workspace_baa' and \"calendar_elections\".\"terms_kind\" = 'uncovered')"
-        },
-        "calendar_elections_link_shape": {
-          "name": "calendar_elections_link_shape",
-          "value": "(\"calendar_elections\".\"source\" = 'calendar_link') = (\"calendar_elections\".\"link_id\" is not null)"
-        },
-        "calendar_elections_portal_shape": {
-          "name": "calendar_elections_portal_shape",
-          "value": "(\"calendar_elections\".\"source\" = 'portal') = (\"calendar_elections\".\"elected_by_user_id\" is not null)"
-        },
-        "calendar_elections_rendered_shape": {
-          "name": "calendar_elections_rendered_shape",
-          "value": "(\"calendar_elections\".\"source\" = 'agreement') = (\"calendar_elections\".\"rendered_text\" is null)"
-        },
-        "calendar_elections_agreement_shape": {
-          "name": "calendar_elections_agreement_shape",
-          "value": "\"calendar_elections\".\"source\" <> 'agreement' or (\"calendar_elections\".\"sequence\" = 1 and \"calendar_elections\".\"document_released\" and not \"calendar_elections\".\"owner_confirmed\")"
-        },
-        "calendar_elections_sent_to_shape": {
-          "name": "calendar_elections_sent_to_shape",
-          "value": "\"calendar_elections\".\"link_sent_to\" is null or \"calendar_elections\".\"link_id\" is not null"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.channel_events": {
@@ -2883,222 +2577,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.clinic_provider_services": {
-      "name": "clinic_provider_services",
-      "schema": "",
-      "columns": {
-        "clinic_id": {
-          "name": "clinic_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "provider_id": {
-          "name": "provider_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "service_key": {
-          "name": "service_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "clinic_provider_services_service_idx": {
-          "name": "clinic_provider_services_service_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "service_key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "clinic_provider_services_clinic_id_clinics_id_fk": {
-          "name": "clinic_provider_services_clinic_id_clinics_id_fk",
-          "tableFrom": "clinic_provider_services",
-          "tableTo": "clinics",
-          "columnsFrom": [
-            "clinic_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "clinic_provider_services_provider_fk": {
-          "name": "clinic_provider_services_provider_fk",
-          "tableFrom": "clinic_provider_services",
-          "tableTo": "clinic_providers",
-          "columnsFrom": [
-            "clinic_id",
-            "provider_id"
-          ],
-          "columnsTo": [
-            "clinic_id",
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "clinic_provider_services_provider_id_service_key_pk": {
-          "name": "clinic_provider_services_provider_id_service_key_pk",
-          "columns": [
-            "provider_id",
-            "service_key"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "clinic_provider_services_key_check": {
-          "name": "clinic_provider_services_key_check",
-          "value": "\"clinic_provider_services\".\"service_key\" = lower(btrim(\"clinic_provider_services\".\"service_key\")) and char_length(\"clinic_provider_services\".\"service_key\") between 1 and 120"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.clinic_providers": {
-      "name": "clinic_providers",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "clinic_id": {
-          "name": "clinic_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "display_name": {
-          "name": "display_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "calendar_id": {
-          "name": "calendar_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "active": {
-          "name": "active",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "clinic_providers_active_calendar_idx": {
-          "name": "clinic_providers_active_calendar_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "calendar_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"clinic_providers\".\"active\"",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "clinic_providers_clinic_id_clinics_id_fk": {
-          "name": "clinic_providers_clinic_id_clinics_id_fk",
-          "tableFrom": "clinic_providers",
-          "tableTo": "clinics",
-          "columnsFrom": [
-            "clinic_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "clinic_providers_clinic_id_unique": {
-          "name": "clinic_providers_clinic_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "clinic_id",
-            "id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "clinic_providers_display_name_check": {
-          "name": "clinic_providers_display_name_check",
-          "value": "char_length(btrim(\"clinic_providers\".\"display_name\")) between 1 and 80 and \"clinic_providers\".\"display_name\" !~ '[[:cntrl:]]'"
-        },
-        "clinic_providers_calendar_id_check": {
-          "name": "clinic_providers_calendar_id_check",
-          "value": "char_length(\"clinic_providers\".\"calendar_id\") between 1 and 255 and \"clinic_providers\".\"calendar_id\" !~ '[[:space:][:cntrl:]]'"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.clinic_settings": {
       "name": "clinic_settings",
       "schema": "",
@@ -3162,25 +2640,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "auto_confirm_bookings": {
-          "name": "auto_confirm_bookings",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "auto_confirm_changed_at": {
-          "name": "auto_confirm_changed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "auto_confirm_changed_by_label": {
-          "name": "auto_confirm_changed_by_label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "direct_line_e164": {
           "name": "direct_line_e164",
           "type": "text",
@@ -3232,10 +2691,6 @@
         "clinic_settings_direct_line_check": {
           "name": "clinic_settings_direct_line_check",
           "value": "\"clinic_settings\".\"direct_line_e164\" is null or \"clinic_settings\".\"direct_line_e164\" ~ '^\\+[1-9][0-9]{6,14}$'"
-        },
-        "clinic_settings_auto_confirm_stamp_check": {
-          "name": "clinic_settings_auto_confirm_stamp_check",
-          "value": "(\"clinic_settings\".\"auto_confirm_changed_at\" is null) = (\"clinic_settings\".\"auto_confirm_changed_by_label\" is null)"
         }
       },
       "isRLSEnabled": false
@@ -3362,13 +2817,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "client_number": {
-          "name": "client_number",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "nextval('clinics_client_number_seq')"
         },
         "name": {
           "name": "name",
@@ -3691,21 +3139,6 @@
           "method": "btree",
           "with": {}
         },
-        "clinics_client_number_idx": {
-          "name": "clinics_client_number_idx",
-          "columns": [
-            {
-              "expression": "client_number",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "clinics_org_idx": {
           "name": "clinics_org_idx",
           "columns": [
@@ -3770,10 +3203,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "clinics_client_number_positive": {
-          "name": "clinics_client_number_positive",
-          "value": "\"clinics\".\"client_number\" > 0"
-        },
         "clinics_billing_clinic_not_self": {
           "name": "clinics_billing_clinic_not_self",
           "value": "\"clinics\".\"billing_clinic_id\" is null or \"clinics\".\"billing_clinic_id\" <> \"clinics\".\"id\""
@@ -3842,32 +3271,6 @@
           "notNull": true,
           "default": "'connect'"
         },
-        "sent_to": {
-          "name": "sent_to",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "audience": {
-          "name": "audience",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'recipients'"
-        },
-        "allows_account_change": {
-          "name": "allows_account_change",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "pending_election": {
-          "name": "pending_election",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "issued_by": {
           "name": "issued_by",
           "type": "text",
@@ -3935,35 +3338,9 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "connection_links_clinic_link_unique": {
-          "name": "connection_links_clinic_link_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "clinic_id",
-            "id"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "connection_links_audience_check": {
-          "name": "connection_links_audience_check",
-          "value": "\"connection_links\".\"audience\" in ('recipients', 'owner')"
-        },
-        "connection_links_calendar_only_flags": {
-          "name": "connection_links_calendar_only_flags",
-          "value": "\"connection_links\".\"purpose\" = 'calendar' or (\"connection_links\".\"audience\" = 'recipients' and not \"connection_links\".\"allows_account_change\" and \"connection_links\".\"pending_election\" is null)"
-        },
-        "connection_links_account_change_owner": {
-          "name": "connection_links_account_change_owner",
-          "value": "not \"connection_links\".\"allows_account_change\" or \"connection_links\".\"audience\" = 'owner'"
-        },
-        "connection_links_pending_election_owner": {
-          "name": "connection_links_pending_election_owner",
-          "value": "\"connection_links\".\"pending_election\" is null or (\"connection_links\".\"audience\" = 'owner' and jsonb_typeof(\"connection_links\".\"pending_election\") = 'object')"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.consent_records": {
@@ -5022,6 +4399,30 @@
           "primaryKey": false,
           "notNull": false
         },
+        "pending_plan_change_request_id": {
+          "name": "pending_plan_change_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pending_plan_change_plan_id": {
+          "name": "pending_plan_change_plan_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pending_plan_change_interval": {
+          "name": "pending_plan_change_interval",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "stripe_subscription_synced_at": {
+          "name": "stripe_subscription_synced_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -5106,6 +4507,10 @@
           "name": "entitlements_stripe_mutation_lease_check",
           "value": "(\"entitlements\".\"stripe_mutation_lease_until\" is null) = (\"entitlements\".\"stripe_mutation_lease_owner\" is null) and (\"entitlements\".\"stripe_mutation_lease_owner\" is null or char_length(\"entitlements\".\"stripe_mutation_lease_owner\") between 1 and 120)"
         },
+        "entitlements_pending_plan_change_check": {
+          "name": "entitlements_pending_plan_change_check",
+          "value": "(\"entitlements\".\"pending_plan_change_request_id\" is null) = (\"entitlements\".\"pending_plan_change_plan_id\" is null) and (\"entitlements\".\"pending_plan_change_request_id\" is null) = (\"entitlements\".\"pending_plan_change_interval\" is null) and (\"entitlements\".\"pending_plan_change_interval\" is null or \"entitlements\".\"pending_plan_change_interval\" in ('month', 'year')) and (\"entitlements\".\"pending_plan_change_request_id\" is null or \"entitlements\".\"pending_plan_change_request_id\" ~ '^[A-Za-z0-9_-]{1,64}$')"
+        },
         "entitlements_pending_location_check": {
           "name": "entitlements_pending_location_check",
           "value": "(\"entitlements\".\"pending_location_request_id\" is null) = (\"entitlements\".\"pending_location_count\" is null) and (\"entitlements\".\"pending_location_charged_at\" is null or \"entitlements\".\"pending_location_request_id\" is not null) and (\"entitlements\".\"pending_location_count\" is null or \"entitlements\".\"pending_location_count\" >= 2) and (\"entitlements\".\"pending_location_request_id\" is null or \"entitlements\".\"pending_location_request_id\" ~ '^[A-Za-z0-9_-]{1,64}$')"
@@ -5173,171 +4578,6 @@
         "factor_lockouts_failures_check": {
           "name": "factor_lockouts_failures_check",
           "value": "\"factor_lockouts\".\"failures\" >= 0"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.google_oauth_states": {
-      "name": "google_oauth_states",
-      "schema": "",
-      "columns": {
-        "state_hash": {
-          "name": "state_hash",
-          "type": "bytea",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "target_clinic_id": {
-          "name": "target_clinic_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "initiated_via": {
-          "name": "initiated_via",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "link_id": {
-          "name": "link_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "return_to": {
-          "name": "return_to",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "browser_binding_hash": {
-          "name": "browser_binding_hash",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "disclosure_version": {
-          "name": "disclosure_version",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "disclosure_sha256": {
-          "name": "disclosure_sha256",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "disclosure_accepted_at": {
-          "name": "disclosure_accepted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "used_at": {
-          "name": "used_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "consumed_ip": {
-          "name": "consumed_ip",
-          "type": "inet",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "google_oauth_states_created_idx": {
-          "name": "google_oauth_states_created_idx",
-          "columns": [
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "google_oauth_states_target_clinic_id_clinics_id_fk": {
-          "name": "google_oauth_states_target_clinic_id_clinics_id_fk",
-          "tableFrom": "google_oauth_states",
-          "tableTo": "clinics",
-          "columnsFrom": [
-            "target_clinic_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "google_oauth_states_hash_length": {
-          "name": "google_oauth_states_hash_length",
-          "value": "octet_length(\"google_oauth_states\".\"state_hash\") = 32"
-        },
-        "google_oauth_states_binding_length": {
-          "name": "google_oauth_states_binding_length",
-          "value": "octet_length(\"google_oauth_states\".\"browser_binding_hash\") = 32"
-        },
-        "google_oauth_states_disclosure_length": {
-          "name": "google_oauth_states_disclosure_length",
-          "value": "octet_length(\"google_oauth_states\".\"disclosure_sha256\") = 32"
-        },
-        "google_oauth_states_expiry_check": {
-          "name": "google_oauth_states_expiry_check",
-          "value": "\"google_oauth_states\".\"expires_at\" > \"google_oauth_states\".\"created_at\" and \"google_oauth_states\".\"expires_at\" <= \"google_oauth_states\".\"created_at\" + interval '15 minutes'"
-        },
-        "google_oauth_states_initiated_check": {
-          "name": "google_oauth_states_initiated_check",
-          "value": "\"google_oauth_states\".\"initiated_via\" in ('calendar_link', 'portal')"
-        },
-        "google_oauth_states_return_check": {
-          "name": "google_oauth_states_return_check",
-          "value": "\"google_oauth_states\".\"return_to\" in ('calendar_link', 'portal', 'wizard')"
-        },
-        "google_oauth_states_link_shape": {
-          "name": "google_oauth_states_link_shape",
-          "value": "(\"google_oauth_states\".\"initiated_via\" = 'calendar_link') = (\"google_oauth_states\".\"link_id\" is not null)\n        and (\"google_oauth_states\".\"initiated_via\" = 'calendar_link') = (\"google_oauth_states\".\"return_to\" = 'calendar_link')"
-        },
-        "google_oauth_states_portal_shape": {
-          "name": "google_oauth_states_portal_shape",
-          "value": "(\"google_oauth_states\".\"initiated_via\" = 'portal') = (\"google_oauth_states\".\"user_id\" is not null)"
-        },
-        "google_oauth_states_consumed_ip_check": {
-          "name": "google_oauth_states_consumed_ip_check",
-          "value": "\"google_oauth_states\".\"consumed_ip\" is null or \"google_oauth_states\".\"used_at\" is not null"
         }
       },
       "isRLSEnabled": false
@@ -6039,31 +5279,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "account_ref": {
-          "name": "account_ref",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "broken_at": {
-          "name": "broken_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "broken_alerted_at": {
-          "name": "broken_alerted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "transient_failures": {
-          "name": "transient_failures",
-          "type": "smallint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -6121,28 +5336,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "provider_connections_google_account_live_idx": {
-          "name": "provider_connections_google_account_live_idx",
-          "columns": [
-            {
-              "expression": "provider",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "account_ref",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"provider_connections\".\"account_ref\" is not null and \"provider_connections\".\"status\" <> 'revoked'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -6163,20 +5356,7 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "provider_connections_account_ref_check": {
-          "name": "provider_connections_account_ref_check",
-          "value": "\"provider_connections\".\"account_ref\" is null or \"provider_connections\".\"account_ref\" ~ '^[0-9a-f]{64}$'"
-        },
-        "provider_connections_transient_failures_check": {
-          "name": "provider_connections_transient_failures_check",
-          "value": "\"provider_connections\".\"transient_failures\" >= 0"
-        },
-        "provider_connections_alert_needs_break": {
-          "name": "provider_connections_alert_needs_break",
-          "value": "\"provider_connections\".\"broken_alerted_at\" is null or \"provider_connections\".\"broken_at\" is not null"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.provisioning_attempts": {
@@ -7032,394 +6212,6 @@
         "sign_in_links_consumed_ip_check": {
           "name": "sign_in_links_consumed_ip_check",
           "value": "\"sign_in_links\".\"consumed_ip\" is null or \"sign_in_links\".\"used_at\" is not null"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.slot_holds": {
-      "name": "slot_holds",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "clinic_id": {
-          "name": "clinic_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "channel": {
-          "name": "channel",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "holder_ref": {
-          "name": "holder_ref",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "starts_at": {
-          "name": "starts_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "duration_minutes": {
-          "name": "duration_minutes",
-          "type": "smallint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "ends_at": {
-          "name": "ends_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'held'"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "clock_timestamp()"
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "clock_timestamp() + interval '60 seconds'"
-        },
-        "contact_id": {
-          "name": "contact_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "booking_request_id": {
-          "name": "booking_request_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "appointment_id": {
-          "name": "appointment_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "lease_token": {
-          "name": "lease_token",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "lease_until": {
-          "name": "lease_until",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "insert_attempted_at": {
-          "name": "insert_attempted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "blocks_until": {
-          "name": "blocks_until",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "next_check_at": {
-          "name": "next_check_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "check_attempts": {
-          "name": "check_attempts",
-          "type": "smallint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "outcome_reason": {
-          "name": "outcome_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "released_at": {
-          "name": "released_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "slot_holds_holder_held_idx": {
-          "name": "slot_holds_holder_held_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "holder_ref",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"slot_holds\".\"status\" = 'held'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "slot_holds_holder_writing_idx": {
-          "name": "slot_holds_holder_writing_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "holder_ref",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"slot_holds\".\"status\" in ('writing', 'unknown')",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "slot_holds_live_idx": {
-          "name": "slot_holds_live_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "starts_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"slot_holds\".\"status\" in ('held', 'reserved', 'writing', 'unknown')",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "slot_holds_unknown_due_idx": {
-          "name": "slot_holds_unknown_due_idx",
-          "columns": [
-            {
-              "expression": "next_check_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"slot_holds\".\"status\" = 'unknown'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "slot_holds_lease_idx": {
-          "name": "slot_holds_lease_idx",
-          "columns": [
-            {
-              "expression": "lease_until",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"slot_holds\".\"status\" = 'writing'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "slot_holds_reserved_idx": {
-          "name": "slot_holds_reserved_idx",
-          "columns": [
-            {
-              "expression": "blocks_until",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"slot_holds\".\"status\" = 'reserved'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "slot_holds_request_idx": {
-          "name": "slot_holds_request_idx",
-          "columns": [
-            {
-              "expression": "booking_request_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"slot_holds\".\"booking_request_id\" is not null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "slot_holds_clinic_id_clinics_id_fk": {
-          "name": "slot_holds_clinic_id_clinics_id_fk",
-          "tableFrom": "slot_holds",
-          "tableTo": "clinics",
-          "columnsFrom": [
-            "clinic_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "slot_holds_contact_id_contacts_id_fk": {
-          "name": "slot_holds_contact_id_contacts_id_fk",
-          "tableFrom": "slot_holds",
-          "tableTo": "contacts",
-          "columnsFrom": [
-            "contact_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "slot_holds_booking_request_id_booking_requests_id_fk": {
-          "name": "slot_holds_booking_request_id_booking_requests_id_fk",
-          "tableFrom": "slot_holds",
-          "tableTo": "booking_requests",
-          "columnsFrom": [
-            "booking_request_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "slot_holds_appointment_id_appointments_id_fk": {
-          "name": "slot_holds_appointment_id_appointments_id_fk",
-          "tableFrom": "slot_holds",
-          "tableTo": "appointments",
-          "columnsFrom": [
-            "appointment_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "slot_holds_channel_check": {
-          "name": "slot_holds_channel_check",
-          "value": "\"slot_holds\".\"channel\" in ('voice', 'web_chat', 'meta')"
-        },
-        "slot_holds_holder_ref_check": {
-          "name": "slot_holds_holder_ref_check",
-          "value": "\"slot_holds\".\"holder_ref\" ~ '^[0-9a-f]{64}$'"
-        },
-        "slot_holds_duration_check": {
-          "name": "slot_holds_duration_check",
-          "value": "\"slot_holds\".\"duration_minutes\" between 5 and 480"
-        },
-        "slot_holds_ends_check": {
-          "name": "slot_holds_ends_check",
-          "value": "\"slot_holds\".\"ends_at\" = \"slot_holds\".\"starts_at\" + make_interval(mins => \"slot_holds\".\"duration_minutes\")"
-        },
-        "slot_holds_status_check": {
-          "name": "slot_holds_status_check",
-          "value": "\"slot_holds\".\"status\" in ('held', 'reserved', 'writing', 'unknown', 'converted', 'released', 'expired')"
-        },
-        "slot_holds_expiry_check": {
-          "name": "slot_holds_expiry_check",
-          "value": "\"slot_holds\".\"expires_at\" > \"slot_holds\".\"created_at\" and \"slot_holds\".\"expires_at\" <= \"slot_holds\".\"created_at\" + interval '2 minutes'"
-        },
-        "slot_holds_blocks_until_check": {
-          "name": "slot_holds_blocks_until_check",
-          "value": "\"slot_holds\".\"blocks_until\" is null or \"slot_holds\".\"blocks_until\" <= \"slot_holds\".\"created_at\" + interval '1450 minutes'"
-        },
-        "slot_holds_check_attempts_check": {
-          "name": "slot_holds_check_attempts_check",
-          "value": "\"slot_holds\".\"check_attempts\" >= 0"
-        },
-        "slot_holds_outcome_reason_check": {
-          "name": "slot_holds_outcome_reason_check",
-          "value": "\"slot_holds\".\"outcome_reason\" is null or \"slot_holds\".\"outcome_reason\" ~ '^[a-z0-9_]{1,40}$'"
-        },
-        "slot_holds_held_shape": {
-          "name": "slot_holds_held_shape",
-          "value": "\"slot_holds\".\"status\" <> 'held' or (\"slot_holds\".\"insert_attempted_at\" is null and \"slot_holds\".\"blocks_until\" is null\n        and \"slot_holds\".\"lease_token\" is null and \"slot_holds\".\"lease_until\" is null and \"slot_holds\".\"next_check_at\" is null)"
-        },
-        "slot_holds_reserved_shape": {
-          "name": "slot_holds_reserved_shape",
-          "value": "\"slot_holds\".\"status\" <> 'reserved' or (\"slot_holds\".\"blocks_until\" is not null and \"slot_holds\".\"insert_attempted_at\" is null)"
-        },
-        "slot_holds_writing_shape": {
-          "name": "slot_holds_writing_shape",
-          "value": "\"slot_holds\".\"status\" <> 'writing' or (\"slot_holds\".\"lease_token\" is not null and \"slot_holds\".\"lease_until\" is not null\n        and \"slot_holds\".\"insert_attempted_at\" is not null and \"slot_holds\".\"blocks_until\" is not null)"
-        },
-        "slot_holds_unknown_shape": {
-          "name": "slot_holds_unknown_shape",
-          "value": "\"slot_holds\".\"status\" <> 'unknown' or (\"slot_holds\".\"insert_attempted_at\" is not null and \"slot_holds\".\"blocks_until\" is not null\n        and \"slot_holds\".\"next_check_at\" is not null)"
         }
       },
       "isRLSEnabled": false
@@ -9832,18 +8624,7 @@
     }
   },
   "schemas": {},
-  "sequences": {
-    "public.clinics_client_number_seq": {
-      "name": "clinics_client_number_seq",
-      "schema": "public",
-      "increment": "1",
-      "startWith": "1",
-      "minValue": "1",
-      "maxValue": "2147483647",
-      "cache": "1",
-      "cycle": false
-    }
-  },
+  "sequences": {},
   "roles": {},
   "policies": {},
   "views": {},

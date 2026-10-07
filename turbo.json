@@ -94,7 +94,6 @@
         // Checkout (on only when "true").
         "STRIPE_CONNECT_WEBHOOK_SECRET",
         "STRIPE_AUTOMATIC_TAX",
-        "HEALDESK_WEB_URL",
         // The Stripe build (6 October 2026): the key of the HMAC that stands
         // in for a vendor's identifier in apps/app's ledgers.
         "HEALDESK_IDENTIFIER_REF_KEY",

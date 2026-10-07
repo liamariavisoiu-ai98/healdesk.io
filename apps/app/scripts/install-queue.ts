@@ -63,10 +63,14 @@ async function main(): Promise<void> {
   await boss.start();
 
   // Every queue in QUEUES, `notices` included (the email outbox's minute
-  // clock), and pg-boss's cron queue. Both arrived with the email platform, so
-  // re-run this in every environment installed before it: pg-boss v10 will not
-  // work a queue that was never created, and without the cron queue no
-  // schedule fires.
+  // clock) and `billing-minute` (the billing-request worker and the usage
+  // meter report, every minute), and pg-boss's cron queue. `notices` and the
+  // cron queue arrived with the email platform, `billing-minute` with the
+  // Stripe build, so re-run this in every environment installed before them:
+  // pg-boss v10 will not work a queue that was never created, and without the
+  // cron queue no schedule fires. A worker started before `billing-minute` is
+  // installed logs that it is missing and carries on: the hourly tick still
+  // runs both jobs as its backstop.
   for (const queue of [...QUEUES, CRON_QUEUE]) {
     // Idempotent. `stately` would collapse retries oddly for sync work, so the
     // default standard policy is right: every send is its own job, and

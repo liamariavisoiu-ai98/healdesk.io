@@ -1,6 +1,7 @@
 import type Stripe from "stripe";
 
 import { getStripe } from "./stripe-client";
+import { WORKER_STRIPE_OPTIONS } from "./stripe-helpers";
 
 /**
  * Stripe price ids, found by the catalog's lookup keys (build spec BD2, R41).
@@ -64,14 +65,19 @@ function toCatalogPrice(price: Stripe.Price, lookupKey: string): CatalogPrice {
 /** Every key's price, in one map. Throws PriceNotFoundError for the first key with none. */
 export async function pricesForLookupKeys(
   lookupKeys: readonly string[],
-  options: { stripe?: Stripe } = {},
+  options: { stripe?: Stripe; requestOptions?: Stripe.RequestOptions } = {},
 ): Promise<Map<string, CatalogPrice>> {
   const missing = [...new Set(lookupKeys)].filter((key) => !cache.has(key));
   if (missing.length > 0) {
     const stripe = options.stripe ?? getStripe();
     for (let i = 0; i < missing.length; i += LOOKUP_KEYS_PER_CALL) {
       const chunk = missing.slice(i, i + LOOKUP_KEYS_PER_CALL);
-      const page = await stripe.prices.list({ lookup_keys: chunk, active: true, limit: 100 });
+      // The workers' short timeout by default (R4): a lookup inside a leased
+      // request must end well before the lease does.
+      const page = await stripe.prices.list(
+        { lookup_keys: chunk, active: true, limit: 100 },
+        options.requestOptions ?? WORKER_STRIPE_OPTIONS,
+      );
       for (const price of page.data) {
         if (price.lookup_key && chunk.includes(price.lookup_key)) {
           cache.set(price.lookup_key, toCatalogPrice(price, price.lookup_key));
@@ -91,7 +97,7 @@ export async function pricesForLookupKeys(
 /** One key's price. Throws PriceNotFoundError when there is none. */
 export async function priceForLookupKey(
   lookupKey: string,
-  options: { stripe?: Stripe } = {},
+  options: { stripe?: Stripe; requestOptions?: Stripe.RequestOptions } = {},
 ): Promise<CatalogPrice> {
   const prices = await pricesForLookupKeys([lookupKey], options);
   return prices.get(lookupKey) as CatalogPrice;

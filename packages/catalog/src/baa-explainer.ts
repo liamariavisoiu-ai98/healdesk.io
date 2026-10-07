@@ -131,6 +131,91 @@ export const BAA_EXPLAINER = {
     "covered entity, and what HIPAA requires of you, are questions for your own counsel.",
 } as const;
 
+/**
+ * The bullets of "Why you're signing this" that 1.3.0 words differently,
+ * keyed by the subparagraph they cite. 1.3.0's Term clause limits further
+ * uses AND disclosures of what cannot be returned or destroyed (HRC-03), and
+ * lets Practice terminate when Practice determines healdesk has violated a
+ * material term (HRC-07), as 164.504(e)(2)(ii)(J) and (e)(2)(iii) say. 1.2.1's
+ * clause still says "use" and "materially breaches", so BAA_EXPLAINER.terms
+ * keeps its bullets word for word: a summary narrower than the clause beside
+ * it, or than the regulation it cites, is the mis-citation the comment on
+ * `terms` warns against (verification of the redraft, 7 October 2026).
+ */
+const TERMS_1_3_0: Readonly<Record<string, BaaExplainerTerm>> = {
+  "164.504(e)(2)(ii)(J)": {
+    plain:
+      "At the end of the agreement, return or destroy the patient data we hold and keep " +
+      "no copies — and where that is not feasible, keep protecting it under the same " +
+      "terms and limit its use and disclosure to whatever makes return or destruction " +
+      "infeasible",
+    citation: "164.504(e)(2)(ii)(J)",
+  },
+  "164.504(e)(2)(iii)": {
+    plain:
+      "Let you terminate the agreement if you determine that we have violated a material term of it",
+    citation: "164.504(e)(2)(iii)",
+  },
+};
+
+/**
+ * "Why you're signing this", for a version whose clauses the shared bullets
+ * would understate, keyed by template version: the same nine bullets in the
+ * same order, with the ones that version words differently replaced.
+ */
+export const BAA_EXPLAINER_TERMS_BY_VERSION: Readonly<Record<string, readonly BaaExplainerTerm[]>> =
+  {
+    "1.3.0": BAA_EXPLAINER.terms.map((term) => TERMS_1_3_0[term.citation] ?? term),
+  };
+
+/**
+ * The bullets to show above one version of the agreement. The signing screen
+ * is to read them through this, with the version it renders, as it reads the
+ * clause notes through `clauseExplainer`: BAA_EXPLAINER.terms is right only
+ * while it renders 1.2.1 (docs/counsel/agreement-changes.md §12.14, release
+ * gate 11).
+ */
+export function baaExplainerTerms(templateVersion: string): readonly BaaExplainerTerm[] {
+  // Own keys only: "toString" is no version.
+  return Object.prototype.hasOwnProperty.call(BAA_EXPLAINER_TERMS_BY_VERSION, templateVersion)
+    ? BAA_EXPLAINER_TERMS_BY_VERSION[templateVersion]!
+    : BAA_EXPLAINER.terms;
+}
+
+/** "Why you're signing this" as a screen shows it: BAA_EXPLAINER's shape, with any version's bullets. */
+export type BaaExplainer = {
+  heading: string;
+  lead: string;
+  objection: string;
+  terms: readonly BaaExplainerTerm[];
+  disclaimer: string;
+};
+
+/** One explainer per version that words its bullets differently, built once. */
+const BAA_EXPLAINERS_BY_VERSION: Readonly<Record<string, BaaExplainer>> = Object.fromEntries(
+  Object.entries(BAA_EXPLAINER_TERMS_BY_VERSION).map(([version, terms]) => [
+    version,
+    { ...BAA_EXPLAINER, terms },
+  ]),
+);
+
+/**
+ * The whole of "Why you're signing this" for one version of the agreement,
+ * its bullets from `baaExplainerTerms`: BAA_EXPLAINER itself for 1.2.1, the
+ * signed version, and for any version that words no bullet differently, so
+ * what that screen shows stays byte for byte what it shows today; for 1.3.0,
+ * the same heading, lead, objection and disclaimer above 1.3.0's bullets.
+ * The signing screen takes the explainer from here with the version it
+ * renders, never BAA_EXPLAINER directly (agreement-changes.md §12.14, release
+ * gate 11).
+ */
+export function baaExplainerFor(templateVersion: string): BaaExplainer {
+  // Own keys only, as baaExplainerTerms: "toString" is no version.
+  return Object.prototype.hasOwnProperty.call(BAA_EXPLAINERS_BY_VERSION, templateVersion)
+    ? BAA_EXPLAINERS_BY_VERSION[templateVersion]!
+    : BAA_EXPLAINER;
+}
+
 /** The clauses that have a note below. */
 export type ExplainedClauseId =
   | "data-sources-none"
@@ -153,16 +238,17 @@ export type ExplainedClauseId =
  *
  * ⚖️ Every note here must stay true to the clause it explains, in every
  * version that renders that clause id. The signing screen renders only the
- * current template (1.2.1 today, 1.3.0 once released), and two ids carry a
- * different body in each. The data-sources note is worded to hold for both:
- * it does not promise calendar access a manual booking system never grants.
- * The subcontractors note cannot be, because the notice period is the point
- * of it (fifteen days in 1.2.1, 24 hours in 1.3.0), so this map keeps
- * 1.2.1's note, word for word what the live checkout shows, and 1.3.0's is
- * in BAA_CLAUSE_EXPLAINERS_BY_VERSION; `clauseExplainer` picks between them.
- * The three calendar ids exist only in 1.3.0. The golden test in apps/app
- * freezes every version's bytes, and the clause body is the thing to read if
- * a note and a clause ever seem to disagree.
+ * current template (1.2.1 today, 1.3.0 once released), and three ids carry a
+ * different body in each: data-sources-none, minimum-necessary and
+ * subcontractors. The pre-release audit of 6 October 2026 changed what each
+ * of them says in 1.3.0 (the sources of patient information, the booking
+ * fields and retention, Anthropic in covenant form and where a notice goes),
+ * so this map keeps 1.2.1's notes, word for word what the live checkout
+ * shows, and 1.3.0's are in BAA_CLAUSE_EXPLAINERS_BY_VERSION;
+ * `clauseExplainer` picks between them. The three calendar ids exist only in
+ * 1.3.0, so their notes here are 1.3.0's. The golden test in apps/app freezes
+ * every version's bytes, and the clause body is the thing to read if a note
+ * and a clause ever seem to disagree.
  */
 export const BAA_CLAUSE_EXPLAINERS: Readonly<Record<ExplainedClauseId, BaaExplainerTerm>> = {
   "data-sources-none": {
@@ -186,34 +272,38 @@ export const BAA_CLAUSE_EXPLAINERS: Readonly<Record<ExplainedClauseId, BaaExplai
   // system and the kind of Google account the practice named (calendar-terms.ts).
   // Both connected kinds name the calendar-list read beside the free/busy
   // one, as the clause does since the calendar-list permission was included
-  // (owner, 6 October 2026).
+  // (owner, 6 October 2026), and one calendar per provider; the covered note
+  // names the organisation check before every booking, and the uncovered note
+  // says "we treat", as the clause does (pre-release audit, 6 October 2026).
   "google-calendar-covered": {
     plain:
-      "You connect your own Google Calendar with a Google login, and you've told us your " +
+      "You connect your own Google account with a Google login, and you've told us your " +
       "Workspace administrator has accepted Google's business associate agreement — we can't " +
-      "check that, so it is your statement. healdesk reads the names of your calendars, so you " +
-      "can choose the one it books into, and when that calendar is free or busy; it adds each " +
-      "booking (made by the assistant or confirmed by your staff) as a private event with a " +
-      "first name, the service and the time — never a phone number, an email address or " +
-      "anything clinical — and never touches anything it didn't create",
+      "check that, so it is your statement. healdesk books only into calendars that belong to your " +
+      "own Workspace organisation, and checks that before every booking. It reads the names of " +
+      "your calendars, so you can choose the one it books into (or one per provider), and when " +
+      "those calendars are free or busy; it adds each booking (made by the assistant or " +
+      "confirmed by your staff) as a private event with the first name the person booking gave, " +
+      "the service and the time — never a phone number, an email address or anything clinical " +
+      "beyond the service's name — and never touches anything it didn't create",
     citation: "164.502(b), 164.504(e)(2)(i)",
   },
   "google-calendar-uncovered": {
     plain:
-      "Google's agreement doesn't cover this calendar (a personal Gmail account can't have " +
-      "one). You are telling us to add bookings anyway — a first name, the service and the " +
-      "time, as private events — and that disclosure to Google is yours to answer for. " +
-      "healdesk reads the names of your calendars, so you can choose the one it books into, " +
-      "and when that calendar is free or busy; it sends nothing else and stops adding " +
-      "bookings as soon as you disconnect",
+      "We treat this calendar as one Google's agreement doesn't cover (a personal Gmail account " +
+      "can't have one). You are telling us to add bookings anyway — a first name, the service " +
+      "and the time, as private events — and that disclosure to Google is yours to answer for. " +
+      "healdesk reads the names of your calendars, so you can choose the one it books into (or " +
+      "one per provider), and when those calendars are free or busy; it sends nothing else and " +
+      "stops adding bookings as soon as you disconnect",
     citation: "164.502(a), 164.504(e)(2)(i)",
   },
   "google-calendar-not-used": {
     plain:
       "Your booking system doesn't read Google Calendar, or we haven't confirmed that it does, " +
       "so healdesk doesn't connect to your calendar at all. The assistant takes each booking as " +
-      "a request and your staff confirm it in your own system. Switching later means recording " +
-      "a short calendar election",
+      "a request and your staff confirm it in your own system. Moving to a booking system that " +
+      "checks Google Calendar for conflicts means recording a short calendar election",
     citation: "164.502(b)",
   },
   "minimum-necessary": {
@@ -241,24 +331,52 @@ export const BAA_CLAUSE_EXPLAINERS: Readonly<Record<ExplainedClauseId, BaaExplai
 /**
  * Notes for a clause id whose body says something different in one version
  * than in the one BAA_CLAUSE_EXPLAINERS describes, keyed by template version
- * and then clause id. 1.3.0's subcontractors clause gives 24 hours' notice
- * where 1.2.1's gives fifteen days, and its objection has to come before the
- * change takes effect, which in a day is the part that matters.
+ * and then clause id. In 1.3.0, after the pre-release audit of 6 October
+ * 2026: the data-sources clause names every source of patient information,
+ * the payment processor's notice included; the minimum-necessary clause lists
+ * the booking fields the catalogue can ask, and never an email address; and
+ * the subcontractors clause gives 24 hours' notice where 1.2.1's gives fifteen
+ * days, with an objection that has to come before the change takes effect,
+ * which in a day is the part that matters, and states Anthropic's agreement
+ * as a promise about when it is signed.
  */
 export const BAA_CLAUSE_EXPLAINERS_BY_VERSION: Readonly<
   Record<string, Partial<Record<ExplainedClauseId, BaaExplainerTerm>>>
 > = {
   "1.3.0": {
+    "data-sources-none": {
+      plain:
+        "healdesk holds no credentials to your booking, practice-management or point-of-sale " +
+        "system and reads nothing from one, apart from whatever Google Calendar access the " +
+        "calendar clause describes. Patient information reaches healdesk from the conversations " +
+        "themselves (with the number, messaging account or network address they come from), " +
+        "from your staff through healdesk, and from your payment processor's notice that a " +
+        "deposit link was paid",
+      citation: "164.504(e)(2)(i)",
+    },
+    "minimum-necessary": {
+      plain:
+        "When someone books, the assistant asks only for what a receptionist would write on a " +
+        "callback slip: a first name, a number you can call, a preferred time and one or two " +
+        "others, and on calls, where your settings or your specialty's defaults ask for them, a " +
+        "last name, the service, whether they're new or returning, consultation or treatment, " +
+        "and a preferred practitioner. It asks for no email, history, medication or diagnosis, " +
+        "and never takes a card number. It says it is an AI assistant in its first line on every " +
+        "channel, and on calls that the call is transcribed; you cannot switch that off",
+      citation: "164.502(b)",
+    },
     subcontractors: {
       plain:
         "Every vendor that handles patient information signs the same obligations with " +
-        "healdesk before it does. The language model is Anthropic's: under its agreement with " +
-        "healdesk it keeps conversation content for 30 days, for abuse detection and security, " +
-        "then deletes it (content its safety systems flag, or the law requires it to keep, may " +
-        "be held for up to two years), and never trains on it. You're told by email at least " +
-        `${SUBPROCESSOR_NOTICE_HOURS} hours before a new vendor handles patient information, ` +
-        "and may end the agreement without penalty if you object on reasonable grounds before " +
-        "the change takes effect",
+        "healdesk before it does. The language model is Anthropic's: it receives conversation " +
+        "content only under a business associate agreement with healdesk, signed before any " +
+        "patient's information reaches it, keeps that content for 30 days, for abuse detection " +
+        "and security, then deletes it (content its safety systems flag, or the law requires it " +
+        "to keep, may be held for up to two years), and never trains on it. You're told by email " +
+        `at least ${SUBPROCESSOR_NOTICE_HOURS} hours before a new vendor handles patient ` +
+        "information, and may end the agreement without penalty if you object on reasonable " +
+        "grounds before the change takes effect: the service ends with it, and fees you paid " +
+        "for the time after are refunded",
       citation: "164.504(e)(2)(ii)(D), 164.308(b)(2)",
     },
   },
@@ -266,10 +384,10 @@ export const BAA_CLAUSE_EXPLAINERS_BY_VERSION: Readonly<
 
 /**
  * The note to show beside one clause of one version, or undefined when that
- * clause has none. The signing screen is to look notes up through this, with
- * the version it renders. AgreementStep reads BAA_CLAUSE_EXPLAINERS directly
- * today, which is right only while it renders 1.2.1; it has to switch before
- * 1.3.0 is released (docs/counsel/agreement-changes.md §12.11).
+ * clause has none. The signing screen looks notes up through this, with the
+ * version it renders: apps/web's agreement-kinds.ts does since the four-step
+ * funnel (8d7fcd4), and AGREEMENT_COPY (agreement-copy.ts) hands it out as
+ * `clauseNote`. The bullets above the agreement are `baaExplainerTerms`'s.
  */
 export function clauseExplainer(
   templateVersion: string,

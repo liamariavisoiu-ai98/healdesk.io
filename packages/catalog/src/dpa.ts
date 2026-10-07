@@ -4,8 +4,8 @@ import {
   AGREEMENT_PARTY,
   PAYMENTS_CLAUSE_BODY,
   PAYMENTS_CLAUSE_HEADING,
-  STATE_LAW_CLAUSE_BODY,
   STATE_LAW_CLAUSE_HEADING,
+  stateLawClauseBody,
 } from "./baa";
 import {
   bookingSyncFor,
@@ -16,6 +16,7 @@ import {
 import {
   CALENDAR_CLAUSE_HEADING,
   CALENDAR_CLAUSE_IDS,
+  CALENDAR_EVENT_FALLBACK_NAME,
   CALENDAR_LOCATION_PARAGRAPH,
   calendarTermsKind,
   isCalendarAccount,
@@ -57,17 +58,27 @@ import { wrap } from "./wrap";
  * shared one so that nothing here can move a BAA golden hash; what the two
  * documents share is quoted from one place:
  *
- *   - the state-law processor clause and the Payments clause are baa.ts's
- *     exported constants. The state-law text is used with the two edits a
- *     document without PHI needs (`DPA_STATE_LAW_EDITS`, below), never
- *     retyped;
+ *   - the state-law processor clause is `stateLawClauseBody` in this
+ *     document's words (subject "Client Information"): the fuller clause BAA
+ *     1.3.0 carries, as the funnel and the BAA's pre-release redraft agreed on
+ *     6 October 2026, with no PHI and no patient in it, this document's
+ *     headings for the clauses it names, the CMIA sentence, and its calendar
+ *     purposes and data following the booking sync. The Payments clause is
+ *     baa.ts's constant, word for word. Neither is retyped;
  *   - the calendar clause is chosen by `selectCalendarClause`, from the
  *     booking system and the kind of Google account, exactly as BAA 1.3.0
  *     chooses it, and carries the selector's sentences with the person a
- *     booking is for called a client (`CALENDAR_PERSON_NOUNS`), then the
+ *     booking is for called a client (`CALENDAR_PERSON_NOUNS`), except the
+ *     word the event itself carries, quoted as the event writes it, then the
  *     location paragraph, as 1.3.0 does;
  *   - the notice of a new subcontractor is subprocessor-notice.ts's sentence,
- *     24 hours by email with the right to object (owner, 6 October 2026);
+ *     24 hours by email with the right to object (owner, 6 October 2026),
+ *     and "without penalty" in it has the effect BAA 1.3.0 gives it, in this
+ *     document's Term, Liability and Definitions clauses;
+ *   - the incident and breach notice is 1.3.0's one rule, 24 hours for all
+ *     three, and "calendar election" is defined as 1.3.0's clause 1 defines
+ *     it; the election form that names this agreement is
+ *     dpa-calendar-election.ts, built from calendar-terms.ts's pieces;
  *   - Anthropic's retention is 1.2.1's sentence, word for word, from
  *     "retains conversation content for 30 days" to "never trains on that
  *     content" (`ANTHROPIC_RETENTION`);
@@ -210,67 +221,65 @@ function calendarKindOf(v: DpaVariables): CalendarTermsKind {
 // -----------------------------------------------------------------------------
 
 /**
- * The two edits the state-law clause needs in a document without PHI. Its
- * first words name "patient information", which this document calls Client
- * Information; its last sentence applies four clauses "to that information as
- * they apply to PHI", and here those clauses govern Client Information
- * already, so it goes (baa.ts says the DPA words that sentence for itself).
- * Everything between is the constant's, byte for byte, which dpa.test.ts pins.
- */
-export const DPA_STATE_LAW_EDITS = {
-  opening: ["healdesk processes patient information", "healdesk processes Client Information"],
-  droppedLastSentence:
-    "The reporting, subcontractor, security and return-or-destroy clauses of this agreement " +
-    "apply to that information as they apply to PHI.",
-} as const;
-
-function dpaStateLawBody(): string {
-  const [from, to] = DPA_STATE_LAW_EDITS.opening;
-  const last = ` ${DPA_STATE_LAW_EDITS.droppedLastSentence}`;
-  if (!STATE_LAW_CLAUSE_BODY.startsWith(from) || !STATE_LAW_CLAUSE_BODY.endsWith(last)) {
-    throw new DpaRenderError(
-      "The shared state-law clause no longer has the shape the DPA quotes; re-derive DPA_STATE_LAW_EDITS.",
-    );
-  }
-  return to + STATE_LAW_CLAUSE_BODY.slice(from.length, STATE_LAW_CLAUSE_BODY.length - last.length);
-}
-
-/** The state-law processor terms as the DPA prints them, unwrapped. */
-export const DPA_STATE_LAW_CLAUSE_BODY = dpaStateLawBody();
-
-/**
  * The calendar selector's words for the person a booking is for, and this
- * document's. The selector's clauses say "patient" in exactly these two
- * places (the WRITES sentence of calendar-terms.ts), and a veterinary
- * practice's agreement must never call a person a patient.
+ * document's. The selector's clauses say "patient" in exactly these places
+ * (the WRITES sentence of calendar-terms.ts, as the BAA's pre-release audit
+ * of 6 October 2026 left it), and a veterinary practice's agreement must never
+ * call a person a patient. In this document everyone who contacts Practice is
+ * a client, so the person booking "may not be the client the appointment is
+ * for" where the BAA says "may not be the patient".
  */
 export const CALENDAR_PERSON_NOUNS: readonly (readonly [string, string])[] = [
-  ["the patient's first name", "the client's first name"],
   ["about the patient", "about the client"],
+  ["who may not be the patient", "who may not be the client the appointment is for"],
 ];
 
 /**
- * The calendar clause: the selector's body, paragraph by paragraph, with the
- * person nouns replaced and the paragraph wrapped again, then BAA 1.3.0's
- * location paragraph. Refuses rather than prints "patient" if the selector's
- * wording ever moves.
+ * The one "Patient" the calendar clause keeps: the word the event itself
+ * carries when the first name given cannot be used, quoted. event.ts writes
+ * it for every practice, so a DPA that printed anything else there would
+ * misdescribe the event healdesk writes; quoting it calls no person a patient.
  */
-function dpaCalendarBody(v: DpaVariables): string {
+export const CALENDAR_EVENT_FALLBACK_QUOTED = `"${CALENDAR_EVENT_FALLBACK_NAME}"`;
+
+/**
+ * The calendar clause in this document's words, without the location
+ * paragraph: the selector's body, paragraph by paragraph, with the person
+ * nouns replaced and the paragraph wrapped again. Refuses rather than prints
+ * "patient" if the selector's wording ever moves, the quoted event word
+ * apart. The DPA's own clause appends the location paragraph; the calendar
+ * election that names this agreement (dpa-calendar-election.ts) carries the
+ * clause without it, as the BAA's election carries the BAA's.
+ */
+export function dpaCalendarClauseBody(input: {
+  bookingSystem: BookingSystemId;
+  calendarAccount: CalendarAccount;
+}): string {
   const selected = selectCalendarClause({
-    bookingSystem: v.bookingSystem,
-    calendarAccount: v.calendarAccount,
+    bookingSystem: input.bookingSystem,
+    calendarAccount: input.calendarAccount,
   });
-  const paragraphs = selected.body.split("\n\n").map((paragraph) => {
-    let text = paragraph.replace(/\s+/g, " ").trim();
-    for (const [from, to] of CALENDAR_PERSON_NOUNS) text = text.split(from).join(to);
-    if (/\bpatients?\b/i.test(text)) {
-      throw new DpaRenderError(
-        `The calendar clause ${selected.clauseId} says "patient" where the DPA says "client"; extend CALENDAR_PERSON_NOUNS.`,
-      );
-    }
-    return wrap(text);
-  });
-  return [...paragraphs, wrap(CALENDAR_LOCATION_PARAGRAPH)].join("\n\n");
+  return selected.body
+    .split("\n\n")
+    .map((paragraph) => {
+      let text = paragraph.replace(/\s+/g, " ").trim();
+      for (const [from, to] of CALENDAR_PERSON_NOUNS) text = text.split(from).join(to);
+      if (/\bpatients?\b/i.test(text.split(CALENDAR_EVENT_FALLBACK_QUOTED).join(""))) {
+        throw new DpaRenderError(
+          `The calendar clause ${selected.clauseId} says "patient" where the DPA says "client"; extend CALENDAR_PERSON_NOUNS.`,
+        );
+      }
+      return wrap(text);
+    })
+    .join("\n\n");
+}
+
+/** The DPA's calendar clause: the clause in its words, then BAA 1.3.0's location paragraph. */
+function dpaCalendarBody(v: DpaVariables): string {
+  return [
+    dpaCalendarClauseBody({ bookingSystem: v.bookingSystem, calendarAccount: v.calendarAccount }),
+    wrap(CALENDAR_LOCATION_PARAGRAPH),
+  ].join("\n\n");
 }
 
 /**
@@ -329,14 +338,19 @@ const CLAUSES_1_0: readonly DpaClause[] = [
             `is the attempted or successful unauthorised access to, or use, disclosure, ` +
             `modification or destruction of, Client Information, or interference with the ` +
             `systems that hold it. A "breach" is the unauthorised acquisition of, or access to, ` +
-            `Client Information that compromises its security, confidentiality or integrity. ` +
-            `"Business day" means a day other than a Saturday, Sunday or United States federal ` +
-            `holiday.`,
+            `Client Information that compromises its security, confidentiality or integrity, and ` +
+            `also includes anything an applicable state breach-notification law treats as a breach ` +
+            `of the security of Client Information. "Calendar election" means the document, in the ` +
+            `form healdesk provides, by which Practice sets the Google Calendar terms for one ` +
+            `location, accepted for Practice by a person with authority to bind it. Once accepted, ` +
+            `it forms part of this agreement. "Business day" means a day other than a Saturday, ` +
+            `Sunday or United States federal holiday.`,
         ) +
         "\n\n" +
         wrap(
           `This agreement governs Client Information. Where this agreement and the Terms ` +
-            `conflict about Client Information, this agreement governs.`,
+            `conflict about Client Information, or about terminating this agreement and what then ` +
+            `happens to the Services and the Fees, this agreement governs.`,
         )
       );
     },
@@ -393,26 +407,36 @@ const CLAUSES_1_0: readonly DpaClause[] = [
       ),
   },
 
+  /**
+   * Reconciled with the shared state-law clause (§12.14, "The funnel's DPA"):
+   * each duty is stated once, the more protective wording kept. What
+   * Practice's instructions are is the shared clause's statement, which
+   * bounds them by its purposes and names this agreement rather than the
+   * Terms; so is Practice's covenant to make its notices and consents cover
+   * the processing, a duty to act where this clause only allocated
+   * responsibility. What stays here is what the shared clause does not say:
+   * the unlawful-instruction notice, a client's limits and withdrawn
+   * permissions, and the lawful-instruction promise, which reaches every law
+   * and measures against what Practice itself may do, where the shared
+   * clause's reaches the state privacy laws only.
+   */
   {
     id: "instructions",
     heading: "Practice's instructions",
     appliesWhen: ALWAYS,
     body: () =>
       wrap(
-        `Practice decides what the Services do with Client Information, through the Terms and ` +
-          `the settings Practice chooses in its portal, which are its instructions to healdesk. ` +
-          `healdesk will tell Practice if it believes an instruction would break a law that ` +
-          `applies to Client Information, and need not follow that instruction.`,
+        `Practice's documented instructions to healdesk are those the clause headed ` +
+          `"${STATE_LAW_CLAUSE_HEADING}" describes. healdesk will tell Practice if it believes an ` +
+          `instruction would break a law that applies to Client Information, and need not follow ` +
+          `that instruction.`,
       ) +
       "\n\n" +
       wrap(
         `Practice will tell healdesk, promptly and in writing, of any limit it has agreed with a ` +
           `client, and of any permission a client has withdrawn, that affects how healdesk may ` +
           `use or disclose that client's information. Practice will not ask healdesk to use or ` +
-          `disclose Client Information in a way the law would not permit Practice itself to, and ` +
-          `is responsible for any notice the law requires Practice to give its clients, and any ` +
-          `consent it requires Practice to obtain from them, for their information to be handled ` +
-          `through the Services.`,
+          `disclose Client Information in a way the law would not permit Practice itself to.`,
       ),
   },
 
@@ -428,12 +452,17 @@ const CLAUSES_1_0: readonly DpaClause[] = [
       ),
   },
 
-  // Quoted from baa.ts, with the two edits DPA_STATE_LAW_EDITS records.
+  // BAA 1.3.0's state-law clause, in this document's words (the subject
+  // chooses them), its calendar text following the booking sync as there.
   {
     id: "state-law",
     heading: STATE_LAW_CLAUSE_HEADING,
     appliesWhen: ALWAYS,
-    body: () => wrap(DPA_STATE_LAW_CLAUSE_BODY),
+    body: (v) =>
+      stateLawClauseBody({
+        subject: "Client Information",
+        sync: bookingSyncFor(v.bookingSystem),
+      }),
   },
 
   // Quoted from baa.ts, word for word.
@@ -447,7 +476,11 @@ const CLAUSES_1_0: readonly DpaClause[] = [
   /**
    * BAA 1.3.0's data-sources clause in this document's words: the same
    * credentials sentence, naming the system when it has a name, and calendar
-   * access only where the calendar clause grants some.
+   * access only where the calendar clause, or a calendar election that takes
+   * its place, grants some. A practice whose booking system reads no Google
+   * Calendar connects none, but an election may later give a location one
+   * (the location paragraph of the calendar clause), so the clause says so
+   * rather than become untrue the day one is recorded, as 1.3.0's does.
    */
   {
     id: "data-sources",
@@ -464,8 +497,9 @@ const CLAUSES_1_0: readonly DpaClause[] = [
           `The only Client Information healdesk receives is what clients themselves give it ` +
           `during a call or chat` +
           (bookingSyncFor(v.bookingSystem) === "live"
-            ? `, together with the calendar access the Google Calendar clause describes.`
-            : `.`),
+            ? `, together with the calendar access the Google Calendar clause, or a calendar ` +
+              `election that takes its place, describes.`
+            : `, together with the calendar access any calendar election describes.`),
       );
     },
   },
@@ -551,11 +585,11 @@ const CLAUSES_1_0: readonly DpaClause[] = [
       wrap(
         `healdesk discloses Client Information only to: Practice itself; healdesk's ` +
           `subcontractors, under the Subcontractors clause; the systems Practice connects and ` +
-          `controls, which are its calendar, as the Google Calendar clause describes, its payment ` +
-          `processor, as the Payments clause describes, and the messaging accounts Practice ` +
-          `connects with Meta, in a conversation a client started there; and anyone to whom the ` +
-          `law requires healdesk to disclose it, after telling Practice where the law allows. It ` +
-          `discloses Client Information to no one else.`,
+          `controls, which are its calendar, as the Google Calendar clause or a calendar election ` +
+          `describes, its payment processor, as the Payments clause describes, and the messaging ` +
+          `accounts Practice connects with Meta, in a conversation a client started there; and ` +
+          `anyone to whom the law requires healdesk to disclose it, after telling Practice where ` +
+          `the law allows. It discloses Client Information to no one else.`,
       ),
   },
 
@@ -593,57 +627,129 @@ const CLAUSES_1_0: readonly DpaClause[] = [
       wrap(subprocessorNoticeClauseBody()),
   },
 
-  /** 1.2.1's reporting clause: the same three clocks and report contents, without the 164.410 citations. */
+  /**
+   * BAA 1.3.0's one rule for every practice, in this document's words and
+   * without its HIPAA citations (owner, 6 October 2026; agreement-changes.md
+   * §12.14): notice immediately following discovery and in any case within
+   * 24 hours, of a use or disclosure this agreement does not permit, a breach
+   * and a security incident alike, which also meets the "immediately
+   * following discovery" Cal. Civ. Code 1798.82(b) asks of a business that
+   * holds data it does not own. A law-enforcement delay is honoured only as
+   * the law that applies provides. The notice is itself the written report,
+   * as complete as healdesk can then make it and added to promptly, with
+   * what Practice needs for its own notices; the shared state-law clause's
+   * item f sends a state-law breach of security here, and the definition of
+   * a breach includes one. The incident console's deadline is 24 hours for
+   * every clinic on another branch (§12.14, gate 5), so the text and the code
+   * agree.
+   */
   {
     id: "incidents",
     heading: "Reporting incidents and breaches",
     appliesWhen: ALWAYS,
     body: () =>
-      wrap(`healdesk will report to Practice, in writing to the address in the Notices clause:`) +
+      wrap(
+        `healdesk will notify Practice, by email to Practice's address in the Notices clause, ` +
+          `immediately following discovery of any of the following, and in any case within 24 ` +
+          `hours of discovery:`,
+      ) +
+      "\n\n" +
+      [
+        `a. any use or disclosure of Client Information that this agreement does not permit, by ` +
+          `healdesk or by a subcontractor;`,
+        `b. any breach;`,
+        `c. any security incident, including anything a state breach-notification law treats as ` +
+          `a breach of the security of Client Information.`,
+      ]
+        .map((text) => wrap(text, "    ", "       "))
+        .join("\n") +
       "\n\n" +
       wrap(
-        `a. any use or disclosure of Client Information not permitted by this agreement, within ` +
-          `five business days of healdesk becoming aware of it;`,
-        "    ",
-        "       ",
-      ) +
-      "\n" +
-      wrap(
-        `b. any breach, without unreasonable delay and in no case later than five calendar days ` +
-          `after discovery. A breach is treated as discovered on the first day it is known, or ` +
-          `by exercising reasonable diligence would have been known, to healdesk or to any ` +
-          `person, other than the one committing it, who is healdesk's workforce member or ` +
-          `agent. Five days is deliberately short, to leave Practice time to meet any duty it ` +
-          `has under state breach-notification law to notify the people affected;`,
-        "    ",
-        "       ",
-      ) +
-      "\n" +
-      wrap(
-        `c. any security incident, within five business days of becoming aware of it — except ` +
-          `routine unsuccessful attempts that compromised nothing, such as blocked sign-ins, ` +
-          `port scans and filtered traffic, which the parties agree this clause reports once, ` +
-          `here, and which healdesk will summarise on request.`,
-        "    ",
-        "       ",
+        `Routine unsuccessful attempts that compromised nothing, such as blocked sign-ins, port ` +
+          `scans and filtered traffic, are security incidents that the parties agree this clause ` +
+          `reports once, here; healdesk will summarise them on request.`,
       ) +
       "\n\n" +
       wrap(
-        `A breach report will include, to the extent known and supplemented as learned: the ` +
-          `identification of each client whose Client Information was or is reasonably believed ` +
-          `to have been accessed, acquired, used or disclosed; a description of what happened, ` +
-          `including the dates of the breach and of its discovery; the types of Client ` +
-          `Information involved; what healdesk is doing to investigate, mitigate and prevent ` +
-          `recurrence; and a contact. Who bears the cost of notifying clients, regulators and ` +
-          `anyone else about a breach is allocated by the Liability clause.`,
+        `A breach is treated as discovered on the first day healdesk knows of it, or by ` +
+          `exercising reasonable diligence would have known of it. healdesk knows what any of its ` +
+          `workforce members or agents, other than the person committing the breach, knows or by ` +
+          `exercising reasonable diligence would have known. Anything else this clause covers is ` +
+          `discovered when healdesk becomes aware of it.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Twenty-four hours is deliberately short, to leave Practice time to meet any duty it has ` +
+          `under state breach-notification law to notify the people affected. healdesk delays a ` +
+          `notice only where a law enforcement official states that the notice would impede a ` +
+          `criminal investigation or damage national security. It then delays it only for as long ` +
+          `as the law that applies provides, and gives it as soon as that delay ends.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Each notice is also a written report, sent to the same address and as complete as ` +
+          `healdesk can then make it, and healdesk will add to the report promptly as information ` +
+          `becomes available. For a breach, the report will include, to the extent possible, what ` +
+          `Practice needs for its own notices:`,
+      ) +
+      "\n\n" +
+      [
+        `· the identification of each client whose Client Information has been, or is reasonably ` +
+          `believed by healdesk to have been, accessed, acquired, used or disclosed during the ` +
+          `breach, sent by secure transfer as the Safeguards clause provides;`,
+        `· a brief description of what happened, including the date of the breach and the date ` +
+          `of its discovery;`,
+        `· the types of Client Information involved;`,
+        `· any steps clients should take to protect themselves from potential harm resulting ` +
+          `from the breach;`,
+        `· what healdesk is doing to investigate the breach, to mitigate harm to clients and to ` +
+          `protect against further breaches;`,
+        `· whether a law enforcement official required a notice to be delayed;`,
+        `· a contact at healdesk; and`,
+        `· any other available information Practice must include in a notice that a state ` +
+          `breach-notification law requires of it.`,
+      ]
+        .map((text) => wrap(text, "  ", "    "))
+        .join("\n") +
+      "\n\n" +
+      wrap(
+        `For anything else this clause covers, the report says what happened and when, what ` +
+          `information was involved, and what healdesk has done about it. Who bears the cost of ` +
+          `notifying clients, regulators and anyone else about a breach is allocated by the ` +
+          `Liability clause.`,
       ),
   },
 
   /**
-   * The state-law counterpart of 1.2.1's patient-rights clause. What a
-   * deletion leaves is what `eraseContact` (apps/app lib/retention/purge.ts)
-   * leaves: the number, on the suppression list, as the record of the
-   * request.
+   * The state-law counterpart of 1.2.1's patient-rights clause, reconciled
+   * with the shared state-law clause (§12.14, "The funnel's DPA"). The help
+   * with a request stays here, because it reaches every client's request to
+   * see, correct or delete, where the shared clause's item b reaches requests
+   * under the state privacy laws only; deletion itself is the shared
+   * clause's item c, which is the more protective statement (ten business
+   * days, the raw copies, backups within 35 days, subcontractors, and only a
+   * record of the request), so this clause points to it rather than state a
+   * second, looser deletion duty. A request made to healdesk itself is the
+   * one the shared clause sends here, so it covers any request about a
+   * client's information, and it is answered only in healdesk's reply: v1
+   * contacts nobody first or afterwards (BAA 1.3.0, PT-24).
+   *
+   * A correction is BAA 1.3.0's clause 14(b) in this document's words (PT-17:
+   * a correction, as a client asks for one, and no 45 CFR citation). It is
+   * made in healdesk's own copy where the record can be changed, and appended
+   * and linked where it cannot: a booking request's facts never change (the
+   * no-rewrite trigger in drizzle/0039 refuses a new `treatment` or
+   * `preferred_window`), and the record of a conversation is kept as it was
+   * made. "Correct that information as Practice directs" alone promised a
+   * change the database forbids. Nothing appends a correction yet, and
+   * `amendContact` has no operator path: the amendment record is the BAA's
+   * release gate 8, and the DPA's too (dpa.md, gap 22).
+   *
+   * The telephone-number sentence is left as it stands, for gates 6 and 7 to
+   * change (§12.14): what a deletion leaves today is what `eraseContact`
+   * (apps/app lib/retention/purge.ts) leaves, the number on the suppression
+   * list. Where it and item c differ, item c governs, by the shared clause's
+   * own precedence sentence.
    */
   {
     id: "requests",
@@ -653,15 +759,20 @@ const CLAUSES_1_0: readonly DpaClause[] = [
       wrap(
         `When a client asks Practice to see, correct or delete their Client Information, ` +
           `healdesk will give Practice what it needs to answer within ten business days of ` +
-          `Practice asking, and will correct or delete that information as Practice directs. The ` +
-          `telephone number of a client whose information is deleted is kept only as the record ` +
-          `that the deletion was asked for.`,
+          `Practice asking. It will correct that information as Practice directs, and delete it ` +
+          `as the clause headed "${STATE_LAW_CLAUSE_HEADING}" provides. Where the record can be ` +
+          `changed, healdesk corrects its own copy. Where a record must stay as it was made, such ` +
+          `as a booking request or the record of a conversation, healdesk appends the correction ` +
+          `to it and links the two. Every later use and export of that record then carries the ` +
+          `correction. The telephone number of a client whose information is deleted is kept ` +
+          `only as the record that the deletion was asked for.`,
       ) +
       "\n\n" +
       wrap(
-        `If a client makes such a request to healdesk directly, healdesk will not answer it. It ` +
-          `will pass the request to Practice within five business days and tell the client it ` +
-          `has done so.`,
+        `If a client makes such a request, or any other request about their information, to ` +
+          `healdesk itself rather than to Practice, healdesk will not act on it. It will pass the ` +
+          `request to Practice within five business days and, in its reply to the client, tell ` +
+          `them that healdesk cannot act on it and has passed it to Practice.`,
       ),
   },
 
@@ -726,18 +837,32 @@ const CLAUSES_1_0: readonly DpaClause[] = [
       wrap(`· Sell, license, or otherwise monetise Client Information.`, "  ", "    "),
   },
 
+  /**
+   * Reconciled with the shared state-law clause (§12.14, "The funnel's DPA").
+   * For the state privacy laws the shared clause states the help once: its
+   * item b (by appropriate technical and organisational measures, insofar as
+   * possible, each request answered within ten business days), item d (what
+   * an assessment needs) and its assessment paragraph, the more protective
+   * wording, which this clause no longer restates in looser words. This
+   * clause keeps what the shared clause does not reach: help under every
+   * other law that applies to Client Information (breach notification,
+   * medical and veterinary confidentiality among them), answers to Practice's
+   * written questions about the whole agreement, and records to a regulator.
+   */
   {
     id: "assistance",
     heading: "Assistance and audit",
     appliesWhen: ALWAYS,
     body: () =>
       wrap(
-        `healdesk will give Practice the reasonable help it needs to meet its own obligations ` +
-          `under the laws that apply to Client Information, including to answer a regulator or a ` +
-          `client, and will answer Practice's reasonable written questions about how healdesk ` +
-          `meets this agreement. healdesk will make its practices, books and records relating to ` +
-          `Client Information available to a regulator with authority over Practice or over ` +
-          `healdesk, where the law requires it to.`,
+        `For the state privacy laws, healdesk helps Practice as the clause headed ` +
+          `"${STATE_LAW_CLAUSE_HEADING}" provides. For any other law that applies to Client ` +
+          `Information, healdesk will give Practice the reasonable help it needs to meet its own ` +
+          `obligations, including to answer a regulator or a client. healdesk will answer ` +
+          `Practice's reasonable written questions about how healdesk meets this agreement. ` +
+          `healdesk will make its practices, books and records relating to Client Information ` +
+          `available to a regulator with authority over Practice or over healdesk, where the law ` +
+          `requires it to.`,
       ),
   },
 
@@ -748,6 +873,15 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * the export was delivered, or once ninety days have passed without one.
    * 1.2.1 says "within thirty days", which that clock keeps only when the
    * export has been delivered by then (agreement-changes.md § 12.11, item 8).
+   *
+   * "Without penalty", which the shared notice of a new subcontractor
+   * promises (subprocessor-notice.ts), has the effect BAA 1.3.0's Term clause
+   * gives it (§12.14, HRC-07, SUB-03): the Services end the same day, no Fees
+   * accrue after it, and Fees paid for later time are refunded, a refund the
+   * Liability clause does not limit and Practice's indemnity does not reach.
+   * 1.3.0 also refunds a termination for healdesk's violation; this clause's
+   * termination for a material breach is left as it was, and is flagged for
+   * the owner. The telephone-number sentence is left for gates 6 and 7.
    */
   {
     id: "term",
@@ -759,11 +893,17 @@ const CLAUSES_1_0: readonly DpaClause[] = [
           `healdesk holds any Client Information for Practice. Either party may terminate it on ` +
           `written notice if the other materially breaches it and does not cure the breach within ` +
           `thirty days of being told of it in writing; where cure is not possible, on notice. ` +
-          `Practice may also terminate under the subcontractor-objection right above. Ending the ` +
-          `Services ends this agreement, subject to the rest of this clause. A business associate ` +
+          `Practice may also terminate it under the Subcontractors clause. Ending the Services ` +
+          `ends this agreement, subject to the rest of this clause. A business associate ` +
           `agreement that replaces this agreement under the clause on Practice's status ends it ` +
           `too: the Client Information healdesk then holds is governed by that agreement from its ` +
           `effective date, and nothing is destroyed because of the replacement.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Terminating this agreement under the Subcontractors clause is without penalty to ` +
+          `Practice: the Services end on the same day, no Fees accrue for any time after that ` +
+          `day, and healdesk refunds any Fees Practice has paid for that time.`,
       ) +
       "\n\n" +
       wrap(
@@ -798,7 +938,13 @@ const CLAUSES_1_0: readonly DpaClause[] = [
       ),
   },
 
-  /** 1.2.1's allocation, the same as Terms §§ 13–14, in this document's words. */
+  /**
+   * 1.2.1's allocation, the same as Terms §§ 13–14, in this document's words,
+   * and, as BAA 1.3.0's Liability clause does, the Term clause's refund kept
+   * outside the exclusion and the indemnity: without that sentence the
+   * refund "without penalty" promises could be read as excluded (§12.14,
+   * HRC-07, verification of 7 October 2026).
+   */
   {
     id: "liability",
     heading: "Liability, and who indemnifies whom",
@@ -812,7 +958,9 @@ const CLAUSES_1_0: readonly DpaClause[] = [
           `liability to Practice, across all claims, is limited to the Fees paid or payable by ` +
           `Practice in the twelve months before the event giving rise to the claim. That limit ` +
           `does not apply to healdesk's wilful misconduct or gross negligence, or to any ` +
-          `liability the law does not allow to be limited.`,
+          `liability the law does not allow to be limited. Nothing in this clause limits the ` +
+          `refund the Term clause provides, and Practice's indemnity below does not extend to a ` +
+          `claim for it.`,
       ) +
       "\n\n" +
       wrap(
@@ -848,7 +996,9 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * 1.2.1's boilerplate without HIPAA. The practice's notice address is its
    * one address (owner, 6 October 2026): the signatory's email, which a
    * checkout intent requires to be the buying address and provisioning makes
-   * the account's sign-in.
+   * the account's sign-in. An accepted calendar election is part of the
+   * entire agreement, as the Definitions clause says it forms part of this
+   * agreement (BAA 1.3.0, ICD-26).
    */
   {
     id: "notices-and-law",
@@ -874,10 +1024,11 @@ const CLAUSES_1_0: readonly DpaClause[] = [
       ) +
       "\n\n" +
       wrap(
-        `This agreement, the Terms and the order Practice placed are the entire agreement ` +
-          `between ${v.clinicLegalName} and ${ENTITY} about Client Information, and replace any ` +
-          `earlier version of this agreement between them from the effective date forward; ` +
-          `Client Information already held is governed by this version from that date.`,
+        `This agreement (with any calendar election accepted under it), the Terms and the order ` +
+          `Practice placed are the entire agreement between ${v.clinicLegalName} and ${ENTITY} ` +
+          `about Client Information, and replace any earlier version of this agreement between ` +
+          `them from the effective date forward; Client Information already held is governed by ` +
+          `this version from that date.`,
       ),
   },
 ];

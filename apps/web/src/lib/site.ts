@@ -127,4 +127,13 @@ export const site = {
   ],
 
   email: "hello@healdesk.io",
+
+  /**
+   * AYA's demo line: the number clinic owners dial to hear her answer. A
+   * Retell toll-free number, answered by the inbound demo agent and used as
+   * the caller ID of the demo call (scripts/retell-demo-agent.ts binds both).
+   * It is a demonstration line, not a support line: it reaches AYA, never a
+   * person, and the copy beside it must not suggest otherwise.
+   */
+  demoLine: { e164: "+18886889404", display: "(888) 688-9404" },
 } as const;

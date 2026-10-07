@@ -172,10 +172,16 @@ runs the image.
   no Dockerfile change: `npm ci` runs before `next build`, and the runtime stage
   copies the workspace `node_modules`. `tests/aws-sdk-clients.test.ts` pins
   all three; re-check the chunks after a Next upgrade.
-- **Static assets are in the image; the host is not described anywhere.**
+- **Static assets are in the image; the host is described but not built.**
   `.next/static` is still not part of Next's standalone output, but the
-  Dockerfile (L70-71) copies it beside `server.js`. There is still no compose
-  file, `fly.toml`, Terraform or task definition in the repo.
+  Dockerfile (L70-71) copies it beside `server.js`. Since 7 October 2026 the
+  AWS host is Terraform in `infra/aws` (RDS with 35-day backups, ECS on
+  Fargate, the load balancer, KMS, S3, CloudTrail, SES, Config), with its
+  runbook in `infra/aws/README.md`. It is validated and tested against a
+  mocked provider, and has never been applied. The image now carries the RDS
+  CA bundle (`NODE_EXTRA_CA_CERTS`), without which production's certificate
+  check refuses every RDS connection, and `scripts/provision-roles.sql` runs
+  as RDS's master user, which is not a superuser.
 - **The worker, migrations and queue install ship in the image as separate
   commands.** The Dockerfile (L73-82) copies the whole workspace
   `node_modules` (`tsx` is a runtime dependency; `drizzle-kit` is there only
@@ -287,10 +293,12 @@ a rule already holds, and treat a gap as a bug, not a precedent.
   the step, never the time. Never "live in two minutes".
 - **No opening dates.** A channel is sold only once it is ready; one that isn't
   comes off the product list and out of the copy (owner, 6 October 2026).
-- The overage rates ($0.80 a voice minute; $0.40 a chat conversation on the
-  single-channel chat package and $0.30 on the rest, set by the owner on 5
-  October 2026) are provisional until measured. Copy says so; the billing
-  mechanics stay as they are.
+- Overage is billed per started block of 100 (owner, 6 October 2026): $80 for
+  each started block of 100 extra voice minutes; $40 for each started block of
+  100 extra chat conversations on the single-channel chat package and $30 on
+  the rest. The rates behind them, set by the owner on 5 October 2026, are
+  provisional until measured. Copy says so and quotes the block and its price,
+  never a per-unit rate; being provisional does not change what is billed.
 - "healdesk is a service of Viixi FZC, a company registered under the Sharjah
   Publishing City Free Zone, United Arab Emirates" appears in the site footer
   and on the Terms and Privacy pages. The registered street address is not

@@ -42,7 +42,7 @@ import {
 } from "./setup/factories";
 
 /**
- * drizzle/0053 (Google Calendar, migration A), asserted.
+ * drizzle/0056 (Google Calendar, migration A), asserted.
  *
  * tests/slot-holds.test.ts covers the holds and the overlap guard,
  * tests/connect-links.test.ts the calendar link, and
@@ -205,7 +205,7 @@ function permitted(clinicId: string, forAssistant = true): Promise<boolean> {
   });
 }
 
-describeDb("drizzle/0053: the Google Calendar schema", () => {
+describeDb("drizzle/0056: the Google Calendar schema", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
@@ -263,7 +263,7 @@ describeDb("drizzle/0053: the Google Calendar schema", () => {
     const insert = sql.match(
       /INSERT INTO scheduled_jobs[\s\S]*?ON CONFLICT \(name\) DO NOTHING;/i,
     )?.[0];
-    expect(insert, "0053 seeds scheduled_jobs").toBeDefined();
+    expect(insert, "0056 seeds scheduled_jobs").toBeDefined();
     const row = /\(\s*'([a-z-]+)'\s*,\s*'(?:[^']|'')*'\s*,\s*(true|false)\s*\)/gi;
     expect([...insert!.matchAll(row)].map((m) => [m[1]!, m[2]!.toLowerCase()])).toEqual([
       ["calendar-watch", "false"],

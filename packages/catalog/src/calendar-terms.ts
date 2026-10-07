@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import {
   bookingSyncFor,
   bookingSystemName,
+  getBookingSystem,
   isBookingSystemId,
   type BookingSystemId,
 } from "./booking-systems";
@@ -31,9 +32,16 @@ import { wrap } from "./wrap";
  *              Google's BAA. The practice directs healdesk to add bookings
  *              anyway and answers for that disclosure (decision 2). Open to
  *              every practice, a declared covered entity included (owner,
- *              Q3): there is no covered-entity predicate.
+ *              Q3, re-confirmed on 6 October 2026 as an owner-accepted risk:
+ *              "If the practice decides to do it itself, it's their
+ *              problem"): there is no covered-entity predicate.
  *   not_used   the booking system does not read Google Calendar, or nobody
  *              has confirmed it does. healdesk does not connect at all.
+ *
+ * "The calendar" is each calendar healdesk uses for the location: the one the
+ * practice chooses or, where it books by provider, one for each provider (v1
+ * spec, provider-specific booking; plan addendum of 6 October 2026). Every
+ * rule in a clause applies to each of them.
  *
  * The clause bodies live here, once. BAA 1.3.0 renders them with the location
  * paragraph appended (baa.ts); the election document renders them without it;
@@ -41,17 +49,19 @@ import { wrap } from "./wrap";
  * through `selectCalendarClause`. Every promise in them has to be kept by
  * code before they are released: the event body (packages/connectors/src/
  * google/event.ts) and the reads (the Google adapter) already are; the token
- * erasure on disconnect, on revocation at Google and at destruction, and the
- * account checks at connect, arrive with the connect flow and the watch
- * (plan §4.11, §4.12, §9). The covered clause also needs the chosen
- * calendar's organisation checked, which nothing plans yet
- * (agreement-changes.md §12.11, item 7). docs/counsel/agreement-changes.md
- * §12.4 keeps the list, and the release audit checks it against the code.
+ * erasure on disconnect, on revocation at Google and at destruction, use
+ * stopping when the Services end, and the account checks at connect, arrive
+ * with the connect flow and the watch (plan §4.11, §4.12, §9). The covered
+ * clause's organisation check, at choice and before every write and for every
+ * provider calendar, is plan C8's guardrail (owner, 6 October 2026: "Yes,
+ * guardrail it"; agreement-changes.md §12.14). docs/counsel/agreement-changes.md
+ * §12.4 keeps the list, and the release checks it against the code.
  *
  * Frozen once released. The 1.3.0 golden hashes and the election golden hash
  * (apps/app/tests/baa-golden.test.ts) both reproduce through these sentences,
  * so a later wording is a new set of sentences beside these, selected by
- * version, never an edit to them.
+ * version, never an edit to them. Until then the pre-release audit's edits
+ * (agreement-changes.md §12.14) are made in place.
  */
 
 export type CalendarAccount = "workspace_baa" | "workspace_no_baa" | "personal";
@@ -132,8 +142,14 @@ export const CALENDAR_CLAUSE_IDS = {
 
 export type CalendarClauseId = (typeof CALENDAR_CLAUSE_IDS)[CalendarTermsKind];
 
-/** All three kinds share it, so the clause a practice is under never changes its name. */
-export const CALENDAR_CLAUSE_HEADING = "Practice's Google Calendar";
+/**
+ * All three kinds share it, so the clause a practice is under never changes
+ * its name. "Google Calendar", so that "the Google Calendar clause" — as the
+ * BAA's other clauses and the election's first section call it — names the
+ * heading exactly (pre-release audit, ICD-22). 1.2.1's clause keeps its own
+ * heading, "Practice's Google Calendar".
+ */
+export const CALENDAR_CLAUSE_HEADING = "Google Calendar";
 
 export class CalendarTermsError extends Error {
   constructor(message: string) {
@@ -148,61 +164,100 @@ export class CalendarTermsError extends Error {
 
 /**
  * Which calendar. The calendar-list permission is included (owner, 6 October
- * 2026), so the practice may choose any calendar the account owns; the
- * connection defaults to the main one (`primary`). `calendar.events.owned`
- * can write only to a calendar the account owns, which is why the choice is
- * limited to those.
+ * 2026), so the practice may choose any calendar on which the connected
+ * account has owner access, or one per provider where it books by provider
+ * (PT-06); the connection defaults to the main one (`primary`).
+ * `calendar.events.owned` can write only to such a calendar. Google lists a
+ * calendar another account has shared in with "make changes and manage
+ * sharing" as `owner` too, which is why the sentence says so and the covered
+ * clause checks the calendar's organisation (HRC-04).
  */
 const WHICH_CALENDAR =
-  "Practice connects its own Google Calendar by OAuth, under Practice's own agreement with " +
-  "Google; healdesk uses one calendar of the Google account Practice connects, which is that " +
-  "account's main calendar unless Practice chooses another calendar the account owns.";
+  "Practice connects a Google account it controls by OAuth, under Practice's own agreement " +
+  "with Google. healdesk uses a calendar on which that account has owner access: one of its own " +
+  "calendars, or one another account has shared with it with permission to make changes and " +
+  "manage sharing. Practice chooses the calendar or, where it books by provider, one such " +
+  "calendar for each provider. Until Practice chooses, healdesk uses that account's main " +
+  'calendar. In this clause "the calendar" means each calendar healdesk uses, and every term of ' +
+  "this clause applies to each of them.";
 
 /**
  * What healdesk reads, holds and deletes. It says what healdesk reads, and
- * then, separately, what Google's permissions reach, as Google's scope page
- * words them (read 6 October 2026): `calendar.events.owned` reaches "events
- * on Google calendars you own", every one of them, and
- * `calendar.events.freebusy` "the availability on Google calendars you have
- * access to". healdesk reads free/busy for the one calendar, its own events,
- * and the names of the calendars the account owns (the list is asked for
- * with `minAccessRole=owner`, so Google returns no other names); verify()
- * lists events with a filter no event matches and asks for no event fields.
- * Deletion is promised in exactly the three cases the code erases the token;
- * revocation at Google is not promised, because revoking ends every grant
- * that Google user has given the project, including one another location may
- * still use.
+ * then, separately, the three further things Google's permissions reach, in
+ * the words of Google's scope page (read 6 October 2026):
+ * `calendar.calendarlist.readonly` "See the list of Google calendars you're
+ * subscribed to", `calendar.events.owned` "See, create, change, and delete
+ * events on Google calendars you own", and `calendar.events.freebusy` "See
+ * the availability on Google calendars you have access to" (PT-20). healdesk
+ * reads free/busy for the calendars it uses, its own events, and the names of
+ * the calendars the account has owner access to (the list is asked for with
+ * `minAccessRole=owner`); verify() lists events with a filter no event
+ * matches and asks for no event fields. Deletion is promised in exactly the
+ * three cases the code erases the token; revocation at Google is not
+ * promised, because revoking ends every grant that Google user has given the
+ * project, including one another location may still use. Use stops when the
+ * Services end, which is the day the agreement ends (its Term clause), and
+ * the token goes with the rest of the practice's data (ICD-32).
  */
 const READS =
-  "healdesk reads the names of the calendars that account owns, so that Practice can choose " +
-  "one; when that calendar is free or busy; and the appointments healdesk itself added to it. " +
-  "Google's permission model also gives healdesk access to the other events on the calendars " +
-  "that account owns, and to when the other calendars it can see are free or busy; healdesk " +
-  "does not read or store them. healdesk holds the OAuth token encrypted and uses it for " +
-  "nothing else. It stops using the token when this agreement ends, and deletes it when " +
-  "Practice disconnects the calendar through healdesk, when healdesk finds that Practice has " +
-  "removed healdesk's access in its Google Account, and in any case when healdesk destroys " +
-  "Practice's data at the end of this agreement.";
+  "healdesk reads the names of the calendars on which that account has owner access, so that " +
+  "Practice can choose; when the calendar is free or busy; and the appointments healdesk itself " +
+  "added to it. Google's permissions also reach three further things: the list of every " +
+  "calendar that account is subscribed to, the other events on the calendars it owns, and the " +
+  "availability of the other calendars it has access to. healdesk does not read or store any of " +
+  "them. healdesk holds the OAuth token encrypted and uses it for nothing else. It stops using " +
+  "the token when the Services end. It deletes the token when Practice disconnects the calendar " +
+  "through healdesk, or when healdesk finds that Practice has removed healdesk's access in its " +
+  "Google Account. In any case it deletes the token when healdesk destroys Practice's data " +
+  "after the Services end.";
 
-/** What an event carries: packages/connectors/src/google/event.ts builds exactly this. */
+/**
+ * The word an event carries in place of a first name that cannot be used:
+ * `FALLBACK_FIRST_NAME` in packages/connectors/src/google/event.ts, which the
+ * catalog cannot import, for every practice. The clause quotes it, and the
+ * funnel's DPA keeps the quotation word for word although it calls nobody a
+ * patient, because it describes the event healdesk actually writes.
+ */
+export const CALENDAR_EVENT_FALLBACK_NAME = "Patient";
+
+/**
+ * What an event carries: packages/connectors/src/google/event.ts builds
+ * exactly this. The first name is the one the person booking gave
+ * (`sanitizeFirstName`, else FALLBACK_FIRST_NAME); the service is the
+ * practice's own list's name for it (`eventServiceLabel`, else
+ * FALLBACK_SERVICE), screened only for clinical vocabulary, contact details
+ * and control characters, so the clause says "nothing clinical beyond the
+ * name of the service" (ICD-28, PT-30).
+ */
 const WRITES =
-  "Each appointment carries the patient's first name, the service asked about as Practice's own " +
-  "service list names it, and the time, and no other information about the patient: never a " +
-  "telephone number, an email address or anything clinical. healdesk marks each appointment " +
-  "private, invites no one to it and sets no reminders on it, and it moves, edits or cancels " +
-  "nothing it did not create. Google keeps a deleted event in that calendar's trash for up to " +
-  "30 days under Google's own terms.";
+  "Each appointment carries a first name, the service and the time, and no other information " +
+  "about the patient or the person booking. It never carries a telephone number, an email " +
+  "address, or anything clinical beyond the name of the service. The first name is the one " +
+  "given by the person booking, who may not be the patient; where that name cannot be used, it " +
+  `is the word "${CALENDAR_EVENT_FALLBACK_NAME}". The service is named as in Practice's own ` +
+  "service list; where none was given or its name cannot be used, the appointment says " +
+  '"Appointment". healdesk marks each appointment private, invites no one to it and sets no ' +
+  "reminders on it. It moves, edits or cancels nothing it did not create. Google keeps a " +
+  "deleted event in the calendar's trash for up to 30 days under Google's own terms.";
 
+/**
+ * The practice's statement, which healdesk cannot check, and the check it
+ * can make: the connected account is managed, and each calendar belongs to
+ * its organisation, at choice and again before every write (owner's decision
+ * 4 of 6 October 2026, HRC-04, PT-20; plan C8's guardrail, a release gate).
+ */
 const COVERED_STATEMENT =
   "Practice has told healdesk that this account belongs to Practice's Google Workspace " +
-  "organisation and that its administrator has accepted Google's business associate agreement, " +
-  "and Practice will record a calendar election promptly if that stops being true. healdesk " +
-  "cannot see whether Google's agreement was accepted and relies on Practice's statement; it " +
-  "adds nothing to a calendar whose Google account does not belong to a Google Workspace or " +
-  "Cloud Identity organisation.";
+  "organisation and that its administrator has accepted Google's business associate agreement. " +
+  "Practice will record a calendar election promptly if either stops being true. healdesk cannot " +
+  "see whether Google's agreement was accepted, and relies on Practice's statement. When " +
+  "Practice chooses a calendar, and again before adding each appointment, healdesk checks that " +
+  "the connected account belongs to a Google Workspace or Cloud Identity organisation and that " +
+  "the calendar belongs to that same organisation. It adds nothing to a calendar that fails " +
+  "either check.";
 
 const COVERED_WRITES =
-  "healdesk adds an appointment to that calendar when the assistant books one, and when " +
+  "healdesk adds an appointment to the calendar when the assistant books one, and when " +
   "Practice's staff confirm a booking request through healdesk.";
 
 const COVERED_ACKNOWLEDGEMENT =
@@ -210,68 +265,146 @@ const COVERED_ACKNOWLEDGEMENT =
   "Google and does not extend to applications Practice authorises, and that healdesk's access " +
   "to the calendar is governed by this agreement.";
 
+/**
+ * What Practice told healdesk about an account no Google BAA is known to
+ * cover. A personal account cannot have one. A Workspace account whose
+ * administrator has not accepted it, or where Practice does not know, is
+ * treated as uncovered because nobody has confirmed it is covered, which is
+ * the accurate statement (ICD-17, PT-21; an accuracy edit the owner's
+ * decision 1 allows).
+ */
 const UNCOVERED_ACCOUNT: Record<Exclude<CalendarAccount, "workspace_baa">, string> = {
-  personal: "a personal Google account, for which Google offers no business associate agreement",
+  personal:
+    "Practice has told healdesk that this account is a personal Google account, for which Google " +
+    "offers no business associate agreement, so no business associate agreement between Practice " +
+    "and Google covers the calendar.",
   workspace_no_baa:
-    "in a Google Workspace organisation whose administrator has not accepted Google's business " +
-    "associate agreement, or that Practice does not know whether it has",
+    "Practice has told healdesk that this account is in a Google Workspace organisation whose " +
+    "administrator has not accepted Google's business associate agreement, or that Practice does " +
+    "not know whether the administrator has. Because Practice has not confirmed that Google's " +
+    "agreement covers the calendar, the parties treat it as one that no business associate " +
+    "agreement between Practice and Google covers.",
 };
 
 /**
- * Owner decision 2: the practice directs the write and answers for the
- * disclosure to Google, including any notification it triggers; healdesk's
- * responsibility is limited to what it sends, where, and safeguarding it
- * until it is sent.
+ * Owner decision 2 of 5 October 2026, kept by the owner on 6 October against
+ * the pre-release audit's HRC-01 as an owner-accepted risk: the practice
+ * directs the write and answers for the disclosure to Google, including any
+ * notification it triggers; healdesk's responsibility is limited to what it
+ * sends, where, and safeguarding it until it is sent. Google "will" hold the
+ * appointment outside any BAA on a personal account, and "may" on a Workspace
+ * account nobody has confirmed (PT-21). "Through an account Practice
+ * controls": a calendar shared in to that account may belong to another.
  */
-const UNCOVERED_DIRECTION =
-  "Practice nonetheless directs healdesk to add an appointment to that calendar when the " +
-  "assistant books one, and when Practice's staff confirm a booking request through healdesk, " +
-  "knowing that Google will hold it outside any business associate agreement. That disclosure " +
-  "is made at Practice's direction, into an account Practice controls under Practice's own " +
-  "agreement with Google, and Practice is responsible for it, including for any notification " +
-  "or other obligation that arises from Google's handling of what it holds. healdesk's " +
-  "responsibility for it is limited to sending only the details below, only to that calendar, " +
-  "only as this clause describes, and to safeguarding them under this agreement until they are " +
-  "sent.";
+function uncoveredDirection(account: Exclude<CalendarAccount, "workspace_baa">): string {
+  const holds = account === "personal" ? "will" : "may";
+  return (
+    "Practice nonetheless directs healdesk to add an appointment to the calendar when the " +
+    "assistant books one, and when Practice's staff confirm a booking request through healdesk. " +
+    `Practice gives this direction knowing that Google ${holds} hold each appointment outside ` +
+    "any business associate agreement. That disclosure is made at Practice's direction, through " +
+    "an account Practice controls under Practice's own agreement with Google. Practice is " +
+    "responsible for it, including for any notification or other obligation that arises from " +
+    "Google's handling of what it holds. healdesk's responsibility for it is limited to sending " +
+    "only the details below, only to the calendar, only as this clause describes, and to " +
+    "safeguarding them under this agreement until they are sent."
+  );
+}
 
 const UNCOVERED_WITHDRAWAL =
-  "Practice may withdraw this direction at any time by disconnecting the calendar or by telling " +
-  "healdesk; healdesk then adds nothing further to it, and the assistant takes booking requests " +
-  "for Practice's staff to confirm instead.";
+  "Practice may withdraw this direction at any time, by disconnecting the calendar or by " +
+  "telling healdesk. healdesk then adds nothing further to the calendar, and the assistant takes " +
+  "booking requests for Practice's staff to confirm instead.";
 
 const UNCOVERED_ACKNOWLEDGEMENT =
   "Practice acknowledges that healdesk's access to the calendar is governed by this agreement.";
 
+/**
+ * The not-used clause's opening, crediting the classification to healdesk's
+ * list of booking systems, not to the practice (PT-07, ICD-25): "no" and
+ * "unverified" are healdesk's records, and "Something else" names no system
+ * at all, so the practice is never made to have said something it did not.
+ */
+function notUsedStatement(system: { name: string | null; reads: "no" | "unverified" }): string {
+  if (!system.name) {
+    return (
+      "Practice has told healdesk that its booking system is one that healdesk's list of booking " +
+      "systems does not name, so healdesk has not confirmed that it reads a Google Calendar for " +
+      "conflicts."
+    );
+  }
+  return system.reads === "no"
+    ? `Practice has told healdesk that its booking system is ${system.name}, which healdesk's ` +
+        `list of booking systems records as not reading a Google Calendar for conflicts.`
+    : `Practice has told healdesk that its booking system is ${system.name}, which healdesk's ` +
+        `list of booking systems records as not yet confirmed to read a Google Calendar for ` +
+        `conflicts.`;
+}
+
+const NOT_USED_EFFECT =
+  "healdesk therefore does not connect to Practice's Google Calendar, reads nothing from it and " +
+  "writes nothing to it. The assistant does not book appointments itself: it takes each booking " +
+  "as a request, which Practice's staff confirm in Practice's own system.";
+
+/**
+ * v1 runs a one-way or unconfirmed system in request mode only, so the only
+ * route to booking live is a calendar election for a system that reads Google
+ * Calendar (PT-07).
+ */
 const NOT_USED_CHANGE =
-  "If Practice changes its booking system, or wants the assistant to book into a Google " +
-  "Calendar, Practice first records a calendar election for that location.";
+  "If Practice changes the location's booking system to one that reads a Google Calendar for " +
+  "conflicts, Practice first records a calendar election for the location. The assistant books " +
+  "into a Google Calendar only under the clause that election carries.";
 
 /**
  * The BAA's last paragraph of every calendar clause, never the election's: in
- * the agreement the clause governs the location set up at signing, and every
- * other location, or that one after a change, is governed by its election.
+ * the agreement the clause governs Practice's first location, the one set up
+ * under the first order Practice placed for the Services (provisioning waits
+ * for the first paid invoice), and every other location, or that one after a
+ * change of booking system or account kind, is governed by its election. The
+ * first order, not one placed on acceptance: a practice that accepts this
+ * version in place of 1.2.1 places no order when it does (verification of the
+ * redraft, 7 October 2026). The three kinds of account are listed, so losing
+ * Google's agreement is a change of kind (ICD-26). What a calendar election
+ * is, and that an accepted one is part of the agreement, is the Definitions
+ * clause's.
  */
 export const CALENDAR_LOCATION_PARAGRAPH =
-  "This clause governs the calendar of the location Practice sets up when it signs this " +
-  "agreement. For any other location, and for that location once Practice changes the kind of " +
-  "Google account it uses or its booking system, the calendar election Practice records for " +
-  "that location takes the place of this clause for that location.";
+  "This clause governs the calendar of Practice's first location, the one set up under the first " +
+  "order Practice placed for the Services. The calendar of any other location is governed by the " +
+  "calendar election Practice records for it. Practice also records a calendar election for the " +
+  "first location when it changes that location's booking system or the kind of Google account " +
+  "it uses there, and that election then governs in place of this clause. The kinds of Google " +
+  "account are a Google Workspace account whose administrator has accepted Google's business " +
+  "associate agreement, any other Google Workspace account, and a personal Google account.";
 
 /**
  * The clause for one kind, wrapped at 78 columns, without the location
- * paragraph. Strict: a kind the account contradicts (covered on a personal
- * account, uncovered on a Workspace account with Google's BAA) throws rather
+ * paragraph. Strict: a kind the answers contradict (covered on a personal
+ * account, uncovered on a Workspace account with Google's BAA, a connected
+ * kind for a manual booking system or not-used for a live one) throws rather
  * than rendering a clause whose first paragraph says something the practice
- * did not tell us.
+ * did not tell us. The not-used clause names the booking system and says how
+ * healdesk's list classes it, so it takes the system itself.
  */
 export function calendarClauseBody(input: {
   kind: CalendarTermsKind;
   account: CalendarAccount;
-  connectedPlatform: string | null;
+  bookingSystem: BookingSystemId;
 }): string {
-  const { kind, account } = input;
+  const { kind, account, bookingSystem } = input;
   if (!isCalendarAccount(account)) {
     throw new CalendarTermsError(`Unknown calendar account: ${String(account)}`);
+  }
+  const system = getBookingSystem(bookingSystem);
+  if (!system) {
+    throw new CalendarTermsError(`Unknown booking system: ${String(bookingSystem)}`);
+  }
+  const live = bookingSyncFor(system.id) === "live";
+  if (live !== (kind !== "not_used")) {
+    throw new CalendarTermsError(
+      `A ${String(kind)} calendar clause cannot describe ${system.id}, whose sync is ${live ? "live" : "manual"}.`,
+    );
   }
   switch (kind) {
     case "covered":
@@ -281,7 +414,8 @@ export function calendarClauseBody(input: {
         );
       }
       return paragraphs(
-        `${WHICH_CALENDAR} ${COVERED_STATEMENT}`,
+        WHICH_CALENDAR,
+        COVERED_STATEMENT,
         READS,
         `${COVERED_WRITES} ${WRITES}`,
         COVERED_ACKNOWLEDGEMENT,
@@ -293,24 +427,21 @@ export function calendarClauseBody(input: {
         );
       }
       return paragraphs(
-        `${WHICH_CALENDAR} Practice has told healdesk that this account is ${UNCOVERED_ACCOUNT[account]}, ` +
-          `so no business associate agreement between Practice and Google covers that calendar.`,
+        WHICH_CALENDAR,
+        UNCOVERED_ACCOUNT[account],
         READS,
-        `${UNCOVERED_DIRECTION} ${WRITES}`,
+        `${uncoveredDirection(account)} ${WRITES}`,
         UNCOVERED_WITHDRAWAL,
         UNCOVERED_ACKNOWLEDGEMENT,
       );
-    case "not_used": {
-      const named = input.connectedPlatform?.trim();
+    case "not_used":
       return paragraphs(
-        `Practice has told healdesk that its booking system${named ? `, ${named},` : ""} does not ` +
-          `read a Google Calendar for conflicts, or has not been confirmed to. healdesk therefore ` +
-          `does not connect to Practice's Google Calendar, reads nothing from it and writes ` +
-          `nothing to it, and the assistant does not book appointments itself: it takes each ` +
-          `booking as a request, which Practice's staff confirm in Practice's own system.`,
+        `${notUsedStatement({
+          name: bookingSystemName(system.id),
+          reads: system.readsGoogleCalendar === "no" ? "no" : "unverified",
+        })} ${NOT_USED_EFFECT}`,
         NOT_USED_CHANGE,
       );
-    }
     default:
       throw new CalendarTermsError(`Unknown calendar terms kind: ${String(kind)}`);
   }
@@ -361,7 +492,7 @@ export function selectCalendarClause(input: {
     body: calendarClauseBody({
       kind,
       account: input.calendarAccount,
-      connectedPlatform: bookingSystemName(input.bookingSystem),
+      bookingSystem: input.bookingSystem,
     }),
   };
 }
@@ -413,7 +544,11 @@ export const CALENDAR_ELECTIONS: readonly CalendarElection[] = [
     approvedByCounsel: false,
     // The clause it carries says "this agreement" throughout, as it does in
     // the BAA; the last sentence says which agreement that is, so nobody can
-    // read it as the election itself.
+    // read it as the election itself. Its section 2 is the shared clause body,
+    // so the pre-release audit's calendar edits of 6 October 2026
+    // (agreement-changes.md §12.14) moved this version's bytes in place: it is
+    // unreleased, and no election row can exist yet (the table arrives with
+    // plan C6 and C7). From its release, a new wording is a new version.
     purpose:
       "For the location named above, this election takes the place of the Google Calendar " +
       "clause of the Business Associate Agreement between Practice and healdesk, from the date " +

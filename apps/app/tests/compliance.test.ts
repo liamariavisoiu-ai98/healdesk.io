@@ -143,12 +143,18 @@ describe("disclosure", () => {
     // v1 has no SMS anywhere, so the greeting may not offer a text.
     expect(metaChannelGreeting({ clinicName: "Radiance", channel: "whatsapp" })).toMatch(/continue by phone\.$/);
     expect(metaChannelGreeting({ clinicName: "Radiance", channel: "whatsapp" })).not.toMatch(/\btext\b/i);
+    // Messenger is a Meta channel too: the same warning on all three
+    // (BAA 1.3.0's first-reply promise; §12.14, gate 4).
+    for (const channel of ["instagram_dm", "messenger", "whatsapp"] as const) {
+      expect(disclosureFor({ clinicName: "Radiance", channel }), channel).toBe(metaChannelGreeting({ clinicName: "Radiance", channel }));
+    }
   });
 
   test("Meta channels are marked as unable to carry PHI", () => {
     // Meta states in its own Cloud API terms that it is not a Business
     // Associate. No configuration changes that.
     expect(channelMayCarryPhi("instagram_dm")).toBe(false);
+    expect(channelMayCarryPhi("messenger")).toBe(false);
     expect(channelMayCarryPhi("whatsapp")).toBe(false);
     expect(channelMayCarryPhi("voice")).toBe(true);
     expect(channelMayCarryPhi("sms")).toBe(true);

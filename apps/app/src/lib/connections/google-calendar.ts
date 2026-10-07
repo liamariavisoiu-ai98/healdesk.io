@@ -14,7 +14,7 @@ import { withTenant, type TenantTx } from "@/lib/tenant";
  * A location's Google Calendar connection: one `google_calendar` row in
  * provider_connections, holding the sealed refresh token and nothing else
  * secret (plan §4.8), with the breakage stamps the calendar watch reads
- * (drizzle/0053). Connecting, choosing a calendar and disconnecting arrive
+ * (drizzle/0056). Connecting, choosing a calendar and disconnecting arrive
  * with the connect flow (C8); this is what every path needs before then:
  * what counts as broken, and what happens when it is.
  *

@@ -53,7 +53,7 @@ import { releaseLiveHolds } from "./holds";
  *
  * What the database already refuses is not re-implemented here as a rule,
  * only asked first so the answer is a status rather than a 42501: the guard
- * (app_calendar_election_guard, drizzle/0053) anchors the row to the
+ * (app_calendar_election_guard, drizzle/0056) anchors the row to the
  * agreement in effect, numbers it, holds `document_released` and
  * `booking_sync` to its own copies of the catalogue, accepts a draft
  * document only for a demo clinic, checks the hash against the stored text,

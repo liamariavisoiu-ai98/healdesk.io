@@ -41,7 +41,7 @@ import { withTenant } from "@/lib/tenant";
  *      carry: entitlements `demo` with no Stripe ids, the clinic synthetic,
  *      the operator its one owner sign-in.
  *
- * The marker, app_clinic_is_demo(), is the database's (drizzle/0053): status
+ * The marker, app_clinic_is_demo(), is the database's (drizzle/0056): status
  * `demo`, no Stripe ids, still synthetic. On it, and only on it, a draft
  * calendar election counts. The clinic can never go live (ops goLive
  * refuses one), and should it ever be converted to a purchase, its drafts

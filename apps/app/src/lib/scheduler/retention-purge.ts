@@ -65,10 +65,12 @@ export async function runRetentionPurgeJob(options: { now?: Date } = {}) {
           media: acc.media + r.mediaCleared,
           rows:
             acc.rows +
+            r.bookingRequestsDeleted +
             r.transactionsDeleted +
             r.appointmentsDeleted +
             r.conversationsDeleted +
             r.contactsDeleted +
+            r.draftsDeleted +
             r.webhookEventsDeleted,
           skipped: acc.skipped + (r.skipped ? 1 : 0),
         }),

@@ -8,13 +8,19 @@ import {
   PAYMENTS_CLAUSE_BODY,
   PAYMENTS_CLAUSE_HEADING,
   prepareBaa,
-  STATE_LAW_CLAUSE_BODY,
   STATE_LAW_CLAUSE_HEADING,
+  stateLawClauseBody,
   type BaaVariables,
 } from "./baa";
-import { BOOKING_SYSTEMS, bookingSystemName, type BookingSystemId } from "./booking-systems";
+import {
+  BOOKING_SYSTEMS,
+  bookingSyncFor,
+  bookingSystemName,
+  type BookingSystemId,
+} from "./booking-systems";
 import {
   CALENDAR_ACCOUNTS,
+  CALENDAR_CLAUSE_HEADING,
   CALENDAR_CLAUSE_IDS,
   CALENDAR_LOCATION_PARAGRAPH,
   selectCalendarClause,
@@ -22,14 +28,13 @@ import {
 import {
   ANTHROPIC_RETENTION,
   applicableDpaClauses,
+  CALENDAR_EVENT_FALLBACK_QUOTED,
   CALENDAR_PERSON_NOUNS,
   CURRENT_DPA_VERSION,
   currentDpaTemplate,
   DPA_ACTION_LABEL,
   DPA_ASSENT_LABEL,
   DPA_PRACTICE_DESCRIPTORS,
-  DPA_STATE_LAW_CLAUSE_BODY,
-  DPA_STATE_LAW_EDITS,
   DPA_TEMPLATES,
   DpaRenderError,
   dpaAssentSentence,
@@ -92,14 +97,14 @@ const VARIANTS: Record<string, Partial<DpaVariables>> = {
 
 /** variant → sha256 of the assembled text. Frozen from the draft; see the header. */
 const GOLDEN: Record<string, string> = {
-  sample: "bc4ab48ea0f315f167d3593f21f9fd207a2801abb1a68a71650a55df6010f854",
-  notcovered_live_covered: "949fc016193ee6fa363c842fce2916cd0c1812b3376b2257489f80d8f8b08622",
-  notcovered_live_uncovered: "2a4cb0c9f3961dee6cb68dee30c40b0f96af1e2ce23d11f4a1fa62cf560c5806",
-  notcovered_live_personal: "d53e5a4518ec3bf6c0e8b406d128064108f27e5f551826e9a59ece1abbe1e42c",
-  notcovered_notused_other: "70c6c967944dd65b293752df2b53898eb0ead1c16d5ef04042225426ddac5573",
-  vet_live_covered: "8d6b55b91f1e29d9e8548eb907fe9af54f63d01d00d4932defc198663e6e1a75",
-  vet_live_personal: "273a2f69ea5b080fa5a740f5e1dbea7b024173fb54da927826b3c6dc1cfaf51e",
-  vet_notused_mindbody: "759839ef6f1352ba6de1a3578dbd9439d756218454c6c74bf93d3ccca2a98b59",
+  sample: "bbbf78a01e8ab87a1002efb13731114c78516e7cef3c58dedeef884e060eb897",
+  notcovered_live_covered: "52120750cce9007c4d6eada1a8fbb023f023d18639cb209dee479de5e5a86c84",
+  notcovered_live_uncovered: "097d35333212acadcd8ebf75307c533fbdb08a7c56de97aa670a9c4d3fcebd17",
+  notcovered_live_personal: "f5c6cb05cf2ec4f8bc52762f2a65142abd533e7ba9aaa6d9a44bf4e706cb34ff",
+  notcovered_notused_other: "38c44a9f8ae0466e31108f36c08d312538b4fa5348a94354403c342720dbda74",
+  vet_live_covered: "4ceb26f8428abde32e2aa4d5b302bc9f911e827639b634449e21ccb529d39c3c",
+  vet_live_personal: "2fcec88b63e130c00c3f6af60a93fcb69e07c57a2f96af5965a2336c8e352923",
+  vet_notused_mindbody: "efde0436f457d7868b9c5907b6db2f03d9a7c46f742694fe3594ad22590f7ce2",
 };
 
 const template = () => currentDpaTemplate();
@@ -217,6 +222,8 @@ describe("DPA structure", () => {
     );
   });
 
+  // Renders the DPA for every answer the funnel can give: seconds of work, which a
+  // loaded machine stretches past the five-second default.
   test("exactly one status clause and one calendar clause, for every answer the funnel can give", () => {
     const calendarIds = Object.values(CALENDAR_CLAUSE_IDS) as string[];
     for (const answers of everyAnswer()) {
@@ -235,7 +242,7 @@ describe("DPA structure", () => {
         isVeterinaryPractice(answers as DpaVariables) ? "status-veterinary" : "status-not-covered",
       );
     }
-  });
+  }, 60_000);
 
   test("every clause predicate is total: it answers a boolean, whatever it is given", () => {
     const junk: unknown[] = [
@@ -306,6 +313,8 @@ describe("DPA structure", () => {
     );
   });
 
+  // Renders the DPA thirty-two times with the longest names: seconds of work, which a
+  // loaded machine stretches past the five-second default.
   test("every line fits in 78 columns, the party and signatory lines included", () => {
     for (const answers of [...Object.values(VARIANTS), ...everyAnswer().slice(0, 24)]) {
       const text = render({
@@ -316,14 +325,19 @@ describe("DPA structure", () => {
       }).text;
       for (const line of text.split("\n")) expect(line.length, line).toBeLessThanOrEqual(78);
     }
-  });
+  }, 60_000);
 });
 
 describe("what the DPA says", () => {
+  // Renders the DPA for every answer the funnel can give: seconds of work, which a
+  // loaded machine stretches past the five-second default.
   test("a veterinary practice's agreement never calls a person a patient, and neither does any other", () => {
     for (const answers of everyAnswer()) {
-      const text = render(answers).text;
+      // The one exception is the word the calendar event itself carries,
+      // quoted as event.ts writes it for every practice: it names no person.
+      const text = render(answers).text.split(CALENDAR_EVENT_FALLBACK_QUOTED).join("");
       expect(text, JSON.stringify(answers)).not.toMatch(/\bpatients?\b/i);
+      expect(text, JSON.stringify(answers)).not.toMatch(/\bPHI\b/);
     }
     const vet = unwrap(render(VARIANTS.vet_live_covered!).text);
     expect(vet).toContain(
@@ -333,7 +347,12 @@ describe("what the DPA says", () => {
     // this too, so nothing may state that every signer is a veterinary practice.
     expect(vet).not.toMatch(/(?<!Where )Practice is a veterinary practice[.,]/);
     expect(vet).toContain("the animal's owner or keeper. An animal is never a client.");
-    expect(vet).toContain("Each appointment carries the client's first name");
+    expect(vet).toContain(
+      "Each appointment carries a first name, the service and the time, and no other information about the client or the person booking.",
+    );
+    expect(vet).toContain(
+      'The first name is the one given by the person booking, who may not be the client the appointment is for; where that name cannot be used, it is the word "Patient".',
+    );
     expect(vet).toContain("and the name and species of the animal.");
     expect(vet).toContain(
       "Where Practice is a veterinary practice, state law may require it to keep what it knows about the animals in its care",
@@ -343,7 +362,7 @@ describe("what the DPA says", () => {
     expect(status).not.toMatch(
       /warrants|direct line|business associate agreement, which then replaces/,
     );
-  });
+  }, 60_000);
 
   test("a practice that answered No warrants it, must say when that changes, and is paused until the BAA replaces this", () => {
     const text = unwrap(section(render({}).text, "Practice's status"));
@@ -400,21 +419,44 @@ describe("what the DPA says", () => {
     expect(unwrap(render({}).text)).toContain(`Anthropic ${ANTHROPIC_RETENTION}`);
   });
 
-  test("the state-law and Payments clauses quote baa.ts's constants, with only the edits recorded", () => {
-    const [from, to] = DPA_STATE_LAW_EDITS.opening;
-    expect(STATE_LAW_CLAUSE_BODY).toBe(
-      `${from}${DPA_STATE_LAW_CLAUSE_BODY.slice(to.length)} ${DPA_STATE_LAW_EDITS.droppedLastSentence}`,
-    );
-    expect(DPA_STATE_LAW_CLAUSE_BODY).not.toMatch(/\bPHI\b|patient/);
-    const text = render({}).text;
-    expect(section(text, STATE_LAW_CLAUSE_HEADING)).toContain(
-      `${STATE_LAW_CLAUSE_HEADING.toUpperCase()}\n\n`,
-    );
-    expect(unwrap(section(text, STATE_LAW_CLAUSE_HEADING))).toContain(DPA_STATE_LAW_CLAUSE_BODY);
-    expect(unwrap(section(text, PAYMENTS_CLAUSE_HEADING))).toBe(
+  test("the state-law clause is baa.ts's shared function in this document's words, and Payments its constant", () => {
+    // The fuller clause BAA 1.3.0 carries, agreed between the funnel and the
+    // BAA's pre-release redraft on 6 October 2026: stateLawClauseBody with
+    // the subject "Client Information", its calendar text following the
+    // booking sync, word for word.
+    for (const answers of Object.values(VARIANTS)) {
+      const variables = { ...SAMPLE, ...answers };
+      const text = render(answers).text;
+      const label = JSON.stringify(answers);
+      const body = stateLawClauseBody({
+        subject: "Client Information",
+        sync: bookingSyncFor(variables.bookingSystem),
+      });
+      expect(body, label).not.toMatch(/\bPHI\b|patient/i);
+      expect(section(text, STATE_LAW_CLAUSE_HEADING), label).toBe(
+        `5. ${STATE_LAW_CLAUSE_HEADING.toUpperCase()}\n\n${body}\n`,
+      );
+    }
+    expect(unwrap(section(render({}).text, PAYMENTS_CLAUSE_HEADING))).toBe(
       unwrap(`6. ${PAYMENTS_CLAUSE_HEADING.toUpperCase()} ${PAYMENTS_CLAUSE_BODY}`),
     );
   });
+
+  test("names other clauses by heading only where it has that heading", () => {
+    // The shared state-law clause names this document's clauses by their
+    // exact headings (baa.ts, STATE_LAW_HEADINGS.dpa); a heading changed here
+    // has to change there too.
+    for (const answers of everyAnswer()) {
+      const text = render(answers).text;
+      const headings = [...text.matchAll(/^\d+\. (.+)$/gm)].map((m) => m[1]!);
+      for (const [, heading] of unwrap(text).matchAll(/the clause headed "([^"]+)"/g)) {
+        expect(
+          headings.filter((h) => h === heading!.toUpperCase()),
+          `${JSON.stringify(answers)}: "${heading}"`,
+        ).toHaveLength(1);
+      }
+    }
+  }, 60_000);
 
   // Renders BAA 1.3.0 and the DPA for every answer: seconds of work, which a
   // loaded machine stretches past the five-second default.
@@ -445,35 +487,36 @@ describe("what the DPA says", () => {
       expect(prepared.clauseIds, label).toContain(selected.clauseId);
       expect(baa.clauseIds, label).toContain(selected.clauseId);
       // Word for word the BAA's clause once the client is called a patient again.
-      let dpaClause = unwrap(section(prepared.text, "Practice's Google Calendar")).replace(
+      let dpaClause = unwrap(section(prepared.text, CALENDAR_CLAUSE_HEADING)).replace(
         /^\d+\. /,
         "",
       );
       for (const [patient, client] of CALENDAR_PERSON_NOUNS)
         dpaClause = dpaClause.split(client).join(patient);
-      const baaClause = unwrap(section(baa.text, "Practice's Google Calendar")).replace(
-        /^\d+\. /,
-        "",
-      );
+      const baaClause = unwrap(section(baa.text, CALENDAR_CLAUSE_HEADING)).replace(/^\d+\. /, "");
       expect(dpaClause, label).toBe(baaClause);
       expect(unwrap(prepared.text), label).toContain(unwrap(CALENDAR_LOCATION_PARAGRAPH));
     }
   }, 60_000);
 
-  test("data sources promise calendar access only where the calendar clause grants it", () => {
+  test("data sources promise calendar access only where the calendar clause, or an election, grants it", () => {
     const sources = (answers: Partial<DpaVariables>) =>
       unwrap(section(render(answers).text, "What healdesk reads from your systems"));
     expect(sources({})).toContain(
       "healdesk holds no credentials to Mindbody, or to any other practice-management or point-of-sale system",
     );
-    expect(sources({})).toMatch(/during a call or chat\.$/);
+    // A booking system that reads no Google Calendar connects none; only an
+    // election can give a location one, and then the clause stays true.
+    expect(sources({})).toMatch(
+      /during a call or chat, together with the calendar access any calendar election describes\.$/,
+    );
+    expect(sources(VARIANTS.notcovered_notused_other!)).not.toContain("Google Calendar clause");
     expect(sources(VARIANTS.notcovered_live_covered!)).toContain(
       "healdesk holds no credentials to any practice-management or point-of-sale system and reads nothing from one.",
     );
     expect(sources(VARIANTS.notcovered_live_covered!)).toContain(
-      "during a call or chat, together with the calendar access the Google Calendar clause describes.",
+      "during a call or chat, together with the calendar access the Google Calendar clause, or a calendar election that takes its place, describes.",
     );
-    expect(sources(VARIANTS.notcovered_notused_other!)).not.toContain("calendar access");
   });
 
   test("what the assistant asks for is the booking catalogue as a ceiling, with no email, and nothing clinical", () => {
@@ -551,6 +594,199 @@ describe("what the DPA says", () => {
   });
 });
 
+/**
+ * The funnel's pre-release changes (agreement-changes.md §12.14, "What remains
+ * the funnel's to do"), each pinned against the clause BAA 1.3.0 states it
+ * in, or against the shared clause it was reconciled with.
+ */
+describe("the DPA's pre-release text", () => {
+  /** BAA 1.3.0, unwrapped, for the sample practice: the clauses the DPA follows. */
+  const baa130 = () =>
+    unwrap(
+      prepareBaa(getBaaTemplate("1.3.0")!, {
+        clinicLegalName: "Glow Med Spa LLC",
+        specialty: "Med spa",
+        signatoryName: "Alex Chen",
+        signatoryEmail: "alex@glowmedspa.test",
+        effectiveDate: "2026-10-06",
+        isCoveredEntity: false,
+        attributionMode: "estimated",
+        connectedPlatform: "Mindbody",
+        outboundMessaging: false,
+        bookingSystem: "mindbody",
+        calendarAccount: "personal",
+      }).text,
+    );
+
+  test("defines a calendar election, as BAA 1.3.0's clause 1 does, and makes an accepted one part of it", () => {
+    const definition =
+      '"Calendar election" means the document, in the form healdesk provides, by which Practice sets the Google Calendar terms for one location, accepted for Practice by a person with authority to bind it. Once accepted, it forms part of this agreement.';
+    expect(baa130()).toContain(definition);
+    for (const answers of Object.values(VARIANTS)) {
+      const text = render(answers).text;
+      const definitions = unwrap(section(text, "Definitions"));
+      expect(definitions, JSON.stringify(answers)).toContain(definition);
+      // Defined before any clause uses the term: the state-law clause, the
+      // data sources and the calendar clause's location paragraph all do.
+      const flat = unwrap(text);
+      expect(flat.search(/calendar election/i), JSON.stringify(answers)).toBe(
+        flat.indexOf(definition) + 1,
+      );
+      expect(flat).toContain(unwrap(CALENDAR_LOCATION_PARAGRAPH));
+      expect(unwrap(section(text, "Notices, governing law, and interpretation"))).toContain(
+        "This agreement (with any calendar election accepted under it), the Terms and the order Practice placed are the entire agreement",
+      );
+    }
+  });
+
+  test("a breach includes a state-law breach of security, as in BAA 1.3.0", () => {
+    expect(unwrap(section(render({}).text, "Definitions"))).toContain(
+      'A "breach" is the unauthorised acquisition of, or access to, Client Information that compromises its security, confidentiality or integrity, and also includes anything an applicable state breach-notification law treats as a breach of the security of Client Information.',
+    );
+  });
+
+  test("every incident and breach is notified immediately, and within 24 hours, as BAA 1.3.0's one rule", () => {
+    for (const answers of Object.values(VARIANTS)) {
+      const incidents = unwrap(section(render(answers).text, "Reporting incidents and breaches"));
+      expect(incidents).toContain(
+        "healdesk will notify Practice, by email to Practice's address in the Notices clause, immediately following discovery of any of the following, and in any case within 24 hours of discovery: a. any use or disclosure of Client Information that this agreement does not permit, by healdesk or by a subcontractor; b. any breach; c. any security incident, including anything a state breach-notification law treats as a breach of the security of Client Information.",
+      );
+      // No other clock: not 1.2.1's five days for anything.
+      expect(incidents).not.toMatch(/five (business|calendar) days|5 days/);
+      expect(incidents).toContain(
+        "Each notice is also a written report, sent to the same address and as complete as healdesk can then make it, and healdesk will add to the report promptly as information becomes available.",
+      );
+      for (const item of [
+        "the identification of each client whose Client Information has been, or is reasonably believed by healdesk to have been, accessed, acquired, used or disclosed during the breach, sent by secure transfer as the Safeguards clause provides;",
+        "a brief description of what happened, including the date of the breach and the date of its discovery;",
+        "any steps clients should take to protect themselves from potential harm resulting from the breach;",
+        "whether a law enforcement official required a notice to be delayed;",
+      ]) {
+        expect(incidents).toContain(item);
+      }
+      expect(incidents).toContain(
+        "healdesk delays a notice only where a law enforcement official states that the notice would impede a criminal investigation or damage national security. It then delays it only for as long as the law that applies provides, and gives it as soon as that delay ends.",
+      );
+      // The shared clause's item f sends a state-law breach here.
+      expect(unwrap(section(render(answers).text, STATE_LAW_CLAUSE_HEADING))).toContain(
+        'report it, as the clause headed "Reporting incidents and breaches" provides for a breach.',
+      );
+    }
+  });
+
+  test('"without penalty" has the effect BAA 1.3.0 gives it, outside the liability exclusion and the indemnity', () => {
+    const text = render({}).text;
+    const term = unwrap(section(text, "Term, termination, and what happens to the information"));
+    expect(term).toContain("Practice may also terminate it under the Subcontractors clause.");
+    expect(term).toContain(
+      "Terminating this agreement under the Subcontractors clause is without penalty to Practice: the Services end on the same day, no Fees accrue for any time after that day, and healdesk refunds any Fees Practice has paid for that time.",
+    );
+    expect(unwrap(section(text, "Liability, and who indemnifies whom"))).toContain(
+      "Nothing in this clause limits the refund the Term clause provides, and Practice's indemnity below does not extend to a claim for it.",
+    );
+    // And it prevails over the Terms on termination and the Fees, as 1.3.0's clause 1 does,
+    // so the Terms' "not refundable" cannot take the refund back.
+    expect(unwrap(section(text, "Definitions"))).toContain(
+      "Where this agreement and the Terms conflict about Client Information, or about terminating this agreement and what then happens to the Services and the Fees, this agreement governs.",
+    );
+    // The promise it gives effect to, in the shared sentence.
+    expect(unwrap(section(text, "Subcontractors"))).toContain(
+      "Practice may terminate this agreement without penalty.",
+    );
+  });
+
+  test("the instructions, requests and assistance clauses state each duty once, beside the shared clause", () => {
+    const text = render({}).text;
+    const shared = unwrap(section(text, STATE_LAW_CLAUSE_HEADING));
+    const instructions = unwrap(section(text, "Practice's instructions"));
+    const requests = unwrap(section(text, "Clients' requests"));
+    const assistance = unwrap(section(text, "Assistance and audit"));
+
+    // What the instructions are, and the notices and consents, are the shared clause's.
+    expect(shared).toContain(
+      "Practice's documented instructions to healdesk are this agreement and the settings Practice chooses in its portal, within the purposes below.",
+    );
+    expect(shared).toContain(
+      "It will make sure its own notices, consents and any consumer health data privacy policy cover the processing this clause describes",
+    );
+    expect(instructions).toContain(
+      `Practice's documented instructions to healdesk are those the clause headed "${STATE_LAW_CLAUSE_HEADING}" describes.`,
+    );
+    expect(instructions).not.toMatch(/through the Terms and the settings|is responsible for any notice/);
+    // What only this clause says stays, the broader lawful-instruction promise included.
+    expect(instructions).toContain(
+      "healdesk will tell Practice if it believes an instruction would break a law that applies to Client Information, and need not follow that instruction.",
+    );
+    expect(instructions).toContain(
+      "Practice will not ask healdesk to use or disclose Client Information in a way the law would not permit Practice itself to.",
+    );
+
+    // Deletion is the shared clause's item c; the help with any client's request stays here.
+    expect(shared).toContain(
+      "when Practice tells it to delete a person's information, delete it within ten business days from healdesk's own records",
+    );
+    expect(requests).toContain(
+      `It will correct that information as Practice directs, and delete it as the clause headed "${STATE_LAW_CLAUSE_HEADING}" provides.`,
+    );
+    expect(requests).not.toContain("correct or delete that information as Practice directs");
+    expect(requests).toContain(
+      "healdesk will give Practice what it needs to answer within ten business days of Practice asking.",
+    );
+    // A request made to healdesk is any request, as the shared clause's pointer says, answered only in the reply.
+    expect(shared).toContain(
+      `A request made to healdesk directly is handled as the clause headed "Clients' requests" provides.`,
+    );
+    expect(requests).toContain(
+      "If a client makes such a request, or any other request about their information, to healdesk itself rather than to Practice, healdesk will not act on it. It will pass the request to Practice within five business days and, in its reply to the client, tell them that healdesk cannot act on it and has passed it to Practice.",
+    );
+
+    // The state privacy laws' help is the shared clause's; every other law's stays here.
+    expect(assistance).toContain(
+      `For the state privacy laws, healdesk helps Practice as the clause headed "${STATE_LAW_CLAUSE_HEADING}" provides. For any other law that applies to Client Information, healdesk will give Practice the reasonable help it needs to meet its own obligations, including to answer a regulator or a client.`,
+    );
+    expect(assistance).toContain(
+      "make its practices, books and records relating to Client Information available to a regulator",
+    );
+  });
+
+  // A booking request's facts never change: drizzle/0039's trigger refuses a new
+  // treatment or preferred_window even for the table owner (booking-transitions
+  // test). So "correct that information as Practice directs", read alone,
+  // promised a change the database forbids; BAA 1.3.0's audit found the same
+  // promise in its clause 14(b) and fixed it (PT-17). The DPA takes that fix.
+  test("a correction the record cannot take is appended and linked, in BAA 1.3.0's clause 14(b) words (PT-17)", () => {
+    const pt17 = [
+      "Where the record can be changed, healdesk corrects its own copy.",
+      "Where a record must stay as it was made, such as a booking request or the record of a conversation, healdesk appends the amendment to it and links the two, as 45 CFR 164.526(c)(1) provides.",
+      "Every later use and export of that record then carries the amendment.",
+    ];
+    const baa = baa130();
+    for (const sentence of pt17) expect(baa).toContain(sentence);
+    // In this document's words: a correction, as a client asks for one, and no HIPAA citation.
+    const ours = pt17
+      .map((s) => s.replace(", as 45 CFR 164.526(c)(1) provides", "").replaceAll("amendment", "correction"))
+      .join(" ");
+    expect(ours).not.toMatch(/amendment|CFR|\bpatient|\bPHI\b/i);
+    for (const answers of Object.values(VARIANTS)) {
+      const requests = unwrap(section(render(answers).text, "Clients' requests"));
+      // Straight after the promise to correct, so the promise never reads alone.
+      expect(requests, JSON.stringify(answers)).toContain(
+        `It will correct that information as Practice directs, and delete it as the clause headed "${STATE_LAW_CLAUSE_HEADING}" provides. ${ours}`,
+      );
+    }
+  });
+
+  test("the telephone-number sentences are left as they were, for gates 6 and 7", () => {
+    const text = render({}).text;
+    expect(unwrap(section(text, "Clients' requests"))).toContain(
+      "The telephone number of a client whose information is deleted is kept only as the record that the deletion was asked for.",
+    );
+    expect(unwrap(section(text, "Term, termination, and what happens to the information"))).toContain(
+      "After it, healdesk holds no Client Information for Practice except the telephone number of any client who asked to have their information deleted, kept only as the record of that request.",
+    );
+  });
+});
+
 describe("assent", () => {
   test("labels its own document, never the BAA", () => {
     expect(DPA_ASSENT_LABEL).toBe("I agree to the Data Protection Agreement");
@@ -580,6 +816,8 @@ describe("docs/dpa-v1.0.0.txt", () => {
     expect(doc).toContain(GOLDEN.sample);
   });
 
+  // Renders the DPA for every answer the funnel can give: seconds of work, which a
+  // loaded machine stretches past the five-second default.
   test("every clause that renders only for some practices is printed as it renders", () => {
     const flat = unwrap(read());
     for (const answers of everyAnswer()) {
@@ -591,8 +829,9 @@ describe("docs/dpa-v1.0.0.txt", () => {
       for (const heading of [
         "Definitions",
         "Practice's status",
+        STATE_LAW_CLAUSE_HEADING,
         "What healdesk reads from your systems",
-        "Practice's Google Calendar",
+        CALENDAR_CLAUSE_HEADING,
         "Minimum necessary, and who receives Client Information",
         "Confidentiality",
       ]) {
@@ -600,5 +839,5 @@ describe("docs/dpa-v1.0.0.txt", () => {
         expect(flat, `${heading} for ${JSON.stringify(answers)}`).toContain(body);
       }
     }
-  });
+  }, 60_000);
 });

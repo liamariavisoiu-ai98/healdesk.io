@@ -8,10 +8,21 @@ deadline is computed at open and the console lists what is overdue.
 
 | Class | Definition | Clinic must be told by | Source |
 | --- | --- | --- | --- |
-| Security incident | Attempted or successful unauthorised access, use, disclosure, modification or destruction of information, or interference with operations — whether or not PHI was involved (e.g. a credential leak, a suspicious login, a bug that exposed one clinic's rows to another) | 5 **business** days from becoming aware | BAA clause "Reporting breaches and security incidents" (c) |
-| Improper use or disclosure | PHI used or disclosed in a way the BAA does not permit, by us or a subprocessor (e.g. a report that carried a patient name; the agent reading appointment details to the wrong caller) | 5 **business** days | BAA (a) |
-| Breach | Acquisition, access, use or disclosure of **unsecured** PHI not permitted by the Privacy Rule that compromises its security or privacy, per 45 CFR 164.402, after the four-factor risk assessment | 5 **calendar** days from discovery — well inside the 60 days 164.410 allows, on purpose, so the clinic's own 60-day clock to notify patients is not eaten by ours | BAA (b) |
+| Security incident | Attempted or successful unauthorised access, use, disclosure, modification or destruction of information, or interference with operations — whether or not PHI was involved (e.g. a credential leak, a suspicious login, a bug that exposed one clinic's rows to another), including anything a state breach-notification law treats as a breach of the security of the data | **24 hours** from becoming aware (immediately following it) | BAA clause "Reporting breaches and security incidents" (c) |
+| Improper use or disclosure | PHI used or disclosed in a way the BAA does not permit, by us or a subprocessor (e.g. a report that carried a patient name; the agent reading appointment details to the wrong caller) | **24 hours** from becoming aware (immediately following it) | BAA (a) |
+| Breach | Acquisition, access, use or disclosure of **unsecured** PHI not permitted by the Privacy Rule that compromises its security or privacy, per 45 CFR 164.402, after the four-factor risk assessment | **24 hours** from discovery (immediately following it) — far inside the 60 days 164.410 allows, on purpose, so the clinic's own 60-day clock to notify patients is not eaten by ours | BAA (b) |
 | Service complaint | "Your AI mishandled a call yesterday." Not a BAA clock; a service promise | First reply within 2 business days | Terms of service |
+
+BAA 1.2.1 allows five business days for (a) and (c) and five calendar days
+for (b); BAA 1.3.0 gives 24 hours for all three, to every clinic whatever its
+covered-entity status, which also meets the state laws that require notice
+immediately following discovery (Cal. Civ. Code 1798.82(b)). Notify every
+clinic within 24 hours, whichever version it signed: that meets them all.
+Since 7 October 2026 the console's `notify_by` is discovery plus 24 hours for
+all three classes at every clinic (release gate 5 of 1.3.0,
+[counsel/agreement-changes.md](./counsel/agreement-changes.md) §12.14). An
+incident opened before then keeps the five-day deadline it was opened with:
+work to 24 hours from discovery for it too, not to the console.
 
 A service complaint becomes one of the first three the moment the investigation
 finds PHI went somewhere it should not have. Reclassify by opening a new incident
@@ -26,10 +37,12 @@ are neither (corrected 1 October 2026; the earlier text here said the Rule
 applied). What does apply is the breach-notification law of the state where
 the affected people live, which in most states requires notice to individuals
 without unreasonable delay and, above a threshold, to the state attorney
-general. The console's `ftc_notify_by` column is kept as a conservative
-second clock, 60 days from discovery, so a non-covered breach is never left
-with only the contractual deadline. The BAA clock still applies — we promised
-it contractually regardless of regime.
+general. The console's `ftc_notify_by` column is kept as a second clock, 30
+days from discovery: California's deadline for the clinic, as the owner of
+the data, to notify the people affected (Cal. Civ. Code 1798.82(a)(2)(A); the
+column held 60 days until 3 October 2026), so a non-covered breach is never
+left with only the contractual deadline. The 24-hour BAA clock applies to them
+as to every clinic.
 
 ## Who decides
 
@@ -61,13 +74,25 @@ categories; never paste patient data into it.
    PHI with actor and ids. `exportPatient()` produces the accounting of
    disclosures for one person; `security_events` holds the identity-plane
    trail (who signed in, from where).
-5. **Notify the clinic** by the deadline, using the template below, by email
-   to the owner and manager contacts the clinic named in the wizard (until the
-   wizard exists, the report recipients on the care page) and by phone to the
-   owner. Never to the clinic's public inbox, which the assistant may itself be
-   answering. Say what happened, which patients (by count, with ids in a secure
-   attachment if they ask), what we did, what we recommend they do, and a
-   contact. Record `notified_at` and how.
+5. **Notify the clinic** immediately, and within 24 hours of discovery at the
+   latest, using the template below: by email to the notice address in its
+   agreement, and also by phone. The notice address is the clinic's one
+   address: the email on its healdesk account (the signatory's, before the
+   account existed), or any address the clinic has since given us in writing
+   for notices; a shared inbox is fine. Say what happened, with the date of
+   the breach and the date we discovered it; what information was involved;
+   what we did; what the affected patients should do to protect themselves;
+   what we recommend the clinic do; and a contact. With every breach report,
+   identify each affected patient in a list sent by secure transfer, never in
+   the email. Record `notified_at` and how, and add to the report as we learn
+   more.
+
+   If a law enforcement official says a notice would impede a criminal
+   investigation or damage national security, delay it as 45 CFR 164.412
+   says: for the period a written statement specifies, or, on an oral
+   statement, record it with the official's identity and delay no more than
+   30 days unless a written statement follows. Then notify at once, and say
+   in the report that notice was delayed.
 6. **Help the clinic notify** its patients and HHS if it decides it must. The
    cost of that notification is the clinic's, whoever caused the breach
    (terms §14, BAA Liability clause), and there is no insurance on our side to
@@ -106,23 +131,31 @@ affected; that mapping is ours, from `audit_log` and the conversation rows.
 
 ## Template clinic notice
 
-Send from the Security Official's address, by email and confirmed by phone.
-Fill every field from the incident row; leave nothing as a guess.
+Send from the Security Official's address, by email to the clinic's notice
+address (step 5) and confirmed by phone. Fill every field from the incident
+row; leave nothing as a guess.
 
 > Subject: healdesk security notice for {clinic name}, reference {incident id}
 >
-> On {date and time discovered}, we became aware of {one plain sentence: what
-> happened}. It affected {number} of your patients' records, held by healdesk
-> for {the channel or function involved}. The information involved was
-> {categories only: e.g. names and phone numbers, the service asked about,
+> On {date and time discovered}, we discovered that {one plain sentence: what
+> happened}. It happened on {date or dates of the breach, or "a date we have
+> not yet established"}. It affected {number} of your patients' records, held
+> by healdesk for {the channel or function involved}. The information involved
+> was {categories only: e.g. names and phone numbers, the service asked about,
 > conversation transcripts}. {If a vendor was involved: the event occurred at
-> {vendor}, which notified us on {date}.}
+> {vendor}, which notified us on {date}.} {If delayed: a law enforcement
+> official asked us to delay this notice until {date}.}
 >
 > What we have done: {containment and remediation, in order}.
 >
-> What we recommend you do: {steps for the clinic}. If you decide your patients
-> or HHS must be notified, we will give you the information you need for it,
-> including the list of affected patients by secure transfer.
+> What your patients can do to protect themselves: {steps, or "nothing
+> further, because {reason}"}.
+>
+> What we recommend you do: {steps for the clinic}.
+>
+> Who was affected: the list identifying each affected patient is at {secure
+> location}, available to you today. It is never sent by email. We will add
+> to it, and to this notice, as we learn more.
 >
 > Your contact for this notice is {Security Official's name}, {email},
 > {phone}. We will update you by {date} or sooner if we learn more.
@@ -131,8 +164,12 @@ Fill every field from the incident row; leave nothing as a guess.
 
 The BAA promises the clinic what it needs to answer a patient's access,
 amendment or accounting-of-disclosures request within ten business days, and
-that a request made to us directly is forwarded to the clinic within five. The
-clinic validates the request; we produce the bundle.
+that a request a person makes to healdesk itself (by email or letter, not
+through the clinic's assistant) is passed to the clinic within five business
+days. A person on our team replies to that request, saying we cannot act on it
+ourselves and have passed it to the clinic. That reply is the only message we
+send, and nothing about it is automated. The clinic validates the request; we
+produce the bundle.
 
 1. Log the request as a `service_complaint` incident on the care page so the
    two-day and ten-day clocks are visible, with the ticket reference in the
@@ -150,8 +187,15 @@ clinic validates the request; we produce the bundle.
    lives in the app that holds no PHI. Delete the local copy once receipt is
    confirmed.
 4. For an amendment, correct the row with `amendContact()` (a script call or
-   a one-line `tsx` invocation on the app host); the audit row records which
-   fields changed, not what they said.
+   a one-line `tsx` invocation on the app host) where the record can change;
+   the audit row records which fields changed, not what they said. Where a
+   record must stay as it was made (a booking request's times and service are
+   frozen from creation, and its collected fields once it is decided; a
+   conversation's record of what was said), append the amendment with the
+   amendment record and link it, so every export carries it (BAA 1.3.0 clause
+   14(b), 45 CFR 164.526(c)(1)). Until that amendment record is built (a
+   release gate for 1.3.0), tell the clinic which record cannot be changed in
+   place, and keep the incident's summary in ids, as always.
 5. Resolve the incident with the date delivered.
 
 The same script with `--all` produces the whole-clinic return bundle at
@@ -181,5 +225,5 @@ A second scenario, for the vendor path:
 > Scenario: Retell notifies us that transcripts from one day were retained past
 > the configured window and exposed to another customer's workspace.
 
-Time each step above against the five-calendar-day clock. The run is recorded
-in [policies/training-log.md](./policies/training-log.md) under "Reviews".
+Time each step above against the 24-hour clock. The run is recorded in
+[policies/training-log.md](./policies/training-log.md) under "Reviews".

@@ -24,7 +24,7 @@ import {
 import { inTenant, seedClinic, seedContact, type SeededClinic } from "./setup/factories";
 
 /**
- * Slot holds and the overlap guard (drizzle/0053; plan §7.1-7.3, §11.4,
+ * Slot holds and the overlap guard (drizzle/0056; plan §7.1-7.3, §11.4,
  * §11.6).
  *
  * The invariant: within one clinic, no live hold overlaps another holder's
@@ -95,7 +95,7 @@ async function insertAppointment(
   return rows[0]!.id;
 }
 
-describeDb("slot holds and the overlap guard (0053)", () => {
+describeDb("slot holds and the overlap guard (0056)", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();

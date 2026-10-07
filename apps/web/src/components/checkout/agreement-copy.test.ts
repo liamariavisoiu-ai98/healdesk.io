@@ -99,6 +99,16 @@ describe("and the text copy, on every day the PDF fails", () => {
     expect(html).not.toContain("—");
   });
 
+  test("a Data Protection Agreement downloads under its own name, without its version's namespace", () => {
+    const dpa = { ...SIGNED, version: "dpa/1.0.0" };
+    const pdf = markup({ agreement: dpa, fileStem: "healdesk-dpa" });
+    expect(pdf).toContain('download="healdesk-dpa-1.0.0.pdf"');
+    const text = markup({ agreement: dpa, fileStem: "healdesk-dpa", unavailable: true });
+    expect(text).toContain('download="healdesk-dpa-1.0.0.txt"');
+    // A path separator never reaches a file name.
+    expect(pdf + text).not.toMatch(/download="[^"]*\//);
+  });
+
   test("an agreement with no id is offered as text from the start", () => {
     // Nothing to ask the server for, so a PDF link here would be a link that
     // is certain to 401 the moment it is pressed.

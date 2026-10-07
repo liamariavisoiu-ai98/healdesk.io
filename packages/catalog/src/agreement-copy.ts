@@ -1,6 +1,6 @@
 import type { AgreementKind } from "./agreement-kind";
 import { assentSentence, BAA_ACTION_LABEL, BAA_ASSENT_LABEL, CURRENT_BAA_VERSION } from "./baa";
-import { BAA_EXPLAINER, clauseExplainer, type BaaExplainerTerm } from "./baa-explainer";
+import { baaExplainerFor, clauseExplainer, type BaaExplainerTerm } from "./baa-explainer";
 import { CURRENT_DPA_VERSION, DPA_ACTION_LABEL, DPA_ASSENT_LABEL, dpaAssentSentence } from "./dpa";
 import { DPA_EXPLAINER, dpaClauseExplainer } from "./dpa-explainer";
 
@@ -13,6 +13,11 @@ import { DPA_EXPLAINER, dpaClauseExplainer } from "./dpa-explainer";
  * BAA_EXPLAINER, the BAA's clause notes (which cite 45 CFR 164.504(e)) and the
  * BAA's assent label never appear beside a DPA: `AGREEMENT_COPY.dpa` holds
  * none of them, which agreement-copy.test.ts asserts.
+ *
+ * What the screen says about the document is read by the version it renders,
+ * never off a constant: the explainer, whose bullets 1.3.0 words differently
+ * from 1.2.1 (`baaExplainerFor`, agreement-changes.md §12.14, release gate
+ * 11), as the clause notes are (`clauseExplainer`).
  */
 
 /** "Why you're signing this": the shape BAA_EXPLAINER and DPA_EXPLAINER share. */
@@ -30,7 +35,8 @@ export type AgreementCopy = {
   title: string;
   /** The version a buyer signs today: the kind's template at [0]. */
   currentVersion: string;
-  explainer: AgreementExplainer;
+  /** "Why you're signing this", for the version the screen renders. */
+  explainer: (templateVersion: string) => AgreementExplainer;
   /** The plain-English note beside one clause of one version, or undefined. */
   clauseNote: (templateVersion: string, clauseId: string) => BaaExplainerTerm | undefined;
   /** The fixed half of the sentence beside the tick box, which the server checks the browser showed. */
@@ -41,12 +47,21 @@ export type AgreementCopy = {
   actionLabel: string;
 };
 
+/**
+ * The DPA's explainer. One version so far, and nothing in it depends on the
+ * version; a later DPA that words a bullet differently keys its own here, as
+ * baaExplainerFor does for the BAA.
+ */
+function dpaExplainerFor(): AgreementExplainer {
+  return DPA_EXPLAINER;
+}
+
 export const AGREEMENT_COPY: Readonly<Record<AgreementKind, AgreementCopy>> = {
   baa: {
     kind: "baa",
     title: "Business Associate Agreement",
     currentVersion: CURRENT_BAA_VERSION,
-    explainer: BAA_EXPLAINER,
+    explainer: baaExplainerFor,
     clauseNote: clauseExplainer,
     assentLabel: BAA_ASSENT_LABEL,
     assentSentence,
@@ -56,7 +71,7 @@ export const AGREEMENT_COPY: Readonly<Record<AgreementKind, AgreementCopy>> = {
     kind: "dpa",
     title: "Data Protection Agreement",
     currentVersion: CURRENT_DPA_VERSION,
-    explainer: DPA_EXPLAINER,
+    explainer: dpaExplainerFor,
     clauseNote: dpaClauseExplainer,
     assentLabel: DPA_ASSENT_LABEL,
     assentSentence: dpaAssentSentence,

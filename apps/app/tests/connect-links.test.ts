@@ -638,7 +638,7 @@ describeDb("connection links", () => {
   /* ------------------------------------------------------- calendar links */
 
   test("a calendar token opens and burns only as a calendar link, and no other token opens a calendar page", async () => {
-    // 0053's fifth purpose. The column is in both the resolver's comparison
+    // 0056's fifth purpose. The column is in both the resolver's comparison
     // and the burn's predicate, so isolation must hold in both directions:
     // a calendar link spent on the credential wizard, or a connect link on
     // the calendar page, would each hand one page's capability to the other.

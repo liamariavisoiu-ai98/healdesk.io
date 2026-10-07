@@ -18,7 +18,7 @@ import type { TenantTx } from "@/lib/tenant";
  *
  * Read fresh on every call and never cached, in the transaction the caller
  * already has open. The rule is the database's, applied once here and once
- * in app_calendar_write_permitted() (drizzle/0053), so the two cannot
+ * in app_calendar_write_permitted() (drizzle/0056), so the two cannot
  * disagree:
  *
  *   1. No agreement in effect (app_agreement_in_effect, 0048): `none`. A

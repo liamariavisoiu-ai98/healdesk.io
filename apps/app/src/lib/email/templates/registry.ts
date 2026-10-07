@@ -1,10 +1,31 @@
 import type { EmailKind } from "../kind-rules";
 import type { NoticeKind, NoticeOwner } from "../kinds";
 
+import { ALLOWANCE_FALLBACK_ENTRY } from "./allowance_fallback";
+import { CANCEL_REVERSED_ENTRY } from "./cancel_reversed";
+import { CANCEL_SCHEDULED_ENTRY } from "./cancel_scheduled";
+import { CANCELED_ENTRY } from "./canceled";
+import { CARD_EXPIRING_ENTRY } from "./card_expiring";
+import { CONNECT_CONNECTED_ENTRY } from "./connect_connected";
+import { CONNECT_DISCONNECTED_ENTRY } from "./connect_disconnected";
 import { DEVICE_CHANGED_ENTRY } from "./device_changed";
+import { GRACE_ENDING_ENTRY } from "./grace_ending";
+import { LOCATION_ADDED_ENTRY } from "./location_added";
 import { OPS_ALERT_FIXTURE, renderOpsAlert } from "./ops_alert";
 import { ORDER_CONFIRMED_DELAYED_ENTRY } from "./order_confirmed_delayed";
+import { OVERAGE_INVOICED_ENTRY } from "./overage_invoiced";
+import { PAYMENT_ACTION_REQUIRED_ENTRY } from "./payment_action_required";
+import { PAYMENT_FAILED_ENTRY } from "./payment_failed";
+import { PLAN_CHANGED_ENTRY } from "./plan_changed";
+import { PLAN_STARTED_ENTRY } from "./plan_started";
+import { PRICE_STEPPED_UP_ENTRY } from "./price_stepped_up";
+import { RECEIPT_ENTRY } from "./receipt";
+import { REFUND_ISSUED_ENTRY } from "./refund_issued";
+import { RENEWAL_UPCOMING_ENTRY } from "./renewal_upcoming";
+import { RESTORED_ENTRY } from "./restored";
 import { SIGN_IN_LINK_ENTRY } from "./sign_in_link";
+import { STEP_UP_REMINDER_ENTRY } from "./step_up_reminder";
+import { SUSPENDED_ENTRY } from "./suspended";
 import type { EmailTemplate } from "./types";
 
 /**
@@ -37,6 +58,30 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   sign_in_link: SIGN_IN_LINK_ENTRY,
   order_confirmed_delayed: ORDER_CONFIRMED_DELAYED_ENTRY,
   device_changed: DEVICE_CHANGED_ENTRY,
+  // The Stripe launch's billing emails (Package C, and Package D's two), in
+  // the outbox registry's order. The usage alerts are not here: they stay
+  // pending below until their stop-link page ships.
+  payment_failed: PAYMENT_FAILED_ENTRY,
+  payment_action_required: PAYMENT_ACTION_REQUIRED_ENTRY,
+  grace_ending: GRACE_ENDING_ENTRY,
+  suspended: SUSPENDED_ENTRY,
+  restored: RESTORED_ENTRY,
+  cancel_scheduled: CANCEL_SCHEDULED_ENTRY,
+  cancel_reversed: CANCEL_REVERSED_ENTRY,
+  canceled: CANCELED_ENTRY,
+  renewal_upcoming: RENEWAL_UPCOMING_ENTRY,
+  overage_invoiced: OVERAGE_INVOICED_ENTRY,
+  plan_changed: PLAN_CHANGED_ENTRY,
+  location_added: LOCATION_ADDED_ENTRY,
+  connect_disconnected: CONNECT_DISCONNECTED_ENTRY,
+  plan_started: PLAN_STARTED_ENTRY,
+  price_stepped_up: PRICE_STEPPED_UP_ENTRY,
+  step_up_reminder: STEP_UP_REMINDER_ENTRY,
+  allowance_fallback: ALLOWANCE_FALLBACK_ENTRY,
+  receipt: RECEIPT_ENTRY,
+  refund_issued: REFUND_ISSUED_ENTRY,
+  card_expiring: CARD_EXPIRING_ENTRY,
+  connect_connected: CONNECT_CONNECTED_ENTRY,
 };
 
 export type PendingTemplate = {
@@ -45,34 +90,45 @@ export type PendingTemplate = {
   ships: string;
 };
 
+/** The billing kinds templated above, kept out of the pending list's type. */
+type BillingTemplatedKind =
+  | "payment_failed"
+  | "payment_action_required"
+  | "grace_ending"
+  | "suspended"
+  | "restored"
+  | "cancel_scheduled"
+  | "cancel_reversed"
+  | "canceled"
+  | "renewal_upcoming"
+  | "overage_invoiced"
+  | "plan_changed"
+  | "location_added"
+  | "connect_disconnected"
+  | "plan_started"
+  | "price_stepped_up"
+  | "step_up_reminder"
+  | "allowance_fallback"
+  | "receipt"
+  | "refund_issued"
+  | "card_expiring"
+  | "connect_connected";
+
 /** Every kind still waiting for its template, with the session that owes it. */
 export const PENDING_TEMPLATES: Record<
-  Exclude<EmailKind, "ops_alert" | "sign_in_link" | "order_confirmed_delayed" | "device_changed">,
+  Exclude<
+    EmailKind,
+    | "ops_alert"
+    | "sign_in_link"
+    | "order_confirmed_delayed"
+    | "device_changed"
+    | BillingTemplatedKind
+  >,
   PendingTemplate
 > = {
-  payment_failed: { owner: "package_c", ships: "Package C, Gate A (L27)" },
-  payment_action_required: { owner: "package_c", ships: "Package C, Gate A (L27)" },
-  grace_ending: { owner: "package_c", ships: "Package C, Gate A (L27)" },
-  suspended: { owner: "package_c", ships: "Package C, Gate A (L27)" },
-  restored: { owner: "package_c", ships: "Package C, Gate A (L27)" },
-  cancel_scheduled: { owner: "package_c", ships: "Package C, Gate A (E1)" },
-  cancel_reversed: { owner: "package_c", ships: "Package C, Gate A (E1)" },
-  canceled: { owner: "package_c", ships: "Package C, Gate A (E2)" },
-  renewal_upcoming: { owner: "package_c", ships: "Package C, Gate A (L27)" },
-  usage_80: { owner: "package_c", ships: "Package C, Gate A (L27)" },
-  usage_100: { owner: "package_c", ships: "Package C, Gate A (L27)" },
-  overage_invoiced: { owner: "package_c", ships: "Package C, Gate A (L27)" },
-  plan_changed: { owner: "package_c", ships: "Package C, Gate A (L27)" },
-  location_added: { owner: "package_c", ships: "Package C, Gate A (L27)" },
-  connect_disconnected: { owner: "package_d", ships: "Package D (O14)" },
-  plan_started: { owner: "package_c", ships: "Package C, M6 hook (L2)" },
-  price_stepped_up: { owner: "package_c", ships: "Package C, M6 hook (L3)" },
-  step_up_reminder: { owner: "package_c", ships: "Package C, M6 hook (L4)" },
-  allowance_fallback: { owner: "package_c", ships: "Package B/C, Gate B (L19)" },
-  receipt: { owner: "package_c", ships: "Package C, Gate A (L27)" },
-  refund_issued: { owner: "package_c", ships: "Package C, Gate A (L27)" },
-  card_expiring: { owner: "package_c", ships: "Package C, Gate A (L27)" },
-  connect_connected: { owner: "package_d", ships: "Package D (O14)" },
+  // Optional kinds: they need the stop-link page, which lands with the switches.
+  usage_80: { owner: "package_c", ships: "M3, with the usage-alerts stop page (L27)" },
+  usage_100: { owner: "package_c", ships: "M3, with the usage-alerts stop page (L27)" },
   sign_in_help_link: { owner: "plan", ships: "M2, sign-in (O6)" },
 };
 

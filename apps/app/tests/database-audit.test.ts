@@ -127,7 +127,14 @@ describeDb("database audit (0031)", () => {
     });
   });
 
-  test("every clinics column except the gate columns stays updatable (a new column needs its GRANT)", async () => {
+  test("every clinics column except the gate columns, the offboarding dates and the record clock's history stays updatable (a new column needs its GRANT)", async () => {
+    // The two BAA gate columns (0031) and the agreement-kind gate's two
+    // (0051); the three offboarding dates that app_destroy_booking_requests
+    // reads as its floor, which only app_start_offboarding and
+    // app_mark_clinic_destroyed write; and the record clock's last
+    // shortening, which app_purge_booking_requests reads and only the
+    // clinics_record_clock trigger writes (booking_request_destruction
+    // migration).
     const { rows } = await getMigratorPool().query<{ attname: string; ok: boolean }>(`
       select a.attname,
              has_column_privilege('healdesk_app'::name, a.attrelid, a.attnum, 'UPDATE') as ok
@@ -135,18 +142,24 @@ describeDb("database audit (0031)", () => {
        where a.attrelid = 'clinics'::regclass and a.attnum > 0 and not a.attisdropped
     `);
     const locked = rows.filter((r) => !r.ok).map((r) => r.attname).sort();
-    // The BAA gate's two (0031), the agreement-kind gate's two (0051), and the
-    // client number every sealed credential is labelled with (0053).
+    // The BAA gate's two (0031), the agreement-kind gate's two (0051), the
+    // offboarding and record-clock columns (0054), and the client number every
+    // sealed credential is labelled with (migration A, 0056).
     expect(locked).toEqual([
       "agreement_kind",
       "baa_signed_at",
       "client_number",
       "data_classification",
+      "destroy_after",
+      "destroyed_at",
+      "offboarding_started_at",
       "regulatory_regime",
+      "retention_record_days_previous",
+      "retention_record_days_shortened_at",
     ]);
   });
 
-  test("client numbers are issued in order of creation and never change, for any role (0053)", async () => {
+  test("client numbers are issued in order of creation and never change, for any role (0056)", async () => {
     const first = await seedClinic("number1");
     const second = await seedClinic("number2");
     const { rows } = await getMigratorPool().query<{ id: string; client_number: number }>(
@@ -266,7 +279,7 @@ describeDb("database audit (0031)", () => {
     expect(seq[0]).toEqual({ usage: true, update: false });
   });
 
-  test("a connection's id, clinic and provider never move, for any role: its credential is sealed to them (0053)", async () => {
+  test("a connection's id, clinic and provider never move, for any role: its credential is sealed to them (0056)", async () => {
     // The envelope's AAD binds the clinic and the row's id, and the KMS label
     // (C6b) the clinic's number and the row's provider; a label is only worth
     // what its inputs' immutability is worth.
@@ -319,7 +332,7 @@ describeDb("database audit (0031)", () => {
     });
   });
 
-  test("the SQL copies of the calendar catalogue agree with it, entry for entry (0053)", async () => {
+  test("the SQL copies of the calendar catalogue agree with it, entry for entry (0056)", async () => {
     // app_calendar_election_released() and app_booking_system_live() are the
     // catalogue written out, because SQL cannot read it, and the election
     // guard believes them rather than the writer. Releasing an election
@@ -576,7 +589,7 @@ describeDb("database audit (0031)", () => {
   });
 
   test("the BAA gate trigger guards every table that carries a caller's number or payload", async () => {
-    // In the catalogue's own (C collation) order. 0053 added the slot holds
+    // In the catalogue's own (C collation) order. 0056 added the slot holds
     // (a time tied to a call and a contact) and the named providers with
     // their services (whose patient someone is, beside a booking).
     const expected = [
@@ -628,7 +641,7 @@ describeDb("database audit (0031)", () => {
         "app_record_billing_request",
         "app_due_billing_requests",
         "app_clinic_for_deposit",
-        // 0053: the calendar watch's tenant walk, the live-account count and
+        // 0056: the calendar watch's tenant walk, the live-account count and
         // the desk token re-issue.
         "app_calendar_connections",
         "app_google_account_live_count",
@@ -641,9 +654,9 @@ describeDb("database audit (0031)", () => {
     }
   });
 
-  test("0053's tables give the runtime role only the verbs their records need", async () => {
+  test("0056's tables give the runtime role only the verbs their records need", async () => {
     // 0003's default privileges handed the runtime role all four verbs on each
-    // new table; 0053 took back everything the records do not need. A grant
+    // new table; 0056 took back everything the records do not need. A grant
     // run by hand later fails here.
     const verbs = async (table: string) => {
       const { rows } = await getMigratorPool().query<{
@@ -720,7 +733,7 @@ describeDb("database audit (0031)", () => {
     // like its purpose: still only used_at and consumed_ip move.
     expect((await verbs("connection_links")).updatable).toEqual(["consumed_ip", "used_at"]);
 
-    // The columns 0053 added for runtime writers on tables with table-level
+    // The columns 0056 added for runtime writers on tables with table-level
     // UPDATE stay writable.
     for (const [table, column] of [
       ["appointments", "duration_minutes"],

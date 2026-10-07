@@ -17,26 +17,31 @@ import {
  */
 describe("overage prices on a Session", () => {
   test("each package gets the meters for the channels it sells, at its own rate", () => {
-    // The rates the owner set on 5 October 2026: $0.80 a voice minute, $0.40
-    // a chat conversation on the single-channel chat packages, $0.30 on the
-    // rest. Spelled out rather than derived, so a catalog edit that changes
-    // what a clinic is billed has to change this line too.
-    expect(overageLookupKeys(getPlan("voice")!)).toEqual(["healdesk_meter_voice_minutes_80"]);
+    // The rates the owner set on 5 October 2026, billed per started block of
+    // 100 since 6 October: $80 a block of voice minutes, $40 a block of chat
+    // conversations on the single-channel chat packages, $30 on the rest.
+    // Spelled out rather than derived, so a catalog edit that changes what a
+    // clinic is billed has to change this line too.
+    expect(overageLookupKeys(getPlan("voice")!)).toEqual([
+      "healdesk_meter_voice_minutes_block100_8000",
+    ]);
     for (const id of ["chat-web", "chat-meta"]) {
-      expect(overageLookupKeys(getPlan(id)!)).toEqual(["healdesk_meter_chat_conversations_40"]);
+      expect(overageLookupKeys(getPlan(id)!)).toEqual([
+        "healdesk_meter_chat_conversations_block100_4000",
+      ]);
     }
     expect(overageLookupKeys(getPlan("chat-dual")!)).toEqual([
-      "healdesk_meter_chat_conversations_30",
+      "healdesk_meter_chat_conversations_block100_3000",
     ]);
     for (const id of ["web-voice", "meta-voice"]) {
       expect(overageLookupKeys(getPlan(id)!)).toEqual([
-        "healdesk_meter_voice_minutes_80",
-        "healdesk_meter_chat_conversations_30",
+        "healdesk_meter_voice_minutes_block100_8000",
+        "healdesk_meter_chat_conversations_block100_3000",
       ]);
     }
     expect(overageLookupKeys(getPlan("complete")!)).toEqual([
-      "healdesk_meter_voice_minutes_80",
-      "healdesk_meter_chat_conversations_30",
+      "healdesk_meter_voice_minutes_block100_8000",
+      "healdesk_meter_chat_conversations_block100_3000",
     ]);
   });
 
@@ -55,9 +60,9 @@ describe("overage prices on a Session", () => {
   test("three metered prices on two meters cover every package", () => {
     const keys = new Set(plans.flatMap((plan) => overageLookupKeys(plan)));
     expect([...keys].sort()).toEqual([
-      "healdesk_meter_chat_conversations_30",
-      "healdesk_meter_chat_conversations_40",
-      "healdesk_meter_voice_minutes_80",
+      "healdesk_meter_chat_conversations_block100_3000",
+      "healdesk_meter_chat_conversations_block100_4000",
+      "healdesk_meter_voice_minutes_block100_8000",
     ]);
   });
 

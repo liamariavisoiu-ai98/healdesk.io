@@ -68,7 +68,7 @@ export async function truncateAll(): Promise<void> {
   // for the identity-plane tables 0043 added without foreign keys
   // (checkout_intents, stripe_connect_events, stripe_connect_states).
   // billing_requests (0050) cascades from clinics, and is named anyway beside
-  // the rest of the billing ledger. 0053's tables all hang off clinics
+  // the rest of the billing ledger. 0056's tables all hang off clinics
   // (google_oauth_states by target_clinic_id), so the cascade empties them,
   // and RESTART IDENTITY puts clinics_client_number_seq back to its start.
   await pool.query(`

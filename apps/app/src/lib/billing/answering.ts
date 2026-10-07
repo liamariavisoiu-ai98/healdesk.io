@@ -1,8 +1,26 @@
 import type { Channel } from "@healdesk/catalog";
+import { and, eq } from "drizzle-orm";
 
-import type { BillingStatus, ChannelsEnabled, UsageSource } from "@/db/schema";
+import {
+  clinicChannels,
+  clinics,
+  clinicSettings,
+  usageEvents,
+  type BillingStatus,
+  type ChannelsEnabled,
+  type UsageMeter,
+  type UsageSource,
+} from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
-import type { ClinicPause } from "@/lib/channels/state";
+import { isPaused, type ClinicPause } from "@/lib/channels/state";
+import { clinicLocalDate, closedOn } from "@/lib/clinic/closures";
+import { isOpenAt, parseOpeningHours } from "@/lib/clinic/opening-hours";
+import { notifyOps } from "@/lib/ops/notify";
+import { withTenant } from "@/lib/tenant";
+
+import { effectiveIncluded, getEntitlements, hasPlanStarted } from "./entitlements";
+import { deliverCriticalAfterCommit } from "./notices";
+import { enqueueAllowanceFallback, openWindowAt, usedOf } from "./usage";
 
 /**
  * May the assistant answer this call or conversation? The one place every
@@ -10,11 +28,21 @@ import type { ClinicPause } from "@/lib/channels/state";
  * channel was bought, whether it is on and live, the header's pause, voice
  * coverage, and "Stop and fall back" at the allowance.
  *
- * STUB written by S0 so callers can be built against the signatures; Package
- * B replaces the bodies of `assistantMayAnswer` and `voiceAnswerDecision`,
- * and adds the pure `decideAnswer(facts)` and `coverageModeOf`. Until then
- * the gate answers everything, which is today's behaviour: nothing calls it
- * yet.
+ * Two halves. `decideAnswer` is pure: the rules, in order, over a set of
+ * facts, so every reason and its precedence is one table test.
+ * `assistantMayAnswer` reads those facts and decides. It takes no
+ * transaction and must be called outside one (R1): a location has no
+ * entitlements row of its own, its billing clinic's row is FORCE RLS, and
+ * reading it from inside the location's transaction would mean a second
+ * connection waiting on the first, which in a ten-connection pool is a
+ * deadlock Postgres cannot see. So it opens the location's transaction, then
+ * the billing clinic's, one after the other.
+ *
+ * A refusal is a pass-through, never silence: voice goes to the clinic's
+ * direct line, website chat to the contact form, a Meta message to no reply
+ * (staff see it in the inbox). Where a voice pass-through has no direct line
+ * to go to, the runtime still never leaves a dead line: it answers with the
+ * fixed safe script (R25; see `voiceAnswerDecision`).
  */
 
 export type { Channel };
@@ -124,24 +152,343 @@ export type AssistantMayAnswerInput = {
   actor: ActorContext;
 };
 
+const FALLBACKS: Readonly<Record<Channel, AnswerFallback>> = {
+  voice: "direct_line",
+  web: "contact_form",
+  meta: "no_reply",
+};
+
+/** The meter a channel's interactions count against. */
+export function meterForChannel(channel: Channel): UsageMeter {
+  return channel === "voice" ? "voice_minutes" : "chat_conversations";
+}
+
+/**
+ * The clinic's voice coverage mode (BD23). Today `clinics.call_routing`:
+ * `always` forwards every call (All calls), `conditional` forwards the calls
+ * staff miss and, with after-hours forwarding, everything outside hours
+ * (Overflow and after hours, the default). No stored value can say After
+ * hours only yet, so `outside_coverage` cannot fire until the funnel's
+ * `clinic_settings.coverage_mode` lands and this accessor, the only reader,
+ * switches to it. An unknown value is the default mode.
+ */
+export function coverageModeOf(clinic: {
+  readonly callRouting: string | null | undefined;
+}): CoverageMode {
+  switch (clinic.callRouting) {
+    case "always":
+      return "all_calls";
+    case "conditional":
+      return "overflow_after_hours";
+    default:
+      return "overflow_after_hours";
+  }
+}
+
+function passThrough(
+  channel: Channel,
+  reason: PassThroughReason,
+  directLine: string | null,
+): AnswerDecision {
+  return {
+    decision: "pass_through",
+    reason,
+    fallback: FALLBACKS[channel],
+    directLine: channel === "voice" ? directLine : null,
+  };
+}
+
+/**
+ * The billing rule (BD9, R8, R21), or null when billing lets the assistant
+ * answer. A `demo` row reaches it only on a clinic that is not synthetic,
+ * where it fails closed like a missing row (R1).
+ */
+function billingRefusal(
+  billing: NonNullable<AnswerFacts["billing"]>,
+  now: Date,
+): PassThroughReason | null {
+  const graceRunning =
+    billing.graceEndsAt !== null && billing.graceEndsAt.getTime() > now.getTime();
+  switch (billing.status) {
+    case "active":
+      break;
+    case "past_due":
+      // Inside grace the clinic keeps its service while Stripe retries.
+      if (!graceRunning) return "unpaid";
+      break;
+    case "canceling":
+      // A cancellation scheduled before the plan started means it never
+      // will: nothing more is charged, so nothing more is answered. After
+      // the start the paid period runs out, unless a payment failed in it
+      // and its grace has ended (R21: turning auto-renew off is not a way to
+      // keep an unpaid service).
+      if (!billing.isPlanStarted) return "cancel_before_start";
+      if (billing.graceEndsAt !== null && !graceRunning) return "unpaid";
+      break;
+    case "provisioning":
+    case "paused":
+    case "demo":
+      return "not_active";
+    case "suspended":
+      return "suspended";
+    case "canceled":
+    case "purged":
+      return "canceled";
+  }
+  // Auto-renew off before the start: setAutoRenew stamps cancel_at at once,
+  // before the webhook moves the status, so a first answer in between cannot
+  // start a plan the clinic has just declined (BD10).
+  if (billing.cancelAt !== null && !billing.isPlanStarted) return "cancel_before_start";
+  return null;
+}
+
+/**
+ * The rules, in order; the first that refuses decides (BD22, with R1, R8,
+ * R18, R20 and R21):
+ *
+ *   1. billing (BD9). A synthetic clinic with no billing row skips it; any
+ *      other clinic with none is `not_active` (fail closed, R1). A `demo`
+ *      row skips it on a synthetic clinic and is `not_active` elsewhere;
+ *   2. the channel was not bought: `not_purchased`;
+ *   3. the channel row: missing is live on a synthetic clinic and
+ *      `channel_not_live` elsewhere (R1); switched Off is `channel_off`; not
+ *      live yet is `channel_not_live`;
+ *   4. the header's pause: `ai_paused`;
+ *   5. voice in After hours only coverage while the clinic is open and not
+ *      closed today: `outside_coverage`. Unknown hours or a bad time zone
+ *      answer;
+ *   6. "Stop and fall back" with an interaction not yet counted and the open
+ *      window's allowance used up: `allowance_cap`. Never before the first
+ *      window or on an expired one (BD6, R20), and never on an interaction
+ *      already counted, so an allowed conversation is not cut off mid-way
+ *      (R18).
+ */
+export function decideAnswer(facts: AnswerFacts): AnswerDecision {
+  const { channel, now, billing } = facts;
+  const refuse = (reason: PassThroughReason) => passThrough(channel, reason, facts.directLine);
+
+  // 1. Billing.
+  if (billing === null) {
+    if (!facts.isSynthetic) return refuse("not_active");
+  } else if (!(billing.status === "demo" && facts.isSynthetic)) {
+    const reason = billingRefusal(billing, now);
+    if (reason) return refuse(reason);
+  }
+
+  // 2. Bought.
+  if (billing !== null && !billing.channelsEnabled[channel]) return refuse("not_purchased");
+
+  // 3. The channel row.
+  if (facts.channelRow === null) {
+    if (!facts.isSynthetic) return refuse("channel_not_live");
+  } else {
+    if (!facts.channelRow.enabled) return refuse("channel_off");
+    if (facts.channelRow.liveAt === null) return refuse("channel_not_live");
+  }
+
+  // 4. The pause.
+  if (isPaused(facts.pause, now)) return refuse("ai_paused");
+
+  // 5. Voice coverage.
+  if (
+    channel === "voice" &&
+    facts.coverageMode === "after_hours_only" &&
+    facts.openNow === true &&
+    !facts.closedToday
+  ) {
+    return refuse("outside_coverage");
+  }
+
+  // 6. The allowance cap.
+  if (billing !== null && billing.overageMode === "hard_cap" && facts.startsNew) {
+    const window = openWindowAt(
+      { currentPeriodStart: billing.windowStart, currentPeriodEnd: billing.windowEnd },
+      now,
+    );
+    if (window !== null && billing.used >= billing.included) return refuse("allowance_cap");
+  }
+
+  return { decision: "answer" };
+}
+
+/** isOpenAt, or null when the hours are missing, malformed or the time zone is bad. */
+function openAt(hours: unknown, at: Date, timeZone: string): boolean | null {
+  if (!hours) return null;
+  try {
+    return isOpenAt(parseOpeningHours(hours), at, timeZone);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The gate (R1). Takes no transaction and must be called outside one: it
- * opens the location's transaction, then the billing clinic's, in sequence,
- * and enqueues `allowance_fallback` when the cap engages.
- *
- * STUB: answers everything until Package B lands the rules.
+ * opens the location's transaction (the clinic row, its channel row, its
+ * settings), then the billing clinic's (entitlements, and whether this call
+ * or conversation is already counted), and decides. When "Stop and fall back"
+ * engages it queues `allowance_fallback` on the billing clinic in a third
+ * transaction and sends critical notices after that commit.
  */
 export async function assistantMayAnswer(input: AssistantMayAnswerInput): Promise<AnswerDecision> {
-  void input;
-  return { decision: "answer" };
+  return (await runGate(input)).decision;
+}
+
+/** The gate's work, and whether the clinic exists at all (an unknown id raises no alert). */
+async function runGate(
+  input: AssistantMayAnswerInput,
+): Promise<{ decision: AnswerDecision; isKnownClinic: boolean }> {
+  const now = input.now ?? new Date();
+  const { channel, actor } = input;
+  const meter = meterForChannel(channel);
+
+  const location = await withTenant({ clinicId: input.clinicId, actor }, async (tx) => {
+    const [clinic] = await tx.db
+      .select({
+        timezone: clinics.timezone,
+        openingHours: clinics.openingHours,
+        callRouting: clinics.callRouting,
+        dataClassification: clinics.dataClassification,
+        billingClinicId: clinics.billingClinicId,
+      })
+      .from(clinics)
+      .where(eq(clinics.id, tx.clinicId))
+      .limit(1);
+    if (!clinic) return null;
+    const [row] = await tx.db
+      .select({ enabled: clinicChannels.enabled, liveAt: clinicChannels.liveAt })
+      .from(clinicChannels)
+      .where(and(eq(clinicChannels.clinicId, tx.clinicId), eq(clinicChannels.channel, channel)))
+      .limit(1);
+    const [settings] = await tx.db
+      .select({
+        pausedAt: clinicSettings.aiPausedAt,
+        pausedUntil: clinicSettings.aiPausedUntil,
+        directLine: clinicSettings.directLineE164,
+      })
+      .from(clinicSettings)
+      .where(eq(clinicSettings.clinicId, tx.clinicId))
+      .limit(1);
+
+    const coverageMode = coverageModeOf(clinic);
+    const openNow = channel === "voice" ? openAt(clinic.openingHours, now, clinic.timezone) : null;
+    // A closure day matters only where it could change the answer: an After
+    // hours only clinic whose weekly hours say it is open now.
+    let closedToday = false;
+    if (channel === "voice" && coverageMode === "after_hours_only" && openNow === true) {
+      let today: string | null = null;
+      try {
+        today = clinicLocalDate(now, clinic.timezone);
+      } catch {
+        today = null;
+      }
+      if (today) closedToday = await closedOn(tx.db, tx.clinicId, today);
+    }
+
+    return {
+      billingClinicId: clinic.billingClinicId ?? tx.clinicId,
+      isSynthetic: clinic.dataClassification === "synthetic",
+      channelRow: row ?? null,
+      pause: { pausedAt: settings?.pausedAt ?? null, pausedUntil: settings?.pausedUntil ?? null },
+      directLine: settings?.directLine ?? null,
+      coverageMode,
+      openNow,
+      closedToday,
+    };
+  });
+  // No clinic behind the id: nothing to answer for, and no line to pass to.
+  if (!location) {
+    return { decision: passThrough(channel, "not_active", null), isKnownClinic: false };
+  }
+
+  const { billingClinicId } = location;
+  const billed = await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
+    const row = await getEntitlements(tx.db, billingClinicId);
+    if (!row || !input.usage) return { row, counted: false };
+    const [seen] = await tx.db
+      .select({ id: usageEvents.id })
+      .from(usageEvents)
+      .where(
+        and(
+          eq(usageEvents.clinicId, billingClinicId),
+          eq(usageEvents.meter, meter),
+          eq(usageEvents.source, input.usage.source),
+          eq(usageEvents.sourceRef, input.usage.sourceRef),
+        ),
+      )
+      .limit(1);
+    return { row, counted: seen !== undefined };
+  });
+
+  const row = billed.row;
+  const facts: AnswerFacts = {
+    channel,
+    now,
+    isSynthetic: location.isSynthetic,
+    billing: row
+      ? {
+          status: row.status,
+          graceEndsAt: row.graceEndsAt,
+          isPlanStarted: hasPlanStarted(row),
+          cancelAt: row.cancelAt,
+          channelsEnabled: row.channelsEnabled,
+          overageMode: row.overageMode === "hard_cap" ? "hard_cap" : "allow",
+          included: effectiveIncluded(row, meter),
+          used: usedOf(row, meter),
+          windowStart: row.currentPeriodStart,
+          windowEnd: row.currentPeriodEnd,
+        }
+      : null,
+    channelRow: location.channelRow,
+    pause: location.pause,
+    directLine: location.directLine,
+    coverageMode: location.coverageMode,
+    openNow: location.openNow,
+    closedToday: location.closedToday,
+    startsNew: !billed.counted,
+  };
+  const decision = decideAnswer(facts);
+
+  // "Stop and fall back" has engaged: tell the clinic once per meter per
+  // window (L19), whatever its usage-alerts switch says (BD21).
+  if (decision.decision === "pass_through" && decision.reason === "allowance_cap" && row) {
+    const window = openWindowAt(row, now);
+    if (window) {
+      const included = facts.billing?.included ?? 0;
+      const queued = await withTenant({ clinicId: billingClinicId, actor }, (tx) =>
+        enqueueAllowanceFallback(tx, { meter, included, window }),
+      );
+      if (queued) await deliverCriticalAfterCommit(billingClinicId);
+    }
+  }
+  return { decision, isKnownClinic: true };
 }
 
 const VOICE_GATE_ACTOR: ActorContext = { type: "service", serviceName: "voice-gate" };
 
 /**
- * The gate for a voice call, for the voice tools now and the Retell process
- * later (BD25). Outside any transaction, like `assistantMayAnswer`.
+ * The gate for a voice call (BD25), outside any transaction like
+ * `assistantMayAnswer`: today the Synthflow tools' `context` and `slots`
+ * (and `book`, after its replay), and tomorrow the Retell custom-LLM process,
+ * which asks it when a call comes in and either answers or transfers to the
+ * returned direct line.
+ *
+ * A pass-through with no direct line has nowhere to send the caller. The
+ * runtime then answers anyway, with the fixed safe script (the tools'
+ * `answer_mode: "assistant"` with `booking_mode: "desk_confirms"`: take the
+ * caller's request for the front desk, book nothing), because a patient
+ * calling a clinic must always reach someone (CLAUDE.md, "Failure"). That is
+ * a configuration gap only a person can close, so ops hears of it here,
+ * once an hour per clinic and reason (R25).
  */
 export async function voiceAnswerDecision(clinicId: string, now?: Date): Promise<AnswerDecision> {
-  return assistantMayAnswer({ clinicId, channel: "voice", now, actor: VOICE_GATE_ACTOR });
+  const { decision, isKnownClinic } = await runGate({
+    clinicId,
+    channel: "voice",
+    now,
+    actor: VOICE_GATE_ACTOR,
+  });
+  if (isKnownClinic && decision.decision === "pass_through" && decision.directLine === null) {
+    await notifyOps("voice_fallback_no_direct_line", { clinicId, code: decision.reason });
+  }
+  return decision;
 }

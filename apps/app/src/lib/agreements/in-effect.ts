@@ -12,7 +12,7 @@ import type { TenantTx } from "@/lib/tenant";
  * "The agreement in effect" has one definition, app_agreement_in_effect()
  * (drizzle/0048): the organisation's newest bound, unterminated acceptance by
  * accepted_at. Go-live, the console's clinic card, the calendar election
- * guard and app_calendar_write_permitted() (drizzle/0053) all read it there,
+ * guard and app_calendar_write_permitted() (drizzle/0056) all read it there,
  * so this is a wrapper over that function and never a second query of
  * baa_acceptances: a TypeScript answer that ordered by bound_at, as the plan
  * of 5 October first had it, could name one agreement while the database's

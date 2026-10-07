@@ -2235,9 +2235,9 @@ function preamble121(v: BaaVariables): string {
  * nothing offers it, and signing refuses it: validateSignRequest and
  * signAgreement (apps/app/src/lib/agreements.ts) both sign only
  * BAA_TEMPLATES[0], or a released version inside its BAA_RELEASE_OVERLAP
- * window. Provisioning does not check it: its approval gate reads
- * currentBaaTemplate(), not the bound acceptance's version, until plan C15
- * makes it read the bound one, and C15 must land before the release. The
+ * window. Nor does provisioning put a row signed under it in force: since
+ * plan C15 its approval gate reads the bound acceptance's own version
+ * (isBaaVersionAcceptable), which no draft passes, until the release. The
  * owner releases it after an adversarial audit of the full text (owner, Q2;
  * plan C19), when it moves to [0]. Its golden hashes are the record from the
  * first draft; an edit before release regenerates them in the same commit
@@ -2802,8 +2802,8 @@ export const BAA_TEMPLATES: readonly BaaTemplate[] = [
   },
   // ⚖️ Drafted on 2026-10-06; not released, so not at [0], and signing
   // refuses it, taking only [0] or a released version inside its
-  // overlap. Provisioning's approval gate reads [0] too, not the bound
-  // acceptance's version, until plan C15, which must land before the
+  // overlap. Provisioning refuses a row signed under it too (plan C15: its
+  // approval gate reads the bound acceptance's own version) until the
   // release. Released by the owner after an audit of the full text (plan
   // C19): it then moves to [0] with a release date, and 1.2.1 stays signable
   // until the deadline in BAA_RELEASE_OVERLAP, unless the release raises

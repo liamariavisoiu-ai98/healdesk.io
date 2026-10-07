@@ -2,18 +2,21 @@ import { randomUUID } from "node:crypto";
 
 import {
   agreementKindOfVersion,
+  agreementPlatformFor,
   type AgreementKind,
   type BillingInterval,
   CHANNELS,
-  currentBaaTemplate,
-  getDpaTemplate,
+  getBaaTemplate,
   getPlan,
   getPlatform,
   isBillingInterval,
+  isBookingSystemId,
   isSpecialtyId,
   NO_PLATFORM_ID,
+  platforms,
   regimeFor,
   type RegulatoryRegime,
+  templateReadsCalendarAccount,
   supportsVerifiedAttribution, emptyOnboarding } from "@healdesk/catalog";
 import { and, eq, isNull, sql } from "drizzle-orm";
 
@@ -30,7 +33,9 @@ import {
 } from "@/db/schema";
 
 import { bindAgreement } from "./agreements";
-import { agreementKindSufficient } from "./agreements/kind";
+import { agreementKindSufficient, agreementTemplateReleased } from "./agreements/kind";
+import { recordAgreementTerms, signedCalendarTerms } from "./booking/elections";
+import { log } from "./log";
 import { AuditRecorder } from "./audit";
 import { seedAgentConfig } from "./onboarding/agent-config";
 import { addRecipient } from "./reporting/recipients";
@@ -133,7 +138,13 @@ export class ProvisioningError extends Error {
 export type ProvisionRequest = {
   clinicName: string;
   specialty: string;
-  /** Platform id from @healdesk/catalog, including "none". */
+  /**
+   * Platform id from @healdesk/catalog, including "none"; for a purchase
+   * that answered where its bookings live, that booking system's own
+   * (agreementPlatformFor). The clinic row records where bookings live from
+   * the signed agreement, not from this: a purchase that names another
+   * platform is provisioned as signed, and the difference recorded (plan C15).
+   */
   platform: string;
   /**
    * Phase two (revenue attribution is fenced out of v1). Optional since the
@@ -377,27 +388,6 @@ export async function provisionClinic(
   options: ProvisionOptions = {},
 ): Promise<ProvisionResult> {
   const email = request.contactEmail.trim().toLowerCase();
-  const platform = getPlatform(request.platform)!;
-
-  // The counsel gate, which until now was only ever a claim.
-  //
-  // baa.ts has always documented that "provisioning refuses" an unapproved
-  // template, and nothing enforced it — the flag reached the checkout UI as a
-  // banner and stopped there. A safeguard that exists only in a docstring is
-  // worse than none, because it gets relied on.
-  //
-  // It is a no-op today: the current template is approved. It exists for the
-  // next draft, so a revision in progress cannot be signed into a live account
-  // by anyone who forgets what the flag was for.
-  const template = currentBaaTemplate();
-  if (!template.approvedByCounsel) {
-    throw new Error(
-      `BAA template ${template.version} is not counsel-approved. Refusing to ` +
-        `provision a clinic against it: the signature would not create a ` +
-        `business associate relationship, and the account would be handling ` +
-        `PHI without one.`,
-    );
-  }
 
   // Fast path: a delivery we have already fully provisioned. Cheap, and it
   // keeps the common retry off the slug loop entirely. It is NOT the safety
@@ -427,7 +417,9 @@ export async function provisionClinic(
   }
 
   // Which paper the clinic is under, and whether it may be provisioned
-  // against it (plan Part L), decided before anything is written.
+  // against it (plan Part L), decided before anything is written: the
+  // approval gate on the signed row's own version, and where that row says
+  // the practice's bookings live (plan C15).
   const agreement = await agreementForProvisioning(request);
 
   const baseSlug = slugify(request.clinicName);
@@ -441,7 +433,7 @@ export async function provisionClinic(
     const slug =
       attempt === 0 ? baseSlug : `${baseSlug}-${randomUUID().slice(0, 6)}`;
     try {
-      return await provisionOnce({ request, context, options, email, platform, slug, agreement });
+      return await provisionOnce({ request, context, options, email, slug, agreement });
     } catch (error) {
       if (attempt < 4 && isSlugCollision(error)) continue;
       throw error;
@@ -454,7 +446,6 @@ async function provisionOnce({
   context,
   options,
   email,
-  platform,
   slug,
   agreement,
 }: {
@@ -462,7 +453,6 @@ async function provisionOnce({
   context: RequestContext;
   options: ProvisionOptions;
   email: string;
-  platform: { id: string };
   slug: string;
   agreement: ProvisionedAgreement;
 }): Promise<ProvisionResult> {
@@ -535,7 +525,9 @@ async function provisionOnce({
       name: request.clinicName.trim(),
       specialty: request.specialty,
       timezone: request.timezone ?? "America/New_York",
-      bookingProvider: request.platform === NO_PLATFORM_ID ? null : platform.id,
+      // Where the practice's bookings live, as the agreement it signed says,
+      // not as the purchase says (plan C15; agreementForProvisioning).
+      bookingProvider: agreement.bookingProvider,
       phoneSystemType: request.phoneSystemType ?? "unknown",
       callRouting: request.callRouting ?? "conditional",
       callRoutingConfirmedAt: request.callRouting ? new Date() : null,
@@ -571,6 +563,31 @@ async function provisionOnce({
       // (drizzle/0004_baa_gate.sql).
       dataClassification: "synthetic",
     });
+
+    // A purchase that names another booking system than its agreement is
+    // provisioned as signed, not refused (plan C15): what the practice signed
+    // is what the clinic runs under, and a refusal here comes after payment,
+    // leaving a customer charged with no account. It is recorded, because the
+    // checkout's own check before payment (agreementMismatch) refuses such a
+    // purchase, so one that reaches here came another way: a request from
+    // before checkout intents, or a fault.
+    if (agreement.platformMismatch) {
+      await recordSecurityEvent(tx, {
+        event: "provision_platform_mismatch",
+        actorLabel: "provisioning",
+        organizationId,
+        ipAddress: context.ipAddress ?? null,
+        userAgent: context.userAgent ?? null,
+        metadata: {
+          clinicId,
+          clinicSlug: slug,
+          agreementId: request.agreementId,
+          purchasePlatform: request.platform,
+          signedPlatform: agreement.platformMismatch.signedPlatform,
+          bookingProvider: agreement.bookingProvider,
+        },
+      });
+    }
 
     // What the clinic may use, in the same transaction as the clinic itself:
     // a clinic with no entitlements row is one the agent cannot answer for
@@ -645,6 +662,18 @@ async function provisionOnce({
       audit: new AuditRecorder(clinicId, { type: "service", serviceName: "provisioning" }),
     };
     await seedAgentConfig(provisioningTx, request.specialty, request.clinicName.trim());
+    // The location's first calendar terms are the calendar clause its
+    // agreement carries, from BAA 1.3.0 on and in the DPA: recorded as its
+    // `agreement` election, sequence 1 (plan §2.6, §3.4(c), C15), so the
+    // terms in effect (calendarTermsFor) are what the practice signed rather
+    // than a request for an election. A signature before 1.3.0 carries none,
+    // and the location books by request until the practice records an
+    // election (plan §2.8). The election guard (app_calendar_election_guard)
+    // checks the row against the bound acceptance again, and refuses it for
+    // any location but the one this signature sets up.
+    if (agreement.calendarTerms) {
+      await recordAgreementTerms(provisioningTx, request.agreementId);
+    }
     // The buyer is the first recipient of the monthly report; the clinic can
     // point it at a front-desk inbox later from the console.
     await addRecipient(provisioningTx, {
@@ -706,23 +735,49 @@ type ProvisionedAgreement = {
   regime: RegulatoryRegime;
   /** The determination that goes on the clinic row: the signed answer under a BAA, false under a DPA. */
   isCoveredEntity: boolean | null;
+  /**
+   * What goes in clinics.booking_provider: the booking system the agreement
+   * names (an id of BOOKING_SYSTEMS, as an election records it), or, where
+   * it names only a phase-two platform, that platform, null for none
+   * (signedBookingSystem).
+   */
+  bookingProvider: string | null;
+  /** The platform the agreement names, when the purchase names another. The agreement's wins. */
+  platformMismatch: { signedPlatform: string } | null;
+  /**
+   * Whether the agreement carries the location's first calendar terms: it
+   * chose its calendar clause from the booking system and the kind of Google
+   * account, as BAA 1.3.0 on and the DPA do.
+   */
+  calendarTerms: boolean;
 };
 
 /**
  * Read the signed agreement before anything is written, and refuse a clinic
- * its agreement cannot cover (plan Part L, "Hand-offs").
+ * its agreement cannot cover (plan Part L, "Hand-offs"; plan C15).
  *
  * The kind comes from the row's own version (`agreementKindOfVersion`, the
  * mirror of the generated `baa_acceptances.agreement_kind`), never from the
- * request. A DPA is provisioned only under a released DPA template: the bound
- * row's own template, as the plan asks, where the BAA gate above still reads
- * the current BAA template until plan C15 changes it. A DPA is signed only by
- * a practice outside HIPAA, so it must name this specialty and record no
- * covered answer but "No", and the clinic is stored as not covered. Last, the
- * kind must cover the specialty's regime with that answer, by the rule the PHI
- * gate applies (app_agreement_kind_sufficient, drizzle/0051): a BAA at a
- * veterinary practice, or a DPA at a practice HIPAA always reaches, never
- * becomes an account.
+ * request, and so does the approval gate: the row is put in force only under
+ * a version that may be (agreementTemplateReleased), a BAA go-live accepts
+ * (isBaaVersionAcceptable: released, and no older than the floor) or a
+ * released DPA. Until plan C15 the BAA gate asked whether the CURRENT
+ * template was approved, which let through a row signed under any other
+ * version, a draft or a superseded one, while the current one was released.
+ *
+ * A DPA is signed only by a practice outside HIPAA, so it must name this
+ * specialty and record no covered answer but "No", and the clinic is stored
+ * as not covered. Then the kind must cover the specialty's regime with that
+ * answer, by the rule the PHI gate applies (app_agreement_kind_sufficient,
+ * drizzle/0051): a BAA at a veterinary practice, or a DPA at a practice HIPAA
+ * always reaches, never becomes an account. Last, where the row says the
+ * practice's bookings live (signedBookingSystem), which the clinic takes in
+ * place of the purchase's answer.
+ *
+ * Every refusal is a ProvisioningError, the release gate's included: the row
+ * never changes, so a retry meets the same answer, and the route's 422 marks
+ * a paid purchase failed and tells ops, where a 500 would have Stripe retry
+ * it for three days while the buyer waits.
  */
 async function agreementForProvisioning(request: ProvisionRequest): Promise<ProvisionedAgreement> {
   // validateProvisionRequest has already refused it on the route; this keeps
@@ -743,17 +798,21 @@ async function agreementForProvisioning(request: ProvisionRequest): Promise<Prov
   }
 
   const kind = agreementKindOfVersion(row.version);
+  if (!agreementTemplateReleased(row.version)) {
+    throw new ProvisioningError(
+      kind === "dpa"
+        ? `Version ${row.version} of the data protection agreement is not released, so no ` +
+            `account can be made under it.`
+        : `Version ${row.version} of the business associate agreement can't be used for a new ` +
+            `account: it is not released, or a later version has replaced it.`,
+      "agreementId",
+    );
+  }
   const regime = regimeFor(request.specialty);
-  const signed = (row.variables ?? {}) as { isCoveredEntity?: unknown; specialty?: unknown };
+  const signed = (row.variables ?? {}) as Record<string, unknown>;
 
   let isCoveredEntity: boolean | null;
   if (kind === "dpa") {
-    if (getDpaTemplate(row.version)?.approvedByCounsel !== true) {
-      throw new Error(
-        `Data protection agreement ${row.version} is not released. Refusing to provision a ` +
-          `clinic against it: nothing may be signed under an unreleased template.`,
-      );
-    }
     if (signed.specialty !== request.specialty) {
       throw new ProvisioningError(
         "The signed agreement was written for a different kind of practice.",
@@ -779,7 +838,102 @@ async function agreementForProvisioning(request: ProvisionRequest): Promise<Prov
       "agreementId",
     );
   }
-  return { kind, regime, isCoveredEntity };
+
+  const booking = signedBookingSystem(kind, row.version, signed);
+  let bookingProvider = booking.bookingProvider;
+  let platformMismatch: ProvisionedAgreement["platformMismatch"] = null;
+  if (booking.platform === null) {
+    // A row that names no platform this catalogue can read back, which is
+    // not one signing writes: the purchase's own answer is recorded, as it
+    // was before plan C15, and the gap is logged (plan §3.4(b)).
+    log.warn("signed agreement names no known platform; recorded the purchase's platform", {
+      agreementId: request.agreementId,
+    });
+    bookingProvider = request.platform === NO_PLATFORM_ID ? null : request.platform;
+  } else if (booking.platform !== request.platform) {
+    platformMismatch = { signedPlatform: booking.platform };
+  }
+  return {
+    kind,
+    regime,
+    isCoveredEntity,
+    bookingProvider,
+    platformMismatch,
+    calendarTerms: booking.calendarTerms,
+  };
+}
+
+/**
+ * Where a signed agreement says the practice's bookings live, and whether it
+ * carries calendar terms for the location it sets up (plan §3.4, C15). Read
+ * off the signed row alone: it is what the practice agreed to, where the
+ * purchase is only what was sent with it.
+ *
+ * - A document that chose its calendar clause from the two calendar answers
+ *   (templateReadsCalendarAccount: BAA 1.3.0 on, and the DPA, which takes
+ *   the same clauses) names the booking system itself. The row must hold
+ *   both answers and the one calendar clause it was signed with, a clause
+ *   for the kind of Google account signed (signedCalendarTerms, which
+ *   recordAgreementTerms reads too); anything else is refused here, before a
+ *   row is written, rather than inside provisioning's transaction. The
+ *   clause need not be the one the catalogue would select today: a booking
+ *   system reclassified after signing leaves the signed clause in force, and
+ *   recordAgreementTerms records it as signed and logs the difference. Its
+ *   platform is the booking system's own (agreementPlatformFor), which is
+ *   what a purchase of it names.
+ * - An earlier document names a phase-two platform: the one signing kept
+ *   (`platformId`, since plan C3), else the one whose name it rendered
+ *   (`connectedPlatform`, null for none). The booking system the buyer
+ *   answered, which signing has kept beside it since plan C3, is the finer
+ *   answer ("Google Calendar only" and "No booking system yet" both name no
+ *   platform) and is recorded when that platform is its own; otherwise the
+ *   platform is, null for none, as provisioning has always recorded it.
+ *   `platform` is null when the row names nothing this catalogue knows.
+ */
+function signedBookingSystem(
+  kind: AgreementKind,
+  version: string,
+  signed: Record<string, unknown>,
+): { calendarTerms: boolean; bookingProvider: string | null; platform: string | null } {
+  const template = kind === "baa" ? getBaaTemplate(version) : undefined;
+  if (kind === "dpa" || (template !== undefined && templateReadsCalendarAccount(template))) {
+    const terms = signedCalendarTerms(signed);
+    if (terms.status !== "signed") {
+      throw new ProvisioningError(
+        "The signed agreement does not record the calendar terms it was signed with.",
+        "agreementId",
+      );
+    }
+    return {
+      calendarTerms: true,
+      bookingProvider: terms.bookingSystem,
+      platform: agreementPlatformFor(terms.bookingSystem),
+    };
+  }
+
+  const platform = namedPlatform(signed);
+  if (platform === null) return { calendarTerms: false, bookingProvider: null, platform: null };
+  const answered = signed.bookingSystem;
+  if (isBookingSystemId(answered) && agreementPlatformFor(answered) === platform) {
+    return { calendarTerms: false, bookingProvider: answered, platform };
+  }
+  return {
+    calendarTerms: false,
+    bookingProvider: platform === NO_PLATFORM_ID ? null : platform,
+    platform,
+  };
+}
+
+/** The phase-two platform a document before BAA 1.3.0 names, or null when its row names none we know. */
+function namedPlatform(signed: Record<string, unknown>): string | null {
+  if (typeof signed.platformId === "string" && getPlatform(signed.platformId)) {
+    return signed.platformId;
+  }
+  if (signed.connectedPlatform === null) return NO_PLATFORM_ID;
+  const named = platforms.find(
+    (p) => p.id !== NO_PLATFORM_ID && p.name === signed.connectedPlatform,
+  );
+  return named?.id ?? null;
 }
 
 /**

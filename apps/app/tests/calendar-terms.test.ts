@@ -3,6 +3,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   BAA_ASSENT_LABEL,
   CURRENT_BAA_VERSION,
+  getBaaTemplate,
   getCalendarElection,
   selectCalendarClause,
 } from "@healdesk/catalog";
@@ -10,7 +11,7 @@ import { fakeGoogleCalendar, setGoogleFetch } from "@healdesk/connectors";
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 
 import type { PendingCalendarElection } from "@/db/schema";
-import { signAgreement } from "@/lib/agreements";
+import { signAgreement, type SignAgreementRequest } from "@/lib/agreements";
 import {
   AgreementMismatchError,
   agreementInEffect,
@@ -29,6 +30,7 @@ import { calendarTermsFor, isDemoClinic } from "@/lib/booking/terms";
 import { storeStripeIds } from "@/lib/billing/entitlements";
 import { transition } from "@/lib/billing/state-machine";
 import { withCredentials } from "@/lib/connections/store";
+import { provisionClinic } from "@/lib/provisioning";
 import { withTenant } from "@/lib/tenant";
 
 import { asApp, futureBase, insertHold, markDemo } from "./setup/calendar-db";
@@ -62,10 +64,13 @@ import {
  * Every clinic, agreement and account here is synthetic.
  *
  * The catalogue's release flag for the election document can be flipped
- * here, and only that (as tests/agreement-kinds.test.ts flips the DPA's), to
- * show that a release never upgrades a row recorded as a draft.
+ * here (as tests/agreement-kinds.test.ts flips the DPA's), to show that a
+ * release never upgrades a row recorded as a draft; and so can whether BAA
+ * 1.3.0 is a version an account may be put under, standing in for its
+ * release (plan C19), so that provisioning (C15) can be shown recording a
+ * 1.3.0 signature's terms. Nothing else in the catalogue changes.
  */
-const release = vi.hoisted(() => ({ election: false }));
+const release = vi.hoisted(() => ({ election: false, baa130: false }));
 vi.mock("@healdesk/catalog", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@healdesk/catalog")>();
   const flip = <T extends { approvedByCounsel: boolean } | undefined>(election: T): T =>
@@ -74,6 +79,8 @@ vi.mock("@healdesk/catalog", async (importOriginal) => {
     ...actual,
     currentCalendarElection: () => flip(actual.currentCalendarElection()),
     getCalendarElection: (version: string) => flip(actual.getCalendarElection(version)),
+    isBaaVersionAcceptable: (version: string) =>
+      actual.isBaaVersionAcceptable(version) || (release.baa130 && version === "1.3.0"),
   };
 });
 
@@ -252,6 +259,7 @@ describeDb("calendar terms at runtime", () => {
 
   afterEach(() => {
     release.election = false;
+    release.baa130 = false;
     setGoogleFetch(undefined);
   });
 
@@ -466,6 +474,94 @@ describeDb("calendar terms at runtime", () => {
         kind: "none",
         reason: "no_agreement",
       });
+    },
+    SLOW,
+  );
+
+  test(
+    "a location provisioned under a 1.3.0 signature is under its signed terms from the start, and the database reads them too (C15)",
+    async () => {
+      // Standing in for the release (C19): until then provisioning refuses 1.3.0.
+      release.baa130 = true;
+      const sign = async (
+        email: string,
+        answers: Pick<SignAgreementRequest, "platform" | "bookingSystem" | "calendarAccount">,
+        version?: string,
+      ) => {
+        const template = version ? getBaaTemplate(version)! : undefined;
+        return signAgreement(
+          {
+            clinicLegalName: "Provisioned Terms LLC",
+            specialty: "med-spa",
+            signatoryName: "Alex Chen",
+            signatoryTitle: "Owner",
+            signatoryEmail: email,
+            isCoveredEntity: false,
+            attributionMode: "estimated",
+            assentLabel: BAA_ASSENT_LABEL,
+            templateVersion: template?.version ?? CURRENT_BAA_VERSION,
+            ...answers,
+          },
+          {},
+          template ? { current: template } : {},
+        );
+      };
+      const provision = (email: string, agreementId: string) =>
+        provisionClinic({
+          clinicName: "Provisioned Terms LLC",
+          specialty: "med-spa",
+          platform: "none",
+          plan: "web-voice",
+          contactName: "Alex Chen",
+          contactEmail: email,
+          agreementId,
+          idempotencyKey: `terms_${randomUUID()}`,
+        });
+
+      // Google Calendar alone, in a Workspace without Google's BAA: uncovered terms.
+      const email = `owner-${randomUUID().slice(0, 8)}@provisioned.test`;
+      const signed = await sign(
+        email,
+        { bookingSystem: "google_calendar", calendarAccount: "workspace_no_baa" },
+        "1.3.0",
+      );
+      const clinic = await provision(email, signed.agreementId);
+      expect(await terms(clinic.clinicId)).toMatchObject({
+        kind: "uncovered",
+        account: "workspace_no_baa",
+        sync: "live",
+        bookingSystem: "google_calendar",
+        clauseId: "google-calendar-uncovered",
+        source: "agreement",
+        sequence: 1,
+        documentVersion: "1.3.0",
+        documentReleased: true,
+        ownerConfirmed: false,
+        agreementId: signed.agreementId,
+        agreementVersion: "1.3.0",
+        allowsWrite: true,
+        demo: false,
+      });
+      // The database reads the same terms: once a Workspace account is
+      // connected healdesk may write there, the assistant too, with
+      // Auto-confirm on by default.
+      expect(await permitted(clinic.clinicId, true)).toBe(false);
+      await seedGoogleConnection(clinic.clinicId, { managed: true });
+      expect(await permitted(clinic.clinicId, true)).toBe(true);
+
+      // 1.2.1 carries no calendar terms, so a location provisioned under it
+      // waits for an election, and none was recorded. Signed by its version
+      // rather than as whatever is current, which 1.3.0 becomes at release.
+      const legacyEmail = `owner-${randomUUID().slice(0, 8)}@legacy.test`;
+      const legacy = await sign(legacyEmail, { platform: "none" }, "1.2.1");
+      const legacyClinic = await provision(legacyEmail, legacy.agreementId);
+      expect(await terms(legacyClinic.clinicId)).toMatchObject({
+        kind: "needs_election",
+        reason: "legacy_agreement",
+        agreementId: legacy.agreementId,
+        electionId: null,
+      });
+      expect(await electionRows(legacyClinic.clinicId)).toEqual([]);
     },
     SLOW,
   );
@@ -962,7 +1058,7 @@ describeDb("calendar terms at runtime", () => {
   );
 
   test(
-    "recordAgreementTerms records exactly what was signed, and refuses a record whose clause the answers do not select",
+    "recordAgreementTerms records exactly what was signed, and refuses a record whose clause contradicts the account signed with it",
     async () => {
       const clinic = await seedClinic("terms-agreement");
       const agreementId = randomUUID();

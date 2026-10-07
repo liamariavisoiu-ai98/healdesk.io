@@ -404,9 +404,9 @@ nothing and removes the argument.
 > it: `validateSignRequest` and `signAgreement` both settle the version
 > through `signableTemplate` (plan C3), which takes only `BAA_TEMPLATES[0]`,
 > or a released version inside its `BAA_RELEASE_OVERLAP` window.
-> Provisioning does not check it: its approval gate reads
-> `currentBaaTemplate()`, not the bound acceptance's version, until plan C15
-> changes that, and C15 must land before the release. The full text is
+> Provisioning refuses a row signed under it too: since plan C15 its approval
+> gate reads the bound acceptance's own version (`isBaaVersionAcceptable`),
+> where it used to read `currentBaaTemplate()`. The full text is
 > rendered in `docs/baa-v1.3.0-draft-calendar-clauses.txt`. The owner decided
 > on 5 October 2026 (answer Q2) that Claude releases 1.3.0 and the calendar
 > election after its own adversarial audit of the full text, with no counsel
@@ -854,13 +854,14 @@ release by changing the code, the clause or the site copy:
     note ("fifteen days' notice"). Before 1.3.0 is offered it has to look
     them up through `clauseExplainer(template.version, id)`, or a 1.3.0 buyer
     reads fifteen days beside a clause that gives 24 hours.
-13. **The gate that is not built yet.** Signing refuses 1.3.0 today only
+13. **The gates on an unreleased version.** Signing refuses 1.3.0 today
     because `signableTemplate` takes `BAA_TEMPLATES[0]`, or a released
     version inside its `BAA_RELEASE_OVERLAP` window, and 1.3.0 is neither.
     Plan C3, which made both signing paths settle the version that way, has
-    landed. Plan C15, which makes provisioning's approval gate read the bound
-    acceptance's version instead of `currentBaaTemplate()`, has not, and
-    must land before the release.
+    landed, and so has plan C15, which makes provisioning's approval gate
+    read the bound acceptance's own version (`isBaaVersionAcceptable`)
+    instead of `currentBaaTemplate()`: a row signed under 1.3.0 provisions
+    nothing until the release.
 
 ### 12.12 Golden hashes
 

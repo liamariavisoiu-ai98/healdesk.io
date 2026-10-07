@@ -241,11 +241,10 @@ function coveredAnswerOf(isCoveredEntity: unknown): CoveredAnswer | null {
  * must see the new one.
  *
  * Both signing entry points ask this, validateSignRequest and signAgreement
- * (through prepareAgreement), so neither can sign a draft. That reaches past
- * the endpoint: provisioning binds the acceptance a purchase names, and until
- * plan C15 its approval gate reads the current template rather than the
- * bound row's version, so a row signed against a draft would carry an
- * unreleased text into a live account.
+ * (through prepareAgreement), so neither can sign a draft. Provisioning,
+ * which binds the acceptance a purchase names, refuses a draft's row too,
+ * since plan C15 by the bound row's own version, so neither check alone
+ * stands between an unreleased text and a live account.
  */
 export function signableTemplate(version: unknown, options: SignableOptions = {}): BaaTemplate {
   const template = typeof version === "string" ? getBaaTemplate(version) : undefined;
@@ -626,8 +625,8 @@ export async function signAgreement(
         // The answers, as they were sent, beside the document and outside its
         // hash. The variables of a version before 1.3.0 hold none of the three
         // ids, only the name the document gives the platform, which is why
-        // they are kept here: the booking system is what provisioning is to
-        // read into the clinic row (plan C15) rather than asking again, and
+        // they are kept here: the booking system is what provisioning reads
+        // into the clinic row (plan C15) rather than asking again, and
         // the platform is what named a 1.2.1 document. 1.3.0's variables carry
         // the booking system and the account kind already, as these same
         // values, and a platform beside them has been checked to be the

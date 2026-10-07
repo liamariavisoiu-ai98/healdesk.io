@@ -13,6 +13,7 @@ import { POST as postIntent } from "@/app/api/checkout/intents/route";
 import { POST as postIntentSession } from "@/app/api/checkout/intents/session/route";
 import { POST as postProvision } from "@/app/api/provision/route";
 import { signAgreement } from "@/lib/agreements";
+import { __setStripeForTests } from "@/lib/billing/stripe-client";
 import { findIntent, markIntentFailed } from "@/lib/checkout/intents";
 import { sendOrderConfirmedDelayed } from "@/lib/checkout/order-delayed";
 import { welcomeState } from "@/lib/checkout/welcome";
@@ -23,6 +24,7 @@ import { consumeSignInLink } from "@/lib/sign-in/links";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { inTenant } from "./setup/factories";
+import { createStripeFake } from "./setup/stripe-fake";
 
 /**
  * The purchase, from Pay to signed in (plan Part A4, C1–C3).
@@ -86,7 +88,9 @@ async function purchase(overrides: Record<string, unknown> = {}) {
     agreementId,
     nonce: n,
     body: {
-      clinicName: "Glow Med Spa",
+      // The agreement's own answers: the legal name it names and its
+      // covered-entity answer, which the intent is matched against.
+      clinicName: "Glow Med Spa LLC",
       specialty: "med-spa",
       platform: "none",
       plan: "web-voice",
@@ -94,6 +98,7 @@ async function purchase(overrides: Record<string, unknown> = {}) {
       contactName: "Laura Owner",
       contactEmail: email.toUpperCase(),
       agreementId,
+      isCoveredEntity: false,
       inviteRef: null,
       nonceHash: n.hash,
       profileStatus: "none",
@@ -172,6 +177,126 @@ describeDb("checkout intents", () => {
     expect((await intent({ ...p.body, contactEmail: "someone@else.test" })).json.field).toBe("contactEmail");
   });
 
+  test("the agreement must be the document the purchase describes, or the buyer signs again", async () => {
+    // Signed for "Glow Med Spa LLC", a med spa, "No" to billing insurance,
+    // and no booking platform. A request changed after signing is refused
+    // under `agreementId`, which sends the funnel back to the signature.
+    const p = await purchase();
+    const changed: [string, Record<string, unknown>][] = [
+      ["another legal name", { clinicName: "Other Spa LLC" }],
+      ["another specialty", { specialty: "dental" }],
+      ["another covered answer", { isCoveredEntity: true }],
+      ["not sure, after signing no", { isCoveredEntity: null }],
+      ["another booking platform", { bookingSystem: "mindbody", calendarAccount: "workspace_baa", platform: "mindbody" }],
+    ];
+    for (const [label, overrides] of changed) {
+      const refused = await intent({ ...p.body, ...overrides });
+      expect(refused.status, label).toBe(422);
+      expect(refused.json.field, label).toBe("agreementId");
+      expect(refused.json.error, label).toMatch(/sign it again/);
+    }
+    const { rows } = await getMigratorPool().query(`select 1 from checkout_intents`);
+    expect(rows).toHaveLength(0);
+
+    // The name is compared as signed: trimmed.
+    expect((await intent({ ...p.body, clinicName: "  Glow Med Spa LLC " })).status).toBe(201);
+  });
+
+  test("the covered-entity answer is required on an intent", async () => {
+    const p = await purchase();
+    const { isCoveredEntity: _missing, ...without } = p.body;
+    expect((await intent(without)).json.field).toBe("covered");
+    expect((await intent({ ...p.body, isCoveredEntity: "no" })).json.field).toBe("covered");
+  });
+
+  test("a press of Pay after the previous one was paid moves nothing: the paid Session keeps its terms", async () => {
+    const stripe = createStripeFake({
+      "checkout.sessions.retrieve": (id: unknown) => ({ id, status: "complete" }),
+    });
+    __setStripeForTests(stripe.stripe);
+    try {
+      const invite = randomUUID();
+      const p = await purchase({ inviteRef: invite });
+      const first = await intent(p.body);
+      await postIntentSession(
+        signed("http://app.test/api/checkout/intents/session", {
+          ref: first.json.ref,
+          attempt: 1,
+          sessionId: "cs_test_paid",
+        }),
+      );
+
+      const again = await intent({ ...p.body, plan: "complete", nonceHash: nonce().hash });
+      expect(again.status).toBe(409);
+      expect(again.json.error).toBe("This purchase is already paid. Check your email.");
+      expect(stripe.callsTo("checkout.sessions.retrieve")[0]!.args[0]).toBe("cs_test_paid");
+
+      // Still attempt 1, for web-voice, with the paying browser's nonce: the
+      // payment provisions, and /welcome still knows that browser.
+      const stored = (await findIntent(first.json.ref as string))!;
+      expect(stored).toMatchObject({ attempt: 1, plan: "web-voice", openSessionId: "cs_test_paid" });
+      expect(stored.nonceHash!.toString("hex")).toBe(p.nonce.hash);
+    } finally {
+      __setStripeForTests(null);
+    }
+  });
+
+  test("a press of Pay after a Session that was not paid moves the intent on, for apps/web to expire that Session", async () => {
+    __setStripeForTests(
+      createStripeFake({ "checkout.sessions.retrieve": (id: unknown) => ({ id, status: "open" }) }).stripe,
+    );
+    try {
+      const invite = randomUUID();
+      const p = await purchase({ inviteRef: invite });
+      const first = await intent(p.body);
+      await postIntentSession(
+        signed("http://app.test/api/checkout/intents/session", {
+          ref: first.json.ref,
+          attempt: 1,
+          sessionId: "cs_test_open",
+        }),
+      );
+      const again = await intent(p.body);
+      expect(again.status).toBe(201);
+      expect(again.json).toMatchObject({ attempt: 2, previousOpenSessionId: "cs_test_open" });
+    } finally {
+      __setStripeForTests(null);
+    }
+  });
+
+  test("a press of Pay that cannot learn whether the previous Session was paid moves nothing", async () => {
+    // It may have been: moving the intent past it would turn that payment
+    // away at provisioning. The buyer is asked to try again instead.
+    __setStripeForTests(
+      createStripeFake({
+        "checkout.sessions.retrieve": () => {
+          throw new Error("Stripe did not answer");
+        },
+      }).stripe,
+    );
+    try {
+      const invite = randomUUID();
+      const p = await purchase({ inviteRef: invite });
+      const first = await intent(p.body);
+      await postIntentSession(
+        signed("http://app.test/api/checkout/intents/session", {
+          ref: first.json.ref,
+          attempt: 1,
+          sessionId: "cs_test_unknown",
+        }),
+      );
+
+      const again = await intent({ ...p.body, plan: "complete", nonceHash: nonce().hash });
+      expect(again.status).toBe(503);
+      expect(again.json.error).toMatch(/Nothing has been charged/);
+      const stored = (await findIntent(first.json.ref as string))!;
+      expect(stored).toMatchObject({ attempt: 1, plan: "web-voice", openSessionId: "cs_test_unknown" });
+      expect(stored.nonceHash!.toString("hex")).toBe(p.nonce.hash);
+    } finally {
+      __setStripeForTests(null);
+    }
+  });
+
   test("one setup link makes one intent; a retry reuses it and hands back the session to expire", async () => {
     const invite = randomUUID();
     const p = await purchase({ inviteRef: invite });
@@ -217,13 +342,22 @@ describeDb("provisioning from a paid intent, and /welcome", () => {
     await closePools();
   });
 
-  async function provision(ref: string, subscription: string) {
+  /** The first invoice of `subscription`, paid, relayed as the webhook relays it: with what was paid for. */
+  async function provision(
+    ref: string,
+    subscription: string,
+    paid: { attempt?: unknown; plan?: unknown; billingInterval?: unknown } = {},
+  ) {
     const response = await postProvision(
       signed("http://app.test/api/provision", {
         ref,
         idempotencyKey: subscription,
         stripeCustomerId: "cus_test_1",
         stripeSubscriptionId: subscription,
+        attempt: 1,
+        plan: "web-voice",
+        billingInterval: "month",
+        ...paid,
       }),
     );
     return { status: response.status, json: (await response.json()) as Record<string, unknown> };
@@ -274,6 +408,126 @@ describeDb("provisioning from a paid intent, and /welcome", () => {
     expect((await provision(ref, `sub_test_${randomUUID().slice(0, 8)}`)).status).toBe(409);
     // The setup link that bought it can't open a second purchase.
     expect((await intent(p.body)).status).toBe(409);
+  });
+
+  test("a payment provisions only while the intent names the press of Pay and the terms paid", async () => {
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((line: unknown) => {
+      errors.push(String(line));
+    });
+    try {
+      const invite = randomUUID();
+      const p = await purchase({ inviteRef: invite });
+      const first = await intent(p.body);
+      const ref = first.json.ref as string;
+      // A second press moves the intent on, to another package.
+      expect((await intent({ ...p.body, plan: "complete" })).json.attempt).toBe(2);
+
+      // Attempt 1's Session paid for web-voice: never provisioned as Complete.
+      const stale = await provision(ref, `sub_test_${randomUUID().slice(0, 8)}`, { attempt: 1 });
+      expect(stale.status).toBe(422);
+      expect(stale.json.field).toBe("attempt");
+      expect(errors.some((line) => line.includes("provisioning_rejected") && line.includes('"field":"attempt"'))).toBe(
+        true,
+      );
+      const refused = (await findIntent(ref))!;
+      expect(refused.consumedAt).toBeNull();
+      expect(refused.provisionFailedAt).toBeInstanceOf(Date);
+
+      // Terms that are not the intent's, and terms that are missing, are refused the same way.
+      const otherPlan = await provision(ref, `sub_test_${randomUUID().slice(0, 8)}`, { attempt: 2 });
+      expect(otherPlan.json.field).toBe("plan");
+      const otherInterval = await provision(ref, `sub_test_${randomUUID().slice(0, 8)}`, {
+        attempt: 2,
+        plan: "complete",
+        billingInterval: "year",
+      });
+      expect(otherInterval.json.field).toBe("billingInterval");
+      const missing = await provision(ref, `sub_test_${randomUUID().slice(0, 8)}`, {
+        attempt: null,
+        plan: null,
+        billingInterval: null,
+      });
+      expect(missing.json.field).toBe("attempt");
+      const { rows } = await getMigratorPool().query(`select 1 from clinics`);
+      expect(rows).toHaveLength(0);
+
+      // The latest press, as paid, makes the account from its own terms.
+      const current = await provision(ref, `sub_test_${randomUUID().slice(0, 8)}`, {
+        attempt: 2,
+        plan: "complete",
+        billingInterval: "month",
+      });
+      expect(current.status).toBe(201);
+      expect(current.json.plan).toBe("complete");
+    } finally {
+      vi.mocked(console.error).mockRestore();
+    }
+  });
+
+  test("a second subscription for a purchase already set up, and a purchase nobody holds, both reach ops", async () => {
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((line: unknown) => {
+      errors.push(String(line));
+    });
+    try {
+      const p = await purchase();
+      const { json: saved } = await intent(p.body);
+      const ref = saved.ref as string;
+      const first = await provision(ref, `sub_test_${randomUUID().slice(0, 8)}`);
+      expect(first.status).toBe(201);
+
+      const second = await provision(ref, `sub_test_${randomUUID().slice(0, 8)}`);
+      expect(second.status).toBe(409);
+      const duplicate = errors.find((line) => line.includes("ops alert") && line.includes("duplicate_subscription"));
+      expect(duplicate).toBeDefined();
+      expect(duplicate).toContain(first.json.clinicId as string);
+      // The account the first subscription made still stands: never marked failed.
+      expect((await findIntent(ref))!.provisionFailedAt).toBeNull();
+
+      const unknown = await provision(randomUUID(), `sub_test_${randomUUID().slice(0, 8)}`);
+      expect(unknown.status).toBe(422);
+      expect(
+        errors.some((line) => line.includes("ops alert") && line.includes("provisioning_rejected") && line.includes('"field":"ref"')),
+      ).toBe(true);
+    } finally {
+      vi.mocked(console.error).mockRestore();
+    }
+  });
+
+  test("a funnel purchase confirms no call routing and no phone line: the wizard asks both", async () => {
+    // The four-step funnel asks neither question (the wizard's step 2.2 does),
+    // so its intent carries neither, and nothing may stamp them confirmed.
+    const p = await purchase();
+    const { json: saved } = await intent(p.body);
+    const ref = saved.ref as string;
+    const { rows: stored } = await getMigratorPool().query(
+      `select payload from checkout_intents where ref = $1`,
+      [ref],
+    );
+    expect(stored[0]!.payload).not.toHaveProperty("callRouting");
+    expect(stored[0]!.payload).not.toHaveProperty("phoneSystemType");
+
+    const provisioned = await provision(ref, `sub_test_${randomUUID().slice(0, 8)}`);
+    expect(provisioned.status).toBe(201);
+    const [clinic] = await inTenant(provisioned.json.clinicId as string, async (client) => {
+      const { rows } = await client.query<{
+        call_routing: string;
+        call_routing_confirmed_at: Date | null;
+        phone_system_type: string;
+        onboarding: Record<string, string | null>;
+      }>(`select call_routing, call_routing_confirmed_at, phone_system_type, onboarding from clinics`);
+      return rows;
+    });
+    // The defaults the runtime reads, explicitly unconfirmed: go-live and the
+    // console's "Confirm call routing" still wait on the clinic's answer.
+    expect(clinic).toMatchObject({
+      call_routing: "conditional",
+      call_routing_confirmed_at: null,
+      phone_system_type: "unknown",
+    });
+    expect(clinic!.onboarding.call_routing_chosen).toBeNull();
+    expect(clinic!.onboarding.phone_type_confirmed).toBeNull();
   });
 
   test("/welcome gives the paying browser one sign-in link, and nobody else anything", async () => {

@@ -119,7 +119,7 @@ describeDb("database audit (0031)", () => {
     });
   });
 
-  test("every clinics column except the two gate columns stays updatable (a new column needs its GRANT)", async () => {
+  test("every clinics column except the gate columns stays updatable (a new column needs its GRANT)", async () => {
     const { rows } = await getMigratorPool().query<{ attname: string; ok: boolean }>(`
       select a.attname,
              has_column_privilege('healdesk_app'::name, a.attrelid, a.attnum, 'UPDATE') as ok
@@ -127,7 +127,8 @@ describeDb("database audit (0031)", () => {
        where a.attrelid = 'clinics'::regclass and a.attnum > 0 and not a.attisdropped
     `);
     const locked = rows.filter((r) => !r.ok).map((r) => r.attname).sort();
-    expect(locked).toEqual(["baa_signed_at", "data_classification"]);
+    // The BAA gate's two (0031), and the agreement-kind gate's two (0051).
+    expect(locked).toEqual(["agreement_kind", "baa_signed_at", "data_classification", "regulatory_regime"]);
   });
 
   test("app_mark_clinic_production refuses without a bound agreement and copies its date with one", async () => {
@@ -221,6 +222,22 @@ describeDb("database audit (0031)", () => {
       );
       expect(rows[0]).toEqual({ data_classification: "synthetic", baa_signed_at: null, went_live_at: null });
     }
+  });
+
+  test("app_mark_clinic_production refuses a DPA clinic until the DPA's release gives go-live a kind-aware rule (0051)", async () => {
+    // 0048's allow-list names BAA versions only, so a practice under the DPA
+    // reads as superseded and cannot go live. That is the safe way round while
+    // the DPA is a draft; releasing it has to change go-live on purpose, and
+    // this test is what makes that change deliberate.
+    const { clinicId, organizationId } = await seedClinic("dpagolive");
+    await readyForGoLive(clinicId);
+    await seedAcceptance(organizationId, "dpa/1.0.0");
+    await expect(
+      getAppPool().query(`select app_mark_clinic_production($1::uuid)`, [clinicId]),
+    ).rejects.toMatchObject({
+      code: "23514",
+      message: expect.stringContaining("version dpa/1.0.0, which has been superseded"),
+    });
   });
 
   test("the SQL allow-list is the catalog's floor, version for version", async () => {

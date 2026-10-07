@@ -264,7 +264,7 @@ export default async function DemoPage({ params }: Props) {
           </h2>
           <p className="text-muted mx-auto mt-3 max-w-[56ch] text-[16.8px] font-medium">
             Choose voice, website chat or a bundle. Setup takes about fifteen minutes of your time, and each channel goes live as you
-            connect it: chat once the snippet is pasted, the phone once call forwarding is set, usually the same day.
+            connect it: chat once the snippet is pasted, the phone once call forwarding is set.
           </p>
           <a
             href={`/demo/${slug}/onboard`}

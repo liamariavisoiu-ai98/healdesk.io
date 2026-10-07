@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { provisionRequestFromMetadata } from "@/app/api/webhooks/stripe/route";
 import { cspDirectives, permissionsPolicy, PERMISSIONS_POLICY, RETELL_CALL_ORIGINS } from "@/lib/security-headers";
 import { FakeSheets, __setSheetsClientForTests } from "@/lib/sheets/client";
 import { __resetSheetSchemaForTests, DEMO_SESSIONS } from "@/lib/sheets/schema";
@@ -264,10 +263,9 @@ describe("what the demo says", () => {
 });
 
 describe("where the slug may go", () => {
-  it("rides on the Stripe Session but never reaches apps/app", () => {
-    const request = provisionRequestFromMetadata({ app: "healdesk", plan: "voice", demo: "smith-dental-k7q2mz9xwa" });
-    expect(request).not.toHaveProperty("demo");
-  });
+  // It rides on the Stripe Session for the lead store and never reaches
+  // apps/app: provisioning is relayed as the intent's ref and Stripe ids
+  // only, pinned in app/api/webhooks/stripe/route.test.ts.
 
   it("is read from the onboarding cookie, shape-checked", () => {
     expect(demoSlugFromCookieHeader("a=1; hd_demo=smith-dental-k7q2mz9xwa")).toBe("smith-dental-k7q2mz9xwa");

@@ -25,6 +25,15 @@
 | 11 | Vendor failures and force majeure | Our suppliers' failures are ours; terms § 19 does not apply to the guarantee | The guarantee is about reliability we control by choosing vendors. Excusing vendor outages would empty it |
 | 12 | Advertising | Covered below under "Advertising the guarantee" | FTC Act § 5; 16 CFR Part 239 |
 
+**Superseded on 6 October 2026: decision 5, and where the first month starts.** The owner
+decided that the setup fee is never refunded and that an account with no channel live at the
+end of the 30th day after payment is closed (`docs/v1-product-spec.md`, "Stage 1, payment" and
+"The guarantee"). Terms 2026-10-07.1 drop the exception and say so in § 3 and § 5. The risk
+decision 5 names, a flat "never refundable" reached by FTC Act § 5 or a card dispute, still
+stands and is on counsel's list. Billing now starts on the plan start, the day the assistant
+first answers a patient, so the guarantee's first month, the 14-day refund window and renewal
+all run from that day: the first month's fee is charged on it.
+
 ## The adopted text
 
 One block. The same words go on `/pricing` and into terms § 5. Numbers in

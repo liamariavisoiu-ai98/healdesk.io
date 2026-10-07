@@ -86,6 +86,10 @@ const WEBHOOK_META = { healdesk: "webhook" } as const;
  */
 const WEBHOOK_EVENTS = [
   "charge.dispute.created",
+  // A refund (the first-period guarantee), relayed to apps/app for Package C.
+  // Stripe only starts sending it once this script is re-run on live, which
+  // is the owner's call.
+  "charge.refunded",
   "checkout.session.async_payment_succeeded",
   "checkout.session.completed",
   // An abandoned checkout: the route records it in the lead store, nothing

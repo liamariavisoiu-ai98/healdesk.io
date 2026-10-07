@@ -9,6 +9,7 @@ without external counsel review. Not legal advice.
 | --- | --- |
 | [brief.md](./brief.md) | One page: the decisions taken, and every open risk with its owner, mitigation and the trigger that would force a lawyer's engagement. Start here |
 | [guarantee-and-refund.md](./guarantee-and-refund.md) | The first-month guarantee: the decisions, the adopted text, how it sits with the 14-day refund and terms §§ 3, 5, 12, 13 and 19, and how it may be advertised |
+| [dpa.md](./dpa.md) | The Data Protection Agreement for practices HIPAA does not cover (`dpa/1.0.0`, drafted 6 October 2026, unreleased): who signs it, how it is built, every sentence that rests on a code fact and where, the gaps found, and its open questions |
 | [agreement-changes.md](./agreement-changes.md) | BAA 1.2.0 checked against 45 CFR 164.504(e) and 164.314(a), clause by clause with the fixes the next version needs; the terms and privacy page; the subprocessor position as verified against the vendors' own pages; the one Meta rule; the state-law clause for clinics outside HIPAA |
 | [state-disclosure.md](./state-disclosure.md) | The AI-disclosure and call-transcription consent position, state by state, each row checked against the statute where it could be reached and marked where it could not |
 

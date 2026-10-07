@@ -1336,7 +1336,9 @@ these is closed, by code, a page, a signed paper or a host setting, and
    - A restore re-runs destruction.
 8. **Amendment record (PT-17).** An append-only amendment linked to the
    booking request or conversation it amends, carried by `exportPatient`,
-   `exportClinic` and the portal export.
+   `exportClinic` and the portal export. The DPA's clause 13 promises the
+   same, as a correction, so its release waits on this gate too (`dpa.md`,
+   gap 22).
 9. **Retention (PT-28).** The nightly purge switched on for every 1.3.0
    clinic (0032 ships it off), and extended to webhook events that are never
    processed and to Meta booking drafts. A contact is kept while a booking
@@ -1416,7 +1418,7 @@ switches it, as the shared-module agreement of 6 October provides:
 - The DPA's eight golden hashes and `docs/dpa-v1.0.0.txt` are regenerated.
 
 What remained the funnel's to do, before the DPA is released, and what was
-done on 7 October 2026 (`docs/counsel/dpa.md` § 5, items 10 to 14; the DPA's
+done on 7 October 2026 (`docs/counsel/dpa.md` § 5, items 10 to 15; the DPA's
 golden hashes and `docs/dpa-v1.0.0.txt` regenerated, no BAA hash moved):
 
 - Done: "calendar election" defined in the DPA's own Definitions clause, in
@@ -1437,6 +1439,11 @@ golden hashes and `docs/dpa-v1.0.0.txt` regenerated, no BAA hash moved):
 - Done: the instructions, requests and assistance clauses reconciled with the
   shared clause, one statement of each duty, the more protective kept; and
   a request made to healdesk is answered only in its reply (PT-24).
+- Done, from review: the requests clause no longer promises, read alone, to
+  correct a booking request in place, which 0039's trigger refuses. It takes
+  1.3.0's clause 14(b) fix (PT-17) in its own words: corrected where the
+  record can change, otherwise appended and linked. That rests on gate 8,
+  so gate 8 holds the DPA's release too (`dpa.md`, gap 22).
 - Done: `docs/counsel/dpa.md` brought up to date.
 - Still to do: the "Clients' requests" and Term clauses say the telephone
   number of a client whose information was deleted is kept as the record of

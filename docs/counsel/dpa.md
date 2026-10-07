@@ -19,11 +19,12 @@
 > **Since then.** The BAA's pre-release audit (agreement-changes.md § 12.14)
 > gave the DPA the fuller state-law clause, and on 7 October 2026 the
 > funnel's pre-release text followed, as § 12.14 "The funnel's DPA" lists it
-> (§ 5, items 10 to 14): "calendar election" defined and its own election form
+> (§ 5, items 10 to 15): "calendar election" defined and its own election form
 > drafted; the 24-hour incident and breach rule; "without penalty" given its
-> effect; and the instructions, requests and assistance clauses reconciled
-> with the shared clause. Counsel's approval covered the clauses as they
-> stood on 6 October, not these edits, which the owner reads in
+> effect; the instructions, requests and assistance clauses reconciled with
+> the shared clause; and a correction the record cannot take appended and
+> linked, as BAA 1.3.0's is (PT-17). Counsel's approval covered the clauses
+> as they stood on 6 October, not these edits, which the owner reads in
 > `docs/dpa-v1.0.0.txt` before the release.
 
 ## 1. What it is, and who signs it
@@ -119,7 +120,7 @@ destruction, and adds the processor terms state law asks for.
 | 10 | Minimum necessary, and who receives Client Information | The booking catalogue as a ceiling (not 1.2.1's list: see § 6, gap 4), the animal's name and species for a vet, the opening-line disclosure, no call audio; then disclosure by category, the calendar as its clause or an election describes |
 | 11 | Subcontractors | 1.2.1's flow-down, without the HIPAA citations; Anthropic's retention in 1.2.1's words; the 24-hour notice |
 | 12 | Reporting incidents and breaches | BAA 1.3.0's one rule, without its HIPAA citations: immediately following discovery and within 24 hours, for all three; the law-enforcement delay; each notice itself the written report, added to promptly, with what Practice needs for its own notices |
-| 13 | Clients' requests | Reconciled with clause 5: the ten-business-day help with any client's request stays, deletion is clause 5's item c, and a request made to healdesk itself, any request, is answered only in healdesk's reply (1.3.0, PT-24) |
+| 13 | Clients' requests | Reconciled with clause 5: the ten-business-day help with any client's request stays, deletion is clause 5's item c, and a request made to healdesk itself, any request, is answered only in healdesk's reply (1.3.0, PT-24); a correction is made in healdesk's copy where the record can be changed, and otherwise appended and linked, as in 1.3.0's clause 14(b) (PT-17) |
 | 14 | Confidentiality | New; a veterinary paragraph |
 | 15 | Not authorised | 1.2.1's four prohibitions; Meta "is not healdesk's subcontractor and is not bound by this agreement" |
 | 16 | Assistance and audit | The records-to-HHS clause, made general; reconciled with clause 5: the state privacy laws' help is clause 5's, every other law's stays here |
@@ -161,6 +162,7 @@ Added on 7 October 2026, read at origin/main c926414:
 | The notice goes "by email to Practice's address in the Notices clause" (12) | The practice's one address: the signer's, which the checkout intent requires to be the buying address and provisioning makes the account's sign-in | as clause 19, above |
 | "in its reply to the client, tell them that healdesk cannot act on it" (13) | v1 is inbound only: no code path contacts a person after a conversation ends (CLAUDE.md, "Product rules"), so the reply is the one moment to say it; passing the request on is an operator's step | the product rules in the root CLAUDE.md |
 | "delete it as the clause headed … provides" (13); ten business days, raw copies, backups within 35 days (5, item c) | `eraseContact` deletes the person's contacts and conversations, but not their `webhook_events`, Meta drafts, matched booking requests or `chat_threads`, and keeps the number in `suppressions`; nothing reachable runs it. Gate 6 builds the erase path the shared clause promises | `apps/app/src/lib/retention/purge.ts`; agreement-changes.md § 12.14, gate 6 |
+| "It will correct that information as Practice directs"; "Where the record can be changed, healdesk corrects its own copy"; where it "must stay as it was made, such as a booking request or the record of a conversation, healdesk appends the correction to it and links the two"; "Every later use and export of that record then carries the correction" (13) | Only the in-place half has code, and nothing reaches it: `amendContact` corrects a contact's name, telephone number or email and records which fields changed, and only its test calls it, no script or ops operation. A booking request must stay as it was made: 0039's trigger refuses a new `treatment` or `preferred_window`, or any other fact of the request, even for the table owner. A conversation's transcript is written once, at ingestion, and only the purge clears it. Nothing appends a correction or links one to its record, and no export carries one: that is gate 8 (gap 22) | `apps/app/src/lib/patient-rights/export.ts`; `apps/app/drizzle/0039_booking_requests_every_channel.sql`, pinned by `apps/app/tests/booking-transitions.test.ts`; `apps/app/src/lib/voice/ingest.ts`, `apps/app/src/lib/retention/purge.ts`; agreement-changes.md § 12.14, gate 8 |
 | Terminating under the Subcontractors clause: "the Services end on the same day, no Fees accrue … and healdesk refunds" (17) | Nothing automates it: Package C's refund actions answer "not_available" on main, so an operator refunds through Stripe and cancels the subscription the same day, which starts offboarding (`customer.subscription.deleted`) | `apps/app/src/lib/billing/stripe-actions.ts`; `apps/app/src/lib/billing/events.ts` |
 | "Calendar election" and the form that names this agreement (1, 8, 19) | `calendar-election-dpa/1.0.0` exists as text, unreleased. Nothing can record an election of either kind: the election rows and their writer are plan C6 and C7, not on main | `packages/catalog/src/dpa-calendar-election.ts`; docs/design/google-calendar-2026-10-05.md |
 
@@ -274,6 +276,19 @@ Added on 7 October 2026, read at origin/main c926414:
     and the recipient list (10) say the calendar access is the calendar
     clause's or an election's, as 1.3.0's do, rather than become untrue the
     day a manual-booking practice's second location records one.
+15. **Corrections, in the requests clause** (7 October 2026, from review).
+    "It will correct that information as Practice directs", read alone,
+    promised to change a booking request in place, which 0039's trigger
+    refuses. BAA 1.3.0's audit found the same promise in its clause 14(b) and
+    fixed it (PT-17). The DPA now says it in 1.3.0's words: corrected in
+    healdesk's copy where the record can be changed, and otherwise appended
+    to the record and linked to it, every later use and export then carrying
+    the correction. It says "correction" where 1.3.0 says "amendment",
+    because a client asks to correct, and cites no 45 CFR. The reconciled
+    sentence before it and the telephone-number sentence after it are
+    unchanged. 1.3.0 rests the appending on 45 CFR 164.526(c)(1), which is
+    HIPAA's; whether an appended correction meets a state privacy law's right
+    to correct, where one applies, is a question for counsel (gap 22).
 
 ## 6. Gaps found between the code, the plan and the text
 
@@ -416,6 +431,23 @@ Added on 7 October 2026, read at origin/main c926414:
     incident and an improper use or disclosure five business days. Gate 5
     (another branch) brings it to 24 hours for every class; the DPA should
     not be released before it lands.
+22. **Correction on request has no code behind it** (13). The clause promises
+    a correction as Practice directs: in healdesk's copy where the record can
+    be changed, and otherwise appended and linked. `amendContact` corrects a
+    contact in place and is tested, but no script or ops operation runs it,
+    as with deletion (gap 3). Nothing can append a correction to a booking
+    request, whose facts 0039's trigger freezes, or to a conversation's
+    record, and no export would carry one. Gate 8 (agreement-changes.md
+    § 12.14) builds that amendment record, linked to the booking request or
+    conversation it corrects and carried by `exportPatient`, `exportClinic`
+    and the portal export. It serves both agreements, since none of those
+    reads the agreement's kind. Both agreements say every later use carries
+    the correction, not only every export, so wherever the portal shows a
+    booking request or a conversation the correction must show with it,
+    which gate 8's list does not yet name. The DPA should not be released
+    before gate 8 lands and `amendContact` has an operator path. Counsel
+    should also say whether an appended correction meets a state privacy
+    law's right to correct (§ 5, item 15).
 
 ## 7. The 1 October § 9 decision, narrowed
 
@@ -480,6 +512,11 @@ its trigger.
       drafted (`calendar-election-dpa/1.0.0`); its release, and election
       rows that take it through `calendarElectionFor`, remain.
 - [ ] Gaps 2, 3 and 5 resolved, or the text changed to match.
+- [ ] Corrections have code behind them (gap 22): gate 8's amendment record,
+      appended to and linked with the booking request or conversation it
+      corrects and carried by every later use and export; an operator path
+      for `amendContact`; and counsel's view of an appended correction under
+      the state privacy laws.
 - [ ] `offboarding-destroy` and `retention-purge` switched on for live
       clinics (gap 1).
 - [ ] Go-live admits a released DPA (gap 11): the migration, the TypeScript
@@ -500,8 +537,9 @@ its trigger.
       (`stateLawClauseBody`, since the BAA's pre-release redraft, c926414).
 - [x] The funnel's pre-release text (agreement-changes.md § 12.14, "The
       funnel's DPA"): "calendar election" defined, the 24-hour rule,
-      "without penalty" given its effect, and the instructions, requests and
-      assistance clauses reconciled (§ 5, items 10 to 14).
+      "without penalty" given its effect, the instructions, requests and
+      assistance clauses reconciled, and a correction the record cannot take
+      appended and linked (§ 5, items 10 to 15).
 - [ ] Gates 6 and 7 land, and the telephone-number sentences in clauses 13
       and 17 change with them (gap 15); gate 5 lands (gap 21).
 - [ ] The owner decides the refund on a termination for healdesk's breach,

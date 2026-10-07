@@ -22,7 +22,7 @@ Mindbody, which does not read Google Calendar, so the calendar clause is the
 one under which healdesk connects nothing; and a personal Google account,
 which that clause does not depend on. From the title line on, the sample is
 exactly what packages/catalog/src/dpa.test.ts freezes as dpa/1.0.0 / sample
-(SHA-256 70029eff3e018926b01358683922b9675bd897e7fc929a4e53381d12b42de0a9).
+(SHA-256 bbbf78a01e8ab87a1002efb13731114c78516e7cef3c58dedeef884e060eb897).
 The clauses that render only for some practices follow in Appendix A, numbered
 as they render; nothing else in the text varies. Appendix B is the calendar
 election that names this agreement, which its Definitions clause and its
@@ -471,7 +471,11 @@ EFFECTIVE 6 October 2026
   Information, healdesk will give Practice what it needs to answer within ten
   business days of Practice asking. It will correct that information as
   Practice directs, and delete it as the clause headed "Where Practice is not
-  a covered entity" provides. The telephone number of a client whose
+  a covered entity" provides. Where the record can be changed, healdesk
+  corrects its own copy. Where a record must stay as it was made, such as a
+  booking request or the record of a conversation, healdesk appends the
+  correction to it and links the two. Every later use and export of that
+  record then carries the correction. The telephone number of a client whose
   information is deleted is kept only as the record that the deletion was
   asked for.
 

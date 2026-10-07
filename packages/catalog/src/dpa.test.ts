@@ -97,14 +97,14 @@ const VARIANTS: Record<string, Partial<DpaVariables>> = {
 
 /** variant → sha256 of the assembled text. Frozen from the draft; see the header. */
 const GOLDEN: Record<string, string> = {
-  sample: "70029eff3e018926b01358683922b9675bd897e7fc929a4e53381d12b42de0a9",
-  notcovered_live_covered: "debbc8fd40235930ddbbe1a30f81ca5f670187b5834b0ca443ab7a37e0453ac1",
-  notcovered_live_uncovered: "2d0a1605753594fcbaa95e1a5461a3246cd39c4762b0f92718ae545942e8ad4c",
-  notcovered_live_personal: "3d7f1d65adc0e5ae03d7d7425588def8e562d870758138516236f9566b5fad1b",
-  notcovered_notused_other: "b35916655c03d685897de70e97dea43001ea03336c40d71591b87db1a5bc304f",
-  vet_live_covered: "2116f0901d0ea875d81de0d11e9d1d218883602ac3a22ae0f8c92a0763570259",
-  vet_live_personal: "e09f728e8bdbd83c8a351ea57cff7a2b632203f2939703cff6f652258ad66f08",
-  vet_notused_mindbody: "152c055278876ee8e84646ea629c4e409ffcddc30f78953aa86dbc5399e5ff9f",
+  sample: "bbbf78a01e8ab87a1002efb13731114c78516e7cef3c58dedeef884e060eb897",
+  notcovered_live_covered: "52120750cce9007c4d6eada1a8fbb023f023d18639cb209dee479de5e5a86c84",
+  notcovered_live_uncovered: "097d35333212acadcd8ebf75307c533fbdb08a7c56de97aa670a9c4d3fcebd17",
+  notcovered_live_personal: "f5c6cb05cf2ec4f8bc52762f2a65142abd533e7ba9aaa6d9a44bf4e706cb34ff",
+  notcovered_notused_other: "38c44a9f8ae0466e31108f36c08d312538b4fa5348a94354403c342720dbda74",
+  vet_live_covered: "4ceb26f8428abde32e2aa4d5b302bc9f911e827639b634449e21ccb529d39c3c",
+  vet_live_personal: "2fcec88b63e130c00c3f6af60a93fcb69e07c57a2f96af5965a2336c8e352923",
+  vet_notused_mindbody: "efde0436f457d7868b9c5907b6db2f03d9a7c46f742694fe3594ad22590f7ce2",
 };
 
 const template = () => currentDpaTemplate();
@@ -600,10 +600,9 @@ describe("what the DPA says", () => {
  * in, or against the shared clause it was reconciled with.
  */
 describe("the DPA's pre-release text", () => {
-  test("defines a calendar election, as BAA 1.3.0's clause 1 does, and makes an accepted one part of it", () => {
-    const definition =
-      '"Calendar election" means the document, in the form healdesk provides, by which Practice sets the Google Calendar terms for one location, accepted for Practice by a person with authority to bind it. Once accepted, it forms part of this agreement.';
-    const baa130 = unwrap(
+  /** BAA 1.3.0, unwrapped, for the sample practice: the clauses the DPA follows. */
+  const baa130 = () =>
+    unwrap(
       prepareBaa(getBaaTemplate("1.3.0")!, {
         clinicLegalName: "Glow Med Spa LLC",
         specialty: "Med spa",
@@ -618,7 +617,11 @@ describe("the DPA's pre-release text", () => {
         calendarAccount: "personal",
       }).text,
     );
-    expect(baa130).toContain(definition);
+
+  test("defines a calendar election, as BAA 1.3.0's clause 1 does, and makes an accepted one part of it", () => {
+    const definition =
+      '"Calendar election" means the document, in the form healdesk provides, by which Practice sets the Google Calendar terms for one location, accepted for Practice by a person with authority to bind it. Once accepted, it forms part of this agreement.';
+    expect(baa130()).toContain(definition);
     for (const answers of Object.values(VARIANTS)) {
       const text = render(answers).text;
       const definitions = unwrap(section(text, "Definitions"));
@@ -744,6 +747,33 @@ describe("the DPA's pre-release text", () => {
     expect(assistance).toContain(
       "make its practices, books and records relating to Client Information available to a regulator",
     );
+  });
+
+  // A booking request's facts never change: drizzle/0039's trigger refuses a new
+  // treatment or preferred_window even for the table owner (booking-transitions
+  // test). So "correct that information as Practice directs", read alone,
+  // promised a change the database forbids; BAA 1.3.0's audit found the same
+  // promise in its clause 14(b) and fixed it (PT-17). The DPA takes that fix.
+  test("a correction the record cannot take is appended and linked, in BAA 1.3.0's clause 14(b) words (PT-17)", () => {
+    const pt17 = [
+      "Where the record can be changed, healdesk corrects its own copy.",
+      "Where a record must stay as it was made, such as a booking request or the record of a conversation, healdesk appends the amendment to it and links the two, as 45 CFR 164.526(c)(1) provides.",
+      "Every later use and export of that record then carries the amendment.",
+    ];
+    const baa = baa130();
+    for (const sentence of pt17) expect(baa).toContain(sentence);
+    // In this document's words: a correction, as a client asks for one, and no HIPAA citation.
+    const ours = pt17
+      .map((s) => s.replace(", as 45 CFR 164.526(c)(1) provides", "").replaceAll("amendment", "correction"))
+      .join(" ");
+    expect(ours).not.toMatch(/amendment|CFR|\bpatient|\bPHI\b/i);
+    for (const answers of Object.values(VARIANTS)) {
+      const requests = unwrap(section(render(answers).text, "Clients' requests"));
+      // Straight after the promise to correct, so the promise never reads alone.
+      expect(requests, JSON.stringify(answers)).toContain(
+        `It will correct that information as Practice directs, and delete it as the clause headed "${STATE_LAW_CLAUSE_HEADING}" provides. ${ours}`,
+      );
+    }
   });
 
   test("the telephone-number sentences are left as they were, for gates 6 and 7", () => {

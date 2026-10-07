@@ -734,6 +734,17 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * client's information, and it is answered only in healdesk's reply: v1
    * contacts nobody first or afterwards (BAA 1.3.0, PT-24).
    *
+   * A correction is BAA 1.3.0's clause 14(b) in this document's words (PT-17:
+   * a correction, as a client asks for one, and no 45 CFR citation). It is
+   * made in healdesk's own copy where the record can be changed, and appended
+   * and linked where it cannot: a booking request's facts never change (the
+   * no-rewrite trigger in drizzle/0039 refuses a new `treatment` or
+   * `preferred_window`), and the record of a conversation is kept as it was
+   * made. "Correct that information as Practice directs" alone promised a
+   * change the database forbids. Nothing appends a correction yet, and
+   * `amendContact` has no operator path: the amendment record is the BAA's
+   * release gate 8, and the DPA's too (dpa.md, gap 22).
+   *
    * The telephone-number sentence is left as it stands, for gates 6 and 7 to
    * change (§12.14): what a deletion leaves today is what `eraseContact`
    * (apps/app lib/retention/purge.ts) leaves, the number on the suppression
@@ -749,9 +760,12 @@ const CLAUSES_1_0: readonly DpaClause[] = [
         `When a client asks Practice to see, correct or delete their Client Information, ` +
           `healdesk will give Practice what it needs to answer within ten business days of ` +
           `Practice asking. It will correct that information as Practice directs, and delete it ` +
-          `as the clause headed "${STATE_LAW_CLAUSE_HEADING}" provides. The telephone number of a ` +
-          `client whose information is deleted is kept only as the record that the deletion was ` +
-          `asked for.`,
+          `as the clause headed "${STATE_LAW_CLAUSE_HEADING}" provides. Where the record can be ` +
+          `changed, healdesk corrects its own copy. Where a record must stay as it was made, such ` +
+          `as a booking request or the record of a conversation, healdesk appends the correction ` +
+          `to it and links the two. Every later use and export of that record then carries the ` +
+          `correction. The telephone number of a client whose information is deleted is kept ` +
+          `only as the record that the deletion was asked for.`,
       ) +
       "\n\n" +
       wrap(

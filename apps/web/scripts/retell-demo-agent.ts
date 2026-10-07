@@ -1,13 +1,21 @@
 /**
- * Create or update AYA's demo-call agent in Retell from the repo.
+ * Create or update AYA's two demo agents in Retell from the repo, and bind
+ * the demo number to them.
  *
  *   npm run retell:demo -w @healdesk/web -- --dry-run   # print, no calls
  *   npm run retell:demo -w @healdesk/web                # create, then update
  *
- * With RETELL_DEMO_AGENT_ID unset it creates a Retell LLM and an agent and
- * prints the agent id to set. With it set it updates that agent's draft and
- * its LLM in place, so a catalog price change reaches the call by re-running
- * this, not by editing a prompt in the dashboard (see lib/voice-demo-prompt.ts).
+ * Two agents from one prompt module (lib/voice-demo-prompt.ts):
+ *
+ *   - outbound, RETELL_DEMO_AGENT_ID: the call an owner asks for on the site.
+ *   - inbound, RETELL_DEMO_INBOUND_AGENT_ID: the demo line printed on the
+ *     site (site.demoLine), which owners dial themselves.
+ *
+ * An unset id creates that agent and prints the id to set; a set one updates
+ * the agent's draft and its LLM in place, so a catalog price change reaches
+ * both calls by re-running this, not by editing a prompt in the dashboard.
+ * With RETELL_DEMO_FROM_NUMBER set it also binds the number: answered by the
+ * inbound agent, dialling out as the outbound one, US and Canada only.
  *
  * ## This is the marketing demo, not the product
  *
@@ -24,35 +32,60 @@
  *   - voicemail: hang up. The brief allows no voicemail until counsel rules.
  *   - DNC detection on, paired with `honor_internal_dnc` on every call
  *     /api/callback places, so "stop calling me" outlives this call.
- *   - Retell's "professional call center rep" preset off: it fights the
- *     peer register the prompt asks for. Filler words off: an AI that says
- *     "um" is performing being human.
+ *   - Retell's "professional call center rep" preset off: the prompt sets
+ *     its own register, a gracious hostess. Filler words and Expressive Mode
+ *     off: together they made her sound unsteady.
  */
 
-import {
-  VOICE_DEMO_GENERAL_PROMPT,
-  VOICE_DEMO_OPENING,
-  VOICE_DEMO_STATES,
-  VOICE_DEMO_VARIABLES,
-  type VoiceDemoState,
-} from "../src/lib/voice-demo-prompt";
+import { type VoiceDemoDirection, voiceDemoLlm } from "../src/lib/voice-demo-prompt";
 
 const API = "https://api.retellai.com";
-const AGENT_NAME = "healdesk demo call (AYA)";
+const AGENT_NAME: Record<VoiceDemoDirection, string> = {
+  outbound: "healdesk demo call (AYA)",
+  inbound: "healdesk demo line (AYA, inbound)",
+};
+const AGENT_ID_VAR: Record<VoiceDemoDirection, string> = {
+  outbound: "RETELL_DEMO_AGENT_ID",
+  inbound: "RETELL_DEMO_INBOUND_AGENT_ID",
+};
 
 /**
- * Claude, as the chat demo is. Sonnet rather than Opus because a phone turn
- * has to start within about a second; the chat demo can afford to think.
+ * Claude Haiku: still Claude, so the privacy notice and /subprocessors stay
+ * true, and the fastest model that kept the rules. Measured on real calls
+ * with this prompt and voice on 6 October 2026, the model's share of each
+ * pause was 0.63s median and 0.72s p90 against Sonnet 5.5's 1.07s and 1.30s;
+ * GPT-5.4 Mini was 0.72s, Gemini 3.8 Flash 1.75s. Haiku postponed a price
+ * question and sidestepped a discount until the prompt's "three answers you
+ * never delay or dodge" block; scratchpad quality runs check both.
  */
-const MODEL = "claude-5.5-sonnet";
+const MODEL = "claude-4.5-haiku";
 
 /**
- * Change by ear, in Retell's dashboard voice picker, then here. The fallback
- * must be another TTS provider (Retell's rule) so an outage changes the voice
- * rather than ending the call.
+ * Sloane, as a Retell platform voice: tuned for phone audio, and it fails
+ * over to another provider on its own, so there is no fallback list. The
+ * owner's choice by ear, after Grace and Cimo, for a serious, friendly,
+ * luxury register: a hostess rather than a buddy. Platform voices are the
+ * only ones that support the Expressive Mode smile below.
  */
-const VOICE_ID = "11labs-Grace";
-const FALLBACK_VOICE_IDS = ["cartesia-Grace"];
+const VOICE_ID = "retell-Sloane";
+
+/**
+ * The smile and the sympathy, nothing else. Expressive Mode with sighs,
+ * pauses and filler words was heard as "drunk"; with it off, steady
+ * settings were heard as "sleepy". So it is on with two tags, used where a
+ * hostess would smile or sympathise, and an instruction that rules out
+ * everything that went wrong before.
+ */
+const EXPRESSIVE_TAGS = ["happy", "empathetic", "emphasis"];
+const EXPRESSIVE_GUIDANCE =
+  "Speak with a gentle, warm smile throughout, calm and bright, with natural rise and fall, never monotone. " +
+  "Use [emphasis] on the one word that carries the point, at most once a turn. Use [happy] only on a greeting, " +
+  "a thank-you or good news, and [empathetic] only when they describe something hard, each at most once every " +
+  "few turns. Never sigh, never pause for effect, never whisper, never sound excited, and never tag a price, a " +
+  "number or a name.";
+
+/** The opening is spoken with that smile; the tag is never read aloud. */
+const SMILE = "[happy] ";
 
 /**
  * Where Retell posts request_follow_up. The deployed site, never
@@ -84,8 +117,10 @@ const REQUEST_FOLLOW_UP = {
     properties: {
       topic: {
         type: "string",
-        enum: ["pricing", "discount", "terms", "sales_session", "other"],
-        description: "What they want from the team.",
+        enum: ["start", "pricing", "discount", "terms", "sales_session", "other"],
+        description:
+          "start: they said yes in the close, and are emailed the setup link for the package. " +
+          "Anything else goes to the team, who reply by email.",
       },
       name: { type: "string", description: "Their name, as they gave it." },
       clinic: { type: "string", description: "Their clinic's name, if they gave it." },
@@ -123,59 +158,60 @@ const REQUEST_FOLLOW_UP = {
   max_retry: 0,
 };
 
-function edge(e: VoiceDemoState["edges"][number]) {
+function llmConfig(direction: VoiceDemoDirection) {
+  const llm = voiceDemoLlm(direction);
   return {
-    destination_state_name: e.to,
-    description: e.when,
-    ...(e.carry
-      ? {
-          parameters: {
-            type: "object",
-            properties: Object.fromEntries(
-              Object.entries(e.carry).map(([key, description]) => [key, { type: "string", description }]),
-            ),
-            required: Object.keys(e.carry),
-          },
-        }
-      : {}),
+    model: MODEL,
+    // Retell's guidance for sales calls is 0.5 to 0.7; lower here because
+    // the prices, the refunds and the disclosure must come out exactly.
+    model_temperature: 0.3,
+    // Retell's fast tier: dedicated capacity, 1.5x the model's rate. The
+    // measured cost of the standard pool was the variance, turns of 2.5 to
+    // 3.7 seconds, and a demo call is the one place that cannot afford it.
+    model_high_priority: true,
+    start_speaker: "agent",
+    begin_message: SMILE + llm.beginMessage,
+    // One prompt, no states: a state change is a second model call on the
+    // turn that crosses it (see the module header).
+    general_prompt: llm.prompt,
+    general_tools: [END_CALL, REQUEST_FOLLOW_UP],
+    states: [],
+    starting_state: null,
+    default_dynamic_variables: llm.defaults,
   };
 }
 
-const llmConfig = {
-  model: MODEL,
-  model_temperature: 0.2,
-  start_speaker: "agent",
-  begin_message: VOICE_DEMO_OPENING,
-  general_prompt: VOICE_DEMO_GENERAL_PROMPT,
-  general_tools: [END_CALL],
-  starting_state: "greeting",
-  states: VOICE_DEMO_STATES.map((state) => ({
-    name: state.name,
-    state_prompt: state.prompt,
-    edges: state.edges.map(edge),
-    // Only the close can pass anything on, so only the close has the tool.
-    tools: state.name === "close" ? [REQUEST_FOLLOW_UP] : [],
-  })),
-  default_dynamic_variables: VOICE_DEMO_VARIABLES,
-};
-
-function agentConfig(llmId: string) {
+function agentConfig(llmId: string, direction: VoiceDemoDirection) {
+  const outbound = direction === "outbound";
   return {
-    agent_name: AGENT_NAME,
+    agent_name: AGENT_NAME[direction],
     response_engine: { type: "retell-llm", llm_id: llmId },
     voice_id: VOICE_ID,
-    fallback_voice_ids: FALLBACK_VOICE_IDS,
+    fallback_voice_ids: null,
+    enable_expressive_mode: true,
+    expressive_emotion_tags: EXPRESSIVE_TAGS,
+    expressive_mode_prompt: EXPRESSIVE_GUIDANCE,
     language: "en-US",
-    // Calm, not loud: a touch slower, quieter and steadier than Retell's
-    // defaults (1, 1, 1), and fewer "mm-hm"s, which read as eagerness.
-    voice_speed: 0.95,
-    volume: 0.85,
-    voice_temperature: 0.6,
-    responsiveness: 0.8,
+    // Between the two failures: temperature 1 with a caller-following speed
+    // was "drunk", 0.75 at speed 1 was "sleepy". A little brighter and a
+    // touch quicker than neutral, at a constant speed.
+    // Speed back to neutral, because she must be easy to follow; 1.06 was a
+    // touch quick. A little more variation than 0.9, which was heard as
+    // monotone, and the emphasis tag puts the weight on the right word.
+    voice_speed: 1,
+    volume: 1,
+    voice_temperature: 0.95,
+    enable_dynamic_voice_speed: false,
+    // 1 is Retell's fastest: reply as soon as the turn is judged over. 0.8
+    // added a wait that measured calls showed as about 0.4s of every pause.
+    responsiveness: 1,
     interruption_sensitivity: 0.8,
+    // Rare: a hostess listens quietly.
     enable_backchannel: true,
-    backchannel_frequency: 0.3,
-    begin_message_delay_ms: 800,
+    backchannel_frequency: 0.2,
+    // Outbound waits for the callee to get the phone to their ear; the demo
+    // line answers as a front desk would, at once.
+    begin_message_delay_ms: outbound ? 800 : 0,
     reminder_trigger_ms: 8_000,
     reminder_max_count: 1,
     end_call_after_silence_ms: 20_000,
@@ -183,12 +219,17 @@ function agentConfig(llmId: string) {
     // wraps up from about nine minutes, so the cap never cuts a sentence on a
     // call that is going well; it only ends one that has gone wrong.
     max_call_duration_ms: 12 * 60_000,
-    voicemail_option: { action: { type: "hangup" } },
-    enable_dnc_detection: true,
+    // Only an outbound call can reach a voicemail or a "stop calling me".
+    voicemail_option: outbound ? { action: { type: "hangup" } } : null,
+    enable_dnc_detection: outbound,
     data_storage_setting: "basic_attributes_only",
     data_storage_retention_days: 30,
     opt_in_signed_url: true,
-    boosted_keywords: ["healdesk", "AYA", "Botox", "Mindbody", "Boulevard", "Vagaro", "Zenoti"],
+    // None: Retell lists boosted keywords as a cost to transcription latency.
+    boosted_keywords: null,
+    // Every preset adds tokens to every turn, and the prompt already covers
+    // the disclosure, numbers read aloud and staying in scope, so all are off.
+    // Filler words were on briefly and were part of what sounded "drunk".
     handbook_config: {
       default_personality: false,
       conversational_personality: false,
@@ -196,10 +237,10 @@ function agentConfig(llmId: string) {
       high_empathy: false,
       echo_verification: false,
       nato_phonetic_alphabet: false,
-      speech_normalization: true,
-      smart_matching: true,
-      ai_disclosure: true,
-      scope_boundaries: true,
+      speech_normalization: false,
+      smart_matching: false,
+      ai_disclosure: false,
+      scope_boundaries: false,
     },
   };
 }
@@ -218,26 +259,18 @@ async function retell<T>(path: string, method: "GET" | "POST" | "PATCH", body?: 
   return JSON.parse(text) as T;
 }
 
-async function main(): Promise<void> {
-  if (dryRun) {
-    console.log(JSON.stringify({ llm: llmConfig, agent: agentConfig("<llm_id>") }, null, 2));
-    for (const state of llmConfig.states) {
-      const words = (llmConfig.general_prompt + state.state_prompt).split(/\s+/).length;
-      console.log(`Stage ${state.name}: about ${words} words a turn.`);
-    }
-    console.log("Nothing was sent.");
-    return;
-  }
-  if (!process.env.RETELL_API_KEY) throw new Error("RETELL_API_KEY is not set.");
-  if (!TOOL_ORIGIN.startsWith("https://")) throw new Error(`RETELL_DEMO_TOOL_ORIGIN must be https: ${TOOL_ORIGIN}`);
+const DIRECTIONS: readonly VoiceDemoDirection[] = ["outbound", "inbound"];
 
-  const agentId = process.env.RETELL_DEMO_AGENT_ID;
+/** Create or update one direction's LLM and agent. Returns the agent id. */
+async function upsert(direction: VoiceDemoDirection): Promise<string> {
+  const llm = llmConfig(direction);
+  const agentId = process.env[AGENT_ID_VAR[direction]];
   if (!agentId) {
-    const llm = await retell<{ llm_id: string }>("/create-retell-llm", "POST", llmConfig);
-    const agent = await retell<{ agent_id: string }>("/create-agent", "POST", agentConfig(llm.llm_id));
-    console.log(`Created LLM ${llm.llm_id} and agent ${agent.agent_id}.`);
-    console.log(`Set RETELL_DEMO_AGENT_ID=${agent.agent_id} to update it in place next time.`);
-    return;
+    const created = await retell<{ llm_id: string }>("/create-retell-llm", "POST", llm);
+    const agent = await retell<{ agent_id: string }>("/create-agent", "POST", agentConfig(created.llm_id, direction));
+    console.log(`Created ${direction} LLM ${created.llm_id} and agent ${agent.agent_id}.`);
+    console.log(`Set ${AGENT_ID_VAR[direction]}=${agent.agent_id} to update it in place next time.`);
+    return agent.agent_id;
   }
 
   const existing = await retell<{ response_engine?: { type?: string; llm_id?: string } }>(
@@ -248,9 +281,43 @@ async function main(): Promise<void> {
   if (existing.response_engine?.type !== "retell-llm" || !llmId) {
     throw new Error(`Agent ${agentId} does not run on a Retell LLM; refusing to overwrite it.`);
   }
-  await retell(`/update-retell-llm/${llmId}`, "PATCH", llmConfig);
-  await retell(`/update-agent/${agentId}`, "PATCH", agentConfig(llmId));
-  console.log(`Updated LLM ${llmId} and agent ${agentId} (draft).`);
+  await retell(`/update-retell-llm/${llmId}`, "PATCH", llm);
+  await retell(`/update-agent/${agentId}`, "PATCH", agentConfig(llmId, direction));
+  console.log(`Updated ${direction} LLM ${llmId} and agent ${agentId} (draft).`);
+  return agentId;
+}
+
+async function main(): Promise<void> {
+  if (dryRun) {
+    for (const direction of DIRECTIONS) {
+      const llm = llmConfig(direction);
+      console.log(`\n== ${direction}: ${llm.begin_message}`);
+      console.log(`Prompt: about ${llm.general_prompt.split(/\s+/).length} words a turn.`);
+    }
+    console.log("\nNothing was sent.");
+    return;
+  }
+  if (!process.env.RETELL_API_KEY) throw new Error("RETELL_API_KEY is not set.");
+  if (!TOOL_ORIGIN.startsWith("https://")) throw new Error(`RETELL_DEMO_TOOL_ORIGIN must be https: ${TOOL_ORIGIN}`);
+
+  const outbound = await upsert("outbound");
+  const inbound = await upsert("inbound");
+
+  const number = process.env.RETELL_DEMO_FROM_NUMBER;
+  if (!number) {
+    console.log("RETELL_DEMO_FROM_NUMBER is unset; no number bound.");
+    return;
+  }
+  await retell(`/update-phone-number/${encodeURIComponent(number)}`, "PATCH", {
+    nickname: "healdesk demo line (AYA)",
+    inbound_agents: [{ agent_id: inbound, weight: 1 }],
+    outbound_agents: [{ agent_id: outbound, weight: 1 }],
+    // A toll-free demo line answered by an AI is a target for pumped
+    // international traffic; owners who would buy are in the US and Canada.
+    allowed_inbound_country_list: ["US", "CA"],
+    allowed_outbound_country_list: ["US"],
+  });
+  console.log(`Bound ${number}: answered by ${inbound}, dialling as ${outbound}.`);
 }
 
 main().catch((error: unknown) => {

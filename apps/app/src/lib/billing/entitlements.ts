@@ -116,6 +116,13 @@ export type SeedEntitlementsInput = {
   interval: BillingInterval;
   stripeCustomerId?: string | null;
   stripeSubscriptionId?: string | null;
+  /**
+   * healdesk's own fictional demo clinic (scripts/demo-clinic.ts, owner
+   * decision Q6): status `demo`, the one marker on which a draft calendar
+   * election counts (app_clinic_is_demo, drizzle/0053). Only provisioning's
+   * internal option sets it, never a purchase, and never with a Stripe id.
+   */
+  demo?: boolean;
 };
 
 /**
@@ -124,17 +131,27 @@ export type SeedEntitlementsInput = {
  * `provisioning` when there is a Stripe subscription to wait on — the first
  * invoice's `invoice.paid` is what moves it to `active` — and `active`
  * straight away when there is not, which is the no-Stripe development path
- * where nothing will ever arrive to activate it. Returns the status written so
- * the caller can report it without reading back through RLS.
+ * where nothing will ever arrive to activate it. `demo` for the operator's
+ * demo clinic, which nothing else writes: the state machine has no edge into
+ * `demo`, only one out of it (a demo converting to a purchase). Returns the
+ * status written so the caller can report it without reading back through
+ * RLS.
  */
 export async function seedEntitlements(
   db: Transaction,
   clinicId: string,
   input: SeedEntitlementsInput,
 ): Promise<BillingStatus> {
-  const status: BillingStatus = input.stripeSubscriptionId
-    ? "provisioning"
-    : "active";
+  if (input.demo && (input.stripeCustomerId || input.stripeSubscriptionId)) {
+    // A Stripe id makes it a customer, and app_clinic_is_demo() would say
+    // "not a demo" of the row anyway; refused rather than half-written.
+    throw new Error("A demo clinic has no Stripe customer or subscription.");
+  }
+  const status: BillingStatus = input.demo
+    ? "demo"
+    : input.stripeSubscriptionId
+      ? "provisioning"
+      : "active";
 
   await db.insert(entitlements).values({
     clinicId,
@@ -156,7 +173,7 @@ export async function seedEntitlements(
     fromStatus: null,
     toStatus: status,
     actor: "system",
-    reason: "provisioned",
+    reason: input.demo ? "provisioned_demo" : "provisioned",
   });
 
   return status;

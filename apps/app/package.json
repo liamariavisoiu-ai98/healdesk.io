@@ -20,6 +20,7 @@
     "patient-export": "tsx --env-file-if-exists=.env.local scripts/patient-export.ts",
     "qa:meta": "tsx --env-file-if-exists=.env.local scripts/meta-qa-gate.ts",
     "channels-link": "tsx --env-file-if-exists=.env.local scripts/channels-link.ts",
+    "demo-clinic": "tsx --env-file-if-exists=.env.local scripts/demo-clinic.ts",
     "db:up": "bash scripts/dev-db.sh up",
     "db:down": "bash scripts/dev-db.sh down",
     "db:reset": "bash scripts/dev-db.sh reset",

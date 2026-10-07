@@ -24,7 +24,7 @@ the code on 7 October 2026. The plan's commit names, C0 to C20, are kept.
 | C5      | This record                                                                                        | This file                                      |
 | C6      | Migration A: elections, OAuth states, slot holds, Auto-confirm, `clinics.client_number`, providers | Built (3cca422); the funnel's M3 goes after it |
 | C6b     | The KMS lock labels (§5)                                                                           | Built                                          |
-| C7      | The agreement and calendar terms in effect, elections, the demo clinic                             | To build                                       |
+| C7      | The agreement and calendar terms in effect, elections, the demo clinic                             | Built                                          |
 | C8      | Connecting, choosing calendars, disconnecting, revoking (§2, §4)                                   | To build                                       |
 | C9      | Booking mode and Auto-confirm (§2)                                                                 | To build                                       |
 | C10     | The five-minute calendar watch                                                                     | To build; ships switched off                   |

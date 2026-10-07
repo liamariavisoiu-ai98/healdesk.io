@@ -210,6 +210,17 @@ export type ProvisionRequest = {
 export type ProvisionOptions = {
   /** Consumed in the same transaction, so an intent provisions one clinic. */
   intentRef?: string;
+  /**
+   * healdesk's own fictional demo clinic (owner decision Q6, plan §2.6): its
+   * entitlements start `demo`, with no Stripe ids, so draft calendar terms
+   * count on it (app_clinic_is_demo) and the Google verification video can
+   * run before the calendar documents are released. Only
+   * scripts/demo-clinic.ts passes it. It is an option, not a field of
+   * ProvisionRequest, so /api/provision, which builds its options itself and
+   * never from the body, cannot reach it; a demo clinic is never a purchase,
+   * has no subscription, and never goes live (ops goLive refuses one).
+   */
+  demo?: boolean;
 };
 
 export type ProvisionResult = {
@@ -406,6 +417,15 @@ export async function provisionClinic(
     return { ...seen[0], replayed: true };
   }
 
+  if (
+    options.demo &&
+    (options.intentRef || request.stripeCustomerId || request.stripeSubscriptionId)
+  ) {
+    throw new ProvisioningError(
+      "A demo clinic is not a purchase: it has no checkout intent and no Stripe subscription.",
+    );
+  }
+
   // Which paper the clinic is under, and whether it may be provisioned
   // against it (plan Part L), decided before anything is written.
   const agreement = await agreementForProvisioning(request);
@@ -563,16 +583,20 @@ async function provisionOnce({
       interval: request.billingInterval ?? "month",
       stripeCustomerId: request.stripeCustomerId,
       stripeSubscriptionId: request.stripeSubscriptionId,
+      demo: options.demo === true,
     });
 
     // What was sold stays on record beside what is billed (plan_code follows
     // the channels in service once the plan starts), and the setup window
-    // ends on the clinic's own calendar: the 30th day after today.
+    // ends on the clinic's own calendar: the 30th day after today. A demo
+    // clinic bought nothing, so it has no setup window to close it at.
     await tx
       .update(entitlements)
       .set({
         boughtPlanId: plan.id,
-        setupDeadlineAt: setupDeadline(new Date(), request.timezone ?? "America/New_York"),
+        setupDeadlineAt: options.demo
+          ? null
+          : setupDeadline(new Date(), request.timezone ?? "America/New_York"),
       })
       .where(eq(entitlements.clinicId, clinicId));
 
@@ -647,6 +671,7 @@ async function provisionOnce({
         agreementId: request.agreementId,
         agreementKind: agreement.kind,
         regulatoryRegime: agreement.regime,
+        ...(options.demo ? { demo: true } : {}),
       },
     });
 

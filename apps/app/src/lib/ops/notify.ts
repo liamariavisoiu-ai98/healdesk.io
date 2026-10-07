@@ -59,6 +59,11 @@ export const OPS_EVENTS = [
   // raised once, ever, by the dmarc-review job on the 14th day after Resend
   // first sent as healdesk.io (lib/scheduler/dmarc-review.ts).
   "dmarc_review_due",
+  // The Google Calendar connection (the calendar session; the funnel and
+  // portal contract of 6 October 2026 routes its ops alerts here): a
+  // location's connection broke and it now takes booking requests. Raised
+  // once per breakage by markCalendarBroken (lib/connections/google-calendar.ts).
+  "calendar_broken",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

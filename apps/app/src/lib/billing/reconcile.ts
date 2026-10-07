@@ -41,6 +41,7 @@ import {
   type BillingGroupChannels,
   type BillingRequestChannelKey,
 } from "@/lib/billing/requests";
+import { resumePlanChange, STALE_PLAN_CHANGE_MS } from "@/lib/billing/stripe-actions";
 import { createLocationClinic, LOCATION_CLINICS_READY } from "@/lib/location-clinic";
 import { describeError, log } from "@/lib/log";
 import { notifyOps, notifyOpsOnce } from "@/lib/ops/notify";
@@ -678,6 +679,18 @@ export async function reconcileBilling(now: Date = new Date()): Promise<Reconcil
     try {
       await reconcileClinic(billingClinicId, now, setupClosureOn, summary);
       summary.connectsDisconnected += await disconnectEndedAccounts(billingClinicId, now);
+      // A plan change whose outcome was lost and that nobody came back for
+      // (review fix of 7 October 2026): finished from what Stripe holds, or
+      // dropped when nothing was charged. It never charges, and a clinic with
+      // nothing pending costs a read and no Stripe call.
+      await resumePlanChange(
+        {
+          clinicId: billingClinicId,
+          actorLabel: "billing-reconcile",
+          staleAfterMs: STALE_PLAN_CHANGE_MS,
+        },
+        { now },
+      );
     } catch (error) {
       // One clinic's failure must not stop the reconcile for the rest.
       summary.failures += 1;

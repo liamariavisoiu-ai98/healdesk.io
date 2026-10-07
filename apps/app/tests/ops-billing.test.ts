@@ -199,7 +199,9 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
       await inTenant(billing.clinicId, async (c) => {
         await c.query(
           `update entitlements set cancel_at = $2, open_invoice_id = 'in_open_view',
-             open_invoice_url = 'https://invoice.stripe.com/i/in_open_view', open_invoice_amount_cents = 89700
+             open_invoice_url = 'https://invoice.stripe.com/i/in_open_view', open_invoice_amount_cents = 89700,
+             pending_plan_change_request_id = 'req-view-pending', pending_plan_change_plan_id = 'chat-web',
+             pending_plan_change_interval = 'year'
            where clinic_id = $1`,
           [billing.clinicId, PERIOD_END],
         );
@@ -405,10 +407,13 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
         refundDue: true,
         stuckRequests: 1,
         pendingLocation: null,
+        pendingPlanChange: { planId: "chat-web", interval: "year" },
       });
 
-      // Nothing from a payload or an error's message crosses.
+      // Nothing from a payload or an error's message crosses, nor the
+      // pending change's request id: the console needs the plan, not the token.
       const wire = JSON.stringify(view);
+      expect(wire).not.toContain("req-view-pending");
       expect(wire).not.toContain("payload");
       expect(wire).not.toContain("secret-path");
       expect(wire).not.toContain("buyer@example.test");
@@ -450,6 +455,7 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
         refundDue: false,
         stuckRequests: 0,
         pendingLocation: null,
+        pendingPlanChange: null,
       });
     });
   });

@@ -8,6 +8,7 @@ import {
   parseLookupKey,
   planForChannels,
   recurringUsd,
+  setupFeeDeltaUsd,
   stripeLookupKey,
   type BillingInterval,
   type Channel,
@@ -33,9 +34,11 @@ import { notifyOps } from "@/lib/ops/notify";
 import { publicOrigin } from "@/lib/public-url";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
+import { claimOverageOnLeavingAnnual } from "./annual-overage";
 import { resolveBillingClinicId } from "./billing-clinic";
 import {
   addMonthsUtc,
+  allowanceWindow,
   applyBilledPlan,
   applyBoughtPlan,
   claimStripeMutationLease,
@@ -43,10 +46,12 @@ import {
   getEntitlementsForUpdate,
   hasPlanStarted,
   markFirstPeriodRefunded,
+  openAllowanceWindow,
   releaseStripeMutationLease,
   setCancelAt,
   setLocations,
   setMeteredPriceKeys,
+  STRIPE_MUTATION_LEASE_MS,
   refundEligibleUntil,
   refundWindowOpen,
 } from "./entitlements";
@@ -59,6 +64,8 @@ import {
   meteredKeysOf,
   packageItemOf,
   stripeErrorCode,
+  type PackageItem,
+  type SubscriptionItemLike,
   type SubscriptionLike,
 } from "./metered-items";
 import { enqueueNotice, type NoticePayloads } from "./notices";
@@ -78,7 +85,9 @@ import {
   checkPlanChange,
   closesAt,
   isoDay,
+  pendingPlanChangeOf,
   readBillingGroup,
+  type PlanChangeCheck,
 } from "./summary";
 
 /**
@@ -106,8 +115,12 @@ import {
  * When Stripe does not answer and we cannot tell whether a change went
  * through, the lease is deliberately NOT released: until it runs out (five
  * minutes) only a retry of the same request can claim it, and that retry
- * finds the marker. A different request in that window gets `busy`, which is
- * what stops a fresh click from charging a setup-fee difference twice.
+ * finds the marker. A different request in that window gets `busy`. The
+ * lease alone does not outlast a reload, so a plan change and an extra
+ * location are also recorded on the billing row before anything is charged
+ * (`pending_plan_change_*`, `pending_location_*`): a later request carries
+ * the pending one on under its id, or is refused, and is never charged
+ * twice; the hourly reconcile finishes, or drops, what nobody comes back for.
  *
  * Each action also takes an optional second argument, `{ now, stripe }`, for
  * tests and for the console; the first argument and the result union are
@@ -566,8 +579,105 @@ type StripeOutcome =
       billed: Plan | null;
       /** Metered keys from the subscription Stripe returned; null when nothing was read. */
       meteredKeys: string[] | null;
+      /**
+       * The package item's current period on the subscription Stripe
+       * returned; null before the start. An interval change re-anchors it,
+       * and the allowance window follows (`reanchorAllowanceWindow`).
+       */
+      period: { start: Date; end: Date } | null;
     }
+  /** Refused or declined before anything was charged: the change is over. */
   | { ok: false; result: ChangePlanResult };
+
+type StripeApplied = Extract<StripeOutcome, { ok: true }>;
+
+/**
+ * A plan change as the Stripe calls see it: the shared check's answer, and
+ * the request every Stripe lookup, idempotency key and marker uses. That is
+ * the caller's own `requestId`, or the pending change's when this call
+ * carries it on (review fix of 7 October 2026).
+ */
+type PlanChangeClaim = Extract<PlanChangeCheck, { ok: true }> & { requestId: string };
+
+/** The pending plan change columns, written only by changePlan and its resume. */
+async function setPendingPlanChange(
+  db: Transaction,
+  clinicId: string,
+  change: { requestId: string; planId: string; interval: BillingInterval },
+) {
+  await db
+    .update(entitlements)
+    .set({
+      pendingPlanChangeRequestId: change.requestId,
+      pendingPlanChangePlanId: change.planId,
+      pendingPlanChangeInterval: change.interval,
+    })
+    .where(
+      and(eq(entitlements.clinicId, clinicId), isNull(entitlements.pendingPlanChangeRequestId)),
+    );
+}
+
+/** Cleared only while it is still this request: a newer one is not ours to drop. */
+async function clearPendingPlanChange(db: Transaction, clinicId: string, requestId: string) {
+  await db
+    .update(entitlements)
+    .set({
+      pendingPlanChangeRequestId: null,
+      pendingPlanChangePlanId: null,
+      pendingPlanChangeInterval: null,
+    })
+    .where(
+      and(
+        eq(entitlements.clinicId, clinicId),
+        eq(entitlements.pendingPlanChangeRequestId, requestId),
+      ),
+    );
+}
+
+/**
+ * renewLease for a plan change, which also stops once the change is no
+ * longer the pending one: an attempt that stalled past its lease, while the
+ * reconcile found nothing charged and dropped the change, must not charge
+ * for it when it wakes, least of all after the clinic has started another.
+ */
+async function renewPlanChangeLease(
+  billingClinicId: string,
+  owner: string,
+  requestId: string,
+  actor: ActorContext,
+) {
+  const kept = await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
+    const row = await getEntitlementsForUpdate(tx.db, billingClinicId);
+    if (row?.pendingPlanChangeRequestId !== requestId) return false;
+    return claimStripeMutationLease(tx.db, billingClinicId, owner);
+  });
+  if (!kept) throw new LeaseLostError();
+}
+
+/** A subscription item's current period, or null when Stripe sent none. */
+function periodOf(
+  item: SubscriptionItemLike | null | undefined,
+): { start: Date; end: Date } | null {
+  const start = item?.current_period_start;
+  const end = item?.current_period_end;
+  if (typeof start !== "number" || typeof end !== "number") return null;
+  return { start: new Date(start * 1000), end: new Date(end * 1000) };
+}
+
+/** What a subscription that already carries the change's marker says was applied. */
+function appliedFrom(
+  subscription: SubscriptionLike,
+  current: PackageItem,
+  hostedInvoiceUrl: string | null,
+): StripeApplied {
+  return {
+    ok: true,
+    hostedInvoiceUrl: hostedInvoiceUrl ?? invoiceUrlRaisedSince(subscription, 0),
+    billed: current.plan,
+    meteredKeys: meteredKeysOf(subscription),
+    period: periodOf(current.item),
+  };
+}
 
 /**
  * Change the package bought, and with it the price and the channels (BD12,
@@ -595,7 +705,16 @@ type StripeOutcome =
  *
  * Either way the subscription ends up carrying `metadata.hd_plan_change =
  * requestId`, which is how a retry knows the change already went through.
- * `plan_changed` is enqueued here and only here (BD8).
+ * `plan_changed` is enqueued by this flow alone, in `finishPlanChange` (BD8).
+ *
+ * The change is recorded on the billing row before anything is charged
+ * (`pending_plan_change_*`, in the transaction that claims the lease) and
+ * cleared in the one that applies it, or on a refusal or decline before any
+ * charge. A request for the same plan while a change is pending carries that
+ * change on under its request id, so it finds the first attempt's charge
+ * instead of making a second; any other change is refused until it is done.
+ * A change nobody comes back for is finished, or dropped when nothing was
+ * charged, by the hourly reconcile (`resumePlanChange`).
  */
 export async function changePlan(
   input: ChangePlanInput,
@@ -616,6 +735,9 @@ export async function changePlan(
   if (!stripe) return { status: "not_available", message: NOT_AVAILABLE };
 
   const billingClinicId = group.billingClinicId;
+  // The lease is held under the caller's own request even when it carries on
+  // a pending one: while the first attempt's lease runs, a fresh request is
+  // busy, and only that attempt's own retry can act.
   const owner = `change_plan:${input.requestId}`;
   const claim = await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
     const fresh = checkPlanChange(
@@ -628,79 +750,54 @@ export async function changePlan(
     if (!(await claimStripeMutationLease(tx.db, billingClinicId, owner))) {
       return { ok: false as const, status: "busy" as const, message: BUSY };
     }
-    return fresh;
+    const requestId = fresh.pendingRequestId ?? input.requestId;
+    if (fresh.pendingRequestId === null) {
+      await setPendingPlanChange(tx.db, billingClinicId, {
+        requestId,
+        planId: fresh.newPlan.id,
+        interval: fresh.interval,
+      });
+    }
+    return { ...fresh, requestId };
   });
   if (!claim.ok) return { status: claim.status, message: claim.message };
 
   let releaseOnExit = true;
   try {
     const outcome = claim.isStarted
-      ? await changeStartedPlan(
-          stripe,
-          claim,
-          input,
-          group.inService,
-          billingClinicId,
-          owner,
-          actor,
-        )
-      : await chargePlanChangeDelta(stripe, claim, input, null, billingClinicId, owner, actor);
-    if (!outcome.ok) return outcome.result;
-
-    const droppedChannels = channelsDroppedBy(claim.newPlan, group.inService);
-    await addBoughtChannelRows(group.locationIds, claim.newPlan, actor);
-    const voiceDropped = claim.boughtPlan.channels.voice && !claim.newPlan.channels.voice;
-
-    await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
-      await applyBoughtPlan(tx.db, billingClinicId, claim.newPlan);
-      // Before the start plan_code keeps following the bought package, as
-      // provisioning seeds it; the plan start moves it to the billed one.
-      await applyBilledPlan(
-        tx.db,
-        billingClinicId,
-        outcome.billed ?? claim.newPlan,
-        claim.interval,
-      );
-      if (outcome.meteredKeys) {
-        await setMeteredPriceKeys(tx.db, billingClinicId, outcome.meteredKeys);
-      }
-      await recordBillingNote(tx, { actor: "client", reason: "plan_change" });
-      tx.audit.record({
-        action: "update",
-        resourceType: "entitlements",
-        resourceId: billingClinicId,
-        metadata: {
-          field: "plan",
-          planCode: claim.newPlan.id,
-          interval: claim.interval,
-          isBeforeStart: !claim.isStarted,
-        },
+      ? await changeStartedPlan(stripe, claim, group.inService, billingClinicId, owner, actor)
+      : await chargePlanChangeDelta(stripe, claim, null, billingClinicId, owner, actor);
+    if (!outcome.ok) {
+      // Refused or declined before anything was charged: the change is over.
+      await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
+        await clearPendingPlanChange(tx.db, billingClinicId, claim.requestId);
+        await releaseStripeMutationLease(tx.db, billingClinicId, owner);
       });
-      const facts = voiceDropped ? await forwardingFacts(tx) : null;
-      await enqueueNotice(tx, "plan_changed", `plan:${input.requestId}`, {
-        planName: claim.newPlan.name,
-        interval: claim.interval,
-        locations: claim.locations,
-        setupFeeDeltaCents: claim.deltaPerLocationCents * claim.locations,
-        hostedInvoiceUrl: outcome.hostedInvoiceUrl,
-        hasDroppedChannels: droppedChannels.length > 0,
-        isBeforeStart: !claim.isStarted,
-        billedPlanId: outcome.billed?.id ?? null,
-        ...(facts ?? {}),
-      });
-      await releaseStripeMutationLease(tx.db, billingClinicId, owner);
+      releaseOnExit = false;
+      return outcome.result;
+    }
+    const droppedChannels = await finishPlanChange({
+      billingClinicId,
+      claim,
+      outcome,
+      inService: group.inService,
+      locationIds: group.locationIds,
+      owner,
+      actor,
+      billingActor: "client",
+      now,
     });
     releaseOnExit = false;
     return { status: "changed", hostedInvoiceUrl: outcome.hostedInvoiceUrl, droppedChannels };
   } catch (error) {
     // We cannot tell whether Stripe applied the change (or, with the lease
-    // lost, whether a charge before it went through): keep any lease we hold,
-    // so only a retry of this same request, which finds its own markers, can
-    // act within the lease's five minutes.
+    // lost, whether a charge before it went through): keep any lease we hold
+    // and the pending change, so a retry, or a fresh request for the same
+    // plan, carries it on and finds its own markers.
     releaseOnExit = false;
     log.warn("plan change interrupted", {
       clinicId: billingClinicId,
-      requestId: input.requestId,
+      requestId: claim.requestId,
       code: stripeErrorCode(error),
     });
     return { status: "refused", message: NO_ANSWER };
@@ -709,23 +806,149 @@ export async function changePlan(
   }
 }
 
-type PlanChangeClaim = Extract<ReturnType<typeof checkPlanChange>, { ok: true }>;
+/**
+ * The local half of a plan change Stripe has applied, for changePlan and its
+ * resume alike: channel rows for the new package at every location, then
+ * one billing transaction with the bought and billed packages, the metered
+ * keys Stripe returned, the allowance window when the interval change
+ * re-anchored the cycle (and, leaving annual billing, the overage of the
+ * annual months), the pending change cleared, the history, `plan_changed`
+ * and the lease released. Returns the channels in service the new package
+ * drops.
+ */
+async function finishPlanChange(input: {
+  billingClinicId: string;
+  claim: PlanChangeClaim;
+  outcome: StripeApplied;
+  inService: readonly Channel[];
+  locationIds: readonly string[];
+  owner: string;
+  actor: ActorContext;
+  /** Who the billing history names: the clinic's own request, or the reconcile finishing it. */
+  billingActor: "client" | "system";
+  now: Date;
+}): Promise<Channel[]> {
+  const { billingClinicId, claim, outcome, actor } = input;
+  const droppedChannels = channelsDroppedBy(claim.newPlan, input.inService);
+  await addBoughtChannelRows(input.locationIds, claim.newPlan, actor);
+  const voiceDropped = claim.boughtPlan.channels.voice && !claim.newPlan.channels.voice;
+
+  await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
+    await applyBoughtPlan(tx.db, billingClinicId, claim.newPlan);
+    // Before the start plan_code keeps following the bought package, as
+    // provisioning seeds it; the plan start moves it to the billed one.
+    await applyBilledPlan(tx.db, billingClinicId, outcome.billed ?? claim.newPlan, claim.interval);
+    if (outcome.meteredKeys) {
+      await setMeteredPriceKeys(tx.db, billingClinicId, outcome.meteredKeys);
+    }
+    if (outcome.period) {
+      await reanchorAllowanceWindow(tx, {
+        interval: claim.interval,
+        period: outcome.period,
+        leftBought: claim.boughtPlan,
+        now: input.now,
+      });
+    }
+    await clearPendingPlanChange(tx.db, billingClinicId, claim.requestId);
+    await recordBillingNote(tx, { actor: input.billingActor, reason: "plan_change" });
+    tx.audit.record({
+      action: "update",
+      resourceType: "entitlements",
+      resourceId: billingClinicId,
+      metadata: {
+        field: "plan",
+        planCode: claim.newPlan.id,
+        interval: claim.interval,
+        isBeforeStart: !claim.isStarted,
+      },
+    });
+    const facts = voiceDropped ? await forwardingFacts(tx) : null;
+    await enqueueNotice(tx, "plan_changed", `plan:${claim.requestId}`, {
+      planName: claim.newPlan.name,
+      interval: claim.interval,
+      locations: claim.locations,
+      setupFeeDeltaCents: claim.deltaPerLocationCents * claim.locations,
+      hostedInvoiceUrl: outcome.hostedInvoiceUrl,
+      hasDroppedChannels: droppedChannels.length > 0,
+      isBeforeStart: !claim.isStarted,
+      billedPlanId: outcome.billed?.id ?? null,
+      ...(facts ?? {}),
+    });
+    await releaseStripeMutationLease(tx.db, billingClinicId, input.owner);
+  });
+  return droppedChannels;
+}
+
+/**
+ * Move the allowance window when a plan change re-anchored Stripe's billing
+ * cycle (review fix [20], 7 October 2026). Changing the interval resets the
+ * anchor: the package item's new period starts at the change, and the first
+ * renewal is a whole month or year later. Left alone, the old window would
+ * run on (an annual month past the switch counted against the old allowance)
+ * and then lapse with nothing to move it until that first renewal, so usage
+ * in between was measured against no allowance: no overage, no hard cap, no
+ * alerts. The window re-opens from the new period here, in the transaction
+ * that applies the change, with the counters from zero.
+ *
+ * A re-anchor is read from Stripe's period, not from the row's interval,
+ * which the subscription webhook may already have moved: the window began
+ * before the new period, and does not simply end where it starts (that is a
+ * renewal whose invoice.paid has not arrived yet, R20, which moves the
+ * window itself). A change that keeps the interval keeps the cycle and the
+ * window.
+ *
+ * Re-anchored onto a monthly interval means the clinic left annual billing:
+ * the annual months not yet invoiced, the one in progress now ending at the
+ * switch, are claimed for the annual overage invoice in this transaction,
+ * before the meter reporter, which now reports this clinic, can send their
+ * usage to a meter (`claimOverageOnLeavingAnnual`).
+ */
+async function reanchorAllowanceWindow(
+  tx: TenantTx,
+  input: {
+    interval: BillingInterval;
+    period: { start: Date; end: Date };
+    /** The package bought before this change: its rates priced the annual months. */
+    leftBought: Plan;
+    now: Date;
+  },
+): Promise<void> {
+  const row = await getEntitlementsForUpdate(tx.db, tx.clinicId);
+  const windowStart = row?.currentPeriodStart ?? null;
+  if (!row || !windowStart) return;
+  if (windowStart.getTime() >= input.period.start.getTime()) return;
+  if (row.currentPeriodEnd?.getTime() === input.period.start.getTime()) return;
+  await openAllowanceWindow(tx.db, tx.clinicId, allowanceWindow(input.interval, input.period));
+  if (input.interval === "month") {
+    await claimOverageOnLeavingAnnual(tx, {
+      switchAt: input.period.start,
+      plan: input.leftBought,
+      now: input.now,
+    });
+  }
+}
 
 async function changeStartedPlan(
   stripe: Stripe,
   claim: PlanChangeClaim,
-  input: ChangePlanInput,
   inService: readonly Channel[],
   billingClinicId: string,
   owner: string,
   actor: ActorContext,
 ): Promise<StripeOutcome> {
   const subscription = await retrieveSubscription(stripe, claim.row.stripeSubscriptionId as string);
+  const current = packageItemOf(subscription);
+
+  // The change already went through (this request's retry, or a request
+  // carrying on the pending one): nothing more to charge, whatever else has
+  // happened to the subscription since.
+  if (subscription.metadata?.hd_plan_change === claim.requestId && current) {
+    return appliedFrom(subscription, current, await recoverDeltaInvoiceUrl(stripe, claim));
+  }
   if (hasEnded(subscription)) {
     return refused("This plan has ended, so it can't be changed.");
   }
   if (isTrialing(subscription, billingClinicId)) return refused(TRIALING);
-  const current = packageItemOf(subscription);
   if (!current) {
     return {
       ok: false,
@@ -745,17 +968,6 @@ async function changeStartedPlan(
     );
   }
 
-  // A retry of a change that already went through: nothing more to charge.
-  if (subscription.metadata?.hd_plan_change === input.requestId) {
-    const delta = await recoverDeltaInvoiceUrl(stripe, claim, input);
-    return {
-      ok: true,
-      hostedInvoiceUrl: delta ?? invoiceUrlRaisedSince(subscription, 0),
-      billed: current.plan,
-      meteredKeys: meteredKeysOf(subscription),
-    };
-  }
-
   const expected = expectedMeteredKeys(claim.newPlan.id, claim.interval) ?? [];
   const metered = await meteredItemParams(meteredItemChanges(subscription, expected), { stripe });
   const targetPrice = await priceForLookupKey(stripeLookupKey(target, claim.interval), { stripe });
@@ -766,7 +978,7 @@ async function changeStartedPlan(
       claim.deltaPerLocationCents > 0
         ? (await priceForLookupKey(stripeLookupKey(claim.newPlan, "setup"), { stripe })).productId
         : null;
-    await renewLease(billingClinicId, owner, actor);
+    await renewPlanChangeLease(billingClinicId, owner, claim.requestId, actor);
     let updated: SubscriptionLike;
     try {
       updated = (await stripe.subscriptions.update(
@@ -793,10 +1005,10 @@ async function changeStartedPlan(
           proration_behavior: "always_invoice",
           payment_behavior: "error_if_incomplete",
           off_session: true,
-          metadata: { hd_plan_change: input.requestId },
+          metadata: { hd_plan_change: claim.requestId },
           expand: ["items.data.price", "latest_invoice"],
         },
-        workerRequestOptions(`hd-plan:${billingClinicId}:${input.requestId}`),
+        workerRequestOptions(`hd-plan:${billingClinicId}:${claim.requestId}`),
       )) as unknown as SubscriptionLike;
     } catch (error) {
       // error_if_incomplete: a declined charge leaves the subscription as it was.
@@ -809,6 +1021,7 @@ async function changeStartedPlan(
       hostedInvoiceUrl: invoiceUrlRaisedSince(updated, sinceSeconds),
       billed: target,
       meteredKeys: meteredKeysOf(updated),
+      period: periodOf(packageItemOf(updated)?.item),
     };
   }
 
@@ -816,31 +1029,53 @@ async function changeStartedPlan(
   const delta = await chargePlanChangeDelta(
     stripe,
     claim,
-    input,
     subscription,
     billingClinicId,
     owner,
     actor,
   );
   if (!delta.ok) return delta;
-  await renewLease(billingClinicId, owner, actor);
-  const updated = (await stripe.subscriptions.update(
+  await renewPlanChangeLease(billingClinicId, owner, claim.requestId, actor);
+  const updated = await markPlanChange(
+    stripe,
     subscription.id,
-    {
-      ...(metered.length > 0 ? { items: metered } : {}),
-      proration_behavior: "none",
-      off_session: true,
-      metadata: { hd_plan_change: input.requestId },
-      expand: ["items.data.price"],
-    },
-    workerRequestOptions(`hd-plan:${billingClinicId}:${input.requestId}:marker`),
-  )) as unknown as SubscriptionLike;
+    claim.requestId,
+    metered,
+    `hd-plan:${billingClinicId}:${claim.requestId}:marker`,
+  );
   return {
     ok: true,
     hostedInvoiceUrl: delta.hostedInvoiceUrl,
     billed: current.plan,
     meteredKeys: meteredKeysOf(updated),
+    period: periodOf((packageItemOf(updated) ?? current).item),
   };
+}
+
+/**
+ * The second update of a change that keeps the billed package, and the
+ * resume's way to finish one whose difference was paid: the metered items
+ * swapped to the new package's rates and the marker set, with no proration,
+ * so it charges nothing.
+ */
+async function markPlanChange(
+  stripe: Stripe,
+  subscriptionId: string,
+  requestId: string,
+  metered: Stripe.SubscriptionUpdateParams.Item[],
+  idempotencyKey: string,
+): Promise<SubscriptionLike> {
+  return (await stripe.subscriptions.update(
+    subscriptionId,
+    {
+      ...(metered.length > 0 ? { items: metered } : {}),
+      proration_behavior: "none",
+      off_session: true,
+      metadata: { hd_plan_change: requestId },
+      expand: ["items.data.price"],
+    },
+    workerRequestOptions(idempotencyKey),
+  )) as unknown as SubscriptionLike;
 }
 
 function refused(message: string): { ok: false; result: ChangePlanResult } {
@@ -855,14 +1090,13 @@ function refused(message: string): { ok: false; result: ChangePlanResult } {
 async function chargePlanChangeDelta(
   stripe: Stripe,
   claim: PlanChangeClaim,
-  input: ChangePlanInput,
   subscription: SubscriptionLike | null,
   billingClinicId: string,
   owner: string,
   actor: ActorContext,
 ): Promise<StripeOutcome> {
   if (claim.deltaPerLocationCents <= 0) {
-    return { ok: true, hostedInvoiceUrl: null, billed: null, meteredKeys: null };
+    return { ok: true, hostedInvoiceUrl: null, billed: null, meteredKeys: null, period: null };
   }
   const customerId = claim.row.stripeCustomerId as string;
   const sub =
@@ -873,8 +1107,8 @@ async function chargePlanChangeDelta(
     customerId,
     defaultPaymentMethod: await oneOffPaymentMethod(stripe, customerId, sub),
     hdKind: "plan_change_setup",
-    hdRef: input.requestId,
-    keyPrefix: `hd-plan:${billingClinicId}:${input.requestId}`,
+    hdRef: claim.requestId,
+    keyPrefix: `hd-plan:${billingClinicId}:${claim.requestId}`,
     description: "Setup fee difference",
     items: [
       {
@@ -885,28 +1119,298 @@ async function chargePlanChangeDelta(
       },
     ],
     onDecline: "void",
-    beforePay: () => renewLease(billingClinicId, owner, actor),
+    beforePay: () => renewPlanChangeLease(billingClinicId, owner, claim.requestId, actor),
   });
   if (charge.status === "declined" || charge.status === "voided") {
     return { ok: false, result: { status: "payment_failed", message: DECLINED } };
   }
-  return { ok: true, hostedInvoiceUrl: charge.hostedInvoiceUrl, billed: null, meteredKeys: null };
+  return {
+    ok: true,
+    hostedInvoiceUrl: charge.hostedInvoiceUrl,
+    billed: null,
+    meteredKeys: null,
+    period: null,
+  };
 }
 
 /** On a retry that finds the marker: the setup-difference invoice's link, when there was one. */
 async function recoverDeltaInvoiceUrl(
   stripe: Stripe,
   claim: PlanChangeClaim,
-  input: ChangePlanInput,
 ): Promise<string | null> {
   if (claim.deltaPerLocationCents <= 0) return null;
   const found = await findOneOffInvoices(
     stripe,
     claim.row.stripeCustomerId as string,
     "plan_change_setup",
-    input.requestId,
+    claim.requestId,
   );
   return found.find((invoice) => invoice.status === "paid")?.hosted_invoice_url ?? null;
+}
+
+// -----------------------------------------------------------------------------
+// resumePlanChange: a plan change nobody came back for (review fix, 7 October)
+// -----------------------------------------------------------------------------
+
+/**
+ * How long a pending plan change has to go untouched before the hourly
+ * reconcile steps in: twice the lease, so the attempt that set it has
+ * certainly stopped, and the clinic's own retry, which carries it on, has
+ * had its chance first.
+ */
+export const STALE_PLAN_CHANGE_MS = 2 * STRIPE_MUTATION_LEASE_MS;
+
+export type ResumePlanChangeInput = {
+  clinicId: string;
+  actorLabel: string;
+  /**
+   * Resume only a change nobody has touched for this long: its lease free,
+   * and last claimed or renewed at least this long ago. The reconcile
+   * passes STALE_PLAN_CHANGE_MS.
+   */
+  staleAfterMs?: number;
+};
+
+export type ResumePlanChangeResult =
+  | { status: "changed"; hostedInvoiceUrl: string | null }
+  /** Stripe holds no charge or marker for it, so it was dropped: nothing was charged, and the clinic can ask again. */
+  | { status: "cleared" }
+  | { status: "nothing_pending" }
+  | { status: "busy" | "refused" | "not_available"; message: string };
+
+/**
+ * Finish, or drop, a plan change left pending (review fix of 7 October
+ * 2026): the attempt that recorded it lost Stripe's answer, or died, and
+ * nobody retried. The hourly reconcile calls this once the change has gone
+ * untouched for STALE_PLAN_CHANGE_MS; without it the bought package and the
+ * channels stayed on the old plan for good, a channel whose setup difference
+ * had been paid was refused as not purchased, and every other plan change
+ * was refused for as long as it stayed pending.
+ *
+ * It never charges, and it judges by what Stripe holds for the pending
+ * request, never by comparing prices:
+ *   - the subscription carries the change's marker: it went through, so the
+ *     local writes are done exactly as changePlan does them;
+ *   - the setup-difference invoice for the request was paid but the marker
+ *     update did not go through: that update is made (the metered swap and
+ *     the marker, with no proration, so nothing is charged), then the local
+ *     writes; before the start there is no update to make;
+ *   - neither: nothing was charged, so an invoice an attempt left open is
+ *     voided, a draft deleted, and the pending change cleared. The clinic
+ *     can make the change again; charging now would take money for a change
+ *     it was told might not have happened.
+ *
+ * Holds the lease under its own name, so it is `busy` while anything else,
+ * the original attempt included, is mid-flight.
+ */
+export async function resumePlanChange(
+  input: ResumePlanChangeInput,
+  options: BillingActionOptions = {},
+): Promise<ResumePlanChangeResult> {
+  const now = options.now ?? new Date();
+  const actor = actorFor(input.actorLabel);
+  // A cheap look first: the reconcile asks this of every billing clinic hourly.
+  const billingClinicId = await withTenant({ clinicId: input.clinicId, actor }, (tx) =>
+    resolveBillingClinicId(tx),
+  );
+  const row = await withTenant({ clinicId: billingClinicId, actor }, (tx) =>
+    getEntitlements(tx.db, billingClinicId),
+  );
+  if (!row || !pendingPlanChangeOf(row)) return { status: "nothing_pending" };
+  const stripe = stripeFor(options);
+  if (!stripe) return { status: "not_available", message: NOT_AVAILABLE };
+  const group = await readBillingGroup(billingClinicId, { now, actor });
+  const owner = `resume_plan:${randomUUID()}`;
+  // Leases are wall-clock (renewLease); a pinned `now` ahead of the clock
+  // is honoured, as the reconcile's own resumes do, never one behind it.
+  const leaseNow = new Date(Math.max(now.getTime(), Date.now()));
+
+  const claimed = await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
+    const locked = await getEntitlementsForUpdate(tx.db, billingClinicId);
+    const pending = locked ? pendingPlanChangeOf(locked) : null;
+    if (!locked || !pending) return { ok: false as const, status: "nothing_pending" as const };
+    // A lease is claimed for STRIPE_MUTATION_LEASE_MS, so its expiry less that
+    // is the last time anyone claimed or renewed it. No lease at all means
+    // another holder took it over once the change's own had run out, and
+    // released it since: the change is at least a lease old and nobody is on it.
+    const lastTouched = locked.stripeMutationLeaseUntil
+      ? locked.stripeMutationLeaseUntil.getTime() - STRIPE_MUTATION_LEASE_MS
+      : null;
+    if (
+      input.staleAfterMs !== undefined &&
+      lastTouched !== null &&
+      leaseNow.getTime() - lastTouched < input.staleAfterMs
+    ) {
+      return { ok: false as const, status: "busy" as const };
+    }
+    if (!(await claimStripeMutationLease(tx.db, billingClinicId, owner, { now: leaseNow }))) {
+      return { ok: false as const, status: "busy" as const };
+    }
+    const boughtPlan = locked.boughtPlanId ? getPlan(locked.boughtPlanId) : undefined;
+    const newPlan = getPlan(pending.planId);
+    if (!boughtPlan || !newPlan) {
+      await releaseStripeMutationLease(tx.db, billingClinicId, owner);
+      return { ok: false as const, status: "refused" as const };
+    }
+    const claim: PlanChangeClaim = {
+      ok: true,
+      row: locked,
+      boughtPlan,
+      newPlan,
+      interval: pending.interval,
+      isStarted: hasPlanStarted(locked),
+      deltaPerLocationCents: setupFeeDeltaUsd(boughtPlan, newPlan) * 100,
+      locations: locked.locations,
+      pendingRequestId: pending.requestId,
+      requestId: pending.requestId,
+    };
+    return { ok: true as const, claim };
+  });
+  if (!claimed.ok) {
+    if (claimed.status === "nothing_pending") return { status: "nothing_pending" };
+    if (claimed.status === "busy") return { status: "busy", message: BUSY };
+    return {
+      status: "refused",
+      message:
+        "This plan change names a plan that is no longer sold. It needs a person to finish it.",
+    };
+  }
+  const claim = claimed.claim;
+
+  let releaseOnExit = true;
+  try {
+    const evidence = await planChangeEvidence(stripe, claim);
+    if (evidence.isMarked && !evidence.current) {
+      // Marked as applied, yet no package price to read: never dropped on that.
+      throw new Error("The subscription carries the plan change's marker but no package item.");
+    }
+    let outcome: StripeApplied | null = null;
+    if (evidence.isMarked && evidence.current && evidence.subscription) {
+      outcome = appliedFrom(
+        evidence.subscription,
+        evidence.current,
+        evidence.paid?.hosted_invoice_url ?? null,
+      );
+    } else if (evidence.paid) {
+      const paidUrl = evidence.paid.hosted_invoice_url ?? null;
+      if (claim.isStarted && evidence.subscription && evidence.current) {
+        const expected = expectedMeteredKeys(claim.newPlan.id, claim.interval) ?? [];
+        const metered = await meteredItemParams(
+          meteredItemChanges(evidence.subscription, expected),
+          { stripe },
+        );
+        await renewPlanChangeLease(billingClinicId, owner, claim.requestId, actor);
+        // A key of this resume's own: an earlier marker update's failure,
+        // cached by Stripe under the request's key for a day, must not be
+        // replayed. Safe to repeat, because the marker was checked first and
+        // the update charges nothing.
+        const updated = await markPlanChange(
+          stripe,
+          evidence.subscription.id,
+          claim.requestId,
+          metered,
+          `hd-plan:${billingClinicId}:${claim.requestId}:marker:${owner}`,
+        );
+        const after = packageItemOf(updated) ?? evidence.current;
+        outcome = {
+          ok: true,
+          hostedInvoiceUrl: paidUrl,
+          billed: after.plan,
+          meteredKeys: meteredKeysOf(updated),
+          period: periodOf(after.item),
+        };
+      } else {
+        outcome = {
+          ok: true,
+          hostedInvoiceUrl: paidUrl,
+          billed: null,
+          meteredKeys: null,
+          period: null,
+        };
+      }
+    }
+
+    if (!outcome) {
+      for (const invoiceId of evidence.openInvoiceIds) {
+        await stripe.invoices.voidInvoice(invoiceId, {}, WORKER_STRIPE_OPTIONS);
+      }
+      for (const invoiceId of evidence.draftInvoiceIds) {
+        await stripe.invoices.del(invoiceId, {}, WORKER_STRIPE_OPTIONS);
+      }
+      await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
+        await clearPendingPlanChange(tx.db, billingClinicId, claim.requestId);
+        await recordBillingNote(tx, { actor: "system", reason: "plan_change_cleared" });
+        await releaseStripeMutationLease(tx.db, billingClinicId, owner);
+      });
+      releaseOnExit = false;
+      log.info("pending plan change cleared: nothing was charged", {
+        clinicId: billingClinicId,
+        requestId: claim.requestId,
+      });
+      return { status: "cleared" };
+    }
+
+    await finishPlanChange({
+      billingClinicId,
+      claim,
+      outcome,
+      inService: group.inService,
+      locationIds: group.locationIds,
+      owner,
+      actor,
+      billingActor: "system",
+      now,
+    });
+    releaseOnExit = false;
+    log.info("pending plan change finished", {
+      clinicId: billingClinicId,
+      requestId: claim.requestId,
+    });
+    return { status: "changed", hostedInvoiceUrl: outcome.hostedInvoiceUrl };
+  } catch (error) {
+    // Nothing here charges, so the lease goes now; the next run looks again.
+    log.warn("pending plan change not resumed", {
+      clinicId: billingClinicId,
+      requestId: claim.requestId,
+      code: stripeErrorCode(error),
+    });
+    return { status: "refused", message: NO_ANSWER };
+  } finally {
+    if (releaseOnExit) await releaseLease(billingClinicId, owner, actor);
+  }
+}
+
+/** What Stripe holds for a pending plan change: its marker, and its setup-difference invoices. */
+async function planChangeEvidence(
+  stripe: Stripe,
+  claim: PlanChangeClaim,
+): Promise<{
+  subscription: SubscriptionLike | null;
+  current: PackageItem | null;
+  isMarked: boolean;
+  paid: InvoiceLike | null;
+  openInvoiceIds: string[];
+  draftInvoiceIds: string[];
+}> {
+  const subscription = claim.row.stripeSubscriptionId
+    ? await retrieveSubscription(stripe, claim.row.stripeSubscriptionId)
+    : null;
+  const found = claim.row.stripeCustomerId
+    ? await findOneOffInvoices(
+        stripe,
+        claim.row.stripeCustomerId,
+        "plan_change_setup",
+        claim.requestId,
+      )
+    : [];
+  return {
+    subscription,
+    current: subscription ? packageItemOf(subscription) : null,
+    isMarked: subscription?.metadata?.hd_plan_change === claim.requestId,
+    paid: found.find((invoice) => invoice.status === "paid") ?? null,
+    openInvoiceIds: found.filter((invoice) => invoice.status === "open").map((i) => i.id),
+    draftInvoiceIds: found.filter((invoice) => invoice.status === "draft").map((i) => i.id),
+  };
 }
 
 // -----------------------------------------------------------------------------

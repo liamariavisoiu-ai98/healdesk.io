@@ -15,7 +15,7 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import { seedChannels, seedClinic, seedEntitled } from "./setup/factories";
+import { inTenant, seedChannels, seedClinic, seedEntitled } from "./setup/factories";
 import { createStripeFake } from "./setup/stripe-fake";
 import { createStripeWorld } from "./setup/stripe-world";
 
@@ -88,7 +88,7 @@ describeDb("billing summary and previews", () => {
     );
 
     // Asked from the location, answered for the billing clinic.
-    const summary = await getBillingSummary(location);
+    const summary = await getBillingSummary(location, { now: NOW });
     expect(summary).toEqual({
       billingClinicId: billing.clinicId,
       status: "active",
@@ -116,19 +116,89 @@ describeDb("billing summary and previews", () => {
           // Billed as Web Chatbot, bought with voice: the bought package's
           // minutes, pooled over both locations (BD5).
           included: 2_000,
+          overUnits: 0,
+          overageCents: 0,
           windowStart: STARTED.toISOString(),
           windowEnd: "2026-11-07T00:00:00.000Z",
+          isWindowOpen: true,
         },
         {
           meter: "chat_conversations",
           used: 0,
           included: 2_000,
+          overUnits: 0,
+          overageCents: 0,
           windowStart: STARTED.toISOString(),
           windowEnd: "2026-11-07T00:00:00.000Z",
+          isWindowOpen: true,
         },
       ],
     });
     expect(fake.calls).toHaveLength(0);
+  });
+
+  test("the meters carry the overage as it will be billed: started blocks at the BOUGHT package's rate, and nothing under the hard cap", async () => {
+    const clinic = await seedClinic("summary-overage");
+    await seedEntitled(clinic.clinicId, {
+      planId: "chat-web",
+      boughtPlanId: "web-voice",
+      planStartedAt: STARTED,
+      channelRows: [
+        { channel: "web", firstAnswerAt: STARTED, liveAt: STARTED },
+        { channel: "voice" },
+      ],
+    });
+    await inTenant(clinic.clinicId, (c) =>
+      c.query(
+        `update entitlements set used_voice_minutes = 1250, used_chat_conversations = 1101
+          where clinic_id = $1`,
+        [clinic.clinicId],
+      ),
+    );
+    const window = {
+      windowStart: STARTED.toISOString(),
+      windowEnd: "2026-11-07T00:00:00.000Z",
+      isWindowOpen: true,
+    };
+    expect((await getBillingSummary(clinic.clinicId, { now: NOW }))!.usage).toEqual([
+      {
+        meter: "voice_minutes",
+        used: 1_250,
+        included: 1_000,
+        overUnits: 250,
+        // Three started blocks of 100 at $80: $240, where units times the
+        // $0.80 rate would show $200.
+        overageCents: 24_000,
+        ...window,
+      },
+      {
+        meter: "chat_conversations",
+        used: 1_101,
+        included: 1_000,
+        overUnits: 101,
+        // Two blocks at Web + Voice's $30, the package bought, not the $40 of
+        // the Web Chatbot it is billed as.
+        overageCents: 6_000,
+        ...window,
+      },
+    ]);
+
+    // "Stop and fall back" bills no overage (R19); the units still show.
+    await inTenant(clinic.clinicId, (c) =>
+      c.query(`update entitlements set overage_mode = 'hard_cap' where clinic_id = $1`, [
+        clinic.clinicId,
+      ]),
+    );
+    const capped = await getBillingSummary(clinic.clinicId, { now: NOW });
+    expect(capped!.usage.map((m) => [m.meter, m.overUnits, m.overageCents])).toEqual([
+      ["voice_minutes", 250, 0],
+      ["chat_conversations", 101, 0],
+    ]);
+    // Past the window's end, before the renewal moves it (R20).
+    const lapsed = await getBillingSummary(clinic.clinicId, {
+      now: new Date("2026-11-08T00:00:00Z"),
+    });
+    expect(lapsed!.usage.map((m) => m.isWindowOpen)).toEqual([false, false]);
   });
 
   test("before the start nothing is billed, and an account set to close shows the earlier of cancel_at and the setup deadline", async () => {
@@ -249,6 +319,7 @@ describeDb("billing summary and previews", () => {
       prorationCents: -68_000,
       recurringCents: 39_700 * 2,
       droppedChannels: ["voice"],
+      isInProgress: false,
     });
     const [call] = world.fake.callsTo("invoices.createPreview");
     expect(call!.args[0]).toMatchObject({
@@ -300,6 +371,7 @@ describeDb("billing summary and previews", () => {
       prorationCents: 0,
       recurringCents: 89_700,
       droppedChannels: [],
+      isInProgress: false,
     });
     expect(fake.calls).toHaveLength(0);
   });

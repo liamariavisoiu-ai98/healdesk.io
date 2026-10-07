@@ -349,6 +349,11 @@ function Attention({ view }: { view: View }) {
         : `Location ${f.pendingLocation.locationNumber} is pending and not charged on record.`,
     );
   }
+  if (f.pendingPlanChange) {
+    items.push(
+      `A change to ${f.pendingPlanChange.plan.name} (${f.pendingPlanChange.interval === "year" ? "annual" : "monthly"}) lost Stripe's answer and is not finished. The hourly reconcile finishes it from Stripe, or drops it if nothing was charged; the clinic can also ask for the same plan again.`,
+    );
+  }
   const parked = view.attentionEvents.filter((event) => event.outcome === "dead_letter").length;
   if (parked > 0) items.push(`${parked} Stripe event(s) dead-lettered. See Parked Stripe events.`);
   if (view.entitlements?.isMutationInFlight) {

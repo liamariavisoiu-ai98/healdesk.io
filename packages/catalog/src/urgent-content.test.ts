@@ -34,6 +34,21 @@ describe("findUrgentContent", () => {
     ["I broke a tooth, can someone see me today?", "a wound or an injury"],
     ["I want to kill myself", "a crisis"],
     ["I had a bad reaction to the peel", "a reaction or a complication"],
+    // In the present tense too, and with no verb at all: the past tense alone
+    // let "I have a reaction" through to the model.
+    ["I have a bad reaction to the filler you did yesterday", "a reaction or a complication"],
+    ["she has a reaction to the botox", "a reaction or a complication"],
+    ["I think I have a complication from the botox", "a reaction or a complication"],
+    ["I've got a reaction to the peel", "a reaction or a complication"],
+    ["I get a weird reaction every time", "a reaction or a complication"],
+    ["she developed a complication after the lift", "a reaction or a complication"],
+    ["Bad reaction to the filler, what do I do??", "a reaction or a complication"],
+    ["my skin is reacting badly to the peel", "a reaction or a complication"],
+    // Trouble swallowing after a toxin: its boxed warning's spread of effect.
+    ["trouble swallowing since my botox", "breathing, the throat or the chest"],
+    ["difficulty swallowing after the injections", "breathing, the throat or the chest"],
+    ["it hurts to swallow", "breathing, the throat or the chest"],
+    ["I can't swallow properly", "breathing, the throat or the chest"],
     ["is this an emergency?", "an emergency"],
     ["should I call 911", "an emergency"],
     ["it's urgent, please", "an emergency"],
@@ -72,6 +87,14 @@ describe("findUrgentContent", () => {
     "nothing urgent, just wondering about prices",
     "please stop calling me",
     "Are you a real person?",
+    // "have" and "get" are the words of a front desk as well.
+    "Do you have a cancellation policy?",
+    "I have a question about prices",
+    "Can I get a consultation first?",
+    "How do I get to your office?",
+    "Are there any complications?",
+    "Do I need to swallow anything before the procedure?",
+    "That's a hard pill to swallow",
   ])("%j is not urgent", (text) => {
     expect(findUrgentContent(text)).toBeNull();
   });
@@ -86,6 +109,14 @@ describe("findUrgentContent", () => {
     const finding = findUrgentContent("My lips are swelling after the filler");
     expect(Object.keys(finding ?? {})).toEqual(["label"]);
     expect(JSON.stringify(finding)).not.toMatch(/lips|filler/);
+  });
+
+  test("a complication someone has is urgent; complications asked about in general are the clinical screen's", () => {
+    expect(findUrgentContent("I think I have a complication from the botox")).toEqual({
+      label: "a reaction or a complication",
+    });
+    expect(findUrgentContent("Are there any complications?")).toBeNull();
+    expect(findClinicalContent({ message: "Are there any complications?" })).not.toEqual([]);
   });
 
   test("an urgent message is often clinical as well, which is why callers screen for urgency first", () => {

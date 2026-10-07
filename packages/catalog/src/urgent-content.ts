@@ -16,10 +16,11 @@
  * second copy of it. That one is the vocabulary of clinical claims and
  * questions (safety, dosing, candidacy, a condition), and it moves a person
  * to a call. This one is what someone writes when something is happening to
- * them now (they cannot breathe, it will not stop bleeding, the skin has
- * gone white over the filler, they want to hurt themselves), and it gets the
- * urgent reply instead: 911 first, then the clinic's number. A message that
- * matches both is urgent, so callers screen with this one first.
+ * them now (they cannot breathe or swallow, they have a reaction, it will not
+ * stop bleeding, the skin has gone white over the filler, they want to hurt
+ * themselves), and it gets the urgent reply instead: 911 first, then the
+ * clinic's number. A message that matches both is urgent, so callers screen
+ * with this one first.
  *
  * Like findClinicalContent it is deliberately blunt. A false positive costs
  * the person a fixed reply that says "if this is an emergency" and gives
@@ -50,8 +51,10 @@ const URGENT_PATTERNS: { pattern: RegExp; label: string }[] = [
     label: "an emergency",
   },
   {
+    // Swallowing beside breathing: trouble swallowing after a toxin is the
+    // spread of its effect that botulinum toxin's boxed warning names.
     pattern:
-      /\b(can'?t|cannot|can not|couldn'?t|hard to|trouble|difficulty|struggling to|unable to) breath(e|ing)?\b|\bshort(ness)? of breath\b|\bbreathless\b|\bthroat (is |feels )?(closing|tight\w*|swell\w*|swollen)\b|\bchest (pains?|tightness|pressure)\b|\b(heart attack|palpitations?|heart (is )?racing|racing heart)\b/i,
+      /\b(can'?t|cannot|can not|couldn'?t|hard to|trouble|difficulty|struggling to|unable to) breath(e|ing)?\b|\bshort(ness)? of breath\b|\bbreathless\b|\bthroat (is |feels )?(closing|tight\w*|swell\w*|swollen)\b|\bchest (pains?|tightness|pressure)\b|\b(heart attack|palpitations?|heart (is )?racing|racing heart)\b|\b(can'?t|cannot|can not|couldn'?t|hard to|trouble|difficulty|struggling to|unable to|hurts? to|painful to) swallow(ing)?\b|\b(trouble|difficulty|problems?|pain) (with |when |on )?swallowing\b|\bdysphagia\b/i,
     label: "breathing, the throat or the chest",
   },
   { pattern: /\b(allergic reaction|anaphyla\w*|hives)\b/i, label: "an allergic reaction" },
@@ -89,8 +92,13 @@ const URGENT_PATTERNS: { pattern: RegExp; label: string }[] = [
     label: "a crisis",
   },
   {
+    // Someone with a reaction or a complication, in any tense ("I have a
+    // reaction", "she has a complication", "I've had", "I get"); one called
+    // bad with no verb at all ("bad reaction to the filler"); a body reacting
+    // to something. Complications asked about in general ("are there any
+    // complications?") are the clinical screen's, which hands off without 911.
     pattern:
-      /\b(having|had|getting|got) (an? )?(bad |severe |allergic |strange |weird )?(reaction|complication)s?\b/i,
+      /\b(have|has|having|had|get|gets|getting|got|develop(s|ed|ing)?) (an? |some )?((really|very) )?(bad |severe |serious |allergic |strange |weird |nasty |terrible |awful |horrible )?(reaction|complication)s?\b|\b(bad|severe|serious|strange|weird|nasty|terrible|awful|horrible) (reaction|complication)s?\b|\breact(ed|ing) (badly|terribly|really badly|to (the|my|it|this|that))\b/i,
     label: "a reaction or a complication",
   },
 ];

@@ -78,6 +78,14 @@ describe("the screen, before any model", () => {
     const symptom = FRONT_DOOR_PROBES.find((p) => p.id === "symptom")!.text;
     expect(screenInbound(symptom)).toBe("urgent");
     expect(screenInbound("I think I'm having an allergic reaction to the filler")).toBe("urgent");
+    // A reaction or a complication in the present tense, and trouble
+    // swallowing, are urgent too: none of them may reach the model, and a
+    // complication someone has is not a question about risks.
+    expect(screenInbound("I have a bad reaction to the filler you did yesterday")).toBe("urgent");
+    expect(screenInbound("she has a reaction to the botox")).toBe("urgent");
+    expect(screenInbound("I think I have a complication from the botox")).toBe("urgent");
+    expect(screenInbound("trouble swallowing since my botox")).toBe("urgent");
+    expect(screenInbound("difficulty swallowing after the injections")).toBe("urgent");
     expect(screenInbound(FRONT_DOOR_PROBES.find((p) => p.id === "safety")!.text)).toBe("clinical");
     expect(screenInbound("How many units do I need for my forehead?")).toBe("clinical");
     expect(screenInbound(FRONT_DOOR_PROBES.find((p) => p.id === "hours")!.text)).toBeNull();
@@ -432,6 +440,47 @@ describeDb("the screen and the greeting, end to end", () => {
       { platform: "messenger", source: "model", greeted: true, booking: "collecting" },
       { platform: "messenger", source: "urgent", screened: "urgent" },
       { platform: "messenger", source: "urgent", screened: "urgent", greeted: true },
+    ]);
+  }, 60_000);
+
+  test("a reaction or a complication told in the present tense, or trouble swallowing, gets the urgent line and never reaches the model", async () => {
+    const pageId = "910000000000006";
+    const c = await doorOpen("screen-reaction", [{ platform: "messenger", externalId: pageId }], {
+      directLine: DIRECT,
+    });
+    const responder = vi.fn<FrontDoorResponder>(async () =>
+      modelJson("We're open weekdays 9 to 5 — call the practice to book."),
+    );
+    __setMetaRuntimeForTests(responder, sender, transport);
+
+    const messages = [
+      "I have a bad reaction to the filler you did yesterday",
+      "she has a reaction to the botox",
+      "I think I have a complication from the botox",
+      "trouble swallowing since my botox",
+    ];
+    for (const text of messages) await post(messengerEvent(text, "user-x1", pageId));
+    expect(responder).not.toHaveBeenCalled();
+    const urgent = urgentLine({ clinicName: c.clinicName, phone: PUBLISHED, urgentPhone: DIRECT });
+    expect(sent.map((s) => s.text)).toEqual([
+      `${greetingFor(c.clinicName, "messenger")} ${urgent}`,
+      urgent,
+      urgent,
+      urgent,
+    ]);
+    expect(
+      await rowsContaining(c.clinicId, [
+        "filler you did",
+        "reaction to the botox",
+        "complication from",
+        "swallowing since",
+      ]),
+    ).toEqual([]);
+    expect(await frontDoorAudit(c.clinicId)).toEqual([
+      { platform: "messenger", source: "urgent", screened: "urgent", greeted: true },
+      { platform: "messenger", source: "urgent", screened: "urgent" },
+      { platform: "messenger", source: "urgent", screened: "urgent" },
+      { platform: "messenger", source: "urgent", screened: "urgent" },
     ]);
   }, 60_000);
 

@@ -88,6 +88,9 @@ export function createStripeWorld(options: StripeWorldOptions) {
   const now = options.nowSeconds ?? options.periodStart;
   let counter = 0;
   const nextId = (prefix: string) => `${prefix}_w${(counter += 1)}`;
+  // The current billing period, which an interval change re-anchors.
+  let periodStart = options.periodStart;
+  let periodEnd = options.periodEnd;
 
   const item = (spec: WorldItem): Json => ({
     id: nextId("si"),
@@ -96,8 +99,8 @@ export function createStripeWorld(options: StripeWorldOptions) {
       (priceFor(spec.lookupKey).recurring as Json).usage_type === "metered"
         ? undefined
         : (spec.quantity ?? 1),
-    current_period_start: options.periodStart,
-    current_period_end: options.periodEnd,
+    current_period_start: periodStart,
+    current_period_end: periodEnd,
     price: priceFor(spec.lookupKey),
   });
 
@@ -138,8 +141,16 @@ export function createStripeWorld(options: StripeWorldOptions) {
     failNextInvoiceCreate: false,
   };
 
+  /** The licensed interval a price recurs on, or null for a metered or one-off price. */
+  const licensedInterval = (price: unknown): string | null => {
+    const recurring = (price as { recurring?: { interval?: string; usage_type?: string } | null })
+      ?.recurring;
+    return recurring && recurring.usage_type !== "metered" ? (recurring.interval ?? null) : null;
+  };
+
   function applyUpdate(params: Json): void {
     const items = (params.items as Json[] | undefined) ?? [];
+    let reanchorTo: string | null = null;
     for (const change of items) {
       if (change.deleted === true) {
         subscription.items.data = subscription.items.data.filter((i) => i.id !== change.id);
@@ -149,7 +160,12 @@ export function createStripeWorld(options: StripeWorldOptions) {
         const existing = subscription.items.data.find((i) => i.id === change.id);
         if (!existing) throw new Error(`stripe-world: no item ${change.id}`);
         if (typeof change.price === "string") {
+          const before = licensedInterval(existing.price);
           existing.price = priceFor(lookupKeyOfPriceId(change.price));
+          const after = licensedInterval(existing.price);
+          // Stripe resets the billing cycle when a price moves to another
+          // interval: the new period starts now.
+          if (before && after && before !== after) reanchorTo = after;
           // Stripe resets the quantity to 1 on a price change without one.
           existing.quantity = typeof change.quantity === "number" ? change.quantity : 1;
         } else if (typeof change.quantity === "number") {
@@ -163,6 +179,18 @@ export function createStripeWorld(options: StripeWorldOptions) {
           quantity: change.quantity as number | undefined,
         }),
       );
+    }
+    if (reanchorTo) {
+      const start = new Date(now * 1000);
+      const end = new Date(start.getTime());
+      if (reanchorTo === "year") end.setUTCFullYear(end.getUTCFullYear() + 1);
+      else end.setUTCMonth(end.getUTCMonth() + 1);
+      periodStart = now;
+      periodEnd = Math.floor(end.getTime() / 1000);
+      for (const existing of subscription.items.data) {
+        existing.current_period_start = periodStart;
+        existing.current_period_end = periodEnd;
+      }
     }
     if (params.metadata && typeof params.metadata === "object") {
       // Stripe merges metadata keys, and an empty value unsets one.
@@ -308,6 +336,13 @@ export function createStripeWorld(options: StripeWorldOptions) {
     const invoice = invoiceById(id as string);
     invoice.status = "void";
     return JSON.parse(JSON.stringify(invoice));
+  });
+  fake.on("invoices.del", (id) => {
+    const invoice = invoiceById(id as string);
+    if (invoice.status !== "draft")
+      throw stripeError("invalid_request", { code: "invoice_not_draft" });
+    state.invoices = state.invoices.filter((i) => i.id !== invoice.id);
+    return { id: invoice.id, object: "invoice", deleted: true };
   });
   fake.on("invoices.listLineItems", (id) => {
     const invoice = invoiceById(id as string);

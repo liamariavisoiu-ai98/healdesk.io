@@ -2541,6 +2541,8 @@ export type ClinicBillingView = {
     refundDue: boolean;
     stuckRequests: number;
     pendingLocation: { locationNumber: number; chargedOn: string | null } | null;
+    /** A plan change whose outcome was lost, not finished yet; the hourly reconcile finishes or drops it. */
+    pendingPlanChange: { plan: PlanRef; interval: "month" | "year" } | null;
   };
 };
 
@@ -2624,6 +2626,10 @@ function readClinicBillingView(value: unknown): ClinicBillingView {
   const flags = object(data.flags, "billing.flags");
   const pendingLocation = flags.pendingLocation
     ? object(flags.pendingLocation, "billing.flags.pendingLocation")
+    : null;
+  // Absent from an apps/app deployed before it: read as none.
+  const pendingPlanChange = flags.pendingPlanChange
+    ? object(flags.pendingPlanChange, "billing.flags.pendingPlanChange")
     : null;
   const openInvoice = entitlements?.openInvoice
     ? object(entitlements.openInvoice, "billing.openInvoice")
@@ -2874,6 +2880,16 @@ function readClinicBillingView(value: unknown): ClinicBillingView {
         ? {
             locationNumber: count(pendingLocation.locationNumber, "billing.pendingLocation.number"),
             chargedOn: on(pendingLocation.chargedAt, "billing.pendingLocation.chargedAt"),
+          }
+        : null,
+      pendingPlanChange: pendingPlanChange
+        ? {
+            plan: planRef(pendingPlanChange.planId, "billing.pendingPlanChange.planId"),
+            interval: literal(
+              pendingPlanChange.interval,
+              ["month", "year"],
+              "billing.pendingPlanChange.interval",
+            ),
           }
         : null,
     },

@@ -375,6 +375,7 @@ function billingView(overrides: Record<string, unknown> = {}): Record<string, un
       refundDue: false,
       stuckRequests: 1,
       pendingLocation: { locationNumber: 2, chargedAt: "2026-10-08T10:00:00.000Z" },
+      pendingPlanChange: { planId: "web-voice", interval: "year" },
     },
     ...overrides,
   };
@@ -419,6 +420,18 @@ describe("the billing panel's readers are strict", () => {
     });
     expect(view.deposits.defaultAmountUsd).toBe(50.5);
     expect(view.flags.pendingLocation).toEqual({ locationNumber: 2, chargedOn: "2026-10-08" });
+    expect(view.flags.pendingPlanChange).toEqual({
+      plan: { id: "web-voice", name: "Web + Voice" },
+      interval: "year",
+    });
+  });
+
+  test("a pending plan change missing from an older apps/app reads as none", async () => {
+    const flags = { ...(billingView().flags as Record<string, unknown>) };
+    delete flags.pendingPlanChange;
+    reply({ data: billingView({ flags }) });
+    const result = await fetchClinicBilling(CLINIC);
+    expect(result.ok && result.data.flags.pendingPlanChange).toBeNull();
   });
 
   test.each([
@@ -476,6 +489,15 @@ describe("the billing panel's readers are strict", () => {
       { settings: { ...(billingView().settings as object), directLineE164: "415 555 0199" } },
     ],
     ["a fractional count", { usage: [{ ...(billingView().usage as object[])[0], used: 1.5 }] }],
+    [
+      "a pending plan change on an interval outside the vocabulary",
+      {
+        flags: {
+          ...(billingView().flags as object),
+          pendingPlanChange: { planId: "web-voice", interval: "weekly" },
+        },
+      },
+    ],
     ["a missing flags block", { flags: undefined }],
   ])("refuses %s: the whole panel shows the malformed state", async (_label, overrides) => {
     reply({ data: billingView(overrides) });

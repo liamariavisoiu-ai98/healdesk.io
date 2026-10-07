@@ -69,7 +69,7 @@ import {
   type RefundKind,
 } from "@/lib/billing/stripe-actions";
 import { stripeConfigured } from "@/lib/billing/stripe-client";
-import { closesAt, isoDay } from "@/lib/billing/summary";
+import { closesAt, isoDay, pendingPlanChangeOf } from "@/lib/billing/summary";
 import {
   extendSetupDeadline,
   liftSuspension,
@@ -383,6 +383,11 @@ export type ClinicBillingView = {
     refundDue: boolean;
     stuckRequests: number;
     pendingLocation: { locationNumber: number; chargedAt: string | null } | null;
+    /**
+     * A plan change whose outcome was lost, not finished yet: the hourly
+     * reconcile finishes it from Stripe, or drops it when nothing was charged.
+     */
+    pendingPlanChange: { planId: string; interval: "month" | "year" } | null;
   };
 };
 
@@ -640,6 +645,7 @@ export async function opGetClinicBilling(
     isHeldBySwitch: request.kind === "close_setup" && request.doneAt === null && !setupClosureOn,
   }));
   const isWindowOpen = row ? refundWindowOpen(row, now) : false;
+  const pendingPlanChange = row ? pendingPlanChangeOf(row) : null;
   const settings: ClinicSettings = own.settings;
   const deposits: DepositSettings = own.deposits;
 
@@ -773,6 +779,9 @@ export async function opGetClinicBilling(
               chargedAt: iso(row.pendingLocationChargedAt),
             }
           : null,
+      pendingPlanChange: pendingPlanChange
+        ? { planId: pendingPlanChange.planId, interval: pendingPlanChange.interval }
+        : null,
     },
   };
   return ok(view);

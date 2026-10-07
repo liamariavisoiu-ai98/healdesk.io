@@ -23,7 +23,7 @@ import { log } from "@/lib/log";
 import { withTenant } from "@/lib/tenant";
 
 import { resolveBillingClinicId } from "./billing-clinic";
-import { addMonthsUtc, effectiveIncluded, getEntitlements, hasPlanStarted } from "./entitlements";
+import { addMonthsUtc, getEntitlements, hasPlanStarted } from "./entitlements";
 import {
   expectedMeteredKeys,
   meteredItemChanges,
@@ -35,6 +35,7 @@ import {
 import { priceForLookupKey } from "./prices";
 import { getStripe, stripeConfigured } from "./stripe-client";
 import { WORKER_STRIPE_OPTIONS } from "./stripe-helpers";
+import { usageSnapshot } from "./usage";
 
 /**
  * What the portal's Billing screen reads (R30, finding 19), and the checks
@@ -171,8 +172,38 @@ export type PlanChangeCheck =
       /** The new package's setup fee less the bought one's, per location, never negative. */
       deltaPerLocationCents: number;
       locations: number;
+      /**
+       * The request of a change to this same plan that is already in flight
+       * (`entitlements.pending_plan_change_*`), which this one carries on
+       * under; null when none is pending.
+       */
+      pendingRequestId: string | null;
     }
   | CheckRefusal;
+
+/** The plan change in flight on a billing row, or null (review fix of 7 October 2026). */
+export function pendingPlanChangeOf(
+  row: Pick<
+    Entitlements,
+    "pendingPlanChangeRequestId" | "pendingPlanChangePlanId" | "pendingPlanChangeInterval"
+  >,
+): { requestId: string; planId: string; interval: BillingInterval } | null {
+  if (!row.pendingPlanChangeRequestId || !row.pendingPlanChangePlanId) return null;
+  if (!isBillingInterval(row.pendingPlanChangeInterval)) return null;
+  return {
+    requestId: row.pendingPlanChangeRequestId,
+    planId: row.pendingPlanChangePlanId,
+    interval: row.pendingPlanChangeInterval,
+  };
+}
+
+function inProgressRefusal(pending: { planId: string; interval: BillingInterval }): CheckRefusal {
+  const name = getPlan(pending.planId)?.name ?? "another plan";
+  const billed = pending.interval === "year" ? "billed annually" : "billed monthly";
+  return refusal(
+    `A change to ${name}, ${billed}, is still being completed. Choose that plan again to finish it now: nothing is charged twice. A different plan can be chosen once it is done, within the hour.`,
+  );
+}
 
 /**
  * Whether `changePlan` may go ahead (BD12): a known plan, a row bought under
@@ -181,6 +212,14 @@ export type PlanChangeCheck =
  * has started, at least one channel in service kept: a change that dropped
  * every answering channel would leave nothing to bill and every patient
  * passed through.
+ *
+ * A change already in flight (one whose outcome was lost, so the bought
+ * package still reads as before) is taken into account first. A request
+ * for the same plan and interval carries it on (`pendingRequestId`), so it
+ * finds that change's own charge in Stripe instead of charging the setup-fee
+ * difference again; anything else is refused until it is finished. Without
+ * this, a fresh request id, which the portal mints per attempt, charged the
+ * difference a second time once the first attempt's lease ran out.
  */
 export function checkPlanChange(
   row: Entitlements | null,
@@ -200,7 +239,13 @@ export function checkPlanChange(
   }
   const standing = standingRefusal(row, now);
   if (standing) return standing;
-  if (newPlan.id === boughtPlan.id && input.interval === row.billingInterval) {
+  const pending = pendingPlanChangeOf(row);
+  if (pending && (pending.planId !== newPlan.id || pending.interval !== input.interval)) {
+    return inProgressRefusal(pending);
+  }
+  // Not while that same change is in flight: the webhook may already have
+  // moved the interval to it, and the change still has to be finished here.
+  if (!pending && newPlan.id === boughtPlan.id && input.interval === row.billingInterval) {
     return refusal("That's already your plan.");
   }
   const isStarted = hasPlanStarted(row);
@@ -218,6 +263,7 @@ export function checkPlanChange(
     isStarted,
     deltaPerLocationCents: setupFeeDeltaUsd(boughtPlan, newPlan) * 100,
     locations: row.locations,
+    pendingRequestId: pending?.requestId ?? null,
   };
 }
 
@@ -270,9 +316,21 @@ export type UsageMeterSummary = {
   used: number;
   /** effectiveIncluded (BD5): the allowance for the window, times the locations. */
   included: number;
+  /** Units past the allowance so far this window. */
+  overUnits: number;
+  /**
+   * What those units bill, in cents: started blocks of 100 at the BOUGHT
+   * package's rate, 0 under "Stop and fall back" (R19). Worked out here, by
+   * usageSnapshot, so the screen never does its own billing maths: units
+   * times a per-unit rate shows less than is charged for every part block,
+   * and the billed package's rate is not the one that applies.
+   */
+  overageCents: number;
   /** ISO timestamps of the allowance window; null before the plan starts (BD6). */
   windowStart: string | null;
   windowEnd: string | null;
+  /** The window is open now: not before it starts, not after it ends (R20). */
+  isWindowOpen: boolean;
 };
 
 export type BillingSummary = {
@@ -343,26 +401,41 @@ export function closesAt(
     : row.cancelAt;
 }
 
-function meterUsage(row: Entitlements): UsageMeterSummary[] {
+/**
+ * The meters the bought package sells, from usageSnapshot: the one place the
+ * console's panel also reads, so the overage the Billing screen shows is the
+ * amount the clinic will be charged.
+ */
+function meterUsage(row: Entitlements, now: Date): UsageMeterSummary[] {
   const plan = getPlan(row.boughtPlanId ?? row.planCode);
-  const meters: UsageMeter[] = [];
-  if (!plan || plan.channels.voice) meters.push("voice_minutes");
-  if (!plan || plan.channels.web || plan.channels.meta) meters.push("chat_conversations");
-  return meters.map((meter) => ({
-    meter,
-    used: meter === "voice_minutes" ? Number(row.usedVoiceMinutes) : row.usedChatConversations,
-    included: effectiveIncluded(row, meter),
-    windowStart: iso(row.currentPeriodStart),
-    windowEnd: iso(row.currentPeriodEnd),
-  }));
+  const sold = (meter: UsageMeter) =>
+    !plan ||
+    (meter === "voice_minutes" ? plan.channels.voice : plan.channels.web || plan.channels.meta);
+  return usageSnapshot(row, now)
+    .filter((snapshot) => sold(snapshot.meter))
+    .map((snapshot) => ({
+      meter: snapshot.meter,
+      used: snapshot.used,
+      included: snapshot.included,
+      overUnits: snapshot.overUnits,
+      overageCents: snapshot.overageCents,
+      windowStart: snapshot.windowStart,
+      windowEnd: snapshot.windowEnd,
+      isWindowOpen: snapshot.isWindowOpen,
+    }));
 }
 
 /**
  * The Billing screen, from the database only. Null when the billing clinic
- * has no entitlements row (a synthetic or demo clinic).
+ * has no entitlements row (a synthetic or demo clinic). `now` is for tests:
+ * it decides which channels are in service and whether the window is open.
  */
-export async function getBillingSummary(clinicId: string): Promise<BillingSummary | null> {
-  const group = await readBillingGroup(clinicId);
+export async function getBillingSummary(
+  clinicId: string,
+  options: { now?: Date } = {},
+): Promise<BillingSummary | null> {
+  const now = options.now ?? new Date();
+  const group = await readBillingGroup(clinicId, { now });
   const row = group.row;
   if (!row) return null;
   const isPlanStarted = hasPlanStarted(row);
@@ -395,7 +468,7 @@ export async function getBillingSummary(clinicId: string): Promise<BillingSummar
       ? { url: row.openInvoiceUrl, amountDueCents: row.openInvoiceAmountCents }
       : null,
     graceEndsAt: iso(row.graceEndsAt),
-    usage: meterUsage(row),
+    usage: meterUsage(row, now),
   };
 }
 
@@ -526,15 +599,23 @@ export type PreviewChangePlanResult =
       recurringCents: number;
       /** Channels in service the new package would drop. */
       droppedChannels: Channel[];
+      /**
+       * This very change is already in flight: an earlier attempt's outcome
+       * was lost. Confirming finishes that attempt; whatever it already
+       * charged is found in Stripe and never charged twice, so the amounts
+       * above are at most what is still to pay.
+       */
+      isInProgress: boolean;
     }
   | { status: "refused" | "not_available"; message: string };
 
 /**
  * What `changePlan` would charge: the setup-fee difference, the proration
  * Stripe would invoice at once, and the recurring price afterwards. Refuses
- * exactly what the action refuses. After the start the billed package is
- * worked out as the action works it out (R7): from the package Stripe bills
- * now plus the channels in service, kept to the new bought package.
+ * exactly what the action refuses, including a different change while one is
+ * in flight. After the start the billed package is worked out as the action
+ * works it out (R7): from the package Stripe bills now plus the channels in
+ * service, kept to the new bought package.
  */
 export async function previewChangePlan(
   input: PreviewChangePlanInput,
@@ -545,6 +626,7 @@ export async function previewChangePlan(
   const check = checkPlanChange(group.row, input, group.inService, now);
   if (!check.ok) return { status: check.status, message: check.message };
   const { newPlan, interval, locations } = check;
+  const isInProgress = check.pendingRequestId !== null;
   const setupFeeDeltaCents = check.deltaPerLocationCents * locations;
   const droppedChannels = channelsDroppedBy(newPlan, group.inService);
   const kept = (channels: Iterable<Channel>) =>
@@ -560,6 +642,7 @@ export async function previewChangePlan(
       prorationCents: 0,
       recurringCents: recurringUsd(billedAtStart, interval) * 100 * locations,
       droppedChannels,
+      isInProgress,
     };
   }
 
@@ -619,6 +702,7 @@ export async function previewChangePlan(
       prorationCents,
       recurringCents: recurringUsd(target, interval) * 100 * locations,
       droppedChannels,
+      isInProgress,
     };
   } catch (error) {
     log.warn("plan change preview unavailable", {

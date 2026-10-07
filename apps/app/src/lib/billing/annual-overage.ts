@@ -8,7 +8,7 @@ import {
   OVERAGE_RATES_PROVISIONAL,
   type Plan,
 } from "@healdesk/catalog";
-import { and, asc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, asc, eq, gt, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import type Stripe from "stripe";
 
 import { unsafeDb } from "@/db";
@@ -23,7 +23,7 @@ import { addMonthsUtc, getEntitlements, hasPlanStarted } from "./entitlements";
 import { stripeErrorCode, type SubscriptionLike } from "./metered-items";
 import { enqueueNotice } from "./notices";
 import { priceForLookupKey } from "./prices";
-import { chargeOneOffInvoice, type OneOffItem } from "./stripe-actions";
+import type { OneOffItem } from "./stripe-actions";
 import { getStripe } from "./stripe-client";
 import { effectivePaymentMethod, WORKER_STRIPE_OPTIONS } from "./stripe-helpers";
 
@@ -66,6 +66,14 @@ import { effectivePaymentMethod, WORKER_STRIPE_OPTIONS } from "./stripe-helpers"
  * it is left open (never voided) and goes through dunning like any other
  * unpaid invoice. An invoice someone voided by hand in Stripe is respected:
  * the window is recorded `skipped` and never invoiced again.
+ *
+ * A clinic that LEAVES annual billing (a plan change to monthly, review fix
+ * of 7 October 2026) is billed by the meters from then on, and this job
+ * would stop looking at it with its annual months still owed: the one in
+ * progress, which now ends at the switch, and any closed since the last
+ * run. The plan change claims them here in the transaction that applies it
+ * (`claimOverageOnLeavingAnnual`), and the job invoices a claimed window
+ * whatever the clinic is billed by now.
  */
 
 const OVERAGE_ACTOR: ActorContext = { type: "service", serviceName: "annual-overage-invoice" };
@@ -146,8 +154,8 @@ type Claimed = {
 
 /**
  * Claim a window's ledger row (step 1): insert it, or take over a `failed`
- * (or crashed `pending`) one with the amounts worked out afresh. `done` when
- * the window is already invoiced or skipped, or has nothing to bill.
+ * (or crashed `pending`) one with the amounts it was claimed with. `done`
+ * when the window is already invoiced or skipped, or has nothing to bill.
  *
  * The amount is started blocks times the block price per meter, never units
  * times the per-unit rate. The ledger keeps the units it counted, and its
@@ -200,13 +208,106 @@ async function claimWindow(
   // The insert conflicted, so the row exists: the runtime role cannot delete one.
   if (!existing) throw new Error("The overage ledger row for this window could not be read.");
   if (existing.status === "invoiced" || existing.status === "skipped") return { done: existing };
+  // Taken over as it was claimed, never worked out again: a closed month's
+  // units cannot grow, a plan change since must not re-price a past month,
+  // and a month claimed as the clinic left annual billing has had its rows
+  // handed over, so a fresh count would find nothing to bill.
   const [taken] = await tx.db
     .update(overageInvoices)
-    .set({ ...values, status: amountCents > 0 ? "pending" : "skipped", error: null })
+    .set({ status: existing.amountCents > 0 ? "pending" : "skipped", error: null })
     .where(eq(overageInvoices.id, existing.id))
     .returning();
-  return taken!.status === "skipped" ? { done: taken! } : { row: taken!, ...claimed };
+  return taken!.status === "skipped" ? { done: taken! } : { row: taken!, ...claimedFrom(taken!) };
 }
+
+/** What a ledger row was claimed for: its block prices, the started blocks, the amount. */
+function claimedFrom(row: OverageInvoice): Omit<Claimed, "row"> {
+  return {
+    voiceBlockCents: row.voiceRateCents,
+    chatBlockCents: row.chatRateCents,
+    voiceBlocks: row.voiceRateCents > 0 ? overageBlocks(row.voiceUnits) : 0,
+    chatBlocks: row.chatRateCents > 0 ? overageBlocks(row.chatUnits) : 0,
+    amountCents: row.amountCents,
+  };
+}
+
+/**
+ * The per-unit rate a block price stands for, to find the meter's price: the
+ * claimed block price decides the product an invoice line is booked to,
+ * because the package bought now may not sell that meter any more.
+ */
+function rateOfBlock(blockCents: number): number {
+  return blockCents / (OVERAGE_BLOCK_UNITS * 100);
+}
+
+/**
+ * Hand a clinic's annual months over to this invoice as it leaves annual
+ * billing (review fix of 7 October 2026). `tx` is the billing clinic's
+ * transaction that applies the plan change, after the allowance window has
+ * re-opened at the switch, so the annual month in progress is closed and
+ * ends there.
+ *
+ *   1. Every closed window not yet invoiced or skipped is claimed in the
+ *      ledger as it stands: its units, at the block prices of `plan`, the
+ *      package bought while those months ran.
+ *   2. Every unreported row past the allowance from before the switch is
+ *      marked as handed to this invoice (`stripe_reported_at`, with
+ *      `stripe_report_error` ANNUAL_INVOICE_HANDOVER): the monthly meter
+ *      reporter takes over this clinic now, and would otherwise send those
+ *      rows to a meter (Stripe would bill them a second time, or, dated
+ *      before the metered items existed, not at all), including the rows of
+ *      months this job has already invoiced, which it never marks.
+ *
+ * Both in the caller's transaction, so the reporter, which reads the
+ * interval first, never sees the clinic as monthly with those rows still
+ * unreported. The daily job invoices the claimed windows. Returns how many
+ * it claimed.
+ */
+export async function claimOverageOnLeavingAnnual(
+  tx: TenantTx,
+  input: { switchAt: Date; plan: Plan; now: Date },
+): Promise<number> {
+  const row = await getEntitlements(tx.db, tx.clinicId);
+  if (!row) return 0;
+  // Stripe dates the switch, a moment after the caller's clock was read: the
+  // month that ends there counts as closed by then.
+  const at = new Date(Math.max(input.now.getTime(), input.switchAt.getTime()));
+  const done = await tx.db
+    .select({ windowStart: overageInvoices.windowStart, status: overageInvoices.status })
+    .from(overageInvoices)
+    .where(eq(overageInvoices.clinicId, tx.clinicId));
+  const finished = new Set(
+    done
+      .filter((d) => d.status === "invoiced" || d.status === "skipped")
+      .map((d) => d.windowStart.getTime()),
+  );
+  let claimed = 0;
+  for (const window of await closedOverageWindows(tx, row, at)) {
+    if (window.start.getTime() >= input.switchAt.getTime()) continue;
+    if (finished.has(window.start.getTime())) continue;
+    const result = await claimWindow(tx, input.plan, window);
+    if (!("done" in result)) claimed += 1;
+  }
+  await tx.db
+    .update(usageEvents)
+    .set({ stripeReportedAt: at, stripeReportError: ANNUAL_INVOICE_HANDOVER })
+    .where(
+      and(
+        eq(usageEvents.clinicId, tx.clinicId),
+        lt(usageEvents.windowStart, input.switchAt),
+        gt(usageEvents.overAllowance, 0),
+        isNull(usageEvents.stripeReportedAt),
+      ),
+    );
+  return claimed;
+}
+
+/**
+ * The `stripe_report_error` code on a usage row handed to the annual overage
+ * invoice when its clinic left annual billing: never sent to a meter, and
+ * not an error. A closed code, like every other value of that column.
+ */
+export const ANNUAL_INVOICE_HANDOVER = "annual_invoice";
 
 /**
  * Invoice one closed window for a billing clinic (steps 1 to 3). Safe to
@@ -226,7 +327,7 @@ export async function invoiceOverageWindow(
       const plan = row ? getPlan(row.boughtPlanId ?? row.planCode) : undefined;
       if (!row || !plan || !row.stripeCustomerId) return null;
       const claimed = await claimWindow(tx, plan, window);
-      return { claimed, plan, row };
+      return { claimed, row };
     },
   );
   if (!claim) return { status: "failed", reason: "no_billing_account" };
@@ -236,20 +337,28 @@ export async function invoiceOverageWindow(
       reason: claim.claimed.done.status === "skipped" ? "zero_units" : "already_done",
     };
   }
-  const { claimed, plan, row } = claim;
+  const { claimed, row } = claim;
   const windowStartIso = window.start.toISOString();
+  // The invoice and the email describe the month as the ledger claimed it,
+  // like the amount: a count made again later (the console's retry) can
+  // differ once a clinic has left annual billing and its rows were handed over.
+  const ledger = claimed.row;
 
   try {
+    // Loaded here, not imported: stripe-actions imports this module (a plan
+    // change leaving annual billing claims its months here), and a static
+    // import back would make the two a cycle.
+    const { chargeOneOffInvoice } = await import("./stripe-actions");
     const stripe = options.stripe ?? getStripe();
     const items: OneOffItem[] = [];
-    const days = `${windowStartIso.slice(0, 10)} to ${window.end.toISOString().slice(0, 10)}`;
+    const days = `${windowStartIso.slice(0, 10)} to ${ledger.windowEnd.toISOString().slice(0, 10)}`;
     // One item per meter: the blocks as its quantity, at the price of one
     // block, on the meter's own product so the line reads like the monthly
     // plans' metered line. The description is generic: a meter, the dates
     // and a count, nothing about who called or what was asked.
     if (claimed.voiceBlocks > 0) {
       const price = await priceForLookupKey(
-        meteredPriceLookupKey("voiceMinutes", plan.overagePerVoiceMinuteUsd),
+        meteredPriceLookupKey("voiceMinutes", rateOfBlock(claimed.voiceBlockCents)),
         { stripe },
       );
       items.push({
@@ -261,7 +370,7 @@ export async function invoiceOverageWindow(
     }
     if (claimed.chatBlocks > 0) {
       const price = await priceForLookupKey(
-        meteredPriceLookupKey("chatConversations", plan.overagePerChatConversationUsd),
+        meteredPriceLookupKey("chatConversations", rateOfBlock(claimed.chatBlockCents)),
         { stripe },
       );
       items.push({
@@ -320,9 +429,9 @@ export async function invoiceOverageWindow(
       await enqueueNotice(tx, "overage_invoiced", windowStartIso, {
         amountCents: claimed.amountCents,
         windowStart: windowStartIso,
-        windowEnd: window.end.toISOString(),
-        voiceMinutes: window.voiceUnits,
-        chatConversationsCount: window.chatUnits,
+        windowEnd: ledger.windowEnd.toISOString(),
+        voiceMinutes: ledger.voiceUnits,
+        chatConversationsCount: ledger.chatUnits,
         voiceBlocksCount: claimed.voiceBlocks,
         chatBlocksCount: claimed.chatBlocks,
         voiceBlockRateCents: claimed.voiceBlockCents,
@@ -372,9 +481,11 @@ export type AnnualOverageSummary = {
 };
 
 /**
- * One pass over every started annual billing clinic: each closed window that
- * is not yet invoiced or skipped. Exported without the job wrapper so a test
- * can drive it at a pinned `now`.
+ * One pass over every started billing clinic: for an annual one, each closed
+ * window that is not yet invoiced or skipped; for any, a window claimed in
+ * the ledger and not yet invoiced (pending, or failed last time), which is
+ * how the months of a clinic that has left annual billing are still billed.
+ * Exported without the job wrapper so a test can drive it at a pinned `now`.
  */
 export async function invoiceAnnualOverage(
   options: { now?: Date; stripe?: Stripe } = {},
@@ -387,27 +498,29 @@ export async function invoiceAnnualOverage(
     try {
       const due = await withTenant({ clinicId, actor: OVERAGE_ACTOR }, async (tx) => {
         const row = await getEntitlements(tx.db, clinicId);
-        if (
-          !row ||
-          row.billingInterval !== "year" ||
-          !row.stripeCustomerId ||
-          !hasPlanStarted(row) ||
-          row.status === "purged"
-        ) {
+        if (!row || !row.stripeCustomerId || !hasPlanStarted(row) || row.status === "purged") {
           return [];
         }
-        const windows = await closedOverageWindows(tx, row, now);
-        if (windows.length === 0) return [];
-        const done = await tx.db
-          .select({ windowStart: overageInvoices.windowStart, status: overageInvoices.status })
+        const ledger = await tx.db
+          .select()
           .from(overageInvoices)
           .where(eq(overageInvoices.clinicId, clinicId));
-        const finished = new Set(
-          done
-            .filter((d) => d.status === "invoiced" || d.status === "skipped")
-            .map((d) => d.windowStart.getTime()),
+        // Claimed and not yet invoiced: this job's, whatever the clinic is
+        // billed by now (a month claimed as it left annual billing).
+        const claimed: OverageWindow[] = ledger
+          .filter((l) => l.status === "pending" || l.status === "failed")
+          .map((l) => ({
+            start: l.windowStart,
+            end: l.windowEnd,
+            voiceUnits: l.voiceUnits,
+            chatUnits: l.chatUnits,
+          }));
+        if (row.billingInterval !== "year") return claimed;
+        const known = new Set(ledger.map((l) => l.windowStart.getTime()));
+        const closed = (await closedOverageWindows(tx, row, now)).filter(
+          (window) => !known.has(window.start.getTime()),
         );
-        return windows.filter((window) => !finished.has(window.start.getTime()));
+        return [...claimed, ...closed].sort((a, b) => a.start.getTime() - b.start.getTime());
       });
       if (due.length === 0) continue;
       summary.clinics += 1;

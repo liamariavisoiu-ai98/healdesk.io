@@ -1,7 +1,12 @@
 import { and, isNotNull, isNull, lt } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
-import { checkoutIntents, metaInboundMessages, stripeConnectStates } from "@/db/schema";
+import {
+  chatThreads,
+  checkoutIntents,
+  metaInboundMessages,
+  stripeConnectStates,
+} from "@/db/schema";
 import { describeError, log } from "@/lib/log";
 import { listClinics } from "@/lib/ops/clinics";
 import { JOB_BILLING_HOUSEKEEPING, runJob, type JobOutcome } from "@/lib/scheduler/jobs";
@@ -18,15 +23,25 @@ import { withTenant } from "@/lib/tenant";
  *     the first invoice still finds it and answers with the replay;
  *   - Meta message refs older than 7 days: Meta redelivers for hours, not
  *     weeks, so a ref older than that dedupes nothing;
+ *   - chat threads with no message for 30 days. A thread only decides
+ *     whether a message starts a new conversation, after 24 hours of silence
+ *     (lib/chat/threads.ts), and nothing reads its count. But it holds an
+ *     HMAC of the sender's id (a WhatsApp number among them) made with a key
+ *     we hold, so beside the clinic messaged and when, it identifies a
+ *     patient, and must not outlive its use. Thirty days is far past the
+ *     silence and past WhatsApp's seven days of redelivery, so a purge
+ *     changes no count: the next message starts a new conversation, as it
+ *     would have anyway;
  *   - Connect OAuth states older than a day: they expire in 15 minutes.
  *
  * sign_in_links are deliberately NOT purged: the runtime role has no DELETE
  * on them, so a redeemed link stays as the record of a sign-in. They expire.
  *
  * The identity-plane tables are deleted through unsafeDb (no tenant to scope
- * by). meta_inbound_messages FORCEs row-level security, so it is purged one
- * clinic at a time inside that clinic's tenant; one clinic failing does not
- * stop the others, and is reported.
+ * by). meta_inbound_messages and chat_threads FORCE row-level security, so
+ * they are purged one clinic at a time inside that clinic's tenant (a
+ * location's threads sit in its own); one clinic failing does not stop the
+ * others, and is reported.
  *
  * Every cut-off comes from the pinned `now`, never the database clock, so a
  * test can drive it and a delayed run purges exactly what it would have.
@@ -35,12 +50,14 @@ import { withTenant } from "@/lib/tenant";
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const CONSUMED_INTENT_RETENTION_DAYS = 90;
 export const META_MESSAGE_REF_RETENTION_DAYS = 7;
+export const CHAT_THREAD_IDLE_RETENTION_DAYS = 30;
 export const CONNECT_STATE_RETENTION_DAYS = 1;
 
 export type HousekeepingResult = {
   expiredIntents: number;
   consumedIntents: number;
   metaMessageRefs: number;
+  chatThreads: number;
   connectStates: number;
   clinicsFailed: number;
 };
@@ -50,6 +67,7 @@ export async function purgeBillingHousekeeping(now: Date): Promise<HousekeepingR
     expiredIntents: 0,
     consumedIntents: 0,
     metaMessageRefs: 0,
+    chatThreads: 0,
     connectStates: 0,
     clinicsFailed: 0,
   };
@@ -86,16 +104,22 @@ export async function purgeBillingHousekeeping(now: Date): Promise<HousekeepingR
   result.connectStates = states.length;
 
   const metaCutoff = new Date(now.getTime() - META_MESSAGE_REF_RETENTION_DAYS * DAY_MS);
+  const threadCutoff = new Date(now.getTime() - CHAT_THREAD_IDLE_RETENTION_DAYS * DAY_MS);
   const actor = { type: "service", serviceName: "billing-housekeeping" } as const;
   for (const clinic of await listClinics()) {
     try {
-      const deleted = await withTenant({ clinicId: clinic.id, actor }, (tx) =>
-        tx.db
+      const deleted = await withTenant({ clinicId: clinic.id, actor }, async (tx) => ({
+        refs: await tx.db
           .delete(metaInboundMessages)
           .where(lt(metaInboundMessages.receivedAt, metaCutoff))
           .returning({ platform: metaInboundMessages.platform }),
-      );
-      result.metaMessageRefs += deleted.length;
+        threads: await tx.db
+          .delete(chatThreads)
+          .where(lt(chatThreads.lastInboundAt, threadCutoff))
+          .returning({ channel: chatThreads.channel }),
+      }));
+      result.metaMessageRefs += deleted.refs.length;
+      result.chatThreads += deleted.threads.length;
     } catch (error) {
       result.clinicsFailed += 1;
       log.error("billing housekeeping failed for a clinic", {
@@ -107,7 +131,7 @@ export async function purgeBillingHousekeeping(now: Date): Promise<HousekeepingR
 
   log.info("billing housekeeping", {
     count: result.expiredIntents + result.consumedIntents,
-    deleted: result.metaMessageRefs + result.connectStates,
+    deleted: result.metaMessageRefs + result.chatThreads + result.connectStates,
     failures: result.clinicsFailed,
   });
   return result;
@@ -121,7 +145,8 @@ export async function runBillingHousekeepingJob(options: { now?: Date } = {}): P
       const r = await purgeBillingHousekeeping(now);
       const note =
         `Purged ${r.expiredIntents} expired and ${r.consumedIntents} consumed checkout intents, ` +
-        `${r.metaMessageRefs} Meta message refs, ${r.connectStates} Connect states`;
+        `${r.metaMessageRefs} Meta message refs, ${r.chatThreads} idle chat threads, ` +
+        `${r.connectStates} Connect states`;
       // A clinic that could not be purged shows red on the console rather
       // than hiding inside an "ok" (map_email-jobs §17 item 10).
       if (r.clinicsFailed > 0) throw new Error(`${note}; ${r.clinicsFailed} clinics failed.`);

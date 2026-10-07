@@ -9,6 +9,7 @@ import {
   recordUsage,
   usageSnapshot,
   type RecordUsageInput,
+  type RecordUsageResult,
 } from "@/lib/billing/usage";
 import { touchChatThread } from "@/lib/chat/threads";
 import { identifierRef } from "@/lib/identifier-ref";
@@ -267,11 +268,53 @@ describeDb("recordUsage against the database", () => {
     const c = await seedClinic("usage-concurrent");
     await seedEntitled(c.clinicId, { planStartedAt: WINDOW_START });
     await setUsed(c.clinicId, 995);
-    const [a, b] = await Promise.all([
-      recordUsage(voice(c.clinicId, 3)),
-      recordUsage(voice(c.clinicId, 4)),
-    ]);
-    expect(a.recorded && b.recorded).toBe(true);
+    // Started together, the two recorders do not reliably overlap: the pool
+    // can hand the first a warm connection and let it finish before the
+    // second has one, and then an unlocked read would pass too. So another
+    // transaction holds the row lock until both recorders are queued behind
+    // it, one on that transaction and one on the row's tuple lock, and only
+    // then lets go: both are inside their transactions at once, and only the
+    // row lock decides which reads the other's count.
+    const holder = await getMigratorPool().connect();
+    let recorders: Promise<RecordUsageResult[]> | null = null;
+    try {
+      await holder.query("begin");
+      await holder.query(`select set_config('app.clinic_id', $1, true)`, [c.clinicId]);
+      await holder.query(`select 1 from entitlements where clinic_id = $1 for update`, [
+        c.clinicId,
+      ]);
+      const { rows: held } = await holder.query<{ xid: string }>(
+        `select (pg_current_xact_id()::text::bigint & 4294967295)::text as xid`,
+      );
+      recorders = Promise.all([
+        recordUsage(voice(c.clinicId, 3)),
+        recordUsage(voice(c.clinicId, 4)),
+      ]);
+      const deadline = Date.now() + 10_000;
+      for (;;) {
+        const { rows: waiting } = await getMigratorPool().query<{ n: number }>(
+          `select count(*)::int as n from pg_locks
+            where not granted
+              and ((locktype = 'transactionid' and transactionid::text = $1)
+                or (locktype = 'tuple'
+                    and database = (select oid from pg_database where datname = current_database())
+                    and relation = 'entitlements'::regclass))`,
+          [held[0]!.xid],
+        );
+        if (waiting[0]!.n >= 2) break;
+        if (Date.now() > deadline) throw new Error("the recorders never queued on the row lock");
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      await holder.query("commit");
+    } catch (error) {
+      await holder.query("rollback");
+      await recorders?.catch(() => undefined);
+      throw error;
+    } finally {
+      holder.release();
+    }
+    const [a, b] = await recorders;
+    expect(a!.recorded && b!.recorded).toBe(true);
     expect(await counters(c.clinicId)).toEqual({ voice: 1_002, chat: 0 });
     // The lock serialised them: the second read the first's increment, so
     // the used_before values have no gap and the overage is counted once.

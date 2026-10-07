@@ -259,6 +259,7 @@ describeDb("annual overage", () => {
       voiceBlockRateCents: 8_000,
       chatBlockRateCents: 3_000,
       hostedInvoiceUrl: `https://invoice.stripe.com/i/${world.state.invoices[0]!.id}`,
+      isPaid: true,
     });
     assertPayloadAllowed(notices[0]!.payload, "overage_invoiced");
 
@@ -358,6 +359,9 @@ describeDb("annual overage", () => {
     expect(world.fake.callsTo("invoices.voidInvoice")).toHaveLength(0);
     expect(world.state.invoices[0]!.status).toBe("open");
     expect((await ledgerOf(clinic.clinicId))[0]).toMatchObject({ status: "invoiced" });
+    // Not charged, so the email must not say it was: it says the invoice is due.
+    const [notice] = await noticesOf(clinic.clinicId);
+    expect(notice!.payload).toMatchObject({ isPaid: false });
   });
 
   test("an invoice voided by hand in Stripe is respected: the month is skipped, never invoiced again", async () => {

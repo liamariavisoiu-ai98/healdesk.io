@@ -15,6 +15,11 @@ import type { EmailTemplate } from "./types";
  * and this is the new price. Monthly plans carry the prorated difference on
  * the next invoice; annual plans are invoiced for it at once, and that
  * invoice is the receipt (X3's merges), with how to cancel online.
+ *
+ * An annual step-up is applied even when its card declines (allow_incomplete)
+ * and the invoice is left open, so "charged to the card on file" is said only
+ * when the invoice was paid (`isPaid`); otherwise the email says the invoice
+ * is due and links it, beside the payment_failed email Stripe's failure sends.
  */
 
 export type PriceSteppedUpPayload = NoticePayloads["price_stepped_up"];
@@ -31,14 +36,20 @@ export const renderPriceSteppedUp: EmailTemplate<PriceSteppedUpPayload> = (paylo
     },
     {
       type: "paragraph",
-      text: payload.isInvoicedNow
-        ? `The difference for the rest of this ${period} is invoiced now and charged to the card on file.`
-        : `The difference for the rest of this ${period} is prorated onto your next invoice.`,
+      text: !payload.isInvoicedNow
+        ? `The difference for the rest of this ${period} is prorated onto your next invoice.`
+        : payload.isPaid
+          ? `The difference for the rest of this ${period} is invoiced now and charged to the card on file.`
+          : `The difference for the rest of this ${period} is invoiced now, and that invoice is due.`,
     },
   ];
   if (payload.hostedInvoiceUrl) {
     blocks.push(
-      { type: "action", label: "View the invoice", url: payload.hostedInvoiceUrl },
+      {
+        type: "action",
+        label: payload.isInvoicedNow && !payload.isPaid ? "Pay the invoice" : "View the invoice",
+        url: payload.hostedInvoiceUrl,
+      },
       cancelOnline(),
     );
   }
@@ -62,5 +73,6 @@ export const PRICE_STEPPED_UP_ENTRY: TemplateEntry<PriceSteppedUpPayload> = {
     interval: "month",
     isInvoicedNow: false,
     hostedInvoiceUrl: null,
+    isPaid: false,
   },
 };

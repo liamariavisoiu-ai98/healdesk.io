@@ -303,6 +303,38 @@ describeDb("billing foundation", () => {
       });
     });
 
+    test("purges chat threads idle for more than 30 days in every clinic, and keeps the live ones", async () => {
+      // A thread holds an HMAC of the sender's id (a WhatsApp number among
+      // them): kept past its use, it is a record of who messaged the clinic.
+      const now = new Date("2026-10-05T06:00:00Z");
+      const thread = (clinicId: string, partyRef: string, lastInboundAt: Date) =>
+        inTenant(clinicId, (c) =>
+          c.query(
+            `insert into chat_threads (clinic_id, channel, party_ref, conversation_id, conversation_started_at, last_inbound_at)
+             values ($1, 'whatsapp', $2, $3, $4, $4)`,
+            [clinicId, partyRef, randomUUID(), lastInboundAt],
+          ),
+        );
+      const a = await seedClinic("threads-a");
+      const b = await seedClinic("threads-b");
+      await thread(a.clinicId, "v1:idle-a", new Date(now.getTime() - 31 * DAY));
+      await thread(a.clinicId, "v1:live-a", new Date(now.getTime() - 29 * DAY));
+      await thread(b.clinicId, "v1:idle-b", new Date(now.getTime() - 45 * DAY));
+      await thread(b.clinicId, "v1:live-b", new Date(now.getTime() - DAY));
+
+      const result = await purgeBillingHousekeeping(now);
+      expect(result).toMatchObject({ chatThreads: 2, clinicsFailed: 0 });
+      const left = (clinicId: string) =>
+        inTenant(clinicId, async (c) =>
+          (await c.query<{ party_ref: string }>(`select party_ref from chat_threads`)).rows.map(
+            (r) => r.party_ref,
+          ),
+        );
+      expect(await left(a.clinicId)).toEqual(["v1:live-a"]);
+      expect(await left(b.clinicId)).toEqual(["v1:live-b"]);
+      expect((await purgeBillingHousekeeping(now)).chatThreads).toBe(0);
+    });
+
     test("runs only behind its switch, and records what it did", async () => {
       const now = new Date("2026-10-05T06:00:00Z");
       expect(await runBillingHousekeepingJob({ now })).toEqual({ status: "disabled" });

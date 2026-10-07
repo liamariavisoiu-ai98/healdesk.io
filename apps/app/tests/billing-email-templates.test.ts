@@ -139,6 +139,7 @@ const VARIANTS: Variant[] = [
     amountDueCents: null,
   }),
   variant("suspended for an unpaid invoice, Verizon landline", "suspended", {
+    kind: "grace_expired",
     hostedInvoiceUrl: INVOICE_URL,
     amountDueCents: 89_700,
     carrier: "verizon",
@@ -146,6 +147,7 @@ const VARIANTS: Variant[] = [
     routing: "overflow_after_hours",
   }),
   variant("suspended with no invoice to point at, carrier unknown", "suspended", {
+    kind: "grace_expired",
     hostedInvoiceUrl: null,
     amountDueCents: null,
     carrier: null,
@@ -153,6 +155,7 @@ const VARIANTS: Variant[] = [
     routing: "overflow_after_hours",
   }),
   variant("suspended, a cloud phone system", "suspended", {
+    kind: "grace_expired",
     hostedInvoiceUrl: INVOICE_URL,
     amountDueCents: 89_700,
     carrier: "comcast",
@@ -160,6 +163,7 @@ const VARIANTS: Variant[] = [
     routing: "all_calls",
   }),
   variant("suspended, T-Mobile forwarding every call", "suspended", {
+    kind: "unpaid",
     hostedInvoiceUrl: null,
     amountDueCents: 89_700,
     carrier: "tmobile",
@@ -167,11 +171,28 @@ const VARIANTS: Variant[] = [
     routing: "all_calls",
   }),
   variant("suspended, after hours only on a known carrier", "suspended", {
+    kind: "grace_expired",
     hostedInvoiceUrl: INVOICE_URL,
     amountDueCents: 89_700,
     carrier: "verizon",
     phoneSystem: "landline",
     routing: "after_hours_only",
+  }),
+  variant("suspended for a dispute, with an invoice still open", "suspended", {
+    kind: "dispute",
+    hostedInvoiceUrl: INVOICE_URL,
+    amountDueCents: 89_700,
+    carrier: "att",
+    phoneSystem: "landline",
+    routing: "overflow_after_hours",
+  }),
+  variant("suspended by the team, nothing owed", "suspended", {
+    kind: "ops",
+    hostedInvoiceUrl: null,
+    amountDueCents: null,
+    carrier: null,
+    phoneSystem: "voip",
+    routing: "all_calls",
   }),
   variant("restored, with its receipt", "restored", { receiptUrl: RECEIPT_URL }),
   variant("restored, no receipt link", "restored", { receiptUrl: null }),
@@ -179,16 +200,31 @@ const VARIANTS: Variant[] = [
     endsAt: "2026-11-06T14:32:00.000Z",
     isBeforeStart: false,
     refundWindowEndsOn: "2026-10-20",
+    graceEndsAt: null,
   }),
   variant("auto-renew off after the refund window", "cancel_scheduled", {
     endsAt: "2027-01-06T14:32:00.000Z",
     isBeforeStart: false,
     refundWindowEndsOn: null,
+    graceEndsAt: null,
   }),
   variant("auto-renew off before the plan starts", "cancel_scheduled", {
     endsAt: "2026-11-05T14:32:00.000Z",
     isBeforeStart: true,
     refundWindowEndsOn: null,
+    graceEndsAt: null,
+  }),
+  variant("auto-renew off while the first invoice is unpaid", "cancel_scheduled", {
+    endsAt: "2026-11-06T14:32:00.000Z",
+    isBeforeStart: false,
+    refundWindowEndsOn: null,
+    graceEndsAt: "2026-10-13T14:32:00.000Z",
+  }),
+  variant("auto-renew off with grace that outlasts the plan", "cancel_scheduled", {
+    endsAt: "2026-10-09T14:32:00.000Z",
+    isBeforeStart: false,
+    refundWindowEndsOn: null,
+    graceEndsAt: "2026-10-13T14:32:00.000Z",
   }),
   variant("auto-renew back on before the start", "cancel_reversed", { isBeforeStart: true }),
   variant("auto-renew back on after the start", "cancel_reversed", { isBeforeStart: false }),
@@ -198,7 +234,7 @@ const VARIANTS: Variant[] = [
     isBeforeStart: false,
     channels: ["web", "voice"],
     exportByOn: "2026-12-06",
-    destroyByOn: "2026-12-06",
+    destroyByOn: "2027-02-04",
     carrier: "att",
     phoneSystem: "landline",
     routing: "all_calls",
@@ -250,6 +286,20 @@ const VARIANTS: Variant[] = [
     voiceBlockRateCents: 8_000,
     chatBlockRateCents: 3_000,
     hostedInvoiceUrl: INVOICE_URL,
+    isPaid: true,
+  }),
+  variant("overage the card declined, left open to pay", "overage_invoiced", {
+    amountCents: 8_000,
+    windowStart: "2026-09-06T14:32:00.000Z",
+    windowEnd: "2026-10-06T14:32:00.000Z",
+    voiceMinutes: 30,
+    chatConversationsCount: 0,
+    voiceBlocksCount: 1,
+    chatBlocksCount: 0,
+    voiceBlockRateCents: 8_000,
+    chatBlockRateCents: 3_000,
+    hostedInvoiceUrl: INVOICE_URL,
+    isPaid: false,
   }),
   variant("overage on both meters, no invoice link", "overage_invoiced", {
     amountCents: 17_000,
@@ -262,6 +312,7 @@ const VARIANTS: Variant[] = [
     voiceBlockRateCents: 8_000,
     chatBlockRateCents: 3_000,
     hostedInvoiceUrl: null,
+    isPaid: true,
   }),
   variant("plan changed after the start, billed by channels in service", "plan_changed", {
     planName: "Web + Voice",
@@ -272,6 +323,18 @@ const VARIANTS: Variant[] = [
     hasDroppedChannels: false,
     isBeforeStart: false,
     billedPlanId: "chat-web",
+    isProrated: false,
+  }),
+  variant("plan changed after the start to annual billing, prorated", "plan_changed", {
+    planName: "Web + Voice",
+    interval: "year",
+    locations: 1,
+    setupFeeDeltaCents: 50_000,
+    hostedInvoiceUrl: INVOICE_URL,
+    hasDroppedChannels: false,
+    isBeforeStart: false,
+    billedPlanId: "chat-web",
+    isProrated: true,
   }),
   variant("plan changed before the start", "plan_changed", {
     planName: "Complete FrontDesk AI",
@@ -282,6 +345,7 @@ const VARIANTS: Variant[] = [
     hasDroppedChannels: false,
     isBeforeStart: true,
     billedPlanId: null,
+    isProrated: false,
   }),
   variant("plan changed before the start, annual, two locations", "plan_changed", {
     planName: "Web + Voice",
@@ -292,6 +356,7 @@ const VARIANTS: Variant[] = [
     hasDroppedChannels: false,
     isBeforeStart: true,
     billedPlanId: null,
+    isProrated: false,
   }),
   variant("plan changed, the phone dropped", "plan_changed", {
     planName: "Web Chatbot",
@@ -302,6 +367,7 @@ const VARIANTS: Variant[] = [
     hasDroppedChannels: true,
     isBeforeStart: false,
     billedPlanId: "chat-web",
+    isProrated: true,
     carrier: "spectrum",
     phoneSystem: "landline",
     routing: "overflow_after_hours",
@@ -315,6 +381,7 @@ const VARIANTS: Variant[] = [
     hasDroppedChannels: true,
     isBeforeStart: false,
     billedPlanId: null,
+    isProrated: false,
   }),
   variant("a location added after the start", "location_added", {
     locations: 2,
@@ -340,20 +407,29 @@ const VARIANTS: Variant[] = [
     connectedAt: "2026-10-06T18:05:00.000Z",
     source: "ops",
   }),
-  variant("Stripe disconnected from Stripe's side", "connect_disconnected", {
+  variant("Stripe disconnected from Stripe's side, with links still open", "connect_disconnected", {
     disconnectedAt: "2026-10-06T14:20:00.000Z",
     wasByWebhook: true,
     source: "stripe",
+    hasUncheckedLinks: true,
+  }),
+  variant("Stripe disconnected from Stripe's side, no links open", "connect_disconnected", {
+    disconnectedAt: "2026-10-06T14:20:00.000Z",
+    wasByWebhook: true,
+    source: "stripe",
+    hasUncheckedLinks: false,
   }),
   variant("Stripe disconnected from the portal", "connect_disconnected", {
     disconnectedAt: "2026-10-06T14:20:00.000Z",
     wasByWebhook: false,
     source: "portal",
+    hasUncheckedLinks: false,
   }),
-  variant("Stripe disconnected by the team", "connect_disconnected", {
+  variant("Stripe disconnected by the team, a link Stripe couldn't check", "connect_disconnected", {
     disconnectedAt: "2026-12-07T09:00:00.000Z",
     wasByWebhook: false,
     source: "ops",
+    hasUncheckedLinks: true,
   }),
   variant("plan started on website chat, billed by channels in service", "plan_started", {
     planName: "Web Chatbot",
@@ -361,9 +437,21 @@ const VARIANTS: Variant[] = [
     channel: "web",
     amountCents: 39_700,
     interval: "month",
+    startedOn: "2026-10-06",
     periodEndsOn: "2026-11-06",
     receiptUrl: RECEIPT_URL,
     isBilledByChannelsInService: true,
+  }),
+  variant("plan started days before a retried first charge was paid", "plan_started", {
+    planName: "Web + Voice",
+    boughtPlanId: "web-voice",
+    channel: "voice",
+    amountCents: 89_700,
+    interval: "month",
+    startedOn: "2026-10-01",
+    periodEndsOn: "2026-11-01",
+    receiptUrl: RECEIPT_URL,
+    isBilledByChannelsInService: false,
   }),
   variant("plan started on Meta, annual, the whole package", "plan_started", {
     planName: "Meta Chatbot",
@@ -371,6 +459,7 @@ const VARIANTS: Variant[] = [
     channel: "meta",
     amountCents: 380_400,
     interval: "year",
+    startedOn: "2026-10-06",
     periodEndsOn: "2027-10-06",
     receiptUrl: null,
     isBilledByChannelsInService: false,
@@ -381,6 +470,7 @@ const VARIANTS: Variant[] = [
     channel: null,
     amountCents: 79_700,
     interval: "month",
+    startedOn: "2026-10-06",
     periodEndsOn: "2026-11-06",
     receiptUrl: RECEIPT_URL,
     isBilledByChannelsInService: false,
@@ -392,6 +482,7 @@ const VARIANTS: Variant[] = [
     interval: "month",
     isInvoicedNow: false,
     hostedInvoiceUrl: null,
+    isPaid: false,
   }),
   variant("Meta joined an annual plan, invoiced now", "price_stepped_up", {
     channel: "meta",
@@ -400,6 +491,16 @@ const VARIANTS: Variant[] = [
     interval: "year",
     isInvoicedNow: true,
     hostedInvoiceUrl: INVOICE_URL,
+    isPaid: true,
+  }),
+  variant("the phone joined an annual plan, the card declined", "price_stepped_up", {
+    channel: "voice",
+    planName: "Web + Voice",
+    amountCents: 860_400,
+    interval: "year",
+    isInvoicedNow: true,
+    hostedInvoiceUrl: INVOICE_URL,
+    isPaid: false,
   }),
   variant("phone waiting on forwarding", "step_up_reminder", {
     channel: "voice",
@@ -611,6 +712,7 @@ describe("undoing call forwarding", () => {
     for (const facts of cases) {
       const { text } = render(
         variant("suspended", "suspended", {
+          kind: "grace_expired",
           hostedInvoiceUrl: null,
           amountDueCents: 100,
           ...facts,
@@ -629,6 +731,7 @@ describe("undoing call forwarding", () => {
   test("an unknown carrier gets the catalog's ask-your-carrier step, not a guess", () => {
     const { text } = render(
       variant("suspended", "suspended", {
+        kind: "grace_expired",
         hostedInvoiceUrl: null,
         amountDueCents: null,
         carrier: null,
@@ -643,6 +746,7 @@ describe("undoing call forwarding", () => {
   test("a known carrier's codes are dialled from the clinic's own line, named for the carrier", () => {
     const { text } = render(
       variant("suspended", "suspended", {
+        kind: "grace_expired",
         hostedInvoiceUrl: null,
         amountDueCents: null,
         carrier: "tmobile",
@@ -717,6 +821,26 @@ describe("what each email says", () => {
     expect(other).toContain("Reply to this email and we'll tell you what's needed to restore it.");
   });
 
+  test("a suspension a payment can't lift never blames an invoice or promises that paying restores it", () => {
+    const dispute = render(named("suspended for a dispute, with an invoice still open"));
+    expect(dispute.text).toContain(
+      "A payment to healdesk has been disputed with your bank, so we've suspended your service.",
+    );
+    expect(dispute.text).not.toContain("is unpaid, so we've suspended");
+    expect(`${dispute.preheader}\n${dispute.text}`).not.toMatch(/restores everything/);
+    // The invoice is still owed, and said so, but not as the way back.
+    expect(dispute.text).toContain(
+      "Your healdesk invoice for $897 is also still unpaid. Paying it settles what's owed, but doesn't restore the service on its own.",
+    );
+    expect(dispute.text).toContain(`Pay the invoice: ${INVOICE_URL}`);
+    expect(dispute.text).toContain(
+      "Reply to this email and we'll tell you what's needed to restore it.",
+    );
+    const ops = render(named("suspended by the team, nothing owed"));
+    expect(ops.text).toContain("We've suspended your healdesk service.");
+    expect(`${ops.preheader}\n${ops.text}`).not.toMatch(/unpaid|invoice|restores everything/i);
+  });
+
   test("auto-renew off before the start: the plan won't start and nothing more is charged", () => {
     const email = render(named("auto-renew off before the plan starts"), contextFor("clients"));
     expect(email.subject).toBe("Your healdesk plan won't start");
@@ -730,6 +854,19 @@ describe("what each email says", () => {
     // Raised on Tuesday 6 October: the next business day in New York.
     expect(text).toContain("We'll email you by Wednesday 7 October to arrange the refund.");
     expect(render(named("auto-renew off after the refund window")).text).not.toMatch(/refund/i);
+  });
+
+  test("auto-renew off with an invoice unpaid names the moment AYA stops, and promises no refund", () => {
+    const { text } = render(named("auto-renew off while the first invoice is unpaid"));
+    expect(text).toContain(
+      "An invoice is still unpaid, though, and unless it's paid AYA stops answering sooner, at 10:32 am EDT on Tuesday 13 October:",
+    );
+    expect(text).not.toContain("AYA keeps answering until then");
+    expect(text).not.toMatch(/refund/i);
+    // Grace that runs out after the plan has ended changes nothing.
+    expect(render(named("auto-renew off with grace that outlasts the plan")).text).toContain(
+      "AYA keeps answering until then.",
+    );
   });
 
   test("a plan start says which channel, what was charged, and that billing follows the channels in service", () => {
@@ -749,6 +886,39 @@ describe("what each email says", () => {
     expect(render(named("plan started on Meta, annual, the whole package")).text).not.toContain(
       "You bought",
     );
+  });
+
+  test("a plan start gives the day the plan started, not the day a retried charge was paid", () => {
+    // Raised on Tuesday 6 October, when the retried charge was paid; the
+    // plan, and its 14-day refund window, started on the 1st.
+    const { text } = render(named("plan started days before a retried first charge was paid"));
+    expect(text).toContain(
+      "AYA answered her first patient on the phone, so your healdesk plan started on Thursday 1 October.",
+    );
+    expect(text).not.toContain("6 October");
+  });
+
+  test("wherever a price joins from a first answer, the 30-day rule for a waiting channel is beside it", () => {
+    for (const name of [
+      "plan started on website chat, billed by channels in service",
+      "plan changed after the start, billed by channels in service",
+    ]) {
+      expect(render(named(name)).text, name).toContain(
+        "A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.",
+      );
+    }
+  });
+
+  test("an annual step-up says 'charged' only when its invoice was paid", () => {
+    const paid = render(named("Meta joined an annual plan, invoiced now")).text;
+    expect(paid).toContain("is invoiced now and charged to the card on file.");
+    expect(paid).toContain(`View the invoice: ${INVOICE_URL}`);
+    const declined = render(named("the phone joined an annual plan, the card declined")).text;
+    expect(declined).not.toContain("charged to the card on file");
+    expect(declined).toContain(
+      "The difference for the rest of this year is invoiced now, and that invoice is due.",
+    );
+    expect(declined).toContain(`Pay the invoice: ${INVOICE_URL}`);
   });
 
   test("a step-up says the channel joined, never that it is in service: a waiting channel is not", () => {
@@ -801,6 +971,13 @@ describe("what each email says", () => {
     }
   });
 
+  test("overage is 'charged to the card on file' only when it was: a declined card's invoice is due", () => {
+    const declined = render(named("overage the card declined, left open to pay"));
+    expect(declined.text).not.toContain("charged to the card on file");
+    expect(declined.text).toContain("so that comes to $80. The invoice for it is due now.");
+    expect(declined.text).toContain(`Pay the invoice: ${INVOICE_URL}`);
+  });
+
   test("the allowance fallback says what stops, until when, and that work under way carries on", () => {
     const voice = render(named("the voice allowance ran out"));
     expect(voice.subject).toBe("Allowance used: calls go to your direct line until 6 November");
@@ -834,6 +1011,23 @@ describe("what each email says", () => {
     expect(text).not.toContain("you're billed for");
   });
 
+  test("a plan change says it was prorated only when it was", () => {
+    // The billed package stayed: the invoice is the setup-fee difference alone.
+    const setupOnly = render(
+      named("plan changed after the start, billed by channels in service"),
+    ).text;
+    expect(setupOnly).not.toMatch(/prorat/i);
+    expect(setupOnly).toContain(
+      "The difference in setup fee, $500, was charged with the change, and that's all the invoice covers: the price you're billed hasn't changed.",
+    );
+    const prorated = render(named("plan changed after the start to annual billing, prorated")).text;
+    expect(prorated).toContain(
+      "The change is prorated: the invoice covers the difference for the rest of this billing period.",
+    );
+    expect(prorated).toContain("The difference in setup fee, $500, was charged with the change.");
+    expect(prorated).not.toContain("that's all the invoice covers");
+  });
+
   test("before the plan starts, cancelling online means the plan never starts", () => {
     const before = render(named("plan changed before the start, annual, two locations")).text;
     expect(before).toContain("turn auto-renew off in Billing. Your plan then won't start");
@@ -859,12 +1053,29 @@ describe("what each email says", () => {
   });
 
   test("a disconnection from Stripe's side offers to connect again; one from the portal does not", () => {
-    expect(render(named("Stripe disconnected from Stripe's side")).text).toContain(
-      `Connect Stripe again: ${PORTAL}`,
-    );
+    expect(
+      render(named("Stripe disconnected from Stripe's side, with links still open")).text,
+    ).toContain(`Connect Stripe again: ${PORTAL}`);
     const portal = render(named("Stripe disconnected from the portal")).text;
     expect(portal).not.toContain("Connect Stripe again");
     expect(portal).toContain("If nobody at your clinic disconnected it, reply to this email now.");
+  });
+
+  test("a disconnection never calls a link dead that may still be paid", () => {
+    for (const name of [
+      "Stripe disconnected from Stripe's side, with links still open",
+      "Stripe disconnected by the team, a link Stripe couldn't check",
+    ]) {
+      const { text } = render(named(name));
+      expect(text, name).toContain(
+        "Links she had already sent may still be paid until they expire, within 24 hours, so check your Stripe account before collecting a deposit for one of those bookings.",
+      );
+      expect(text, name).not.toContain("stopped working");
+    }
+    // Every link expired or found paid: then, and only then, they're dead.
+    expect(render(named("Stripe disconnected from the portal")).text).toContain(
+      "Links she had already sent that weren't paid have stopped working",
+    );
   });
 
   test("the end of service gives the pass-through end, the export and the destruction dates", () => {
@@ -873,12 +1084,15 @@ describe("what each email says", () => {
     );
     expect(text).toContain("For 30 days, until Sunday 6 December, calls that still forward to us");
     expect(text).toContain("Download it by Sunday 6 December.");
-    expect(text).toContain("We destroy our copies of your data on Sunday 6 December");
+    expect(text).toContain(
+      "We destroy our copies of your data within 30 days of your export being delivered, and by Thursday 4 February 2027 at the latest.",
+    );
+    expect(text).not.toContain("as your agreement says");
     expect(preheader).toBe("Calls still pass through to your direct line until 6 December.");
     const meta = render(named("service ended before the plan started: Meta only")).text;
     expect(meta).toContain("Your plan never started, so nothing more was charged.");
     expect(meta).toContain("AYA no longer replies on Instagram, Messenger or WhatsApp.");
-    expect(meta).toContain("on Wednesday 3 February 2027");
+    expect(meta).toContain("and by Wednesday 3 February 2027 at the latest.");
   });
 });
 

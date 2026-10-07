@@ -133,6 +133,48 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 }
 `;
 
+exports[`every branch of every billing template > cancel_scheduled: auto-renew off while the first invoice is unpaid > the words, as a snapshot 1`] = `
+{
+  "preheader": "Turn auto-renew back on before then to keep it.",
+  "subject": "Your healdesk plan ends on 6 November",
+  "text": "Auto-renew is off, so your healdesk plan ends on Friday 6 November. An invoice is still unpaid, though, and unless it's paid AYA stops answering sooner, at 10:32 am EDT on Tuesday 13 October: forwarded calls pass straight through to your direct line, and website chat becomes a contact form.
+
+Changed your mind? Turn auto-renew back on in Billing before then, and nothing changes.
+
+Turn auto-renew back on: https://app.healdesk.test/
+
+When the plan ends, we'll email you how to undo call forwarding and what happens to your data.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`every branch of every billing template > cancel_scheduled: auto-renew off with grace that outlasts the plan > the words, as a snapshot 1`] = `
+{
+  "preheader": "Turn auto-renew back on before then to keep it.",
+  "subject": "Your healdesk plan ends on 9 October",
+  "text": "Auto-renew is off, so your healdesk plan ends on Friday 9 October. AYA keeps answering until then.
+
+Changed your mind? Turn auto-renew back on in Billing before then, and nothing changes.
+
+Turn auto-renew back on: https://app.healdesk.test/
+
+When the plan ends, we'll email you how to undo call forwarding and what happens to your data.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
 exports[`every branch of every billing template > canceled: service ended before the plan started: Meta only > the words, as a snapshot 1`] = `
 {
   "preheader": "Download your export by 5 December.",
@@ -143,7 +185,7 @@ AYA no longer replies on Instagram, Messenger or WhatsApp. New messages there wa
 
 We'll email you when your export of transcripts and the booking log is ready. Download it by Saturday 5 December.
 
-We destroy our copies of your data on Wednesday 3 February 2027, as your agreement says. Billing records are kept, as tax law requires.
+We destroy our copies of your data within 30 days of your export being delivered, and by Wednesday 3 February 2027 at the latest. Billing records are kept, as tax law requires.
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
@@ -170,7 +212,7 @@ AYA no longer replies on Instagram, Messenger or WhatsApp. New messages there wa
 
 We'll email you when your export of transcripts and the booking log is ready. Download it by Tuesday 19 January 2027.
 
-We destroy our copies of your data on Saturday 20 March 2027, as your agreement says. Billing records are kept, as tax law requires.
+We destroy our copies of your data within 30 days of your export being delivered, and by Saturday 20 March 2027 at the latest. Billing records are kept, as tax law requires.
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
@@ -195,7 +237,7 @@ Your website chat shows a contact form until you remove the healdesk snippet fro
 
 We'll email you when your export of transcripts and the booking log is ready. Download it by Sunday 6 December.
 
-We destroy our copies of your data on Sunday 6 December, as your agreement says. Billing records are kept, as tax law requires.
+We destroy our copies of your data within 30 days of your export being delivered, and by Thursday 4 February 2027 at the latest. Billing records are kept, as tax law requires.
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
@@ -271,13 +313,13 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 }
 `;
 
-exports[`every branch of every billing template > connect_disconnected: Stripe disconnected by the team > the words, as a snapshot 1`] = `
+exports[`every branch of every billing template > connect_disconnected: Stripe disconnected by the team, a link Stripe couldn't check > the words, as a snapshot 1`] = `
 {
   "preheader": "Deposits are off until Stripe is connected again.",
   "subject": "Stripe was disconnected from healdesk",
   "text": "Your Stripe account was disconnected from healdesk at 4 am EST on Monday 7 December, by the healdesk team.
 
-Deposits are now off, so AYA no longer sends deposit links. Links she had already sent that weren't paid have stopped working, and those deposits are flagged in Bookings for your team to collect.
+Deposits are now off, so AYA no longer sends deposit links, and the bookings still waiting on a deposit are flagged in Bookings for your team. Links she had already sent may still be paid until they expire, within 24 hours, so check your Stripe account before collecting a deposit for one of those bookings.
 
 If you weren't expecting this, reply to this email.
 
@@ -290,13 +332,34 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 }
 `;
 
-exports[`every branch of every billing template > connect_disconnected: Stripe disconnected from Stripe's side > the words, as a snapshot 1`] = `
+exports[`every branch of every billing template > connect_disconnected: Stripe disconnected from Stripe's side, no links open > the words, as a snapshot 1`] = `
 {
   "preheader": "Deposits are off until Stripe is connected again.",
   "subject": "Stripe was disconnected from healdesk",
   "text": "Your Stripe account was disconnected from healdesk at 10:20 am EDT on Tuesday 6 October, from your Stripe account.
 
 Deposits are now off, so AYA no longer sends deposit links. Links she had already sent that weren't paid have stopped working, and those deposits are flagged in Bookings for your team to collect.
+
+If you didn't mean to disconnect it, connect Stripe again in Settings, under Payments.
+
+Connect Stripe again: https://app.healdesk.test/
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`every branch of every billing template > connect_disconnected: Stripe disconnected from Stripe's side, with links still open > the words, as a snapshot 1`] = `
+{
+  "preheader": "Deposits are off until Stripe is connected again.",
+  "subject": "Stripe was disconnected from healdesk",
+  "text": "Your Stripe account was disconnected from healdesk at 10:20 am EDT on Tuesday 6 October, from your Stripe account.
+
+Deposits are now off, so AYA no longer sends deposit links, and the bookings still waiting on a deposit are flagged in Bookings for your team. Links she had already sent may still be paid until they expire, within 24 hours, so check your Stripe account before collecting a deposit for one of those bookings.
 
 If you didn't mean to disconnect it, connect Stripe again in Settings, under Payments.
 
@@ -453,6 +516,29 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 }
 `;
 
+exports[`every branch of every billing template > overage_invoiced: overage the card declined, left open to pay > the words, as a snapshot 1`] = `
+{
+  "preheader": "$80 for the month to Tuesday 6 October.",
+  "subject": "Your healdesk invoice for usage past your allowance",
+  "text": "In the month from Sunday 6 September to Tuesday 6 October, AYA handled more than your plan includes. Past your allowance:
+
+- 30 voice minutes, billed as 1 block of 100 voice minutes at $80
+
+Overage is billed for each started block of 100, so that comes to $80. The invoice for it is due now. The rates are provisional until we've measured what each minute and conversation costs us.
+
+Pay the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
+
+To cancel online, sign in at https://app.healdesk.test/ and turn auto-renew off in Billing. Your plan then ends when the period you've paid for runs out.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
 exports[`every branch of every billing template > payment_action_required: a check with no invoice link > the words, as a snapshot 1`] = `
 {
   "preheader": "Confirm the $897 payment so it can go through.",
@@ -554,17 +640,40 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 }
 `;
 
+exports[`every branch of every billing template > plan_changed: plan changed after the start to annual billing, prorated > the words, as a snapshot 1`] = `
+{
+  "preheader": "Web + Voice, billed annually.",
+  "subject": "Your healdesk plan is now Web + Voice",
+  "text": "Your healdesk plan is now Web + Voice, billed annually.
+
+Until every channel in it is in service, you're billed for Web Chatbot. Each other channel's price joins from the day it first answers. A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.
+
+The change is prorated: the invoice covers the difference for the rest of this billing period.
+
+The difference in setup fee, $500, was charged with the change.
+
+View the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
+
+To cancel online, sign in at https://app.healdesk.test/ and turn auto-renew off in Billing. Your plan then ends when the period you've paid for runs out.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
 exports[`every branch of every billing template > plan_changed: plan changed after the start, billed by channels in service > the words, as a snapshot 1`] = `
 {
   "preheader": "Web + Voice, billed monthly.",
   "subject": "Your healdesk plan is now Web + Voice",
   "text": "Your healdesk plan is now Web + Voice, billed monthly.
 
-Until every channel in it is in service, you're billed for Web Chatbot. Each other channel's price joins from the day it first answers.
+Until every channel in it is in service, you're billed for Web Chatbot. Each other channel's price joins from the day it first answers. A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.
 
-The change is prorated: the invoice covers the difference for the rest of this billing period.
-
-The difference in setup fee, $500, was charged with the change.
+The difference in setup fee, $500, was charged with the change, and that's all the invoice covers: the price you're billed hasn't changed.
 
 View the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
@@ -668,6 +777,27 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 }
 `;
 
+exports[`every branch of every billing template > plan_started: plan started days before a retried first charge was paid > the words, as a snapshot 1`] = `
+{
+  "preheader": "$897 for your first month of Web + Voice.",
+  "subject": "AYA answered her first patient: your plan has started",
+  "text": "AYA answered her first patient on the phone, so your healdesk plan started on Thursday 1 October.
+
+We've charged $897 for your first month of Web + Voice, which runs to Sunday 1 November.
+
+View your receipt: https://pay.stripe.com/receipts/invoices/test_receipt
+
+To cancel online, sign in at https://app.healdesk.test/ and turn auto-renew off in Billing. Your plan then ends when the period you've paid for runs out.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
 exports[`every branch of every billing template > plan_started: plan started on Meta, annual, the whole package > the words, as a snapshot 1`] = `
 {
   "preheader": "$3,804 for your first year of Meta Chatbot.",
@@ -695,7 +825,7 @@ exports[`every branch of every billing template > plan_started: plan started on 
 
 We've charged $397 for your first month of Web Chatbot, which runs to Friday 6 November.
 
-You bought Web + Voice. Until every channel in it is in service, you're billed for the ones that are: each other channel's price joins from the day it first answers, and we'll email you each time.
+You bought Web + Voice. Until every channel in it is in service, you're billed for the ones that are: each other channel's price joins from the day it first answers, and we'll email you each time. A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.
 
 View your receipt: https://pay.stripe.com/receipts/invoices/test_receipt
 
@@ -759,6 +889,27 @@ exports[`every branch of every billing template > price_stepped_up: the phone jo
   "text": "Phone is now part of your healdesk plan, which makes it Web + Voice, at $897 a month.
 
 The difference for the rest of this month is prorated onto your next invoice.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`every branch of every billing template > price_stepped_up: the phone joined an annual plan, the card declined > the words, as a snapshot 1`] = `
+{
+  "preheader": "Web + Voice, at $8,604 a year.",
+  "subject": "Phone joined your plan: your new price",
+  "text": "Phone is now part of your healdesk plan, which makes it Web + Voice, at $8,604 a year.
+
+The difference for the rest of this year is invoiced now, and that invoice is due.
+
+Pay the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
+
+To cancel online, sign in at https://app.healdesk.test/ and turn auto-renew off in Billing. Your plan then ends when the period you've paid for runs out.
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
@@ -1023,6 +1174,57 @@ exports[`every branch of every billing template > step_up_reminder: website chat
 On Tuesday 13 October, website chat joins your plan whether or not it's live, which makes it Web + Meta Chatbot, at $5,724 a year. If AYA answers there before then, it joins from that first answer instead.
 
 Get the snippet: https://app.healdesk.test/
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`every branch of every billing template > suspended: suspended by the team, nothing owed > the words, as a snapshot 1`] = `
+{
+  "preheader": "Reply to this email and we'll help you restore it.",
+  "subject": "AYA has stopped answering: your healdesk service is suspended",
+  "text": "We've suspended your healdesk service.
+
+AYA has stopped answering on every channel: forwarded calls pass straight through to your direct line, and website chat becomes a contact form. Your data is kept, and you can still sign in to healdesk.
+
+Reply to this email and we'll tell you what's needed to restore it.
+
+If your clinic's line forwards to AYA, you can undo that while this is sorted out. Your line forwards by a rule in your phone system's admin:
+
+- Remove the forwarding rule in the same admin screen.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`every branch of every billing template > suspended: suspended for a dispute, with an invoice still open > the words, as a snapshot 1`] = `
+{
+  "preheader": "Reply to this email and we'll help you restore it.",
+  "subject": "AYA has stopped answering: your healdesk service is suspended",
+  "text": "A payment to healdesk has been disputed with your bank, so we've suspended your service.
+
+AYA has stopped answering on every channel: forwarded calls pass straight through to your direct line, and website chat becomes a contact form. Your data is kept, and you can still sign in to healdesk.
+
+Your healdesk invoice for $897 is also still unpaid. Paying it settles what's owed, but doesn't restore the service on its own.
+
+Pay the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
+
+Reply to this email and we'll tell you what's needed to restore it.
+
+If your clinic's line forwards to AYA, you can undo that while this is sorted out. From the clinic's own line, dial these AT&T codes:
+
+- Cancel busy forwarding: *91
+- Cancel no-answer forwarding: *93
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.

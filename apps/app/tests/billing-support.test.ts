@@ -74,6 +74,45 @@ describeDb("billing support operations", () => {
       expect((await rowOf(clinicId)).status).toBe("suspended");
     });
 
+    test("refused for a dispute's suspension too, worded so the operator knows paying alone won't restore it", async () => {
+      const { clinicId } = await seedClinic("lift-dispute");
+      await seedEntitled(clinicId, {
+        planId: "chat-web",
+        planStartedAt: new Date("2026-09-01T00:00:00Z"),
+      });
+      await withTenant({ clinicId, actor }, async (tx) => {
+        await transition(tx, "suspended", { actor: "system", reason: "dispute" });
+        await recordOpenInvoice(tx.db, clinicId, {
+          invoiceId: "in_open_dispute",
+          url: null,
+          amountDueCents: 39_700,
+        });
+      });
+      const refused = await liftSuspension({
+        clinicId,
+        reason: "Dispute withdrawn",
+        actorLabel: "ops@healdesk.test",
+      });
+      expect(refused).toEqual({
+        status: "refused",
+        message:
+          "An invoice is still open. Have it paid first, then lift the suspension here: paying alone won't restore it.",
+      });
+      // The non-payment suspension keeps its own wording: paying restores it.
+      const unpaid = await suspended("lift-open-wording");
+      await withTenant({ clinicId: unpaid, actor }, (tx) =>
+        recordOpenInvoice(tx.db, unpaid, {
+          invoiceId: "in_open_wording",
+          url: null,
+          amountDueCents: 39_700,
+        }),
+      );
+      expect(
+        await liftSuspension({ clinicId: unpaid, reason: "Checked", actorLabel: "ops" }),
+      ).toMatchObject({ message: expect.stringMatching(/comes back by itself when it's paid/) });
+      expect((await rowOf(clinicId)).status).toBe("suspended");
+    });
+
     test("lifts a suspension with nothing owed, through the state machine, as support, with the reason on record", async () => {
       const clinicId = await suspended("lift-ok");
       expect(

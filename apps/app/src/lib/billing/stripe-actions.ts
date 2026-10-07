@@ -566,6 +566,12 @@ type StripeOutcome =
       billed: Plan | null;
       /** Metered keys from the subscription Stripe returned; null when nothing was read. */
       meteredKeys: string[] | null;
+      /**
+       * The billed price or interval changed, so the update prorated the rest
+       * of the period onto its invoice (`always_invoice`). Absent means not:
+       * the setup-fee difference alone, or nothing, was invoiced.
+       */
+      isProrated?: boolean;
     }
   | { ok: false; result: ChangePlanResult };
 
@@ -686,6 +692,7 @@ export async function changePlan(
         hasDroppedChannels: droppedChannels.length > 0,
         isBeforeStart: !claim.isStarted,
         billedPlanId: outcome.billed?.id ?? null,
+        isProrated: outcome.isProrated === true,
         ...(facts ?? {}),
       });
       await releaseStripeMutationLease(tx.db, billingClinicId, owner);
@@ -753,6 +760,11 @@ async function changeStartedPlan(
       hostedInvoiceUrl: delta ?? invoiceUrlRaisedSince(subscription, 0),
       billed: current.plan,
       meteredKeys: meteredKeysOf(subscription),
+      // Which branch the earlier attempt took: only the prorating one moves
+      // the billed package or interval off the one our row still holds,
+      // since its outcome was never written.
+      isProrated:
+        current.plan.id !== claim.row.planCode || current.interval !== claim.row.billingInterval,
     };
   }
 
@@ -809,6 +821,7 @@ async function changeStartedPlan(
       hostedInvoiceUrl: invoiceUrlRaisedSince(updated, sinceSeconds),
       billed: target,
       meteredKeys: meteredKeysOf(updated),
+      isProrated: true,
     };
   }
 
@@ -1620,7 +1633,11 @@ export async function setAutoRenew(
     await releaseStripeMutationLease(tx.db, billingClinicId, owner);
   });
 
-  if (!input.on && refundWindowOpen(claim.row, now)) {
+  // A refund is due only on money paid: while the first plan invoice is
+  // unpaid (an applied start whose first charge failed) refundEligibility
+  // refuses, and the cancel_scheduled email promises none (events.ts), so ops
+  // are not sent to arrange one either.
+  if (!input.on && claim.row.planStartedAt !== null && refundWindowOpen(claim.row, now)) {
     await notifyOps("first_period_refund_due", { clinicId: billingClinicId });
   }
   return {
@@ -2220,9 +2237,15 @@ export async function commitRefund(
         await requestCancelNow(tx, billingClinicId);
         isCancelRequested = true;
       }
-      for (const refund of refunds) {
-        await enqueueNotice(tx, "refund_issued", `refund:${refund.id}`, {
-          amountCents: refund.amountCents,
+      // One email for the whole refund, however many invoices it was spread
+      // across: one per part would each say the first period's fee was
+      // refunded in full and the plan cancelled. Keyed on the first refund,
+      // which a retry reuses (refundPart); the webhook leaves refunds of
+      // these kinds to this notice (events.ts onChargeRefunded).
+      const [first] = refunds;
+      if (first) {
+        await enqueueNotice(tx, "refund_issued", `refund:${first.id}`, {
+          amountCents: refunds.reduce((sum, refund) => sum + refund.amountCents, 0),
           kind: input.kind,
           refundedAt: now.toISOString(),
         });

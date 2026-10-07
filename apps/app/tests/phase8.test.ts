@@ -109,7 +109,8 @@ describe("stripe connect: where the callback sends the browser", () => {
     expect(connectReturnPath({ status: "declined", target: target("setup") })).toBe("/c/glow/setup?connect=declined");
     expect(connectReturnPath({ status: "already_connected", target: target("settings") })).toBe("/c/glow/settings?connect=failed");
     expect(connectReturnPath({ status: "failed", target: target("setup"), reason: "code_rejected" })).toBe("/c/glow/setup?connect=failed");
-    expect(connectReturnPath({ status: "connected", target: target("ops"), accountLabel: "Glow Aesthetics" })).toBe("/connect/stripe/done?result=ok&account=Glow%20Aesthetics");
+    // Never the account's name: the done page is public and would print whatever a URL said.
+    expect(connectReturnPath({ status: "connected", target: target("ops"), accountLabel: "Glow Aesthetics" })).toBe("/connect/stripe/done?result=ok");
     expect(connectReturnPath({ status: "connected", target: target("ops"), accountLabel: null })).toBe("/connect/stripe/done?result=ok");
     expect(connectReturnPath({ status: "already_connected", target: target("ops") })).toBe("/connect/stripe/done?result=already_connected");
     expect(connectReturnPath({ status: "invalid_state" })).toBe("/connect/stripe/done?result=expired");

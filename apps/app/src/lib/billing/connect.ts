@@ -296,7 +296,8 @@ export type ConnectCallbackDeps = {
  *   5. exchange the code, once (exchangeCode);
  *   6. check the mode, then attach the account unless a different one is
  *      already attached;
- *   7. read the account's display name for the page the browser lands on.
+ *   7. read the account's display name, for a caller on the server: it never
+ *      goes into the redirect, whose page is public (connectReturnPath).
  */
 export async function completeConnect(
   input: { state: string | null; code: string | null; error: string | null },
@@ -618,10 +619,11 @@ async function exchangeCode(
 }
 
 /**
- * The connected account's display name, for the page the browser lands on,
- * the ops panel and the portal (never an email: a template has no use for
- * it). It is what makes a wrong account visible to whoever connected it.
- * Null when Stripe does not say or cannot be reached; never throws.
+ * The connected account's display name, for the ops panel and the portal,
+ * which read it on the server (never a URL, and never an email: a template
+ * has no use for it). It is what makes a wrong account visible to whoever
+ * connected it. Null when Stripe does not say or cannot be reached; never
+ * throws.
  */
 export async function connectAccountLabel(
   accountId: string,
@@ -646,11 +648,13 @@ export async function connectAccountLabel(
 }
 
 /**
- * An account's display name, made safe to put in a URL and show back: letters,
- * digits, spaces and plain punctuation only, at most 80 characters, and
- * nothing shaped like a phone number, an address or a link. The done page
- * shows whatever its query says, so this is also what keeps a crafted link
- * from printing a message on our page.
+ * An account's display name, made safe to show back: letters, digits, spaces
+ * and plain punctuation only, at most 80 characters, and nothing shaped like
+ * a phone number or an address. It is read from Stripe on the server, never
+ * from a URL: a page that printed a name from its query would print whatever
+ * a crafted link put there, and no filter that still passes a real business
+ * name stops a plain sentence ("Payment failed. Pay at …"). That is why the
+ * done page shows no name at all.
  */
 export function safeAccountLabel(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
@@ -673,7 +677,9 @@ export const CONNECT_DONE_PATH = "/connect/stripe/done";
 /**
  * The path for a callback result, relative to the public origin. The portal
  * hears `ok`, `declined` or `failed` (its contract); the neutral page is told
- * a little more, and never which clinic. Never `/admin`.
+ * a little more, and never which clinic, nor the account's name: that page is
+ * public and would print whatever a URL said (safeAccountLabel). Never
+ * `/admin`.
  */
 export function connectReturnPath(result: ConnectCallbackResult): string {
   if (result.status === "invalid_state") return `${CONNECT_DONE_PATH}?result=expired`;
@@ -681,12 +687,8 @@ export function connectReturnPath(result: ConnectCallbackResult): string {
   const { target } = result;
   if (target.returnTo === "ops") {
     switch (result.status) {
-      case "connected": {
-        const label = result.accountLabel
-          ? `&account=${encodeURIComponent(result.accountLabel)}`
-          : "";
-        return `${CONNECT_DONE_PATH}?result=ok${label}`;
-      }
+      case "connected":
+        return `${CONNECT_DONE_PATH}?result=ok`;
       case "declined":
         return `${CONNECT_DONE_PATH}?result=declined`;
       case "already_connected":
@@ -901,6 +903,7 @@ export async function disconnectStripeConnect(input: {
       wasByWebhook: false,
       actorLabel,
       deauthorized,
+      hasUncheckedLinks: counts.unchecked > 0,
     });
     return { kind: "cleared" as const, counts, stamped };
   });
@@ -914,7 +917,14 @@ export async function disconnectStripeConnect(input: {
   }
   if (finished.stamped?.billingClinicId) {
     await withTenant({ clinicId: finished.stamped.billingClinicId, actor }, (tx) =>
-      enqueueDisconnected(tx, prepared.accountId, now, false, source),
+      enqueueDisconnected(
+        tx,
+        prepared.accountId,
+        now,
+        false,
+        source,
+        finished.counts.unchecked > 0,
+      ),
     );
   }
   return {
@@ -1015,7 +1025,9 @@ async function handUncheckedLink(tx: TenantTx, depositId: string): Promise<void>
  * `pending_link` to the desk. Returns null when another path already cleared
  * it, which is how the notice goes out once: only the path that stamps it
  * enqueues it (R22). For a location the caller enqueues the notice on the
- * billing clinic after this commits.
+ * billing clinic after this commits. `hasUncheckedLinks` says whether any
+ * open link could not be expired or checked, so the email never calls a
+ * link that may still be paid dead.
  */
 async function clearAccount(
   tx: TenantTx,
@@ -1026,6 +1038,7 @@ async function clearAccount(
     wasByWebhook: boolean;
     actorLabel: string;
     deauthorized: boolean;
+    hasUncheckedLinks: boolean;
   },
 ): Promise<{ billingClinicId: string | null } | null> {
   const [cleared] = await tx.db
@@ -1072,7 +1085,14 @@ async function clearAccount(
     },
   });
   if (cleared.billingClinicId === null) {
-    await enqueueDisconnected(tx, input.accountId, input.at, input.wasByWebhook, input.source);
+    await enqueueDisconnected(
+      tx,
+      input.accountId,
+      input.at,
+      input.wasByWebhook,
+      input.source,
+      input.hasUncheckedLinks,
+    );
   }
   return { billingClinicId: cleared.billingClinicId };
 }
@@ -1084,12 +1104,14 @@ async function enqueueDisconnected(
   at: Date,
   wasByWebhook: boolean,
   source: ConnectSource,
+  hasUncheckedLinks: boolean,
 ): Promise<void> {
   const iso = at.toISOString();
   await enqueueNotice(tx, "connect_disconnected", `disconnected:${accountRef(accountId)}:${iso}`, {
     disconnectedAt: iso,
     wasByWebhook,
     source,
+    hasUncheckedLinks,
   });
 }
 
@@ -1159,6 +1181,8 @@ export async function applyDeauthorization(input: {
           reason: "stripe_deauthorized",
         },
       });
+      // Every open link here is unchecked: our access is already gone.
+      const hasUncheckedLinks = open.length > 0;
       const stamped = await clearAccount(tx, {
         accountId: input.accountId,
         at: now,
@@ -1166,14 +1190,15 @@ export async function applyDeauthorization(input: {
         wasByWebhook: true,
         actorLabel: "stripe",
         deauthorized: true,
+        hasUncheckedLinks,
       });
-      return { kind: "applied" as const, stamped };
+      return { kind: "applied" as const, stamped, hasUncheckedLinks };
     },
   );
   if (result.kind !== "applied") return result.kind;
   if (result.stamped?.billingClinicId) {
     await withTenant({ clinicId: result.stamped.billingClinicId, actor: WEBHOOK_ACTOR }, (tx) =>
-      enqueueDisconnected(tx, input.accountId, now, true, "stripe"),
+      enqueueDisconnected(tx, input.accountId, now, true, "stripe", result.hasUncheckedLinks),
     );
   }
   return "applied";

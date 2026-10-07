@@ -1281,6 +1281,12 @@ async function stepUpWorker(attempt: Attempt): Promise<WorkerResult> {
     interval,
     isInvoicedNow: invoicedNow,
     hostedInvoiceUrl: invoicedNow ? hostedInvoiceUrlOf(updated.latest_invoice) : null,
+    // allow_incomplete applies the step-up even when the card declines and
+    // leaves its invoice open, so "charged" only when that invoice was paid.
+    isPaid:
+      invoicedNow &&
+      typeof updated.latest_invoice === "object" &&
+      updated.latest_invoice?.status === "paid",
   };
   return {
     type: "finish",

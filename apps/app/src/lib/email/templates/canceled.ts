@@ -16,6 +16,14 @@ import type { EmailTemplate } from "./types";
  * export and the destruction dates. Each channel's paragraph appears only when
  * the clinic bought that channel, so a chat-only clinic is not told to undo
  * forwarding it never set up.
+ *
+ * The data goes on dueForDestruction's rule (lib/offboarding), which is two
+ * rules: 30 days after the end once the export has been delivered (so within
+ * 30 days of its delivery), and `destroyByOn` if it never is. The email gives
+ * both, the second as the latest day, and never one exact date: a clinic told
+ * its data stays until the later date would plan around a record that is
+ * already gone. Nor does it say the agreement sets these dates; the one in
+ * effect sets its own.
  */
 
 export type CanceledPayload = NoticePayloads["canceled"];
@@ -60,7 +68,7 @@ export const renderCanceled: EmailTemplate<CanceledPayload> = (payload, ctx) => 
     },
     {
       type: "paragraph",
-      text: `We destroy our copies of your data on ${dayLong(payload.destroyByOn, ctx)}, as your agreement says. Billing records are kept, as tax law requires.`,
+      text: `We destroy our copies of your data within 30 days of your export being delivered, and by ${dayLong(payload.destroyByOn, ctx)} at the latest. Billing records are kept, as tax law requires.`,
     },
   );
 
@@ -84,7 +92,7 @@ export const CANCELED_ENTRY: TemplateEntry<CanceledPayload> = {
     isBeforeStart: false,
     channels: ["web", "voice"],
     exportByOn: "2026-12-06",
-    destroyByOn: "2026-12-06",
+    destroyByOn: "2027-02-04",
     carrier: "att",
     phoneSystem: "landline",
     routing: "all_calls",

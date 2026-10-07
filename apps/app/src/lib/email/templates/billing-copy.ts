@@ -115,6 +115,18 @@ export function verbFor(channel: Channel, singular: string, plural: string): str
 export const WHEN_AYA_STOPS =
   "forwarded calls pass straight through to your direct line, and website chat becomes a contact form";
 
+/**
+ * The other way a bought channel's price joins the plan (BD4, R33): a channel
+ * ready on our side but waiting on the clinic joins 30 days after the later
+ * of its readiness and the plan start (billing reconcile's WAITING_JOIN_DAYS),
+ * after a week's notice (L4, STEP_UP_NOTICE_DAYS), whether or not it ever
+ * answers. Every email that says a price joins from a channel's first answer
+ * says this beside it: the Terms bill by both, and a clinic told only about
+ * the first answer would not expect the second.
+ */
+export const WAITING_CHANNEL_JOINS =
+  "A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.";
+
 // -----------------------------------------------------------------------------
 // Plans
 // -----------------------------------------------------------------------------

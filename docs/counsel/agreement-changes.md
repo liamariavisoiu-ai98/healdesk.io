@@ -1310,7 +1310,10 @@ these is closed, by code, a page, a signed paper or a host setting, and
    a conversation is the person's thread until 24 hours pass without a
    message from them, and `chat_threads.greeted_conversation_id`
    (drizzle/0053, `lib/meta/greeting.ts`) records whose first reply carried
-   it. Messenger is in `disclosure.ts`'s channels. The copy above now
+   it. The webhook records it only once that reply has gone out, so a reply
+   `sendMetaReply` drops outside Meta's window (a backlog Meta delivers a
+   day late) leaves the greeting to the first reply the person does get.
+   Messenger is in `disclosure.ts`'s channels. The copy above now
    describes the code, as far as the catalog's vocabulary reaches: a
    condition it does not name (acne, rosacea) still goes to the model, where
    the prompt and the reply guard hold it, and nothing of any message is

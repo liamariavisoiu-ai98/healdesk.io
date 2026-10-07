@@ -23,7 +23,7 @@ import {
   type BookingThread,
 } from "./booking-requests";
 import { touchMetaThread } from "./channels";
-import { openMetaConversation, recordGreeting, type MetaConversation } from "./greeting";
+import { openMetaConversation, type MetaConversation } from "./greeting";
 
 /**
  * The Meta front door: a narrower agent than the phone, on purpose.
@@ -71,7 +71,12 @@ import { openMetaConversation, recordGreeting, type MetaConversation } from "./g
  * conversation is and keeps the record). The greeting goes in front of
  * whatever that reply is, the fixed lines included, once the guard has
  * passed it: its "don't share medical details" is guidance by the guard's own
- * pattern. Called without a thread there is no record to read, so every
+ * pattern. It is given only when the person can read it, so this function
+ * does not record it: it hands the caller the conversation to record
+ * (`greetingToRecord`), and the webhook records it once sendMetaReply says
+ * the reply went out. A reply sendMetaReply drops outside Meta's window, or
+ * whose send throws, leaves the greeting owed to the next reply in that
+ * conversation. Called without a thread there is no record to read, so every
  * reply opens with it: a repeated warning costs a sentence, a missing one
  * breaks the promise.
  *
@@ -440,7 +445,19 @@ export type FrontDoorAnswer = {
   booking: "none" | "collecting" | "requested";
   /** The reply opens with metaChannelGreeting(): it is the first of its conversation. */
   greeted: boolean;
+  /**
+   * The conversation whose greeting this reply carries, for the caller to
+   * record with recordGreeting (lib/meta/greeting.ts) once sendMetaReply
+   * says "sent", in the transaction the reply was sent in. Null when the
+   * reply carries no greeting, or has no thread to record it on. Recorded
+   * any sooner, a reply dropped outside Meta's window would use the greeting
+   * up, and the first reply the person did get would open without it.
+   */
+  greetingToRecord: MetaConversation | null;
 };
+
+/** An answer while it is being written: the greeting's record is settled last. */
+type Draft = Omit<FrontDoorAnswer, "greetingToRecord">;
 
 type ThreadInput = BookingThread & { connectionId: string | null };
 
@@ -473,7 +490,7 @@ export async function answerFrontDoor(
   // Which conversation this message belongs to, and whether its reply is the first.
   const conversation: MetaConversation | null = thread ? await openMetaConversation(tx, { platform: thread.platform, senderId: thread.senderId, sentAt: now }) : null;
 
-  let answer: FrontDoorAnswer;
+  let answer: Draft;
   let extracted: BookingFields | null = null;
   let wants = false;
   const screened = screenInbound(input.text);
@@ -530,19 +547,20 @@ export async function answerFrontDoor(
   }
 
   // The first reply of the conversation opens with the greeting, in front of
-  // whatever passed the guard or replaced it, and the record says so in the
-  // transaction the reply is sent in.
+  // whatever passed the guard or replaced it. The record waits for the send:
+  // the caller writes it only once the reply has gone out.
+  let greetingToRecord: MetaConversation | null = null;
   if (!conversation || conversation.greet) {
     const greeting = metaChannelGreeting({ clinicName: facts.clinicName, channel: DISCLOSURE_CHANNEL[input.platform] });
     answer = { ...answer, text: `${greeting} ${answer.text}`, greeted: true };
-    if (conversation) await recordGreeting(tx, conversation);
+    greetingToRecord = conversation;
   }
 
   recordAnswer(tx, input.platform, answer);
-  return answer;
+  return { ...answer, greetingToRecord };
 }
 
-function recordAnswer(tx: TenantTx, platform: MetaPlatform, answer: FrontDoorAnswer): void {
+function recordAnswer(tx: TenantTx, platform: MetaPlatform, answer: Draft): void {
   tx.audit.record({
     action: "create",
     resourceType: "meta_front_door_reply",

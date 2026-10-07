@@ -41,14 +41,21 @@ import type { MetaPlatform } from "./front-door";
  * a first reply.
  *
  * It records the conversation, not a "greeted" flag, because the message that
- * starts a conversation is not always the one that gets the first reply: a
- * reply that fails to send rolls back with the transaction it is sent in,
- * mark included, and the next reply in that conversation still opens with
- * the greeting. The thread is keyed and touched as the usage meter's design
- * does it (docs/design/stripe-launch-2026-10-05.md, D10, with the
- * identifierRef that drizzle/0050 describes, taken over the channel and the
- * sender id), so once the meter touches it too, a message both touch joins
- * one conversation, and the greeting does not depend on which touched first.
+ * starts a conversation is not always the one whose reply the person gets.
+ * The mark is written only once the reply carrying the greeting has gone out
+ * (the webhook calls recordGreeting when sendMetaReply returns "sent"), so a
+ * reply sendMetaReply drops outside Meta's window, as it does a message Meta
+ * delivers a day late, or whose send throws, leaves the greeting owed, and
+ * the next reply in that conversation opens with it. A mark written with the
+ * answer instead would let a dropped reply use the greeting up, and the first
+ * reply the person read would not say it came from an AI assistant on a
+ * channel that is not secure.
+ *
+ * The thread is keyed and touched as the usage meter's design does it
+ * (docs/design/stripe-launch-2026-10-05.md, D10, with the identifierRef that
+ * drizzle/0050 describes, taken over the channel and the sender id), so once
+ * the meter touches it too, a message both touch joins one conversation, and
+ * the greeting does not depend on which touched first.
  */
 
 export type MetaConversation = {
@@ -108,9 +115,10 @@ export async function openMetaConversation(
 }
 
 /**
- * The reply to this conversation's message carries the greeting. Call it in
- * the transaction the reply is sent in, so a send that throws takes the mark
- * with it.
+ * The greeting has gone out in this conversation. Call it only once the reply
+ * carrying it has been sent (sendMetaReply returned "sent"), in the
+ * transaction it was sent in: a reply dropped outside the window, or whose
+ * send throws, must leave the greeting owed to the next reply.
  */
 export async function recordGreeting(tx: TenantTx, conversation: MetaConversation): Promise<void> {
   await tx.db.execute(sql`

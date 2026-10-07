@@ -1,6 +1,7 @@
 import { describeError, log } from "@/lib/log";
 import { resolveMetaChannel, sendMetaReply, type MetaSender } from "@/lib/meta/channels";
 import { anthropicResponder, answerFrontDoor, type FrontDoorResponder } from "@/lib/meta/front-door";
+import { recordGreeting } from "@/lib/meta/greeting";
 import { parseMetaEvents, verifyMetaSignature } from "@/lib/meta/webhook";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
@@ -97,7 +98,12 @@ export async function POST(request: Request): Promise<Response> {
         // Replying to the message just received: the thread may hold no
         // request yet, so the instant is passed in. sendMetaReply still drops
         // the reply if that instant is more than 24 hours old.
-        await sendMetaReply(tx, owner, message.externalId, message.senderId, answer.text, send, { lastInboundAt: sentAt });
+        const outcome = await sendMetaReply(tx, owner, message.externalId, message.senderId, answer.text, send, { lastInboundAt: sentAt });
+        // The greeting is given once the reply carrying it has gone out. A
+        // reply dropped outside the window (a backlog Meta delivers a day
+        // late) leaves it owed, so the first reply the person does get opens
+        // with it (lib/meta/greeting.ts).
+        if (outcome.status === "sent" && answer.greetingToRecord) await recordGreeting(tx, answer.greetingToRecord);
         return true;
       });
       if (sent) answered += 1;

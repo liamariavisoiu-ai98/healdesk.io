@@ -13,12 +13,14 @@
 -- window). The column below records the conversation whose first reply has
 -- carried the greeting, so a reply in any other conversation opens with it.
 --
--- A conversation, not a flag: a first message withheld, or a reply whose
--- send failed and rolled back, leaves the greeting owed to the next reply in
--- that conversation instead of marking it given. No grant changes: the
--- runtime role's table-level SELECT, INSERT and UPDATE on chat_threads (0043)
--- reach the new column, and the table's tenant policy covers it.
+-- A conversation, not a flag: the mark is written only once the reply that
+-- carries the greeting has been sent, so a first message withheld, a reply
+-- dropped outside Meta's 24-hour window, or one whose send failed, leaves the
+-- greeting owed to the next reply in that conversation instead of marking it
+-- given. No grant changes: the runtime role's table-level SELECT, INSERT and
+-- UPDATE on chat_threads (0043) reach the new column, and the table's tenant
+-- policy covers it.
 -- =============================================================================
 ALTER TABLE "chat_threads" ADD COLUMN "greeted_conversation_id" uuid;--> statement-breakpoint
 COMMENT ON COLUMN chat_threads.greeted_conversation_id IS
-  'The conversation whose first reply has carried the channel''s opening line (metaChannelGreeting on Meta). A reply in any other conversation opens with it; null means none has gone out. Written in the same transaction as the reply (lib/meta/greeting.ts).';
+  'The conversation whose first reply has carried the channel''s opening line (metaChannelGreeting on Meta). A reply in any other conversation opens with it; null means none has gone out. Written once the reply has been sent, in the transaction it was sent in (lib/meta/greeting.ts).';

@@ -3024,8 +3024,10 @@ export const chatThreads = pgTable(
      * line, metaChannelGreeting() on Meta (BAA 1.3.0: the first reply in each
      * conversation says that it is an AI assistant and that the channel is
      * not secure). A reply in any other conversation is a first reply and
-     * opens with it; null means none has gone out. Written in the same
-     * transaction as the reply, by lib/meta/greeting.ts (drizzle/0053).
+     * opens with it; null means none has gone out. Written only once that
+     * reply has been sent, in the transaction it was sent in, so a reply
+     * dropped outside Meta's window leaves it owed (lib/meta/greeting.ts,
+     * drizzle/0053).
      */
     greetedConversationId: uuid("greeted_conversation_id"),
   },

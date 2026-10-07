@@ -16,6 +16,7 @@ import {
   type FrontDoorResponder,
   type MetaPlatform,
 } from "@/lib/meta/front-door";
+import { recordGreeting } from "@/lib/meta/greeting";
 import { signMetaBody } from "@/lib/meta/webhook";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
@@ -40,7 +41,9 @@ import { inTenant, seedClinic } from "./setup/factories";
  *
  * The rule for "conversation" is lib/meta/greeting.ts's: a message sent
  * more than 24 hours after the person's previous one starts a new
- * conversation, and its reply greets again.
+ * conversation, and its reply greets again. "First reply" means the first
+ * the person gets: the greeting is recorded only once the reply carrying it
+ * has gone out, so a reply dropped outside Meta's window leaves it owed.
  */
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
@@ -113,7 +116,8 @@ describe("the screen, before any model", () => {
   });
 });
 
-const messengerEvent = (text: string, sender: string, pageId: string) => ({
+/** `timestamp` is when the person sent it, as Messenger stamps it (milliseconds); absent, now. */
+const messengerEvent = (text: string, sender: string, pageId: string, timestamp?: number) => ({
   object: "page",
   entry: [
     {
@@ -122,6 +126,7 @@ const messengerEvent = (text: string, sender: string, pageId: string) => ({
         {
           sender: { id: sender },
           recipient: { id: pageId },
+          ...(timestamp === undefined ? {} : { timestamp }),
           message: { mid: `m-${randomUUID()}`, text },
         },
       ],
@@ -282,6 +287,21 @@ describeDb("the screen and the greeting, end to end", () => {
       ),
     );
     return rows.map((r) => r.metadata);
+  }
+
+  /**
+   * Answer as the webhook does when the reply goes out: the greeting the
+   * answer carries is recorded in the same transaction, after the send
+   * (route.ts). For tests of what a conversation is at fixed instants, whose
+   * replies the webhook's 24-hour window, read against the real clock, would
+   * drop.
+   */
+  function answerSent(clinicId: string, input: Parameters<typeof answerFrontDoor>[1]) {
+    return withTenant({ clinicId, actor: ACTOR }, async (tx) => {
+      const answer = await answerFrontDoor(tx, input);
+      if (answer?.greetingToRecord) await recordGreeting(tx, answer.greetingToRecord);
+      return answer;
+    });
   }
 
   test("a clinical message never reaches the model, gets the hand-off line, and leaves nothing of its text in any table", async () => {
@@ -501,16 +521,9 @@ describeDb("the screen and the greeting, end to end", () => {
       senderId: "15550100904",
       connectionId: null,
     };
-    const answerAt = (at: Date) =>
-      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-        answerFrontDoor(tx, {
-          platform: "whatsapp",
-          text: "Are you open on Saturday?",
-          responder,
-          thread,
-          now: at,
-        }),
-      );
+    // Each reply went out, so each greeting it carried is recorded.
+    const answerAt = (at: Date, text = "Are you open on Saturday?") =>
+      answerSent(c.clinicId, { platform: "whatsapp", text, responder, thread, now: at });
 
     const t0 = new Date("2026-10-01T09:00:00Z");
     const greeted = async (at: Date) => (await answerAt(at))!.greeted;
@@ -536,19 +549,54 @@ describeDb("the screen and the greeting, end to end", () => {
     ]);
 
     // The text the person got: the greeting in front of the first reply of each conversation only.
-    const first = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-      answerFrontDoor(tx, {
-        platform: "whatsapp",
-        text: "hello",
-        responder,
-        thread,
-        now: new Date(t0.getTime() + 80 * HOUR),
-      }),
-    );
+    const first = await answerAt(new Date(t0.getTime() + 80 * HOUR), "hello");
     expect(first!.text).toBe(`${greetingFor(c.clinicName, "whatsapp")} ${reply}`);
   }, 60_000);
 
-  test("a reply whose transaction rolls back leaves the greeting owed to the next one, and without a thread every reply is greeted", async () => {
+  test("a reply dropped outside Meta's 24-hour window leaves the greeting owed, so the first reply the person gets opens with it", async () => {
+    const pageId = "910000000000007";
+    const c = await doorOpen("screen-late", [{ platform: "messenger", externalId: pageId }]);
+    const reply = "We're open weekdays 9 to 5 — call the practice to book.";
+    const responder = vi.fn<FrontDoorResponder>(async () => modelJson(reply));
+    __setMetaRuntimeForTests(responder, sender, transport);
+    const hoursAgo = (hours: number) => Date.now() - hours * HOUR;
+
+    // A backlog Meta delivers a day late: sent 25 hours ago, so its window
+    // has closed, and sendMetaReply drops the reply, greeting and all.
+    await post(messengerEvent("What are your opening hours?", "user-l1", pageId, hoursAgo(25)));
+    expect(responder).toHaveBeenCalledTimes(1);
+    expect(sent).toEqual([]);
+
+    // Sent 23 hours after it, so the same conversation, and the first reply
+    // the person gets: it opens with the greeting. The next one does not.
+    await post(messengerEvent("Hello? Are you open today?", "user-l1", pageId, hoursAgo(2)));
+    await post(messengerEvent("And do you have parking?", "user-l1", pageId, hoursAgo(1)));
+    expect(sent.map((s) => s.text)).toEqual([
+      `${greetingFor(c.clinicName, "messenger")} ${reply}`,
+      reply,
+    ]);
+
+    // One conversation, whose greeting is recorded only now that it went out.
+    const threads = await inTenant(c.clinicId, (client) =>
+      client.query<{ conversations_count: number; same: boolean }>(
+        `select conversations_count, greeted_conversation_id = conversation_id as same from chat_threads`,
+      ),
+    );
+    expect(threads.rows).toEqual([{ conversations_count: 1, same: true }]);
+    // The dropped reply is audited as answered and as outside the window; the
+    // answers, one per transaction, in order.
+    const audit = await frontDoorAudit(c.clinicId);
+    expect(audit.filter((a) => a.outcome === "outside_window")).toEqual([
+      { platform: "messenger", outcome: "outside_window" },
+    ]);
+    expect(audit.filter((a) => a.source !== undefined)).toEqual([
+      { platform: "messenger", source: "model", greeted: true },
+      { platform: "messenger", source: "model", greeted: true },
+      { platform: "messenger", source: "model" },
+    ]);
+  }, 60_000);
+
+  test("answerFrontDoor leaves the greeting to its caller: owed until a reply that went out records it, and given to every reply without a thread", async () => {
     const c = await doorOpen("screen-retry", [
       { platform: "messenger", externalId: "910000000000005" },
     ]);
@@ -561,22 +609,6 @@ describeDb("the screen and the greeting, end to end", () => {
       connectionId: null,
     };
     const t0 = new Date("2026-10-02T09:00:00Z");
-
-    // The webhook sends a reply inside the transaction that answered it, so a
-    // send that throws rolls the answer back, the greeting's mark with it.
-    await expect(
-      withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
-        const answer = await answerFrontDoor(tx, {
-          platform: "messenger",
-          text: "What are your opening hours?",
-          responder,
-          thread,
-          now: t0,
-        });
-        expect(answer!.greeted).toBe(true);
-        throw new Error("Graph API 500");
-      }),
-    ).rejects.toThrow(/Graph API 500/);
     const answerAt = (at: Date) =>
       withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
         answerFrontDoor(tx, {
@@ -587,10 +619,27 @@ describeDb("the screen and the greeting, end to end", () => {
           now: at,
         }),
       );
-    expect((await answerAt(new Date(t0.getTime() + 60_000)))!.text).toBe(
-      `${greetingFor(c.clinicName, "messenger")} ${reply}`,
+    const greeting = greetingFor(c.clinicName, "messenger");
+
+    // Answered, but never sent (dropped outside the window, or the send
+    // threw): nothing recorded the greeting, so the next reply in the same
+    // conversation carries it again.
+    const unsent = (await answerAt(t0))!;
+    expect(unsent).toMatchObject({ greeted: true, text: `${greeting} ${reply}` });
+    const retried = (await answerAt(new Date(t0.getTime() + 60_000)))!;
+    expect(retried).toMatchObject({ greeted: true, text: `${greeting} ${reply}` });
+    expect(retried.greetingToRecord!.conversationId).toBe(unsent.greetingToRecord!.conversationId);
+
+    // The webhook records it once sendMetaReply says the reply went out; no
+    // later reply in the conversation repeats it.
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      recordGreeting(tx, retried.greetingToRecord!),
     );
-    expect((await answerAt(new Date(t0.getTime() + 120_000)))!.text).toBe(reply);
+    expect(await answerAt(new Date(t0.getTime() + 120_000))).toMatchObject({
+      greeted: false,
+      text: reply,
+      greetingToRecord: null,
+    });
 
     // Called without a thread, nothing records a first reply, so each one opens with the greeting.
     for (let i = 0; i < 2; i += 1) {
@@ -603,7 +652,8 @@ describeDb("the screen and the greeting, end to end", () => {
       );
       expect(answer).toMatchObject({
         greeted: true,
-        text: `${greetingFor(c.clinicName, "messenger")} ${reply}`,
+        text: `${greeting} ${reply}`,
+        greetingToRecord: null,
       });
     }
   }, 60_000);

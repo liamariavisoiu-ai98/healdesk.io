@@ -16,7 +16,9 @@ import type { MetaPlatform } from "./front-door";
  * Only text is read. Attachments, reactions, delivery receipts and echoes of
  * our own replies are dropped. The `externalId` is what resolves the clinic
  * (app_meta_channel); the `senderId` is the platform's opaque id for the
- * person, used once to address the reply and never stored.
+ * person. It addresses the reply; a booking request keeps it, so the desk's
+ * decision can be relayed back; and the thread's conversation record keeps
+ * only an HMAC of it (lib/meta/greeting.ts).
  *
  * `sentAt` is when the person sent the message, as Meta stamps it
  * (`timestamp`: milliseconds on Messenger and Instagram, seconds as a string

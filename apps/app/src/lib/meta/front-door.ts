@@ -1,10 +1,12 @@
-import { findClinicalContent, metaEligible, resolveBookingRequirements, type BookingField } from "@healdesk/catalog";
+import { findClinicalContent, findUrgentContent, metaEligible, resolveBookingRequirements, type BookingField } from "@healdesk/catalog";
 import { assertNoTreatmentName, TreatmentNameError } from "@healdesk/connectors";
 import { eq } from "drizzle-orm";
 
 import { agentConfigs, clinics } from "@/db/schema";
-import { META_CHANNEL_PROHIBITIONS } from "@/lib/compliance/disclosure";
+import { getClinicSettings } from "@/lib/billing/settings";
+import { META_CHANNEL_PROHIBITIONS, metaChannelGreeting, type Channel } from "@/lib/compliance/disclosure";
 import { describeError, log } from "@/lib/log";
+import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -21,6 +23,7 @@ import {
   type BookingThread,
 } from "./booking-requests";
 import { touchMetaThread } from "./channels";
+import { openMetaConversation, recordGreeting, type MetaConversation } from "./greeting";
 
 /**
  * The Meta front door: a narrower agent than the phone, on purpose.
@@ -51,13 +54,26 @@ import { touchMetaThread } from "./channels";
  * window, carrying nothing clinical. Neither exists yet; this front door is
  * the pre-v1 request taker until they do.
  *
- * TODO(state-disclosure decision 6): the first reply of each conversation
- * must open with metaChannelGreeting(), and no later reply may repeat it.
- * Nothing stored today tells a first reply from a later one on a thread
- * that never reached a booking draft or request, so it waits on a
- * per-thread record of the last reply, kept for Meta's 24-hour window. The
- * greeting's "don't share medical details" trips the guard's guidance
- * pattern, so it goes in front of a reply the guard has already passed.
+ * Every message is screened before the model sees it, as BAA 1.3.0 promises
+ * ("healdesk checks each message a person sends there for clinical content
+ * before the language model sees it, and keeps none, repeats none and
+ * carries none into a summary"; docs/counsel/agreement-changes.md §12.14,
+ * gate 4, PT-12). A complication or an urgent symptom (the catalog's
+ * findUrgentContent) gets the fixed urgent line: 911, then the clinic's own
+ * number. Anything else clinical (findClinicalContent, the vocabulary that
+ * guards everything else the product stores) gets the fixed hand-off line,
+ * which moves the person to a call and says why in one sentence. Either way
+ * the model is not called and nothing is extracted, so nothing of the message
+ * reaches a booking draft, a booking request, the audit row or a log.
+ *
+ * The first reply of each conversation opens with metaChannelGreeting(), and
+ * no later reply repeats it (gate 4, PT-13; lib/meta/greeting.ts says what a
+ * conversation is and keeps the record). The greeting goes in front of
+ * whatever that reply is, the fixed lines included, once the guard has
+ * passed it: its "don't share medical details" is guidance by the guard's own
+ * pattern. Called without a thread there is no record to read, so every
+ * reply opens with it: a repeated warning costs a sentence, a missing one
+ * breaks the promise.
  *
  * It asks no consent question and no opt-in, and sends nothing once the
  * conversation is over: v1 is inbound only, so the call-back consent and the
@@ -65,18 +81,22 @@ import { touchMetaThread } from "./channels";
  * Every reply goes out through sendMetaReply, which drops anything outside
  * Meta's 24-hour window.
  *
- * Two layers enforce the rest. The system prompt forbids it, and a
- * deterministic guard reads every reply before it is sent: a clinical
- * phrase, an acknowledgement, a time, a price commitment, a promise to text,
- * a promotion or one of the clinic's own service names replaces the reply
- * with the fixed hand-off line. The guard is the one that counts; the prompt
- * is the one that keeps the guard from firing on every message.
+ * Past the screen, two layers enforce the rest. The system prompt forbids
+ * it, and a deterministic guard reads every reply before it is sent: a
+ * clinical phrase, an acknowledgement, a time, a price commitment, a promise
+ * to text, a promotion or one of the clinic's own service names replaces the
+ * reply with the fixed hand-off line. The guard is the one that counts; the
+ * prompt is the one that keeps the guard from firing on every message.
  *
  * Nothing the person wrote is stored, except the booking fields once the
  * model has extracted them and this file has cleaned them (a name that is
  * letters, a number that is a number, windows with no clinical content). The
  * audit row records that a message was answered, for which clinic, on which
- * platform, and whether a booking request came of it.
+ * platform, whether the screen or the guard answered it instead of the
+ * model, whether the reply opened with the greeting and whether a booking
+ * request came of it. The thread's row in chat_threads holds an HMAC of the
+ * sender id and when they last wrote, for the greeting, and nothing they
+ * wrote.
  */
 export type MetaPlatform = "messenger" | "instagram" | "whatsapp";
 
@@ -84,6 +104,13 @@ export type FrontDoorFacts = {
   clinicName: string;
   /** The number to hand off to: the clinic's published line. */
   phone: string | null;
+  /**
+   * The number the urgent line gives: the clinic's direct line, which
+   * reaches a person and never forwards back to us (clinic_settings). Absent
+   * or null, the urgent line gives `phone`. The urgent-help number the setup
+   * wizard asks for (plan step 2.5) is meant to take its place.
+   */
+  urgentPhone?: string | null;
   websiteHint: string | null;
   /** The approved menu. The model reads a name only to match what the person asked about, and never writes it back. */
   services: { name: string; priceFromUsd: number | null; priceToUsd: number | null }[];
@@ -104,6 +131,44 @@ export function handoffLine(facts: Pick<FrontDoorFacts, "clinicName" | "phone">)
   const phone = facts.phone ? ` at ${facts.phone}` : "";
   return `Thanks for reaching out to ${facts.clinicName}! This channel isn't secure for health details, so I can't go into anything personal here. The quickest way to book or ask anything specific is to call the practice${phone} — a person can help with the rest.`;
 }
+
+/**
+ * The fixed reply to a complication or an urgent symptom, sent instead of
+ * anything the model could say (the spec's guardrail: "The fixed response
+ * tells the person to call 911 in an emergency and gives the clinic's
+ * urgent-help number"). The AI line, which is also why the person is being
+ * moved; 911; then the clinic's direct line, or its published one. It does
+ * not say the team has been told: the urgent alert it raises (L12) sends
+ * nothing until the alerts land in M5, and the line must not promise what
+ * has not happened.
+ */
+export function urgentLine(facts: Pick<FrontDoorFacts, "clinicName" | "phone" | "urgentPhone">): string {
+  const number = facts.urgentPhone ?? facts.phone;
+  return (
+    `I'm an AI assistant, so I can't help with anything urgent here. ` +
+    `If this is an emergency, call 911 now. ` +
+    `Otherwise, please call ${facts.clinicName}${number ? ` on ${number}` : ""}.`
+  );
+}
+
+/**
+ * What the screen makes of a message before any model sees it: "urgent" for
+ * a complication or an urgent symptom, "clinical" for anything else clinical,
+ * null for a message the model may read. Urgency first: an urgent message is
+ * usually clinical as well, and it must get the urgent line.
+ */
+export function screenInbound(text: string): "urgent" | "clinical" | null {
+  if (findUrgentContent(text)) return "urgent";
+  if (findClinicalContent({ message: text }).length > 0) return "clinical";
+  return null;
+}
+
+/** The disclosure module's name for each platform. */
+const DISCLOSURE_CHANNEL: Record<MetaPlatform, Channel> = {
+  messenger: "messenger",
+  instagram: "instagram_dm",
+  whatsapp: "whatsapp",
+};
 
 /** The fixed ask while a booking request is half collected; used when the model's own reply was refused. */
 export function collectingLine(facts: Pick<FrontDoorFacts, "clinicName">, missing: string[]): string {
@@ -347,9 +412,11 @@ export async function frontDoorFacts(tx: TenantTx): Promise<FrontDoorFacts | nul
     .where(eq(agentConfigs.clinicId, tx.clinicId))
     .limit(1);
   const resolved = resolveBookingRequirements(clinic.specialty, clinic.bookingRequirements);
+  const settings = await getClinicSettings(tx);
   return {
     clinicName: clinic.name,
     phone: clinic.phone,
+    urgentPhone: settings.directLineE164,
     websiteHint: null,
     // Only an approved script's services are public facts. Refusing a name
     // needs no approval, so the guard gets every one configured.
@@ -364,19 +431,26 @@ export async function frontDoorFacts(tx: TenantTx): Promise<FrontDoorFacts | nul
 
 export type FrontDoorAnswer = {
   text: string;
-  source: "model" | "handoff" | "booking";
+  /** Who wrote the reply: the model, the fixed hand-off line, a fixed booking line, or the fixed urgent line. */
+  source: "model" | "handoff" | "booking" | "urgent";
   guard: string | null;
+  /** Set when the screen answered the message, so the model never saw it. */
+  screened: "clinical" | "urgent" | null;
   /** "requested" when this message completed a booking request and the desk was told. */
   booking: "none" | "collecting" | "requested";
+  /** The reply opens with metaChannelGreeting(): it is the first of its conversation. */
+  greeted: boolean;
 };
 
 type ThreadInput = BookingThread & { connectionId: string | null };
 
 /**
  * Answer one inbound message. The text is never stored; the audit row says a
- * message was answered, whether the guard replaced the reply, and whether a
+ * message was answered, whether the screen or the guard answered it instead
+ * of the model, whether the reply opened with the greeting, and whether a
  * booking request came of it. `thread` is what the booking hand-off needs to
- * address an in-window follow-up later; without it no request is collected.
+ * address an in-window follow-up later, and what the greeting's record is
+ * keyed by; without it no request is collected and every reply is greeted.
  */
 export async function answerFrontDoor(
   tx: TenantTx,
@@ -396,27 +470,38 @@ export async function answerFrontDoor(
   const thread: ThreadInput | null = input.thread ? { platform: input.platform, externalId: input.thread.externalId, senderId: input.thread.senderId, connectionId: input.thread.connectionId } : null;
 
   if (thread) await touchMetaThread(tx, thread.platform, thread.senderId, now);
+  // Which conversation this message belongs to, and whether its reply is the first.
+  const conversation: MetaConversation | null = thread ? await openMetaConversation(tx, { platform: thread.platform, senderId: thread.senderId, sentAt: now }) : null;
 
   let answer: FrontDoorAnswer;
   let extracted: BookingFields | null = null;
   let wants = false;
-  if (!input.responder) {
-    answer = { text: fallback, source: "handoff", guard: null, booking: "none" };
+  const screened = screenInbound(input.text);
+  if (screened === "urgent") {
+    // Before the model, and instead of it: the fixed line, and the clinic's urgent alert.
+    answer = { text: urgentLine(facts), source: "urgent", guard: null, screened, booking: "none", greeted: false };
+    await notifyBookingAlert(tx, "urgent", {});
+  } else if (screened === "clinical") {
+    answer = { text: fallback, source: "handoff", guard: null, screened, booking: "none", greeted: false };
+  } else if (!input.responder) {
+    answer = { text: fallback, source: "handoff", guard: null, screened: null, booking: "none", greeted: false };
   } else {
     try {
       const parsed = parseModelReply(await input.responder(buildFrontDoorPrompt(facts), input.text));
       const verdict = guardReply(parsed.reply, guardContextFor(facts));
       answer = verdict.ok
-        ? { text: parsed.reply, source: "model", guard: null, booking: "none" }
-        : { text: fallback, source: "handoff", guard: verdict.reason, booking: "none" };
+        ? { text: parsed.reply, source: "model", guard: null, screened: null, booking: "none", greeted: false }
+        : { text: fallback, source: "handoff", guard: verdict.reason, screened: null, booking: "none", greeted: false };
       wants = parsed.booking.wants;
       extracted = cleanBookingFields(parsed.booking);
     } catch (error) {
       log.error("front door model call failed", { clinicId: tx.clinicId, error: describeError(error) });
-      answer = { text: fallback, source: "handoff", guard: "model error", booking: "none" };
+      answer = { text: fallback, source: "handoff", guard: "model error", screened: null, booking: "none", greeted: false };
     }
   }
 
+  // Only the model extracts booking fields, so a screened message never
+  // reaches the draft or a request.
   const gathered =
     extracted !== null && (wants || extracted.firstName !== null || extracted.phone !== null || extracted.preferredWindow !== null || extracted.alternativeWindows.length > 0);
   if (thread && gathered) {
@@ -432,7 +517,7 @@ export async function answerFrontDoor(
         lastInboundAt: now,
       });
       await notifyDesk(tx, created, { channel: "meta", platform: thread.platform }, { transport: input.transport });
-      answer = { text: requestReceivedLine(facts.clinicName, merged.firstName), source: "booking", guard: answer.guard, booking: "requested" };
+      answer = { text: requestReceivedLine(facts.clinicName, merged.firstName), source: "booking", guard: answer.guard, screened: null, booking: "requested", greeted: false };
     } else {
       answer = {
         ...answer,
@@ -442,6 +527,15 @@ export async function answerFrontDoor(
         ...(answer.source === "handoff" ? { text: collectingLine(facts, missingPieces(merged)), source: "booking" as const } : {}),
       };
     }
+  }
+
+  // The first reply of the conversation opens with the greeting, in front of
+  // whatever passed the guard or replaced it, and the record says so in the
+  // transaction the reply is sent in.
+  if (!conversation || conversation.greet) {
+    const greeting = metaChannelGreeting({ clinicName: facts.clinicName, channel: DISCLOSURE_CHANNEL[input.platform] });
+    answer = { ...answer, text: `${greeting} ${answer.text}`, greeted: true };
+    if (conversation) await recordGreeting(tx, conversation);
   }
 
   recordAnswer(tx, input.platform, answer);
@@ -457,6 +551,9 @@ function recordAnswer(tx: TenantTx, platform: MetaPlatform, answer: FrontDoorAns
       platform,
       source: answer.source,
       guarded: answer.guard ?? undefined,
+      // Which screen answered, never what it matched.
+      screened: answer.screened ?? undefined,
+      greeted: answer.greeted || undefined,
       booking: answer.booking === "none" ? undefined : answer.booking,
     },
   });

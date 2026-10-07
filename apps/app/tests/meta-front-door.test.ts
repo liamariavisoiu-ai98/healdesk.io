@@ -2,7 +2,7 @@ import { metaEligible, resolveBookingRequirements } from "@healdesk/catalog";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 
 import { __setMetaRuntimeForTests, GET, POST } from "@/app/api/webhooks/meta/route";
-import { META_CHANNEL_PROHIBITIONS } from "@/lib/compliance/disclosure";
+import { META_CHANNEL_PROHIBITIONS, metaChannelGreeting } from "@/lib/compliance/disclosure";
 import { attachMetaChannel, resolveMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta/channels";
 import {
   answerFrontDoor,
@@ -338,10 +338,12 @@ describeDb("the front door, end to end", () => {
     });
 
     // The person names it; the model repeats it; the guard replaces the reply
-    // exactly as it replaces any other refused one.
+    // exactly as it replaces any other refused one. It is the thread's first
+    // reply, so the greeting opens it.
     __setMetaRuntimeForTests(async () => "Lip filler is $300 to $600 — call the practice to book.", sender);
     await post(inbound("how much are lip fillers?", pageId));
-    expect(sent[0]!.text).toBe(handoffLine({ clinicName: "meta-names Clinic", phone: "+14155550198" }));
+    const greeting = metaChannelGreeting({ clinicName: "meta-names Clinic", channel: "messenger" });
+    expect(sent[0]!.text).toBe(`${greeting} ${handoffLine({ clinicName: "meta-names Clinic", phone: "+14155550198" })}`);
 
     // The price without the name is what the prompt asks for, and it goes out.
     __setMetaRuntimeForTests(async () => "That's $300 to $600 — call the practice to book.", sender);

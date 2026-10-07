@@ -3019,6 +3019,15 @@ export const chatThreads = pgTable(
     conversationStartedAt: timestamp("conversation_started_at", { withTimezone: true }).notNull(),
     lastInboundAt: timestamp("last_inbound_at", { withTimezone: true }).notNull(),
     conversationsCount: integer("conversations_count").notNull().default(1),
+    /**
+     * The conversation whose first reply has carried the channel's opening
+     * line, metaChannelGreeting() on Meta (BAA 1.3.0: the first reply in each
+     * conversation says that it is an AI assistant and that the channel is
+     * not secure). A reply in any other conversation is a first reply and
+     * opens with it; null means none has gone out. Written in the same
+     * transaction as the reply, by lib/meta/greeting.ts (drizzle/0053).
+     */
+    greetedConversationId: uuid("greeted_conversation_id"),
   },
   (t) => [
     primaryKey({ columns: [t.clinicId, t.channel, t.partyRef] }),

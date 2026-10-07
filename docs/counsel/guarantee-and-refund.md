@@ -28,7 +28,7 @@
 **Superseded on 6 October 2026: decision 5, and where the first month starts.** The owner
 decided that the setup fee is never refunded and that an account with no channel live at the
 end of the 30th day after payment is closed (`docs/v1-product-spec.md`, "Stage 1, payment" and
-"The guarantee"). Terms 2026-10-06.5 drop the exception and say so in § 3 and § 5. The risk
+"The guarantee"). Terms 2026-10-07.1 drop the exception and say so in § 3 and § 5. The risk
 decision 5 names, a flat "never refundable" reached by FTC Act § 5 or a card dispute, still
 stands and is on counsel's list. Billing now starts on the plan start, the day the assistant
 first answers a patient, so the guarantee's first month, the 14-day refund window and renewal

@@ -13,7 +13,7 @@ import { eq, sql } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
 import { agentConfigs, clinics, type AgentService, type KnowledgeAnswer } from "@/db/schema";
-import { MAX_AGENT_SERVICES } from "@/lib/onboarding/agent-config";
+import { MAX_AGENT_SERVICES, MAX_DEPOSIT_USD } from "@/lib/onboarding/agent-config";
 import type { TenantTx } from "@/lib/tenant";
 
 import { priceKindOf } from "./prices";
@@ -215,7 +215,7 @@ export function validateServices(inputs: unknown, specialty: string): AgentServi
       maxPrice,
       unit,
       durationMinutes: duration,
-      depositUsd: deposit === null ? null : money(deposit, field, name),
+      depositUsd: deposit === null ? null : depositAmount(deposit, field, name),
     });
   });
 }
@@ -261,7 +261,7 @@ export async function saveServiceDeposits(
     void _previous;
     return amount === null
       ? rest
-      : { ...rest, depositUsd: money(amount, "deposits", service.name) ?? undefined };
+      : { ...rest, depositUsd: depositAmount(amount, "deposits", service.name) ?? undefined };
   });
   await writeAgentConfig(tx, { services: next }, now);
   tx.audit.record({
@@ -388,4 +388,21 @@ function money(raw: unknown, field: string, name: string): number | null {
     throw new KnowledgeError(field, `"${name}": enter the amount in dollars, like 199 or 14.50.`);
   }
   return Math.round(value * 100) / 100;
+}
+
+/**
+ * A deposit: dollars, to the cent, from $0 to MAX_DEPOSIT_USD, BD27's range
+ * and the one validateAgentConfig holds the ops console's saves to. The
+ * console sends every deposit back as it read it, so a larger one stored here
+ * would have each later save of the clinic's script refused.
+ */
+function depositAmount(raw: unknown, field: string, name: string): number | null {
+  const amount = money(raw, field, name);
+  if (amount !== null && amount > MAX_DEPOSIT_USD) {
+    throw new KnowledgeError(
+      field,
+      `"${name}": a deposit can be up to $${MAX_DEPOSIT_USD.toLocaleString("en-US")}.`,
+    );
+  }
+  return amount;
 }

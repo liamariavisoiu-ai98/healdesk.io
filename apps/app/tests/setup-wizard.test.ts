@@ -1296,6 +1296,64 @@ describeDb("the setup wizard", () => {
       });
     });
 
+    test("a deposit setup stores is one the console's save accepts: $10,000 at most (BD27)", async () => {
+      // validateAgentConfig refuses a deposit above $10,000, and the console
+      // sends every deposit back as it read it: one stored above that would
+      // have each later save of the clinic's script refused.
+      const clinic = await provisionDirect("deposit-cap");
+      const ctx = contextOf(clinic);
+      const bridal = {
+        name: "Bridal glow package",
+        priceKind: "exact",
+        price: 15_000,
+        durationMinutes: 90,
+      };
+      expect(await saveSetupScreen(ctx, "services", { services: [bridal] })).toMatchObject({
+        ok: true,
+      });
+      expect(
+        await saveSetupScreen(ctx, "deposits", {
+          needsDeposits: true,
+          deposits: { "Bridal glow package": 10_000.01 },
+        }),
+      ).toMatchObject({ ok: false, field: "deposits" });
+      // The services screen carries a deposit through, and holds it to the same range.
+      expect(
+        await saveSetupScreen(ctx, "services", {
+          services: [{ ...bridal, depositUsd: 12_000 }],
+        }),
+      ).toMatchObject({ ok: false, field: "services[0]" });
+      expect(
+        await saveSetupScreen(ctx, "deposits", {
+          needsDeposits: true,
+          deposits: { "Bridal glow package": 10_000 },
+        }),
+      ).toMatchObject({ ok: true });
+
+      const read = await runOperation("getOnboarding", { clinicId: clinic.clinicId }, OPERATOR);
+      const agent = (read.body as { data: { agent: { services: Record<string, unknown>[] } } }).data
+        .agent;
+      expect(agent.services).toEqual([
+        expect.objectContaining({ name: "Bridal glow package", depositUsd: 10_000 }),
+      ]);
+      const saved = await runOperation(
+        "updateAgentConfig",
+        {
+          clinicId: clinic.clinicId,
+          greeting: "Thanks for calling Glow. How can I help?",
+          services: agent.services,
+          escalationPhone: null,
+          escalationHours: null,
+          notes: null,
+          depositPolicy: null,
+        },
+        OPERATOR,
+      );
+      expect((saved.body as { data: { status: string } }).data).toMatchObject({
+        status: "updated",
+      });
+    });
+
     test("an operator's call routing moves coverage_mode, and provisioning starts it from the purchase", async () => {
       const clinic = await provisionDirect("ops-routing");
       const mode = async () =>

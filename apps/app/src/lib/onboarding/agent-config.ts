@@ -95,6 +95,18 @@ export function defaultAgentConfig(specialty: string, clinicName: string): Agent
  */
 export const MAX_AGENT_SERVICES = 100;
 
+/**
+ * The largest deposit, in dollars, that a service or the clinic default may
+ * ask for (BD27: $0 to this). Every writer of a deposit holds to it: this
+ * file's validateAgentConfig, and the setup wizard and Knowledge
+ * (lib/setup/knowledge.ts). The ops console sends each service's deposit
+ * back as it read it, so one stored above it by another writer would have
+ * every later save of the clinic's script refused, over a field the console
+ * cannot change.
+ */
+export const MAX_DEPOSIT_USD = 10_000;
+const MAX_DEPOSIT_LABEL = `$${MAX_DEPOSIT_USD.toLocaleString("en-US")}`;
+
 export function validateAgentConfig(input: AgentConfigInput): void {
   if (!input.greeting.trim() || input.greeting.length > 600) {
     throw new AgentConfigError("The greeting must be between 1 and 600 characters.");
@@ -107,8 +119,8 @@ export function validateAgentConfig(input: AgentConfigInput): void {
   }
   const deposit = input.depositPolicy ?? null;
   if (deposit) {
-    if (deposit.amountUsd !== null && (!Number.isFinite(deposit.amountUsd) || deposit.amountUsd < 0 || deposit.amountUsd > 10_000)) {
-      throw new AgentConfigError("The deposit amount must be between $0 and $10,000, or left blank.");
+    if (deposit.amountUsd !== null && (!Number.isFinite(deposit.amountUsd) || deposit.amountUsd < 0 || deposit.amountUsd > MAX_DEPOSIT_USD)) {
+      throw new AgentConfigError(`The deposit amount must be between $0 and ${MAX_DEPOSIT_LABEL}, or left blank.`);
     }
     if (deposit.collection !== "front_desk" && deposit.collection !== "stripe_connect") {
       throw new AgentConfigError("Deposits are collected by the front desk or through Stripe Connect.");
@@ -126,8 +138,8 @@ export function validateAgentConfig(input: AgentConfigInput): void {
     // a string, which must be refused, not compared.
     const deposit: unknown = service.depositUsd;
     if (deposit !== undefined && deposit !== null) {
-      if (typeof deposit !== "number" || !Number.isFinite(deposit) || deposit < 0 || deposit > 10_000) {
-        throw new AgentConfigError(`"${service.name}": the deposit must be between $0 and $10,000, or left blank to use the default.`);
+      if (typeof deposit !== "number" || !Number.isFinite(deposit) || deposit < 0 || deposit > MAX_DEPOSIT_USD) {
+        throw new AgentConfigError(`"${service.name}": the deposit must be between $0 and ${MAX_DEPOSIT_LABEL}, or left blank to use the default.`);
       }
     }
   }

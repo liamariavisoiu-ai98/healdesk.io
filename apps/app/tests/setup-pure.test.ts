@@ -9,6 +9,7 @@ import {
   setupWindowStart,
 } from "@/lib/clinic/setup-window";
 import { copyProblems } from "@/lib/email/lint";
+import { validateAgentConfig } from "@/lib/onboarding/agent-config";
 import { calendarStep, providersAvailable, rightNowLine } from "@/lib/setup/calendar";
 import {
   actionLine,
@@ -295,6 +296,32 @@ describe("knowledge", () => {
     expect(
       refuse([{ name: "Senior diagnostics", priceKind: "exact", price: 120 }], "veterinary"),
     ).toBeNull();
+  });
+
+  test("a deposit stays inside BD27's $0 to $10,000, the range the ops console's save holds it to", () => {
+    const row = {
+      name: "Bridal glow package",
+      priceKind: "exact",
+      price: 15_000,
+      maxPrice: null,
+      unit: null,
+      durationMinutes: 90,
+    };
+    expect(() => validateServices([{ ...row, depositUsd: 10_000.01 }], "med-spa")).toThrow(
+      /a deposit can be up to \$10,000/,
+    );
+    const [kept] = validateServices([{ ...row, depositUsd: 10_000 }], "med-spa");
+    expect(kept).toMatchObject({ priceFromUsd: 15_000, depositUsd: 10_000 });
+    // What Knowledge stores, the console's own check accepts when it is sent back.
+    expect(() =>
+      validateAgentConfig({
+        greeting: "Hi",
+        services: [kept!],
+        escalationPhone: null,
+        escalationHours: null,
+        notes: null,
+      }),
+    ).not.toThrow();
   });
 
   test("a website service is stored with its kind", () => {

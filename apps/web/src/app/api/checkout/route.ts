@@ -11,10 +11,10 @@ import {
 import { createCheckout, isBillingConfigured, isProductionDeployment } from "@/lib/billing";
 import { isCampaignCode } from "@/lib/attribution";
 import { demoSlugFromCookieHeader } from "@/lib/demo/attribution";
-import { getDemoSession } from "@/lib/demo/sessions";
+import { getDemoSession, isDemoActive } from "@/lib/demo/sessions";
 import { cohortCreditLive, findLeadById, markCheckoutStarted, normalizeEmail } from "@/lib/leads";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
-import { gateState, refuseOtherEmail, refuseWithoutLink } from "@/lib/setup-gate";
+import { demoInvitation, gateState, refuseOtherEmail, refuseWithoutLink } from "@/lib/setup-gate";
 import { readCookie, SETUP_COOKIE } from "@/lib/setup-link";
 
 /**
@@ -102,7 +102,8 @@ export async function POST(request: Request): Promise<Response> {
   const gate = await gateState(readCookie(request.headers, SETUP_COOKIE));
   if (gate.mode === "pilot") {
     const refused = refuseWithoutLink(gate);
-    if (refused) return refused;
+    // A personalised demo is an invitation too (lib/setup-gate.ts).
+    if (refused && !(await demoInvitation(request.headers.get("cookie")))) return refused;
     if (gate.link === "valid" && normalizeEmail(String(payload.contactEmail ?? "")) !== gate.request.emailNormalized) {
       return refuseOtherEmail(gate.request, "contactEmail");
     }
@@ -216,7 +217,17 @@ export async function POST(request: Request): Promise<Response> {
   const attribution = {
     campaign,
     leadId: claimedLead?.id ?? null,
-    offer: claimedLead && cohortCreditLive(claimedLead) ? ("cohort-setup" as const) : null,
+    // The setup credits: the Day 7 email's, or the personalised demo's, which
+    // its banner promises, decided from the demo's own expiry on the row,
+    // never from the browser.
+    // The full credit wins when the lead holds it; otherwise a demo bought
+    // inside its week gets half the setup fee off (catalog DEMO_SETUP_CREDIT).
+    offer:
+      claimedLead && cohortCreditLive(claimedLead)
+        ? ("cohort-setup" as const)
+        : demo && isDemoActive(demo)
+          ? ("demo-setup-half" as const)
+          : null,
     demo: demo?.slug ?? null,
     setupRequestId: setupRequest?.id ?? null,
   };

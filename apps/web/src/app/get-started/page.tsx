@@ -1,4 +1,4 @@
-import { isBillingInterval, isSpecialtyId } from "@healdesk/catalog";
+import { isBillingInterval, isSpecialtyId, NO_PLATFORM_ID } from "@healdesk/catalog";
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 
@@ -6,7 +6,9 @@ import { CheckoutFlow } from "@/components/checkout/CheckoutFlow";
 import { type LinkNotice, SetupRequestForm } from "@/components/checkout/SetupRequestForm";
 import { Brand } from "@/components/Nav";
 import { DEMO_COOKIE } from "@/lib/demo/attribution";
-import { displayName, getDemoSession, isDemoSlug } from "@/lib/demo/sessions";
+import { REPEAT_VISITS, typicalVisit } from "@/lib/demo/roi";
+import { displayName, getDemoSession, isDemoActive, isDemoSlug, profileOf, type DemoSession } from "@/lib/demo/sessions";
+import { getSpecialty } from "@/lib/specialties";
 import { checkoutStart, cheapestPlan } from "@/lib/pricing";
 import { replyByDate } from "@/lib/reply-by";
 import { gateState } from "@/lib/setup-gate";
@@ -36,13 +38,33 @@ export const metadata: Metadata = {
  * clinic's name, specialty and email already in it. Every step is still
  * shown, and every field can still be changed.
  */
-async function demoPrefill() {
+async function demoFromCookie(): Promise<DemoSession | null> {
   const slug = (await cookies()).get(DEMO_COOKIE)?.value;
-  if (!isDemoSlug(slug)) return undefined;
+  if (!isDemoSlug(slug)) return null;
   const session = await getDemoSession(slug);
+  // The same test as the routes' (lib/setup-gate.ts demoInvitation).
+  return session && session.status === "ready" && !session.claimed ? session : null;
+}
+
+/** The package step's estimate inputs, from the demo's own prices and specialty (lib/demo/roi.ts). */
+function demoRoi(session: DemoSession) {
+  const profile = profileOf(session);
+  const specialty = getSpecialty(session.specialty ?? profile?.specialty ?? "") ?? getSpecialty("med-spa")!;
+  const visit = typicalVisit(profile, specialty.economics);
+  return {
+    clinicName: displayName(session),
+    ...visit,
+    bookingRate: specialty.economics.bookingRate,
+    repeat: REPEAT_VISITS[specialty.id] ?? null,
+  };
+}
+
+function demoPrefill(session: DemoSession | null) {
   if (!session) return undefined;
   return {
     clinicName: displayName(session),
+    // The question a demo buyer skips: v1 reads from no booking system.
+    platform: NO_PLATFORM_ID,
     ...(session.leadEmail ? { contactEmail: session.leadEmail } : {}),
     ...(isSpecialtyId(session.specialty) ? { specialty: session.specialty } : {}),
   };
@@ -56,7 +78,8 @@ export default async function GetStartedPage({
   const { plan, interval, link } = await searchParams;
   const initialPlan = checkoutStart(plan) ? plan! : cheapestPlan().id;
   const initialInterval = isBillingInterval(interval) ? interval : "month";
-  const initialState = await demoPrefill();
+  const demo = await demoFromCookie();
+  const initialState = demoPrefill(demo);
 
   /**
    * While the purchase is by invitation, the setup cookie decides what this
@@ -87,7 +110,7 @@ export default async function GetStartedPage({
       </header>
 
       <main className="px-5 py-12 sm:px-8 sm:py-16">
-        {gate.mode === "pilot" && !invited ? (
+        {gate.mode === "pilot" && !invited && !demo ? (
           <SetupRequestForm replyBy={replyByDate()} notice={notice} />
         ) : (
           <CheckoutFlow
@@ -97,6 +120,10 @@ export default async function GetStartedPage({
               invited ? { ...initialState, clinicName: invited.clinicName } : initialState
             }
             lockedEmail={invited?.email}
+            fromDemo={Boolean(demo) && !invited}
+            roi={demo && !invited ? demoRoi(demo) : undefined}
+            setupCredit={Boolean(demo && isDemoActive(demo))}
+            offerEndsAt={demo && isDemoActive(demo) ? demo.expiresAt.toISOString() : undefined}
           />
         )}
       </main>

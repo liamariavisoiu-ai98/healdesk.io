@@ -3,6 +3,8 @@
 import {
   type BillingInterval,
   cardForPlan,
+  DEMO_SETUP_CREDIT,
+  demoSetupCreditUsd,
   type ChatChannel,
   chatChannelOf,
   getPricingCard,
@@ -20,7 +22,19 @@ import {
 } from "@healdesk/catalog";
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
 
+import { DemoCountdown } from "@/components/demo/DemoTimers";
 import { track } from "@/lib/analytics";
+
+import { DemoPlanPicker } from "./DemoPlanPicker";
+import {
+  ASSUMED_SHOW_RATE,
+  DEFAULT_MISSED_CALLS_PER_WEEK,
+  DEFAULT_MISSED_MESSAGES_PER_WEEK,
+  estimate,
+  patientValuePerYear,
+  type RoiEstimate,
+  type RoiInputs,
+} from "@/lib/demo/roi";
 import { campaignCode, leadIdFromUrl } from "@/lib/attribution";
 import {
   clearStoredAgreement,
@@ -89,7 +103,6 @@ import {
  * account with no agreement.
  */
 
-const TOTAL_STEPS = 6;
 
 /** Phase two. See "Revenue attribution is phase two" above. Keep false in v1. */
 const VERIFIED_ATTRIBUTION_OFFERED = false;
@@ -166,6 +179,10 @@ export function CheckoutFlow({
   initialInterval = "month",
   initialState,
   lockedEmail,
+  fromDemo = false,
+  setupCredit = false,
+  roi,
+  offerEndsAt,
   onClose,
   onProgress,
   downloadHost,
@@ -182,12 +199,42 @@ export function CheckoutFlow({
    * another and be refused two steps later.
    */
   lockedEmail?: string;
+  /**
+   * The buyer came from their personalised demo (owner, 7 October 2026):
+   * everything the demo already knows is not asked again. The flow is the
+   * package first, with prices, then who is buying (no clinic name or
+   * website, the demo has both), then the agreement, whose signature goes
+   * straight on to Stripe Checkout. Specialty is asked only if the demo
+   * could not tell; the booking platform is "none", because v1 reads from
+   * no booking system, and the optional booking value is not asked.
+   */
+  fromDemo?: boolean;
+  /** The setup credit applies (the demo's week is still running); shown on the package step. */
+  setupCredit?: boolean;
+  /**
+   * The demo buyer's own numbers for the package step's estimate (lib/demo/roi.ts):
+   * what each package could book a month at their prices. Absent, no estimate shows.
+   */
+  roi?: {
+    clinicName: string;
+    priceUsd: number;
+    priceSource: string;
+    bookingRate: number;
+    repeat: { visitsPerYear: number; patient: string; why: string } | null;
+  };
+  /** When the demo's offer ends (its expiry, ISO), for the package step's countdown. */
+  offerEndsAt?: string;
   /** Present only when hosted in something dismissable. */
   onClose?: () => void;
   onProgress?: (progress: CheckoutProgress) => void;
   downloadHost?: DownloadHost;
 }) {
-  const [step, setStep] = useState(1);
+  // The steps this buyer sees, in order. A demo buyer skips what the demo knows.
+  const [order] = useState<number[]>(() =>
+    fromDemo ? (initialState?.specialty ? [6, 4, 5] : [1, 6, 4, 5]) : [1, 2, 3, 4, 5, 6],
+  );
+  const [step, setStep] = useState(order[0]!);
+  const pos = (n: number) => order.indexOf(n) + 1;
   const [state, setState] = useState<State>(() => ({
     ...INITIAL,
     ...initialState,
@@ -197,7 +244,21 @@ export function CheckoutFlow({
   const [start] = useState(
     () => checkoutStart(initialPlan) ?? { card: cardForPlan(cheapestPlan()), chat: "web" as const },
   );
-  const [cardId, setCardId] = useState(start.card.id);
+  // A demo buyer starts on the recommended package.
+  const [cardId, setCardId] = useState(fromDemo ? "complete" : start.card.id);
+  const [roiInputs, setRoiInputs] = useState<RoiInputs | null>(() =>
+    roi
+      ? {
+          priceUsd: roi.priceUsd,
+          priceSource: roi.priceSource,
+          missedCallsPerWeek: DEFAULT_MISSED_CALLS_PER_WEEK,
+          missedMessagesPerWeek: DEFAULT_MISSED_MESSAGES_PER_WEEK,
+          bookingRate: roi.bookingRate,
+          showRate: ASSUMED_SHOW_RATE,
+          repeat: roi.repeat,
+        }
+      : null,
+  );
   const [interval, setBillingInterval] = useState<BillingInterval>(initialInterval);
   /**
    * Which twin a "Web OR Meta" card sells. Defaults to the website, because a
@@ -280,10 +341,10 @@ export function CheckoutFlow({
   const set = <K extends keyof State>(key: K, value: State[K]) =>
     setState((s) => ({ ...s, [key]: value }));
 
-  const next = () => setStep((s) => Math.min(s + 1, TOTAL_STEPS));
-  const back = () => setStep((s) => Math.max(s - 1, 1));
+  const next = () => setStep((s) => order[Math.min(order.indexOf(s) + 1, order.length - 1)]!);
+  const back = () => setStep((s) => order[Math.max(order.indexOf(s) - 1, 0)]!);
 
-  async function submit() {
+  async function submit(signed: AgreementResult | null = agreement) {
     setSubmitting(true);
     setError(null);
     setErrorField(null);
@@ -297,8 +358,9 @@ export function CheckoutFlow({
           specialty: state.specialty,
           platform: state.platform,
           attributionMode: state.attributionMode,
+          // Optional to provisioning; never sent as 0, which it refuses.
           averageTreatmentValueUsd:
-            state.attributionMode === "estimated"
+            state.attributionMode === "estimated" && Number(state.averageTreatmentValueUsd) > 0
               ? Number(state.averageTreatmentValueUsd)
               : undefined,
           plan: plan.id,
@@ -309,7 +371,7 @@ export function CheckoutFlow({
           phoneSystemType: state.phoneSystemType,
           callRouting: state.callRouting,
           // The signature itself, not a claim about it. See AgreementStep.
-          agreementId: agreement?.agreementId,
+          agreementId: signed?.agreementId,
           // Attribution: the cold-email campaign remembered for this session,
           // and the lead id when the buyer arrived from a claim link. The
           // server validates both and drops what it cannot verify.
@@ -471,8 +533,8 @@ export function CheckoutFlow({
   if (step === 1) {
     return (
       <StepShell
-        step={1}
-        totalSteps={TOTAL_STEPS}
+        step={pos(1)}
+        totalSteps={order.length}
         onClose={onClose}
         eyebrow={site.cta.primary.label}
         title="What kind of clinic is this?"
@@ -503,8 +565,8 @@ export function CheckoutFlow({
 
     return (
       <StepShell
-        step={2}
-        totalSteps={TOTAL_STEPS}
+        step={pos(2)}
+        totalSteps={order.length}
         onClose={onClose}
         eyebrow={site.cta.primary.label}
         title="What do you use for booking?"
@@ -565,8 +627,8 @@ export function CheckoutFlow({
 
     return (
       <StepShell
-        step={3}
-        totalSteps={TOTAL_STEPS}
+        step={pos(3)}
+        totalSteps={order.length}
         onClose={onClose}
         eyebrow={site.cta.primary.label}
         title="What is one booked appointment worth to you?"
@@ -647,21 +709,23 @@ export function CheckoutFlow({
 
     return (
       <StepShell
-        step={4}
-        totalSteps={TOTAL_STEPS}
+        step={pos(4)}
+        totalSteps={order.length}
         onClose={onClose}
         eyebrow={site.cta.primary.label}
         title="Who are we setting this up for?"
         onBack={back}
       >
         <div className="grid gap-4">
-          <Field
-            label="Clinic name"
-            value={state.clinicName}
-            onChange={(v) => set("clinicName", v)}
-            placeholder="Radiance Med Spa"
-            invalid={errorField === "clinicName"}
-          />
+          {fromDemo && state.clinicName.trim() ? null : (
+            <Field
+              label="Clinic name"
+              value={state.clinicName}
+              onChange={(v) => set("clinicName", v)}
+              placeholder="Radiance Med Spa"
+              invalid={errorField === "clinicName"}
+            />
+          )}
           <Field
             label="Your name"
             value={state.contactName}
@@ -702,60 +766,10 @@ export function CheckoutFlow({
             the clinic's number could be text-enabled. v1 sends no SMS of any
             kind, so it is not asked; phoneSystemType stays "unknown". */}
 
-        {/* ---------------- Call routing ----------------
-            The voice coverage mode, asked early so the default is never
-            silently inherited. The spec has three modes (docs/v1-product-spec.md,
-            "Coverage mode, chosen by the clinic"); the request carries two of
-            them today, so the third, after hours only, is chosen in the
-            onboarding wizard, and every mode can be changed later. */}
-        <fieldset className="border-line mt-6 rounded-2xl border bg-white p-5">
-          <legend className="text-[15.6px] font-bold tracking-[0.04em] uppercase">
-            Which calls should AYA answer?
-          </legend>
-          <p className="text-muted mt-1.5 text-sm">
-            Your published number never changes; your line forwards the calls
-            you choose. You can pick after hours only during setup, and change
-            it at any time.
-          </p>
-          <div className="mt-4 grid gap-2">
-            {(
-              [
-                {
-                  id: "conditional",
-                  label: "My team answers first; AYA takes what we miss",
-                  hint: "Overflow and after hours: calls forward to AYA when the line is busy, rings out, or it is outside your opening hours.",
-                },
-                {
-                  id: "always",
-                  label: "AYA answers every call",
-                  hint: "All calls forward straight to AYA, day and night.",
-                },
-              ] as const
-            ).map((option) => (
-              <label
-                key={option.id}
-                className={[
-                  "flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 transition-colors",
-                  state.callRouting === option.id
-                    ? "border-red bg-red/[0.04]"
-                    : "border-line hover:border-line-strong",
-                ].join(" ")}
-              >
-                <input
-                  type="radio"
-                  name="callRouting"
-                  checked={state.callRouting === option.id}
-                  onChange={() => set("callRouting", option.id)}
-                  className="accent-red mt-1 size-4 shrink-0"
-                />
-                <span>
-                  <span className="block text-sm font-semibold">{option.label}</span>
-                  <span className="text-muted block text-xs">{option.hint}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        {/* Which calls AYA answers is not asked here: it is a setup decision,
+            made in the onboarding wizard after payment (owner, 7 October
+            2026). Until then the spec's default, overflow and after hours,
+            is what the account records. */}
 
         <div className="mt-8">
           <PrimaryButton onClick={next} disabled={!ready}>
@@ -773,8 +787,8 @@ export function CheckoutFlow({
   if (step === 5) {
     return (
       <AgreementStep
-        step={5}
-        totalSteps={TOTAL_STEPS}
+        step={pos(5)}
+        totalSteps={order.length}
         onClose={onClose}
         clinicName={state.clinicName.trim()}
         specialty={
@@ -803,7 +817,13 @@ export function CheckoutFlow({
           // the last agreement's failed download says nothing about this one's
           //, leaving the flag set would hide a PDF that now works.
           setPdfUnavailable(false);
-          next();
+          // A demo buyer chose the package first, so signing is the last
+          // step before Stripe: show the signed receipt, already on its way
+          // to payment, with the error and a Pay button there if it fails.
+          if (fromDemo) {
+            setStep(6);
+            void submit(result);
+          } else next();
         }}
       />
     );
@@ -812,17 +832,27 @@ export function CheckoutFlow({
   // --- Step 6: plan and payment ---------------------------------------------
   return (
     <StepShell
-      step={6}
-      totalSteps={TOTAL_STEPS}
+      step={pos(6)}
+      totalSteps={order.length}
       eyebrow={site.cta.primary.label}
       title="Choose your package."
-      subtitle="Your agreement is signed and on file. Nothing has been charged yet."
-      onBack={back}
+      subtitle={
+        agreement
+          ? "Your agreement is signed and on file. Nothing has been charged yet."
+          : setupCredit && offerEndsAt
+            ? undefined
+            : setupCredit
+              ? `Book before your demo expires and get ${DEMO_SETUP_CREDIT.percentOfSetupFee}% off your setup fee.`
+              : "Pick where AYA answers. You can add channels later."
+      }
+      onBack={pos(6) > 1 ? back : undefined}
     >
       {/* A receipt for what already happened, not another chance to agree.
           The document itself is not repeated. They have just read it, and a
           second copy beside a price invites the reading that paying is what
           concludes it. It doesn't; signing did. */}
+      {agreement ? (
+      <>
       <div className="border-line rounded-2xl border bg-white px-5 py-4">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <span aria-hidden className="text-red-deep font-bold">✓</span>
@@ -855,12 +885,45 @@ export function CheckoutFlow({
         </p>
       ) : null}
 
+      </>
+      ) : null}
+
       {/* Monthly or annual, before the cards, because it changes every price
           on them. A segmented control rather than a checkbox: "billed
           annually" as a tick box reads as an upsell, two named options read
           as a choice. */}
+      {/* The limited offer, unmissable: the demo's own clock (owner, 7 October 2026). */}
+      {!agreement && setupCredit && offerEndsAt ? (
+        <div className="bg-brand-gradient shadow-brand mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl px-5 py-4 text-white">
+          <span>
+            <span className="block text-[12px] font-bold tracking-[0.12em] uppercase opacity-85">Demo offer</span>
+            <span className="font-display block text-[24px] leading-tight font-semibold">
+              {DEMO_SETUP_CREDIT.percentOfSetupFee}% off your setup fee
+            </span>
+          </span>
+          <span className="rounded-xl bg-white/15 px-3 py-2 text-[14.4px] font-semibold">
+            Ends in <DemoCountdown expiresAt={offerEndsAt} />
+          </span>
+        </div>
+      ) : null}
+
       <IntervalToggle value={interval} onChange={setBillingInterval} />
 
+      {roi && roiInputs ? <RoiPanel clinicName={roi.clinicName} inputs={roiInputs} onChange={setRoiInputs} /> : null}
+
+      {fromDemo ? (
+        <DemoPlanPicker
+          interval={interval}
+          selectedPlanId={plan.id}
+          onSelect={(chosen) => {
+            setCardId(cardForPlan(chosen).id);
+            setChatChannel(chatChannelOf(chosen));
+          }}
+          roi={roiInputs}
+          setupWaived={setupCredit}
+          includes={SETUP_INCLUDES}
+        />
+      ) : (
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         {pricingCards.map((c) => (
           <PackageCard
@@ -869,32 +932,49 @@ export function CheckoutFlow({
             interval={interval}
             selected={c.id === card.id}
             onSelect={() => setCardId(c.id)}
+            roi={roiInputs ? estimate(planForCard(c), roiInputs) : undefined}
           />
         ))}
       </div>
+      )}
 
       {/* Only a "Web OR Meta" card asks. The others either include both
           chat channels or neither, and a question with one answer is noise on
           the screen where the buyer is about to pay. */}
-      {offersChatChoice(card) ? (
+      {offersChatChoice(card) && !fromDemo ? (
         <ChatChannelField card={card} value={chatChoice} onChange={setChatChannel} />
       ) : null}
 
-      <DueTodayBreakdown plan={plan} interval={interval} />
+      {/* Every package covers one location; more is quoted by the team. */}
+      <div className="border-line mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-white px-5 py-4">
+        <span className="text-sm font-semibold">More than one location?</span>
+        <a
+          href="/contact"
+          className="border-line hover:border-line-strong rounded-full border px-4 py-2 text-sm font-bold transition-colors"
+        >
+          Get a quote from sales
+        </a>
+      </div>
+
+      <DueTodayBreakdown plan={plan} interval={interval} setupWaived={setupCredit} />
 
       {error ? (
         <p className="text-red-deep mt-4 text-sm font-semibold">{error}</p>
       ) : null}
 
       <div className="mt-8">
+        {fromDemo && !agreement ? (
+          <PrimaryButton onClick={next}>Continue</PrimaryButton>
+        ) : (
         <PrimaryButton
           onClick={() => void submit()}
           disabled={!agreement || submitting}
         >
           {submitting
             ? "Taking you to payment…"
-            : `Pay ${usd.format(dueToday(plan, interval).totalUsd)} and start setup`}
+            : `Pay ${usd.format(dueToday(plan, interval).totalUsd - (setupCredit ? demoSetupCreditUsd(plan) : 0))} and start setup`}
         </PrimaryButton>
+        )}
         {/* Acceptance of the commercial terms is captured at the moment of
             purchase, beside the action that spends the money. The BAA was
             signed a step earlier and governs patient information; these two
@@ -908,10 +988,10 @@ export function CheckoutFlow({
           <a href="/privacy" className="underline underline-offset-2" target="_blank" rel="noreferrer">
             Privacy policy
           </a>
-          . Your subscription renews automatically until you cancel.
+          .{fromDemo ? null : " Your subscription renews automatically until you cancel."}
         </p>
       </div>
-      <Reassurance />
+      {fromDemo ? null : <Reassurance />}
     </StepShell>
   );
 }
@@ -986,11 +1066,14 @@ function PackageCard({
   interval,
   selected,
   onSelect,
+  roi,
 }: {
   card: PricingCard;
   interval: BillingInterval;
   selected: boolean;
   onSelect: () => void;
+  /** What this package could book a month for this clinic (lib/demo/roi.ts). */
+  roi?: RoiEstimate;
 }) {
   const plan = planForCard(card);
   return (
@@ -1046,10 +1129,75 @@ function PackageCard({
           </span>
         ))}
         <span>Setup {usd.format(plan.setupFeeUsd)} once</span>
+        <span className="text-ink text-[13px] font-semibold">{SETUP_INCLUDES}</span>
       </span>
+      {roi && roi.bookedValueUsd > 0 ? (
+        <span className="mt-3 rounded-xl bg-[#e5f6dc] px-3 py-2 text-[13.8px] leading-snug text-[#172a3a]">
+          <span className="block text-[12.6px] font-semibold">A clinic like yours is likely to book</span>
+          <span className="font-display block text-[19px] font-semibold">≈ {usd.format(roi.bookedValueUsd)} a month</span>
+          about {roi.patientsPerMonth} new patients · {roi.multiple}× its monthly price
+          {roi.yearValueUsd !== null ? (
+            <span className="mt-1 block font-semibold">≈ {usd.format(roi.yearValueUsd)} a year once they come back</span>
+          ) : null}
+        </span>
+      ) : null}
     </button>
   );
 }
+
+/**
+ * The estimate's inputs, on screen and editable: the clinic's own price and
+ * the enquiries it misses, with the two rates that are not theirs stated
+ * plainly. It is an estimate from their numbers, never a result we claim to
+ * have seen (lib/demo/roi.ts says why).
+ */
+function RoiPanel({
+  clinicName,
+  inputs,
+  onChange,
+}: {
+  clinicName: string;
+  inputs: RoiInputs;
+  onChange: (next: RoiInputs) => void;
+}) {
+  const field = (key: "priceUsd" | "missedCallsPerWeek" | "missedMessagesPerWeek", label: string, hint: string, prefix?: string) => (
+    <label className="flex flex-col gap-1">
+      <span className="text-xs font-bold tracking-[0.04em] uppercase">{label}</span>
+      <span className="border-line focus-within:border-orange flex items-center gap-1 rounded-xl border bg-white px-3 py-2">
+        {prefix ? <span className="text-muted font-semibold">{prefix}</span> : null}
+        <input
+          type="number"
+          min={0}
+          inputMode="numeric"
+          value={inputs[key]}
+          onChange={(e) => onChange({ ...inputs, [key]: Math.max(0, Number(e.target.value) || 0) })}
+          className="w-full bg-transparent text-[16px] font-semibold outline-none"
+        />
+      </span>
+      {hint ? <span className="text-muted text-xs">{hint}</span> : null}
+    </label>
+  );
+  return (
+    <div className="border-line mt-5 rounded-2xl border bg-white p-5">
+      <p className="text-[15.6px] font-bold">
+        {inputs.repeat
+          ? `A ${inputs.repeat.patient} is worth ≈ ${usd.format(patientValuePerYear(inputs) ?? 0)} a year to ${clinicName}.`
+          : `What each package could book for ${clinicName}.`}
+      </p>
+      <p className="text-muted mt-0.5 text-[13.2px]">
+        Estimates below use your numbers. Change any of them.
+      </p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        {field("priceUsd", "One visit", inputs.priceSource.replace(", from your website", ""), "$")}
+        {field("missedCallsPerWeek", "Missed calls / wk", "")}
+        {field("missedMessagesPerWeek", "Missed messages / wk", "")}
+      </div>
+    </div>
+  );
+}
+
+/** What the one-time setup fee buys (owner, 7 October 2026). */
+const SETUP_INCLUDES = "+ 24/7 support included · unlimited modifications · no hidden costs";
 
 /**
  * Which twin a "Web OR Meta" card sells: website chat or the Meta bot.
@@ -1077,11 +1225,7 @@ export function ChatChannelField({
         Which chat channel?
       </legend>
       <p className="text-muted mt-1.5 text-sm">
-        {card.name} includes one. Website chat goes live once its one-line
-        snippet is on your site. Instagram and Messenger go live as soon as
-        you connect them during setup; WhatsApp once your WhatsApp account
-        has a payment method on it, because Meta bills you directly for
-        WhatsApp messages.
+        {card.name} includes one. You can switch later.
       </p>
       <div className="mt-4 grid gap-2 sm:grid-cols-2">
         {CHAT_CHANNEL_CHOICES.map((option) => (
@@ -1130,11 +1274,20 @@ export function ChatChannelField({
 function DueTodayBreakdown({
   plan,
   interval,
+  setupWaived = false,
 }: {
   plan: Plan;
   interval: BillingInterval;
+  /**
+   * The demo credit applies: Stripe's coupon takes half the setup fee off the
+   * first invoice (catalog DEMO_SETUP_CREDIT, scripts/stripe-setup.ts), so the
+   * breakdown shows that line and the total Stripe will actually charge.
+   */
+  setupWaived?: boolean;
 }) {
   const due = dueToday(plan, interval);
+  const credit = setupWaived ? demoSetupCreditUsd(plan) : 0;
+  const total = due.totalUsd - credit;
   return (
     <div className="border-line mt-6 rounded-2xl border bg-white p-5">
       <p className="text-[15.6px] font-bold tracking-[0.04em] uppercase">
@@ -1150,15 +1303,22 @@ function DueTodayBreakdown({
           </dd>
         </div>
         <div className="flex justify-between gap-4">
-          <dt className="text-muted">Setup fee, charged once</dt>
-          <dd className="font-semibold tabular-nums">
-            {usd.format(due.setupFeeUsd)}
-          </dd>
+          <dt className="text-muted">
+            Setup fee, charged once
+            <span className="text-ink block text-xs font-semibold">{SETUP_INCLUDES}</span>
+          </dt>
+          <dd className="font-semibold tabular-nums">{usd.format(due.setupFeeUsd)}</dd>
         </div>
+        {credit > 0 ? (
+          <div className="flex justify-between gap-4">
+            <dt className="font-semibold text-[#2f7d3a]">{DEMO_SETUP_CREDIT.percentOfSetupFee}% off setup, booked during your demo</dt>
+            <dd className="font-semibold tabular-nums text-[#2f7d3a]">−{usd.format(credit)}</dd>
+          </div>
+        ) : null}
         <div className="border-line flex justify-between gap-4 border-t pt-2">
           <dt className="font-bold">Total</dt>
           <dd className="font-figure text-[20.4px] leading-none font-semibold tabular-nums">
-            {usd.format(due.totalUsd)}
+            {usd.format(total)}
           </dd>
         </div>
       </dl>

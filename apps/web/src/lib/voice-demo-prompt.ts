@@ -185,11 +185,11 @@ export const VOICE_DEMO_PRICES = [
   "    agent before it goes live.",
   "",
   "  WHICH PACKAGE FITS",
-  "  · Only the phones: AI Voice Agent Alone.",
+  "  · Only the phones: AYA Voice.",
   "  · Phones and their website: Web + Voice.",
   "  · Phones and Instagram, Messenger or WhatsApp: Meta + Voice.",
-  "  · All of it: Complete FrontDesk AI.",
-  "  · No phones: Web Chatbot, Meta Chatbot, or Web + Meta Chatbot.",
+  "  · All of it: AYA Complete Frontdesk.",
+  "  · No phones: AYA Web Chat, AYA Meta Chat, or AYA Web + Meta Chat.",
   "",
   "  MORE THAN ONE LOCATION",
   "  · Every package covers one location. Each extra location is priced",
@@ -486,7 +486,7 @@ export const VOICE_DEMO_STATES: readonly VoiceDemoState[] = [
           discovery_summary:
             "One or two plain sentences of what they told you: practice type, locations, who answers now, when calls slip through, what a new patient is worth, their booking system, why now. Only what they said.",
           recommended_package:
-            "The package that fits what they said: phones only is AI Voice Agent Alone; phones and website is Web + Voice; phones and Instagram, Messenger or WhatsApp is Meta + Voice; all of it is Complete FrontDesk AI. Say unclear if you cannot tell.",
+            "The package that fits what they said: phones only is AYA Voice; phones and website is AYA Web Chat + Voice; phones and Instagram, Messenger or WhatsApp is AYA Meta Chat + Voice; all of it is AYA Complete Frontdesk. Say unclear if you cannot tell.",
         },
       },
     ],

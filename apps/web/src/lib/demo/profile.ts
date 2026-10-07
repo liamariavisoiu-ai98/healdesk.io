@@ -44,6 +44,10 @@ export type ClinicProfile = {
   phone: string | null;
   address: string | null;
   hours: { days: string; hours: string }[];
+  /** Where `hours` came from: the clinic's Google listing (preferred), its website, or nowhere. */
+  hoursSource: "google" | "website" | null;
+  /** The Google listing's name when the hours are Google's, e.g. "Peachy West SoHo". */
+  hoursPlace: string | null;
   services: ClinicService[];
   providers: { name: string; title: string | null }[];
   faqs: { question: string; answer: string }[];
@@ -184,6 +188,8 @@ export function normalizeProfile(raw: unknown, fallbackName: string): ClinicProf
       .map((h) => ({ days: text(h.days, 60), hours: text(h.hours, 80) }))
       .filter((h): h is { days: string; hours: string } => Boolean(h.days && h.hours))
       .slice(0, LIMITS.hours),
+    hoursSource: r.hoursSource === "google" || r.hoursSource === "website" ? r.hoursSource : null,
+    hoursPlace: text(r.hoursPlace, 120),
     services: list(r.services)
       .map(record)
       .map((s) => ({

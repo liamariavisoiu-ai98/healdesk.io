@@ -68,7 +68,7 @@ import {
  * ## Bought and billed are two packages (the owner's decisions of 6 October)
  *
  * A clinic buys a package at checkout and is billed for the channels in
- * service: Complete bought, website chat first to answer, Web Chatbot billed
+ * service: Complete bought, website chat first to answer, AYA Web Chat billed
  * until the next channel answers. So `bought_plan_id` is what was sold, and
  * decides which channels may answer (`channels_enabled`), the step-up target
  * and the metered rates; `plan_code`, the interval and the `included_*`
@@ -373,7 +373,7 @@ export async function recordFirstInvoice(
  * Move the clinic onto the package and interval Stripe now BILLS (see the
  * header). Allowances become the FULL new allowance. `channels_enabled` moves
  * with it only on a legacy row: on a row with a bought package it follows
- * what was bought, because a clinic billed as Web Chatbot while its phone is
+ * what was bought, because a clinic billed as AYA Web Chat while its phone is
  * still being set up must not have voice switched off by being billed for
  * less, or the phone could never answer, never be in service, and never be
  * priced in.
@@ -715,7 +715,7 @@ export async function setOverageMode(
  * BOUGHT package's, from the catalog, times `locations`.
  *
  * The fallback is the point. A clinic that bought Web + Voice and is billed
- * as Web Chatbot while its phone is still being set up has 0 included voice
+ * as AYA Web Chat while its phone is still being set up has 0 included voice
  * minutes on the billed package; counted against 0, its first call would be
  * billed as overage, and under the hard cap it would be refused, so the
  * phone could never answer and never be priced in. Usage recording, the gate

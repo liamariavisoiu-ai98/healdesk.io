@@ -346,3 +346,15 @@ describe("selling Meta on its own", () => {
     expect(plans.filter(sellsMetaAlone).map((p) => p.id)).toEqual(["chat-meta"]);
   });
 });
+
+describe("the demo-week setup credit", () => {
+  test("is half the setup fee, in whole dollars, never less than half", async () => {
+    const { demoSetupCreditUsd, plans: all } = await import("./plans");
+    for (const plan of all) {
+      const credit = demoSetupCreditUsd(plan);
+      expect(Number.isInteger(credit)).toBe(true);
+      expect(credit).toBeGreaterThanOrEqual(plan.setupFeeUsd / 2);
+      expect(credit - plan.setupFeeUsd / 2).toBeLessThan(1);
+    }
+  });
+});

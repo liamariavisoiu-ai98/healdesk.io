@@ -71,3 +71,30 @@ export function RefreshWhileBuilding({ everyMs = 6_000 }: { everyMs?: number }) 
   }, [everyMs, router]);
   return null;
 }
+
+/**
+ * Copy this demo's link, for an owner forwarding it to a partner or their
+ * front desk. The address bar's own URL, so a link opened on a preview or a
+ * custom domain copies as itself.
+ */
+export function CopyDemoLink({ className = "" }: { className?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        void navigator.clipboard.writeText(window.location.href.split("#")[0]!).then(() => {
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 2_000);
+        });
+      }}
+      className={`inline-flex items-center gap-1.5 rounded-full border border-current/30 px-3 py-1 text-[13.2px] font-bold transition-opacity hover:opacity-80 ${className}`}
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="size-3.5" aria-hidden>
+        <rect x="9" y="9" width="12" height="12" rx="2" />
+        <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+      </svg>
+      {copied ? "Link copied" : "Copy link"}
+    </button>
+  );
+}

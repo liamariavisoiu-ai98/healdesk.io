@@ -6,6 +6,7 @@ import {
   planMeteredPrices,
   type PriceKind,
   stripeLookupKey,
+  DEMO_SETUP_CREDIT,
 } from "@healdesk/catalog";
 import Stripe from "stripe";
 
@@ -140,8 +141,12 @@ export type CheckoutIntent = {
   attribution?: {
     campaign: string | null;
     leadId: string | null;
-    /** "cohort-setup" when the lead was offered the founding-cohort credit inside its window. */
-    offer?: "cohort-setup" | null;
+    /**
+     * "cohort-setup" when the lead was offered the founding-cohort credit
+     * inside its window; "demo-setup-half" when the buyer came from a
+     * personalised demo still inside its week (catalog DEMO_SETUP_CREDIT).
+     */
+    offer?: "cohort-setup" | "demo-setup-half" | null;
     /** The personalised demo's slug, when the buyer came from its "Book Onboarding" (lib/demo). */
     demo?: string | null;
     /**
@@ -325,6 +330,8 @@ export async function createCheckout(
     // not exist, which is the right failure: run `stripe:setup` first.
     ...(intent.attribution?.offer === "cohort-setup"
       ? { discounts: [{ coupon: cohortCouponIdFor(intent.plan) }] }
+      : intent.attribution?.offer === "demo-setup-half"
+      ? { discounts: [{ coupon: `${DEMO_SETUP_CREDIT.couponId}-${intent.plan.id}` }] }
       : {}),
 
     metadata: {

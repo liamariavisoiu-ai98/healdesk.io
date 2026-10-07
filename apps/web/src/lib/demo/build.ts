@@ -5,6 +5,7 @@ import { ENTITY } from "@/lib/legal";
 import { normalizePhone } from "@/lib/phone";
 import { site } from "@/lib/site";
 
+import { fetchGoogleHours, type GoogleHours } from "./google-hours";
 import { isUsableProfile } from "./profile";
 import { parseWebsiteUrl, scrapeClinicSite, ScrapeError } from "./scrape";
 import {
@@ -98,11 +99,26 @@ export async function runDemoBuild(slug: string, options: { sendEmail?: boolean 
   if (!session) return null;
 
   try {
-    const scraped = await scrapeClinicSite(session.websiteUrl);
-    const profile = await structureProfile(scraped.pages, {
+    // The Google listing runs beside the scrape: it needs only the name and
+    // the domain, and its hours beat the website's (lib/demo/google-hours.ts).
+    // A failed lookup costs the demo nothing but the better baseline.
+    const [scraped, google] = await Promise.all([
+      scrapeClinicSite(session.websiteUrl),
+      fetchGoogleHours(session.clinicName, session.websiteUrl).catch((error: unknown): GoogleHours | null => {
+        console.warn("[healdesk] google hours lookup failed", {
+          slug,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      }),
+    ]);
+    const extracted = await structureProfile(scraped.pages, {
       clinicName: session.clinicName,
       niche: session.niche,
     });
+    const profile = google
+      ? { ...extracted, hours: google.hours, hoursSource: "google" as const, hoursPlace: google.place || null }
+      : { ...extracted, hoursSource: extracted.hours.length > 0 ? ("website" as const) : null, hoursPlace: null };
     if (!isUsableProfile(profile)) {
       return await updateDemoSession(slug, {
         status: "failed",

@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
+
 import { getConnectionGuide, personaliseGuide } from "@healdesk/catalog";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 
 import {
   listConnections,
@@ -11,15 +13,18 @@ import {
   validateCredentials,
   verifyConnection,
 } from "@/lib/connections/verify";
+import { AwsKmsKeyWrapper, __setKeyWrapperForTests } from "@/lib/crypto/kms";
 import { withTenant } from "@/lib/tenant";
 
 import {
   closePools,
+  getMigratorPool,
   hasTestDatabase,
   runMigrations,
   truncateAll,
 } from "./setup/db";
 import { inTenant, seedClinic } from "./setup/factories";
+import { fakeKms, sealAsVersionOne, TEST_KEY_ARN } from "./setup/kms";
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const actor = { type: "service" as const, serviceName: "test" };
@@ -149,9 +154,56 @@ describeDb("connection storage", () => {
     await truncateAll();
   }, 60_000);
 
+  afterEach(() => {
+    __setKeyWrapperForTests(undefined);
+  });
+
   afterAll(async () => {
     await closePools();
   });
+
+  /** The clinic's client number, as the database issued it. */
+  async function clientNumberOf(clinicId: string): Promise<number> {
+    const result = await getMigratorPool().query<{ client_number: number }>(
+      "select client_number from clinics where id = $1",
+      [clinicId],
+    );
+    return result.rows[0]!.client_number;
+  }
+
+  /** Copy a sealed row's envelope into a new row: the clinic and provider are the copy's own. */
+  async function copyEnvelope(
+    from: { clinicId: string; connectionId: string },
+    to: { clinicId: string; provider: string },
+  ): Promise<string> {
+    const row = await inTenant(from.clinicId, async (client) => {
+      const result = await client.query<Record<string, string>>(
+        `select ciphertext, iv, auth_tag, wrapped_dek, key_version, aad_version
+           from provider_connections where id = $1`,
+        [from.connectionId],
+      );
+      return result.rows[0]!;
+    });
+    return inTenant(to.clinicId, async (client) => {
+      const result = await client.query<{ id: string }>(
+        `insert into provider_connections
+           (clinic_id, provider, status, ciphertext, iv, auth_tag, wrapped_dek, key_version, aad_version)
+         values ($1, $2, 'active', $3, $4, $5, $6, $7, $8)
+         returning id`,
+        [
+          to.clinicId,
+          to.provider,
+          row.ciphertext,
+          row.iv,
+          row.auth_tag,
+          row.wrapped_dek,
+          row.key_version,
+          row.aad_version,
+        ],
+      );
+      return result.rows[0]!.id;
+    });
+  }
 
   test("stores credentials encrypted and returns them only to a callback", async () => {
     const clinic = await seedClinic("conn-a");
@@ -192,9 +244,12 @@ describeDb("connection storage", () => {
   });
 
   test("another clinic cannot open the ciphertext, even holding the row", async () => {
-    // The AAD is bound to {clinicId, credentialId}. Without it, every field
-    // needed to decrypt travels with the row, so copying it across tenants
-    // would just work.
+    // Every field needed to decrypt travels with the row, so without a binding
+    // copying it across tenants would just work. Two refuse it. The data key
+    // is locked to the owner's client number, which the attacker's clinic does
+    // not have, so the key is not released: that is what answers first, and on
+    // AWS it is KMS answering. Behind it, the AAD is bound to {clinicId,
+    // credentialId} (tests/envelope.test.ts).
     const owner = await seedClinic("conn-owner");
     const attacker = await seedClinic("conn-attacker");
 
@@ -247,7 +302,7 @@ describeDb("connection storage", () => {
           async (creds) => creds.apiKey,
         ),
       ),
-    ).rejects.toThrow(/authentication tag mismatch/);
+    ).rejects.toThrow(/not wrapped under this key and lock label/);
   });
 
   test("re-saving replaces rather than duplicating", async () => {
@@ -281,5 +336,140 @@ describeDb("connection storage", () => {
       ),
     );
     expect(value).toBe("second");
+  });
+
+  test("each credential is locked to its clinic's client number and its own provider, read from the database", async () => {
+    const clinic = await seedClinic("conn-label");
+    const context = {
+      "healdesk:clinic": String(await clientNumberOf(clinic.clinicId)),
+      "healdesk:login": "google_calendar",
+    };
+    const kms = fakeKms();
+    __setKeyWrapperForTests(new AwsKmsKeyWrapper(TEST_KEY_ARN, { client: kms.client }));
+
+    const connectionId = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+      saveConnection(tx.db, {
+        clinicId: clinic.clinicId,
+        provider: "google_calendar",
+        credentials: { refresh_token: "a-synthetic-refresh-token" },
+      }),
+    );
+    const opened = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+      withCredentials(
+        tx.db,
+        { clinicId: clinic.clinicId, connectionId },
+        async (creds) => creds.refresh_token,
+      ),
+    );
+
+    expect(opened).toBe("a-synthetic-refresh-token");
+    expect(kms.calls).toEqual([
+      {
+        command: "GenerateDataKey",
+        keyId: TEST_KEY_ARN,
+        keySpec: "AES_256",
+        encryptionContext: context,
+      },
+      { command: "Decrypt", keyId: TEST_KEY_ARN, encryptionContext: context },
+    ]);
+
+    const stored = await inTenant(clinic.clinicId, async (client) => {
+      const result = await client.query<{ aad_version: number }>(
+        "select aad_version from provider_connections where id = $1",
+        [connectionId],
+      );
+      return result.rows[0]!;
+    });
+    expect(stored.aad_version).toBe(2);
+  });
+
+  test("moved within one clinic to another provider's row, a credential is refused by the label the row derives", async () => {
+    const clinic = await seedClinic("conn-move");
+    const kms = fakeKms();
+    __setKeyWrapperForTests(new AwsKmsKeyWrapper(TEST_KEY_ARN, { client: kms.client }));
+
+    const connectionId = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+      saveConnection(tx.db, {
+        clinicId: clinic.clinicId,
+        provider: "google_calendar",
+        credentials: { refresh_token: "a-synthetic-refresh-token" },
+      }),
+    );
+    const movedId = await copyEnvelope(
+      { clinicId: clinic.clinicId, connectionId },
+      { clinicId: clinic.clinicId, provider: "meta-whatsapp" },
+    );
+
+    await expect(
+      withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+        withCredentials(
+          tx.db,
+          { clinicId: clinic.clinicId, connectionId: movedId },
+          async (creds) => creds.refresh_token,
+        ),
+      ),
+    ).rejects.toMatchObject({ name: "InvalidCiphertextException" });
+
+    // The label was the moved row's own, not the one the envelope was sealed under.
+    expect(kms.calls.at(-1)).toEqual({
+      command: "Decrypt",
+      keyId: TEST_KEY_ARN,
+      encryptionContext: {
+        "healdesk:clinic": String(await clientNumberOf(clinic.clinicId)),
+        "healdesk:login": "meta-whatsapp",
+      },
+    });
+  });
+
+  test("a credential sealed before lock labels still opens", async () => {
+    const clinic = await seedClinic("conn-v1");
+    const id = randomUUID();
+    const sealed = await sealAsVersionOne(
+      JSON.stringify({ apiKey: "sealed-before-labels" }),
+      { clinicId: clinic.clinicId, credentialId: id },
+      { kekBase64: process.env.HEALDESK_LOCAL_KEK! },
+    );
+
+    await inTenant(clinic.clinicId, (client) =>
+      client.query(
+        `insert into provider_connections
+           (id, clinic_id, provider, status, ciphertext, iv, auth_tag, wrapped_dek, key_version, aad_version)
+         values ($1, $2, 'acuity', 'active', $3, $4, $5, $6, $7, $8)`,
+        [
+          id,
+          clinic.clinicId,
+          sealed.ciphertext,
+          sealed.iv,
+          sealed.authTag,
+          sealed.wrappedDek,
+          sealed.keyVersion,
+          sealed.aadVersion,
+        ],
+      ),
+    );
+
+    const value = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+      withCredentials(
+        tx.db,
+        { clinicId: clinic.clinicId, connectionId: id },
+        async (creds) => creds.apiKey,
+      ),
+    );
+    expect(value).toBe("sealed-before-labels");
+  });
+
+  test("a clinic other than the transaction's own seals nothing", async () => {
+    const mine = await seedClinic("conn-mine");
+    const theirs = await seedClinic("conn-theirs");
+
+    await expect(
+      withTenant({ clinicId: mine.clinicId, actor }, (tx) =>
+        saveConnection(tx.db, {
+          clinicId: theirs.clinicId,
+          provider: "acuity",
+          credentials: { userId: "1", apiKey: "k" },
+        }),
+      ),
+    ).rejects.toThrow(/Clinic not found/);
   });
 });

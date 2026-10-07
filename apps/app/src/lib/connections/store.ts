@@ -1,8 +1,9 @@
 import { and, eq } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
-import { providerConnections } from "@/db/schema";
+import { clinics, providerConnections } from "@/db/schema";
 import { open, seal } from "@/lib/crypto/envelope";
+import { clinicLockLabel } from "@/lib/crypto/kms";
 
 /**
  * Storing and reading a clinic's third-party credentials.
@@ -20,6 +21,14 @@ import { open, seal } from "@/lib/crypto/envelope";
  *
  * The AAD binding in envelope.ts means ciphertext moved to another clinic's row
  * simply won't open — see tests/envelope.test.ts.
+ *
+ * Each credential's data key is also locked to the label `{ clinic: the
+ * clinic's client number, login: the row's provider }` (crypto/kms.ts), so on
+ * AWS a moved row is refused by KMS before its payload is reached. The client
+ * number is read from the database at the seal and at every open; the provider
+ * is the one the seal writes into the row and every open reads back from it;
+ * and neither can change afterwards (the google_calendar migration's
+ * triggers).
  */
 
 export type ConnectionSummary = {
@@ -58,6 +67,10 @@ export async function listConnections(
  * The row id is generated up front because the AAD is bound to it — the
  * ciphertext cannot be produced without knowing which row it will live in,
  * which is precisely what stops it being moved to another.
+ *
+ * The lock label is the clinic's client number, read here, and `provider`,
+ * which becomes the row's own and can never change after: the same two values
+ * withCredentials() reads back to open it.
  */
 export async function saveConnection(
   tx: Transaction,
@@ -69,6 +82,16 @@ export async function saveConnection(
     metadata?: Record<string, unknown>;
   },
 ): Promise<string> {
+  // Under a tenant, RLS shows the tenant's own clinic and no other, so a
+  // clinic id that is not this transaction's finds nothing and seals nothing.
+  const [clinic] = await tx
+    .select({ clientNumber: clinics.clientNumber })
+    .from(clinics)
+    .where(eq(clinics.id, input.clinicId))
+    .limit(1);
+
+  if (!clinic) throw new Error("Clinic not found.");
+
   const [existing] = await tx
     .select({ id: providerConnections.id })
     .from(providerConnections)
@@ -82,10 +105,11 @@ export async function saveConnection(
 
   const id = existing?.id ?? crypto.randomUUID();
 
-  const sealed = await seal(JSON.stringify(input.credentials), {
-    clinicId: input.clinicId,
-    credentialId: id,
-  });
+  const sealed = await seal(
+    JSON.stringify(input.credentials),
+    { clinicId: input.clinicId, credentialId: id },
+    clinicLockLabel(clinic.clientNumber, input.provider),
+  );
 
   const values = {
     id,
@@ -120,6 +144,9 @@ export async function saveConnection(
  * Deliberately does not return them. A `getCredentials()` that handed back a
  * plaintext bag would end up called from a dozen places, each one an unaudited
  * decrypt, and the secret would eventually be logged by something well-meaning.
+ *
+ * The lock label comes from the row's own provider and its clinic's client
+ * number, as the row is now: never from the caller, who names only which row.
  */
 export async function withCredentials<T>(
   tx: Transaction,
@@ -134,8 +161,11 @@ export async function withCredentials<T>(
       wrappedDek: providerConnections.wrappedDek,
       keyVersion: providerConnections.keyVersion,
       aadVersion: providerConnections.aadVersion,
+      provider: providerConnections.provider,
+      clientNumber: clinics.clientNumber,
     })
     .from(providerConnections)
+    .innerJoin(clinics, eq(clinics.id, providerConnections.clinicId))
     .where(
       and(
         eq(providerConnections.id, input.connectionId),
@@ -146,10 +176,11 @@ export async function withCredentials<T>(
 
   if (!row) throw new Error("Connection not found.");
 
-  const plaintext = await open(row, {
-    clinicId: input.clinicId,
-    credentialId: input.connectionId,
-  });
+  const plaintext = await open(
+    row,
+    { clinicId: input.clinicId, credentialId: input.connectionId },
+    clinicLockLabel(row.clientNumber, row.provider),
+  );
 
   return fn(JSON.parse(plaintext) as Record<string, string>);
 }

@@ -619,7 +619,8 @@ export const clinicMemberships = pgTable(
  * decrypt it happily. See src/lib/crypto/envelope.ts. What the seal is bound
  * to never moves: a trigger refuses any change of `id`, `clinic_id` or
  * `provider`, for every role (drizzle/0053), the provider being half of the
- * KMS label a credential is to be sealed under.
+ * KMS lock label each credential's data key is wrapped under
+ * (lib/connections/store.ts).
  *
  * Not pgcrypto: that decrypts server-side, so the key travels through SQL and
  * lands in pg_stat_activity and query logs.
@@ -644,6 +645,11 @@ export const providerConnections = pgTable(
     wrappedDek: text("wrapped_dek").notNull(),
     /** Lets us re-wrap on key rotation without re-encrypting the payload. */
     keyVersion: text("key_version").notNull(),
+    /**
+     * The envelope's version (envelope.ts): 2 for every seal since lock labels,
+     * whose data key opens only under the row's label; 1 for one sealed before,
+     * opened without a label. The column default is never what a seal writes.
+     */
     aadVersion: integer("aad_version").notNull().default(1),
 
     /**

@@ -26,6 +26,9 @@ import { env } from "@/lib/env";
  * getKeyWrapper() refuses the local wrapper in production. That is deliberate:
  * a silent downgrade to a key sitting in an env var is exactly the failure this
  * interface exists to prevent.
+ *
+ * Every DEK is wrapped under a lock label as well as the KEK (below), and both
+ * implementations refuse to wrap one without it.
  */
 
 export type WrappedKey = {
@@ -37,17 +40,146 @@ export type WrappedKey = {
 
 export interface KeyWrapper {
   readonly keyVersion: string;
-  /** Generate a fresh 32-byte DEK and return it alongside its wrapped form. */
-  generateDek(): Promise<{ dek: Buffer; wrapped: WrappedKey }>;
-  unwrapDek(wrapped: WrappedKey): Promise<Buffer>;
+  /** Generate a fresh 32-byte DEK and return it alongside its form wrapped under `label`. */
+  generateDek(label: LockLabel): Promise<{ dek: Buffer; wrapped: WrappedKey }>;
   /**
-   * Wrap a DEK we already hold, under the current KEK. This is what makes key
-   * rotation cheap: re-wrap a 32-byte key rather than re-encrypt the payload.
+   * `label` is the one the DEK was wrapped under. `null`, and only an explicit
+   * `null`, opens a DEK wrapped before lock labels: envelope.ts passes it for
+   * an envelope of aad_version 1 and for nothing else.
    */
-  wrapExisting(dek: Buffer): Promise<WrappedKey>;
+  unwrapDek(wrapped: WrappedKey, label: LockLabel | null): Promise<Buffer>;
+  /**
+   * Wrap a DEK we already hold, under the current KEK and `label`. This is what
+   * makes key rotation cheap: re-wrap a 32-byte key rather than re-encrypt the
+   * payload.
+   */
+  wrapExisting(dek: Buffer, label: LockLabel): Promise<WrappedKey>;
 }
 
 const DEK_BYTES = 32;
+
+// -----------------------------------------------------------------------------
+// Lock labels
+// -----------------------------------------------------------------------------
+
+/**
+ * What a data key is locked to besides the KEK: the owner's "lock label" (5
+ * October 2026), which KMS receives as the encryption context
+ * `{ "healdesk:clinic": clinic, "healdesk:login": login }`.
+ *
+ * KMS binds the context into the wrapped key as authenticated data and hands
+ * the DEK back only to a Decrypt that names the same context, exactly. Two
+ * things follow that the envelope's own AAD cannot give:
+ *
+ *   - the refusal happens inside KMS, before a data key reaches this process:
+ *     a sealed row copied into another clinic's row, or another login's, never
+ *     gets as far as its payload;
+ *   - every GenerateDataKey, Decrypt and Encrypt lands in CloudTrail with the
+ *     label in the clear, so the trail says whose credential each unseal
+ *     opened, and the task role's policy can refuse any call of its own made
+ *     without one (docs/design/google-calendar-2026-10-05.md §5).
+ *
+ * Because it is written in the clear, a label holds a client number or the
+ * name of a plane that is no clinic, and a word: never a clinic's name, a
+ * person, an address or a row id.
+ *
+ * A label is derived, when sealing and again at every open, from values that
+ * cannot change: the clinic's client number and the connection row's provider
+ * (the google_calendar migration refuses any change to either, for every
+ * role), or a constant. Never from anything editable, and never stored beside
+ * the ciphertext: a label that travelled with its row would travel with a
+ * copied row too, and open it wherever it landed.
+ */
+export type LockLabel = {
+  /** `healdesk:clinic`: the clinic's client number in decimal, or a plane that is not a clinic. */
+  readonly clinic: string;
+  /** `healdesk:login`: what is sealed. A provider id such as `google_calendar`, or a fixed word. */
+  readonly login: string;
+};
+
+export const LOCK_LABEL_CLINIC_KEY = "healdesk:clinic";
+export const LOCK_LABEL_LOGIN_KEY = "healdesk:login";
+
+/**
+ * The labels that belong to no clinic: all of them, so that what the infra
+ * policy may name is this list and a typo cannot invent another. A clinic's
+ * credentials take `clinicLockLabel()` instead.
+ */
+export const FIXED_LOCK_LABELS = {
+  /** The operator's TOTP secret (lib/ops/admin-totp.ts). */
+  adminCode: { clinic: "ops", login: "admin-code" },
+  /** The throwaway value the key self-check seals and opens (envelope.ts). */
+  selfCheck: { clinic: "ops", login: "self-check" },
+  /**
+   * A portal sign-in's authenticator-app secret (lib/factors/totp.ts). A
+   * sign-in is not a clinic and has no client number, so its label is fixed;
+   * the envelope's AAD binds the sealed secret to its user and its row.
+   */
+  userTotp: { clinic: "users", login: "user-totp" },
+} as const satisfies Record<string, LockLabel>;
+
+/** The planes that are not clinics: `ops` and `users`. */
+const PLANES: ReadonlySet<string> = new Set(
+  Object.values(FIXED_LOCK_LABELS).map((label) => label.clinic),
+);
+
+/** A client number as the context carries it: in decimal, with no sign and no leading zero. */
+const CLIENT_NUMBER = /^[1-9][0-9]{0,9}$/;
+
+/** As provider ids are written (`google_calendar`, `meta-whatsapp`), and the fixed words. */
+const LOGIN = /^[a-z][a-z0-9_-]{0,63}$/;
+
+/**
+ * Null when `label` is a whole lock label; otherwise what is wrong with it.
+ *
+ * Checked by type before shape, so a missing value is refused rather than
+ * written down as the word "undefined". The reasons never repeat the value: a
+ * value passed by mistake can be anything, a token included, and these
+ * messages reach logs.
+ */
+export function lockLabelProblem(label: unknown): string | null {
+  if (typeof label !== "object" || label === null) {
+    return "A lock label is required: both healdesk:clinic and healdesk:login.";
+  }
+  const { clinic, login } = label as { clinic?: unknown; login?: unknown };
+  if (typeof clinic !== "string" || !(CLIENT_NUMBER.test(clinic) || PLANES.has(clinic))) {
+    return (
+      "A lock label's healdesk:clinic must be the clinic's client number, or one of " +
+      `${[...PLANES].join(", ")} for what belongs to no clinic.`
+    );
+  }
+  if (typeof login !== "string" || !LOGIN.test(login)) {
+    return (
+      "A lock label's healdesk:login must be a provider id or a fixed word: lower-case " +
+      "letters, digits, '_' and '-', starting with a letter."
+    );
+  }
+  return null;
+}
+
+export function assertLockLabel(label: unknown): asserts label is LockLabel {
+  const problem = lockLabelProblem(label);
+  if (problem) throw new Error(problem);
+}
+
+/**
+ * The label of a clinic's credential: its client number, and what the
+ * credential logs in to (for a provider_connections row, the row's provider).
+ */
+export function clinicLockLabel(clientNumber: number, login: string): LockLabel {
+  if (!Number.isSafeInteger(clientNumber) || clientNumber < 1) {
+    throw new Error("A clinic's lock label needs its client number, a positive integer.");
+  }
+  const label = { clinic: String(clientNumber), login };
+  assertLockLabel(label);
+  return label;
+}
+
+/** The label as KMS takes it, checked first. Also what LocalKeyWrapper authenticates. */
+export function encryptionContext(label: LockLabel): Record<string, string> {
+  assertLockLabel(label);
+  return { [LOCK_LABEL_CLINIC_KEY]: label.clinic, [LOCK_LABEL_LOGIN_KEY]: label.login };
+}
 
 /**
  * A refusal that is about this deployment, not about one credential.
@@ -107,14 +239,16 @@ export class LocalKeyWrapper implements KeyWrapper {
     this.keyVersion = `local-${createHash("sha256").update(kek).digest("hex").slice(0, 8)}`;
   }
 
-  async generateDek(): Promise<{ dek: Buffer; wrapped: WrappedKey }> {
+  async generateDek(label: LockLabel): Promise<{ dek: Buffer; wrapped: WrappedKey }> {
     const dek = randomBytes(DEK_BYTES);
-    return { dek, wrapped: await this.wrapExisting(dek) };
+    return { dek, wrapped: await this.wrapExisting(dek, label) };
   }
 
-  async wrapExisting(dek: Buffer): Promise<WrappedKey> {
+  async wrapExisting(dek: Buffer, label: LockLabel): Promise<WrappedKey> {
+    const aad = localAad(label);
     const iv = randomBytes(12);
     const cipher = createCipheriv("aes-256-gcm", this.#kek, iv);
+    cipher.setAAD(aad);
     const sealed = Buffer.concat([cipher.update(dek), cipher.final()]);
     const tag = cipher.getAuthTag();
 
@@ -124,16 +258,37 @@ export class LocalKeyWrapper implements KeyWrapper {
     };
   }
 
-  async unwrapDek(wrapped: WrappedKey): Promise<Buffer> {
+  async unwrapDek(wrapped: WrappedKey, label: LockLabel | null): Promise<Buffer> {
+    // A DEK wrapped before lock labels was wrapped with no AAD at all.
+    const aad = label === null ? null : localAad(label);
     const raw = Buffer.from(wrapped.wrapped, "base64url");
-    const iv = raw.subarray(0, 12);
-    const tag = raw.subarray(12, 28);
-    const body = raw.subarray(28);
 
-    const decipher = createDecipheriv("aes-256-gcm", this.#kek, iv);
-    decipher.setAuthTag(tag);
-    return Buffer.concat([decipher.update(body), decipher.final()]);
+    try {
+      const decipher = createDecipheriv("aes-256-gcm", this.#kek, raw.subarray(0, 12));
+      if (aad) decipher.setAAD(aad);
+      decipher.setAuthTag(raw.subarray(12, 28));
+      return Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]);
+    } catch (error) {
+      // What KMS answers here is InvalidCiphertextException, and it cannot say
+      // which either: the wrong label, the wrong key and a damaged blob all
+      // fail the same tag.
+      throw new Error(
+        "Failed to unwrap the data key: it was not wrapped under this key and lock label, " +
+          "or has been altered.",
+        { cause: error },
+      );
+    }
   }
+}
+
+/**
+ * The label as LocalKeyWrapper authenticates it: the encryption context KMS
+ * would be sent, as JSON. KMS authenticates the context with its ciphertext
+ * too, so a test on this wrapper fails where production would, on a label that
+ * differs by a single character.
+ */
+function localAad(label: LockLabel): Buffer {
+  return Buffer.from(JSON.stringify(encryptionContext(label)), "utf8");
 }
 
 // -----------------------------------------------------------------------------
@@ -339,6 +494,13 @@ export type KmsClientLike = Pick<KMSClient, "send">;
  * without a KeyId for a symmetric key, because the ciphertext names the key
  * that made it; passing it anyway means a blob made under any other key is
  * refused instead of opened.
+ *
+ * The lock label goes on every call as the EncryptionContext, and is checked
+ * before the SDK is even loaded: GenerateDataKey and Encrypt are never sent
+ * without both keys, and Decrypt goes without a context only for an envelope
+ * sealed before labels (aad_version 1). Once the task role's policy requires
+ * both keys (docs/design/google-calendar-2026-10-05.md §5), KMS refuses that
+ * Decrypt as well, so such an envelope opens on AWS only until then.
  */
 export class AwsKmsKeyWrapper implements KeyWrapper {
   readonly keyVersion: string;
@@ -359,12 +521,14 @@ export class AwsKmsKeyWrapper implements KeyWrapper {
     return { mod, client: this.#client };
   }
 
-  async generateDek(): Promise<{ dek: Buffer; wrapped: WrappedKey }> {
+  async generateDek(label: LockLabel): Promise<{ dek: Buffer; wrapped: WrappedKey }> {
+    const context = encryptionContext(label);
     const { mod, client } = await this.#kms();
     const result = await client.send(
       new mod.GenerateDataKeyCommand({
         KeyId: this.#keyArn,
         KeySpec: "AES_256",
+        EncryptionContext: context,
       }),
     );
     if (!result.Plaintext || !result.CiphertextBlob) {
@@ -379,22 +543,25 @@ export class AwsKmsKeyWrapper implements KeyWrapper {
     };
   }
 
-  async unwrapDek(wrapped: WrappedKey): Promise<Buffer> {
+  async unwrapDek(wrapped: WrappedKey, label: LockLabel | null): Promise<Buffer> {
+    const context = label === null ? null : encryptionContext(label);
     const { mod, client } = await this.#kms();
     const result = await client.send(
       new mod.DecryptCommand({
         CiphertextBlob: Buffer.from(wrapped.wrapped, "base64url"),
         KeyId: this.#keyArn,
+        ...(context ? { EncryptionContext: context } : {}),
       }),
     );
     if (!result.Plaintext) throw new Error("KMS returned no plaintext key.");
     return Buffer.from(result.Plaintext);
   }
 
-  async wrapExisting(dek: Buffer): Promise<WrappedKey> {
+  async wrapExisting(dek: Buffer, label: LockLabel): Promise<WrappedKey> {
+    const context = encryptionContext(label);
     const { mod, client } = await this.#kms();
     const result = await client.send(
-      new mod.EncryptCommand({ KeyId: this.#keyArn, Plaintext: dek }),
+      new mod.EncryptCommand({ KeyId: this.#keyArn, Plaintext: dek, EncryptionContext: context }),
     );
     if (!result.CiphertextBlob) throw new Error("KMS returned no ciphertext.");
     return {

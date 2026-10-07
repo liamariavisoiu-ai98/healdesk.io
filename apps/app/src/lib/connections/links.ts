@@ -153,8 +153,11 @@ const LINK_ACTOR: ActorContext = {
  * A mismatch resolves to nothing, indistinguishable from an unknown token
  * (property 3), because "this is a real link for a different page" is exactly
  * the kind of confirmation a stranger holding a URL should not get.
+ * `calendar` connects a location's Google Calendar and records its calendar
+ * elections (drizzle/0053, which also gives it an audience and the owner's
+ * flags); the page and the links' issuance arrive with the connect flow.
  */
-export type LinkPurpose = "connect" | "setup" | "meta" | "whatsapp";
+export type LinkPurpose = "connect" | "setup" | "meta" | "whatsapp" | "calendar";
 
 /** What the wizard (or the setup page) needs to render, and nothing else. */
 export type ResolvedLink = {

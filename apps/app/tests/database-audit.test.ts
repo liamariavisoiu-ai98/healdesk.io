@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 
-import { BAA_TEMPLATES, CURRENT_BAA_VERSION, isBaaVersionAcceptable } from "@healdesk/catalog";
+import {
+  BAA_TEMPLATES,
+  BOOKING_SYSTEMS,
+  bookingSyncFor,
+  CALENDAR_ELECTIONS,
+  CURRENT_BAA_VERSION,
+  getCalendarElection,
+  isBaaVersionAcceptable,
+} from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import {
@@ -11,7 +19,7 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import { seedClinic } from "./setup/factories";
+import { inTenant, seedClinic } from "./setup/factories";
 
 /**
  * The September database audit, asserted (drizzle/0031_database_audit.sql).
@@ -127,8 +135,219 @@ describeDb("database audit (0031)", () => {
        where a.attrelid = 'clinics'::regclass and a.attnum > 0 and not a.attisdropped
     `);
     const locked = rows.filter((r) => !r.ok).map((r) => r.attname).sort();
-    // The BAA gate's two (0031), and the agreement-kind gate's two (0051).
-    expect(locked).toEqual(["agreement_kind", "baa_signed_at", "data_classification", "regulatory_regime"]);
+    // The BAA gate's two (0031), the agreement-kind gate's two (0051), and the
+    // client number every sealed credential is labelled with (0053).
+    expect(locked).toEqual([
+      "agreement_kind",
+      "baa_signed_at",
+      "client_number",
+      "data_classification",
+      "regulatory_regime",
+    ]);
+  });
+
+  test("client numbers are issued in order of creation and never change, for any role (0053)", async () => {
+    const first = await seedClinic("number1");
+    const second = await seedClinic("number2");
+    const { rows } = await getMigratorPool().query<{ id: string; client_number: number }>(
+      `select id, client_number from clinics where id = any($1::uuid[])`,
+      [[first.clinicId, second.clinicId]],
+    );
+    const numberOf = new Map(rows.map((r) => [r.id, r.client_number]));
+    expect(numberOf.get(first.clinicId)).toBeGreaterThan(0);
+    // A later clinic, including a customer's second location, gets a later number.
+    expect(numberOf.get(second.clinicId)!).toBeGreaterThan(numberOf.get(first.clinicId)!);
+
+    // The runtime role holds no UPDATE on the column: refused before any trigger.
+    await asTenant(first.clinicId, async (c) => {
+      await expect(
+        c.query(`update clinics set client_number = client_number + 1000 where id = $1`, [
+          first.clinicId,
+        ]),
+      ).rejects.toMatchObject({ code: "42501" });
+    });
+    // The owner holds every privilege, and the trigger refuses it anyway,
+    // including a swap that would keep the numbers unique.
+    await expect(
+      getMigratorPool().query(
+        `update clinics set client_number = client_number + 1000 where id = $1`,
+        [first.clinicId],
+      ),
+    ).rejects.toMatchObject({ code: "42501" });
+    await expect(
+      getMigratorPool().query(
+        `update clinics set client_number = case when id = $1 then $3::int else $4::int end
+          where id in ($1, $2)`,
+        [
+          first.clinicId,
+          second.clinicId,
+          numberOf.get(second.clinicId),
+          numberOf.get(first.clinicId),
+        ],
+      ),
+    ).rejects.toMatchObject({ code: "42501" });
+    // Nor does anyone name one at insert: the column default draws it. A
+    // number named ahead of the sequence would be the writer's label, and
+    // would make a later provisioning fail on the unique index.
+    const { rows: next } = await getMigratorPool().query<{ n: number }>(
+      `select last_value::int + 1 as n from clinics_client_number_seq`,
+    );
+    const ahead = next[0]!.n + 5;
+    const nameNumber = (n: number | null) =>
+      `insert into clinics (organization_id, slug, name, specialty, client_number)
+       values ($1, '${`named-${randomUUID().slice(0, 6)}`}', 'Named', 'med-spa', ${n === null ? "null" : n})`;
+    const namedRefusal = {
+      code: "42501",
+      message: expect.stringMatching(/drawn by its column default/),
+    };
+    // (Never a number some pooled session has just drawn: that one is the
+    // default's own, and a duplicate of it meets the unique index instead.)
+    for (const n of [ahead, 0, null]) {
+      await expect(
+        getMigratorPool().query(nameNumber(n), [first.organizationId]),
+        `owner naming ${n}`,
+      ).rejects.toMatchObject(namedRefusal);
+    }
+    // The runtime role inserts clinics (provisioning sets the new clinic's
+    // tenant first), and is refused the same.
+    const newId = randomUUID();
+    await asTenant(newId, async (c) => {
+      await expect(
+        c.query(
+          `insert into clinics (id, organization_id, slug, name, specialty, client_number)
+           values ($1, $2, $3, 'Named', 'med-spa', $4)`,
+          [newId, first.organizationId, `named-${randomUUID().slice(0, 6)}`, ahead],
+        ),
+      ).rejects.toMatchObject(namedRefusal);
+    });
+    // Nothing was drawn ahead, so the next clinic simply gets the next number.
+    const third = await seedClinic("number3");
+    const { rows: thirdRows } = await getMigratorPool().query<{ client_number: number }>(
+      `select client_number from clinics where id = $1`,
+      [third.clinicId],
+    );
+    expect(thirdRows[0]!.client_number).toBeGreaterThan(numberOf.get(second.clinicId)!);
+    expect(thirdRows[0]!.client_number).toBeLessThan(ahead);
+
+    // Unique, positive and never NULL, by the catalogue (no insert can name a
+    // duplicate any more to show it).
+    const { rows: shape } = await getMigratorPool().query<{
+      unique_index: boolean;
+      positive: boolean;
+      not_null: boolean;
+    }>(
+      `select exists (select 1 from pg_index i
+                       where i.indrelid = 'clinics'::regclass and i.indisunique
+                         and i.indexrelid = 'clinics_client_number_idx'::regclass) as unique_index,
+              exists (select 1 from pg_constraint
+                       where conrelid = 'clinics'::regclass and conname = 'clinics_client_number_positive'
+                         and contype = 'c') as positive,
+              (select attnotnull from pg_attribute
+                where attrelid = 'clinics'::regclass and attname = 'client_number') as not_null`,
+    );
+    expect(shape[0]).toEqual({ unique_index: true, positive: true, not_null: true });
+
+    // Ordinary edits of the clinic still go through: the trigger fires only
+    // when the number is in the SET list.
+    await asTenant(first.clinicId, async (c) => {
+      const { rows: renamed } = await c.query(
+        `update clinics set name = 'Renamed again' where id = $1 returning client_number`,
+        [first.clinicId],
+      );
+      expect(renamed).toEqual([{ client_number: numberOf.get(first.clinicId) }]);
+    });
+
+    // The runtime role draws numbers (provisioning inserts clinics) but can
+    // never move the sequence.
+    const { rows: seq } = await getMigratorPool().query<{ usage: boolean; update: boolean }>(
+      `select has_sequence_privilege('healdesk_app', 'clinics_client_number_seq', 'USAGE') as usage,
+              has_sequence_privilege('healdesk_app', 'clinics_client_number_seq', 'UPDATE') as update`,
+    );
+    expect(seq[0]).toEqual({ usage: true, update: false });
+  });
+
+  test("a connection's id, clinic and provider never move, for any role: its credential is sealed to them (0053)", async () => {
+    // The envelope's AAD binds the clinic and the row's id, and the KMS label
+    // (C6b) the clinic's number and the row's provider; a label is only worth
+    // what its inputs' immutability is worth.
+    const clinic = await seedClinic("conn-identity");
+    const other = await seedClinic("conn-identity-other");
+    const connectionId = await inTenant(clinic.clinicId, async (client) => {
+      const { rows } = await client.query<{ id: string }>(
+        `insert into provider_connections
+           (clinic_id, provider, status, ciphertext, iv, auth_tag, wrapped_dek, key_version, aad_version)
+         values ($1, 'meta', 'active', 'x', 'x', 'x', 'x', 'v1', 1) returning id`,
+        [clinic.clinicId],
+      );
+      return rows[0]!.id;
+    });
+    const moves = [
+      `provider = 'google_calendar'`,
+      `clinic_id = '${other.clinicId}'`,
+      `id = gen_random_uuid()`,
+    ];
+    const refusal = { code: "42501", message: expect.stringMatching(/never change/) };
+    // The runtime role, which holds table-level UPDATE here...
+    for (const assignment of moves) {
+      await asTenant(clinic.clinicId, async (c) => {
+        await expect(
+          c.query(`update provider_connections set ${assignment} where id = $1`, [connectionId]),
+          assignment,
+        ).rejects.toMatchObject(refusal);
+      });
+    }
+    // ...and the owner, whom no grant stops.
+    for (const assignment of moves) {
+      await expect(
+        inTenant(clinic.clinicId, (client) =>
+          client.query(`update provider_connections set ${assignment} where id = $1`, [
+            connectionId,
+          ]),
+        ),
+        assignment,
+      ).rejects.toMatchObject(refusal);
+    }
+    // A re-save writes the same three values (saveConnection does), and goes through.
+    await asTenant(clinic.clinicId, async (c) => {
+      const { rows } = await c.query(
+        `update provider_connections
+            set id = id, clinic_id = clinic_id, provider = provider, status = 'degraded', updated_at = now()
+          where id = $1 returning status`,
+        [connectionId],
+      );
+      expect(rows).toEqual([{ status: "degraded" }]);
+    });
+  });
+
+  test("the SQL copies of the calendar catalogue agree with it, entry for entry (0053)", async () => {
+    // app_calendar_election_released() and app_booking_system_live() are the
+    // catalogue written out, because SQL cannot read it, and the election
+    // guard believes them rather than the writer. Releasing an election
+    // document, or confirming that a booking system reads Google, without a
+    // migration redefining them fails here, not as elections refused (or
+    // wrongly accepted) in production.
+    for (const version of [
+      ...CALENDAR_ELECTIONS.map((e) => e.version),
+      "calendar-election/9.9.9",
+      "",
+    ]) {
+      const { rows } = await getMigratorPool().query<{ ok: boolean }>(
+        `select app_calendar_election_released($1) as ok`,
+        [version],
+      );
+      expect(rows[0]!.ok, version).toBe(getCalendarElection(version)?.approvedByCounsel ?? false);
+    }
+    for (const system of [...BOOKING_SYSTEMS.map((b) => b.id), "acuity", ""]) {
+      const { rows } = await getMigratorPool().query<{ ok: boolean }>(
+        `select app_booking_system_live($1) as ok`,
+        [system],
+      );
+      expect(rows[0]!.ok, system).toBe(bookingSyncFor(system) === "live");
+    }
+    const { rows } = await getMigratorPool().query<{ released: boolean; live: boolean }>(
+      `select app_calendar_election_released(null) as released, app_booking_system_live(null) as live`,
+    );
+    expect(rows[0]).toEqual({ released: false, live: false });
   });
 
   test("app_mark_clinic_production refuses without a bound agreement and copies its date with one", async () => {
@@ -357,15 +576,21 @@ describeDb("database audit (0031)", () => {
   });
 
   test("the BAA gate trigger guards every table that carries a caller's number or payload", async () => {
+    // In the catalogue's own (C collation) order. 0053 added the slot holds
+    // (a time tied to a call and a contact) and the named providers with
+    // their services (whose patient someone is, beside a booking).
     const expected = [
       "appointments",
       "booking_requests",
+      "clinic_provider_services",
+      "clinic_providers",
       "consent_records",
       "contact_attempts",
       "contacts",
       "conversations",
       "deposit_payments",
       "meta_booking_drafts",
+      "slot_holds",
       "suppressions",
       "transactions",
       "webhook_events",
@@ -403,11 +628,136 @@ describeDb("database audit (0031)", () => {
         "app_record_billing_request",
         "app_due_billing_requests",
         "app_clinic_for_deposit",
+        // 0053: the calendar watch's tenant walk, the live-account count and
+        // the desk token re-issue.
+        "app_calendar_connections",
+        "app_google_account_live_count",
+        "app_reissue_undelivered_booking_token",
       ]),
     );
     for (const fn of rows) {
       expect(fn.public_execute, `${fn.proname} is executable by PUBLIC`).toBe(false);
       expect(fn.app_execute, `${fn.proname} is not executable by healdesk_app`).toBe(true);
+    }
+  });
+
+  test("0053's tables give the runtime role only the verbs their records need", async () => {
+    // 0003's default privileges handed the runtime role all four verbs on each
+    // new table; 0053 took back everything the records do not need. A grant
+    // run by hand later fails here.
+    const verbs = async (table: string) => {
+      const { rows } = await getMigratorPool().query<{
+        select: boolean;
+        insert: boolean;
+        delete: boolean;
+        updatable: string[];
+      }>(
+        `select has_table_privilege('healdesk_app', $1::regclass, 'SELECT') as select,
+                has_table_privilege('healdesk_app', $1::regclass, 'INSERT') as insert,
+                has_table_privilege('healdesk_app', $1::regclass, 'DELETE') as delete,
+                coalesce((select array_agg(a.attname::text order by a.attname)
+                            from pg_attribute a
+                           where a.attrelid = $1::regclass and a.attnum > 0 and not a.attisdropped
+                             and has_column_privilege('healdesk_app', a.attrelid, a.attnum, 'UPDATE')),
+                         array[]::text[]) as updatable`,
+        [table],
+      );
+      return rows[0]!;
+    };
+
+    // Append-only contract evidence: a location's terms change by recording
+    // another election.
+    expect(await verbs("calendar_elections")).toEqual({
+      select: true,
+      insert: true,
+      delete: false,
+      updatable: [],
+    });
+    // Append-then-consume; purged after a day.
+    expect(await verbs("google_oauth_states")).toEqual({
+      select: true,
+      insert: true,
+      delete: true,
+      updatable: ["consumed_ip", "used_at"],
+    });
+    // Who holds what, and when, never moves.
+    expect(await verbs("slot_holds")).toEqual({
+      select: true,
+      insert: true,
+      delete: true,
+      updatable: [
+        "appointment_id",
+        "blocks_until",
+        "booking_request_id",
+        "check_attempts",
+        "contact_id",
+        "insert_attempted_at",
+        "lease_token",
+        "lease_until",
+        "next_check_at",
+        "outcome_reason",
+        "released_at",
+        "status",
+        "updated_at",
+      ],
+    });
+    // Deactivated, never deleted, never moved to another clinic.
+    expect(await verbs("clinic_providers")).toEqual({
+      select: true,
+      insert: true,
+      delete: false,
+      updatable: ["active", "calendar_id", "display_name", "updated_at"],
+    });
+    // A mapping is replaced, never edited.
+    expect(await verbs("clinic_provider_services")).toEqual({
+      select: true,
+      insert: true,
+      delete: true,
+      updatable: [],
+    });
+
+    // A calendar link's audience, recipients and flags are fixed at issue,
+    // like its purpose: still only used_at and consumed_ip move.
+    expect((await verbs("connection_links")).updatable).toEqual(["consumed_ip", "used_at"]);
+
+    // The columns 0053 added for runtime writers on tables with table-level
+    // UPDATE stay writable.
+    for (const [table, column] of [
+      ["appointments", "duration_minutes"],
+      ["appointments", "booking_origin"],
+      ["appointments", "calendar_write_claimed_at"],
+      ["appointments", "calendar_write_attempts"],
+      ["appointments", "calendar_write_lease"],
+      ["appointments", "calendar_event_key"],
+      ["provider_connections", "account_ref"],
+      ["provider_connections", "broken_at"],
+      ["provider_connections", "broken_alerted_at"],
+      ["provider_connections", "transient_failures"],
+      ["clinic_settings", "auto_confirm_bookings"],
+      ["clinic_settings", "auto_confirm_changed_at"],
+      ["clinic_settings", "auto_confirm_changed_by_label"],
+    ] as const) {
+      const { rows } = await getMigratorPool().query<{ ok: boolean }>(
+        `select has_column_privilege('healdesk_app', $1::regclass, $2::text, 'UPDATE') as ok`,
+        [table, column],
+      );
+      expect(rows[0]!.ok, `${table}.${column}`).toBe(true);
+    }
+
+    // And booking_requests' frozen columns stay frozen: the desk token moves
+    // only through app_reissue_undelivered_booking_token().
+    for (const column of [
+      "token_hash",
+      "booked_via",
+      "vendor_call_id",
+      "preferred_window",
+      "expires_at",
+    ]) {
+      const { rows } = await getMigratorPool().query<{ ok: boolean }>(
+        `select has_column_privilege('healdesk_app', 'booking_requests'::regclass, $1::text, 'UPDATE') as ok`,
+        [column],
+      );
+      expect(rows[0]!.ok, `booking_requests.${column}`).toBe(false);
     }
   });
 });

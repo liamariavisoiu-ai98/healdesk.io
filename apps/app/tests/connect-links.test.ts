@@ -635,6 +635,148 @@ describeDb("connection links", () => {
     ).rejects.toMatchObject({ code: "42501" });
   });
 
+  /* ------------------------------------------------------- calendar links */
+
+  test("a calendar token opens and burns only as a calendar link, and no other token opens a calendar page", async () => {
+    // 0053's fifth purpose. The column is in both the resolver's comparison
+    // and the burn's predicate, so isolation must hold in both directions:
+    // a calendar link spent on the credential wizard, or a connect link on
+    // the calendar page, would each hand one page's capability to the other.
+    const clinic = await seedConnectableClinic("link-calendar");
+    const others = ["connect", "setup", "meta", "whatsapp"] as const;
+
+    const calendar = await issueConnectionLink(
+      clinic.clinicId,
+      { purpose: "calendar" },
+      { actor, request: {} },
+    );
+    for (const purpose of others) {
+      expect(await resolveConnectionLink(calendar.token, {}, purpose), purpose).toBeNull();
+      expect(await consumeConnectionLink(calendar.token, null, purpose), purpose).toBe(false);
+    }
+    expect((await resolveConnectionLink(calendar.token, {}, "calendar"))?.purpose).toBe("calendar");
+    expect(await consumeConnectionLink(calendar.token, null, "calendar")).toBe(true);
+    expect(await consumeConnectionLink(calendar.token, null, "calendar")).toBe(false);
+
+    for (const purpose of others) {
+      const { token } = await issueConnectionLink(
+        clinic.clinicId,
+        { purpose },
+        { actor, request: {} },
+      );
+      expect(await resolveConnectionLink(token, {}, "calendar"), purpose).toBeNull();
+      expect(await consumeConnectionLink(token, null, "calendar"), purpose).toBe(false);
+      // The refused calendar burn did not spend it for its own page.
+      expect((await resolveConnectionLink(token, {}, purpose))?.purpose, purpose).toBe(purpose);
+    }
+  });
+
+  test("only a calendar link carries an owner audience, an account change or a pending election", async () => {
+    const clinic = await seedConnectableClinic("link-calendar-shape");
+    const insert = (columns: string, values: string) =>
+      asTenant(clinic.clinicId, (c) =>
+        c.query(
+          `insert into connection_links (clinic_id, token_hash, expires_at${columns})
+           values ($1, $2, now() + interval '3 days'${values})`,
+          [clinic.clinicId, randomBytes(32)],
+        ),
+      );
+    const pending = `'{"bookingSystem":"google_calendar","calendarAccount":"personal","documentVersion":"calendar-election/1.0.0","documentHash":"${"a".repeat(64)}"}'::jsonb`;
+
+    // Every other purpose keeps 0024's plain shape.
+    await expect(insert(", purpose, audience", ", 'connect', 'owner'")).rejects.toMatchObject({
+      code: "23514",
+      constraint: "connection_links_calendar_only_flags",
+    });
+    await expect(
+      insert(", purpose, allows_account_change", ", 'setup', true"),
+    ).rejects.toMatchObject({
+      code: "23514",
+    });
+    await expect(
+      insert(", purpose, pending_election", `, 'meta', ${pending}`),
+    ).rejects.toMatchObject({
+      code: "23514",
+    });
+    // A calendar link's change and confirm powers belong to the owner alone.
+    await expect(
+      insert(", purpose, audience, allows_account_change", ", 'calendar', 'recipients', true"),
+    ).rejects.toMatchObject({ code: "23514", constraint: "connection_links_account_change_owner" });
+    await expect(
+      insert(", purpose, audience, pending_election", `, 'calendar', 'recipients', ${pending}`),
+    ).rejects.toMatchObject({
+      code: "23514",
+      constraint: "connection_links_pending_election_owner",
+    });
+    await expect(
+      insert(", purpose, audience, pending_election", ", 'calendar', 'owner', '[]'::jsonb"),
+    ).rejects.toMatchObject({
+      code: "23514",
+      constraint: "connection_links_pending_election_owner",
+    });
+    await expect(insert(", purpose, audience", ", 'calendar', 'everyone'")).rejects.toMatchObject({
+      code: "23514",
+      constraint: "connection_links_audience_check",
+    });
+    await expect(insert(", purpose", ", 'calendar-ish'")).rejects.toMatchObject({
+      code: "23514",
+      constraint: "connection_links_purpose_known",
+    });
+
+    // The shapes the plan uses all fit: a recipients link, an owner change
+    // link and an owner confirm link, each with the addresses it went to.
+    await insert(", purpose, sent_to", ", 'calendar', '{front@clinic.test}'");
+    await insert(
+      ", purpose, audience, allows_account_change, sent_to",
+      ", 'calendar', 'owner', true, '{owner@clinic.test}'",
+    );
+    await insert(
+      ", purpose, audience, pending_election, sent_to",
+      `, 'calendar', 'owner', ${pending}, '{owner@clinic.test}'`,
+    );
+  });
+
+  test("a calendar link's purpose, audience, recipients and flags are fixed when it is minted", async () => {
+    const clinic = await seedConnectableClinic("link-calendar-frozen");
+    const linkId = await inTenant(clinic.clinicId, async (client) => {
+      const { rows } = await client.query<{ id: string }>(
+        `insert into connection_links (clinic_id, token_hash, expires_at, purpose, audience, allows_account_change, sent_to)
+         values ($1, $2, now() + interval '3 days', 'calendar', 'owner', true, '{owner@clinic.test}')
+         returning id`,
+        [clinic.clinicId, randomBytes(32)],
+      );
+      return rows[0]!.id;
+    });
+
+    // The runtime role holds no UPDATE on any of them...
+    const { rows: grants } = await getAppPool().query<{ column: string; updatable: boolean }>(
+      `select c as column, has_column_privilege(current_user, 'connection_links', c, 'UPDATE') as updatable
+         from unnest(array['purpose', 'audience', 'sent_to', 'allows_account_change', 'pending_election']) as c`,
+    );
+    expect(grants.filter((g) => g.updatable)).toEqual([]);
+
+    // ...and the trigger refuses the schema owner too, on an unspent link.
+    for (const assignment of [
+      `audience = 'recipients', allows_account_change = false`,
+      `allows_account_change = false`,
+      `sent_to = '{someone@else.test}'`,
+      `pending_election = '{}'::jsonb`,
+      `purpose = 'connect', audience = 'recipients', allows_account_change = false`,
+    ]) {
+      await expect(
+        inTenant(clinic.clinicId, (client) =>
+          client.query(`update connection_links set ${assignment} where id = $1`, [linkId]),
+        ),
+        assignment,
+      ).rejects.toMatchObject({ code: "42501" });
+    }
+
+    // Consumption is untouched by the freeze.
+    await inTenant(clinic.clinicId, (client) =>
+      client.query(`update connection_links set used_at = now() where id = $1`, [linkId]),
+    );
+  });
+
   /* ---------------------------------------------------------------- the token */
 
   test("stores a digest, never the token", async () => {

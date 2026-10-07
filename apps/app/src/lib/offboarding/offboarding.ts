@@ -41,11 +41,14 @@ import { withTenant } from "@/lib/tenant";
  *
  * So the dates are the database's. `offboarding_started_at`, `destroy_after`
  * and `destroyed_at` are stamped by app_start_offboarding() and
- * app_mark_clinic_destroyed(), from the database's clock, and the runtime
- * role has no UPDATE on them: if it could write the dates the delete function
- * reads, it could stamp a live clinic as due, empty its requests and put the
- * dates back. Tests that need thirty days to pass move the stamps back as the
- * migrator, which owns the table.
+ * app_mark_clinic_destroyed(), from the database's clock; the runtime role
+ * has no UPDATE on them, and a new clinic cannot carry them (a trigger): if
+ * it could write the dates the delete function reads, it could stamp a live
+ * clinic as due, empty its requests and put the dates back.
+ * app_mark_clinic_destroyed() also refuses while any row destroyClinicData
+ * deletes is still there, because once `destroyed_at` is set the daily job
+ * passes the clinic over for good. Tests that need thirty days to pass move
+ * the stamps back as the migrator, which owns the table.
  *
  * What stays: the clinic row (a customer we had), the audit log
  * (append-only, and the record that the destruction happened), the signed
@@ -127,7 +130,8 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   await del("clinic_closures", () => tx.db.delete(clinicClosures).where(eq(clinicClosures.clinicId, c)).returning({ id: clinicClosures.closedOn }));
 
   // The number is released with the data. destroyed_at is the database's
-  // to stamp, and it refuses a clinic that is not due (see the header).
+  // to stamp, and it refuses a clinic that is not due or still holds any
+  // row deleted above (see the header).
   await tx.db.update(clinics).set({ synthflowNumberE164: null }).where(eq(clinics.id, c));
   await tx.db.execute(sql`select app_mark_clinic_destroyed(${c}::uuid)`);
   const total = Object.values(deleted).reduce((a, b) => a + b, 0);

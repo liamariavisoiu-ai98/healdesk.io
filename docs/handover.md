@@ -313,7 +313,10 @@ a Next route. Every job ships switched off and is enabled from the ops console; 
 Two clocks per clinic, on the `clinics` row: `retention_media_days` (90) clears
 transcript references; `retention_record_days` (90, never below a day) deletes
 conversation, appointment, booking request and transaction rows and then contacts nothing
-refers to (a booking request goes on its appointment's date when it produced one).
+refers to. A booking request goes once every date on it is past the clock (when it was
+made, the slot it was confirmed for, its appointment's time), and a shortened clock
+reaches booking requests a day after it is set. Every request's id and token hash stay
+in `booking_request_keys` after it is deleted, and are never written again.
 `retention-purge` runs both nightly and writes one audit row per clinic with counts.
 `baa_acceptances` has its own six-year floor.
 Vendor-side retention (Retell's per-agent setting) is a setting, not a delete we run:
@@ -356,7 +359,14 @@ task name, a queue name or a resource tag.
   Likewise only `app_start_offboarding()` and `app_mark_clinic_destroyed()` write
   `offboarding_started_at`, `destroy_after` and `destroyed_at`, from the database's clock,
   because `app_destroy_booking_requests()` reads them as its floor. A guard in a
-  `SECURITY DEFINER` function binds nothing if it reads a column the runtime role can write.
+  `SECURITY DEFINER` function binds nothing if it reads a column the runtime role can write,
+  and that includes a column on another table and one it can set on INSERT: a new clinic
+  is refused the three dates (`clinics_insert_guard`), and `app_purge_booking_requests()`
+  reads a request's own frozen dates and the record clock in force, not an appointment's
+  time or the setting alone. Where the runtime role can make a delete happen at all, make
+  sure it cannot put the row back: `booking_request_keys` refuses a deleted request's id
+  or token hash, and it is written at insert, so a re-insert racing the delete is refused
+  too.
 
 `apps/app/tests/rls-drift.test.ts` asks the catalog which tables carry a `clinic_id` and
 demands each one have row-level security enabled **and forced**. If it goes red, someone

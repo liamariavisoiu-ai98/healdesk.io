@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
@@ -39,10 +39,12 @@ import { inTenant, seedClinic, seedContact, seedConversation } from "./setup/fac
  * Live use includes the delete functions themselves. The runtime role keeps
  * INSERT on booking_requests and the no-rewrite trigger is BEFORE UPDATE
  * only, so a request it could delete at will it could put back with another
- * decision. The review of 7 October found all three functions open to that;
- * the tests below hold erasure to taking the person in the same call, and
- * destruction and the purge to dates and a clock the runtime role cannot
- * stamp past what they allow.
+ * decision. Two reviews of 7 October found that open, through all three
+ * functions and through the contact's cascade; the tests below hold erasure
+ * to the people's own requests and the people with them, destruction and the
+ * purge to dates and a clock the runtime role cannot move past what they
+ * allow, and every request to being written once, so that nothing deleted
+ * comes back.
  */
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
@@ -62,6 +64,23 @@ async function asApp<T>(clinicId: string | null, fn: (c: Client) => Promise<T>):
     return await fn(client as unknown as Client);
   } finally {
     await client.query("rollback").catch(() => {});
+    client.release();
+  }
+}
+
+/** The same, committed: a write the runtime role makes and keeps, as a practice's setting is. */
+async function asAppCommitted<T>(clinicId: string, fn: (c: Client) => Promise<T>): Promise<T> {
+  const client = await getAppPool().connect();
+  try {
+    await client.query("begin");
+    await client.query(`select set_config('app.clinic_id', $1, true)`, [clinicId]);
+    const result = await fn(client as unknown as Client);
+    await client.query("commit");
+    return result;
+  } catch (error) {
+    await client.query("rollback").catch(() => {});
+    throw error;
+  } finally {
     client.release();
   }
 }
@@ -479,6 +498,7 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       [`select app_purge_booking_requests(now() - interval '1 year')`, []],
       [`select app_start_offboarding($1::uuid)`, [live.clinicId]],
       [`select app_mark_clinic_destroyed($1::uuid)`, [live.clinicId]],
+      [`select app_record_cutoff()`, []],
     ] as const) {
       await expect(asApp(null, (c) => c.query(text, [...values]))).rejects.toMatchObject({
         code: "42501",
@@ -766,5 +786,358 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       `select has_table_privilege('healdesk_app', 'booking_requests', 'DELETE') as deletable`,
     );
     expect(rows[0]!.deletable).toBe(false);
+  });
+
+  // The second review of 7 October. Each test below fails against the
+  // version of this migration before it, where the runtime role could do
+  // what the test now sees refused.
+
+  test("an erasure takes only the people's own requests: a booking re-pointed at someone else stops the call with nothing removed", async () => {
+    const c = await seedClinic("erase-repoint");
+    const person = await seedPerson(c.clinicId, "+15550113001", new Date());
+    const throwaway = await seedContact(c.clinicId, "+15550113002");
+
+    // The runtime role may write appointments.contact_id. Pointing the
+    // person's confirmed booking at a throwaway contact and erasing that
+    // contact must not take the person's request while the person stays: the
+    // request still holds the booking, so the booking's delete fails the call.
+    await expect(
+      asApp(c.clinicId, async (q) => {
+        await q.query(
+          `update appointments set contact_id = $2, conversation_id = null where id = $1`,
+          [person.appointmentId, throwaway],
+        );
+        return q.query(`select * from app_erase_contacts(array[$1]::uuid[])`, [throwaway]);
+      }),
+    ).rejects.toMatchObject({
+      code: "23503",
+      constraint: "booking_requests_appointment_id_appointments_id_fk",
+    });
+    expect(await counts(c.clinicId)).toEqual({ ...ONE_PERSON, contacts: 2 });
+  });
+
+  test("the purge judges a request by its own frozen dates, so moving its booking back reaches nothing, and a booking moved earlier stays with it", async () => {
+    const c = await seedClinic("purge-frozen");
+    const contact = await seedContact(c.clinicId, "+15550114001");
+    // Asked for two hundred days ago, confirmed for a slot a week ahead.
+    const booked = await inTenant(c.clinicId, async (client) => {
+      const { rows: appt } = await client.query<{ id: string }>(
+        `insert into appointments (clinic_id, contact_id, scheduled_for)
+         values ($1, $2, now() + interval '7 days') returning id`,
+        [c.clinicId, contact],
+      );
+      const { rows } = await client.query<{ id: string }>(
+        `insert into booking_requests
+           (clinic_id, contact_id, channel, preferred_window, status, token_hash, expires_at,
+            decided_at, decided_by_label, confirmed_for, appointment_id, created_at)
+         values ($1, $2, 'voice', 'in the spring', 'confirmed', $3, now() - interval '193 days',
+                 now() - interval '199 days', 'Front desk', now() + interval '7 days', $4,
+                 now() - interval '200 days')
+         returning id`,
+        [c.clinicId, contact, randomBytes(32), appt[0]!.id],
+      );
+      return { appointmentId: appt[0]!.id, requestId: rows[0]!.id };
+    });
+
+    // The runtime role can write appointments.scheduled_for. Moving the
+    // booking four hundred days back and purging at the clinic's own clock
+    // reaches nothing: the slot the request was confirmed for is still ahead.
+    const purged = await asApp(c.clinicId, async (q) => {
+      await q.query(
+        `update appointments set scheduled_for = now() - interval '400 days' where id = $1`,
+        [booked.appointmentId],
+      );
+      return (
+        await q.query<{ n: number }>(
+          `select app_purge_booking_requests(now() - interval '90 days') as n`,
+        )
+      ).rows[0]!.n;
+    });
+    expect(purged).toBe(0);
+
+    // A booking moved earlier for real (a sync from the clinic's own system
+    // writes scheduled_for, lib/sync/upsert.ts) keeps its request, and the
+    // nightly purge leaves the booking for the night its request goes rather
+    // than fail on the foreign key and purge nothing at all.
+    await inTenant(c.clinicId, (client) =>
+      client.query(
+        `update appointments set scheduled_for = now() - interval '200 days' where id = $1`,
+        [booked.appointmentId],
+      ),
+    );
+    const result = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      purgeClinic(tx, new Date()),
+    );
+    expect(result).toMatchObject({
+      skipped: null,
+      bookingRequestsDeleted: 0,
+      appointmentsDeleted: 0,
+    });
+    const left = await inTenant(c.clinicId, async (client) => ({
+      requests: (await client.query<{ id: string }>(`select id from booking_requests`)).rows.map(
+        (r) => r.id,
+      ),
+      appointments: (await client.query<{ id: string }>(`select id from appointments`)).rows.map(
+        (r) => r.id,
+      ),
+    }));
+    expect(left).toEqual({ requests: [booked.requestId], appointments: [booked.appointmentId] });
+  });
+
+  test("the record clock cannot be shortened, used and put back in one go: a shorter clock reaches the requests a day later", async () => {
+    const c = await seedClinic("purge-clock");
+    await seedPerson(c.clinicId, "+15550115001", new Date(Date.now() - 3 * DAY));
+    const tooLate = { code: "23514", message: expect.stringMatching(/record clock/) };
+
+    // Shortened to a day in the transaction that purges, and put back after:
+    // the purge still runs on the clock that was in force, ninety days.
+    for (const cutoff of ["now()", "now() - interval '1 day'"]) {
+      await expect(
+        asApp(c.clinicId, async (q) => {
+          await q.query(`update clinics set retention_record_days = 1 where id = $1`, [c.clinicId]);
+          const purged = await q.query(`select app_purge_booking_requests(${cutoff})`);
+          await q.query(`update clinics set retention_record_days = 90 where id = $1`, [
+            c.clinicId,
+          ]);
+          return purged;
+        }),
+      ).rejects.toMatchObject(tooLate);
+    }
+    expect(await counts(c.clinicId)).toEqual(ONE_PERSON);
+
+    // Shortened by the practice and kept: the requests follow it a day later.
+    // Time passing is the migrator moving the change back, as the day would.
+    await asAppCommitted(c.clinicId, (q) =>
+      q.query(`update clinics set retention_record_days = 2 where id = $1`, [c.clinicId]),
+    );
+    await expect(
+      asApp(c.clinicId, (q) =>
+        q.query(`select app_purge_booking_requests(now() - interval '2 days')`),
+      ),
+    ).rejects.toMatchObject(tooLate);
+    await getMigratorPool().query(
+      `update clinics
+          set retention_record_days_shortened_at = retention_record_days_shortened_at - interval '1 day'
+        where id = $1`,
+      [c.clinicId],
+    );
+    const purged = await asApp(
+      c.clinicId,
+      async (q) =>
+        (
+          await q.query<{ n: number }>(
+            `select app_purge_booking_requests(now() - interval '2 days') as n`,
+          )
+        ).rows[0]!.n,
+    );
+    expect(purged).toBe(3);
+
+    // The nightly purge takes the requests' cutoff from the database, so a
+    // job clock running ahead of the database's is not refused for it.
+    await expect(
+      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+        purgeClinic(tx, new Date(Date.now() + 2 * DAY)),
+      ),
+    ).resolves.toMatchObject({ skipped: null, bookingRequestsDeleted: 3 });
+  });
+
+  test("a clinic is never born offboarding, destroyed or part-way through a record-clock change", async () => {
+    const insertClinic = (column: string | null, value: string | null) => {
+      const id = randomUUID();
+      return asApp(id, async (q) => {
+        await q.query(
+          `insert into organization (id, name, slug, created_at) values ($1, 'Born', $1, now())`,
+          [`org_${id}`],
+        );
+        return q.query(
+          `insert into clinics (id, organization_id, slug, name, specialty${column ? `, ${column}` : ""})
+           values ($1, $2, $3, 'Born', 'med-spa'${value ? `, ${value}` : ""}) returning id`,
+          [id, `org_${id}`, `born-${id.slice(0, 8)}`],
+        );
+      });
+    };
+    // Provisioning's insert names none of them, and still works.
+    expect((await insertClinic(null, null)).rows).toHaveLength(1);
+    for (const [column, value] of [
+      ["offboarding_started_at", "now() - interval '400 days'"],
+      ["destroy_after", "now() - interval '370 days'"],
+      ["destroyed_at", "now()"],
+      ["retention_record_days_previous", "3650"],
+      ["retention_record_days_shortened_at", "now()"],
+    ] as const) {
+      await expect(insertClinic(column, value), column).rejects.toMatchObject({
+        code: "42501",
+        message: expect.stringMatching(/new clinic/),
+      });
+    }
+  });
+
+  test("the database records a destruction only once the clinic's patient rows are gone", async () => {
+    const c = await seedClinic("mark-early");
+    await seedPerson(c.clinicId, "+15550116001", new Date(Date.now() - DAY));
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      startOffboarding(tx, "operator"),
+    );
+    await backdateOffboarding(c.clinicId, 31);
+
+    // Due, and nothing destroyed: a stamp now would make the daily job pass
+    // the clinic over for good while the ops console called it destroyed.
+    await expect(
+      asApp(c.clinicId, (q) => q.query(`select app_mark_clinic_destroyed($1::uuid)`, [c.clinicId])),
+    ).rejects.toMatchObject({ code: "23514", message: expect.stringMatching(/still holds/) });
+
+    // destroyClinicData stamps it, once the rows are gone, in the same transaction.
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      markExportDelivered(tx, "bundle handed to the practice manager"),
+    );
+    const results = await destroyDueClinics();
+    expect(results.map((r) => r.clinicId)).toContain(c.clinicId);
+    expect(await counts(c.clinicId)).toEqual(NOTHING);
+    const { rows } = await getMigratorPool().query<{ destroyed_at: Date | null }>(
+      `select destroyed_at from clinics where id = $1`,
+      [c.clinicId],
+    );
+    expect(rows[0]!.destroyed_at).not.toBeNull();
+  });
+
+  test("a person with a request cannot be deleted from under it, and a deleted request never comes back under its id or its token, not even racing the delete", async () => {
+    const c = await seedClinic("written-once");
+    const person = await seedPerson(c.clinicId, "+15550117001", new Date());
+    const throwaway = await seedContact(c.clinicId, "+15550117002");
+
+    // No definer at all: re-home the booking and the call, then delete the
+    // person, which the contact's cascade used to answer by deleting the
+    // person's requests with it.
+    await expect(
+      asApp(c.clinicId, async (q) => {
+        await q.query(`update appointments set contact_id = $2 where id = $1`, [
+          person.appointmentId,
+          throwaway,
+        ]);
+        await q.query(`update conversations set contact_id = $2 where id = $1`, [
+          person.conversationId,
+          throwaway,
+        ]);
+        return q.query(`delete from contacts where id = $1`, [person.contactId]);
+      }),
+    ).rejects.toMatchObject({
+      code: "23503",
+      constraint: "booking_requests_contact_id_contacts_id_fk",
+    });
+
+    // Through the definer: erase the person whole, then put the person back
+    // and the confirmed request with it, declined, under its id, its token,
+    // or both.
+    const token = await inTenant(
+      c.clinicId,
+      async (client) =>
+        (
+          await client.query<{ token_hash: Buffer }>(
+            `select token_hash from booking_requests where id = $1`,
+            [person.confirmed],
+          )
+        ).rows[0]!.token_hash,
+    );
+    const putBack = (q: Client, id: string, contactId: string, tokenHash: Buffer) =>
+      q.query(
+        `insert into booking_requests
+           (id, clinic_id, contact_id, channel, preferred_window, status, token_hash, expires_at, decided_at, created_at)
+         values ($1, $2, $3, 'voice', 'weekday mornings', 'declined', $4, now() + interval '6 days', now(),
+                 now() - interval '1 day')`,
+        [id, c.clinicId, contactId, tokenHash],
+      );
+    const writtenBefore = { code: "42501", message: expect.stringMatching(/written before/) };
+    for (const [id, tokenHash] of [
+      [person.confirmed, token],
+      [person.confirmed, randomBytes(32)],
+      [randomUUID(), token],
+    ] as const) {
+      await expect(
+        asApp(c.clinicId, async (q) => {
+          await q.query(`select * from app_erase_contacts(array[$1]::uuid[])`, [person.contactId]);
+          await q.query(`insert into contacts (id, clinic_id, phone) values ($1, $2, $3)`, [
+            person.contactId,
+            c.clinicId,
+            person.phone,
+          ]);
+          return putBack(q, id, person.contactId, tokenHash);
+        }),
+      ).rejects.toMatchObject(writtenBefore);
+    }
+
+    // Racing the delete: a second transaction puts the confirmed request back
+    // while the erasure is still open. A record of deletions made at delete
+    // time would be invisible to it, and its insert would wait on the primary
+    // key for the erasure to commit and then go through. The id was taken
+    // when the request was first written, so it is refused all the same.
+    const eraser = await getAppPool().connect();
+    const racer = await getAppPool().connect();
+    try {
+      await eraser.query("begin");
+      await eraser.query(`select set_config('app.clinic_id', $1, true)`, [c.clinicId]);
+      await eraser.query(`select * from app_erase_contacts(array[$1]::uuid[])`, [person.contactId]);
+      await racer.query("begin");
+      await racer.query(`select set_config('app.clinic_id', $1, true)`, [c.clinicId]);
+      const { rows: backend } = await racer.query<{ pid: number }>(
+        `select pg_backend_pid() as pid`,
+      );
+      let settled = false;
+      const raced = putBack(
+        racer as unknown as Client,
+        person.confirmed,
+        throwaway,
+        randomBytes(32),
+      ).then(
+        (result) => {
+          settled = true;
+          return result;
+        },
+        (error: unknown) => {
+          settled = true;
+          throw error;
+        },
+      );
+      raced.catch(() => {});
+      // Commit the erasure only once the racing insert has either finished or
+      // is blocked behind it, so the race is real rather than a matter of
+      // which statement the server happened to see first.
+      for (let polls = 0; !settled; polls++) {
+        const { rows } = await getMigratorPool().query<{ blocked: boolean }>(
+          `select cardinality(pg_blocking_pids($1)) > 0 as blocked`,
+          [backend[0]!.pid],
+        );
+        if (rows[0]?.blocked) break;
+        if (polls > 2_000) throw new Error("the racing insert neither finished nor waited");
+      }
+      await eraser.query("commit");
+      await expect(raced).rejects.toMatchObject(writtenBefore);
+    } finally {
+      await racer.query("rollback").catch(() => {});
+      await eraser.query("rollback").catch(() => {});
+      racer.release();
+      eraser.release();
+    }
+
+    // The erasure above committed. The person's other requests stay gone
+    // too, whatever id and contact they come back with.
+    expect((await counts(c.clinicId)).booking_requests).toBe(0);
+    await expect(
+      asApp(c.clinicId, (q) => putBack(q, person.declined, throwaway, randomBytes(32))),
+    ).rejects.toMatchObject(writtenBefore);
+
+    // The record is the migrator's: the runtime role can neither read it nor
+    // remove it.
+    for (const text of [
+      `select * from booking_request_keys`,
+      `delete from booking_request_keys`,
+      `truncate booking_request_keys`,
+    ]) {
+      await expect(
+        asApp(c.clinicId, (q) => q.query(text)),
+        text,
+      ).rejects.toMatchObject({
+        code: "42501",
+      });
+    }
   });
 });

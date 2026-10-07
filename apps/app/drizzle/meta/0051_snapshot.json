@@ -1493,6 +1493,54 @@
       },
       "isRLSEnabled": false
     },
+    "public.booking_request_keys": {
+      "name": "booking_request_keys",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "token_hash": {
+          "name": "token_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "written_at": {
+          "name": "written_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "booking_request_keys_token_idx": {
+          "name": "booking_request_keys_token_idx",
+          "columns": [
+            {
+              "expression": "token_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.booking_requests": {
       "name": "booking_requests",
       "schema": "",
@@ -1785,7 +1833,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "booking_requests_conversation_id_conversations_id_fk": {
@@ -2887,6 +2935,18 @@
           "primaryKey": false,
           "notNull": true,
           "default": 90
+        },
+        "retention_record_days_previous": {
+          "name": "retention_record_days_previous",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "retention_record_days_shortened_at": {
+          "name": "retention_record_days_shortened_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "onboarding": {
           "name": "onboarding",

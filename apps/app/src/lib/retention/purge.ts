@@ -45,15 +45,20 @@ import type { TenantTx } from "@/lib/tenant";
  * revenue report that is phase two, so every clinic left at the default kept
  * its records eight times as long as its agreement said.
  *
- * A booking request that produced an appointment goes with it, on the
- * appointment's date; any other request goes on its own created_at. Requests
- * lead the deletes because a confirmed one must keep its appointment (CHECK,
- * 0039) and cannot be rewritten (trigger, 0041), and the runtime role has no
- * DELETE on them, so app_purge_booking_requests() deletes them, refusing a
- * cutoff later than the clinic's own clock or than now(). The clock is never
- * below a day (a CHECK on clinics), so no setting carries that cutoff to a
- * booking still ahead. A Meta draft abandoned for a day goes here too, as a
- * backstop to the sweep the clinic's next Meta message runs.
+ * A booking request goes once every date it carries is past the clock: when
+ * it was made, the slot it was confirmed for, and its appointment's time.
+ * Requests lead the deletes because a confirmed one must keep its appointment
+ * (CHECK, 0039) and cannot be rewritten (trigger, 0041), and the runtime role
+ * has no DELETE on them, so app_purge_booking_requests() deletes them. It
+ * judges a request by its first two dates, which are frozen once it is
+ * decided, as well as the third, which the runtime role and a sync can move,
+ * so no booking still ahead loses its request. It refuses a cutoff later than
+ * the record clock in force by the database's clock (app_record_cutoff(): for
+ * a day after the clock is shortened, the longer clock it replaced), so the
+ * clock cannot be shortened, used and put back in one go. An appointment a
+ * remaining request still holds waits for the night the request goes. A Meta
+ * draft abandoned for a day goes here too, as a backstop to the sweep the
+ * clinic's next Meta message runs.
  *
  * ## What is never purged, and why
  *
@@ -151,12 +156,15 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
   result.mediaCleared = cleared.length;
 
   // 2. Records, children first. Booking requests lead: one that produced an
-  //    appointment holds it, so it goes before it, on the appointment's date
-  //    (the rule the appointments below are chosen by); any other goes on its
-  //    created_at. Through app_purge_booking_requests(), as the app role has
-  //    no DELETE on them.
+  //    appointment holds it, so it goes before it, once its own dates and
+  //    its appointment's are all past the clock. Through
+  //    app_purge_booking_requests(), as the app role has no DELETE on them,
+  //    at the earlier of this job's cutoff and the database's own
+  //    (app_record_cutoff(), the record clock in force), in one statement:
+  //    the function refuses anything later, so a job clock running ahead of
+  //    the database's must not reach it.
   const requests = await tx.db.execute<{ n: number }>(
-    sql`select app_purge_booking_requests(${recordBefore}::timestamptz) as n`,
+    sql`select app_purge_booking_requests(least(${recordBefore}::timestamptz, app_record_cutoff())) as n`,
   );
   result.bookingRequestsDeleted = requests.rows[0]?.n ?? 0;
 
@@ -166,10 +174,20 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .select({ id: transactions.id })
     .from(transactions)
     .where(and(eq(transactions.clinicId, tx.clinicId), lt(transactions.collectedAt, recordBefore)));
+  // An appointment a remaining request still holds stays until the request
+  // goes. Its time can sit before the request's own dates (a sync from the
+  // clinic's system writes scheduled_for, lib/sync/upsert.ts), and deleting
+  // it would fail the request's foreign key and the whole night's purge.
   const oldAppointments = await tx.db
     .select({ id: appointments.id })
     .from(appointments)
-    .where(and(eq(appointments.clinicId, tx.clinicId), lt(appointments.scheduledFor, recordBefore)));
+    .where(
+      and(
+        eq(appointments.clinicId, tx.clinicId),
+        lt(appointments.scheduledFor, recordBefore),
+        sql`not exists (select 1 from ${bookingRequests} r where r.appointment_id = ${appointments.id})`,
+      ),
+    );
   const transactionIds = oldTransactions.map((r) => r.id);
   const appointmentIds = oldAppointments.map((r) => r.id);
 
@@ -228,9 +246,10 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
 
   // 3. Contacts nothing refers to any more, and that are themselves old. A
   //    request still inside the clock keeps its person: a Meta request reuses
-  //    the contact without touching updated_at, and the cascade would
-  //    otherwise take a request made yesterday by someone first seen a year
-  //    ago.
+  //    the contact without touching updated_at, and a person a request names
+  //    cannot be deleted (booking_requests.contact_id is NO ACTION), so
+  //    without this the delete of someone first seen a year ago who asked
+  //    again yesterday would fail the whole purge.
   const orphaned = await tx.db
     .delete(contacts)
     .where(
@@ -332,12 +351,14 @@ export type ErasureResult = {
  *
  * Deletes, not de-identifies: a conversation row with the contact detached
  * still carries a treatment interest and a time, which is a re-identification
- * waiting for a join. Booking requests go too, whatever the desk decided, as
- * do a payment matched to one of their appointments and a half-collected
- * Meta draft carrying the number. What remains afterwards is a suppression
- * row for the phone number — deliberately. The number is kept so the request
- * itself is honoured forever; keeping it is what the law expects of a
- * do-not-contact list, and it is the one thing an erasure must not erase.
+ * waiting for a join. Their booking requests go too, whatever the desk
+ * decided, as do a payment matched to one of their appointments and a
+ * half-collected Meta draft carrying the number. A deleted request's id and
+ * token hash are never written again (booking_request_keys). What remains
+ * afterwards is a suppression row for the phone number — deliberately. The
+ * number is kept so the request itself is honoured forever; keeping it is
+ * what the law expects of a do-not-contact list, and it is the one thing an
+ * erasure must not erase.
  */
 export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promise<ErasureResult> {
   if (!request.phone && !request.email) {
@@ -411,16 +432,17 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
       result.transactionsDeleted = gone.length;
     }
     // The rest goes in one call, from their booking requests down to the
-    // people: their requests, whatever the desk decided, and any pointing at
-    // their appointments; their appointments; their conversations and the
-    // ones that produced their appointments (a call that led to a booking is
-    // about the person who booked, whether or not the caller was matched);
-    // then the contacts. The requests have to lead, because a confirmed one
-    // holds its appointment (CHECK, 0039; trigger, 0041), and the app role
-    // has no DELETE on them, so app_erase_contacts() does it as their owner.
-    // It takes the people in the same call, so a request still leaves only
-    // with its person, and it fails with nothing removed if anything else
-    // still refers to them.
+    // people: their own requests, whatever the desk decided; their
+    // appointments; their conversations and the ones that produced their
+    // appointments (a call that led to a booking is about the person who
+    // booked, whether or not the caller was matched); then the contacts. The
+    // requests have to lead, because a confirmed one holds its appointment
+    // (CHECK, 0039; trigger, 0041) and every one names its person (a foreign
+    // key with no delete action), and the app role has no DELETE on them, so
+    // app_erase_contacts() does it as their owner. It takes the people in the
+    // same call and fails with nothing removed if anything else still refers
+    // to them, someone else's request on one of their appointments included,
+    // so a request leaves only with the person it names.
     const [erased] = (
       await tx.db.execute<{
         requests_deleted: number;

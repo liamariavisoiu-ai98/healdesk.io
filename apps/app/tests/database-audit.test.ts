@@ -119,10 +119,12 @@ describeDb("database audit (0031)", () => {
     });
   });
 
-  test("every clinics column except the gate columns and the offboarding dates stays updatable (a new column needs its GRANT)", async () => {
-    // The two BAA gate columns (0031), and the three offboarding dates that
+  test("every clinics column except the gate columns, the offboarding dates and the record clock's history stays updatable (a new column needs its GRANT)", async () => {
+    // The two BAA gate columns (0031); the three offboarding dates that
     // app_destroy_booking_requests reads as its floor, which only
-    // app_start_offboarding and app_mark_clinic_destroyed write
+    // app_start_offboarding and app_mark_clinic_destroyed write; and the
+    // record clock's last shortening, which app_purge_booking_requests reads
+    // and only the clinics_record_clock trigger writes
     // (booking_request_destruction migration).
     const { rows } = await getMigratorPool().query<{ attname: string; ok: boolean }>(`
       select a.attname,
@@ -137,6 +139,8 @@ describeDb("database audit (0031)", () => {
       "destroy_after",
       "destroyed_at",
       "offboarding_started_at",
+      "retention_record_days_previous",
+      "retention_record_days_shortened_at",
     ]);
   });
 

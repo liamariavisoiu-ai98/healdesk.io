@@ -344,13 +344,23 @@ export const clinics = pgTable(
      * opt-out was honoured, and deleting evidence is not a privacy control.
      * The purge job (lib/retention/purge.ts) is the only reader.
      *
-     * The record clock is never below a day (a CHECK below):
-     * app_purge_booking_requests bounds its cutoff by it, and a clock of zero
-     * or less would let that cutoff run past now(), to the requests behind
-     * bookings still ahead.
+     * The record clock is never below a day (a CHECK below), and the
+     * practice may shorten it, but app_purge_booking_requests runs on the
+     * clock in force: for a day after a shortening, the longer clock it
+     * replaced (the two columns below). The runtime role writes the clock, so
+     * without that day it could shorten the clock, purge decided requests on
+     * it and put it back in one transaction.
      */
     retentionMediaDays: integer("retention_media_days").notNull().default(90),
     retentionRecordDays: integer("retention_record_days").notNull().default(90),
+    /**
+     * The record clock's last shortening: the clock in force just before it
+     * and when it happened. Written only by the clinics_record_clock trigger
+     * (booking_request_destruction migration); the runtime role has no UPDATE
+     * on either column, and a new clinic carries neither.
+     */
+    retentionRecordDaysPrevious: integer("retention_record_days_previous"),
+    retentionRecordDaysShortenedAt: timestamp("retention_record_days_shortened_at", { withTimezone: true }),
 
     // --- Onboarding: the road from payment to the first answered call. ---
     /**
@@ -436,10 +446,13 @@ export const clinics = pgTable(
 
     // --- Offboarding: the BAA's return-or-destroy clause, as dates. ---
     // offboarding_started_at, destroy_after and destroyed_at are the
-    // database's: the runtime role has no UPDATE on them, and only
+    // database's: the runtime role has no UPDATE on them, a new clinic cannot
+    // carry them (the clinics_insert_guard trigger), and only
     // app_start_offboarding() and app_mark_clinic_destroyed() write them, from
     // the database's clock, because app_destroy_booking_requests() reads them
     // as its floor (booking_request_destruction migration).
+    // app_mark_clinic_destroyed() also waits for the rows destruction deletes
+    // to be gone, so destroyed_at is never a destruction that did not run.
     /** The clinic left (subscription deleted, or an operator ended it). */
     offboardingStartedAt: timestamp("offboarding_started_at", { withTimezone: true }),
     /** The export was produced and handed over; destruction may proceed after destroy_after. */
@@ -1257,18 +1270,22 @@ export const bookingRequests = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
-    // Cascade: a request goes with the person it was about. The app role has
-    // no DELETE here on purpose; referential actions run as the table owner.
-    // Destruction, erasure and the purge cannot rely on the cascade alone (a
-    // confirmed request holds its appointment, which holds the contact), so
-    // they delete requests first, through SECURITY DEFINER functions scoped
-    // to their tenant, each bound to state the app role cannot write:
-    // app_erase_contacts takes the person in the same call,
-    // app_destroy_booking_requests needs offboarding stamped thirty days ago
-    // by the database, and app_purge_booking_requests the clinic's clock.
+    // NO ACTION, not the cascade it had until the
+    // booking_request_destruction migration: the app role may DELETE
+    // contacts and re-point appointments and calls, so with a cascade it
+    // could delete a person, put them back under the same id and put a
+    // decided request back with another decision. A person cannot be deleted
+    // while a request names them. Requests are deleted first, only through
+    // SECURITY DEFINER functions scoped to their tenant, each bound to state
+    // the app role cannot write: app_erase_contacts takes the people's own
+    // requests and the people in the same call, app_destroy_booking_requests
+    // needs offboarding stamped thirty days ago by the database, and
+    // app_purge_booking_requests the request's own frozen dates and the
+    // record clock in force. A request's id and token hash are kept after it
+    // is deleted (bookingRequestKeys), so it never comes back.
     contactId: uuid("contact_id")
       .notNull()
-      .references(() => contacts.id, { onDelete: "cascade" }),
+      .references(() => contacts.id),
     /**
      * Where the request came from. The desk has the final say on every
      * request; whether the assistant takes a request or books directly is
@@ -1367,6 +1384,30 @@ export const bookingRequests = pgTable(
 export type ProposedSlot = { at: string; label: string; source: "calendar" | "desk" };
 /** See bookingRequests.bookedVia. 0041 dropped 'callback' from the CHECK: healdesk places no calls. */
 export type BookedVia = "desk" | "agent_direct";
+
+/**
+ * The id and token hash of every booking request ever written, kept after
+ * the request is deleted, so a request is written once
+ * (booking_request_destruction migration). The runtime role keeps INSERT on
+ * booking_requests and the no-rewrite trigger is BEFORE UPDATE only, so
+ * without this a request that destruction, erasure or the purge deleted could
+ * be put back under the same id and the same desk link with another
+ * decision. A BEFORE INSERT trigger on booking_requests, SECURITY DEFINER,
+ * writes both here and refuses a request whose id or token hash is already
+ * here. It is written at insert, not at delete, so a re-insert racing the
+ * delete that frees the id finds it taken all the same. The runtime role
+ * holds no privilege here at all. No clinic, no person: a random id and a
+ * digest of a random token, which identify nobody.
+ */
+export const bookingRequestKeys = pgTable(
+  "booking_request_keys",
+  {
+    id: uuid("id").primaryKey(),
+    tokenHash: customType<{ data: Buffer }>({ dataType: () => "bytea" })("token_hash").notNull(),
+    writtenAt: timestamp("written_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("booking_request_keys_token_idx").on(t.tokenHash)],
+);
 
 /**
  * The half-collected request: what the person has said so far on one thread,

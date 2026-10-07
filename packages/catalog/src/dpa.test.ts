@@ -97,14 +97,14 @@ const VARIANTS: Record<string, Partial<DpaVariables>> = {
 
 /** variant → sha256 of the assembled text. Frozen from the draft; see the header. */
 const GOLDEN: Record<string, string> = {
-  sample: "6e70f47ad5d283dfdb4b12195b8c868b77efbefc47dd5b4d2d4d6fa015d4b4fe",
-  notcovered_live_covered: "a9b939303a18289fad30bedfa9bc38c81d6a340e05d426e3315b0d87fac70b5a",
-  notcovered_live_uncovered: "8258a6aca17c4137374156f2b89030e19f35168b8c4d8cfdb4be9c5f62c09dad",
-  notcovered_live_personal: "192357affc33bc37fa11eb90d97bac0c23084abb55ebd8801f6928d481bfb271",
-  notcovered_notused_other: "8c465518f7b3d0fcc92ca0c45932e4c3a5cf69071f315cbad5595ef433ecde58",
-  vet_live_covered: "036aa97e6a0d4d6c9e900cf4bf332a4b56c9ce5da2da6399a8f65840ea12302f",
-  vet_live_personal: "bb328dc770e1c6578d4ebb32021a5dcf4d0fce64444fa4d5c54f9b5ffa3e92ea",
-  vet_notused_mindbody: "13462ff90ced0ede65fd21a3729372013696043b48b2d7339c595f14612805f6",
+  sample: "70029eff3e018926b01358683922b9675bd897e7fc929a4e53381d12b42de0a9",
+  notcovered_live_covered: "debbc8fd40235930ddbbe1a30f81ca5f670187b5834b0ca443ab7a37e0453ac1",
+  notcovered_live_uncovered: "2d0a1605753594fcbaa95e1a5461a3246cd39c4762b0f92718ae545942e8ad4c",
+  notcovered_live_personal: "3d7f1d65adc0e5ae03d7d7425588def8e562d870758138516236f9566b5fad1b",
+  notcovered_notused_other: "b35916655c03d685897de70e97dea43001ea03336c40d71591b87db1a5bc304f",
+  vet_live_covered: "2116f0901d0ea875d81de0d11e9d1d218883602ac3a22ae0f8c92a0763570259",
+  vet_live_personal: "e09f728e8bdbd83c8a351ea57cff7a2b632203f2939703cff6f652258ad66f08",
+  vet_notused_mindbody: "152c055278876ee8e84646ea629c4e409ffcddc30f78953aa86dbc5399e5ff9f",
 };
 
 const template = () => currentDpaTemplate();
@@ -337,6 +337,7 @@ describe("what the DPA says", () => {
       // quoted as event.ts writes it for every practice: it names no person.
       const text = render(answers).text.split(CALENDAR_EVENT_FALLBACK_QUOTED).join("");
       expect(text, JSON.stringify(answers)).not.toMatch(/\bpatients?\b/i);
+      expect(text, JSON.stringify(answers)).not.toMatch(/\bPHI\b/);
     }
     const vet = unwrap(render(VARIANTS.vet_live_covered!).text);
     expect(vet).toContain(
@@ -498,20 +499,24 @@ describe("what the DPA says", () => {
     }
   }, 60_000);
 
-  test("data sources promise calendar access only where the calendar clause grants it", () => {
+  test("data sources promise calendar access only where the calendar clause, or an election, grants it", () => {
     const sources = (answers: Partial<DpaVariables>) =>
       unwrap(section(render(answers).text, "What healdesk reads from your systems"));
     expect(sources({})).toContain(
       "healdesk holds no credentials to Mindbody, or to any other practice-management or point-of-sale system",
     );
-    expect(sources({})).toMatch(/during a call or chat\.$/);
+    // A booking system that reads no Google Calendar connects none; only an
+    // election can give a location one, and then the clause stays true.
+    expect(sources({})).toMatch(
+      /during a call or chat, together with the calendar access any calendar election describes\.$/,
+    );
+    expect(sources(VARIANTS.notcovered_notused_other!)).not.toContain("Google Calendar clause");
     expect(sources(VARIANTS.notcovered_live_covered!)).toContain(
       "healdesk holds no credentials to any practice-management or point-of-sale system and reads nothing from one.",
     );
     expect(sources(VARIANTS.notcovered_live_covered!)).toContain(
-      "during a call or chat, together with the calendar access the Google Calendar clause describes.",
+      "during a call or chat, together with the calendar access the Google Calendar clause, or a calendar election that takes its place, describes.",
     );
-    expect(sources(VARIANTS.notcovered_notused_other!)).not.toContain("calendar access");
   });
 
   test("what the assistant asks for is the booking catalogue as a ceiling, with no email, and nothing clinical", () => {
@@ -586,6 +591,169 @@ describe("what the DPA says", () => {
       "the email address of the signatory above, which is also the address of Practice's healdesk account",
     );
     expect(text).toContain("as section 14 of the Terms provides");
+  });
+});
+
+/**
+ * The funnel's pre-release changes (agreement-changes.md §12.14, "What remains
+ * the funnel's to do"), each pinned against the clause BAA 1.3.0 states it
+ * in, or against the shared clause it was reconciled with.
+ */
+describe("the DPA's pre-release text", () => {
+  test("defines a calendar election, as BAA 1.3.0's clause 1 does, and makes an accepted one part of it", () => {
+    const definition =
+      '"Calendar election" means the document, in the form healdesk provides, by which Practice sets the Google Calendar terms for one location, accepted for Practice by a person with authority to bind it. Once accepted, it forms part of this agreement.';
+    const baa130 = unwrap(
+      prepareBaa(getBaaTemplate("1.3.0")!, {
+        clinicLegalName: "Glow Med Spa LLC",
+        specialty: "Med spa",
+        signatoryName: "Alex Chen",
+        signatoryEmail: "alex@glowmedspa.test",
+        effectiveDate: "2026-10-06",
+        isCoveredEntity: false,
+        attributionMode: "estimated",
+        connectedPlatform: "Mindbody",
+        outboundMessaging: false,
+        bookingSystem: "mindbody",
+        calendarAccount: "personal",
+      }).text,
+    );
+    expect(baa130).toContain(definition);
+    for (const answers of Object.values(VARIANTS)) {
+      const text = render(answers).text;
+      const definitions = unwrap(section(text, "Definitions"));
+      expect(definitions, JSON.stringify(answers)).toContain(definition);
+      // Defined before any clause uses the term: the state-law clause, the
+      // data sources and the calendar clause's location paragraph all do.
+      const flat = unwrap(text);
+      expect(flat.search(/calendar election/i), JSON.stringify(answers)).toBe(
+        flat.indexOf(definition) + 1,
+      );
+      expect(flat).toContain(unwrap(CALENDAR_LOCATION_PARAGRAPH));
+      expect(unwrap(section(text, "Notices, governing law, and interpretation"))).toContain(
+        "This agreement (with any calendar election accepted under it), the Terms and the order Practice placed are the entire agreement",
+      );
+    }
+  });
+
+  test("a breach includes a state-law breach of security, as in BAA 1.3.0", () => {
+    expect(unwrap(section(render({}).text, "Definitions"))).toContain(
+      'A "breach" is the unauthorised acquisition of, or access to, Client Information that compromises its security, confidentiality or integrity, and also includes anything an applicable state breach-notification law treats as a breach of the security of Client Information.',
+    );
+  });
+
+  test("every incident and breach is notified immediately, and within 24 hours, as BAA 1.3.0's one rule", () => {
+    for (const answers of Object.values(VARIANTS)) {
+      const incidents = unwrap(section(render(answers).text, "Reporting incidents and breaches"));
+      expect(incidents).toContain(
+        "healdesk will notify Practice, by email to Practice's address in the Notices clause, immediately following discovery of any of the following, and in any case within 24 hours of discovery: a. any use or disclosure of Client Information that this agreement does not permit, by healdesk or by a subcontractor; b. any breach; c. any security incident, including anything a state breach-notification law treats as a breach of the security of Client Information.",
+      );
+      // No other clock: not 1.2.1's five days for anything.
+      expect(incidents).not.toMatch(/five (business|calendar) days|5 days/);
+      expect(incidents).toContain(
+        "Each notice is also a written report, sent to the same address and as complete as healdesk can then make it, and healdesk will add to the report promptly as information becomes available.",
+      );
+      for (const item of [
+        "the identification of each client whose Client Information has been, or is reasonably believed by healdesk to have been, accessed, acquired, used or disclosed during the breach, sent by secure transfer as the Safeguards clause provides;",
+        "a brief description of what happened, including the date of the breach and the date of its discovery;",
+        "any steps clients should take to protect themselves from potential harm resulting from the breach;",
+        "whether a law enforcement official required a notice to be delayed;",
+      ]) {
+        expect(incidents).toContain(item);
+      }
+      expect(incidents).toContain(
+        "healdesk delays a notice only where a law enforcement official states that the notice would impede a criminal investigation or damage national security. It then delays it only for as long as the law that applies provides, and gives it as soon as that delay ends.",
+      );
+      // The shared clause's item f sends a state-law breach here.
+      expect(unwrap(section(render(answers).text, STATE_LAW_CLAUSE_HEADING))).toContain(
+        'report it, as the clause headed "Reporting incidents and breaches" provides for a breach.',
+      );
+    }
+  });
+
+  test('"without penalty" has the effect BAA 1.3.0 gives it, outside the liability exclusion and the indemnity', () => {
+    const text = render({}).text;
+    const term = unwrap(section(text, "Term, termination, and what happens to the information"));
+    expect(term).toContain("Practice may also terminate it under the Subcontractors clause.");
+    expect(term).toContain(
+      "Terminating this agreement under the Subcontractors clause is without penalty to Practice: the Services end on the same day, no Fees accrue for any time after that day, and healdesk refunds any Fees Practice has paid for that time.",
+    );
+    expect(unwrap(section(text, "Liability, and who indemnifies whom"))).toContain(
+      "Nothing in this clause limits the refund the Term clause provides, and Practice's indemnity below does not extend to a claim for it.",
+    );
+    // And it prevails over the Terms on termination and the Fees, as 1.3.0's clause 1 does,
+    // so the Terms' "not refundable" cannot take the refund back.
+    expect(unwrap(section(text, "Definitions"))).toContain(
+      "Where this agreement and the Terms conflict about Client Information, or about terminating this agreement and what then happens to the Services and the Fees, this agreement governs.",
+    );
+    // The promise it gives effect to, in the shared sentence.
+    expect(unwrap(section(text, "Subcontractors"))).toContain(
+      "Practice may terminate this agreement without penalty.",
+    );
+  });
+
+  test("the instructions, requests and assistance clauses state each duty once, beside the shared clause", () => {
+    const text = render({}).text;
+    const shared = unwrap(section(text, STATE_LAW_CLAUSE_HEADING));
+    const instructions = unwrap(section(text, "Practice's instructions"));
+    const requests = unwrap(section(text, "Clients' requests"));
+    const assistance = unwrap(section(text, "Assistance and audit"));
+
+    // What the instructions are, and the notices and consents, are the shared clause's.
+    expect(shared).toContain(
+      "Practice's documented instructions to healdesk are this agreement and the settings Practice chooses in its portal, within the purposes below.",
+    );
+    expect(shared).toContain(
+      "It will make sure its own notices, consents and any consumer health data privacy policy cover the processing this clause describes",
+    );
+    expect(instructions).toContain(
+      `Practice's documented instructions to healdesk are those the clause headed "${STATE_LAW_CLAUSE_HEADING}" describes.`,
+    );
+    expect(instructions).not.toMatch(/through the Terms and the settings|is responsible for any notice/);
+    // What only this clause says stays, the broader lawful-instruction promise included.
+    expect(instructions).toContain(
+      "healdesk will tell Practice if it believes an instruction would break a law that applies to Client Information, and need not follow that instruction.",
+    );
+    expect(instructions).toContain(
+      "Practice will not ask healdesk to use or disclose Client Information in a way the law would not permit Practice itself to.",
+    );
+
+    // Deletion is the shared clause's item c; the help with any client's request stays here.
+    expect(shared).toContain(
+      "when Practice tells it to delete a person's information, delete it within ten business days from healdesk's own records",
+    );
+    expect(requests).toContain(
+      `It will correct that information as Practice directs, and delete it as the clause headed "${STATE_LAW_CLAUSE_HEADING}" provides.`,
+    );
+    expect(requests).not.toContain("correct or delete that information as Practice directs");
+    expect(requests).toContain(
+      "healdesk will give Practice what it needs to answer within ten business days of Practice asking.",
+    );
+    // A request made to healdesk is any request, as the shared clause's pointer says, answered only in the reply.
+    expect(shared).toContain(
+      `A request made to healdesk directly is handled as the clause headed "Clients' requests" provides.`,
+    );
+    expect(requests).toContain(
+      "If a client makes such a request, or any other request about their information, to healdesk itself rather than to Practice, healdesk will not act on it. It will pass the request to Practice within five business days and, in its reply to the client, tell them that healdesk cannot act on it and has passed it to Practice.",
+    );
+
+    // The state privacy laws' help is the shared clause's; every other law's stays here.
+    expect(assistance).toContain(
+      `For the state privacy laws, healdesk helps Practice as the clause headed "${STATE_LAW_CLAUSE_HEADING}" provides. For any other law that applies to Client Information, healdesk will give Practice the reasonable help it needs to meet its own obligations, including to answer a regulator or a client.`,
+    );
+    expect(assistance).toContain(
+      "make its practices, books and records relating to Client Information available to a regulator",
+    );
+  });
+
+  test("the telephone-number sentences are left as they were, for gates 6 and 7", () => {
+    const text = render({}).text;
+    expect(unwrap(section(text, "Clients' requests"))).toContain(
+      "The telephone number of a client whose information is deleted is kept only as the record that the deletion was asked for.",
+    );
+    expect(unwrap(section(text, "Term, termination, and what happens to the information"))).toContain(
+      "After it, healdesk holds no Client Information for Practice except the telephone number of any client who asked to have their information deleted, kept only as the record of that request.",
+    );
   });
 });
 

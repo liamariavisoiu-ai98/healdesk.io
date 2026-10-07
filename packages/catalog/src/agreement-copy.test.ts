@@ -116,6 +116,35 @@ describe("AGREEMENT_COPY", () => {
     );
   });
 
+  test("every DPA note and bullet cites a heading the DPA prints, and says what its clause says", () => {
+    const template = currentDpaTemplate();
+    const headings = new Set(template.clauses.map((c) => `“${c.heading}”`));
+    // A note cites the very clause it sits beside, by the heading that clause prints.
+    for (const [id, note] of Object.entries(DPA_CLAUSE_EXPLAINERS)) {
+      const clause = template.clauses.find((c) => c.id === id)!;
+      expect(note.citation, id).toBe(`“${clause.heading}”`);
+    }
+    // A bullet cites one or more clauses, each by a heading the DPA prints.
+    for (const term of DPA_EXPLAINER.terms) {
+      const cited = term.citation.match(/“[^”]+”/g) ?? [];
+      expect(cited.length, term.plain).toBeGreaterThan(0);
+      for (const heading of cited) {
+        expect(headings.has(heading), `${term.plain}: ${heading}`).toBe(true);
+      }
+    }
+    const bullets = DPA_EXPLAINER.terms.map((t) => t.plain).join("\n");
+    // The 24-hour rule and "without penalty", as the clauses now state them.
+    expect(bullets).toContain("within 24 hours at most, of any misuse, security incident or breach");
+    expect(bullets).not.toMatch(/five (business|calendar) days/);
+    expect(bullets).toContain("so you can end the agreement without penalty if you object");
+    expect(dpaClauseExplainer(CURRENT_DPA_VERSION, "subcontractors")?.plain).toContain(
+      "the service ends with it, and fees you paid for the time after are refunded",
+    );
+    expect(dpaClauseExplainer(CURRENT_DPA_VERSION, "data-sources")?.plain).toContain(
+      "the calendar clause, or a calendar election, describes",
+    );
+  });
+
   test("every practice the DPA would be chosen for can be given one", () => {
     for (const s of specialties) {
       for (const covered of [...COVERED_ANSWERS, null] as (CoveredAnswer | null)[]) {

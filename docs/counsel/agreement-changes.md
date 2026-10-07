@@ -1415,26 +1415,34 @@ switches it, as the shared-module agreement of 6 October provides:
   variant of the state-law clause in its appendix.
 - The DPA's eight golden hashes and `docs/dpa-v1.0.0.txt` are regenerated.
 
-What remains the funnel's to do, before the DPA is released:
+What remained the funnel's to do, before the DPA is released, and what was
+done on 7 October 2026 (`docs/counsel/dpa.md` § 5, items 10 to 14; the DPA's
+golden hashes and `docs/dpa-v1.0.0.txt` regenerated, no BAA hash moved):
 
-- Define "calendar election" in the DPA's own Definitions clause, as BAA
-  1.3.0's clause 1 does, since the shared state-law clause and the location
-  paragraph both use it.
-- Get an election form that names the Data Protection Agreement.
-  `CALENDAR_ELECTIONS[0]` names only the Business Associate Agreement
-  (`dpa.md`, gap 6). Until there is one, the DPA refuses a second location
-  or a change of booking system.
-- Give "without penalty" the same effect in its own Term clause, and move its
-  incident and breach notice to the 24-hour rule.
-- Change the "Clients' requests" and Term clauses. Both say the telephone
+- Done: "calendar election" defined in the DPA's own Definitions clause, in
+  BAA 1.3.0's clause 1 words, an accepted one part of the agreement and of
+  its entire-agreement sentence.
+- Done, in part: an election form that names the Data Protection
+  Agreement, `calendar-election-dpa/1.0.0`
+  (`packages/catalog/src/dpa-calendar-election.ts`), unreleased and frozen,
+  with `calendarElectionFor` to pick a form by the agreement's kind. The
+  calendar session's election rows (plan C6, C7) are not on main, so
+  nothing can record an election of either kind, and the DPA still refuses
+  a second location or a change of booking system; that refusal stays
+  until the form is released and the rows take it (`dpa.md`, gap 6).
+- Done: "without penalty" has 1.3.0's effect (the Services end that day, no
+  Fees after, a refund outside the liability exclusion and the indemnity,
+  and the agreement prevails over the Terms on termination and the Fees),
+  and the incident and breach notice is the 24-hour rule.
+- Done: the instructions, requests and assistance clauses reconciled with the
+  shared clause, one statement of each duty, the more protective kept; and
+  a request made to healdesk is answered only in its reply (PT-24).
+- Done: `docs/counsel/dpa.md` brought up to date.
+- Still to do: the "Clients' requests" and Term clauses say the telephone
   number of a client whose information was deleted is kept as the record of
-  the request, and gates 6 and 7 remove that number. Item c of the shared
-  clause allows only a record kept no longer than needed.
-- Reconcile the DPA's own instructions, requests and assistance clauses with
-  the shared clause where they overlap. Meanwhile the shared clause's
-  precedence sentence makes the more protective one govern.
-- Bring `docs/counsel/dpa.md` up to date: it still describes the two edits
-  and the open choice of the fuller clause.
+  the request; gates 6 and 7 remove that number, and both sentences change
+  with them. Item c of the shared clause, which allows only a record kept no
+  longer than needed, governs meanwhile.
 
 #### Flagged for the owner
 

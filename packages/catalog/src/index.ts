@@ -26,6 +26,7 @@ export * from "./clinical-content";
 export * from "./connection-steps";
 export * from "./direct-booking-addendum";
 export * from "./dpa";
+export * from "./dpa-calendar-election";
 export * from "./dpa-explainer";
 export * from "./forwarding";
 export * from "./google-calendar-disclosure";

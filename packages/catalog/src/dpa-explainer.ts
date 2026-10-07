@@ -1,6 +1,6 @@
 import type { AgreementExplainer } from "./agreement-copy";
 import { BAA_CLAUSE_EXPLAINERS, type BaaExplainerTerm } from "./baa-explainer";
-import { CALENDAR_CLAUSE_IDS } from "./calendar-terms";
+import { CALENDAR_CLAUSE_HEADING, CALENDAR_CLAUSE_IDS } from "./calendar-terms";
 import { getDpaTemplate } from "./dpa";
 import { SUBPROCESSOR_NOTICE_HOURS } from "./subprocessor-notice";
 
@@ -65,15 +65,15 @@ export const DPA_EXPLAINER = {
     },
     {
       plain:
-        "Tell you within five business days of any misuse or security incident, and within " +
-        "five calendar days of a breach",
+        "Tell you immediately, and within 24 hours at most, of any misuse, security incident " +
+        "or breach, with a written report you can use for your own notices",
       citation: clause("Reporting incidents and breaches"),
     },
     {
       plain:
         "Hold every subcontractor that handles it to terms as protective, and tell you by email " +
         `at least ${SUBPROCESSOR_NOTICE_HOURS} hours before a new one does, so you can end the ` +
-        "agreement if you object",
+        "agreement without penalty if you object",
       citation: clause("Subcontractors"),
     },
     {
@@ -100,29 +100,31 @@ export const DPA_EXPLAINER = {
  * DPA clause id, for the signing screen to show beside the clause. The three
  * calendar notes are the BAA's own words, because the DPA chooses and prints
  * the same calendar clause (the BAA notes name no patient); their citation is
- * this document's clause, never 45 CFR. The other three are written for this
- * document: client information, the DPA's categories of recipient, and its
- * 24 hours' notice.
+ * this document's clause, by the heading it prints ("Google Calendar", since
+ * the pre-release audit renamed it), never 45 CFR. The other three are
+ * written for this document: client information, the DPA's categories of
+ * recipient, and its 24 hours' notice with the effect "without penalty" has.
  */
 export const DPA_CLAUSE_EXPLAINERS: Readonly<Record<string, BaaExplainerTerm>> = {
   "data-sources": {
     plain:
       "healdesk connects to no practice-management or point-of-sale system and holds no " +
       "credentials to one. The only client information it receives is what your clients give it " +
-      "in a call or chat, plus whatever Google Calendar access the calendar clause describes",
+      "in a call or chat, plus whatever Google Calendar access the calendar clause, or a " +
+      "calendar election, describes",
     citation: clause("What healdesk reads from your systems"),
   },
   [CALENDAR_CLAUSE_IDS.covered]: {
     plain: BAA_CLAUSE_EXPLAINERS["google-calendar-covered"].plain,
-    citation: clause("Practice's Google Calendar"),
+    citation: clause(CALENDAR_CLAUSE_HEADING),
   },
   [CALENDAR_CLAUSE_IDS.uncovered]: {
     plain: BAA_CLAUSE_EXPLAINERS["google-calendar-uncovered"].plain,
-    citation: clause("Practice's Google Calendar"),
+    citation: clause(CALENDAR_CLAUSE_HEADING),
   },
   [CALENDAR_CLAUSE_IDS.not_used]: {
     plain: BAA_CLAUSE_EXPLAINERS["google-calendar-not-used"].plain,
-    citation: clause("Practice's Google Calendar"),
+    citation: clause(CALENDAR_CLAUSE_HEADING),
   },
   "minimum-necessary": {
     plain:
@@ -144,7 +146,8 @@ export const DPA_CLAUSE_EXPLAINERS: Readonly<Record<string, BaaExplainerTerm>> =
       "requires it to keep, may be held for up to two years), and never trains on it. You're told " +
       `by email at least ${SUBPROCESSOR_NOTICE_HOURS} hours before a new vendor handles client ` +
       "information, and may end the agreement without penalty if you object on reasonable " +
-      "grounds before the change takes effect",
+      "grounds before the change takes effect: the service ends with it, and fees you paid for " +
+      "the time after are refunded",
     citation: clause("Subcontractors"),
   },
 };

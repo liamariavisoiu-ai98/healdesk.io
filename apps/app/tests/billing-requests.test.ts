@@ -1562,6 +1562,7 @@ describeDb("the billing-request worker", () => {
         w.state.sub.latest_invoice = {
           id: "in_stepup_lost",
           billing_reason: "subscription_update",
+          status: "paid",
           hosted_invoice_url: "https://invoice.stripe.com/i/acct_test/test_lost",
         };
         throw stripeError("connection");
@@ -1607,6 +1608,9 @@ describeDb("the billing-request worker", () => {
             interval: "year",
             isInvoicedNow: true,
             hostedInvoiceUrl: "https://invoice.stripe.com/i/acct_test/test_lost",
+            // The recovered path re-reads with the invoice expanded, so it
+            // knows the charge went through, as the normal path does.
+            isPaid: true,
           },
         },
       ]);

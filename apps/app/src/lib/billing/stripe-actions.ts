@@ -670,23 +670,35 @@ function periodOf(
   return { start: new Date(start * 1000), end: new Date(end * 1000) };
 }
 
-/** What a subscription that already carries the change's marker says was applied. */
+/** Beside `hd_plan_change`: "true" when that update prorated, "false" when it only set the marker. */
+const PLAN_CHANGE_PRORATED_KEY = "hd_plan_change_prorated";
+
+/**
+ * What a subscription that already carries the change's marker says was
+ * applied. Which branch the earlier attempt took is read off the subscription
+ * too (`hd_plan_change_prorated`, written in the same update as the marker),
+ * never off our row: by the time a retry or the resume gets here, the
+ * subscription webhook has usually written the new package and interval to
+ * the row, so comparing against it would call a prorated change setup-only.
+ */
 function appliedFrom(
   subscription: SubscriptionLike,
   current: PackageItem,
-  hostedInvoiceUrl: string | null,
-  row: Pick<Entitlements, "planCode" | "billingInterval">,
+  setupInvoiceUrl: string | null,
 ): StripeApplied {
+  const isProrated = subscription.metadata?.[PLAN_CHANGE_PRORATED_KEY] === "true";
   return {
     ok: true,
-    hostedInvoiceUrl: hostedInvoiceUrl ?? invoiceUrlRaisedSince(subscription, 0),
+    // A prorating update raised one invoice, the proration and any setup-fee
+    // difference together. Otherwise the difference was its own one-off
+    // invoice, and the subscription's latest invoice is some other one.
+    hostedInvoiceUrl: isProrated
+      ? (invoiceUrlRaisedSince(subscription, 0) ?? setupInvoiceUrl)
+      : setupInvoiceUrl,
     billed: current.plan,
     meteredKeys: meteredKeysOf(subscription),
     period: periodOf(current.item),
-    // Which branch the earlier attempt took: only the prorating one moves
-    // the billed package or interval off the one our row still holds,
-    // since its outcome was never written.
-    isProrated: current.plan.id !== row.planCode || current.interval !== row.billingInterval,
+    isProrated,
   };
 }
 
@@ -955,12 +967,7 @@ async function changeStartedPlan(
   // carrying on the pending one): nothing more to charge, whatever else has
   // happened to the subscription since.
   if (subscription.metadata?.hd_plan_change === claim.requestId && current) {
-    return appliedFrom(
-      subscription,
-      current,
-      await recoverDeltaInvoiceUrl(stripe, claim),
-      claim.row,
-    );
+    return appliedFrom(subscription, current, await recoverDeltaInvoiceUrl(stripe, claim));
   }
   if (hasEnded(subscription)) {
     return refused("This plan has ended, so it can't be changed.");
@@ -1022,7 +1029,7 @@ async function changeStartedPlan(
           proration_behavior: "always_invoice",
           payment_behavior: "error_if_incomplete",
           off_session: true,
-          metadata: { hd_plan_change: claim.requestId },
+          metadata: { hd_plan_change: claim.requestId, [PLAN_CHANGE_PRORATED_KEY]: "true" },
           expand: ["items.data.price", "latest_invoice"],
         },
         workerRequestOptions(`hd-plan:${billingClinicId}:${claim.requestId}`),
@@ -1089,7 +1096,7 @@ async function markPlanChange(
       ...(metered.length > 0 ? { items: metered } : {}),
       proration_behavior: "none",
       off_session: true,
-      metadata: { hd_plan_change: requestId },
+      metadata: { hd_plan_change: requestId, [PLAN_CHANGE_PRORATED_KEY]: "false" },
       expand: ["items.data.price"],
     },
     workerRequestOptions(idempotencyKey),
@@ -1308,7 +1315,6 @@ export async function resumePlanChange(
         evidence.subscription,
         evidence.current,
         evidence.paid?.hosted_invoice_url ?? null,
-        claim.row,
       );
     } else if (evidence.paid) {
       const paidUrl = evidence.paid.hosted_invoice_url ?? null;

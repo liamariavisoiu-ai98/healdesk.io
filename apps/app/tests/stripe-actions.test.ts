@@ -259,7 +259,7 @@ describeDb("billing actions", () => {
         proration_behavior: "always_invoice",
         payment_behavior: "error_if_incomplete",
         off_session: true,
-        metadata: { hd_plan_change: "req-interval-1" },
+        metadata: { hd_plan_change: "req-interval-1", hd_plan_change_prorated: "true" },
         expand: ["items.data.price", "latest_invoice"],
       });
       expect(updates[0]!.args[2]).toMatchObject({
@@ -416,7 +416,7 @@ describeDb("billing actions", () => {
         ],
         proration_behavior: "none",
         off_session: true,
-        metadata: { hd_plan_change: "req-b0-1" },
+        metadata: { hd_plan_change: "req-b0-1", hd_plan_change_prorated: "false" },
         expand: ["items.data.price"],
       });
       expect(updates[0]!.args[2]).toMatchObject({ idempotencyKey: `${prefix}:marker` });
@@ -504,6 +504,38 @@ describeDb("billing actions", () => {
         billedPlanId: "chat-web",
         isProrated: true,
       });
+    });
+
+    test("a retry still says it was prorated after the webhook has written the new interval to our row", async () => {
+      const seeded = await seedBilling("cp-lost-synced", {
+        bought: "chat-web",
+        inService: ["web"],
+      });
+      startedWorld(seeded, { bought: "chat-web", billed: "chat-web" });
+      world.state.loseNextUpdateResponse = true;
+      const input = {
+        clinicId: seeded.clinicId,
+        planId: "web-voice",
+        interval: "year" as const,
+        requestId: "req-lost-synced-1",
+        actorLabel: "owner@clinic.test",
+      };
+      expect(await changePlan(input, { now: NOW })).toMatchObject({ status: "refused" });
+      expect(world.state.subscription.metadata).toMatchObject({
+        hd_plan_change: "req-lost-synced-1",
+        hd_plan_change_prorated: "true",
+      });
+      // customer.subscription.updated lands first and applies Stripe's
+      // package and interval, so our row no longer differs from Stripe's.
+      await inTenant(seeded.clinicId, (client) =>
+        client.query(`update entitlements set billing_interval = 'year' where clinic_id = $1`, [
+          seeded.clinicId,
+        ]),
+      );
+      expect(await changePlan(input, { now: NOW })).toMatchObject({ status: "changed" });
+      expect(world.fake.callsTo("subscriptions.update")).toHaveLength(1);
+      const [notice] = await noticesOf(seeded.clinicId);
+      expect(notice!.payload).toMatchObject({ interval: "year", isProrated: true });
     });
 
     test("a retry after the marker update failed resumes the paid one-off invoice by hd_ref instead of charging again", async () => {

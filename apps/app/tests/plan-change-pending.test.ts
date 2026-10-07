@@ -384,7 +384,7 @@ describeDb("a plan change in flight", () => {
       ],
       proration_behavior: "none",
       off_session: true,
-      metadata: { hd_plan_change: "req-c1" },
+      metadata: { hd_plan_change: "req-c1", hd_plan_change_prorated: "false" },
       expand: ["items.data.price"],
     });
     // A key of the resume's own: a failure Stripe cached under the
@@ -418,6 +418,41 @@ describeDb("a plan change in flight", () => {
     const after = world.fake.calls.length;
     await reconcileBilling(NOW);
     expect(world.fake.calls.length).toBe(after);
+  });
+
+  test("the resume of a prorating change still says it was prorated after the webhook has written the new interval to our row", async () => {
+    const seeded = await seedBilling("pc-resume-prorated", {
+      bought: "chat-web",
+      inService: ["web"],
+    });
+    startedWorld(seeded, { bought: "chat-web", billed: "chat-web" });
+    world.state.loseNextUpdateResponse = true;
+    const yearly = { interval: "year" as const };
+    expect(await changePlan(change(seeded.clinicId, "req-r1", yearly), { now: NOW })).toMatchObject(
+      { status: "refused" },
+    );
+    // customer.subscription.updated lands first and applies Stripe's
+    // interval, so our row no longer differs from what Stripe bills.
+    await inTenant(seeded.clinicId, (c) =>
+      c.query(`update entitlements set billing_interval = 'year' where clinic_id = $1`, [
+        seeded.clinicId,
+      ]),
+    );
+    await setLeaseUntil(seeded.clinicId, new Date(leaseClock() - 6 * MINUTE));
+
+    expect(
+      await resumePlanChange(
+        {
+          clinicId: seeded.clinicId,
+          actorLabel: "billing-reconcile",
+          staleAfterMs: STALE_PLAN_CHANGE_MS,
+        },
+        { now: NOW },
+      ),
+    ).toMatchObject({ status: "changed" });
+    expect(world.fake.callsTo("subscriptions.update")).toHaveLength(1);
+    const [notice] = await noticesOf(seeded.clinicId);
+    expect(notice!.payload).toMatchObject({ interval: "year", isProrated: true });
   });
 
   test("a pending change Stripe holds no charge for is dropped: what was left open voided, a draft deleted, nothing charged", async () => {

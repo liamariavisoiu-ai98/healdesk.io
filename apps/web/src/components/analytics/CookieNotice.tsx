@@ -20,7 +20,12 @@ import { getConsent, setConsent } from "@/lib/consent-store";
 export function CookieNotice() {
   const [open, setOpen] = useState(false);
 
+  // One read after mount, for the reason given above. useSyncExternalStore over
+  // onConsentChange would also open and close the notice as other tabs answer or
+  // clear the choice; with one read it follows the answer stored when the page
+  // loaded and this tab's own buttons.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage, after hydration
     setOpen(getConsent() === null);
   }, []);
 

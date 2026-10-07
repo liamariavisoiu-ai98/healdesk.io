@@ -4,8 +4,8 @@ import {
   AGREEMENT_PARTY,
   PAYMENTS_CLAUSE_BODY,
   PAYMENTS_CLAUSE_HEADING,
-  STATE_LAW_CLAUSE_BODY,
   STATE_LAW_CLAUSE_HEADING,
+  stateLawClauseBody,
 } from "./baa";
 import {
   bookingSyncFor,
@@ -16,6 +16,7 @@ import {
 import {
   CALENDAR_CLAUSE_HEADING,
   CALENDAR_CLAUSE_IDS,
+  CALENDAR_EVENT_FALLBACK_NAME,
   CALENDAR_LOCATION_PARAGRAPH,
   calendarTermsKind,
   isCalendarAccount,
@@ -57,14 +58,18 @@ import { wrap } from "./wrap";
  * shared one so that nothing here can move a BAA golden hash; what the two
  * documents share is quoted from one place:
  *
- *   - the state-law processor clause and the Payments clause are baa.ts's
- *     exported constants. The state-law text is used with the two edits a
- *     document without PHI needs (`DPA_STATE_LAW_EDITS`, below), never
- *     retyped;
+ *   - the state-law processor clause is `stateLawClauseBody` in this
+ *     document's words (subject "Client Information"): the fuller clause BAA
+ *     1.3.0 carries, as the funnel and the BAA's pre-release redraft agreed on
+ *     6 October 2026, with no PHI and no patient in it, this document's
+ *     headings for the clauses it names, the CMIA sentence, and its calendar
+ *     purposes and data following the booking sync. The Payments clause is
+ *     baa.ts's constant, word for word. Neither is retyped;
  *   - the calendar clause is chosen by `selectCalendarClause`, from the
  *     booking system and the kind of Google account, exactly as BAA 1.3.0
  *     chooses it, and carries the selector's sentences with the person a
- *     booking is for called a client (`CALENDAR_PERSON_NOUNS`), then the
+ *     booking is for called a client (`CALENDAR_PERSON_NOUNS`), except the
+ *     word the event itself carries, quoted as the event writes it, then the
  *     location paragraph, as 1.3.0 does;
  *   - the notice of a new subcontractor is subprocessor-notice.ts's sentence,
  *     24 hours by email with the right to object (owner, 6 October 2026);
@@ -210,50 +215,32 @@ function calendarKindOf(v: DpaVariables): CalendarTermsKind {
 // -----------------------------------------------------------------------------
 
 /**
- * The two edits the state-law clause needs in a document without PHI. Its
- * first words name "patient information", which this document calls Client
- * Information; its last sentence applies four clauses "to that information as
- * they apply to PHI", and here those clauses govern Client Information
- * already, so it goes (baa.ts says the DPA words that sentence for itself).
- * Everything between is the constant's, byte for byte, which dpa.test.ts pins.
- */
-export const DPA_STATE_LAW_EDITS = {
-  opening: ["healdesk processes patient information", "healdesk processes Client Information"],
-  droppedLastSentence:
-    "The reporting, subcontractor, security and return-or-destroy clauses of this agreement " +
-    "apply to that information as they apply to PHI.",
-} as const;
-
-function dpaStateLawBody(): string {
-  const [from, to] = DPA_STATE_LAW_EDITS.opening;
-  const last = ` ${DPA_STATE_LAW_EDITS.droppedLastSentence}`;
-  if (!STATE_LAW_CLAUSE_BODY.startsWith(from) || !STATE_LAW_CLAUSE_BODY.endsWith(last)) {
-    throw new DpaRenderError(
-      "The shared state-law clause no longer has the shape the DPA quotes; re-derive DPA_STATE_LAW_EDITS.",
-    );
-  }
-  return to + STATE_LAW_CLAUSE_BODY.slice(from.length, STATE_LAW_CLAUSE_BODY.length - last.length);
-}
-
-/** The state-law processor terms as the DPA prints them, unwrapped. */
-export const DPA_STATE_LAW_CLAUSE_BODY = dpaStateLawBody();
-
-/**
  * The calendar selector's words for the person a booking is for, and this
- * document's. The selector's clauses say "patient" in exactly these two
- * places (the WRITES sentence of calendar-terms.ts), and a veterinary
- * practice's agreement must never call a person a patient.
+ * document's. The selector's clauses say "patient" in exactly these places
+ * (the WRITES sentence of calendar-terms.ts, as the BAA's pre-release audit
+ * of 6 October 2026 left it), and a veterinary practice's agreement must never
+ * call a person a patient. In this document everyone who contacts Practice is
+ * a client, so the person booking "may not be the client the appointment is
+ * for" where the BAA says "may not be the patient".
  */
 export const CALENDAR_PERSON_NOUNS: readonly (readonly [string, string])[] = [
-  ["the patient's first name", "the client's first name"],
   ["about the patient", "about the client"],
+  ["who may not be the patient", "who may not be the client the appointment is for"],
 ];
+
+/**
+ * The one "Patient" the calendar clause keeps: the word the event itself
+ * carries when the first name given cannot be used, quoted. event.ts writes
+ * it for every practice, so a DPA that printed anything else there would
+ * misdescribe the event healdesk writes; quoting it calls no person a patient.
+ */
+export const CALENDAR_EVENT_FALLBACK_QUOTED = `"${CALENDAR_EVENT_FALLBACK_NAME}"`;
 
 /**
  * The calendar clause: the selector's body, paragraph by paragraph, with the
  * person nouns replaced and the paragraph wrapped again, then BAA 1.3.0's
  * location paragraph. Refuses rather than prints "patient" if the selector's
- * wording ever moves.
+ * wording ever moves, the quoted event word apart.
  */
 function dpaCalendarBody(v: DpaVariables): string {
   const selected = selectCalendarClause({
@@ -263,7 +250,7 @@ function dpaCalendarBody(v: DpaVariables): string {
   const paragraphs = selected.body.split("\n\n").map((paragraph) => {
     let text = paragraph.replace(/\s+/g, " ").trim();
     for (const [from, to] of CALENDAR_PERSON_NOUNS) text = text.split(from).join(to);
-    if (/\bpatients?\b/i.test(text)) {
+    if (/\bpatients?\b/i.test(text.split(CALENDAR_EVENT_FALLBACK_QUOTED).join(""))) {
       throw new DpaRenderError(
         `The calendar clause ${selected.clauseId} says "patient" where the DPA says "client"; extend CALENDAR_PERSON_NOUNS.`,
       );
@@ -428,12 +415,17 @@ const CLAUSES_1_0: readonly DpaClause[] = [
       ),
   },
 
-  // Quoted from baa.ts, with the two edits DPA_STATE_LAW_EDITS records.
+  // BAA 1.3.0's state-law clause, in this document's words (the subject
+  // chooses them), its calendar text following the booking sync as there.
   {
     id: "state-law",
     heading: STATE_LAW_CLAUSE_HEADING,
     appliesWhen: ALWAYS,
-    body: () => wrap(DPA_STATE_LAW_CLAUSE_BODY),
+    body: (v) =>
+      stateLawClauseBody({
+        subject: "Client Information",
+        sync: bookingSyncFor(v.bookingSystem),
+      }),
   },
 
   // Quoted from baa.ts, word for word.

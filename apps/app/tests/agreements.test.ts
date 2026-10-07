@@ -474,10 +474,11 @@ function describeVariant(v: BaaVariables): string {
  * paths will call, so this is the set the funnel can actually produce.
  *
  * Two answers join the axes: the booking system, of which one live system
- * (no booking system) and one manual one (Boulevard, which the phase-two
- * read-back can also verify) stand for the rest, and the kind of Google
- * account. Whether the practice declared itself a covered entity does not
- * limit the calendar kind (owner, Q3), so the axes are crossed in full.
+ * (no booking system) and one manual one (Boulevard) stand for the rest, and
+ * the kind of Google account. Whether the practice declared itself a covered
+ * entity does not limit the calendar kind (owner, Q3), so the axes are
+ * crossed in full. Verified reporting is not an axis here: 1.3.0 refuses it
+ * (pre-release audit, HRC-17), which the last test pins.
  */
 describe("every 1.3.0 variant the funnel will produce", () => {
   const DRAFT = "1.3.0";
@@ -492,29 +493,20 @@ describe("every 1.3.0 variant the funnel will produce", () => {
 
   const inputs: { label: string; variables: BaaVariables }[] = [];
   for (const isCoveredEntity of [true, false, null] as const) {
-    for (const attributionMode of ["estimated", "verified"] as const) {
-      for (const bookingSystem of ["none", "boulevard"] as const) {
-        // Verified needs a system to read from; no booking system has none.
-        if (attributionMode === "verified" && bookingSystem === "none") continue;
-        for (const calendarAccount of CALENDAR_ACCOUNTS) {
-          const selections = buildBaaSelections({
-            specialtyId: "med-spa",
-            attributionMode,
-            bookingSystem,
-            isCoveredEntity,
-            calendarAccount,
-            template: draft(),
-          });
-          inputs.push({
-            label: [
-              `ce=${String(isCoveredEntity)}`,
-              attributionMode,
-              bookingSystem,
-              calendarAccount,
-            ].join("/"),
-            variables: { ...selections, ...SIGNER },
-          });
-        }
+    for (const bookingSystem of ["none", "boulevard"] as const) {
+      for (const calendarAccount of CALENDAR_ACCOUNTS) {
+        const selections = buildBaaSelections({
+          specialtyId: "med-spa",
+          attributionMode: "estimated",
+          bookingSystem,
+          isCoveredEntity,
+          calendarAccount,
+          template: draft(),
+        });
+        inputs.push({
+          label: [`ce=${String(isCoveredEntity)}`, bookingSystem, calendarAccount].join("/"),
+          variables: { ...selections, ...SIGNER },
+        });
       }
     }
   }
@@ -527,12 +519,11 @@ describe("every 1.3.0 variant the funnel will produce", () => {
   ];
 
   test("there are exactly as many documents as the axes predict", () => {
-    // 3 covered-entity answers × 3 account kinds × (live estimated, manual
-    // estimated, manual verified) = 27 inputs. A manual system connects to no
-    // calendar, so its account answer is kept and changes nothing: 3 × (3
-    // live documents + 1 manual estimated + 1 manual verified) = 15.
-    expect(inputs).toHaveLength(27);
-    expect(documents).toHaveLength(15);
+    // 3 covered-entity answers × 3 account kinds × (live, manual) = 18
+    // inputs. A manual system connects to no calendar, so its account answer
+    // is kept and changes nothing: 3 × (3 live documents + 1 manual) = 12.
+    expect(inputs).toHaveLength(18);
+    expect(documents).toHaveLength(12);
   });
 
   test.each(documents.map((d) => [d.label, d.variables] as const))(
@@ -588,15 +579,29 @@ describe("every 1.3.0 variant the funnel will produce", () => {
     }
   });
 
-  test("only a verified clinic's agreement describes reading its systems, and none claims revenue otherwise", () => {
+  test("no agreement describes reading the practice's systems, and none claims revenue", () => {
     for (const { label, variables } of documents) {
       const text = renderBaa(draft(), variables);
-      if (variables.attributionMode === "verified") {
-        expect(text, label).toMatch(/READ-ONLY access/);
-      } else {
-        expect(text, label).toMatch(/holds no\s+credentials/);
-        expect(text, label).not.toMatch(/READ-ONLY access|revenue/i);
-      }
+      expect(text, label).toMatch(/holds no\s+credentials/);
+      expect(text, label).not.toMatch(/READ-ONLY access|revenue/i);
+    }
+  });
+
+  test("refuses verified reporting, the phase-two read-back it does not describe", () => {
+    // Fenced at signing too (HEALDESK_PHASE_TWO_ATTRIBUTION), but the
+    // document refuses it itself, so no caller can produce one (HRC-17).
+    for (const bookingSystem of ["boulevard", "mindbody", "calcom"] as const) {
+      const selections = buildBaaSelections({
+        specialtyId: "med-spa",
+        attributionMode: "verified",
+        bookingSystem,
+        isCoveredEntity: true,
+        calendarAccount: "workspace_baa",
+        template: draft(),
+      });
+      expect(() => renderBaa(draft(), { ...selections, ...SIGNER }), bookingSystem).toThrow(
+        BaaRenderError,
+      );
     }
   });
 

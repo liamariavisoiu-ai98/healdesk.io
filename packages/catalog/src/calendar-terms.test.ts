@@ -1,12 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { hashBaaText } from "./baa";
-import {
-  BOOKING_SYSTEMS,
-  bookingSyncFor,
-  bookingSystemName,
-  type BookingSystemId,
-} from "./booking-systems";
+import { BOOKING_SYSTEMS, bookingSyncFor, type BookingSystemId } from "./booking-systems";
 import {
   CALENDAR_ACCOUNT_OPTIONS,
   CALENDAR_ACCOUNTS,
@@ -32,39 +27,40 @@ import {
 /** The 78-column wrap may break any phrase across lines. */
 const unwrap = (text: string) => text.replace(/\s+/g, " ").trim();
 
-/** Every (kind, account) pair the selector can produce, with a platform name where one exists. */
+/** Every (kind, account) pair the selector can produce, with booking systems that are named and unnamed. */
 const EVERY_BODY: {
   label: string;
   kind: CalendarTermsKind;
   account: CalendarAccount;
-  connectedPlatform: string | null;
+  bookingSystem: BookingSystemId;
 }[] = [
-  { label: "covered", kind: "covered", account: "workspace_baa", connectedPlatform: null },
-  {
-    label: "covered, named",
-    kind: "covered",
-    account: "workspace_baa",
-    connectedPlatform: "Cal.com",
-  },
+  { label: "covered", kind: "covered", account: "workspace_baa", bookingSystem: "none" },
+  { label: "covered, named", kind: "covered", account: "workspace_baa", bookingSystem: "calcom" },
   {
     label: "uncovered, no BAA",
     kind: "uncovered",
     account: "workspace_no_baa",
-    connectedPlatform: null,
+    bookingSystem: "none",
   },
   {
     label: "uncovered, personal",
     kind: "uncovered",
     account: "personal",
-    connectedPlatform: "HighLevel",
+    bookingSystem: "gohighlevel",
   },
   ...CALENDAR_ACCOUNTS.map((account) => ({
     label: `not used, ${account}`,
     kind: "not_used" as const,
     account,
-    connectedPlatform: "Mindbody",
+    bookingSystem: "mindbody" as const,
   })),
-  { label: "not used, unnamed", kind: "not_used", account: "personal", connectedPlatform: null },
+  {
+    label: "not used, unconfirmed",
+    kind: "not_used",
+    account: "personal",
+    bookingSystem: "boulevard",
+  },
+  { label: "not used, unnamed", kind: "not_used", account: "personal", bookingSystem: "other" },
 ];
 
 describe("the kinds of calendar terms", () => {
@@ -157,25 +153,29 @@ describe("the clause bodies", () => {
   test("the READS paragraph promises deletion in exactly the cases the code erases the token", () => {
     for (const kind of ["covered", "uncovered"] as const) {
       const text = unwrap(body(EVERY_BODY.find((b) => b.kind === kind)!));
+      // Use stops when the Services end, which is the day the agreement ends.
       expect(text, kind).toContain(
         "healdesk holds the OAuth token encrypted and uses it for nothing else. It stops using the " +
-          "token when this agreement ends, and deletes it when Practice disconnects the calendar " +
-          "through healdesk, when healdesk finds that Practice has removed healdesk's access in its " +
-          "Google Account, and in any case when healdesk destroys Practice's data at the end of this " +
-          "agreement.",
+          "token when the Services end. It deletes the token when Practice disconnects the calendar " +
+          "through healdesk, or when healdesk finds that Practice has removed healdesk's access in " +
+          "its Google Account. In any case it deletes the token when healdesk destroys Practice's " +
+          "data after the Services end.",
       );
       // What it reads, not what Google's permission reaches.
       expect(text, kind).toContain(
-        "healdesk reads the names of the calendars that account owns, so that Practice can choose " +
-          "one; when that calendar is free or busy; and the appointments healdesk itself added to it.",
+        "healdesk reads the names of the calendars on which that account has owner access, so that " +
+          "Practice can choose; when the calendar is free or busy; and the appointments healdesk " +
+          "itself added to it.",
       );
-      // And, separately, what Google's permissions reach, as Google words
-      // the scopes: every event on every calendar the account owns, and the
-      // availability of every calendar it can see.
+      // And, separately, the three further things Google's permissions
+      // reach, as Google words the scopes: the subscribed-calendar list,
+      // every event on every calendar the account owns, and the availability
+      // of every calendar it has access to (PT-20).
       expect(text, kind).toContain(
-        "Google's permission model also gives healdesk access to the other events on the calendars " +
-          "that account owns, and to when the other calendars it can see are free or busy; " +
-          "healdesk does not read or store them.",
+        "Google's permissions also reach three further things: the list of every calendar that " +
+          "account is subscribed to, the other events on the calendars it owns, and the " +
+          "availability of the other calendars it has access to. healdesk does not read or store " +
+          "any of them.",
       );
     }
   });
@@ -187,11 +187,22 @@ describe("the clause bodies", () => {
     for (const each of EVERY_BODY) expect(body(each), each.label).not.toMatch(/revok/i);
   });
 
-  test("the calendar is the one the practice chooses, or the main one", () => {
+  test("the calendar is one the practice chooses, one per provider, or the main one, and every term applies to each", () => {
     for (const each of EVERY_BODY.filter((b) => b.kind !== "not_used")) {
-      expect(unwrap(body(each)), each.label).toContain(
-        "healdesk uses one calendar of the Google account Practice connects, which is that " +
-          "account's main calendar unless Practice chooses another calendar the account owns.",
+      const text = unwrap(body(each));
+      expect(text, each.label).toContain(
+        "Practice connects a Google account it controls by OAuth, under Practice's own agreement " +
+          "with Google. healdesk uses a calendar on which that account has owner access: one of its " +
+          "own calendars, or one another account has shared with it with permission to make " +
+          "changes and manage sharing.",
+      );
+      expect(text, each.label).toContain(
+        "Practice chooses the calendar or, where it books by provider, one such calendar for each " +
+          "provider. Until Practice chooses, healdesk uses that account's main calendar.",
+      );
+      expect(text, each.label).toContain(
+        'In this clause "the calendar" means each calendar healdesk uses, and every term of this ' +
+          "clause applies to each of them.",
       );
     }
   });
@@ -200,30 +211,42 @@ describe("the clause bodies", () => {
     for (const each of EVERY_BODY.filter((b) => b.kind !== "not_used")) {
       const text = unwrap(body(each));
       expect(text, each.label).toContain(
-        "Each appointment carries the patient's first name, the service asked about as Practice's " +
-          "own service list names it, and the time, and no other information about the patient: " +
-          "never a telephone number, an email address or anything clinical.",
+        "Each appointment carries a first name, the service and the time, and no other information " +
+          "about the patient or the person booking. It never carries a telephone number, an email " +
+          "address, or anything clinical beyond the name of the service.",
+      );
+      // FALLBACK_FIRST_NAME and FALLBACK_SERVICE in packages/connectors/src/google/event.ts.
+      expect(text, each.label).toContain(
+        "The first name is the one given by the person booking, who may not be the patient; where " +
+          'that name cannot be used, it is the word "Patient".',
       );
       expect(text, each.label).toContain(
-        "healdesk marks each appointment private, invites no one to it and sets no reminders on it",
+        "The service is named as in Practice's own service list; where none was given or its name " +
+          'cannot be used, the appointment says "Appointment".',
       );
-      expect(text, each.label).toContain("it moves, edits or cancels nothing it did not create");
+      expect(text, each.label).toContain(
+        "healdesk marks each appointment private, invites no one to it and sets no reminders on it.",
+      );
+      expect(text, each.label).toContain("It moves, edits or cancels nothing it did not create.");
       expect(text, each.label).toContain("trash for up to 30 days under Google's own terms");
     }
   });
 
-  test("covered: the practice's statement about Google's BAA, which healdesk cannot check", () => {
+  test("covered: the practice's statement about Google's BAA, and the organisation check healdesk can make", () => {
     const text = unwrap(body(EVERY_BODY[0]!));
     expect(text).toContain(
       "Practice has told healdesk that this account belongs to Practice's Google Workspace " +
-        "organisation and that its administrator has accepted Google's business associate agreement",
+        "organisation and that its administrator has accepted Google's business associate agreement.",
     );
     expect(text).toContain(
-      "healdesk cannot see whether Google's agreement was accepted and relies on Practice's statement",
+      "healdesk cannot see whether Google's agreement was accepted, and relies on Practice's statement.",
     );
+    // The owner's guardrail (decision 4 of 6 October 2026; plan C8).
     expect(text).toContain(
-      "it adds nothing to a calendar whose Google account does not belong to a Google Workspace or " +
-        "Cloud Identity organisation",
+      "When Practice chooses a calendar, and again before adding each appointment, healdesk checks " +
+        "that the connected account belongs to a Google Workspace or Cloud Identity organisation " +
+        "and that the calendar belongs to that same organisation. It adds nothing to a calendar " +
+        "that fails either check.",
     );
     expect(text).toContain(
       "Google's business associate agreement is between Practice and Google and does not extend " +
@@ -236,54 +259,80 @@ describe("the clause bodies", () => {
     for (const each of EVERY_BODY.filter((b) => b.kind === "uncovered")) {
       const text = unwrap(body(each));
       expect(text, each.label).toContain(
-        "so no business associate agreement between Practice and Google covers that calendar",
+        "Practice nonetheless directs healdesk to add an appointment to the calendar when the " +
+          "assistant books one, and when Practice's staff confirm a booking request through healdesk.",
       );
       expect(text, each.label).toContain(
-        "Practice nonetheless directs healdesk to add an appointment",
-      );
-      expect(text, each.label).toContain(
-        "That disclosure is made at Practice's direction, into an account Practice controls under " +
-          "Practice's own agreement with Google, and Practice is responsible for it, including for " +
-          "any notification or other obligation that arises from Google's handling of what it holds.",
+        "That disclosure is made at Practice's direction, through an account Practice controls " +
+          "under Practice's own agreement with Google. Practice is responsible for it, including " +
+          "for any notification or other obligation that arises from Google's handling of what it " +
+          "holds.",
       );
       expect(text, each.label).toContain(
         "healdesk's responsibility for it is limited to sending only the details below, only to " +
-          "that calendar, only as this clause describes, and to safeguarding them under this " +
+          "the calendar, only as this clause describes, and to safeguarding them under this " +
           "agreement until they are sent.",
       );
       expect(text, each.label).toContain(
-        "Practice may withdraw this direction at any time by disconnecting the calendar or by " +
-          "telling healdesk",
+        "Practice may withdraw this direction at any time, by disconnecting the calendar or by " +
+          "telling healdesk. healdesk then adds nothing further to the calendar",
       );
     }
-    expect(
-      unwrap(body(EVERY_BODY.find((b) => b.account === "personal" && b.kind === "uncovered")!)),
-    ).toContain(
-      "this account is a personal Google account, for which Google offers no business associate agreement",
+    const personal = unwrap(
+      body(EVERY_BODY.find((b) => b.account === "personal" && b.kind === "uncovered")!),
     );
-    expect(unwrap(body(EVERY_BODY.find((b) => b.account === "workspace_no_baa")!))).toContain(
+    expect(personal).toContain(
+      "Practice has told healdesk that this account is a personal Google account, for which " +
+        "Google offers no business associate agreement, so no business associate agreement " +
+        "between Practice and Google covers the calendar.",
+    );
+    expect(personal).toContain(
+      "knowing that Google will hold each appointment outside any business associate agreement",
+    );
+    // Not sure is not known to lack Google's agreement: treated as uncovered,
+    // and Google "may" hold the appointment outside one (ICD-17, PT-21).
+    const notSure = unwrap(body(EVERY_BODY.find((b) => b.account === "workspace_no_baa")!));
+    expect(notSure).toContain(
       "this account is in a Google Workspace organisation whose administrator has not accepted " +
-        "Google's business associate agreement, or that Practice does not know whether it has",
+        "Google's business associate agreement, or that Practice does not know whether the " +
+        "administrator has. Because Practice has not confirmed that Google's agreement covers the " +
+        "calendar, the parties treat it as one that no business associate agreement between " +
+        "Practice and Google covers.",
+    );
+    expect(notSure).toContain(
+      "knowing that Google may hold each appointment outside any business associate agreement",
     );
   });
 
-  test("not used: nothing is connected, read or written, and the system is named when it has a name", () => {
+  test("not used: nothing is connected, read or written, and healdesk's list, not the practice, classes the system", () => {
     const named = unwrap(body(EVERY_BODY.find((b) => b.kind === "not_used")!));
     expect(named).toContain(
-      "Practice has told healdesk that its booking system, Mindbody, does not read a Google " +
-        "Calendar for conflicts, or has not been confirmed to.",
+      "Practice has told healdesk that its booking system is Mindbody, which healdesk's list of " +
+        "booking systems records as not reading a Google Calendar for conflicts.",
     );
     expect(named).toContain(
       "healdesk therefore does not connect to Practice's Google Calendar, reads nothing from it and " +
-        "writes nothing to it",
+        "writes nothing to it. The assistant does not book appointments itself: it takes each " +
+        "booking as a request, which Practice's staff confirm in Practice's own system.",
     );
-    expect(named).toContain("Practice first records a calendar election for that location");
+    // The only route that exists: an election for a system that reads Google Calendar.
+    expect(named).toContain(
+      "If Practice changes the location's booking system to one that reads a Google Calendar for " +
+        "conflicts, Practice first records a calendar election for the location. The assistant " +
+        "books into a Google Calendar only under the clause that election carries.",
+    );
+    expect(unwrap(body(EVERY_BODY.find((b) => b.bookingSystem === "boulevard")!))).toContain(
+      "Practice has told healdesk that its booking system is Boulevard, which healdesk's list of " +
+        "booking systems records as not yet confirmed to read a Google Calendar for conflicts.",
+    );
     expect(unwrap(body(EVERY_BODY.at(-1)!))).toContain(
-      "Practice has told healdesk that its booking system does not read a Google Calendar",
+      "Practice has told healdesk that its booking system is one that healdesk's list of booking " +
+        "systems does not name, so healdesk has not confirmed that it reads a Google Calendar for " +
+        "conflicts.",
     );
     // The account is kept in case the system changes; it changes nothing here.
     const forAccount = CALENDAR_ACCOUNTS.map((account) =>
-      calendarClauseBody({ kind: "not_used", account, connectedPlatform: "Mindbody" }),
+      calendarClauseBody({ kind: "not_used", account, bookingSystem: "mindbody" }),
     );
     expect(new Set(forAccount).size).toBe(1);
     expect(named).not.toMatch(/OAuth|token|first name/);
@@ -294,10 +343,14 @@ describe("the clause bodies", () => {
       expect(unwrap(body(each)), each.label).not.toContain(unwrap(CALENDAR_LOCATION_PARAGRAPH));
     }
     expect(unwrap(CALENDAR_LOCATION_PARAGRAPH)).toBe(
-      "This clause governs the calendar of the location Practice sets up when it signs this " +
-        "agreement. For any other location, and for that location once Practice changes the kind " +
-        "of Google account it uses or its booking system, the calendar election Practice records " +
-        "for that location takes the place of this clause for that location.",
+      "This clause governs the calendar of Practice's first location, the one set up under the " +
+        "first order Practice placed for the Services. The calendar of any other location is " +
+        "governed by the calendar election Practice records for it. Practice also records a calendar " +
+        "election for the first location when it changes that location's booking system or the " +
+        "kind of Google account it uses there, and that election then governs in place of this " +
+        "clause. The kinds of Google account are a Google Workspace account whose administrator " +
+        "has accepted Google's business associate agreement, any other Google Workspace account, " +
+        "and a personal Google account.",
     );
   });
 
@@ -308,21 +361,39 @@ describe("the clause bodies", () => {
     }
   });
 
-  test("a kind the account contradicts is refused, not rendered", () => {
+  test("a kind the answers contradict is refused, not rendered", () => {
     expect(() =>
-      calendarClauseBody({ kind: "covered", account: "personal", connectedPlatform: null }),
+      calendarClauseBody({ kind: "covered", account: "personal", bookingSystem: "none" }),
     ).toThrow(CalendarTermsError);
     expect(() =>
-      calendarClauseBody({ kind: "uncovered", account: "workspace_baa", connectedPlatform: null }),
+      calendarClauseBody({ kind: "uncovered", account: "workspace_baa", bookingSystem: "none" }),
     ).toThrow(CalendarTermsError);
     expect(() =>
-      calendarClauseBody({ kind: "covered", account: "gmail" as never, connectedPlatform: null }),
+      calendarClauseBody({ kind: "covered", account: "gmail" as never, bookingSystem: "none" }),
     ).toThrow(CalendarTermsError);
     expect(() =>
       calendarClauseBody({
         kind: "partial" as never,
         account: "personal",
-        connectedPlatform: null,
+        bookingSystem: "none",
+      }),
+    ).toThrow(CalendarTermsError);
+    // The sync must agree too: a connected kind for a manual system, or
+    // not-used for a live one, would describe a connection that is not so.
+    expect(() =>
+      calendarClauseBody({ kind: "covered", account: "workspace_baa", bookingSystem: "mindbody" }),
+    ).toThrow(CalendarTermsError);
+    expect(() =>
+      calendarClauseBody({ kind: "uncovered", account: "personal", bookingSystem: "other" }),
+    ).toThrow(CalendarTermsError);
+    expect(() =>
+      calendarClauseBody({ kind: "not_used", account: "personal", bookingSystem: "calendly" }),
+    ).toThrow(CalendarTermsError);
+    expect(() =>
+      calendarClauseBody({
+        kind: "not_used",
+        account: "personal",
+        bookingSystem: "zenoti" as BookingSystemId,
       }),
     ).toThrow(CalendarTermsError);
   });
@@ -339,9 +410,7 @@ describe("selecting the clause from the two answers", () => {
         const kind = calendarTermsKind(bookingSyncFor(system.id), account);
         expect(selected.kind, `${system.id}/${account}`).toBe(kind);
         expect(selected.clauseId).toBe(CALENDAR_CLAUSE_IDS[kind]);
-        expect(selected.body).toBe(
-          calendarClauseBody({ kind, account, connectedPlatform: bookingSystemName(system.id) }),
-        );
+        expect(selected.body).toBe(calendarClauseBody({ kind, account, bookingSystem: system.id }));
       }
     }
   });
@@ -411,7 +480,7 @@ describe("the calendar election document", () => {
     expect(text).toContain("LOCATION\n  Golden Clinic, Main Street");
     expect(text).toContain("AGREEMENT\n  version 1.3.0, effective 6 October 2026");
     expect(text).toContain("1. WHAT THIS ELECTION DOES");
-    expect(text).toContain("2. PRACTICE'S GOOGLE CALENDAR");
+    expect(text).toContain("2. GOOGLE CALENDAR");
     expect(text).toContain("3. ACCEPTANCE");
     expect(flat).toContain(
       "this election takes the place of the Google Calendar clause of the Business Associate " +

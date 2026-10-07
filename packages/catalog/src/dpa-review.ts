@@ -1,5 +1,6 @@
+import { STATE_LAW_CLAUSE_HEADING } from "./baa";
 import type { BookingSystemId } from "./booking-systems";
-import type { CalendarAccount } from "./calendar-terms";
+import { CALENDAR_CLAUSE_HEADING, type CalendarAccount } from "./calendar-terms";
 import { currentDpaTemplate, DPA_PRACTICE_DESCRIPTORS, prepareDpa, type DpaVariables } from "./dpa";
 import { regimeFor, specialties } from "./specialties";
 import { wrap } from "./wrap";
@@ -55,8 +56,9 @@ function clauses(overrides: Partial<DpaVariables>, headings: readonly string[]):
   return headings.map((h) => clause(text, h)).join("\n\n");
 }
 
+const STATE_LAW = `5. ${STATE_LAW_CLAUSE_HEADING.toUpperCase()}`;
 const DATA_SOURCES = "7. WHAT HEALDESK READS FROM YOUR SYSTEMS";
-const CALENDAR = "8. PRACTICE'S GOOGLE CALENDAR";
+const CALENDAR = `8. ${CALENDAR_CLAUSE_HEADING.toUpperCase()}`;
 
 function dataSources(bookingSystem: BookingSystemId): string {
   return clauses({ bookingSystem }, [DATA_SOURCES]);
@@ -88,6 +90,12 @@ const ENTRIES: readonly Entry[] = [
         )
         .map((s) => `  ${s.name}:\n    ${DPA_PRACTICE_DESCRIPTORS[s.id]}`)
         .join("\n"),
+  },
+  {
+    // The shared state-law clause follows the booking sync, as in BAA 1.3.0:
+    // the sample's booking system does not read Google Calendar.
+    caption: `A booking system that reads Google Calendar (${LIVE_SYSTEMS}), whatever the Google account (replaces clause 5):`,
+    body: () => clauses({ bookingSystem: "google_calendar" }, [STATE_LAW]),
   },
   {
     caption: 'Bookings in "Google Calendar only" or "No booking system yet" (replaces clause 7):',

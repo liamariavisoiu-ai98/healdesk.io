@@ -293,6 +293,7 @@ describeDb("billing actions", () => {
         hasDroppedChannels: false,
         isBeforeStart: false,
         billedPlanId: "chat-web",
+        isProrated: true,
       });
       assertPayloadAllowed(notices[0]!.payload, "plan_changed");
       expect(await notesOf(seeded.clinicId)).toContainEqual({
@@ -349,6 +350,7 @@ describeDb("billing actions", () => {
         hasDroppedChannels: true,
         setupFeeDeltaCents: 0,
         billedPlanId: "chat-web",
+        isProrated: true,
         carrier: null,
         phoneSystem: expect.any(String),
         routing: "overflow_after_hours",
@@ -433,6 +435,7 @@ describeDb("billing actions", () => {
       expect(notice!.payload).toMatchObject({
         setupFeeDeltaCents: 50_000,
         hostedInvoiceUrl: `https://invoice.stripe.com/i/${draftId}`,
+        isProrated: false,
       });
     });
 
@@ -475,6 +478,32 @@ describeDb("billing actions", () => {
       expect((await noticesOf(seeded.clinicId)).map((n) => n.dedupe_key)).toEqual([
         "plan:req-lost-1",
       ]);
+      // The first attempt took the setup-only branch: nothing was prorated.
+      expect((await noticesOf(seeded.clinicId))[0]!.payload).toMatchObject({ isProrated: false });
+    });
+
+    test("a retry after a lost response to a prorating change still says it was prorated", async () => {
+      const seeded = await seedBilling("cp-lost-year", { bought: "chat-web", inService: ["web"] });
+      startedWorld(seeded, { bought: "chat-web", billed: "chat-web" });
+      world.state.loseNextUpdateResponse = true;
+      const input = {
+        clinicId: seeded.clinicId,
+        planId: "web-voice",
+        interval: "year" as const,
+        requestId: "req-lost-year-1",
+        actorLabel: "owner@clinic.test",
+      };
+      expect(await changePlan(input, { now: NOW })).toMatchObject({ status: "refused" });
+      expect(await changePlan(input, { now: NOW })).toMatchObject({ status: "changed" });
+      expect(world.fake.callsTo("subscriptions.update")).toHaveLength(1);
+      // Found by the marker, the interval Stripe bills now differs from the
+      // one our row held: the earlier attempt prorated.
+      const [notice] = await noticesOf(seeded.clinicId);
+      expect(notice!.payload).toMatchObject({
+        interval: "year",
+        billedPlanId: "chat-web",
+        isProrated: true,
+      });
     });
 
     test("a retry after the marker update failed resumes the paid one-off invoice by hd_ref instead of charging again", async () => {
@@ -767,6 +796,29 @@ describeDb("billing actions", () => {
       expect(world.state.subscription.metadata).toEqual({});
       expect((await rowOf(seeded.clinicId)).cancelAt).toBeNull();
       expect(notifyOps).not.toHaveBeenCalled();
+    });
+
+    test("no refund alert while the first plan invoice is unpaid: nothing was paid to refund", async () => {
+      const seeded = await seedBilling("ar-unpaid", {
+        bought: "chat-web",
+        inService: ["web"],
+        started: false,
+      });
+      startedWorld(seeded, { bought: "chat-web", billed: "chat-web" });
+      // The plan-start update went through; its first charge did not.
+      await inTenant(seeded.clinicId, (c) =>
+        c.query(`update entitlements set plan_start_applied_at = $2 where clinic_id = $1`, [
+          seeded.clinicId,
+          STARTED,
+        ]),
+      );
+      expect(
+        await setAutoRenew(
+          { clinicId: seeded.clinicId, on: false, actorLabel: "owner@clinic.test" },
+          { now: NOW },
+        ),
+      ).toMatchObject({ status: "ok" });
+      expect(notifyOps).not.toHaveBeenCalledWith("first_period_refund_due", expect.anything());
     });
 
     test("no refund alert once the 14 days have passed", async () => {
@@ -1119,6 +1171,52 @@ describeDb("billing actions", () => {
           message: expect.stringMatching(/don't stack/),
         });
       }
+    });
+
+    test("a first-period refund spread across two invoices is one email, for the whole amount", async () => {
+      const { seeded, end } = await seedRefundable("refund-two-parts", "year");
+      // A step-up inside the first year, invoiced at once on an annual plan:
+      // a second paid invoice, refunded as its own part.
+      world.addPaidSubscriptionInvoice({
+        created: s(new Date("2026-10-09T00:00:00Z")),
+        lines: [
+          {
+            lookupKey: "healdesk_web-voice_year_860400",
+            amount: -850_000,
+            periodStart: s(new Date("2026-10-09T00:00:00Z")),
+            periodEnd: s(end),
+            proration: true,
+          },
+          {
+            lookupKey: "healdesk_complete_year_1148400",
+            amount: 1_134_000,
+            periodStart: s(new Date("2026-10-09T00:00:00Z")),
+            periodEnd: s(end),
+            proration: true,
+          },
+        ],
+      });
+      const result = await commitRefund(
+        {
+          clinicId: seeded.clinicId,
+          kind: "first_period_cancel",
+          confirmAmountCents: 860_400 + 284_000,
+          reason: "Asked to cancel in the first week",
+          actorLabel: "ops@healdesk.test",
+        },
+        { now: NOW },
+      );
+      expect(result).toMatchObject({ status: "refunded", amountCents: 860_400 + 284_000 });
+      expect(world.fake.callsTo("refunds.create")).toHaveLength(2);
+      const notices = await noticesOf(seeded.clinicId);
+      expect(notices.map((n) => [n.kind, n.dedupe_key])).toEqual([
+        ["refund_issued", `refund:${world.state.refunds[0]!.id as string}`],
+      ]);
+      expect(notices[0]!.payload).toEqual({
+        amountCents: 860_400 + 284_000,
+        kind: "first_period_cancel",
+        refundedAt: NOW.toISOString(),
+      });
     });
 
     test("an amount other than the preview's is refused, and nothing is refunded", async () => {

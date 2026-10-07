@@ -17,6 +17,7 @@ import {
   setGrace,
   setSetupDeadline,
 } from "./entitlements";
+import { suspendedForNonPayment } from "./events";
 import { recordBillingNote, transition } from "./state-machine";
 import { resumeLocationSetup, type ResumeLocationSetupResult } from "./stripe-actions";
 
@@ -63,10 +64,14 @@ export type LiftSuspensionResult = { status: "lifted" } | { status: "refused"; m
 
 /**
  * Lift a suspension by hand (R35): support only, and refused while an
- * invoice is open, because then the way back is paying it (which restores
- * the account by itself, R10) and a lift would hand back service the clinic
- * still owes for. For the suspensions nothing else can lift: a dispute that
- * was resolved, or one ops imposed.
+ * invoice is open, because a lift would clear grace and hand back service
+ * the clinic still owes for. For the suspensions nothing else can lift: a
+ * dispute that was resolved, or one ops imposed.
+ *
+ * The refusal says what happens next, which depends on the cause. A
+ * suspension for not paying comes back by itself when the invoice is paid
+ * (R10); a dispute's or an operator's never does, so for those the invoice is
+ * paid first and the suspension then lifted here (suspendedForNonPayment).
  *
  * Moves `suspended` to `active` through the state machine (actor `support`),
  * clears any grace left over, and records the operator's reason.
@@ -86,8 +91,9 @@ export async function liftSuspension(input: LiftSuspensionInput): Promise<LiftSu
     if (row.openInvoiceId) {
       return {
         status: "refused",
-        message:
-          "An invoice is still open. The account comes back by itself when it's paid; it can't be lifted by hand while it's owed.",
+        message: (await suspendedForNonPayment(tx))
+          ? "An invoice is still open. The account comes back by itself when it's paid; it can't be lifted by hand while it's owed."
+          : "An invoice is still open. Have it paid first, then lift the suspension here: paying alone won't restore it.",
       };
     }
     await transition(tx, "active", { actor: "support", reason: "suspension_lifted" });

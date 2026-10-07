@@ -357,6 +357,7 @@ describeDb("grace: the warning, the suspension and the lock (BD18, R21)", () => 
         {
           dedupe_key: `grace_expired:${graceEnds.toISOString()}`,
           payload: {
+            kind: "grace_expired",
             hostedInvoiceUrl: expect.stringMatching(/^https:\/\/invoice\.stripe\.com\//),
             amountDueCents: 119_700,
             carrier: null,

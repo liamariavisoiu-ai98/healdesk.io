@@ -1208,9 +1208,9 @@ async function settlePayment(
  * INTO `suspended` (a note has from = to and is not a move) had a non-payment
  * cause, and no dispute has been written into the history since it. A dispute
  * on a clinic already suspended is recorded as a note for exactly this reason
- * (onDispute).
+ * (onDispute). Exported for liftSuspension, which words its refusal by it.
  */
-async function suspendedForNonPayment(tx: TenantTx): Promise<boolean> {
+export async function suspendedForNonPayment(tx: TenantTx): Promise<boolean> {
   const [last] = await tx.db
     .select({ reason: billingTransitions.reason, createdAt: billingTransitions.createdAt })
     .from(billingTransitions)
@@ -1252,7 +1252,9 @@ async function queueRestored(tx: TenantTx, invoiceId: string, invoice: unknown):
  * when the price could not be read. Returns null, and the email is skipped
  * with a warning, when neither names a package in the catalog: a wrong
  * package name in a critical email is worse than none, and the plan still
- * starts.
+ * starts. The start date is the plan line's period start, the value
+ * markPlanStarted stores and the 14-day refund counts from, never the day of
+ * this event, which is later whenever the first charge was paid on a retry.
  */
 async function planStartedPayload(
   tx: TenantTx,
@@ -1278,6 +1280,7 @@ async function planStartedPayload(
     channel: await firstAnsweredChannel(tx, billed),
     amountCents: asNumber(prop(invoice, "amount_paid")) ?? line.amount,
     interval,
+    startedOn: isoDay(line.period.start),
     periodEndsOn: isoDay(line.period.end),
     receiptUrl: emailLink(asString(prop(invoice, "hosted_invoice_url")), "plan_started"),
     isBilledByChannelsInService: billed.id !== row.boughtPlanId,
@@ -1681,9 +1684,11 @@ async function onSubscriptionUpdated(
 /**
  * E1's facts. Before the plan has started the account closes at the earlier
  * of the scheduled end and the setup deadline (BD10), and the email says so.
- * After the start, inside the first-period refund window and with nothing
- * refunded yet, it carries the window's last day, so the email can say a
- * refund is due and the team will be in touch (R15, R31).
+ * After the start, inside the first-period refund window, with the first
+ * plan invoice paid and nothing refunded yet, it carries the window's last
+ * day, so the email can say a refund is due and the team will be in touch
+ * (R15, R31). A clinic with an invoice unpaid also gets its grace end, the
+ * moment AYA stops answering unless it is paid (R21).
  */
 function cancelScheduledPayload(
   row: Entitlements,
@@ -1695,11 +1700,18 @@ function cancelScheduledPayload(
     !started && row.setupDeadlineAt && row.setupDeadlineAt.getTime() < endsAt.getTime()
       ? row.setupDeadlineAt
       : endsAt;
-  // One rule with setAutoRenew's (entitlements.refundEligibleUntil): the window
-  // runs from the paid start, or from the applied start while its first
-  // invoice is still being paid.
-  const refundWindowEndsOn = started ? refundEligibleUntil(row, scheduledAt) : null;
-  return { endsAt: closes.toISOString(), isBeforeStart: !started, refundWindowEndsOn };
+  // Only on money paid: refundEligibility refuses while the first plan invoice
+  // is unpaid (no `plan_started_at`), so an applied start whose first charge
+  // failed promises no refund, though its window has opened. setAutoRenew
+  // alerts ops on the same rule.
+  const refundWindowEndsOn =
+    row.planStartedAt !== null ? refundEligibleUntil(row, scheduledAt) : null;
+  return {
+    endsAt: closes.toISOString(),
+    isBeforeStart: !started,
+    refundWindowEndsOn,
+    graceEndsAt: row.graceEndsAt?.toISOString() ?? null,
+  };
 }
 
 /**
@@ -1776,10 +1788,12 @@ export type SuspensionCause = "grace_expired" | "unpaid" | "dispute" | "ops";
  * Queue `suspended` for a move to suspended made in `tx` (R11), on the
  * billing clinic, deduplicated per cause and what caused it (R22:
  * `<cause>:<eventId | graceEndsAtIso>`). Critical: the caller makes sure it
- * is delivered after the commit. It carries the invoice owed and its pay page
- * when one is recorded, and the facts the template needs to print the steps
- * for undoing call forwarding (R31). Exported for the billing sweep, whose
- * grace expiry is the other way a clinic is suspended.
+ * is delivered after the commit. It carries the cause, because only a
+ * suspension for not paying is lifted by a payment (R10) and the email must
+ * not promise otherwise; the invoice owed and its pay page when one is
+ * recorded; and the facts the template needs to print the steps for undoing
+ * call forwarding (R31). Exported for the billing sweep, whose grace expiry
+ * is the other way a clinic is suspended.
  */
 export async function queueSuspendedNotice(
   tx: TenantTx,
@@ -1789,6 +1803,7 @@ export async function queueSuspendedNotice(
   const row = await getEntitlements(tx.db, tx.clinicId);
   const clinic = await ownClinic(tx);
   return enqueueNotice(tx, "suspended", `${cause}:${ref}`, {
+    kind: cause,
     hostedInvoiceUrl: emailLink(row?.openInvoiceUrl ?? null, "suspended"),
     amountDueCents: row?.openInvoiceAmountCents ?? null,
     ...forwardingFactsOf(clinic),
@@ -1825,9 +1840,14 @@ function forwardingFactsOf(clinic: typeof clinics.$inferSelect | undefined): For
  * A charge was refunded, by our own refund action or by hand in the
  * Dashboard. Every refund on the charge that went through queues
  * `refund_issued`, once per refund (`refund:<refundId>`, R22), so a partial
- * refund delivered again, or the action's own notice for the same refund,
- * emails once. The kind is the one our action stamped (`hd_kind`), else
- * `other`. A failed or cancelled refund moved no money and tells nobody.
+ * refund delivered again emails once. A failed or cancelled refund moved no
+ * money and tells nobody.
+ *
+ * A refund our action stamped (`hd_kind` first_period_cancel or guarantee)
+ * is left to commitRefund, their only producer, which emails the whole
+ * refund once, however many invoices it was spread across, in the
+ * transaction that records it: one email per part from here would each say
+ * the first period's fee was refunded in full and the plan cancelled.
  */
 async function onChargeRefunded(tx: TenantTx, delivery: Delivery): Promise<void> {
   for (const refund of delivery.live.refunds ?? []) {
@@ -1837,12 +1857,10 @@ async function onChargeRefunded(tx: TenantTx, delivery: Delivery): Promise<void>
     if (!id || amount === null || amount <= 0) continue;
     if (status !== "succeeded" && status !== "pending") continue;
     const kindStamped = asString(prop(prop(refund, "metadata"), "hd_kind"));
+    if (kindStamped === "first_period_cancel" || kindStamped === "guarantee") continue;
     await enqueueNotice(tx, "refund_issued", `refund:${id}`, {
       amountCents: amount,
-      kind:
-        kindStamped === "first_period_cancel" || kindStamped === "guarantee"
-          ? kindStamped
-          : "other",
+      kind: "other",
       refundedAt: (unixDate(prop(refund, "created")) ?? delivery.now).toISOString(),
     });
   }

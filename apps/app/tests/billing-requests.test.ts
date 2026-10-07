@@ -1420,6 +1420,7 @@ describeDb("the billing-request worker", () => {
             interval: "month",
             isInvoicedNow: false,
             hostedInvoiceUrl: null,
+            isPaid: false,
           },
         },
       ]);
@@ -1443,6 +1444,7 @@ describeDb("the billing-request worker", () => {
         latestInvoice: {
           id: "in_stepup",
           billing_reason: "subscription_update",
+          status: "paid",
           hosted_invoice_url: "https://invoice.stripe.com/i/acct_test/test_stepup",
         },
       });
@@ -1463,6 +1465,46 @@ describeDb("the billing-request worker", () => {
             interval: "year",
             isInvoicedNow: true,
             hostedInvoiceUrl: "https://invoice.stripe.com/i/acct_test/test_stepup",
+            isPaid: true,
+          }),
+        }),
+      ]);
+    });
+
+    test("an annual step-up whose card declines is applied, and L3 says its invoice is due, not charged", async () => {
+      const billing = await seedBilling("step-annual-declined", {
+        planId: "chat-web",
+        boughtPlanId: "web-voice",
+        interval: "year",
+        ...STARTED,
+        channelRows: [inService("web"), inService("voice")],
+      });
+      await record(billing.clinicId, "step_up", { channel: "voice" });
+      // allow_incomplete: the update applies and its invoice is left open.
+      const w = world({
+        customerId: billing.customerId,
+        subscriptionId: billing.subscriptionId,
+        items: [item("si_package", packageKey("chat-web", "year"), 1)],
+        latestInvoice: {
+          id: "in_stepup_open",
+          billing_reason: "subscription_update",
+          status: "open",
+          hosted_invoice_url: "https://invoice.stripe.com/i/acct_test/test_stepup_open",
+        },
+      });
+
+      await drainBillingRequests({ now: NOW, stripe: w.stripe });
+
+      expect(await requestOf(billing.clinicId, "step_up", "voice")).toMatchObject({
+        outcome: "done",
+        outcome_reason: "stepped_up",
+      });
+      expect(await noticesOf(billing.clinicId, "price_stepped_up")).toEqual([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            isInvoicedNow: true,
+            hostedInvoiceUrl: "https://invoice.stripe.com/i/acct_test/test_stepup_open",
+            isPaid: false,
           }),
         }),
       ]);

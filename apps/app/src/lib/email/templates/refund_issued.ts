@@ -12,6 +12,12 @@ import type { EmailTemplate } from "./types";
  * refund Stripe reports. Never a setup-fee refund: there is none (R0,
  * amendment 5), so no wording here offers one.
  *
+ * One email per refund action. A first-period refund can be spread across
+ * several invoices (an annual step-up inside the first period is its own
+ * paid invoice), so commitRefund sends one notice carrying the whole amount,
+ * and the webhook leaves refunds of its two kinds to it; an email per part
+ * would each say the fee was refunded in full and the plan cancelled.
+ *
  * The amount, the card it went back to and what it was for. The first-period
  * refund also ends the plan (BD14, R15), which the clinic hears about
  * separately when the subscription ends, with the steps for its calls and its

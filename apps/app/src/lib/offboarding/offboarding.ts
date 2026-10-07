@@ -3,11 +3,13 @@ import { eq, sql } from "drizzle-orm";
 import { unsafeDb } from "@/db";
 import {
   appointments,
+  chatThreads,
   clinicClosures,
   clinics,
   contacts,
   conversations,
   metaBookingDrafts,
+  metaInboundMessages,
   providerConnections,
   reconciliationExceptions,
   transactions,
@@ -49,6 +51,13 @@ import { withTenant } from "@/lib/tenant";
  * never drop out of the price), and destruction runs as that role. It holds
  * no patient data.
  *
+ * Of 0043's, chat_threads and meta_inbound_messages go too. Each holds an
+ * HMAC of what a patient's messages carried (the sender's id, a WhatsApp
+ * number among them; a message's id), and the key is ours
+ * (lib/identifier-ref.ts), so beside the clinic messaged and when, a row
+ * still identifies a person: keeping it would leave patient-derived rows
+ * behind a destruction record that says none remain.
+ *
  * Vendor-side data — recordings at Synthflow, the agent itself — is deleted
  * in the vendor console by the operator and noted on the security event;
  * this job cannot reach it and does not claim to.
@@ -77,8 +86,9 @@ export async function markExportDelivered(tx: TenantTx, how: string, now: Date =
 export type DestructionResult = { clinicId: string; deleted: Record<string, number> };
 
 /**
- * Every patient row for one clinic, and its closed days, gone. Consent
- * evidence, suppressions, audit, agreements and billing stay.
+ * Every patient row for one clinic, the hashes of who messaged it, and its
+ * closed days, gone. Consent evidence, suppressions, audit, agreements and
+ * billing stay.
  */
 export async function destroyClinicData(tx: TenantTx, now: Date = new Date()): Promise<DestructionResult> {
   const c = tx.clinicId;
@@ -90,6 +100,9 @@ export async function destroyClinicData(tx: TenantTx, now: Date = new Date()): P
   await del("transactions", () => tx.db.delete(transactions).where(eq(transactions.clinicId, c)).returning({ id: transactions.id }));
   await del("appointments", () => tx.db.delete(appointments).where(eq(appointments.clinicId, c)).returning({ id: appointments.id }));
   await del("conversations", () => tx.db.delete(conversations).where(eq(conversations.clinicId, c)).returning({ id: conversations.id }));
+  // Who messaged the clinic, as keyed hashes of their sender ids (see the header).
+  await del("chat_threads", () => tx.db.delete(chatThreads).where(eq(chatThreads.clinicId, c)).returning({ id: chatThreads.partyRef }));
+  await del("meta_inbound_messages", () => tx.db.delete(metaInboundMessages).where(eq(metaInboundMessages.clinicId, c)).returning({ id: metaInboundMessages.messageRef }));
   // Booking requests carry no DELETE for the app role; they go with their
   // contact by cascade (0037). The half-collected drafts hold a phone number
   // and nothing the record needs, so they are deleted outright.

@@ -11,12 +11,15 @@ import {
 import type Stripe from "stripe";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
 
+import { setGrace } from "@/lib/billing/entitlements";
 import { GRACE_DAYS, handleStripeEvent, MAX_FAILURES } from "@/lib/billing/events";
+import { transition } from "@/lib/billing/state-machine";
 import { __setStripeForTests } from "@/lib/billing/stripe-client";
 import type { NoticeKind } from "@/lib/email/kinds";
 import { assertPayloadAllowed } from "@/lib/email/lint";
 import { sendRenewalReminders } from "@/lib/scheduler/annual-renewal-reminder";
 import { sweepBilling } from "@/lib/scheduler/billing-sweep";
+import { withTenant } from "@/lib/tenant";
 
 import {
   closePools,
@@ -471,6 +474,7 @@ describeDb("the deferred start's billing lifecycle", () => {
             channel: "web",
             amountCents: chatWeb.monthlyUsd * 100,
             interval: "month",
+            startedOn: new Date(T * 1000).toISOString().slice(0, 10),
             periodEndsOn: new Date(end * 1000).toISOString().slice(0, 10),
             receiptUrl: swap.hosted_invoice_url,
             isBilledByChannelsInService: true,
@@ -519,6 +523,39 @@ describeDb("the deferred start's billing lifecycle", () => {
       ]);
       expectLintClean(receipts);
       expect(await noticesOf(clinicId, "plan_started")).toHaveLength(1);
+    });
+
+    test("a first charge paid on a retry starts the plan on its period's first day, and L2 names that day (R15)", async () => {
+      const { clinicId, ids } = await boughtClinic("retried", {
+        channelRows: [
+          {
+            channel: "web",
+            liveAt: new Date(NOW.getTime() - 9 * DAY_MS),
+            firstAnswerAt: new Date(NOW.getTime() - 5 * DAY_MS),
+          },
+          { channel: "meta" },
+          { channel: "voice" },
+        ],
+      });
+      const price = ref("price");
+      world.prices.set(price, stripeLookupKey(chatWeb, "month"));
+      // The plan-start update anchored the period five days ago; its charge
+      // was declined then, and the clinic paid the invoice today.
+      const start = T - 5 * DAY;
+      const end = start + 30 * DAY;
+      const swap = invoice(ids, "subscription_update", [
+        subscriptionLine(chatWeb.monthlyUsd * 100, start, end, { price }),
+      ]);
+      await handleStripeEvent(event("invoice.paid", swap), { now: NOW });
+
+      expect((await entitlementsOf(clinicId)).plan_started_at?.getTime()).toBe(start * 1000);
+      const [started] = await noticesOf(clinicId, "plan_started");
+      expect(started!.payload).toMatchObject({
+        startedOn: new Date(start * 1000).toISOString().slice(0, 10),
+        periodEndsOn: new Date(end * 1000).toISOString().slice(0, 10),
+      });
+      expect(started!.payload.startedOn).not.toBe(NOW.toISOString().slice(0, 10));
+      expectLintClean([started!]);
     });
 
     test("an old-checkout purchase starts its plan on the checkout invoice, without plan_started (R34)", async () => {
@@ -726,6 +763,9 @@ describeDb("the deferred start's billing lifecycle", () => {
       });
       const suspended = await noticesOf(clinicId, "suspended");
       expect(suspended.map((n) => n.dedupe_key)).toEqual([`dispute:${dispute.id}`]);
+      // The cause rides along: a payment never lifts a dispute's suspension, so
+      // the email must not say paying the invoice restores it (R10).
+      expect(suspended[0]!.payload).toMatchObject({ kind: "dispute" });
       expectLintClean(suspended);
 
       const renewal = invoice(ids, "subscription_cycle", [
@@ -1171,6 +1211,7 @@ describeDb("the deferred start's billing lifecycle", () => {
         endsAt: new Date(periodEnd * 1000).toISOString(),
         isBeforeStart: false,
         refundWindowEndsOn: null,
+        graceEndsAt: null,
       });
       expect(notices[1]!.payload).toEqual({ isBeforeStart: false });
       expectLintClean(notices);
@@ -1290,6 +1331,7 @@ describeDb("the deferred start's billing lifecycle", () => {
         endsAt: deadline.toISOString(),
         isBeforeStart: true,
         refundWindowEndsOn: null,
+        graceEndsAt: null,
       });
 
       world.subscriptions.set(ids.subscription, subscription(ids, [placeholder]));
@@ -1330,6 +1372,36 @@ describeDb("the deferred start's billing lifecycle", () => {
       );
       const [late] = await noticesOf(outside.clinicId, "cancel_scheduled");
       expect(late!.payload.refundWindowEndsOn).toBeNull();
+    });
+
+    test("with the first plan invoice unpaid, E1 promises no refund and names the grace end instead (R15, R21)", async () => {
+      // The plan-start update went through three days ago; its charge was
+      // declined, so the clinic is past due and nothing has been paid.
+      const applied = new Date(NOW.getTime() - 3 * DAY_MS);
+      const graceEnds = new Date(NOW.getTime() + 4 * DAY_MS);
+      const { clinicId, ids } = await boughtClinic("unpaidfirst", { planStartAppliedAt: applied });
+      const actor = { type: "service", serviceName: "lifecycle-test" } as const;
+      await withTenant({ clinicId, actor }, async (tx) => {
+        await transition(tx, "past_due", { actor: "system", reason: "invoice.payment_failed" });
+        await setGrace(tx.db, clinicId, graceEnds);
+      });
+      world.subscriptions.set(
+        ids.subscription,
+        subscription(ids, [{ lookupKey: stripeLookupKey(complete, "month") }], {
+          cancelAtPeriodEnd: true,
+        }),
+      );
+      await handleStripeEvent(
+        event("customer.subscription.updated", world.subscriptions.get(ids.subscription)!),
+        { now: NOW },
+      );
+      const [scheduled] = await noticesOf(clinicId, "cancel_scheduled");
+      expect(scheduled!.payload).toMatchObject({
+        isBeforeStart: false,
+        refundWindowEndsOn: null,
+        graceEndsAt: graceEnds.toISOString(),
+      });
+      expectLintClean([scheduled!]);
     });
 
     test("the billed package, the locations and the metered keys follow Stripe; channels follow what was bought (BD8)", async () => {
@@ -1412,6 +1484,7 @@ describeDb("the deferred start's billing lifecycle", () => {
           kind: "suspended",
           dedupe_key: `unpaid:${e.id}`,
           payload: {
+            kind: "unpaid",
             hostedInvoiceUrl: null,
             amountDueCents: null,
             carrier: "tmobile",
@@ -1535,13 +1608,15 @@ describeDb("the deferred start's billing lifecycle", () => {
   });
 
   describe("charge.refunded (R11)", () => {
-    test("every refund that went through emails once, with the kind our action stamped", async () => {
+    test("every refund that went through emails once, except our refund action's, which emails the whole refund itself", async () => {
       const { clinicId, ids } = await boughtClinic("refunded", {
         planStartedAt: new Date(NOW.getTime() - 5 * DAY_MS),
       });
       const charge = ref("ch");
-      const [first, second, failed] = [ref("re"), ref("re"), ref("re")];
+      const [first, guarantee, second, failed] = [ref("re"), ref("re"), ref("re"), ref("re")];
       world.refunds.set(charge, [
+        // commitRefund made these two and queued one notice for its whole
+        // refund; one per refund here would announce it once per invoice.
         {
           id: first,
           object: "refund",
@@ -1549,6 +1624,14 @@ describeDb("the deferred start's billing lifecycle", () => {
           status: "succeeded",
           created: T - 60,
           metadata: { hd_kind: "first_period_cancel" },
+        },
+        {
+          id: guarantee,
+          object: "refund",
+          amount: 99_700,
+          status: "succeeded",
+          created: T - 45,
+          metadata: { hd_kind: "guarantee" },
         },
         {
           id: second,
@@ -1585,27 +1668,16 @@ describeDb("the deferred start's billing lifecycle", () => {
       await handleStripeEvent(event("charge.refunded", object), { now: NOW });
 
       const notices = await noticesOf(clinicId, "refund_issued");
-      expect(notices.map((n) => [n.dedupe_key, n.payload])).toEqual(
-        expect.arrayContaining([
-          [
-            `refund:${first}`,
-            {
-              amountCents: 119_700,
-              kind: "first_period_cancel",
-              refundedAt: new Date((T - 60) * 1000).toISOString(),
-            },
-          ],
-          [
-            `refund:${second}`,
-            {
-              amountCents: 500,
-              kind: "other",
-              refundedAt: new Date((T - 30) * 1000).toISOString(),
-            },
-          ],
-        ]),
-      );
-      expect(notices).toHaveLength(2);
+      expect(notices.map((n) => [n.dedupe_key, n.payload])).toEqual([
+        [
+          `refund:${second}`,
+          {
+            amountCents: 500,
+            kind: "other",
+            refundedAt: new Date((T - 30) * 1000).toISOString(),
+          },
+        ],
+      ]);
       expectLintClean(notices);
       expect(await reasonsOf(clinicId)).toContain("charge_refunded");
     });

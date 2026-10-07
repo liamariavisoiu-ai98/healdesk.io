@@ -572,8 +572,9 @@ describeDb("Connect against the database", DB_TEST_OPTIONS, () => {
     const ok = await callbackRoute(
       request(`state=${stateOf(minted.url)}&code=ac_x&scope=read_write`),
     );
+    // The account's name stays off the public page: the panel and the portal read it on the server.
     expect(ok.headers.get("location")).toBe(
-      "https://app.healdesk.test/connect/stripe/done?result=ok&account=Glow%20Aesthetics",
+      "https://app.healdesk.test/connect/stripe/done?result=ok",
     );
 
     // A portal state comes back to the portal, checked against the signed-in browser.
@@ -835,7 +836,13 @@ describeDb("Connect against the database", DB_TEST_OPTIONS, () => {
         {
           kind: "connect_disconnected",
           dedupe_key: `disconnected:${accountRef(ACCOUNT)}:${NOW.toISOString()}`,
-          payload: { disconnectedAt: NOW.toISOString(), wasByWebhook: false, source: "ops" },
+          // The link nobody could check may still be paid: the email must say so.
+          payload: {
+            disconnectedAt: NOW.toISOString(),
+            wasByWebhook: false,
+            source: "ops",
+            hasUncheckedLinks: true,
+          },
         },
       ]);
       const unchecked = await inTenant(c.clinicId, (client) =>
@@ -911,6 +918,7 @@ describeDb("Connect against the database", DB_TEST_OPTIONS, () => {
         disconnectedAt: NOW.toISOString(),
         wasByWebhook: false,
         source: "portal",
+        hasUncheckedLinks: false,
       });
     });
 

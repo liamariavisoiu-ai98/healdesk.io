@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
 
-import { safeAccountLabel } from "@/lib/billing/connect";
-
 /**
  * Where an operator's Stripe Connect link, and any state we do not recognise,
  * sends the browser after Stripe (BD28). Portal-started connects go back to
@@ -9,11 +7,12 @@ import { safeAccountLabel } from "@/lib/billing/connect";
  *
  * It loads nothing. It names no clinic: the URL is public and final, anyone
  * can open it, and the callback never puts a clinic in it. It is told only
- * the result, and on success the connected account's display name, which the
- * callback read from Stripe so that whoever connected can see at a glance
- * that it was the practice's own account. The name is reduced again here
- * (letters, digits, plain punctuation, nothing shaped like a number or a
- * link), so a hand-made URL cannot print a message on our page.
+ * the result, a closed word, and prints nothing else from its query, the
+ * connected account's name included: anyone can hand someone a link to this
+ * page on our real origin, and a name read from the URL would print whatever
+ * that link said ("Payment failed. Pay at …"), which no filter that still
+ * passes a real business name can stop. The ops panel and the portal show
+ * the account's name, read from Stripe on the server.
  */
 
 export const metadata: Metadata = {
@@ -27,7 +26,7 @@ type Result = "ok" | "declined" | "already_connected" | "expired" | "failed";
 const COPY: Record<Result, { title: string; body: string }> = {
   ok: {
     title: "Your Stripe account is connected",
-    body: "Once deposits are switched on, they are paid straight into your own Stripe account. healdesk never holds the money.",
+    body: "Once deposits are switched on, they are paid straight into your own Stripe account. healdesk never holds the money. If the account you connected is not your practice’s own, tell us straight away and we will disconnect it.",
   },
   declined: {
     title: "Nothing was connected",
@@ -60,7 +59,6 @@ export default async function ConnectStripeDonePage({
   const raw = first(params.result);
   // Own keys only: `in` would also accept "constructor" and friends.
   const result: Result = raw && Object.hasOwn(COPY, raw) ? (raw as Result) : "failed";
-  const account = result === "ok" ? safeAccountLabel(first(params.account)) : null;
   const copy = COPY[result];
 
   return (
@@ -74,15 +72,6 @@ export default async function ConnectStripeDonePage({
       </h1>
 
       <p className="mt-4 text-[15px] text-[color:var(--color-muted)]">{copy.body}</p>
-
-      {account ? (
-        <p className="mt-4 text-[15px] text-[color:var(--color-muted)]">
-          The account connected is{" "}
-          <span className="font-semibold text-[color:var(--color-ink)]">{account}</span>. If that is
-          not your practice&rsquo;s own Stripe account, tell us straight away and we will disconnect
-          it.
-        </p>
-      ) : null}
 
       <p className="mt-8 border-t border-[color:var(--color-line)] pt-6 text-sm text-[color:var(--color-muted)]">
         Reply to the email that brought you here, or write to{" "}

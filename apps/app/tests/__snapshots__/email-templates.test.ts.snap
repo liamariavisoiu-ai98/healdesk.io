@@ -313,7 +313,7 @@ exports[`each template's output > canceled, for clients: the snapshot 1`] = `
 <ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel all-call forwarding: *73</li></ul>
 <p style="margin:0 0 16px;">Your website chat shows a contact form until you remove the healdesk snippet from your website.</p>
 <p style="margin:0 0 16px;">We&#39;ll email you when your export of transcripts and the booking log is ready. Download it by Sunday 6 December.</p>
-<p style="margin:0 0 16px;">We destroy our copies of your data on Sunday 6 December, as your agreement says. Billing records are kept, as tax law requires.</p>
+<p style="margin:0 0 16px;">We destroy our copies of your data within 30 days of your export being delivered, and by Thursday 4 February 2027 at the latest. Billing records are kept, as tax law requires.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
@@ -334,7 +334,7 @@ Your website chat shows a contact form until you remove the healdesk snippet fro
 
 We'll email you when your export of transcripts and the booking log is ready. Download it by Sunday 6 December.
 
-We destroy our copies of your data on Sunday 6 December, as your agreement says. Billing records are kept, as tax law requires.
+We destroy our copies of your data within 30 days of your export being delivered, and by Thursday 4 February 2027 at the latest. Billing records are kept, as tax law requires.
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
@@ -370,7 +370,7 @@ exports[`each template's output > canceled, for patients: the snapshot 1`] = `
 <ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel all-call forwarding: *73</li></ul>
 <p style="margin:0 0 16px;">Your website chat shows a contact form until you remove the healdesk snippet from your website.</p>
 <p style="margin:0 0 16px;">We&#39;ll email you when your export of transcripts and the booking log is ready. Download it by Sunday 6 December.</p>
-<p style="margin:0 0 16px;">We destroy our copies of your data on Sunday 6 December, as your agreement says. Billing records are kept, as tax law requires.</p>
+<p style="margin:0 0 16px;">We destroy our copies of your data within 30 days of your export being delivered, and by Thursday 4 February 2027 at the latest. Billing records are kept, as tax law requires.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
@@ -391,7 +391,7 @@ Your website chat shows a contact form until you remove the healdesk snippet fro
 
 We'll email you when your export of transcripts and the booking log is ready. Download it by Sunday 6 December.
 
-We destroy our copies of your data on Sunday 6 December, as your agreement says. Billing records are kept, as tax law requires.
+We destroy our copies of your data within 30 days of your export being delivered, and by Thursday 4 February 2027 at the latest. Billing records are kept, as tax law requires.
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
@@ -627,7 +627,7 @@ exports[`each template's output > connect_disconnected, for clients: the snapsho
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Deposits are off until Stripe is connected again.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">Your Stripe account was disconnected from healdesk at 10:20 am EDT on Tuesday 6 October, from your Stripe account.</p>
-<p style="margin:0 0 16px;">Deposits are now off, so AYA no longer sends deposit links. Links she had already sent that weren&#39;t paid have stopped working, and those deposits are flagged in Bookings for your team to collect.</p>
+<p style="margin:0 0 16px;">Deposits are now off, so AYA no longer sends deposit links, and the bookings still waiting on a deposit are flagged in Bookings for your team. Links she had already sent may still be paid until they expire, within 24 hours, so check your Stripe account before collecting a deposit for one of those bookings.</p>
 <p style="margin:0 0 16px;">If you didn&#39;t mean to disconnect it, connect Stripe again in Settings, under Payments.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Connect Stripe again</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -642,7 +642,7 @@ exports[`each template's output > connect_disconnected, for clients: the snapsho
   "subject": "Stripe was disconnected from healdesk",
   "text": "Your Stripe account was disconnected from healdesk at 10:20 am EDT on Tuesday 6 October, from your Stripe account.
 
-Deposits are now off, so AYA no longer sends deposit links. Links she had already sent that weren't paid have stopped working, and those deposits are flagged in Bookings for your team to collect.
+Deposits are now off, so AYA no longer sends deposit links, and the bookings still waiting on a deposit are flagged in Bookings for your team. Links she had already sent may still be paid until they expire, within 24 hours, so check your Stripe account before collecting a deposit for one of those bookings.
 
 If you didn't mean to disconnect it, connect Stripe again in Settings, under Payments.
 
@@ -678,7 +678,7 @@ exports[`each template's output > connect_disconnected, for patients: the snapsh
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Deposits are off until Stripe is connected again.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">Your Stripe account was disconnected from healdesk at 10:20 am EDT on Tuesday 6 October, from your Stripe account.</p>
-<p style="margin:0 0 16px;">Deposits are now off, so AYA no longer sends deposit links. Links she had already sent that weren&#39;t paid have stopped working, and those deposits are flagged in Bookings for your team to collect.</p>
+<p style="margin:0 0 16px;">Deposits are now off, so AYA no longer sends deposit links, and the bookings still waiting on a deposit are flagged in Bookings for your team. Links she had already sent may still be paid until they expire, within 24 hours, so check your Stripe account before collecting a deposit for one of those bookings.</p>
 <p style="margin:0 0 16px;">If you didn&#39;t mean to disconnect it, connect Stripe again in Settings, under Payments.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Connect Stripe again</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -693,7 +693,7 @@ exports[`each template's output > connect_disconnected, for patients: the snapsh
   "subject": "Stripe was disconnected from healdesk",
   "text": "Your Stripe account was disconnected from healdesk at 10:20 am EDT on Tuesday 6 October, from your Stripe account.
 
-Deposits are now off, so AYA no longer sends deposit links. Links she had already sent that weren't paid have stopped working, and those deposits are flagged in Bookings for your team to collect.
+Deposits are now off, so AYA no longer sends deposit links, and the bookings still waiting on a deposit are flagged in Bookings for your team. Links she had already sent may still be paid until they expire, within 24 hours, so check your Stripe account before collecting a deposit for one of those bookings.
 
 If you didn't mean to disconnect it, connect Stripe again in Settings, under Payments.
 
@@ -1561,9 +1561,8 @@ exports[`each template's output > plan_changed, for clients: the snapshot 1`] = 
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Web + Voice, billed monthly.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">Your healdesk plan is now Web + Voice, billed monthly.</p>
-<p style="margin:0 0 16px;">Until every channel in it is in service, you&#39;re billed for Web Chatbot. Each other channel&#39;s price joins from the day it first answers.</p>
-<p style="margin:0 0 16px;">The change is prorated: the invoice covers the difference for the rest of this billing period.</p>
-<p style="margin:0 0 16px;">The difference in setup fee, $500, was charged with the change.</p>
+<p style="margin:0 0 16px;">Until every channel in it is in service, you&#39;re billed for Web Chatbot. Each other channel&#39;s price joins from the day it first answers. A channel that&#39;s ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.</p>
+<p style="margin:0 0 16px;">The difference in setup fee, $500, was charged with the change, and that&#39;s all the invoice covers: the price you&#39;re billed hasn&#39;t changed.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_testplatform/test_invoice" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">View the invoice</a></p>
 <p style="margin:0 0 16px;">To cancel online, sign in at https://app.healdesk.test/ and turn auto-renew off in Billing. Your plan then ends when the period you&#39;ve paid for runs out.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -1578,11 +1577,9 @@ exports[`each template's output > plan_changed, for clients: the snapshot 1`] = 
   "subject": "Your healdesk plan is now Web + Voice",
   "text": "Your healdesk plan is now Web + Voice, billed monthly.
 
-Until every channel in it is in service, you're billed for Web Chatbot. Each other channel's price joins from the day it first answers.
+Until every channel in it is in service, you're billed for Web Chatbot. Each other channel's price joins from the day it first answers. A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.
 
-The change is prorated: the invoice covers the difference for the rest of this billing period.
-
-The difference in setup fee, $500, was charged with the change.
+The difference in setup fee, $500, was charged with the change, and that's all the invoice covers: the price you're billed hasn't changed.
 
 View the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
@@ -1618,9 +1615,8 @@ exports[`each template's output > plan_changed, for patients: the snapshot 1`] =
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Web + Voice, billed monthly.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">Your healdesk plan is now Web + Voice, billed monthly.</p>
-<p style="margin:0 0 16px;">Until every channel in it is in service, you&#39;re billed for Web Chatbot. Each other channel&#39;s price joins from the day it first answers.</p>
-<p style="margin:0 0 16px;">The change is prorated: the invoice covers the difference for the rest of this billing period.</p>
-<p style="margin:0 0 16px;">The difference in setup fee, $500, was charged with the change.</p>
+<p style="margin:0 0 16px;">Until every channel in it is in service, you&#39;re billed for Web Chatbot. Each other channel&#39;s price joins from the day it first answers. A channel that&#39;s ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.</p>
+<p style="margin:0 0 16px;">The difference in setup fee, $500, was charged with the change, and that&#39;s all the invoice covers: the price you&#39;re billed hasn&#39;t changed.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_testplatform/test_invoice" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">View the invoice</a></p>
 <p style="margin:0 0 16px;">To cancel online, sign in at https://app.healdesk.test/ and turn auto-renew off in Billing. Your plan then ends when the period you&#39;ve paid for runs out.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -1635,11 +1631,9 @@ exports[`each template's output > plan_changed, for patients: the snapshot 1`] =
   "subject": "Your healdesk plan is now Web + Voice",
   "text": "Your healdesk plan is now Web + Voice, billed monthly.
 
-Until every channel in it is in service, you're billed for Web Chatbot. Each other channel's price joins from the day it first answers.
+Until every channel in it is in service, you're billed for Web Chatbot. Each other channel's price joins from the day it first answers. A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.
 
-The change is prorated: the invoice covers the difference for the rest of this billing period.
-
-The difference in setup fee, $500, was charged with the change.
+The difference in setup fee, $500, was charged with the change, and that's all the invoice covers: the price you're billed hasn't changed.
 
 View the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
@@ -1676,7 +1670,7 @@ exports[`each template's output > plan_started, for clients: the snapshot 1`] = 
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">AYA answered her first client in your website chat, so your healdesk plan started on Tuesday 6 October.</p>
 <p style="margin:0 0 16px;">We&#39;ve charged $397 for your first month of Web Chatbot, which runs to Friday 6 November.</p>
-<p style="margin:0 0 16px;">You bought Web + Voice. Until every channel in it is in service, you&#39;re billed for the ones that are: each other channel&#39;s price joins from the day it first answers, and we&#39;ll email you each time.</p>
+<p style="margin:0 0 16px;">You bought Web + Voice. Until every channel in it is in service, you&#39;re billed for the ones that are: each other channel&#39;s price joins from the day it first answers, and we&#39;ll email you each time. A channel that&#39;s ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://pay.stripe.com/receipts/invoices/test_receipt" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">View your receipt</a></p>
 <p style="margin:0 0 16px;">To cancel online, sign in at https://app.healdesk.test/ and turn auto-renew off in Billing. Your plan then ends when the period you&#39;ve paid for runs out.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -1693,7 +1687,7 @@ exports[`each template's output > plan_started, for clients: the snapshot 1`] = 
 
 We've charged $397 for your first month of Web Chatbot, which runs to Friday 6 November.
 
-You bought Web + Voice. Until every channel in it is in service, you're billed for the ones that are: each other channel's price joins from the day it first answers, and we'll email you each time.
+You bought Web + Voice. Until every channel in it is in service, you're billed for the ones that are: each other channel's price joins from the day it first answers, and we'll email you each time. A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.
 
 View your receipt: https://pay.stripe.com/receipts/invoices/test_receipt
 
@@ -1730,7 +1724,7 @@ exports[`each template's output > plan_started, for patients: the snapshot 1`] =
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">AYA answered her first patient in your website chat, so your healdesk plan started on Tuesday 6 October.</p>
 <p style="margin:0 0 16px;">We&#39;ve charged $397 for your first month of Web Chatbot, which runs to Friday 6 November.</p>
-<p style="margin:0 0 16px;">You bought Web + Voice. Until every channel in it is in service, you&#39;re billed for the ones that are: each other channel&#39;s price joins from the day it first answers, and we&#39;ll email you each time.</p>
+<p style="margin:0 0 16px;">You bought Web + Voice. Until every channel in it is in service, you&#39;re billed for the ones that are: each other channel&#39;s price joins from the day it first answers, and we&#39;ll email you each time. A channel that&#39;s ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://pay.stripe.com/receipts/invoices/test_receipt" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">View your receipt</a></p>
 <p style="margin:0 0 16px;">To cancel online, sign in at https://app.healdesk.test/ and turn auto-renew off in Billing. Your plan then ends when the period you&#39;ve paid for runs out.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -1747,7 +1741,7 @@ exports[`each template's output > plan_started, for patients: the snapshot 1`] =
 
 We've charged $397 for your first month of Web Chatbot, which runs to Friday 6 November.
 
-You bought Web + Voice. Until every channel in it is in service, you're billed for the ones that are: each other channel's price joins from the day it first answers, and we'll email you each time.
+You bought Web + Voice. Until every channel in it is in service, you're billed for the ones that are: each other channel's price joins from the day it first answers, and we'll email you each time. A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.
 
 View your receipt: https://pay.stripe.com/receipts/invoices/test_receipt
 

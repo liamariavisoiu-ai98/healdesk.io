@@ -437,6 +437,10 @@ export async function invoiceOverageWindow(
         voiceBlockRateCents: claimed.voiceBlockCents,
         chatBlockRateCents: claimed.chatBlockCents,
         hostedInvoiceUrl: charge.hostedInvoiceUrl,
+        // A declined card leaves the invoice open for dunning (leave_open),
+        // and Stripe's payment_failed follows: the email must not say it
+        // was charged.
+        isPaid: charge.status === "paid",
       });
     });
     return {

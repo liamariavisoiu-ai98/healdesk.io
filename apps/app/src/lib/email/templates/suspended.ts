@@ -8,10 +8,15 @@ import type { EmailTemplate } from "./types";
 /**
  * L27: the service is suspended (Annex X5). Critical.
  *
- * A suspension has more than one cause (grace ran out, the invoice went
- * unpaid, a dispute, an operator), and the payload names none of them, only
- * the open invoice when there is one. So the copy blames an unpaid invoice
- * only when it has one to point at, and otherwise asks the clinic to reply.
+ * A suspension has more than one cause, and the payload names it (`kind`).
+ * Grace running out and Stripe's `unpaid` are suspensions for not paying: the
+ * copy blames the unpaid invoice when it has one to point at, and says paying
+ * it restores everything, because a payment lifts exactly those two (R10). A
+ * dispute or an operator's suspension is another matter: paying lifts neither
+ * (settlePayment refuses), so that copy never says an invoice caused it and
+ * never promises a payment brings AYA back. It asks the clinic to reply, and
+ * names an invoice still open only as money still owed. Without an invoice to
+ * point at, every cause asks the clinic to reply.
  *
  * It says what still works (calls reach the direct line, the data is kept,
  * the portal still signs in: Terms §6) and, from the catalog, how to undo call
@@ -23,7 +28,10 @@ import type { EmailTemplate } from "./types";
 export type SuspendedPayload = NoticePayloads["suspended"];
 
 export const renderSuspended: EmailTemplate<SuspendedPayload> = (payload, ctx) => {
+  const forNotPaying = payload.kind === "grace_expired" || payload.kind === "unpaid";
   const owesInvoice = payload.amountDueCents !== null || payload.hostedInvoiceUrl !== null;
+  // The one case a payment restores the service by itself (R10).
+  const paymentRestores = forNotPaying && owesInvoice;
   const invoice =
     payload.amountDueCents === null
       ? "Your healdesk invoice"
@@ -31,25 +39,35 @@ export const renderSuspended: EmailTemplate<SuspendedPayload> = (payload, ctx) =
 
   const action: Block[] = payload.hostedInvoiceUrl
     ? [{ type: "action", label: "Pay the invoice", url: payload.hostedInvoiceUrl }]
-    : owesInvoice
+    : paymentRestores
       ? [{ type: "action", label: "Update your card", url: portalUrl() }]
       : [];
 
   const blocks: Block[] = [
     {
       type: "paragraph",
-      text: owesInvoice
+      text: paymentRestores
         ? `${invoice} is unpaid, so we've suspended your service.`
-        : "We've suspended your healdesk service.",
+        : payload.kind === "dispute"
+          ? "A payment to healdesk has been disputed with your bank, so we've suspended your service."
+          : "We've suspended your healdesk service.",
     },
     {
       type: "paragraph",
       text: `AYA has stopped answering on every channel: ${WHEN_AYA_STOPS}. Your data is kept, and you can still sign in to healdesk.`,
     },
+    ...(owesInvoice && !forNotPaying
+      ? [
+          {
+            type: "paragraph",
+            text: `${invoice} is also still unpaid. Paying it settles what's owed, but doesn't restore the service on its own.`,
+          } as const,
+        ]
+      : []),
     ...action,
     {
       type: "paragraph",
-      text: owesInvoice
+      text: paymentRestores
         ? "Paying the invoice restores everything at once."
         : "Reply to this email and we'll tell you what's needed to restore it.",
     },
@@ -62,7 +80,7 @@ export const renderSuspended: EmailTemplate<SuspendedPayload> = (payload, ctx) =
   return compose(
     {
       subject: "AYA has stopped answering: your healdesk service is suspended",
-      preheader: owesInvoice
+      preheader: paymentRestores
         ? "Paying the invoice restores everything at once."
         : "Reply to this email and we'll help you restore it.",
       blocks,
@@ -74,6 +92,7 @@ export const renderSuspended: EmailTemplate<SuspendedPayload> = (payload, ctx) =
 export const SUSPENDED_ENTRY: TemplateEntry<SuspendedPayload> = {
   render: renderSuspended,
   fixture: {
+    kind: "grace_expired",
     hostedInvoiceUrl: "https://invoice.stripe.com/i/acct_testplatform/test_invoice",
     amountDueCents: 89_700,
     carrier: "verizon",

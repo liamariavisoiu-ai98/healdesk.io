@@ -9,6 +9,7 @@ import {
   person,
   planByName,
   undoForwarding,
+  WAITING_CHANNEL_JOINS,
 } from "./billing-copy";
 import { compose, type Block } from "./compose";
 import type { TemplateEntry } from "./registry";
@@ -21,8 +22,16 @@ import type { EmailTemplate } from "./types";
  * The new plan and how it is billed; before the plan has started, the
  * plan-start sentence from the catalog (the one wording Checkout, Home and the
  * Terms use); after it, the package billed while some channels are not yet in
- * service. A setup-fee difference is named when one was charged, and never
- * offered back on a move down, because a setup fee is never refunded.
+ * service, and both ways another channel's price joins it: from its first
+ * answer, or 30 days after it became ready while it waits on the clinic (BD4).
+ * A setup-fee difference is named when one was charged, and never offered
+ * back on a move down, because a setup fee is never refunded.
+ *
+ * "Prorated" only when it was (`isProrated`): a change of the billed price or
+ * interval invoices the rest of the period at once (`always_invoice`). When
+ * the billed package stays, the invoice is the setup-fee difference alone and
+ * the price does not move, and saying otherwise would tell the clinic it had
+ * been charged for a plan it is not yet billed for.
  *
  * A change that drops channels lists what the plan now covers. When it drops
  * the phone, the payload carries the clinic's forwarding facts, and the email
@@ -71,10 +80,10 @@ export const renderPlanChanged: EmailTemplate<PlanChangedPayload> = (payload, ct
     if (billed && billed.id !== plan?.id) {
       blocks.push({
         type: "paragraph",
-        text: `Until every channel in it is in service, you're billed for ${billed.name}. Each other channel's price joins from the day it first answers.`,
+        text: `Until every channel in it is in service, you're billed for ${billed.name}. Each other channel's price joins from the day it first answers. ${WAITING_CHANNEL_JOINS}`,
       });
     }
-    if (payload.hostedInvoiceUrl) {
+    if (payload.isProrated) {
       blocks.push({
         type: "paragraph",
         text: "The change is prorated: the invoice covers the difference for the rest of this billing period.",
@@ -85,7 +94,10 @@ export const renderPlanChanged: EmailTemplate<PlanChangedPayload> = (payload, ct
   if (payload.setupFeeDeltaCents > 0) {
     blocks.push({
       type: "paragraph",
-      text: `The difference in setup fee, ${money(payload.setupFeeDeltaCents)}, was charged with the change.`,
+      text:
+        payload.isBeforeStart || payload.isProrated
+          ? `The difference in setup fee, ${money(payload.setupFeeDeltaCents)}, was charged with the change.`
+          : `The difference in setup fee, ${money(payload.setupFeeDeltaCents)}, was charged with the change, and that's all the invoice covers: the price you're billed hasn't changed.`,
     });
   }
 
@@ -144,5 +156,6 @@ export const PLAN_CHANGED_ENTRY: TemplateEntry<PlanChangedPayload> = {
     hasDroppedChannels: false,
     isBeforeStart: false,
     billedPlanId: "chat-web",
+    isProrated: false,
   },
 };

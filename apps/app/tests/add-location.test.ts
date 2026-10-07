@@ -315,6 +315,61 @@ describeDb("addLocation", () => {
     ]);
   });
 
+  test("a retry after a lost update response finds its own marker and never charges the setup fee twice (R14)", async () => {
+    const clinic = await seedBilling("loc-lost", { started: true, inService: ["web", "voice"] });
+    // Stripe applies the update (the quantity, the setup fee's invoice, the
+    // marker), and the answer is lost.
+    world.state.loseNextUpdateResponse = true;
+    expect(
+      await addLocation(
+        { clinicId: clinic.clinicId, requestId: "loc-lost-1", actorLabel: "owner" },
+        { now: NOW },
+      ),
+    ).toMatchObject({ status: "refused", message: expect.stringMatching(/never charged twice/) });
+    expect(await rowOf(clinic.clinicId)).toMatchObject({
+      locations: 1,
+      pendingLocationRequestId: "loc-lost-1",
+      pendingLocationChargedAt: null,
+      stripeMutationLeaseOwner: "add_location:loc-lost-1",
+    });
+    expect(world.state.subscription.metadata.hd_location).toBe("loc-lost-1");
+
+    // Another request is refused while this one is unresolved.
+    expect(
+      await addLocation(
+        { clinicId: clinic.clinicId, requestId: "loc-lost-2", actorLabel: "owner" },
+        { now: NOW },
+      ),
+    ).toMatchObject({ status: "refused", message: expect.stringMatching(/still being added/) });
+
+    // The same request again, as if after Stripe had forgotten its
+    // idempotency key: only the marker says it was charged.
+    expect(
+      await addLocation(
+        { clinicId: clinic.clinicId, requestId: "loc-lost-1", actorLabel: "owner" },
+        { now: NOW },
+      ),
+    ).toEqual({
+      status: "added",
+      clinicId: "11111111-2222-4333-8444-555555555555",
+      slug: "location-2",
+    });
+    expect(world.fake.callsTo("subscriptions.update")).toHaveLength(1);
+    expect(
+      world.state.invoices.filter((invoice) => invoice.billing_reason === "subscription_update"),
+    ).toHaveLength(1);
+    expect(await rowOf(clinic.clinicId)).toMatchObject({
+      locations: 2,
+      pendingLocationRequestId: null,
+      pendingLocationCount: null,
+      pendingLocationChargedAt: null,
+      stripeMutationLeaseOwner: null,
+    });
+    expect((await noticesOf(clinic.clinicId)).map((n) => [n.kind, n.dedupe_key])).toEqual([
+      ["location_added", "location:loc-lost-1"],
+    ]);
+  });
+
   test("the console's retry finishes a charged location through the same resume", async () => {
     const clinic = await seedBilling("loc-retry", { started: true, inService: ["web"] });
     location.fail = true;

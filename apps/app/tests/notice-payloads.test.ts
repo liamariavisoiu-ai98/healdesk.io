@@ -36,6 +36,7 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
     amountDueCents: 89_700,
   },
   suspended: {
+    kind: "grace_expired",
     hostedInvoiceUrl: INVOICE_URL,
     amountDueCents: 89_700,
     carrier: "verizon",
@@ -47,6 +48,7 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
     endsAt: "2026-11-10T00:00:00.000Z",
     isBeforeStart: false,
     refundWindowEndsOn: "2026-10-24",
+    graceEndsAt: "2026-10-17T09:00:00.000Z",
   },
   cancel_reversed: { isBeforeStart: true },
   canceled: {
@@ -96,6 +98,7 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
     voiceBlockRateCents: 8_000,
     chatBlockRateCents: 3_000,
     hostedInvoiceUrl: INVOICE_URL,
+    isPaid: false,
   },
   // Voice kept, so no forwarding facts ride along: the shape every plan
   // change has unless it drops voice.
@@ -108,6 +111,7 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
     hasDroppedChannels: false,
     isBeforeStart: false,
     billedPlanId: "web-voice",
+    isProrated: true,
   },
   location_added: {
     locations: 2,
@@ -121,6 +125,7 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
     disconnectedAt: "2026-10-20T15:04:05.000Z",
     wasByWebhook: true,
     source: "stripe",
+    hasUncheckedLinks: true,
   },
   plan_started: {
     planName: "Web Chatbot",
@@ -128,6 +133,7 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
     channel: "web",
     amountCents: 39_700,
     interval: "month",
+    startedOn: "2026-10-10",
     periodEndsOn: "2026-11-10",
     receiptUrl: RECEIPT_URL,
     isBilledByChannelsInService: true,
@@ -139,6 +145,7 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
     interval: "month",
     isInvoicedNow: false,
     hostedInvoiceUrl: null,
+    isPaid: false,
   },
   step_up_reminder: {
     channel: "voice",

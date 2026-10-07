@@ -549,7 +549,13 @@ describeDb("POST /api/webhooks/stripe-connect", DB_TEST_OPTIONS, () => {
       expect(notices.rows).toEqual([
         {
           kind: "connect_disconnected",
-          payload: { disconnectedAt: expect.any(String), wasByWebhook: true, source: "stripe" },
+          // Its open link could not be checked: the email says it may still be paid.
+          payload: {
+            disconnectedAt: expect.any(String),
+            wasByWebhook: true,
+            source: "stripe",
+            hasUncheckedLinks: true,
+          },
         },
       ]);
     }

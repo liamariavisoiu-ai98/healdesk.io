@@ -585,6 +585,12 @@ type StripeOutcome =
        * and the allowance window follows (`reanchorAllowanceWindow`).
        */
       period: { start: Date; end: Date } | null;
+      /**
+       * The billed price or interval changed, so the update prorated the rest
+       * of the period onto its invoice (`always_invoice`). Absent means not:
+       * the setup-fee difference alone, or nothing, was invoiced.
+       */
+      isProrated?: boolean;
     }
   /** Refused or declined before anything was charged: the change is over. */
   | { ok: false; result: ChangePlanResult };
@@ -669,6 +675,7 @@ function appliedFrom(
   subscription: SubscriptionLike,
   current: PackageItem,
   hostedInvoiceUrl: string | null,
+  row: Pick<Entitlements, "planCode" | "billingInterval">,
 ): StripeApplied {
   return {
     ok: true,
@@ -676,6 +683,10 @@ function appliedFrom(
     billed: current.plan,
     meteredKeys: meteredKeysOf(subscription),
     period: periodOf(current.item),
+    // Which branch the earlier attempt took: only the prorating one moves
+    // the billed package or interval off the one our row still holds,
+    // since its outcome was never written.
+    isProrated: current.plan.id !== row.planCode || current.interval !== row.billingInterval,
   };
 }
 
@@ -872,6 +883,7 @@ async function finishPlanChange(input: {
       hasDroppedChannels: droppedChannels.length > 0,
       isBeforeStart: !claim.isStarted,
       billedPlanId: outcome.billed?.id ?? null,
+      isProrated: outcome.isProrated === true,
       ...(facts ?? {}),
     });
     await releaseStripeMutationLease(tx.db, billingClinicId, input.owner);
@@ -943,7 +955,12 @@ async function changeStartedPlan(
   // carrying on the pending one): nothing more to charge, whatever else has
   // happened to the subscription since.
   if (subscription.metadata?.hd_plan_change === claim.requestId && current) {
-    return appliedFrom(subscription, current, await recoverDeltaInvoiceUrl(stripe, claim));
+    return appliedFrom(
+      subscription,
+      current,
+      await recoverDeltaInvoiceUrl(stripe, claim),
+      claim.row,
+    );
   }
   if (hasEnded(subscription)) {
     return refused("This plan has ended, so it can't be changed.");
@@ -1022,6 +1039,7 @@ async function changeStartedPlan(
       billed: target,
       meteredKeys: meteredKeysOf(updated),
       period: periodOf(packageItemOf(updated)?.item),
+      isProrated: true,
     };
   }
 
@@ -1290,6 +1308,7 @@ export async function resumePlanChange(
         evidence.subscription,
         evidence.current,
         evidence.paid?.hosted_invoice_url ?? null,
+        claim.row,
       );
     } else if (evidence.paid) {
       const paidUrl = evidence.paid.hosted_invoice_url ?? null;
@@ -2124,7 +2143,11 @@ export async function setAutoRenew(
     await releaseStripeMutationLease(tx.db, billingClinicId, owner);
   });
 
-  if (!input.on && refundWindowOpen(claim.row, now)) {
+  // A refund is due only on money paid: while the first plan invoice is
+  // unpaid (an applied start whose first charge failed) refundEligibility
+  // refuses, and the cancel_scheduled email promises none (events.ts), so ops
+  // are not sent to arrange one either.
+  if (!input.on && claim.row.planStartedAt !== null && refundWindowOpen(claim.row, now)) {
     await notifyOps("first_period_refund_due", { clinicId: billingClinicId });
   }
   return {
@@ -2724,9 +2747,15 @@ export async function commitRefund(
         await requestCancelNow(tx, billingClinicId);
         isCancelRequested = true;
       }
-      for (const refund of refunds) {
-        await enqueueNotice(tx, "refund_issued", `refund:${refund.id}`, {
-          amountCents: refund.amountCents,
+      // One email for the whole refund, however many invoices it was spread
+      // across: one per part would each say the first period's fee was
+      // refunded in full and the plan cancelled. Keyed on the first refund,
+      // which a retry reuses (refundPart); the webhook leaves refunds of
+      // these kinds to this notice (events.ts onChargeRefunded).
+      const [first] = refunds;
+      if (first) {
+        await enqueueNotice(tx, "refund_issued", `refund:${first.id}`, {
+          amountCents: refunds.reduce((sum, refund) => sum + refund.amountCents, 0),
           kind: input.kind,
           refundedAt: now.toISOString(),
         });

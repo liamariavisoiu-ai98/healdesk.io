@@ -1383,6 +1383,13 @@ function steppedUp(
     interval,
     isInvoicedNow: invoicedNow,
     hostedInvoiceUrl: invoicedNow && raised ? hostedInvoiceUrlOf(input.latestInvoice) : null,
+    // allow_incomplete applies the step-up even when the card declines and
+    // leaves its invoice open, so "charged" only when that invoice, the
+    // step-up's own, was paid.
+    isPaid:
+      invoicedNow &&
+      raised &&
+      (input.latestInvoice as { status?: unknown } | null)?.status === "paid",
   };
   return {
     type: "finish",

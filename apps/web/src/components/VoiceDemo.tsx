@@ -383,6 +383,21 @@ export function VoiceDemo() {
         </form>
       )}
 
+      {/* The demo line: the visitor dials her, the way their patients would
+          dial the clinic. No consent box, because nobody is called. */}
+      <div className="border-line flex flex-wrap items-center gap-x-3 gap-y-1 border-t px-[18px] py-3">
+        <span className="text-[15px] font-semibold">Rather call her yourself?</span>
+        <a
+          href={`tel:${site.demoLine.e164}`}
+          className="text-red-deep text-[15.6px] font-bold underline underline-offset-2"
+        >
+          {site.demoLine.display}
+        </a>
+        <span className="text-muted text-[14.4px] font-medium">
+          She answers the way she would at your clinic.
+        </span>
+      </div>
+
       {/* Deliberately does NOT pass firstName through: contactName seeds the
           typed signature on the business associate agreement, and a first name
           executed on a contract is worse than a blank field. */}

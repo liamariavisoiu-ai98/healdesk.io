@@ -74,6 +74,11 @@ describe("the AWS SDKs reach the production build as packages", () => {
    * stricter than Turbopack is; a false alarm costs a `.catch()`, a missed one
    * costs a production build. Read with the TypeScript parser rather than a
    * pattern, so a comment that mentions `import(...)` is not an import.
+   *
+   * Parsing every file under src is seconds of work, which a loaded machine
+   * stretched past vitest's five-second default on 6 October (8.6 s) while
+   * every import it checked was clean. The bound is a minute, so a real hang
+   * still fails.
    */
   test("every dynamic import and require under src is literal, and outside any try block", () => {
     const offenders: string[] = [];
@@ -117,7 +122,7 @@ describe("the AWS SDKs reach the production build as packages", () => {
 
     expect(scanned).toBeGreaterThan(100);
     expect(offenders).toEqual([]);
-  });
+  }, 60_000);
 
   test("the SES client is bounded as deliver.ts says, which on this SDK needs throwOnRequestTimeout", () => {
     const region = process.env.AWS_REGION;

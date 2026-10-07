@@ -1,5 +1,6 @@
 -- =============================================================================
--- Role provisioning. Run ONCE, as a superuser, BEFORE the first migration.
+-- Role provisioning. Run ONCE, as a superuser or a managed host's admin user
+-- (RDS's master user), BEFORE the first migration.
 --
 --   psql "$SUPERUSER_URL" \
 --     -v migrator_password="$MIGRATOR_PASSWORD" \
@@ -45,10 +46,26 @@ $$;
 ALTER ROLE healdesk_migrator PASSWORD :'migrator_password';
 ALTER ROLE healdesk_app      PASSWORD :'app_password';
 
--- Belt and braces: explicitly strip the attributes that would defeat RLS, in
--- case the roles already existed with different settings.
-ALTER ROLE healdesk_app      NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
-ALTER ROLE healdesk_migrator NOSUPERUSER NOBYPASSRLS;
+-- Belt and braces: the attributes that would defeat RLS must be off, in case
+-- the roles already existed with different settings. A superuser strips them.
+-- A managed host's admin is not a superuser (RDS's master user is not), and
+-- Postgres refuses it any mention of SUPERUSER, even to turn it off, so there
+-- the roles are checked instead: CREATE ROLE above made them with all of these
+-- off, and a role found otherwise stops the script rather than being trusted.
+DO $$
+BEGIN
+  IF (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN
+    ALTER ROLE healdesk_app      NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+    ALTER ROLE healdesk_migrator NOSUPERUSER NOBYPASSRLS;
+  ELSIF EXISTS (
+    SELECT 1 FROM pg_roles
+    WHERE (rolname = 'healdesk_app' AND (rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole))
+       OR (rolname = 'healdesk_migrator' AND (rolsuper OR rolbypassrls))
+  ) THEN
+    RAISE EXCEPTION 'healdesk_app or healdesk_migrator holds an attribute that defeats row-level security; drop the role and run this again';
+  END IF;
+END
+$$;
 
 -- Nothing reachable by default.
 REVOKE ALL ON SCHEMA public FROM PUBLIC;

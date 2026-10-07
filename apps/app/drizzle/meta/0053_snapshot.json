@@ -1,5 +1,5 @@
 {
-  "id": "c29870ef-552d-473c-a89d-7f2faeda4739",
+  "id": "f0b21a2e-e655-4803-817e-911f999336d8",
   "prevId": "3cc4f0b2-431a-479f-9c30-f313eb15685f",
   "version": "7",
   "dialect": "postgresql",
@@ -1277,6 +1277,13 @@
           "notNull": true,
           "default": 0
         },
+        "epoch": {
+          "name": "epoch",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
         "last_error": {
           "name": "last_error",
           "type": "text",
@@ -1385,6 +1392,10 @@
         "billing_requests_attempts_check": {
           "name": "billing_requests_attempts_check",
           "value": "\"billing_requests\".\"attempts\" >= 0"
+        },
+        "billing_requests_epoch_check": {
+          "name": "billing_requests_epoch_check",
+          "value": "\"billing_requests\".\"epoch\" >= 0"
         },
         "billing_requests_last_error_check": {
           "name": "billing_requests_last_error_check",
@@ -1509,54 +1520,6 @@
           "value": "\"billing_transitions\".\"actor\" in ('system', 'client', 'support')"
         }
       },
-      "isRLSEnabled": false
-    },
-    "public.booking_request_keys": {
-      "name": "booking_request_keys",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "token_hash": {
-          "name": "token_hash",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "written_at": {
-          "name": "written_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "booking_request_keys_token_idx": {
-          "name": "booking_request_keys_token_idx",
-          "columns": [
-            {
-              "expression": "token_hash",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.booking_requests": {
@@ -1851,7 +1814,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         },
         "booking_requests_conversation_id_conversations_id_fk": {
@@ -1890,7 +1853,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -2966,18 +2929,6 @@
           "notNull": true,
           "default": 90
         },
-        "retention_record_days_previous": {
-          "name": "retention_record_days_previous",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "retention_record_days_shortened_at": {
-          "name": "retention_record_days_shortened_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
         "onboarding": {
           "name": "onboarding",
           "type": "jsonb",
@@ -3267,10 +3218,6 @@
         "clinics_dpa_never_hipaa": {
           "name": "clinics_dpa_never_hipaa",
           "value": "\"clinics\".\"agreement_kind\" is distinct from 'dpa' or \"clinics\".\"regulatory_regime\" is distinct from 'hipaa'"
-        },
-        "clinics_retention_record_days_positive": {
-          "name": "clinics_retention_record_days_positive",
-          "value": "\"clinics\".\"retention_record_days\" >= 1"
         }
       },
       "isRLSEnabled": false
@@ -4452,6 +4399,30 @@
           "primaryKey": false,
           "notNull": false
         },
+        "pending_plan_change_request_id": {
+          "name": "pending_plan_change_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pending_plan_change_plan_id": {
+          "name": "pending_plan_change_plan_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pending_plan_change_interval": {
+          "name": "pending_plan_change_interval",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "stripe_subscription_synced_at": {
+          "name": "stripe_subscription_synced_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -4535,6 +4506,10 @@
         "entitlements_stripe_mutation_lease_check": {
           "name": "entitlements_stripe_mutation_lease_check",
           "value": "(\"entitlements\".\"stripe_mutation_lease_until\" is null) = (\"entitlements\".\"stripe_mutation_lease_owner\" is null) and (\"entitlements\".\"stripe_mutation_lease_owner\" is null or char_length(\"entitlements\".\"stripe_mutation_lease_owner\") between 1 and 120)"
+        },
+        "entitlements_pending_plan_change_check": {
+          "name": "entitlements_pending_plan_change_check",
+          "value": "(\"entitlements\".\"pending_plan_change_request_id\" is null) = (\"entitlements\".\"pending_plan_change_plan_id\" is null) and (\"entitlements\".\"pending_plan_change_request_id\" is null) = (\"entitlements\".\"pending_plan_change_interval\" is null) and (\"entitlements\".\"pending_plan_change_interval\" is null or \"entitlements\".\"pending_plan_change_interval\" in ('month', 'year')) and (\"entitlements\".\"pending_plan_change_request_id\" is null or \"entitlements\".\"pending_plan_change_request_id\" ~ '^[A-Za-z0-9_-]{1,64}$')"
         },
         "entitlements_pending_location_check": {
           "name": "entitlements_pending_location_check",

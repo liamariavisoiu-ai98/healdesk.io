@@ -353,7 +353,7 @@ BAA obligations persist until it is done.
 Restore from the host's physical snapshot or point-in-time recovery, or from a full
 `pg_dump` of schema and data, in which the triggers are created after the data. A
 data-only load into a migrated schema (`pg_restore --data-only`, or a `\copy` of one
-table) fires two BEFORE INSERT triggers from 0053 that refuse it: `clinics_insert_guard`
+table) fires two BEFORE INSERT triggers from 0054 that refuse it: `clinics_insert_guard`
 refuses every offboarded or destroyed clinic, and `booking_requests_keys_once` refuses
 every booking request whose key is already there, which is all of them, since
 `booking_request_keys` sorts ahead of `booking_requests` in a dump. For such a load the
@@ -373,8 +373,8 @@ COMMIT;
 (`pg_restore --data-only --disable-triggers` does the same for every table, foreign keys
 included, but only as a superuser, which RDS does not give.) Then check that both
 triggers and `clinics_record_clock` read `tgenabled = 'O'` in `pg_trigger`, the check
-0053 ends with, and that every booking request has its key, counting clinic by clinic
-inside each clinic's tenant as 0053's backfill does (`booking_requests` is FORCEd): a
+0054 ends with, and that every booking request has its key, counting clinic by clinic
+inside each clinic's tenant as 0054's backfill does (`booking_requests` is FORCEd): a
 request loaded without its key could be deleted and written again with another decision.
 `tests/booking-request-destruction.test.ts` runs these steps.
 

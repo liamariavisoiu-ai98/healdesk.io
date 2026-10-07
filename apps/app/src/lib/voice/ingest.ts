@@ -1,13 +1,16 @@
 import { isAfterHours, parseOpeningHours } from "@/lib/clinic/opening-hours";
-import { resolveBookingRequirements, type BookingField } from "@healdesk/catalog";
+import { billableVoiceMinutes, resolveBookingRequirements, type BookingField } from "@healdesk/catalog";
 import { toE164 } from "@healdesk/connectors";
 import { and, eq, isNotNull, isNull, or } from "drizzle-orm";
 
 import { unsafeDb, type Transaction } from "@/db";
-import { bookingRequests, clinics, contacts, conversations } from "@/db/schema";
+import { bookingRequests, clinics, clinicSettings, contacts, conversations } from "@/db/schema";
 import { recordSecurityEvent, type ActorContext } from "@/lib/audit";
+import { recordUsage } from "@/lib/billing/usage";
+import { identifierRef } from "@/lib/identifier-ref";
+import { describeError, log } from "@/lib/log";
 import { cleanAlternatives, cleanCollectedFields, createBookingRequest, notifyDesk } from "@/lib/meta/booking-requests";
-import { observeForwardingCall } from "@/lib/onboarding/forwarding-test";
+import { evaluateForwardingCall, observeForwardingCall } from "@/lib/onboarding/forwarding-test";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
@@ -61,6 +64,13 @@ export type VoiceCallEvent = {
   callerName?: string;
   startedAt: Date;
   endedAt?: Date;
+  /**
+   * How long the call lasted, in seconds, as the vendor measured it. The
+   * voice minutes it bills are this rounded up per call
+   * (billableVoiceMinutes); without it, the gap between `startedAt` and
+   * `endedAt` is used, and without either the call is not billed.
+   */
+  durationSeconds?: number;
   /**
    * What the telephony layer observed. Facts, not conclusions.
    *
@@ -333,10 +343,51 @@ export function classifyBooking(
 }
 
 /**
+ * Why a call is or is not counted against the clinic's voice minutes (R18).
+ * Every ingested call is, apart from the calls the contracts' `first_answer`
+ * rule also leaves out: the forwarding test (healdesk's own call, inside its
+ * five-minute window) and a call from one of the clinic's own numbers (its
+ * published line, its direct line, the assistant's number); and a call with
+ * no length to bill. The answer gate's decision at call time is not asked
+ * again here: it changed what the assistant offered on the call, and the
+ * call still happened.
+ */
+export type VoiceMetering =
+  | { minutes: number }
+  | { skipped: "test_call" | "own_number" | "no_duration" | "too_short" };
+
+/** Pure: what this call bills, from the facts the ingest already holds. */
+export function voiceMeteringFor(
+  event: Pick<VoiceCallEvent, "callerPhone" | "startedAt" | "endedAt" | "durationSeconds">,
+  facts: { isTestCall: boolean; ownNumbers: readonly (string | null | undefined)[] },
+): VoiceMetering {
+  if (facts.isTestCall) return { skipped: "test_call" };
+  if (event.callerPhone && facts.ownNumbers.some((n) => n && n === event.callerPhone)) {
+    return { skipped: "own_number" };
+  }
+  const elapsed =
+    event.endedAt && event.endedAt.getTime() >= event.startedAt.getTime()
+      ? (event.endedAt.getTime() - event.startedAt.getTime()) / 1000
+      : undefined;
+  const seconds = event.durationSeconds ?? elapsed;
+  if (seconds === undefined) return { skipped: "no_duration" };
+  const minutes = billableVoiceMinutes(seconds);
+  return minutes > 0 ? { minutes } : { skipped: "too_short" };
+}
+
+/**
  * Record a completed call.
  *
  * Idempotent on the platform's own call id: voice vendors retry webhooks, and a
  * call counted twice is a revenue figure inflated twice.
+ *
+ * A new call then counts its minutes against the billing clinic's allowance
+ * (recordUsage), after the call's own transaction has committed and outside
+ * it: the recorder locks the billing clinic's entitlements row in a
+ * transaction of its own, and doing that from inside this one would hold two
+ * pooled connections at once. A failure there is logged and leaves the call
+ * recorded; it is under-billing, the safe direction, and the vendor is not
+ * asked to retry.
  */
 export async function ingestCall(
   event: VoiceCallEvent,
@@ -364,7 +415,7 @@ export async function ingestCall(
     );
   }
 
-  return withTenant({ clinicId: event.clinicId, actor }, async (tx) => {
+  const ingested = await withTenant({ clinicId: event.clinicId, actor }, async (tx): Promise<{ result: IngestResult; metering: VoiceMetering | null }> => {
     const [clinic] = await tx.db
       .select({
         timezone: clinics.timezone,
@@ -372,6 +423,7 @@ export async function ingestCall(
         callRouting: clinics.callRouting,
         forwardingTestUntil: clinics.forwardingTestUntil,
         publishedPhoneE164: clinics.publishedPhoneE164,
+        synthflowNumberE164: clinics.synthflowNumberE164,
         specialty: clinics.specialty,
         bookingRequirements: clinics.bookingRequirements,
       })
@@ -450,10 +502,13 @@ export async function ingestCall(
         .limit(1);
 
       return {
-        conversationId: existing!.id,
-        recoveryReason: existing!.recoveryReason,
-        duplicate: true,
-        bookingRequestId: priorRequest?.id ?? null,
+        result: {
+          conversationId: existing!.id,
+          recoveryReason: existing!.recoveryReason,
+          duplicate: true,
+          bookingRequestId: priorRequest?.id ?? null,
+        },
+        metering: null,
       };
     }
 
@@ -520,13 +575,47 @@ export async function ingestCall(
       },
     });
 
+    // What the call bills, judged against the forwarding window as it stood
+    // when the call arrived: observeForwardingCall below consumes it.
+    const [settings] = await tx.db
+      .select({ directLine: clinicSettings.directLineE164 })
+      .from(clinicSettings)
+      .where(eq(clinicSettings.clinicId, tx.clinicId))
+      .limit(1);
+    const metering = voiceMeteringFor(event, {
+      isTestCall: evaluateForwardingCall(clinic, event, row.id).isTest,
+      ownNumbers: [clinic.publishedPhoneE164, settings?.directLine, clinic.synthflowNumberE164],
+    });
+
     // The forwarding test, and the caller-ID watch: after the row exists, in
     // the same transaction, so a test call that stamps the step and the
     // conversation it stamped it from commit or roll back together.
     await observeForwardingCall(tx, clinic, event, row.id);
 
-    return { conversationId: row.id, recoveryReason, duplicate: false, bookingRequestId };
+    return { result: { conversationId: row.id, recoveryReason, duplicate: false, bookingRequestId }, metering };
   });
+
+  const { result, metering } = ingested;
+  if (metering && "minutes" in metering) {
+    try {
+      await recordUsage({
+        locationClinicId: event.clinicId,
+        meter: "voice_minutes",
+        quantity: metering.minutes,
+        source: "voice_call",
+        sourceRef: identifierRef("call", event.clinicId, externalCallId),
+        occurredAt: event.startedAt,
+        actor,
+      });
+    } catch (error) {
+      log.error("voice call not metered", { clinicId: event.clinicId, conversationId: result.conversationId, error: describeError(error) });
+    }
+  } else if (metering?.skipped === "no_duration") {
+    // The payload carried neither a duration nor an end: nothing to bill,
+    // and worth seeing, because every such call is minutes given away.
+    log.warn("voice call not metered", { clinicId: event.clinicId, conversationId: result.conversationId, reason: "no_duration" });
+  }
+  return result;
 }
 
 /**

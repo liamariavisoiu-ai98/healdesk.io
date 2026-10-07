@@ -1,45 +1,55 @@
-import { completeConnect } from "@/lib/billing/connect";
+import { completeConnect, connectReturnUrl, CONNECT_DONE_PATH } from "@/lib/billing/connect";
 import { describeError, log } from "@/lib/log";
+import { publicUrl } from "@/lib/public-url";
 
-export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 /**
- * GET /api/connect/stripe?code=…&state=… — Stripe's OAuth return for Connect.
+ * GET /api/connect/stripe?code=…&state=… (or ?error=access_denied&state=…):
+ * Stripe's OAuth return for Connect (BD28, R23).
  *
- * The clinic finished authorising the platform on Stripe's site and lands
- * here. The state is the only thing that says which clinic; it is signed,
- * so a stranger cannot hand us a code for their account against someone
- * else's clinic. On success the operator's onboarding page is where the
- * result shows, so that is where the browser goes.
+ * The state is the only thing that says which clinic, and it is a
+ * single-use row: lib/billing/connect.ts consumes it before anything else,
+ * the code exchange included, holds a portal state to the browser that
+ * started it, and never lets a different account replace the clinic's.
+ *
+ * Every outcome is a redirect, never JSON, because a person's browser is
+ * what arrives here: to the portal's Settings or setup wizard with
+ * `connect=ok|declined|failed`, or to the neutral done page for an
+ * operator's link and for any state we do not recognise. Never `/admin`,
+ * which is our console and must never be shown to a clinic. The address is
+ * built from the clinic's own slug, never from the request.
+ *
+ * The redirect carries `Referrer-Policy: no-referrer`: this URL holds the
+ * code and the state, spent as both are, and the page it sends the browser
+ * to has no business seeing them.
  */
-function consoleUrl(path: string): string {
-  const base = (process.env.HEALDESK_WEB_URL ?? "https://healdesk.io").replace(/\/$/, "");
-  return `${base}${path}`;
-}
-
 export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
-  // Stripe reports a declined authorisation as error=access_denied.
-  if (url.searchParams.get("error")) {
-    return Response.redirect(consoleUrl("/admin/ops?connect=declined"), 303);
-  }
+  let target: string;
   try {
     const result = await completeConnect({
-      code: url.searchParams.get("code"),
       state: url.searchParams.get("state"),
+      code: url.searchParams.get("code"),
+      error: url.searchParams.get("error"),
     });
-    switch (result.status) {
-      case "connected":
-        return Response.redirect(consoleUrl(`/admin/ops/${result.clinicId}/onboarding?connect=ok`), 303);
-      case "invalid_state":
-        return Response.json({ error: "This link has expired or was not issued by healdesk." }, { status: 400 });
-      case "failed":
-        log.error("stripe connect exchange failed", { reason: result.reason });
-        return Response.redirect(consoleUrl("/admin/ops?connect=failed"), 303);
-    }
+    target = connectReturnUrl(result);
   } catch (error) {
     log.error("stripe connect callback failed", { error: describeError(error) });
-    return Response.json({ error: "Could not complete the connection." }, { status: 500 });
+    target = neutralFailure();
+  }
+  return new Response(null, {
+    status: 303,
+    headers: { Location: target, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" },
+  });
+}
+
+function neutralFailure(): string {
+  const path = `${CONNECT_DONE_PATH}?result=failed`;
+  try {
+    return publicUrl(path);
+  } catch {
+    return path;
   }
 }

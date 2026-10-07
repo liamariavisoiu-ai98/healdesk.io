@@ -3043,7 +3043,7 @@ const CLAUSES_1_3: readonly BaaClause[] = [
    * src/lib/retention/purge.ts), with TRANSCRIPT_RETENTION_DAYS the clinic's
    * default and BACKUP_RETENTION_DAYS the host's (PT-28). A booking request's
    * period runs from its own dates, which nothing moves once it is decided
-   * (app_purge_booking_requests, apps/app drizzle/0053); it no longer goes
+   * (app_purge_booking_requests, apps/app drizzle/0054); it no longer goes
    * with its contact by cascade, so the text gives it its own sentence, and a
    * person's contact details stay while any record of theirs does (purge
    * step 3).

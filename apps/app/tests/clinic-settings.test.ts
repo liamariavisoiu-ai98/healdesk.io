@@ -7,6 +7,7 @@ import {
   normaliseE164,
   updateClinicSettings,
 } from "@/lib/billing/settings";
+import { isPaused } from "@/lib/channels/state";
 import { withTenant } from "@/lib/tenant";
 
 import {
@@ -21,6 +22,8 @@ import { inTenant, seedClinic } from "./setup/factories";
 /**
  * clinic_settings (design D9): defaults without a row, one upsert path, and
  * the validation that keeps a fallback from looping back into the assistant.
+ * The pause is judged by isPaused, so a timed pause ends by itself (BD26),
+ * and deposits are switched only by lib/billing/deposits.ts (R24).
  */
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
@@ -74,6 +77,7 @@ describeDb("clinic settings", () => {
       depositUncollectable: row.deposit_uncollectable,
       depositHoldMinutes: row.deposit_hold_minutes,
       aiPausedAt: row.ai_paused_at,
+      aiPausedUntil: row.ai_paused_until,
       directLineE164: row.direct_line_e164,
     }).toEqual({
       depositsEnabled: DEFAULT_CLINIC_SETTINGS.depositsEnabled,
@@ -82,6 +86,7 @@ describeDb("clinic settings", () => {
       depositUncollectable: DEFAULT_CLINIC_SETTINGS.depositUncollectable,
       depositHoldMinutes: DEFAULT_CLINIC_SETTINGS.depositHoldMinutes,
       aiPausedAt: null,
+      aiPausedUntil: DEFAULT_CLINIC_SETTINGS.aiPausedUntil,
       directLineE164: null,
     });
   });
@@ -122,6 +127,7 @@ describeDb("clinic settings", () => {
     );
     expect(resumed.aiPausedAt).toBeNull();
     expect(resumed.aiPausedByLabel).toBeNull();
+    expect(resumed.aiPausedUntil).toBeNull();
     expect(resumed.directLineE164).toBeNull();
 
     // The audit trail records that a line was set, never the number.
@@ -220,8 +226,8 @@ describeDb("clinic settings", () => {
     await expect(attempt({ depositUncollectable: "ignore" as never })).rejects.toMatchObject({
       field: "depositUncollectable",
     });
-    await expect(attempt({ depositsEnabled: "yes" as never })).rejects.toMatchObject({
-      field: "depositsEnabled",
+    await expect(attempt({ bookVoiceWithoutDeposit: "yes" as never })).rejects.toMatchObject({
+      field: "bookVoiceWithoutDeposit",
     });
     // Nothing was written by any refusal.
     expect(await withTenant({ clinicId, actor }, (tx) => getClinicSettings(tx))).toEqual(
@@ -236,9 +242,182 @@ describeDb("clinic settings", () => {
     const a = await seedClinic("settings-iso-a");
     const b = await seedClinic("settings-iso-b");
     await withTenant({ clinicId: a.clinicId, actor }, (tx) =>
-      updateClinicSettings(tx, { depositsEnabled: true }, actor.label),
+      updateClinicSettings(tx, { depositHoldMinutes: 90 }, actor.label),
     );
     const fromB = await withTenant({ clinicId: b.clinicId, actor }, (tx) => getClinicSettings(tx));
-    expect(fromB.depositsEnabled).toBe(false);
+    expect(fromB.depositHoldMinutes).toBe(DEFAULT_CLINIC_SETTINGS.depositHoldMinutes);
+  });
+
+  test("deposits are not switched here: a patch naming them is refused and writes nothing (R24)", async () => {
+    const { clinicId } = await seedClinic("settings-deposits");
+    await expect(
+      withTenant({ clinicId, actor }, (tx) =>
+        updateClinicSettings(tx, { depositsEnabled: true } as never, actor.label),
+      ),
+    ).rejects.toThrow(/setDepositSettings/);
+    const read = await withTenant({ clinicId, actor }, (tx) => getClinicSettings(tx));
+    expect(read).toEqual(DEFAULT_CLINIC_SETTINGS);
+  });
+});
+
+describeDb("Pause AI (BD26)", () => {
+  const at = (iso: string) => new Date(iso);
+  const pauseOf = (s: { aiPausedAt: Date | null; aiPausedUntil: Date | null }) => ({
+    pausedAt: s.aiPausedAt,
+    pausedUntil: s.aiPausedUntil,
+  });
+
+  beforeAll(async () => {
+    await runMigrations();
+    await truncateAll();
+  }, 60_000);
+
+  afterAll(async () => {
+    await closePools();
+  });
+
+  test("a timed pause holds until its end and is over after it; pausing again then starts a new pause with fresh stamps", async () => {
+    const { clinicId } = await seedClinic("pause-timed");
+    const start = at("2026-10-06T09:00:00Z");
+    const end = at("2026-10-06T10:00:00Z");
+    const timed = await withTenant({ clinicId, actor }, (tx) =>
+      updateClinicSettings(tx, { aiPaused: true, aiPausedUntil: end }, actor.label, start),
+    );
+    expect(timed.aiPausedAt?.getTime()).toBe(start.getTime());
+    expect(timed.aiPausedUntil?.getTime()).toBe(end.getTime());
+    expect(isPaused(pauseOf(timed), at("2026-10-06T09:59:00Z"))).toBe(true);
+    expect(isPaused(pauseOf(timed), at("2026-10-06T10:00:00Z"))).toBe(false);
+
+    // After the hour, the stamps are still stored but the pause is over. A
+    // new pause is a new pause: judged by the stamp alone it was dropped as
+    // "already paused", and the assistant kept answering.
+    const later = at("2026-10-06T14:00:00Z");
+    const again = await withTenant({ clinicId, actor }, (tx) =>
+      updateClinicSettings(tx, { aiPaused: true }, "manager@example-clinic.test", later),
+    );
+    expect(again.aiPausedAt?.getTime()).toBe(later.getTime());
+    expect(again.aiPausedByLabel).toBe("manager@example-clinic.test");
+    // Until switched back on: the old, past end is not inherited.
+    expect(again.aiPausedUntil).toBeNull();
+    expect(isPaused(pauseOf(again), at("2026-10-07T14:00:00Z"))).toBe(true);
+  });
+
+  test("pausing again while paused moves only when it ends; who paused and since when stay", async () => {
+    const { clinicId } = await seedClinic("pause-extend");
+    const start = at("2026-10-06T09:00:00Z");
+    await withTenant({ clinicId, actor }, (tx) =>
+      updateClinicSettings(
+        tx,
+        { aiPaused: true, aiPausedUntil: at("2026-10-06T10:00:00Z") },
+        actor.label,
+        start,
+      ),
+    );
+    const tomorrow = at("2026-10-07T08:00:00Z");
+    const moved = await withTenant({ clinicId, actor }, (tx) =>
+      updateClinicSettings(
+        tx,
+        { aiPaused: true, aiPausedUntil: tomorrow },
+        "someone-else@example-clinic.test",
+        at("2026-10-06T09:30:00Z"),
+      ),
+    );
+    expect(moved.aiPausedAt?.getTime()).toBe(start.getTime());
+    expect(moved.aiPausedByLabel).toBe(actor.label);
+    expect(moved.aiPausedUntil?.getTime()).toBe(tomorrow.getTime());
+
+    // And to "until switched back on".
+    const open = await withTenant({ clinicId, actor }, (tx) =>
+      updateClinicSettings(
+        tx,
+        { aiPaused: true, aiPausedUntil: null },
+        actor.label,
+        at("2026-10-06T09:45:00Z"),
+      ),
+    );
+    expect(open.aiPausedAt?.getTime()).toBe(start.getTime());
+    expect(open.aiPausedUntil).toBeNull();
+
+    // A form re-sending "paused" with no end named changes nothing.
+    const resent = await withTenant({ clinicId, actor }, (tx) =>
+      updateClinicSettings(tx, { aiPaused: true }, actor.label, at("2026-10-06T11:00:00Z")),
+    );
+    expect(resent.updatedAt?.getTime()).toBe(at("2026-10-06T09:45:00Z").getTime());
+  });
+
+  test("resuming clears all three, including a timed pause's stamps after it ended by itself", async () => {
+    const { clinicId } = await seedClinic("pause-resume");
+    await withTenant({ clinicId, actor }, (tx) =>
+      updateClinicSettings(
+        tx,
+        { aiPaused: true, aiPausedUntil: at("2026-10-06T10:00:00Z") },
+        actor.label,
+        at("2026-10-06T09:00:00Z"),
+      ),
+    );
+    const resumed = await withTenant({ clinicId, actor }, (tx) =>
+      updateClinicSettings(tx, { aiPaused: false }, actor.label, at("2026-10-06T12:00:00Z")),
+    );
+    expect(resumed).toMatchObject({ aiPausedAt: null, aiPausedByLabel: null, aiPausedUntil: null });
+
+    // With nothing stored, a resume writes nothing.
+    const again = await withTenant({ clinicId, actor }, (tx) =>
+      updateClinicSettings(tx, { aiPaused: false }, actor.label, at("2026-10-06T13:00:00Z")),
+    );
+    expect(again.updatedAt?.getTime()).toBe(at("2026-10-06T12:00:00Z").getTime());
+
+    const audits = await inTenant(clinicId, async (c) => {
+      const { rows } = await c.query<{ metadata: Record<string, unknown> }>(
+        `select metadata from audit_log where clinic_id = $1 and resource_type = 'clinic_settings' order by occurred_at`,
+        [clinicId],
+      );
+      return rows.map((r) => r.metadata);
+    });
+    // Booleans only: whether the pause was timed, never when it ends.
+    expect(audits).toEqual([
+      { fields: ["aiPaused", "pauseTimed"], aiPaused: true, pauseTimed: true },
+      { fields: ["aiPaused"], aiPaused: false },
+    ]);
+  });
+
+  test("a pause's end is refused unless pausing, in the past, or not a date", async () => {
+    const { clinicId } = await seedClinic("pause-bounds");
+    const now = at("2026-10-06T09:00:00Z");
+    const attempt = (patch: Parameters<typeof updateClinicSettings>[1]) =>
+      withTenant({ clinicId, actor }, (tx) => updateClinicSettings(tx, patch, actor.label, now));
+
+    await expect(attempt({ aiPausedUntil: at("2026-10-06T10:00:00Z") })).rejects.toMatchObject({
+      name: "ClinicSettingsError",
+      field: "aiPausedUntil",
+    });
+    await expect(
+      attempt({ aiPaused: false, aiPausedUntil: at("2026-10-06T10:00:00Z") }),
+    ).rejects.toMatchObject({ field: "aiPausedUntil" });
+    await expect(attempt({ aiPaused: true, aiPausedUntil: now })).rejects.toThrow(/future/);
+    await expect(
+      attempt({ aiPaused: true, aiPausedUntil: "tomorrow" as never }),
+    ).rejects.toMatchObject({ field: "aiPausedUntil" });
+    expect(await withTenant({ clinicId, actor }, (tx) => getClinicSettings(tx))).toEqual(
+      DEFAULT_CLINIC_SETTINGS,
+    );
+  });
+
+  test("a new pause replaces the stamps of one that ended, in the upsert's conflict path too", async () => {
+    const { clinicId } = await seedClinic("pause-race");
+    // A timed pause that ended long ago, still stored.
+    await inTenant(clinicId, (c) =>
+      c.query(
+        `insert into clinic_settings (clinic_id, ai_paused_at, ai_paused_by_label, ai_paused_until)
+         values ($1, '2026-10-01T09:00:00Z', 'old@example-clinic.test', '2026-10-01T10:00:00Z')`,
+        [clinicId],
+      ),
+    );
+    const now = at("2026-10-06T09:00:00Z");
+    const paused = await withTenant({ clinicId, actor }, (tx) =>
+      updateClinicSettings(tx, { aiPaused: true }, actor.label, now),
+    );
+    expect(paused.aiPausedAt?.getTime()).toBe(now.getTime());
+    expect(paused.aiPausedByLabel).toBe(actor.label);
+    expect(paused.aiPausedUntil).toBeNull();
   });
 });

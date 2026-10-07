@@ -161,6 +161,7 @@ describeDb("drizzle/0050: the Stripe build's schema", () => {
       expect(await updatableColumns("billing_requests")).toEqual([
         "attempts",
         "done_at",
+        "epoch",
         "last_error",
         "lease_until",
         "next_attempt_at",
@@ -487,9 +488,13 @@ describeDb("drizzle/0050: the Stripe build's schema", () => {
         "pending_location_charged_at",
         "pending_location_count",
         "pending_location_request_id",
+        "pending_plan_change_interval",
+        "pending_plan_change_plan_id",
+        "pending_plan_change_request_id",
         "plan_start_applied_at",
         "stripe_mutation_lease_owner",
         "stripe_mutation_lease_until",
+        "stripe_subscription_synced_at",
       ];
       const updatable = await updatableColumns("entitlements");
       for (const column of added) expect(updatable, column).toContain(column);

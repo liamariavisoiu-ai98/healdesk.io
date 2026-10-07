@@ -1,11 +1,14 @@
+import { createHash } from "node:crypto";
+
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import {
+  CONNECT_STATE_TTL_MS,
   completeConnect,
-  connectAuthorizeUrl,
-  connectState,
-  verifyConnectState,
+  connectReturnPath,
+  mintConnectState,
 } from "@/lib/billing/connect";
+import { __setStripeForTests } from "@/lib/billing/stripe-client";
 import { updateAgentConfig } from "@/lib/onboarding/agent-config";
 import {
   FORWARDING_TEST_WINDOW_MS,
@@ -25,6 +28,7 @@ import { ingestCall, type VoiceCallEvent } from "@/lib/voice/ingest";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { inTenant, seedClinic, seedConversation } from "./setup/factories";
+import { createStripeFake } from "./setup/stripe-fake";
 
 /**
  * Phase 8: the forwarding test, the first-weeks view, the deposit fallback
@@ -35,7 +39,6 @@ const describeDb = hasTestDatabase ? describe : describe.skip;
 const DAY = 24 * 60 * 60 * 1000;
 const ACTOR = { type: "service", serviceName: "test" } as const;
 const OPERATOR: Operator = { email: "ops@healdesk.test", request: {} };
-const SECRET = "connect-state-secret";
 
 const CLINIC_NUMBER = "+14155550199";
 
@@ -98,35 +101,20 @@ describe("forwarding test — the rule", () => {
   });
 });
 
-describe("stripe connect state", () => {
-  const clinicId = "11111111-1111-4111-8111-111111111111";
-  const now = new Date("2026-09-14T12:00:00Z");
+describe("stripe connect: where the callback sends the browser", () => {
+  const target = (returnTo: "settings" | "setup" | "ops") => ({ clinicId: "11111111-1111-4111-8111-111111111111", slug: "glow", returnTo });
 
-  test("round-trips within the hour and refuses tampering, other secrets and stale states", () => {
-    const state = connectState(clinicId, now, SECRET);
-    expect(verifyConnectState(state, new Date(now.getTime() + 30 * 60_000), SECRET)).toBe(clinicId);
-    expect(verifyConnectState(state, new Date(now.getTime() + 61 * 60_000), SECRET)).toBeNull();
-    expect(verifyConnectState(state, now, "another-secret")).toBeNull();
-    expect(verifyConnectState(state.replace(clinicId, "22222222-2222-4222-8222-222222222222"), now, SECRET)).toBeNull();
-    expect(verifyConnectState(`${state}x`, now, SECRET)).toBeNull();
-    expect(verifyConnectState("", now, SECRET)).toBeNull();
-  });
-
-  test("no link until the platform is configured", () => {
-    const before = { id: process.env.STRIPE_CONNECT_CLIENT_ID, key: process.env.STRIPE_SECRET_KEY };
-    delete process.env.STRIPE_CONNECT_CLIENT_ID;
-    expect(connectAuthorizeUrl(clinicId)).toBeNull();
-    process.env.STRIPE_CONNECT_CLIENT_ID = "ca_test";
-    process.env.STRIPE_SECRET_KEY = "sk_test_x";
-    process.env.HEALDESK_PROVISION_SECRET ??= "provision-secret-for-phase8";
-    const url = connectAuthorizeUrl(clinicId, now);
-    expect(url).toMatch(/^https:\/\/connect\.stripe\.com\/oauth\/authorize\?/);
-    expect(new URL(url!).searchParams.get("client_id")).toBe("ca_test");
-    expect(new URL(url!).searchParams.get("state")).toMatch(new RegExp(`^${clinicId}\\.`));
-    if (before.id) process.env.STRIPE_CONNECT_CLIENT_ID = before.id;
-    else delete process.env.STRIPE_CONNECT_CLIENT_ID;
-    if (before.key) process.env.STRIPE_SECRET_KEY = before.key;
-    else delete process.env.STRIPE_SECRET_KEY;
+  test("portal states go back to the page they started from; operator links and unknown states to the neutral page; never /admin", () => {
+    expect(connectReturnPath({ status: "connected", target: target("settings"), accountLabel: "Glow" })).toBe("/c/glow/settings?connect=ok");
+    expect(connectReturnPath({ status: "declined", target: target("setup") })).toBe("/c/glow/setup?connect=declined");
+    expect(connectReturnPath({ status: "already_connected", target: target("settings") })).toBe("/c/glow/settings?connect=failed");
+    expect(connectReturnPath({ status: "failed", target: target("setup"), reason: "code_rejected" })).toBe("/c/glow/setup?connect=failed");
+    // Never the account's name: the done page is public and would print whatever a URL said.
+    expect(connectReturnPath({ status: "connected", target: target("ops"), accountLabel: "Glow Aesthetics" })).toBe("/connect/stripe/done?result=ok");
+    expect(connectReturnPath({ status: "connected", target: target("ops"), accountLabel: null })).toBe("/connect/stripe/done?result=ok");
+    expect(connectReturnPath({ status: "already_connected", target: target("ops") })).toBe("/connect/stripe/done?result=already_connected");
+    expect(connectReturnPath({ status: "invalid_state" })).toBe("/connect/stripe/done?result=expired");
+    expect(connectReturnPath({ status: "unbound" })).toBe("/connect/stripe/done?result=failed");
   });
 });
 
@@ -359,20 +347,48 @@ describeDb("phase 8, against the database", () => {
     }
   });
 
-  test("completing the Connect callback stores the account id, and a bad state stores nothing", async () => {
-    const c = await seedClinic("connect");
-    const exchange = async (code: string) => ({ accountId: code === "good" ? "acct_1TestClinic" : "nope" });
-    const now = new Date();
-    const ok = await completeConnect({ code: "good", state: connectState(c.clinicId, now) }, exchange, now);
-    expect(ok).toEqual({ status: "connected", clinicId: c.clinicId, accountId: "acct_1TestClinic" });
-    const overview = (await listClinics()).find((x) => x.id === c.clinicId)!;
-    expect(overview.stripeConnectAccountId).toBe("acct_1TestClinic");
-    expect(overview.stripeConnectConnectedAt).not.toBeNull();
+  test("completing the Connect callback stores the account id once; a reused, forged or expired state stores nothing", async () => {
+    vi.stubEnv("STRIPE_CONNECT_CLIENT_ID", "ca_test_phase8");
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_phase8");
+    vi.stubEnv("BETTER_AUTH_URL", "https://app.healdesk.test");
+    const token = vi.fn(async (_url: string, init: { body: string }) => {
+      const code = new URLSearchParams(init.body).get("code");
+      return Response.json(code === "good" ? { stripe_user_id: "acct_1TestClinic", livemode: false } : { stripe_user_id: "nope", livemode: false });
+    });
+    vi.stubGlobal("fetch", token);
+    // The display name is read from Stripe after the link; this one has none.
+    __setStripeForTests(createStripeFake({ "accounts.retrieve": () => ({ settings: { dashboard: { display_name: null } } }) }).stripe);
+    try {
+      const c = await seedClinic("connect");
+      const now = new Date();
+      const minted = await mintConnectState({ clinicId: c.clinicId, returnTo: "ops", now });
+      expect(minted.expiresAt.getTime() - now.getTime()).toBe(CONNECT_STATE_TTL_MS);
+      const state = new URL(minted.url).searchParams.get("state")!;
+      // Only the hash is stored, never the state itself.
+      const stored = await getMigratorPool().query<{ state_hash: Buffer }>(`select state_hash from stripe_connect_states where target_clinic_id = $1`, [c.clinicId]);
+      expect(stored.rows[0]!.state_hash.equals(createHash("sha256").update(state).digest())).toBe(true);
 
-    const other = await seedClinic("connect-other");
-    expect(await completeConnect({ code: "good", state: `${other.clinicId}.${now.getTime()}.forged` }, exchange, now)).toEqual({ status: "invalid_state" });
-    expect(await completeConnect({ code: "bad", state: connectState(other.clinicId, now) }, exchange, now)).toEqual({ status: "failed", reason: "not an account id" });
-    const untouched = (await listClinics()).find((x) => x.id === other.clinicId)!;
-    expect(untouched.stripeConnectAccountId).toBeNull();
+      const ok = await completeConnect({ code: "good", state, error: null }, { now });
+      expect(ok).toMatchObject({ status: "connected", target: { clinicId: c.clinicId, slug: c.slug, returnTo: "ops" } });
+      const overview = (await listClinics()).find((x) => x.id === c.clinicId)!;
+      expect(overview.stripeConnectAccountId).toBe("acct_1TestClinic");
+      expect(overview.stripeConnectConnectedAt).not.toBeNull();
+      // Single use: the same state again finds nothing, and the code is never sent twice.
+      expect(await completeConnect({ code: "good", state, error: null }, { now })).toEqual({ status: "invalid_state" });
+      expect(token).toHaveBeenCalledTimes(1);
+
+      const other = await seedClinic("connect-other");
+      expect(await completeConnect({ code: "good", state: `${other.clinicId}.${now.getTime()}.forged`, error: null }, { now })).toEqual({ status: "invalid_state" });
+      const late = await mintConnectState({ clinicId: other.clinicId, returnTo: "ops", now });
+      expect(await completeConnect({ code: "good", state: new URL(late.url).searchParams.get("state"), error: null }, { now: new Date(now.getTime() + CONNECT_STATE_TTL_MS + 1000) })).toEqual({ status: "invalid_state" });
+      const bad = await mintConnectState({ clinicId: other.clinicId, returnTo: "ops", now });
+      expect(await completeConnect({ code: "bad", state: new URL(bad.url).searchParams.get("state"), error: null }, { now })).toMatchObject({ status: "failed", reason: "not_an_account" });
+      const untouched = (await listClinics()).find((x) => x.id === other.clinicId)!;
+      expect(untouched.stripeConnectAccountId).toBeNull();
+    } finally {
+      __setStripeForTests(null);
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
   });
 });

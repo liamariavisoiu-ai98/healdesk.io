@@ -911,7 +911,7 @@ and again by the pre-release audit's redraft (§ 12.14), which also moved the
 election's and the disclosure's: neither has been released, accepted or
 shown. The verification of that redraft (7 October) moved the ten 1.3.0
 hashes once more, and not the election's or the disclosure's. So did the
-booking-request destruction fix the same day (drizzle/0053), by clause 11's
+booking-request destruction fix the same day (drizzle/0054), by clause 11's
 sentences on booking requests and contact details: they said a booking
 request was kept with the contact details of the person it concerns, as the
 purge did while requests went with their contact by cascade. A confirmed request holds its appointment, so that rule
@@ -1341,7 +1341,7 @@ these is closed, by code, a page, a signed paper or a host setting, and
      contact attempts, with the grant they need.
    - Done: destruction, `eraseContact` and the purge succeed for a practice
      with a confirmed booking request
-     (`drizzle/0053_booking_request_destruction.sql`). The request's
+     (`drizzle/0054_booking_request_destruction.sql`). The request's
      `appointment_id ON DELETE SET NULL` met its confirmed-shape CHECK; the
      requests now go first, through three functions bound to the practice,
      and `docs/counsel/dpa.md` § 9 records how.
@@ -1353,7 +1353,7 @@ these is closed, by code, a page, a signed paper or a host setting, and
    `exportClinic` and the portal export.
 9. **Retention (PT-28).** The nightly purge switched on for every 1.3.0
    clinic (0032 ships it off), and extended to webhook events that are never
-   processed. Done in drizzle/0053 and `lib/retention/purge.ts`: the purge
+   processed. Done in drizzle/0054 and `lib/retention/purge.ts`: the purge
    takes abandoned Meta booking drafts, and a contact is kept while a
    booking request made in the last 90 days refers to it, because purge
    step 3 checks `booking_requests` and a person cannot be deleted while a

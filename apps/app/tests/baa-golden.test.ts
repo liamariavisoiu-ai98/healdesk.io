@@ -931,10 +931,10 @@ describe("1.3.0: the calendar-dependent draft", () => {
         "healdesk keeps each conversation, with its transcript, for 90 days after it took place",
       );
       // A booking request has a period of its own, run from dates nothing
-      // moves once it is decided (app_purge_booking_requests, drizzle/0053),
+      // moves once it is decided (app_purge_booking_requests, drizzle/0054),
       // so it no longer goes with its contact; the contact stays while any
       // record of theirs does (purge step 3). The text said the request was
-      // kept with the person, which the purge stopped doing in 0053
+      // kept with the person, which the purge stopped doing in 0054
       // (tests/booking-request-destruction.test.ts holds the purge to this).
       expect(text, label).toContain(
         "It keeps each booking request for 90 days after the latest of when it was made, the time it was confirmed for and its appointment's time.",

@@ -997,9 +997,10 @@ export const agentConfigs = pgTable(
     /** Anything else the agent may say, e.g. parking, new-patient policy. */
     notes: text("notes"),
     /**
-     * The clinic's deposit rule, as the agent must state it. Null means no
-     * deposit is mentioned. With Stripe Connect unavailable the only
-     * collection path is the front desk, and the agent says so on the call.
+     * The clinic's default deposit, for a service that sets none of its own
+     * (AgentService.depositUsd). Null means no default. Whether a deposit is
+     * then asked for, and how, is lib/billing/deposits.ts depositDecision:
+     * deposits switched on, a connected Stripe account, and the channel.
      */
     depositPolicy: jsonb("deposit_policy").$type<DepositPolicy>(),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
@@ -1017,6 +1018,13 @@ export type AgentService = {
   priceToUsd: number | null;
   /** Minutes, for scheduling. */
   durationMinutes: number | null;
+  /**
+   * The deposit this service asks for, in dollars, 0 to 10,000 (BD27; the
+   * spec sets deposits per service). 0 means none, even when the clinic has a
+   * default; null or absent means the clinic default, `deposit_policy`.
+   * lib/billing/deposits.ts effectiveDepositUsd reads it.
+   */
+  depositUsd?: number | null;
 };
 
 // -----------------------------------------------------------------------------
@@ -1207,7 +1215,10 @@ export type PhiBasis = "vendor_baa" | "practice_account";
 export type DepositPolicy = {
   required: boolean;
   amountUsd: number | null;
-  /** How it is collected. "front_desk" until Stripe Connect is enabled for the clinic. */
+  /**
+   * Ignored since BD27: how a deposit is collected follows from the channel
+   * and the clinic's deposit switches. Kept so existing rows still parse.
+   */
   collection: "front_desk" | "stripe_connect";
 };
 
@@ -2591,6 +2602,28 @@ export const entitlements = pgTable(
      * "pay the open invoice" needs its amount as well as its link.
      */
     openInvoiceAmountCents: integer("open_invoice_amount_cents"),
+    /**
+     * A plan change in flight (review fix, 7 October 2026): the request it was
+     * started under, the package and the interval it moves to. Set under the
+     * Stripe mutation lease before anything is charged and cleared in the
+     * transaction that applies it, exactly as pending_location_* are. Without
+     * it a change whose Stripe response was lost left the bought package
+     * unchanged, and the clinic's retry, which carries a fresh request id,
+     * charged the setup-fee difference a second time. A retry now adopts the
+     * pending request and finds its own charge.
+     */
+    pendingPlanChangeRequestId: text("pending_plan_change_request_id"),
+    pendingPlanChangePlanId: text("pending_plan_change_plan_id"),
+    pendingPlanChangeInterval: text("pending_plan_change_interval").$type<BillingInterval>(),
+    /**
+     * When the subscription state last applied from Stripe was read (review
+     * fix): customer.subscription.updated applies the live subscription it
+     * retrieved before its transaction, and two deliveries can commit in the
+     * opposite order to their reads. Compared and set under the row lock, so a
+     * snapshot read before the one already applied is skipped instead of
+     * overwriting it.
+     */
+    stripeSubscriptionSyncedAt: timestamp("stripe_subscription_synced_at", { withTimezone: true }),
 
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -2626,6 +2659,11 @@ export const entitlements = pgTable(
     // it can be charged only while it is pending; the count is at least two
     // (the clinic itself plus the new one); and the request id is an opaque
     // token, because it rides into Stripe metadata and idempotency keys.
+    // A pending plan change is a request, a package and an interval, set together.
+    check(
+      "entitlements_pending_plan_change_check",
+      sql`(${t.pendingPlanChangeRequestId} is null) = (${t.pendingPlanChangePlanId} is null) and (${t.pendingPlanChangeRequestId} is null) = (${t.pendingPlanChangeInterval} is null) and (${t.pendingPlanChangeInterval} is null or ${t.pendingPlanChangeInterval} in ('month', 'year')) and (${t.pendingPlanChangeRequestId} is null or ${t.pendingPlanChangeRequestId} ~ '^[A-Za-z0-9_-]{1,64}$')`,
+    ),
     check(
       "entitlements_pending_location_check",
       sql`(${t.pendingLocationRequestId} is null) = (${t.pendingLocationCount} is null) and (${t.pendingLocationChargedAt} is null or ${t.pendingLocationRequestId} is not null) and (${t.pendingLocationCount} is null or ${t.pendingLocationCount} >= 2) and (${t.pendingLocationRequestId} is null or ${t.pendingLocationRequestId} ~ '^[A-Za-z0-9_-]{1,64}$')`,
@@ -3014,7 +3052,8 @@ export type UsageSource = "voice_call" | "meta" | "web_chat";
  * The usage ledger: one row per billed call or chat conversation, the source
  * of truth behind the entitlements counters (design D10). The tenant is the
  * BILLING clinic whose allowance was used; `location_clinic_id` says which
- * location answered. `source_ref` is a sha256 hex, never a raw vendor id, and
+ * location answered. `source_ref` is an identifierRef (lib/identifier-ref.ts:
+ * a keyed HMAC, never a raw vendor id), and
  * the unique index makes a redelivered webhook a no-op. Append-only apart
  * from the three Stripe reporting columns.
  */
@@ -3065,8 +3104,9 @@ export type ChatThreadChannel = "messenger" | "instagram" | "whatsapp" | "web_ch
 /**
  * One person's thread on one channel, for counting chat conversations (owner
  * decision 3): a conversation starts at their first message and ends when 24
- * hours pass with no message from them. `party_ref` is sha256 hex of the
- * platform sender id; `conversation_id` is regenerated when a new
+ * hours pass with no message from them. `party_ref` is the identifierRef of
+ * the platform sender id (a keyed HMAC: a WhatsApp id is a phone number, which
+ * a plain hash would not hide); `conversation_id` is regenerated when a new
  * conversation starts. Tenant plane.
  */
 export const chatThreads = pgTable(
@@ -3093,7 +3133,8 @@ export const chatThreads = pgTable(
 
 /**
  * Meta message ids already handled, so a redelivered webhook is skipped
- * entirely (no second answer, no second count). sha256 hex of the message id;
+ * entirely (no second answer, no second count). The identifierRef of the
+ * message id;
  * purged after 7 days by the billing-housekeeping job. Tenant plane.
  */
 export const metaInboundMessages = pgTable(
@@ -3180,6 +3221,13 @@ export const overageInvoices = pgTable(
     windowEnd: timestamp("window_end", { withTimezone: true }).notNull(),
     voiceUnits: integer("voice_units").notNull().default(0),
     chatUnits: integer("chat_units").notNull().default(0),
+    /**
+     * The price of one STARTED BLOCK of 100 units on each meter, never a
+     * per-minute or per-conversation rate: overage is billed in blocks since
+     * 6 October 2026, so amount_cents is ceil(units / 100) times this, per
+     * meter (lib/billing/annual-overage.ts). 0 for a meter the package does
+     * not sell.
+     */
     voiceRateCents: integer("voice_rate_cents").notNull().default(0),
     chatRateCents: integer("chat_rate_cents").notNull().default(0),
     amountCents: integer("amount_cents").notNull().default(0),
@@ -3268,6 +3316,14 @@ export const billingRequests = pgTable(
     /** While set and in the future, a worker holds the row. */
     leaseUntil: timestamp("lease_until", { withTimezone: true }),
     attempts: integer("attempts").notNull().default(0),
+    /**
+     * How many times the row has been re-armed (review fix). Re-arming resets
+     * `attempts` for the backoff and the dead-letter count, so the attempt
+     * number alone would repeat, and with it the idempotency keys Stripe still
+     * holds a cached failure under. The keys and the lease owner carry the
+     * epoch too, so a re-armed request always reaches Stripe afresh.
+     */
+    epoch: integer("epoch").notNull().default(0),
     /** A closed code and a short reason, never a Stripe payload or an exception's text. */
     lastError: text("last_error"),
     doneAt: timestamp("done_at", { withTimezone: true }),
@@ -3296,6 +3352,7 @@ export const billingRequests = pgTable(
       sql`${t.reason} in (${sqlList(BILLING_REQUEST_REASONS)})`,
     ),
     check("billing_requests_attempts_check", sql`${t.attempts} >= 0`),
+    check("billing_requests_epoch_check", sql`${t.epoch} >= 0`),
     check(
       "billing_requests_last_error_check",
       sql`${t.lastError} is null or char_length(${t.lastError}) <= 300`,

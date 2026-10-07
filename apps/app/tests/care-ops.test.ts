@@ -96,7 +96,8 @@ describeDb("care operations", () => {
     );
     expect(opened.status).toBe("opened");
     if (opened.status !== "opened") return;
-    expect(opened.notifyBy.slice(0, 10)).toBe("2026-09-18");
+    // 24 hours from discovery, at every clinic (BAA 1.3.0; §12.14, gate 5).
+    expect(opened.notifyBy).toBe("2026-09-12T15:00:00.000Z");
     expect(opened.ftcNotifyBy).toBeNull();
 
     const notified = data<{ status: string }>(

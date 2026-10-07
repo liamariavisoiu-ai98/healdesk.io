@@ -40,4 +40,5 @@ export * from "./sender-identity";
 export * from "./specialties";
 export * from "./subprocessor-notice";
 export * from "./treatment-names";
+export * from "./urgent-content";
 export * from "./welcome";

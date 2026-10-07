@@ -24,7 +24,7 @@
  * action.
  */
 
-export type Channel = "voice" | "sms" | "web_chat" | "instagram_dm" | "whatsapp";
+export type Channel = "voice" | "sms" | "web_chat" | "instagram_dm" | "messenger" | "whatsapp";
 
 export type DisclosureContext = {
   clinicName: string;
@@ -96,6 +96,13 @@ export function smsDisclosure(context: DisclosureContext): string {
  * a channel we can actually secure. "By phone", never "or text": healdesk
  * sends no texts (v1 spec, "SMS cut from v1 entirely"), and a greeting that
  * promised one would be a promise nothing in the product can keep.
+ *
+ * The same line on Instagram, Messenger and WhatsApp. It opens the first
+ * reply of each conversation and no later one (lib/meta/greeting.ts says
+ * what a conversation is), which is BAA 1.3.0's promise that the first reply
+ * says it is an AI assistant and that the channel is not secure. It goes in
+ * front of a reply the guard has already passed: its "don't share medical
+ * details" is guidance by the guard's own pattern.
  */
 export function metaChannelGreeting(context: DisclosureContext): string {
   return (
@@ -121,6 +128,7 @@ export function disclosureFor(context: DisclosureContext): string {
         `Ask for a person any time and I'll pass your details to the practice team, who will get back to you within a day.`
       );
     case "instagram_dm":
+    case "messenger":
     case "whatsapp":
       return metaChannelGreeting(context);
   }

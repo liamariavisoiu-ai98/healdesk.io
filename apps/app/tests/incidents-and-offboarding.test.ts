@@ -41,28 +41,36 @@ describe("incident clocks", () => {
     expect(addBusinessDays(new Date("2026-09-12T15:00:00Z"), 1).toISOString().slice(0, 10)).toBe("2026-09-14");
   });
 
-  test("each class gets the deadline the agreement names", () => {
+  test("a breach, a security incident and an improper use or disclosure are told within 24 hours at every clinic; a complaint gets two business days", () => {
+    // BAA 1.3.0's reporting clause: immediately following discovery and in
+    // any case within 24 hours, one rule for every practice (§12.14, gate 5,
+    // PT-14). It replaced 1.2.1's five calendar days for a breach and five
+    // business days for the other two, which 24 hours also meets. A Friday
+    // discovery is due on Saturday: the clock does not wait for the week.
     const friday = new Date("2026-09-11T15:00:00Z");
-    expect(notifyDeadline("breach", friday, true).toISOString()).toBe("2026-09-16T15:00:00.000Z"); // 5 calendar days
-    expect(notifyDeadline("security_incident", friday, true).toISOString().slice(0, 10)).toBe("2026-09-18");
-    expect(notifyDeadline("improper_use_or_disclosure", friday, true).toISOString().slice(0, 10)).toBe("2026-09-18");
+    for (const cls of ["breach", "security_incident", "improper_use_or_disclosure"] as const) {
+      for (const covered of [true, false, null]) {
+        expect(notifyDeadline(cls, friday, covered).toISOString(), `${cls}, covered ${covered}`).toBe("2026-09-12T15:00:00.000Z");
+      }
+    }
+    // Not a BAA clock: a service promise of a first reply in two business days.
     expect(notifyDeadline("service_complaint", friday, true).toISOString().slice(0, 10)).toBe("2026-09-15");
+    expect(notifyDeadline("service_complaint", friday, false).toISOString().slice(0, 10)).toBe("2026-09-15");
   });
 
-  test("a breach at a clinic outside HIPAA is told within 24 hours, and the clinic's own 30-day clock runs beside it", () => {
-    // BAA 1.3.0's state-law clause: "immediately following discovery", as
-    // Cal. Civ. Code 1798.82(b) requires of a business holding data for its
-    // owner. The second clock is the owner's, 1798.82(a)(2)(A): 30 days.
+  test("a breach at a clinic outside HIPAA runs the clinic's own 30-day clock beside the 24 hours", () => {
+    // The state-law clause's "immediately following discovery" (Cal. Civ.
+    // Code 1798.82(b)) is 24 hours too, and the earlier clock is kept. The
+    // second clock is the owner's, 1798.82(a)(2)(A): 30 days.
     const friday = new Date("2026-09-11T15:00:00Z");
     expect(notifyDeadline("breach", friday, false).toISOString()).toBe("2026-09-12T15:00:00.000Z");
     expect(ownerNotifyDeadline("breach", friday, false)?.toISOString()).toBe("2026-10-11T15:00:00.000Z");
-    // Only a breach changes; the other classes keep the agreement's clocks.
-    expect(notifyDeadline("security_incident", friday, false).toISOString().slice(0, 10)).toBe("2026-09-18");
+    // Only a breach gets the second clock.
     expect(ownerNotifyDeadline("security_incident", friday, false)).toBeNull();
-    // A covered clinic keeps the BAA's clocks and gets no second one, and an
-    // undetermined one cannot have gone live, so it has no real data to breach.
+    expect(ownerNotifyDeadline("improper_use_or_disclosure", friday, false)).toBeNull();
+    // A covered clinic gets no second one, and an undetermined one cannot
+    // have gone live, so it has no real data to breach.
     expect(ownerNotifyDeadline("breach", friday, true)).toBeNull();
-    expect(notifyDeadline("breach", friday, null).toISOString()).toBe("2026-09-16T15:00:00.000Z");
     expect(ownerNotifyDeadline("breach", friday, null)).toBeNull();
   });
 });
@@ -144,13 +152,13 @@ describeDb("incidents, exports and offboarding", () => {
     }
   });
 
-  test("a covered entity's breach keeps the five-day clock and has no second one; a complaint has a two-day reply clock", async () => {
+  test("a covered entity's breach is told within 24 hours too and has no second clock; a complaint has a two-day reply clock", async () => {
     const c = await seedClinic("incident-ce");
     const rows = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => [
       await openIncident(tx, { class: "breach", summary: "x", openedBy: "test", isCoveredEntity: true, discoveredAt: new Date("2026-09-11T15:00:00Z") }),
       await openIncident(tx, { class: "service_complaint", summary: "y", openedBy: "test", isCoveredEntity: true, discoveredAt: new Date("2026-09-11T15:00:00Z") }),
     ]);
-    expect(rows[0]!.notifyBy.toISOString()).toBe("2026-09-16T15:00:00.000Z");
+    expect(rows[0]!.notifyBy.toISOString()).toBe("2026-09-12T15:00:00.000Z");
     expect(rows[0]!.ftcNotifyBy).toBeNull();
     expect(rows[1]!.notifyBy.toISOString().slice(0, 10)).toBe("2026-09-15");
   });

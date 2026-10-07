@@ -1309,12 +1309,40 @@ these is closed, by code, a page, a signed paper or a host setting, and
    (`apps/web/src/lib/subprocessors.ts`) already tell every customer that
    clinical content is "caught on arrival" or "caught when it arrives",
    which is true only once the screen runs. Switching the front door on sooner needs that copy corrected
-   first (apps/web, with a `LEGAL_VERSION` bump).
+   first (apps/web, with a `LEGAL_VERSION` bump). Done on 7 October 2026.
+   `answerFrontDoor` runs the catalog's `findUrgentContent` (the urgent set,
+   new: none existed) and then `findClinicalContent` over each message before
+   `input.responder`. An urgent message gets `urgentLine` (the AI line, 911,
+   then the clinic's direct line, else its published number) and the urgent
+   alert's hook; a clinical one gets the fixed hand-off line. Neither calls
+   the model, so nothing of the message is extracted, drafted, requested,
+   audited or logged. The first reply of each conversation opens with
+   `metaChannelGreeting()`, the fixed lines included, and no later one does:
+   a conversation is the person's thread until 24 hours pass without a
+   message from them, and `chat_threads.greeted_conversation_id`
+   (drizzle/0055, `lib/meta/greeting.ts`) records whose first reply carried
+   it. The webhook records it only once that reply has gone out, so a reply
+   `sendMetaReply` drops outside Meta's window (a backlog Meta delivers a
+   day late) leaves the greeting to the first reply the person does get.
+   Messenger is in `disclosure.ts`'s channels. The copy above now
+   describes the code, as far as the catalog's vocabulary reaches: a
+   condition it does not name (acne, rosacea) still goes to the model, where
+   the prompt and the reply guard hold it, and nothing of any message is
+   stored but cleaned booking fields. Nothing here switches the front door
+   on; the ops console's `setMetaFrontDoor` still can, for a production
+   clinic with a published number.
 5. **Incident deadline (PT-14).** `notifyDeadline` in
    `apps/app/src/lib/incidents/incidents.ts` returns discovery plus 24 hours
    for a breach, a security incident and an improper use or disclosure, for
    every clinic; its test (`tests/incidents-and-offboarding.test.ts`), its
-   comments, the schema comment and the ops Incidents page follow.
+   comments, the schema comment and the ops Incidents page follow. Done on
+   7 October 2026: it does, keeping the state-law "immediately" for a breach
+   at a clinic that is not a covered entity wherever that is the earlier
+   clock (24 hours today); the service complaint's two business days and the
+   owner's 30-day clock are unchanged. The tests, the comments, the schema
+   comment, the ops care page, `incident-response.md` and the risk analysis
+   follow. An incident opened before keeps the deadline it was opened with,
+   and the runbook says to work to 24 hours for it too.
 6. **Per-person deletion (SL-06, PT-18).** An operator erase path that runs
    `eraseContact` and also deletes the person's `webhook_events`,
    `meta_booking_drafts`, booking requests matched by messaging identifier

@@ -18,10 +18,11 @@ for (b); BAA 1.3.0 gives 24 hours for all three, to every clinic whatever its
 covered-entity status, which also meets the state laws that require notice
 immediately following discovery (Cal. Civ. Code 1798.82(b)). Notify every
 clinic within 24 hours, whichever version it signed: that meets them all.
-Until the console's deadline is changed (a release gate for 1.3.0,
-[counsel/agreement-changes.md](./counsel/agreement-changes.md) §12.14), its
-`notify_by` for a covered clinic still shows the 1.2.1 clocks; work to 24
-hours, not to the console.
+Since 7 October 2026 the console's `notify_by` is discovery plus 24 hours for
+all three classes at every clinic (release gate 5 of 1.3.0,
+[counsel/agreement-changes.md](./counsel/agreement-changes.md) §12.14). An
+incident opened before then keeps the five-day deadline it was opened with:
+work to 24 hours from discovery for it too, not to the console.
 
 A service complaint becomes one of the first three the moment the investigation
 finds PHI went somewhere it should not have. Reclassify by opening a new incident

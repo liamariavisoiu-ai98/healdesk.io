@@ -164,7 +164,7 @@ export default function PrivacyPage() {
           </li>
           <li>
             {/* Adopted 3 Oct 2026 by the owner without external counsel review;
-                the field list updated 6 Oct 2026 (LEGAL_VERSION 2026-10-06.5)
+                the field list updated 6 Oct 2026 (LEGAL_VERSION 2026-10-07.1)
                 to what the four-step checkout asks: the website or none, the
                 kind of Google account and the browser's time zone are new,
                 and the appointment value and the calls question are gone. */}
@@ -188,7 +188,7 @@ export default function PrivacyPage() {
             out anything a patient wrote or said, such as reviews and testimonials. The details go
             back to your browser for the rest of checkout, and this website keeps neither the pages
             nor what was read from them.
-            {/* Added 6 Oct 2026 (LEGAL_VERSION 2026-10-06.5): Pay sends the read
+            {/* Added 6 Oct 2026 (LEGAL_VERSION 2026-10-07.1): Pay sends the read
                 with the purchase to apps/app, which keeps it on the checkout intent
                 (checkout_intents.profile) until billing-housekeeping purges it. */}{" "}
             When you press Pay, what was read is sent with your other answers to the {site.name}{" "}

@@ -163,13 +163,18 @@ export default function PrivacyPage() {
             Nothing of Calendly's loads until you open it.
           </li>
           <li>
-            {/* Adopted 3 Oct 2026 by the owner without external counsel review:
-                the field list, updated to what the checkout asks after the 30
-                September changes. */}
-            <strong>What you enter at checkout.</strong> Your clinic's legal name, its specialty,
-            the booking system it uses, the typical value of one booked appointment, which calls you
-            want answered, your work email, and — to sign the Business Associate Agreement — your
-            name and your title at the practice. Card
+            {/* Adopted 3 Oct 2026 by the owner without external counsel review;
+                the field list updated 6 Oct 2026 (LEGAL_VERSION 2026-10-07.1)
+                to what the four-step checkout asks: the website or none, the
+                kind of Google account and the browser's time zone are new,
+                and the appointment value and the calls question are gone. */}
+            <strong>What you enter at checkout.</strong> Your clinic's legal name, its website or
+            that it has none, its specialty, where its bookings live today, which kind of Google
+            account its calendar is on, and the email address your clinic will use with us; to sign
+            the agreement, your name and your title at the practice; and, when you tick the box
+            beside Pay, which version of these terms you accepted, when, and the IP address you
+            accepted from. Your browser's time zone is sent with them, as a starting point for your
+            clinic's own until you confirm it in setup. Card
             details go directly to Stripe and never touch our servers. If you reach the payment
             page and stop, we send one email about it, an hour later, and no more; it carries the
             same one-click unsubscribe.
@@ -182,8 +187,15 @@ export default function PrivacyPage() {
             the site names, its policies and its answers to common questions. It is told to leave
             out anything a patient wrote or said, such as reviews and testimonials. The details go
             back to your browser for the rest of checkout, and this website keeps neither the pages
-            nor what was read from them. Once you are a customer we may read the site again the
-            same way, to keep your setup current.
+            nor what was read from them.
+            {/* Added 6 Oct 2026 (LEGAL_VERSION 2026-10-07.1): Pay sends the read
+                with the purchase to apps/app, which keeps it on the checkout intent
+                (checkout_intents.profile) until billing-housekeeping purges it. */}{" "}
+            When you press Pay, what was read is sent with your other answers to the {site.name}{" "}
+            product, which keeps it with your purchase so that setup can start from it: it is
+            deleted 14 days after you last pressed Pay if the purchase is not completed, and
+            otherwise 90 days after your account is created. Once you are a customer we may read
+            the site again the same way, to keep your setup current.
           </li>
           <li>
             <strong>Technical data.</strong> Your IP address and the page requested, used to
@@ -290,7 +302,7 @@ export default function PrivacyPage() {
           <li>Server logs: {POLICY.logRetentionDays} days.</li>
           <li>Demo-call consent records: {POLICY.callConsentRetentionYears} years, then deleted.</li>
           <li>Demo conversations: not stored by us at all; Anthropic's own retention applies to its processing.</li>
-          <li>Your website's pages, read at checkout: not stored by us at all; Anthropic's own retention applies to its processing.</li>
+          <li>Your website's pages, read at checkout: not stored by us at all; Anthropic's own retention applies to its processing. What was read from them, once you press Pay: kept with your purchase, and deleted 14 days after you last pressed Pay if the purchase is not completed, otherwise 90 days after your account is created.</li>
           <li>The demo call itself: no recording or transcript is kept by us or by Retell; Retell keeps the call&apos;s basic record (time, length, how it ended) for 30 days. We hold the number only in the consent record above.</li>
           <li>A follow-up you asked for on the demo call: as ordinary email correspondence, until the request is answered and closed.</li>
           <li>Contact-form messages: as ordinary email correspondence, until the enquiry is closed.</li>

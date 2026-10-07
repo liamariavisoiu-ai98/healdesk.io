@@ -358,6 +358,20 @@
       "when": 1791285984650,
       "tag": "0050_stripe_bcd",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1791288631431,
+      "tag": "0051_agreement_kinds",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1791357095803,
+      "tag": "0052_dmarc_review",
+      "breakpoints": true
     }
   ]
 }

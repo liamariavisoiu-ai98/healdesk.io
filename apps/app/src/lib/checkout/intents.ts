@@ -1,15 +1,43 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
+import {
+  agreementKindOfVersion,
+  agreementPlatformFor,
+  type BookingSystemId,
+  type CalendarAccount,
+  cleanWebsite,
+  type ClinicProfile,
+  getBaaTemplate,
+  getPlan,
+  getPlatform,
+  isBookingSystemId,
+  isCalendarAccount,
+  isSpecialtyId,
+  META_SOLD_ALONE,
+  NO_PLATFORM_ID,
+  parseClinicProfile,
+  planNeedsWebsite,
+  regimeFor,
+  screenClinicProfile,
+  sellsMetaAlone,
+  specialties,
+  type SpecialtyId,
+  specialtyOffered,
+  templateReadsCalendarAccount,
+} from "@healdesk/catalog";
 import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import {
+  baaAcceptances,
   CHECKOUT_PROFILE_STATUSES,
   checkoutIntents,
   type CheckoutIntentPayload,
   type CheckoutProfileStatus,
 } from "@/db/schema";
-import { getAgreement } from "@/lib/agreements";
+import { agreementKindSufficient, agreementTemplateReleased } from "@/lib/agreements/kind";
+import { getStripe, stripeConfigured } from "@/lib/billing/stripe-client";
+import { describeError, log } from "@/lib/log";
 import { ProvisioningError, validateProvisionRequest, type ProvisionRequest } from "@/lib/provisioning";
 
 /**
@@ -17,15 +45,29 @@ import { ProvisioningError, validateProvisionRequest, type ProvisionRequest } fr
  * plan Part A4).
  *
  * apps/web stores nothing, so before it creates a Stripe Checkout Session it
- * sends the validated purchase here, and Stripe carries only `{ app, ref }`.
+ * sends the validated purchase here, and Stripe carries only the ref and the
+ * terms of that press of Pay (`{ app, ref, plan, billingInterval, attempt }`).
  * Everything provisioning will need is checked now, before anyone pays, which
  * is what removes the "paid, then provisioning refused the form" case: the
- * agreement must exist, be unbound and have been signed by the buying address.
+ * agreement must exist, be unbound, have been signed by the buying address,
+ * and be the document this purchase describes (checkIntentAgreement).
  *
  * While purchases are by invitation, one setup link makes one intent
  * (`invite_ref` is unique). Pressing Pay again after cancelling at Stripe
  * reuses it: the attempt counter moves, and apps/web expires the previous
- * Checkout Session so only one can be paid.
+ * Checkout Session so only one can be paid. Pressing it after paying creates
+ * nothing (assertInviteOpen, and apps/web's createCheckout), and a payment is
+ * provisioned only while the intent still names the press and the terms that
+ * were paid (paidTermsMismatch).
+ *
+ * The four-step funnel (plan Part A3) adds the clinic's answers: where its
+ * bookings live and the kind of Google account they would go into, its
+ * website or none, and the read of that website. Each is checked again here,
+ * with the catalog's own rules, because the browser that carried them can
+ * change them: a practice with no website is never sold website chat, and a
+ * website read is kept only when it parses, is of the website bought under,
+ * and has been screened under the specialty bought, never the one the
+ * website looked like.
  */
 
 export const INTENT_TTL_DAYS = 14;
@@ -36,7 +78,20 @@ export type IntentRequest = Omit<ProvisionRequest, "idempotencyKey" | "stripeCus
   inviteRef: string | null;
   /** SHA-256 hex of the nonce cookie apps/web sets on the paying browser. */
   nonceHash: string;
-  profile: unknown;
+  /**
+   * The covered-entity answer, as the agreement records it: true ("Yes"),
+   * false ("No", and a practice never asked), null ("Not sure"). Matched
+   * against the signed agreement (checkIntentAgreement); never assumed.
+   */
+  isCoveredEntity: boolean | null;
+  /** "Where do bookings live today?" Absent only on a request from before the four-step funnel. */
+  bookingSystem?: BookingSystemId;
+  /** "Which Google account will bookings go into?" Sent with the booking system, or not at all. */
+  calendarAccount?: CalendarAccount;
+  /** The website, cleaned, or null: the practice has none. Absent only before the funnel asked. */
+  website?: string | null;
+  /** Validated and screened under the specialty bought (validateIntentRequest). */
+  profile: ClinicProfile | null;
   profileStatus: CheckoutProfileStatus;
   /** The terms tick-box: which version, when, and from where. */
   terms: { version: string; acceptedAt: string; ip: string | null } | null;
@@ -59,7 +114,11 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 const MAX_PROFILE_BYTES = 200_000;
 
 /** Validate what apps/web sent, exactly as provisioning will, plus the plan's fields. */
-export function validateIntentRequest(input: unknown): IntentRequest {
+export function validateIntentRequest(
+  input: unknown,
+  /** The catalog's flag, a parameter only so a test can close it. */
+  options: { metaSoldAlone?: boolean } = {},
+): IntentRequest {
   const body = input as Partial<IntentRequest> | null;
   if (!body || typeof body !== "object") throw new IntentError("Invalid request body.");
 
@@ -72,6 +131,21 @@ export function validateIntentRequest(input: unknown): IntentRequest {
     throw error;
   }
 
+  // Provisioning's own checks passed, so the specialty and the plan are known.
+  const specialty = body.specialty as SpecialtyId;
+  const plan = getPlan(body.plan as string)!;
+
+  // A practice with no agreement it can sign cannot buy: a veterinary one,
+  // until the Data Protection Agreement is released (plan Part L).
+  if (!specialtyOffered(specialty)) {
+    throw new IntentError("This practice's agreement can't be signed here.", "specialty");
+  }
+  // Nor a package nothing can go live on: Meta as the only channel waits for
+  // Meta's App Review (catalog, META_SOLD_ALONE), as apps/web refuses too.
+  if (!(options.metaSoldAlone ?? META_SOLD_ALONE) && sellsMetaAlone(plan)) {
+    throw new IntentError("Instagram, Messenger + WhatsApp is not sold on its own until Meta approves our app.", "plan");
+  }
+
   const inviteRef = body.inviteRef ?? null;
   if (inviteRef !== null && (typeof inviteRef !== "string" || !UUID.test(inviteRef))) {
     throw new IntentError("Invalid setup link reference.", "inviteRef");
@@ -79,16 +153,62 @@ export function validateIntentRequest(input: unknown): IntentRequest {
   if (typeof body.nonceHash !== "string" || !SHA256_HEX.test(body.nonceHash)) {
     throw new IntentError("Invalid nonce.", "nonceHash");
   }
+  // Required, because the agreement is matched against it before payment.
+  const isCoveredEntity = body.isCoveredEntity;
+  if (isCoveredEntity !== true && isCoveredEntity !== false && isCoveredEntity !== null) {
+    throw new IntentError(
+      "Answer whether the practice bills any health insurance electronically.",
+      "covered",
+    );
+  }
+
+  // The calendar answers travel together, and the platform the released
+  // agreement names must be the one the booking system implies.
+  const bookingSystem = body.bookingSystem;
+  const calendarAccount = body.calendarAccount;
+  if (bookingSystem !== undefined || calendarAccount !== undefined) {
+    if (!isBookingSystemId(bookingSystem)) throw new IntentError("Unknown booking system.", "bookingSystem");
+    if (!isCalendarAccount(calendarAccount)) throw new IntentError("Unknown Google account kind.", "calendarAccount");
+    if (body.platform !== agreementPlatformFor(bookingSystem)) {
+      throw new IntentError("The agreement's platform is not the booking system's.", "platform");
+    }
+  }
+
+  // The website, as apps/web cleans it, or null for none.
+  const website = body.website;
+  if (website !== undefined && website !== null && (typeof website !== "string" || cleanWebsite(website) !== website)) {
+    throw new IntentError("Invalid website.", "website");
+  }
+  if (website === null && planNeedsWebsite(plan)) {
+    throw new IntentError("Website chat needs a website. Choose a package without it.", "plan");
+  }
+
   const profileStatus = body.profileStatus ?? "none";
   if (!(CHECKOUT_PROFILE_STATUSES as readonly string[]).includes(profileStatus)) {
     throw new IntentError("Invalid profile status.", "profileStatus");
   }
-  const profile = body.profile ?? null;
-  if (profile !== null) {
-    if (typeof profile !== "object" || Array.isArray(profile)) throw new IntentError("Invalid profile.", "profile");
-    if (JSON.stringify(profile).length > MAX_PROFILE_BYTES) throw new IntentError("The profile is too large.", "profile");
+  const raw = body.profile ?? null;
+  let profile: ClinicProfile | null = null;
+  if (raw !== null) {
+    if (typeof raw !== "object" || Array.isArray(raw)) throw new IntentError("Invalid profile.", "profile");
+    if (JSON.stringify(raw).length > MAX_PROFILE_BYTES) throw new IntentError("The profile is too large.", "profile");
+    const parsed = parseClinicProfile(raw);
+    if (!parsed) throw new IntentError("Invalid profile.", "profile");
+    // Screened again, under the specialty bought: `practiceKind` is only what
+    // the website looked like, and the browser could have changed it.
+    profile = screenClinicProfile(parsed, specialty);
   }
   if (profileStatus === "read" && profile === null) throw new IntentError("A read needs its profile.", "profile");
+  if (profileStatus !== "read" && profile !== null) throw new IntentError("Only a read carries a profile.", "profile");
+  if (profile !== null && (typeof website !== "string" || profile.website !== website)) {
+    throw new IntentError("The website read is not of this purchase's website.", "profile");
+  }
+  if (website === null && profileStatus !== "none") {
+    throw new IntentError("A practice with no website has no website read.", "profileStatus");
+  }
+  if (typeof website === "string" && profileStatus === "none") {
+    throw new IntentError("A website was given, so its read is either done or failed.", "profileStatus");
+  }
 
   const terms = body.terms ?? null;
   if (terms !== null) {
@@ -118,19 +238,104 @@ export function validateIntentRequest(input: unknown): IntentRequest {
 }
 
 /**
- * The agreement must exist, be unbound, and have been signed by the address
- * that is buying. Checked before payment: after it, a refusal would mean a
- * charge with no account behind it.
+ * The agreement must exist, be unbound, have been signed by the address that
+ * is buying, and be the document this purchase describes (agreementMismatch,
+ * plan Part A4). Checked before payment: after it, a refusal would mean a
+ * charge with no account behind it. The browser compares the same answers to
+ * decide whether a signature still holds (sameAgreementInputs); this is the
+ * comparison a changed request cannot skip. Every refusal of the document
+ * names `agreementId`, which sends the buyer back to sign again.
  */
-export async function checkIntentAgreement(agreementId: string, contactEmail: string): Promise<void> {
-  const agreement = await getAgreement(agreementId);
+export async function checkIntentAgreement(input: IntentRequest): Promise<void> {
+  const [agreement] = UUID.test(input.agreementId)
+    ? await unsafeDb
+        .select({
+          version: baaAcceptances.documentVersion,
+          variables: baaAcceptances.variables,
+          organizationId: baaAcceptances.organizationId,
+          acceptedByEmail: baaAcceptances.acceptedByEmail,
+        })
+        .from(baaAcceptances)
+        .where(eq(baaAcceptances.id, input.agreementId))
+        .limit(1)
+    : [];
   if (!agreement) throw new IntentError("That agreement wasn't found. Please sign it again.", "agreementId");
   if (agreement.organizationId !== null) {
     throw new IntentError("That agreement already belongs to an account. Please sign it again.", "agreementId");
   }
-  if (agreement.acceptedByEmail.trim().toLowerCase() !== contactEmail) {
+  if (agreement.acceptedByEmail.trim().toLowerCase() !== input.contactEmail) {
     throw new IntentError("The agreement was signed with a different email address.", "contactEmail");
   }
+  const mismatch = agreementMismatch(agreement.version, agreement.variables, input);
+  if (mismatch) throw new IntentError(mismatch, "agreementId");
+}
+
+/**
+ * Why a signed agreement is not the document this purchase describes, or
+ * null when it is. Pure, so every rule is testable without a database.
+ *
+ * - Its template must be one that may be put in force
+ *   (agreementTemplateReleased): a released DPA, or a BAA go-live accepts.
+ * - Its kind must cover the practice, by the rule the PHI gate applies
+ *   (agreementKindSufficient): a veterinary practice never pays on a BAA
+ *   only for provisioning to refuse it afterwards.
+ * - Every answer that names or selects the document must be the one signed:
+ *   the legal name, the specialty, the covered-entity answer, and the booking
+ *   system, as the platform it names before 1.3.0, and with the kind of
+ *   Google account from 1.3.0 on (and always on a DPA), which read both.
+ *
+ * Each side is compared as signAgreement wrote it: the name trimmed, a BAA's
+ * specialty by the catalogue's name (a DPA's by its id), and a DPA's covered
+ * answer as "No", the only one a DPA is signed on.
+ */
+export function agreementMismatch(
+  version: string,
+  variables: unknown,
+  purchase: Pick<
+    IntentRequest,
+    "clinicName" | "specialty" | "platform" | "isCoveredEntity" | "bookingSystem" | "calendarAccount"
+  >,
+): string | null {
+  if (!agreementTemplateReleased(version)) {
+    return "That agreement's version can no longer be used for a new account. Please sign it again.";
+  }
+  if (!isSpecialtyId(purchase.specialty)) {
+    return "The agreement you signed is for a different kind of practice. Please sign it again.";
+  }
+  const kind = agreementKindOfVersion(version);
+  const signed = (variables ?? {}) as Record<string, unknown>;
+
+  if (!agreementKindSufficient(regimeFor(purchase.specialty), kind, purchase.isCoveredEntity)) {
+    return "That agreement doesn't cover this practice. Please sign the one for it.";
+  }
+  if (signed.clinicLegalName !== purchase.clinicName.trim()) {
+    return "The agreement you signed names a different practice. Please sign it again.";
+  }
+  const specialty =
+    kind === "dpa"
+      ? purchase.specialty
+      : (specialties.find((s) => s.id === purchase.specialty)?.name ?? purchase.specialty);
+  if (signed.specialty !== specialty) {
+    return "The agreement you signed is for a different kind of practice. Please sign it again.";
+  }
+  const covered = kind === "dpa" ? (signed.isCoveredEntity ?? false) : signed.isCoveredEntity;
+  if (covered !== purchase.isCoveredEntity) {
+    return "The agreement you signed has a different answer about billing insurance. Please sign it again.";
+  }
+
+  const readsCalendar = kind === "dpa" || templateReadsCalendarAccount(getBaaTemplate(version)!);
+  if (readsCalendar) {
+    if (signed.bookingSystem !== purchase.bookingSystem || signed.calendarAccount !== purchase.calendarAccount) {
+      return "The agreement you signed names a different booking system or Google account. Please sign it again.";
+    }
+  } else {
+    const platform =
+      purchase.platform === NO_PLATFORM_ID ? null : (getPlatform(purchase.platform)?.name ?? null);
+    if ((signed.connectedPlatform ?? null) !== platform) {
+      return "The agreement you signed names a different booking system. Please sign it again.";
+    }
+  }
+  return null;
 }
 
 export type IntentResult = {
@@ -155,12 +360,21 @@ export async function saveIntent(input: IntentRequest): Promise<IntentResult> {
     contactName: input.contactName.trim(),
     contactEmail: input.contactEmail,
     ...(input.contactTitle ? { contactTitle: input.contactTitle.trim() } : {}),
-    phoneSystemType: input.phoneSystemType ?? "unknown",
-    callRouting: input.callRouting ?? "conditional",
+    // Never defaulted here. Provisioning reads a present answer as the
+    // clinic's confirmed choice (call_routing_confirmed_at, the onboarding
+    // step), and the funnel asks neither: an unasked answer stays unasked,
+    // and the wizard asks it.
+    ...(input.phoneSystemType ? { phoneSystemType: input.phoneSystemType } : {}),
+    ...(input.callRouting ? { callRouting: input.callRouting } : {}),
     agreementId: input.agreementId,
+    // As checked against the agreement; provisioning reads the agreement's own.
+    isCoveredEntity: input.isCoveredEntity,
     ...(input.attributionMode ? { attributionMode: input.attributionMode } : {}),
     ...(input.averageTreatmentValueUsd !== undefined ? { averageTreatmentValueUsd: input.averageTreatmentValueUsd } : {}),
     ...(input.timezone ? { timezone: input.timezone } : {}),
+    ...(input.bookingSystem ? { bookingSystem: input.bookingSystem } : {}),
+    ...(input.calendarAccount ? { calendarAccount: input.calendarAccount } : {}),
+    ...(input.website !== undefined ? { website: input.website } : {}),
     ...(input.terms ? { terms: input.terms } : {}),
   };
   const values = {
@@ -218,17 +432,52 @@ export async function saveIntent(input: IntentRequest): Promise<IntentResult> {
  * Refuse a setup link whose purchase is complete, before anything else is
  * checked: "already used" is the answer that helps, where "the agreement
  * already belongs to an account" would only puzzle.
+ *
+ * And refuse one whose last Checkout Session has been paid, though the
+ * account is not made yet (the first invoice is still on its way): before
+ * saveIntent moves the intent to a new attempt, because the paid Session is
+ * bound to its own attempt's terms and nonce, and an intent moved past them
+ * would turn that payment away at provisioning and lock the paying browser
+ * out of /welcome. apps/web asks Stripe the same question after the move
+ * (createCheckout), for the press that races this one.
  */
 export async function assertInviteOpen(inviteRef: string | null): Promise<void> {
   if (inviteRef === null) return;
   const [row] = await unsafeDb
-    .select({ consumedAt: checkoutIntents.consumedAt })
+    .select({ consumedAt: checkoutIntents.consumedAt, openSessionId: checkoutIntents.openSessionId })
     .from(checkoutIntents)
     .where(eq(checkoutIntents.inviteRef, inviteRef))
     .limit(1);
   if (row?.consumedAt) {
     throw new IntentError("This setup link has already been used to complete a purchase.", "setupLink", 409);
   }
+  if (row?.openSessionId && (await sessionPaid(row.openSessionId))) {
+    throw new IntentError("This purchase is already paid. Check your email.", undefined, 409);
+  }
+}
+
+/**
+ * Whether Stripe says this Checkout Session completed. A press of Pay that
+ * cannot find out (Stripe errs, or does not answer within five seconds) is
+ * refused with nothing moved, as apps/web refuses one whose previous Session
+ * it cannot close: the intent must never move past a Session that may have
+ * been paid. Without a Stripe key (development) there is nothing to ask, and
+ * apps/web's own check stands.
+ */
+async function sessionPaid(sessionId: string): Promise<boolean> {
+  if (!stripeConfigured()) return false;
+  let status: string | null;
+  try {
+    ({ status } = await getStripe().checkout.sessions.retrieve(sessionId, undefined, { timeout: 5_000 }));
+  } catch (error) {
+    log.warn("checkout intents: the previous session could not be checked", { error: describeError(error) });
+    throw new IntentError(
+      "We couldn't check your earlier payment page. Nothing has been charged. Please try again.",
+      undefined,
+      503,
+    );
+  }
+  return status === "complete";
 }
 
 /** Record the Checkout Session apps/web created for one attempt. Only the latest attempt may. */
@@ -286,8 +535,10 @@ export function provisionRequestFromIntent(
     contactName: payload.contactName,
     contactEmail: payload.contactEmail,
     ...(payload.contactTitle ? { contactTitle: payload.contactTitle } : {}),
-    phoneSystemType: payload.phoneSystemType,
-    callRouting: payload.callRouting,
+    // Absent unless the purchase asked (saveIntent), so provisioning applies
+    // the column defaults and leaves both unconfirmed for the wizard.
+    ...(payload.phoneSystemType ? { phoneSystemType: payload.phoneSystemType } : {}),
+    ...(payload.callRouting ? { callRouting: payload.callRouting } : {}),
     agreementId: payload.agreementId,
     ...(payload.attributionMode ? { attributionMode: payload.attributionMode } : {}),
     ...(payload.averageTreatmentValueUsd !== undefined ? { averageTreatmentValueUsd: payload.averageTreatmentValueUsd } : {}),
@@ -296,6 +547,35 @@ export function provisionRequestFromIntent(
     ...(stripe.stripeCustomerId ? { stripeCustomerId: stripe.stripeCustomerId } : {}),
     ...(stripe.stripeSubscriptionId ? { stripeSubscriptionId: stripe.stripeSubscriptionId } : {}),
   };
+}
+
+/** Which of the paid terms an intent no longer carries. */
+export type PaidTermsMismatch = { field: "attempt" | "plan" | "billingInterval"; message: string };
+
+/**
+ * Whether a paid first invoice paid for this intent as it stands: the press
+ * of Pay whose Session was paid, and the package and billing period it
+ * charged, as the webhook relays them from the subscription's metadata
+ * (apps/web createCheckout writes them). Every press of Pay moves the intent
+ * on and rewrites what provisioning builds the account from, so a payment for
+ * any other press, or terms the intent no longer has, must never provision:
+ * /api/provision refuses it, and ops finishes it by hand. Absent or malformed
+ * values do not match.
+ */
+export function paidTermsMismatch(
+  intent: Pick<StoredIntent, "attempt" | "plan" | "billingInterval">,
+  paid: { attempt?: unknown; plan?: unknown; billingInterval?: unknown },
+): PaidTermsMismatch | null {
+  if (paid.attempt !== intent.attempt) {
+    return { field: "attempt", message: "The payment was for another press of Pay than this purchase's latest." };
+  }
+  if (paid.plan !== intent.plan) {
+    return { field: "plan", message: "The payment was for a different package than this purchase's." };
+  }
+  if (paid.billingInterval !== intent.billingInterval) {
+    return { field: "billingInterval", message: "The payment was for a different billing period than this purchase's." };
+  }
+  return null;
 }
 
 /** SHA-256 of a nonce, as stored. */

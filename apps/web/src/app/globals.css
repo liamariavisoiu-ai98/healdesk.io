@@ -330,6 +330,15 @@
     max-height: 100dvh;
     height: 100dvh;
   }
+
+  /* Review and pay keeps the terms tick-box and Pay in a bar stuck to the
+     bottom of a phone's screen (ReviewStep.tsx). Whichever box scrolls, the
+     page or the modal, leaves room for it, so a link or field focused from
+     the keyboard is scrolled clear of the bar rather than behind it. */
+  html:has(.hd-pay-bar),
+  .hd-modal-scroll:has(.hd-pay-bar) {
+    scroll-padding-bottom: 10rem;
+  }
 }
 
 /*

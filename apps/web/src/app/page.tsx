@@ -1,4 +1,3 @@
-import { plans } from "@healdesk/catalog";
 import type { Metadata } from "next";
 
 import { BuyModalProvider } from "@/components/BuyModal";
@@ -61,7 +60,7 @@ export default function HomePage() {
        navbar and from inside either demo panel. Deliberately outside
        HeroMarkProvider rather than inside it: that one must not reach the
        Footer, this one has no such constraint. */
-    <BuyModalProvider initialPlan={plans[0]!.id}>
+    <BuyModalProvider>
       <Nav />
 
       {/* A sibling of <main> so the demo section keeps `scroll-mt` maths

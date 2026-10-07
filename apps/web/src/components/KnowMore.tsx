@@ -64,12 +64,14 @@ const FAQS = [
   {
     q: "What do we have to log into?",
     a:
-      "A small portal, used when you want it. You sign in from an emailed " +
-      "link, with no password needed. Switches, not settings, change how she " +
-      "behaves. Every conversation and every booking she made is there, and " +
-      "opening a transcript asks for a second factor. Your owner, manager and " +
-      "billing contact each get their own access. Everything else is done " +
-      "for you.",
+      "A small portal, used when you want it. Your clinic has one sign-in, " +
+      "at the one email address it uses with us (a shared inbox such as " +
+      "info@ is fine), and you sign in from an emailed link, with no " +
+      "password needed. Each phone or computer you use adds its own Face ID " +
+      "or other passkey, which opening a conversation or a booking asks " +
+      "for. Switches, not settings, change how she behaves. Every " +
+      "conversation and every booking she made is there. Everything else is " +
+      "done for you.",
   },
   {
     q: "How long until she's live?",
@@ -80,7 +82,7 @@ const FAQS = [
       "WhatsApp account has a payment method on it: Meta bills you directly " +
       "for WhatsApp messages, including replies from 1 October 2026, and we " +
       "do not resell them. Your phone, once call forwarding is set on your " +
-      "line, usually the same day.",
+      "line.",
   },
   {
     q: "Do we have to give her every call?",
@@ -104,8 +106,8 @@ const FAQS = [
   {
     q: "How do you handle patient data?",
     a:
-      "We sign a business associate agreement with every clinic and handle " +
-      "patient data under it. It is encrypted at rest, and in transit " +
+      "We sign a business associate agreement and handle patient data under " +
+      "it. It is encrypted at rest, and in transit " +
       "wherever we control both ends, and never used to train models. The " +
       "only system we write to is the Google Calendar you connect. Our AI " +
       "model provider keeps conversation inputs for 30 days, and up to two " +

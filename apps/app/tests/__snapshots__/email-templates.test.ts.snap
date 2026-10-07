@@ -423,3 +423,55 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 ",
 }
 `;
+
+exports[`ops alerts beyond the fixture > the DMARC review reminder: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>healdesk ops: Time to review the DMARC reports</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Resend has been sending as healdesk.io since the day below, 14 or more days ago. Read healdesk.io&#39;s DMARC aggregate reports from that day on: if the only senders they show are Resend and the owner&#39;s own mail, change healdesk.io&#39;s DMARC record from p=none to p=quarantine. If anything else sends as healdesk.io, find out what it is first.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Resend has been sending as healdesk.io since the day below, 14 or more days ago. Read healdesk.io&#39;s DMARC aggregate reports from that day on: if the only senders they show are Resend and the owner&#39;s own mail, change healdesk.io&#39;s DMARC record from p=none to p=quarantine. If anything else sends as healdesk.io, find out what it is first.</p>
+<p style="margin:0 0 4px;"><strong>Event:</strong> dmarc_review_due</p>
+<p style="margin:0 0 4px;"><strong>Day:</strong> 2026-10-06</p>
+<p style="margin:0 0 4px;"><strong>Raised:</strong> 2026-10-06 14:32 UTC</p>
+<p style="margin:0 0 16px;">Look the ids up in the ops console. An alert carries ids and counts only; identical alerts within an hour are sent once.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this address is set as healdesk&#39;s ops alert address.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Resend has been sending as healdesk.io since the day below, 14 or more days ago. Read healdesk.io's DMARC aggregate reports from that day on: if the only senders they show are Resend and the owner's own mail, change healdesk.io's DMARC record from p=none to p=quarantine. If anything else sends as healdesk.io, find out what it is first.",
+  "subject": "healdesk ops: Time to review the DMARC reports",
+  "text": "Resend has been sending as healdesk.io since the day below, 14 or more days ago. Read healdesk.io's DMARC aggregate reports from that day on: if the only senders they show are Resend and the owner's own mail, change healdesk.io's DMARC record from p=none to p=quarantine. If anything else sends as healdesk.io, find out what it is first.
+
+Event: dmarc_review_due
+Day: 2026-10-06
+Raised: 2026-10-06 14:32 UTC
+
+Look the ids up in the ops console. An alert carries ids and counts only; identical alerts within an hour are sent once.
+
+—
+You're receiving this because this address is set as healdesk's ops alert address.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;

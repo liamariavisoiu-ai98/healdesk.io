@@ -39,6 +39,15 @@ import { KnowMore } from "@/components/KnowMore";
  *   encryption "in transit and at rest" with no exception for the telephone
  *   or Meta, and "never over email" where the agreement says email that would
  *   carry patient information goes only over an encrypted connection.
+ * - "with every clinic". The claim is the spec's line, "We sign a business
+ *   associate agreement and handle patient data under it": a practice HIPAA
+ *   does not reach signs a data protection agreement instead (plan Part L).
+ * - "live the same day" and its kin. No timing before purchase (the owner's
+ *   rule of 6 October 2026): copy says how a channel goes live, never when.
+ * - Access per role ("Your owner, manager and billing contact each get their
+ *   own access"). v1 has one shared sign-in per clinic, at the clinic's one
+ *   email address, and each phone or computer adds its own passkey; the
+ *   spec's three roles are deferred past v1.
  *
  * Copy is every string, template and piece of JSX text under src/, outside
  * the tests, read with the TypeScript parser so that comments, which often
@@ -74,6 +83,17 @@ const BANNED: readonly { pattern: RegExp; label: string }[] = [
   {
     pattern: /\bnever (?:sent |sends |goes )?(?:over|by|via) e-?mail\b|\bno patient (?:information|data) (?:over|by|via) e-?mail\b/i,
     label: "'never over email': the agreement says only over an encrypted connection",
+  },
+  { pattern: /\bwith every clinic\b/i, label: "'with every clinic': not every practice signs the same agreement" },
+  {
+    pattern:
+      /\bowner, manager and billing contact\b|\beach (?:get|gets|have|has) (?:their|its) own (?:access|sign[\s-]?in|log[\s-]?in|login|account)\b/i,
+    label: "access per role: v1 has one shared sign-in per clinic",
+  },
+  {
+    // Our timing, not a patient's: "same-day intent" is what a caller wants.
+    pattern: /\b(?:live|answer\w*|ready|forwarding is set)\b[^.]{0,60}\bsame[\s\u2010\u2011-]day\b/i,
+    label: "'live the same day': no timing before purchase",
   },
 ];
 
@@ -210,7 +230,7 @@ describe("the site makes none of the claims it may not make", () => {
     const all = [...COPY.values()].flat();
     expect(COPY.size).toBeGreaterThan(50);
     expect(all.some((piece) => piece.includes("Ask us anything you'd ask a supplier."))).toBe(true);
-    expect(all.some((piece) => piece.includes("We sign a business associate agreement with every clinic and handle patient data under it."))).toBe(true);
+    expect(all.some((piece) => piece.includes("We sign a business associate agreement and handle patient data under it."))).toBe(true);
     expect(all.some((piece) => piece.includes("picks up when your desk can't. This page, she can't find."))).toBe(true);
   });
 

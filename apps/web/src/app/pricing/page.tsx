@@ -9,12 +9,7 @@ import { Guarantee } from "@/components/Guarantee";
 import { Nav } from "@/components/Nav";
 import { PricingCards } from "@/components/PricingCards";
 import { site } from "@/lib/site";
-import {
-  annualSavingsPercent,
-  cheapestPlan,
-  cheapestVoicePlan,
-  usd,
-} from "@/lib/pricing";
+import { annualSavingsPercent, cheapestVoicePlan, usd } from "@/lib/pricing";
 
 export const metadata: Metadata = {
   alternates: { canonical: "/pricing" },
@@ -52,13 +47,15 @@ const INCLUDED = [
 /**
  * The setup promise, per channel, never global (docs/v1-product-spec.md,
  * "Honest headline timing"). Two channels wait on things outside our hands:
- * the clinic's call forwarding and its own WhatsApp billing.
+ * the clinic's call forwarding and its own WhatsApp billing. Each line says
+ * how the channel goes live, never when: no timing before purchase (the
+ * owner's rule of 6 October 2026).
  */
 const LIVE_WHEN = [
   { channel: "Website chat", when: "Once the one-line snippet is on your site." },
   { channel: "Instagram and Messenger", when: "As soon as you connect them." },
   { channel: "WhatsApp", when: "Once your WhatsApp account has a payment method on it." },
-  { channel: "Phone", when: "Once call forwarding is set on your line, usually the same day." },
+  { channel: "Phone", when: "Once call forwarding is set on your line." },
 ] as const;
 
 /**
@@ -92,7 +89,6 @@ const LIVE_WHEN = [
  * that an unqualified "unlimited" invites.
  */
 export default function PricingPage() {
-  const entry = cheapestPlan();
   const voiceEntry = cheapestVoicePlan();
   const [receptionistLow, receptionistHigh] =
     ALTERNATIVES.inHouseReceptionistMonthlyUsd;
@@ -101,7 +97,7 @@ export default function PricingPage() {
   const wageMonthly = Math.round(wage.annualUsd / 12);
 
   return (
-    <BuyModalProvider initialPlan={entry.id}>
+    <BuyModalProvider>
       <TrackView event="pricing_viewed" />
       <Nav />
 

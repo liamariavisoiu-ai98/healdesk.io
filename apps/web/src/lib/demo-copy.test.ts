@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 
 /**
  * The demo must not describe a product that does not exist.
@@ -40,6 +40,15 @@ async function loadCopy(flags: { callbacks?: string; directBooking?: string } = 
     agent: DEMO_AGENT,
   };
 }
+
+// The first import of these modules also transforms them: 0.7s on a quiet
+// machine, and past the 5s test timeout on a loaded one, where it failed the
+// first two cases for time rather than for anything they check. It is paid
+// once here, as setup with its own budget; each case's fresh load then only
+// re-runs modules that are already transformed.
+beforeAll(async () => {
+  await loadCopy();
+}, 30_000);
 
 afterEach(() => {
   vi.unstubAllEnvs();

@@ -21,6 +21,7 @@ import {
   listCopyDeliveries,
   type CopyTrigger,
 } from "@/lib/agreements";
+import { agreementTemplateReleased } from "@/lib/agreements/kind";
 import {
   AgreementSearchError,
   searchAgreements,
@@ -56,10 +57,13 @@ import {
   resolveIncident,
   type IncidentClass,
 } from "@/lib/incidents/incidents";
-import { connectAuthorizeUrl } from "@/lib/billing/connect";
+import { applyEmailEvent, isDeliveryStatus } from "@/lib/email/events";
+import { KIND_SHAPE } from "@/lib/email/kind-rules";
 import { markExportDelivered, startOffboarding } from "@/lib/offboarding/offboarding";
 import { startForwardingTest } from "@/lib/onboarding/forwarding-test";
 import { listConnections } from "@/lib/connections/store";
+import { selfCheckCredentialKey, type CredentialKeySelfCheck } from "@/lib/crypto/envelope";
+import { credentialKeyConfiguration, type CredentialKeyConfiguration } from "@/lib/crypto/kms";
 import { bookingRequestCounts } from "@/lib/meta/booking-requests";
 import { attachMetaChannel, isMetaPlatform, META_PROVIDERS, setMetaFrontDoor } from "@/lib/meta/channels";
 import type { MetaPlatform } from "@/lib/meta/front-door";
@@ -80,6 +84,26 @@ import {
   proposeAdminTotp,
   verifyAdminTotpCode,
 } from "@/lib/ops/admin-totp";
+import {
+  opCloseUnfinishedSetup,
+  opCommitRefund,
+  opDisconnectStripeConnect,
+  opExtendSetupDeadline,
+  opGetClinicBilling,
+  opIssueStripeConnectLink,
+  opLiftSuspension,
+  opPreviewRefund,
+  opReplayBillingEvent,
+  opReplayConnectEvent,
+  opRetryBillingRequest,
+  opRetryLocationSetup,
+  opRetryOverageInvoice,
+  opSetAutoRenew,
+  opSetClinicSettings,
+  opSetDepositSettings,
+  opSetOverageMode,
+  opSetUsageAlerts,
+} from "@/lib/ops/billing";
 import {
   blockersFor,
   listClinics as listClinicOverviews,
@@ -247,6 +271,27 @@ const OPERATIONS = [
   "resolveIncident",
   "startOffboarding",
   "markExportDelivered",
+  // The billing panel (lib/ops/billing.ts; build spec §7 E, R35): one clinic's
+  // subscription, usage, switches and the billing engine's ledgers, and the
+  // support actions on them. Ids, counts, cents and codes; never a payload.
+  "getClinicBilling",
+  "previewRefund",
+  "setOverageMode",
+  "setUsageAlerts",
+  "replayBillingEvent",
+  "commitRefund",
+  "setClinicSettings",
+  "setDepositSettings",
+  "disconnectStripeConnect",
+  "issueStripeConnectLink",
+  "retryBillingRequest",
+  "liftSuspension",
+  "extendSetupDeadline",
+  "retryLocationSetup",
+  "retryOverageInvoice",
+  "closeUnfinishedSetup",
+  "replayConnectEvent",
+  "setAutoRenew",
   // Phase 8: the forwarding test, the first-weeks view, human touches.
   "startForwardingTest",
   "listClinicHealth",
@@ -265,6 +310,16 @@ const OPERATIONS = [
   "issueSetupLink",
   "retryCalendarWrite",
   "listCalendarWrites",
+  // The email platform (Annex X3): a Resend webhook event for mail this app
+  // sent, relayed by apps/web's one webhook. Machine to machine: the relay's
+  // caller verified Resend's signature, and the event carries ids, a status and
+  // a timestamp, never an address. It writes the delivery ledger, which is its
+  // record, and no audit row, so it is not in MUTATING_OPERATIONS.
+  "emailEvent",
+  // The credential key (lib/crypto): which wrapper, the tail of which key, and
+  // a live seal-and-open of a throwaway value. Never the key's full ARN, never
+  // a credential, never an AWS error message.
+  "getCredentialKeyStatus",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -297,6 +352,24 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "resolveIncident",
   "startOffboarding",
   "markExportDelivered",
+  // The billing panel's writes. getClinicBilling and previewRefund are reads:
+  // the preview asks Stripe and writes nothing but its audit row.
+  "setOverageMode",
+  "setUsageAlerts",
+  "replayBillingEvent",
+  "commitRefund",
+  "setClinicSettings",
+  "setDepositSettings",
+  "disconnectStripeConnect",
+  "issueStripeConnectLink",
+  "retryBillingRequest",
+  "liftSuspension",
+  "extendSetupDeadline",
+  "retryLocationSetup",
+  "retryOverageInvoice",
+  "closeUnfinishedSetup",
+  "replayConnectEvent",
+  "setAutoRenew",
   "startForwardingTest",
   "recordClinicTouch",
   "attachMetaChannel",
@@ -377,7 +450,7 @@ export function opsProblem(
   return { status, body: { error: message, code } };
 }
 
-function ok<T>(data: T): OpsOutcome {
+export function ok<T>(data: T): OpsOutcome {
   return { status: 200, body: { data } };
 }
 
@@ -441,7 +514,7 @@ export async function readBoundedBody(
 /** One idea of "an address" per app. Same shape the console has always used. */
 const EMAIL_SHAPED = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-const UUID_SHAPED =
+export const UUID_SHAPED =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A date input's value: YYYY-MM-DD, and nothing else. */
@@ -524,7 +597,7 @@ function boundedText(value: unknown, max: number): string | undefined {
   return trimmed ? trimmed.slice(0, max) : undefined;
 }
 
-function stringArg(
+export function stringArg(
   args: Record<string, unknown>,
   key: string,
   max = MAX_ID_LENGTH,
@@ -535,7 +608,7 @@ function stringArg(
   return trimmed ? trimmed.slice(0, max) : undefined;
 }
 
-function booleanArg(
+export function booleanArg(
   args: Record<string, unknown>,
   key: string,
 ): boolean | undefined {
@@ -546,13 +619,14 @@ function booleanArg(
 /**
  * A number, passed on exactly as it arrived.
  *
- * Deliberately NOT truncated. The only number any operation takes is a page
- * limit, and `lib/agreements/search.ts` documents that it refuses a
- * non-integer rather than rounding one — a limit of 3.7 is a bug in the caller
- * and a silent `3` hides it behind a page of results that looks fine. Rounding
- * here would quietly overrule that decision from the outside.
+ * Deliberately NOT truncated. The numbers operations take are a page limit
+ * and the billing panel's days, minutes and cents, and the code behind each
+ * refuses a non-integer rather than rounding one: `lib/agreements/search.ts`
+ * documents it for the limit, where 3.7 is a bug in the caller and a silent
+ * `3` hides it behind a page of results that looks fine. Rounding here would
+ * quietly overrule those decisions from the outside.
  */
-function numberArg(
+export function numberArg(
   args: Record<string, unknown>,
   key: string,
 ): number | undefined {
@@ -646,7 +720,7 @@ export function resolveOperator(context: OpsContext): OperatorResolution {
  * human behind it, and a fabricated attribution would be worse than an absent
  * one". The security event written beside it names the administrator.
  */
-function actorFor(operator: Operator): ActorContext {
+export function actorFor(operator: Operator): ActorContext {
   return { type: "service", serviceName: operator.email };
 }
 
@@ -673,7 +747,7 @@ function actorFor(operator: Operator): ActorContext {
  * Only the error's NAME is logged. A drizzle failure carries the attempted
  * statement and its bound parameters as own properties.
  */
-async function audit(
+export async function audit(
   operator: Operator,
   event: string,
   metadata: Record<string, unknown>,
@@ -774,6 +848,42 @@ export async function runOperation(
       return opStartOffboarding(args, operator);
     case "markExportDelivered":
       return opMarkExportDelivered(args, operator);
+    case "getClinicBilling":
+      return opGetClinicBilling(args, operator);
+    case "previewRefund":
+      return opPreviewRefund(args, operator);
+    case "setOverageMode":
+      return opSetOverageMode(args, operator);
+    case "setUsageAlerts":
+      return opSetUsageAlerts(args, operator);
+    case "replayBillingEvent":
+      return opReplayBillingEvent(args, operator);
+    case "commitRefund":
+      return opCommitRefund(args, operator);
+    case "setClinicSettings":
+      return opSetClinicSettings(args, operator);
+    case "setDepositSettings":
+      return opSetDepositSettings(args, operator);
+    case "disconnectStripeConnect":
+      return opDisconnectStripeConnect(args, operator);
+    case "issueStripeConnectLink":
+      return opIssueStripeConnectLink(args, operator);
+    case "retryBillingRequest":
+      return opRetryBillingRequest(args, operator);
+    case "liftSuspension":
+      return opLiftSuspension(args, operator);
+    case "extendSetupDeadline":
+      return opExtendSetupDeadline(args, operator);
+    case "retryLocationSetup":
+      return opRetryLocationSetup(args, operator);
+    case "retryOverageInvoice":
+      return opRetryOverageInvoice(args, operator);
+    case "closeUnfinishedSetup":
+      return opCloseUnfinishedSetup(args, operator);
+    case "replayConnectEvent":
+      return opReplayConnectEvent(args, operator);
+    case "setAutoRenew":
+      return opSetAutoRenew(args, operator);
     case "startForwardingTest":
       return opStartForwardingTest(args, operator);
     case "listClinicHealth":
@@ -798,6 +908,10 @@ export async function runOperation(
       return opRetryCalendarWrite(args, operator);
     case "listCalendarWrites":
       return opListCalendarWrites(args, operator);
+    case "emailEvent":
+      return opEmailEvent(args);
+    case "getCredentialKeyStatus":
+      return opGetCredentialKeyStatus();
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The
@@ -2440,7 +2554,7 @@ function stepsView(state: OnboardingState) {
   }));
 }
 
-async function clinicById(clinicId: string | undefined) {
+export async function clinicById(clinicId: string | undefined) {
   if (!clinicId || !UUID_SHAPED.test(clinicId)) return undefined;
   return (await listClinicOverviews()).find((c) => c.id === clinicId);
 }
@@ -2513,7 +2627,7 @@ async function opGetOnboarding(
     stripeConnect: {
       accountId: clinic.stripeConnectAccountId,
       connectedAt: clinic.stripeConnectConnectedAt?.toISOString() ?? null,
-      authorizeUrl: clinic.stripeConnectAccountId ? null : connectAuthorizeUrl(clinic.id),
+      authorizeUrl: null,
     },
     // Counts only. The requests themselves live behind the desk's link.
     meta: { enabled: clinic.metaFrontDoorEnabled, channels: metaChannels, bookingRequests },
@@ -2753,11 +2867,15 @@ function readAgentInput(args: Record<string, unknown>): AgentConfigInput | strin
   const services = rawServices.map((raw) => {
     const r = (raw ?? {}) as Record<string, unknown>;
     const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v) : null);
+    const depositNum = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
     return {
       name: typeof r.name === "string" ? r.name.trim().slice(0, 120) : "",
       priceFromUsd: num(r.priceFromUsd),
       priceToUsd: num(r.priceToUsd),
       durationMinutes: num(r.durationMinutes),
+      // Carried through, or every operator save would wipe the per-service
+      // deposits (BD27); validateAgentConfig checks the range.
+      ...(r.depositUsd === undefined ? {} : { depositUsd: depositNum(r.depositUsd) }),
     };
   });
   return {
@@ -3066,11 +3184,21 @@ const INCIDENT_CLASSES: readonly IncidentClass[] = [
  * denylisted word refuses the whole incident with the reason, and the
  * operator rewrites it in ids. A conversation id is the pointer to the
  * evidence; the transcript is never the summary.
+ *
+ * `scanKey` is the key the value is scanned under, when the operator's word
+ * for the field is itself on the guard's denylist. "note" is: scanned as
+ * `{ note }`, every note was refused as a "PHI-shaped field name" whatever
+ * it said (F1). Such a field is scanned, and recorded, as `remark`, the key
+ * the rest of the codebase uses for operator prose (lib/onboarding/steps.ts).
  */
-function incidentText(value: string | undefined, field: string): string | { error: string } {
+function incidentText(
+  value: string | undefined,
+  field: string,
+  scanKey: string = field,
+): string | { error: string } {
   if (!value) return { error: `${field} is required.` };
   try {
-    assertNoPhi({ [field]: value }, field);
+    assertNoPhi({ [scanKey]: value }, scanKey);
     return value;
   } catch (error) {
     if (error instanceof PhiInAuditError) {
@@ -3298,6 +3426,17 @@ async function opSetMetaFrontDoor(
   if (enabled && !clinic.publishedPhoneE164) {
     return care.error("Enter the clinic's published number first; the front door hands off to it.");
   }
+  // BAA 1.3.0 release gate 19 (docs/counsel/agreement-changes.md §12.14):
+  // the front door answers real people on Instagram, Messenger and
+  // WhatsApp, so it goes on only for a clinic held to an agreement a
+  // practice may sign: an acceptable BAA version or a released DPA. The
+  // screen it rests on, every inbound message checked for clinical and
+  // urgent content before the model (gate 4), runs unconditionally.
+  if (enabled && !(clinic.baaVersion && agreementTemplateReleased(clinic.baaVersion))) {
+    return care.error(
+      "The clinic's agreement in effect must be a released version before the front door goes on.",
+    );
+  }
   await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
     (tx) => setMetaFrontDoor(tx, enabled),
@@ -3400,7 +3539,7 @@ async function opSetConnectionPhiBasis(
   }
   const basis = basisRaw as PhiBasis | null;
   const noteRaw = stringArg(args, "note", 500);
-  const note = noteRaw ? incidentText(noteRaw, "note") : null;
+  const note = noteRaw ? incidentText(noteRaw, "note", "remark") : null;
   if (note && typeof note !== "string") return ok({ status: "error", message: note.error } satisfies SwitchState);
   const found = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
@@ -3415,7 +3554,9 @@ async function opSetConnectionPhiBasis(
         action: "update",
         resourceType: "provider_connection",
         resourceId: row.id,
-        metadata: { provider: row.provider, phiBasis: basis, note: note as string | null },
+        // `remark`, never `note`: the audit guard refuses a key named note
+        // whatever its value, even null, and the throw rolled the basis back (F1).
+        metadata: { provider: row.provider, phiBasis: basis, remark: note as string | null },
       });
       return row;
     },
@@ -3582,4 +3723,79 @@ async function opListCalendarWrites(
     },
   );
   return ok({ writes });
+}
+
+// -----------------------------------------------------------------------------
+// The email platform: Resend's webhook, relayed (Annex X3)
+// -----------------------------------------------------------------------------
+
+/**
+ * One delivery event for mail this app sent, as apps/web relays it: the type
+ * in the ledger's vocabulary, the event's timestamp, and the tags this app put
+ * on the email (clinic, delivery, kind). Every value is checked for shape
+ * before anything is opened; nothing else in `args` is read, so an address
+ * that strayed into the envelope goes nowhere.
+ */
+async function opEmailEvent(args: Record<string, unknown>): Promise<OpsOutcome> {
+  const type = stringArg(args, "type", 32);
+  if (!type || !isDeliveryStatus(type)) {
+    return opsProblem("A delivery event type is required.", 400, "invalid_args");
+  }
+  const atRaw = stringArg(args, "at", 40);
+  const at = atRaw ? new Date(atRaw) : null;
+  if (!at || Number.isNaN(at.getTime())) {
+    return opsProblem("The event's timestamp is required.", 400, "invalid_args");
+  }
+  const clinic = stringArg(args, "clinic", 64);
+  const delivery = stringArg(args, "delivery", 64);
+  const kind = stringArg(args, "kind", 64);
+  if (
+    (clinic && !UUID_SHAPED.test(clinic)) ||
+    (delivery && !UUID_SHAPED.test(delivery)) ||
+    (kind && !KIND_SHAPE.test(kind))
+  ) {
+    return opsProblem("The event's tags are not ids.", 400, "invalid_args");
+  }
+  const result = await applyEmailEvent({
+    type,
+    at,
+    ...(clinic ? { clinic } : {}),
+    ...(delivery ? { delivery } : {}),
+    ...(kind ? { kind } : {}),
+  });
+  return ok(result);
+}
+
+// -----------------------------------------------------------------------------
+// The credential key
+// -----------------------------------------------------------------------------
+
+export type CredentialKeyStatus = CredentialKeyConfiguration & {
+  selfCheck: CredentialKeySelfCheck;
+};
+
+/**
+ * Whether this deployment can seal and open a clinic's credentials, asked now.
+ *
+ * Live rather than the worker's start-up result, because the operator's
+ * question is "now", and the worker may have started before the task role or
+ * the key policy was put right. A read, so unaudited like the other reads: it
+ * writes nothing, and on KMS its two calls are CloudTrail events already.
+ *
+ * The self-check keeps to its own budget, inside the twelve seconds apps/web's
+ * ops client waits, so a KMS that does not answer comes back as `timeout`
+ * rather than as a caller that gave up. What crosses is the projection in
+ * kms.ts and a category word — never the full ARN, which names the account,
+ * and never an AWS error message.
+ *
+ * Nothing in apps/web calls this yet: its ops client has no function for it
+ * and /admin no card. Until one does, it answers only a request signed with
+ * the provision secret, and the worker's start-up log line is the check an
+ * operator can read.
+ */
+async function opGetCredentialKeyStatus(): Promise<OpsOutcome> {
+  return ok({
+    ...credentialKeyConfiguration(),
+    selfCheck: await selfCheckCredentialKey(),
+  } satisfies CredentialKeyStatus);
 }

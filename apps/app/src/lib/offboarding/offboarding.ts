@@ -3,10 +3,13 @@ import { eq, sql } from "drizzle-orm";
 import { unsafeDb } from "@/db";
 import {
   appointments,
+  chatThreads,
+  clinicClosures,
   clinics,
   contacts,
   conversations,
   metaBookingDrafts,
+  metaInboundMessages,
   providerConnections,
   reconciliationExceptions,
   transactions,
@@ -33,29 +36,60 @@ import { withTenant } from "@/lib/tenant";
  * either the export was delivered or ninety days have elapsed (a clinic that
  * never collected its export does not get to keep us holding its patients
  * forever; the ninety days and the notices are documented in the handover).
- * It deletes every PHI row for the clinic and revokes its connections. What
- * stays: the clinic row (a customer we had), the audit log (append-only,
- * and the record that the destruction happened), the signed agreement (its
- * own six-year floor), suppressions, consent records and contact attempts
- * (the TCPA evidence, on its own four-year clock), and the billing history.
+ * It deletes every PHI row for the clinic and revokes its connections.
+ * Booking requests go first, through app_destroy_booking_requests(), because
+ * a confirmed one holds its appointment; the function refuses a clinic whose
+ * offboarding did not start thirty days ago by the database's clock.
+ *
+ * So the dates are the database's. `offboarding_started_at`, `destroy_after`
+ * and `destroyed_at` are stamped by app_start_offboarding() and
+ * app_mark_clinic_destroyed(), from the database's clock (the start at the
+ * moment of the call, not when its transaction began); the runtime role
+ * has no UPDATE on them, and a new clinic cannot carry them (a trigger): if
+ * it could write the dates the delete function reads, it could stamp a live
+ * clinic as due, empty its requests and put the dates back.
+ * app_mark_clinic_destroyed() also refuses while any row destroyClinicData
+ * deletes is still there, because once `destroyed_at` is set the daily job
+ * passes the clinic over for good. Its list and the deletes below are one
+ * list: tests/booking-request-destruction.test.ts fails if they differ, or
+ * if a table with a clinic_id is on neither it nor the list of what stays.
+ * Tests that need thirty days to pass move the stamps back as the migrator,
+ * which owns the table.
+ *
+ * What stays: the clinic row (a customer we had), the audit log
+ * (append-only, and the record that the destruction happened), the signed
+ * agreement (its own six-year floor), suppressions, consent records and
+ * contact attempts (the TCPA evidence, on its own four-year clock), and the
+ * billing history. That history includes channel_events, kept like
+ * billing_notices: the plan start and every step-up were charged from its
+ * rows, which hold no patient data. Deposit rows are money records too and
+ * stay, without the appointment they were taken for.
+ *
+ * Of the tables 0044 added, clinic_closures (the days the clinic was closed)
+ * goes with the patient rows. clinic_channels is classed with it but cannot
+ * go yet: the runtime role holds no DELETE on it (a channel in service must
+ * never drop out of the price), and destruction runs as that role. It holds
+ * no patient data.
+ *
+ * Of 0043's, chat_threads and meta_inbound_messages go too. Each holds an
+ * HMAC of what a patient's messages carried (the sender's id, a WhatsApp
+ * number among them; a message's id), and the key is ours
+ * (lib/identifier-ref.ts), so beside the clinic messaged and when, a row
+ * still identifies a person: keeping it would leave patient-derived rows
+ * behind a destruction record that says none remain.
  *
  * Vendor-side data — recordings at Synthflow, the agent itself — is deleted
  * in the vendor console by the operator and noted on the security event;
  * this job cannot reach it and does not claim to.
  */
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** The days app_start_offboarding() puts between the start and destroy_after; a test pins the two together. */
 export const DESTROY_AFTER_DAYS = 30;
 export const DESTROY_WITHOUT_EXPORT_AFTER_DAYS = 90;
 
-export async function startOffboarding(tx: TenantTx, reason: string, now: Date = new Date()): Promise<void> {
-  await tx.db
-    .update(clinics)
-    .set({
-      offboardingStartedAt: sql`coalesce(${clinics.offboardingStartedAt}, ${now})`,
-      destroyAfter: sql`coalesce(${clinics.destroyAfter}, ${new Date(now.getTime() + DESTROY_AFTER_DAYS * DAY_MS)})`,
-      updatedAt: now,
-    })
-    .where(eq(clinics.id, tx.clinicId));
+/** Stamps the start and destroy_after from the database's clock, once; starting again moves neither. */
+export async function startOffboarding(tx: TenantTx, reason: string): Promise<void> {
+  await tx.db.execute(sql`select app_start_offboarding(${tx.clinicId}::uuid)`);
   tx.audit.record({ action: "update", resourceType: "clinic_offboarding", resourceId: tx.clinicId, metadata: { started: true, reason } });
 }
 
@@ -66,8 +100,12 @@ export async function markExportDelivered(tx: TenantTx, how: string, now: Date =
 
 export type DestructionResult = { clinicId: string; deleted: Record<string, number> };
 
-/** Every patient row for one clinic, gone. Consent evidence, suppressions, audit, agreements, billing stay. */
-export async function destroyClinicData(tx: TenantTx, now: Date = new Date()): Promise<DestructionResult> {
+/**
+ * Every patient row for one clinic, booking requests included, the hashes of
+ * who messaged it, and its closed days, gone. Consent evidence, suppressions,
+ * audit, agreements and billing stay.
+ */
+export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult> {
   const c = tx.clinicId;
   const deleted: Record<string, number> = {};
   const del = async (name: string, run: () => Promise<{ id: string }[]>) => {
@@ -75,11 +113,21 @@ export async function destroyClinicData(tx: TenantTx, now: Date = new Date()): P
   };
   await del("reconciliation_exceptions", () => tx.db.delete(reconciliationExceptions).where(eq(reconciliationExceptions.clinicId, c)).returning({ id: reconciliationExceptions.id }));
   await del("transactions", () => tx.db.delete(transactions).where(eq(transactions.clinicId, c)).returning({ id: transactions.id }));
+  // Booking requests before the appointments: a confirmed request must keep
+  // its appointment (CHECK, 0039) and cannot be rewritten (trigger, 0041), so
+  // its appointment cannot go while it stands, and waiting for the contact's
+  // cascade (0037) never gets that far. The app role has no DELETE on them;
+  // app_destroy_booking_requests() deletes this tenant's, once offboarding
+  // started thirty days ago by the database's clock.
+  const requests = await tx.db.execute<{ n: number }>(sql`select app_destroy_booking_requests(${c}::uuid) as n`);
+  deleted.booking_requests = requests.rows[0]?.n ?? 0;
   await del("appointments", () => tx.db.delete(appointments).where(eq(appointments.clinicId, c)).returning({ id: appointments.id }));
   await del("conversations", () => tx.db.delete(conversations).where(eq(conversations.clinicId, c)).returning({ id: conversations.id }));
-  // Booking requests carry no DELETE for the app role; they go with their
-  // contact by cascade (0037). The half-collected drafts hold a phone number
-  // and nothing the record needs, so they are deleted outright.
+  // Who messaged the clinic, as keyed hashes of their sender ids (see the header).
+  await del("chat_threads", () => tx.db.delete(chatThreads).where(eq(chatThreads.clinicId, c)).returning({ id: chatThreads.partyRef }));
+  await del("meta_inbound_messages", () => tx.db.delete(metaInboundMessages).where(eq(metaInboundMessages.clinicId, c)).returning({ id: metaInboundMessages.messageRef }));
+  // The half-collected drafts hold a phone number and nothing the record
+  // needs, so they are deleted outright.
   await del("meta_booking_drafts", () => tx.db.delete(metaBookingDrafts).where(eq(metaBookingDrafts.clinicId, c)).returning({ id: metaBookingDrafts.senderId }));
   await del("contacts", () => tx.db.delete(contacts).where(eq(contacts.clinicId, c)).returning({ id: contacts.id }));
   await del("webhook_events", () => tx.db.delete(webhookEvents).where(eq(webhookEvents.clinicId, c)).returning({ id: webhookEvents.id }));
@@ -93,8 +141,15 @@ export async function destroyClinicData(tx: TenantTx, now: Date = new Date()): P
   // and that "stop" was honoured, on the TCPA's four-year clock
   // (lib/retention/purge.ts says the same). The BAA permits retention the
   // law requires; the handover names it in the destruction notice.
+  // The closed days go with the clinic; channel_events stays as billing
+  // evidence (see the header).
+  await del("clinic_closures", () => tx.db.delete(clinicClosures).where(eq(clinicClosures.clinicId, c)).returning({ id: clinicClosures.closedOn }));
 
-  await tx.db.update(clinics).set({ destroyedAt: now, synthflowNumberE164: null, updatedAt: now }).where(eq(clinics.id, c));
+  // The number is released with the data. destroyed_at is the database's
+  // to stamp, and it refuses a clinic that is not due or still holds any
+  // row deleted above (see the header).
+  await tx.db.update(clinics).set({ synthflowNumberE164: null }).where(eq(clinics.id, c));
+  await tx.db.execute(sql`select app_mark_clinic_destroyed(${c}::uuid)`);
   const total = Object.values(deleted).reduce((a, b) => a + b, 0);
   tx.audit.record({
     action: "delete",
@@ -123,7 +178,7 @@ export async function destroyDueClinics(now: Date = new Date()): Promise<Destruc
   for (const clinic of await listClinics()) {
     if (!dueForDestruction(clinic, now)) continue;
     try {
-      const result = await withTenant({ clinicId: clinic.id, actor }, (tx) => destroyClinicData(tx, now));
+      const result = await withTenant({ clinicId: clinic.id, actor }, (tx) => destroyClinicData(tx));
       await recordSecurityEvent(unsafeDb, {
         event: "clinic_data_destroyed",
         actorLabel: "offboarding-destroy",

@@ -2,6 +2,7 @@
 
 import {
   type BillingInterval,
+  OVERAGE_BLOCK_UNITS,
   OVERAGE_RATES_PROVISIONAL,
   planForCard,
   pricingCards,
@@ -17,6 +18,7 @@ import {
   overageLine,
   usd,
 } from "@/lib/pricing";
+import { site } from "@/lib/site";
 
 /**
  * The five pricing cards on /pricing, with the monthly / annual toggle.
@@ -166,9 +168,10 @@ export function PricingCards({
                 ))}
                 {/* With the flag set, the row and the footnote say the same
                     thing: the rate is published before the first bill, and
-                    nothing is billed until it is. With it off the rates print,
-                    marked provisional, because they are placeholders until
-                    measured (see the catalog header). */}
+                    nothing is billed until it is. With it off the block
+                    prices print, marked provisional, because they are
+                    placeholders until measured (see the catalog header); the
+                    footnote says a started block is billed whole. */}
                 <Row label="After that">
                   {overage
                     ? `${overage}, provisional`
@@ -190,17 +193,23 @@ export function PricingCards({
                     : "border-line-strong text-ink hover:border-ink border-[1.5px]",
                 ].join(" ")}
               >
-                Get started
+                {site.cta.primary.label}
               </a>
             </div>
           );
         })}
       </div>
 
+      {/* Billed per started block since 6 October 2026 (docs/v1-product-spec.md,
+          "Overage prices"): a month's extra units are rounded up to whole
+          blocks, so the first one over costs a whole block, and the footnote
+          says so rather than leaving "per block" on the cards to be read pro
+          rata. */}
       <p className="text-muted mt-5 max-w-[80ch] text-xs">
         Voice minutes and chat conversations are capped because they are the
         real cost and they scale with how busy you are. Past the allowance you
-        are billed per minute or per conversation, never moved to a higher tier
+        are billed for each started block of {OVERAGE_BLOCK_UNITS} minutes or{" "}
+        {OVERAGE_BLOCK_UNITS} conversations, never moved to a higher tier
         without asking.
         {/* True because lib/billing.ts attaches no metered price while the
             flag is set: nothing CAN bill overage until the rates are live. */}

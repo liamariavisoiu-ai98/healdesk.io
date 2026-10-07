@@ -187,7 +187,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         "",
         link.url,
         "",
-        "It takes about fifteen minutes. Each channel goes live on its own, and the phone is usually covered the same day once call forwarding is set.",
+        "It takes about fifteen minutes of your attention. Each channel goes live on its own: the phone once call forwarding is set.",
         "",
         "If you'd rather talk it through first, reply to this email and a person will answer.",
         "",

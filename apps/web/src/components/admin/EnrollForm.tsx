@@ -371,7 +371,6 @@ export function EnrollForm({
 
         <div className="mt-4 flex flex-col items-center gap-4 sm:flex-row sm:items-start">
           {qrDataUrl.length > 0 ? (
-            /* eslint-disable-next-line @next/next/no-img-element */
             <img
               src={qrDataUrl}
               alt="QR code holding the same setup key that is printed beside it"

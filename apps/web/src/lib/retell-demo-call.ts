@@ -41,7 +41,11 @@ const ENDPOINT = "https://api.retellai.com/v2/create-phone-call";
 
 export type RetellDemoConfig = {
   apiKey: string;
-  /** AYA's demo agent, printed by scripts/retell-demo-agent.ts. */
+  /**
+   * AYA's demo agent (scripts/retell-demo-agent.ts), or, for a call asked for
+   * from a personalised demo page, the clinic-demo agent
+   * (scripts/retell-clinic-demo-agent.ts). Either way an owner who asked.
+   */
   agentId: string;
   /** A number bought in Retell, E.164. */
   fromNumber: string;
@@ -53,16 +57,17 @@ export type RetellDemoConfig = {
  * Returns the reason rather than throwing, so the caller can log something an
  * operator can act on instead of a generic 500.
  */
-export function readRetellDemoConfig():
+export function readRetellDemoConfig(agent: "aya" | "clinic" = "aya"):
   | { ok: true; config: RetellDemoConfig }
   | { ok: false; missing: string[] } {
+  const agentVar = agent === "clinic" ? "RETELL_CLINIC_DEMO_AGENT_ID" : "RETELL_DEMO_AGENT_ID";
   const apiKey = process.env.RETELL_API_KEY;
-  const agentId = process.env.RETELL_DEMO_AGENT_ID;
+  const agentId = process.env[agentVar];
   const fromNumber = process.env.RETELL_DEMO_FROM_NUMBER;
 
   const missing: string[] = [];
   if (!apiKey) missing.push("RETELL_API_KEY");
-  if (!agentId) missing.push("RETELL_DEMO_AGENT_ID");
+  if (!agentId) missing.push(agentVar);
   if (!fromNumber) missing.push("RETELL_DEMO_FROM_NUMBER");
   if (missing.length > 0) return { ok: false, missing };
 

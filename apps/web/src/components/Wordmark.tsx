@@ -1,37 +1,28 @@
 /**
  * The healdesk wordmark, as the real logo asset.
  *
- * ## One component, three placements
- *
- * The navbar logo and the giant mark behind AYA are two halves of one scroll
- * hand-off (see HeroMark.tsx), and that only works if the two are geometrically
- * congruent at the crossover frame. When both were CSS text this had to be
- * maintained by hand, same face, same size, same tracking, same em-relative
- * `.io`, and any drift showed as a visible pop mid-animation.
- *
- * Rendering one image at one fixed height makes congruence structural instead:
- * the hero mark is literally the navbar mark with a `scale` on it, so there is
- * nothing left to keep in sync.
+ * It was also the giant mark behind AYA in the hero, scaled up from this one
+ * in a scroll hand-off, which is why it renders as one image at one fixed
+ * height. The hero is static now and the hand-off is gone: this is the logo
+ * in the navbar, and on the checkout and admin sign-in pages, which have none.
  *
  * ## Sizing
  *
- * Height is fixed rather than inherited from font-size, because the hand-off
- * measures this element's box to work out how far it has to shrink. A mark that
- * changed size with its container would move the target it is aiming at.
- *
- * The asset is 2400px wide. The hero mark peaks at roughly 7x navbar size,
- * about 1140 CSS px on a wide viewport, 2280 device px at 2x, so it renders at
- * or below native resolution and never upscales.
+ * 28px tall wherever there is room for it. Where there is not, a phone under
+ * about 360px wide with the navbar's two buttons beside it, it narrows to the
+ * room it has and the artwork scales down inside its box, rather than push
+ * the buttons off the edge of the screen. The box stays 28px tall either way,
+ * so the navbar does not change height.
  *
  * `alt=""` on purpose: every call site wraps this in a link that already
- * carries an accessible name, and the hero copy is `aria-hidden` outright. A
- * second "healdesk.io" announcement here would be a duplicate, not a help.
+ * carries an accessible name. A second "healdesk.io" announcement here would
+ * be a duplicate, not a help.
  */
 
 /** 2400 / 437, from the exported asset. */
 export const WORDMARK_ASPECT = 5.492;
 
-/** The one size this renders at. The hero scales it; it never re-lays out. */
+/** The size this renders at wherever it fits. */
 export const WORDMARK_HEIGHT = 28;
 
 export function WordmarkGlyphs() {
@@ -42,7 +33,7 @@ export function WordmarkGlyphs() {
       width={Math.round(WORDMARK_HEIGHT * WORDMARK_ASPECT)}
       height={WORDMARK_HEIGHT}
       draggable={false}
-      className="block h-[28px] w-auto max-w-none select-none"
+      className="block h-[28px] w-auto max-w-full object-contain select-none"
     />
   );
 }

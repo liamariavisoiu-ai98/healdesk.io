@@ -116,10 +116,15 @@ describe("how she sells", () => {
   });
 
   test("the risk reversal is the contract's words, not a paraphrase", () => {
-    expect(flat(VOICE_DEMO_RISK_REVERSAL)).toContain(GUARANTEE_TEXT.paragraphs[0]!.body);
-    expect(flat(VOICE_DEMO_RISK_REVERSAL)).toContain(`Within ${POLICY.refundWindowDays} days of paying`);
-    expect(flat(VOICE_DEMO_RISK_REVERSAL)).toContain(`${POLICY.setupFeeRefundNotLiveDays} days after they`);
-    expect(flat(VOICE_DEMO_RISK_REVERSAL)).toContain("Never add to it.");
+    // Terms § 3 and § 5 as of 2026-10-07: the plan starts the day the agent
+    // first answers a patient, the refund window counts from then, and the
+    // setup fee is never refunded.
+    const risk = flat(VOICE_DEMO_RISK_REVERSAL);
+    expect(risk).toContain(GUARANTEE_TEXT.paragraphs[0]!.body);
+    expect(risk).toContain("The monthly fee starts the day the assistant first answers one of their patients.");
+    expect(risk).toContain(`If they cancel within ${POLICY.refundWindowDays} days of that day`);
+    expect(risk).toContain("The setup fee is never refunded.");
+    expect(risk).toContain("Never add to it.");
   });
 
   test.each(DIRECTIONS)("%s: no discount, no invented urgency, no invented proof", (direction) => {
@@ -158,7 +163,21 @@ describe("price, precisely", () => {
   });
 
   test("overage is called provisional, as copy must", () => {
-    expect(flat(VOICE_DEMO_PRICES)).toContain("Provisional: only if asked, and say so.");
+    expect(flat(VOICE_DEMO_PRICES)).toContain("These overage rates are provisional");
+  });
+
+  test("overage is quoted per started block of 100, as it is billed, never per minute", () => {
+    // The owner's decision of 6 October 2026 (docs/v1-product-spec.md,
+    // "Overage prices"). src/lib/overage-copy.test.ts holds the block and its
+    // prices to the catalog.
+    expect(flat(VOICE_DEMO_PRICES)).toContain(
+      "Beyond the included amount, overage is billed in blocks of 100: $80 for each started block " +
+        "of 100 extra phone minutes, and $30 or $40 for each started block of 100 extra chat " +
+        "conversations, depending on the package. A block is charged in full once it is started.",
+    );
+    expect(flat(VOICE_DEMO_PRICES)).not.toMatch(
+      /\ba phone minute|\ba voice minute|\ba chat conversation|\bper minute|\bper conversation|\/min\b|\$0\./i,
+    );
   });
 
   test.each(DIRECTIONS)("%s: the price list and the risk reversal are both in the prompt", (direction) => {
@@ -189,11 +208,24 @@ describe("the rules every call keeps", () => {
 
   test.each(DIRECTIONS)("%s: a BAA, never a certification, never revenue, never a '!'", (direction) => {
     const prompt = text(direction);
-    expect(prompt).toContain("we sign a business associate agreement with every clinic");
+    // The spec's line: a practice HIPAA does not reach signs another agreement.
+    expect(prompt).toContain("we sign a business associate agreement and handle patient data under it");
+    expect(prompt).not.toMatch(/with every clinic/i);
     expect(prompt).toContain('Never say healdesk is "HIPAA compliant"');
     expect(prompt).toContain("Never call anything revenue.");
     expect(prompt).not.toContain("!");
     expect(prompt).not.toMatch(/healdesk\.io/);
+  });
+
+  test.each(DIRECTIONS)("%s: it never tells a prospect that healdesk is new", (direction) => {
+    // The owner's rule of 5 October 2026: nothing client-facing signals that we are new.
+    expect(text(direction)).not.toMatch(/\bwe're early\b|\bearly access\b|\bpilot\b|\bbeta\b|\bfounding\b|\bcohort\b/i);
+    expect(text(direction)).toContain("Never say healdesk is new or early.");
+  });
+
+  test.each(DIRECTIONS)("%s: setup is described by its step, never by a time", (direction) => {
+    // CLAUDE.md: "It describes the step, never the time."
+    expect(text(direction)).not.toMatch(/same day|in minutes|two minutes/i);
   });
 
   test.each(DIRECTIONS)("%s: it knows the time, and wraps up before the cut", (direction) => {

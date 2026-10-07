@@ -121,6 +121,8 @@ export default function PrivacyPage() {
             disputed — and are used for nothing else.
           </li>
           <li>
+            {/* Added 7 Oct 2026 (LEGAL_VERSION 2026-10-07.3): the demo line on
+                the site, and the setup link AYA emails when an owner says yes. */}
             <strong>If you call {site.agent}&apos;s demo line.</strong> When you dial{" "}
             {site.demoLine.display}, Retell receives your number and the call&apos;s audio while it
             is live, and {site.agent} runs on Anthropic&apos;s Claude model, as above. Neither we nor
@@ -148,19 +150,62 @@ export default function PrivacyPage() {
           <li>
             <strong>Contact form submissions</strong> — your name, your clinic's name if you give
             it, your email and your message. They are delivered to our inbox by email and kept as
-            ordinary correspondence.
+            ordinary correspondence. We send one email to the address you give, saying when we
+            will reply.
           </li>
           <li>
-            {/* Adopted 3 Oct 2026 by the owner without external counsel review:
-                the field list, updated to what the checkout asks after the 30
-                September changes. */}
-            <strong>What you enter at checkout.</strong> Your clinic's legal name, its specialty,
-            the booking system it uses, the typical value of one booked appointment, which calls you
-            want answered, your work email, and — to sign the Business Associate Agreement — your
-            name and your title at the practice. Card
+            {/* Added 6 Oct 2026 with the setup request form (LEGAL_VERSION
+                2026-10-06.1). */}
+            <strong>Setup requests</strong> ("Tell us about your clinic") — your name, your
+            clinic's name and website, the email address your clinic will use with us, the
+            channels you want, and the IP address the request came from, which we keep with it to
+            stop abuse. We use them to reply and to send your setup link, and we record when the
+            link is opened and used. We send one email to the address you give, saying when we
+            will reply; the setup link emails carry a one-click unsubscribe. If you came from one
+            of our follow-up emails, asking for setup stops them.
+          </li>
+          <li>
+            {/* Added 6 Oct 2026 with "Get in touch" (LEGAL_VERSION
+                2026-10-06.2). */}
+            <strong>Calls you book</strong> ("Get in touch") — the booking form is Calendly's,
+            shown on our page. The name and email you give, anything you add in its form and the
+            time you pick go to Calendly, which passes the booking to us so we can hold the call.
+            Nothing of Calendly's loads until you open it.
+          </li>
+          <li>
+            {/* Adopted 3 Oct 2026 by the owner without external counsel review;
+                the field list updated 6 Oct 2026 (LEGAL_VERSION 2026-10-07.1)
+                to what the four-step checkout asks: the website or none, the
+                kind of Google account and the browser's time zone are new,
+                and the appointment value and the calls question are gone. */}
+            <strong>What you enter at checkout.</strong> Your clinic's legal name, its website or
+            that it has none, its specialty, where its bookings live today, which kind of Google
+            account its calendar is on, and the email address your clinic will use with us; to sign
+            the agreement, your name and your title at the practice; and, when you tick the box
+            beside Pay, which version of these terms you accepted, when, and the IP address you
+            accepted from. Your browser's time zone is sent with them, as a starting point for your
+            clinic's own until you confirm it in setup. Card
             details go directly to Stripe and never touch our servers. If you reach the payment
             page and stop, we send one email about it, an hour later, and no more; it carries the
             same one-click unsubscribe.
+            {/* Added 6 Oct 2026 with the website read (LEGAL_VERSION 2026-10-06.3):
+                app/api/clinic-site and lib/site-read. */}{" "}
+            If you give your clinic's website, we read it so that setup starts with your details
+            already filled in: up to eight of its public pages, never one its robots.txt asks
+            robots not to read. We send the text of those pages to Anthropic, which picks out the
+            business details: services and prices, locations and opening hours, the practitioners
+            the site names, its policies and its answers to common questions. It is told to leave
+            out anything a patient wrote or said, such as reviews and testimonials. The details go
+            back to your browser for the rest of checkout, and this website keeps neither the pages
+            nor what was read from them.
+            {/* Added 6 Oct 2026 (LEGAL_VERSION 2026-10-07.1): Pay sends the read
+                with the purchase to apps/app, which keeps it on the checkout intent
+                (checkout_intents.profile) until billing-housekeeping purges it. */}{" "}
+            When you press Pay, what was read is sent with your other answers to the {site.name}{" "}
+            product, which keeps it with your purchase so that setup can start from it: it is
+            deleted 14 days after you last pressed Pay if the purchase is not completed, and
+            otherwise 90 days after your account is created. Once you are a customer we may read
+            the site again the same way, to keep your setup current.
           </li>
           <li>
             <strong>Technical data.</strong> Your IP address and the page requested, used to
@@ -215,6 +260,11 @@ export default function PrivacyPage() {
             tell one visit from another. Withdraw with the button above; analytics stops on the
             next page load and the notice asks again.
           </li>
+          <li>
+            <strong>Calendly's cookies</strong> — only if you open "Get in touch": Calendly may set
+            its own cookies inside its booking window. They are Calendly's, under its own cookie
+            policy, and we do not read them.
+          </li>
         </ul>
       </Section>
 
@@ -255,9 +305,14 @@ export default function PrivacyPage() {
             last visit, then deleted automatically, together with the funnel events recorded
             against it.
           </li>
+          <li>
+            A setup request: {POLICY.leadRetentionMonths} months after it was last updated, then
+            deleted automatically.
+          </li>
           <li>Server logs: {POLICY.logRetentionDays} days.</li>
           <li>Demo-call consent records: {POLICY.callConsentRetentionYears} years, then deleted.</li>
           <li>Demo conversations: not stored by us at all; Anthropic's own retention applies to its processing.</li>
+          <li>Your website's pages, read at checkout: not stored by us at all; Anthropic's own retention applies to its processing. What was read from them, once you press Pay: kept with your purchase, and deleted 14 days after you last pressed Pay if the purchase is not completed, otherwise 90 days after your account is created.</li>
           <li>The demo call itself: no recording or transcript is kept by us or by Retell; Retell keeps the call&apos;s basic record (time, length, how it ended) for 30 days. We hold the number only in the consent record above.</li>
           <li>A follow-up you asked for on the demo call: as ordinary email correspondence, until the request is answered and closed.</li>
           <li>Contact-form messages: as ordinary email correspondence, until the enquiry is closed.</li>

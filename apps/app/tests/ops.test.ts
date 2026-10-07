@@ -1,7 +1,15 @@
-import { ONBOARDING_STEPS } from "@healdesk/catalog";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { CURRENT_BAA_VERSION, ONBOARDING_STEPS } from "@healdesk/catalog";
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 
-import { agreementCarriesCalendarWrite, isIanaTimeZone, isOpName, runOperation, type Operator } from "@/lib/ops/api";
+import { AwsKmsKeyWrapper, __setKeyWrapperForTests } from "@/lib/crypto/kms";
+import {
+  agreementCarriesCalendarWrite,
+  isIanaTimeZone,
+  isMutating,
+  isOpName,
+  runOperation,
+  type Operator,
+} from "@/lib/ops/api";
 import { blockersFor, listClinics, type ClinicOverview } from "@/lib/ops/clinics";
 
 import {
@@ -12,6 +20,7 @@ import {
   truncateAll,
 } from "./setup/db";
 import { inTenant, seedClinic } from "./setup/factories";
+import { fakeKms, restoreKeyEnvironment, setKeyEnvironment, TEST_KEY_ARN } from "./setup/kms";
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 
@@ -53,6 +62,7 @@ const clinic = (over: Partial<ClinicOverview> = {}): ClinicOverview => ({
   bookingRequirements: null,
   bookingRequirementsConfirmedAt: null,
   bookingRequirementsSource: null,
+  baaVersion: CURRENT_BAA_VERSION,
   billingClinicId: null,
   stripeConnectDisconnectedAt: null,
   ...over,
@@ -92,6 +102,42 @@ describe("clinic blockers", () => {
       }),
     );
     expect(blockers).toEqual([]);
+  });
+
+  test("a superseded agreement is the first thing a synthetic clinic's card says, naming both versions", () => {
+    // The card shows the first blocker when none is "blocked", and go-live
+    // refuses this one outright (0048), so it goes ahead of the covered-entity
+    // line and the onboarding steps.
+    const blockers = blockersFor(clinic({ baaVersion: "1.0.0", isCoveredEntity: null, agentApprovedAt: null }));
+    const superseded = blockers.filter((b) => b.message.includes("superseded"));
+    expect(superseded).toEqual([
+      {
+        level: "attention",
+        message: `BAA v1.0.0 has been superseded: the practice accepts v${CURRENT_BAA_VERSION} before go-live.`,
+      },
+    ]);
+    expect(blockers[0]).toEqual(superseded[0]);
+  });
+
+  test("a live clinic on a superseded agreement is told to re-accept, not shown as broken", () => {
+    const blockers = blockersFor(
+      clinic({ dataClassification: "production", baaSignedAt: new Date(), baaVersion: "1.2.0" }),
+    );
+    expect(blockers).toEqual([
+      {
+        level: "attention",
+        message: `Live under BAA v1.2.0, which has been superseded: have the practice accept v${CURRENT_BAA_VERSION}.`,
+      },
+    ]);
+  });
+
+  test("the current version, or no agreement at all, adds nothing about the version", () => {
+    // No agreement at all is go-live's to report ("No signed business
+    // associate agreement is in effect…"); this item is only about a version
+    // that has been replaced.
+    for (const baaVersion of [CURRENT_BAA_VERSION, null]) {
+      expect(blockersFor(clinic({ baaVersion })).some((b) => b.message.includes("superseded"))).toBe(false);
+    }
   });
 });
 
@@ -134,6 +180,7 @@ describeDb("ops clinic listing", () => {
         "agentApprovedAt",
         "attributionMode",
         "baaSignedAt",
+        "baaVersion",
         "billingClinicId",
         "bookingMode",
         "bookingRequirements",
@@ -190,6 +237,31 @@ describeDb("ops clinic listing", () => {
     expect(found?.dataClassification).toBe("production");
     expect(blockersFor(found!)).toEqual([]);
   });
+
+  test("reports the version of the agreement in effect: the newest bound, unterminated one (0048)", async () => {
+    const { clinicId, organizationId } = await seedClinic("ops-version");
+    const version = async () => (await listClinics()).find((c) => c.id === clinicId)!.baaVersion;
+    expect(await version()).toBeNull();
+
+    // Two bound rows for one organisation is a state only the migrator can
+    // produce today; it is the one a re-acceptance will leave behind.
+    const bind = (v: string, acceptedAgo: string) =>
+      getMigratorPool().query(
+        `insert into baa_acceptances (organization_id, document_version, document_hash, rendered_text, variables, assent_label, accepted_by_name, accepted_by_email, accepted_at, bound_at)
+         values ($1, $2, repeat('e', 64), 'BAA', '{}'::jsonb, 'I agree', 'Alex', 'alex@version.test', now() - $3::interval, now() - $3::interval)`,
+        [organizationId, v, acceptedAgo],
+      );
+    await bind("1.0.0", "40 days");
+    expect(await version()).toBe("1.0.0");
+    await bind(CURRENT_BAA_VERSION, "1 day");
+    expect(await version()).toBe(CURRENT_BAA_VERSION);
+
+    await getMigratorPool().query(
+      `update baa_acceptances set terminated_at = now() where organization_id = $1 and document_version = $2`,
+      [organizationId, CURRENT_BAA_VERSION],
+    );
+    expect(await version()).toBe("1.0.0");
+  });
 });
 
 const OPERATOR: Operator = { email: "ops@healdesk.test", request: {} };
@@ -216,6 +288,87 @@ describe("inbound only: the call-back and template operations are gone", () => {
   test("neither the call-back switch nor the WhatsApp template op is an operation any more", () => {
     expect(isOpName("setOutboundCallbacks")).toBe(false);
     expect(isOpName("setWhatsAppTemplate")).toBe(false);
+  });
+});
+
+describe("ops: the credential key (getCredentialKeyStatus)", () => {
+  afterEach(() => {
+    restoreKeyEnvironment();
+    vi.restoreAllMocks();
+  });
+
+  const KMS_CONFIGURED = {
+    HEALDESK_KMS_PROVIDER: "aws-kms",
+    HEALDESK_KMS_KEY_ID: TEST_KEY_ARN,
+    AWS_REGION: undefined,
+  } as const;
+
+  test("is a read: on the list, off the mutating half, so it writes no audit row", () => {
+    expect(isOpName("getCredentialKeyStatus")).toBe(true);
+    expect(isMutating("getCredentialKeyStatus")).toBe(false);
+  });
+
+  test("on the local wrapper: configured, no key to name, and a live check that passes", async () => {
+    const status = await run("getCredentialKeyStatus", {});
+    expect(status).toEqual({
+      provider: "local",
+      keyConfigured: true,
+      keyArnSuffix: null,
+      selfCheck: { ok: true, at: expect.any(String) },
+    });
+    const at = (status.selfCheck as { at: string }).at;
+    expect(new Date(at).toISOString()).toBe(at);
+  });
+
+  test("on KMS: the key's last six characters, and a check that went through KMS itself", async () => {
+    setKeyEnvironment(KMS_CONFIGURED);
+    const kms = fakeKms();
+    __setKeyWrapperForTests(new AwsKmsKeyWrapper(TEST_KEY_ARN, { client: kms.client }));
+
+    const status = await run("getCredentialKeyStatus", {});
+    expect(status).toEqual({
+      provider: "aws-kms",
+      keyConfigured: true,
+      keyArnSuffix: "7890ab",
+      selfCheck: { ok: true, at: expect.any(String) },
+    });
+    expect(kms.calls.map((call) => [call.command, call.keyId])).toEqual([
+      ["GenerateDataKey", TEST_KEY_ARN],
+      ["Decrypt", TEST_KEY_ARN],
+    ]);
+    // Never the full ARN, which names the AWS account.
+    expect(JSON.stringify(status)).not.toContain("111122223333");
+  });
+
+  test("a key id that is not a key ARN: answered rather than failed, with no suffix and the check's word", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    setKeyEnvironment({ ...KMS_CONFIGURED, HEALDESK_KMS_KEY_ID: "alias/healdesk-credentials" });
+
+    const status = await run("getCredentialKeyStatus", {});
+    expect(status).toEqual({
+      provider: "aws-kms",
+      keyConfigured: false,
+      keyArnSuffix: null,
+      selfCheck: { ok: false, at: expect.any(String), error: "unconfigured" },
+    });
+  });
+
+  test("a refusal from KMS crosses as a word, never as AWS's message", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    setKeyEnvironment(KMS_CONFIGURED);
+    __setKeyWrapperForTests(
+      new AwsKmsKeyWrapper(TEST_KEY_ARN, {
+        client: fakeKms(TEST_KEY_ARN, { fail: "AccessDeniedException" }).client,
+      }),
+    );
+
+    const status = await run("getCredentialKeyStatus", {});
+    expect(status).toMatchObject({
+      provider: "aws-kms",
+      keyConfigured: true,
+      selfCheck: { ok: false, error: "denied" },
+    });
+    expect(JSON.stringify(status)).not.toContain("stand-in");
   });
 });
 

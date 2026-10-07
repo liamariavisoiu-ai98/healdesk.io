@@ -29,17 +29,46 @@ export const JOB_WEEKLY_RECAP = "weekly-recap";
 export const JOB_NIGHTLY_SYNC = "nightly-sync";
 export const JOB_OFFBOARDING_DESTROY = "offboarding-destroy";
 /**
- * The Stripe launch's billing jobs (drizzle/0043), seeded off. Hourly:
- * reporting overage on monthly plans to Stripe's meters, queueing the 80% and
- * 100% allowance emails, and the backstop sender for the billing-notice
- * outbox. Daily: invoicing annual plans' overage per closed month (05 UTC)
- * and the housekeeping purge (06 UTC). Wired in tick.ts.
+ * The Stripe launch's billing jobs (drizzle/0043), seeded off. Every minute
+ * from the `billing-minute` queue, with the hourly tick as a backstop:
+ * reporting overage on monthly plans to Stripe's meters, because usage
+ * reported after an invoice finalizes is never billed. Hourly: queueing the
+ * 80% and 100% allowance emails. Daily: invoicing annual plans' overage per
+ * closed month (05 UTC) and the housekeeping purge (06 UTC). Wired in tick.ts
+ * and workers/index.ts.
+ *
+ * `billing-notices` is no longer hourly: the email platform's sender runs it
+ * every minute from the `notices` queue (lib/email/outbox.ts), and its row is
+ * the sender's on/off switch.
  */
 export const JOB_USAGE_METER_REPORT = "usage-meter-report";
 export const JOB_ANNUAL_OVERAGE_INVOICE = "annual-overage-invoice";
 export const JOB_USAGE_ALERTS = "usage-alerts";
 export const JOB_BILLING_NOTICES = "billing-notices";
 export const JOB_BILLING_HOUSEKEEPING = "billing-housekeeping";
+/**
+ * The Stripe build's jobs (drizzle/0050), seeded off.
+ *
+ * `billing-requests` carries out the billing-request ledger on Stripe: every
+ * minute from the `billing-minute` queue, and hourly from the tick as a
+ * backstop, behind its switch but without runJob's lock (runSwitchedJob),
+ * because each request is leased on its own row. `billing-reconcile` runs
+ * hourly and records whatever request is due but missing. `card-expiring`
+ * runs daily at 07 UTC. `setup-closure` is a switch, not a schedule: while it
+ * is off the worker leaves `close_setup` requests pending, because closing an
+ * account cannot be undone. Wired in tick.ts.
+ */
+export const JOB_BILLING_REQUESTS = "billing-requests";
+export const JOB_SETUP_CLOSURE = "setup-closure";
+export const JOB_BILLING_RECONCILE = "billing-reconcile";
+export const JOB_CARD_EXPIRING = "card-expiring";
+/**
+ * The DMARC review reminder (the dmarc_review migration), seeded off. Daily at
+ * 08 UTC: on the 14th day after Resend first sent as healdesk.io, one ops
+ * alert, ever, to read the DMARC reports and move the record from p=none to
+ * p=quarantine (dmarc-review.ts). Wired in tick.ts.
+ */
+export const JOB_DMARC_REVIEW = "dmarc-review";
 /**
  * Phase two: the attribution jobs. Their code is kept, but they never run in
  * v1 (env.phaseTwoAttribution()), and the console refuses to switch them on.
@@ -151,6 +180,42 @@ export async function runJob(
     // and those can carry PHI.
     const note =
       error instanceof Error ? error.message.slice(0, 500) : "Unknown error";
+    await record(name, "failed", note, now);
+    return { status: "failed", note };
+  }
+}
+
+/**
+ * Run a job that leases its own rows, behind its switch but without the lock.
+ *
+ * For the once-a-minute notices sender (lib/email/outbox.ts). runJob's lock is
+ * 60 minutes so that a crashed monthly run is not mistaken for a live one, and
+ * on a job that runs every minute that same lock would turn one crash into an
+ * hour of no email. The sender does not need it: each notice is claimed by a
+ * conditional UPDATE that leases it for two minutes, so two runs that overlap
+ * never send one row twice. The switch is still read every time, and every
+ * outcome is still recorded on the job row, exactly as runJob does.
+ */
+export async function runSwitchedJob(
+  name: string,
+  work: () => Promise<string>,
+  now: Date = new Date(),
+): Promise<JobOutcome> {
+  const job = await getJob(name);
+  if (!job) throw new Error(`Unknown job: ${name}`);
+
+  if (!job.enabled) {
+    await record(name, "disabled", "Job is switched off.", now);
+    return { status: "disabled" };
+  }
+
+  try {
+    const note = await work();
+    await record(name, "ok", note, now);
+    return { status: "ok", note };
+  } catch (error) {
+    // The message only, never the object, for the reason runJob gives.
+    const note = error instanceof Error ? error.message.slice(0, 500) : "Unknown error";
     await record(name, "failed", note, now);
     return { status: "failed", note };
   }

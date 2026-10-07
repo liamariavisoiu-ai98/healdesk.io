@@ -1,5 +1,27 @@
 # The remaining Stripe launch work: design (5 October 2026)
 
+> **Built, 7 October 2026.** B, C, D and E's ops billing panel are built and
+> reviewed. What was built, and how to switch it on, is in
+> `docs/design/stripe-bcd-as-built-2026-10-07.md`, which wins over this design
+> wherever the two differ.
+
+> **Superseded in part, 6 October 2026.** The owner approved the funnel,
+> onboarding and portal plan (`docs/design/funnel-onboarding-portal-2026-10-06.md`).
+> It supersedes A1, A2 and E's portal screens below. B, C and D are built to
+> `docs/design/funnel-portal-contracts-2026-10-06.md`, which wins wherever it
+> and this design differ. The changes that matter most here:
+> - **No Stripe trial.** Billing starts the day AYA first answers a patient,
+>   through a $0 monthly line swapped for the package price at the first
+>   answer, with no subscription schedule and no backstop date (contracts §2,
+>   as amended on 6 October). Visa's
+>   trial rules apply only to free trials and introductory promotions, and
+>   Stripe would print "TRIAL OVER" on a trial's first charge.
+> - **One email address and one sign-in per clinic.** §6's roles are deferred,
+>   and one Stripe billing-portal configuration is enough.
+> - **The plan builds the email sender.** Package C supplies kinds, payloads and
+>   templates (contracts §3 and §4).
+> - **The portal has Settings, not Behaviour.**
+
 > **Status, 5 October 2026.** Package **F0 (foundation) is built and on main**
 > (commits 27fad5c, 385e2a8 and 1fc4494):
 > migration `0043_stripe_launch` (checkout intents, sign-in links, clinic settings,
@@ -47,6 +69,13 @@
 > The founder's own Stripe steps (Dashboard settings, webhooks, keys, Connect)
 > are in the "Stripe launch: your steps" doc
 > (https://claude.ai/code/artifact/53c7b203-694a-4d48-9837-be24a0285074).
+>
+> **The calendar build's seams, 7 October 2026.** The owner let the Google Calendar
+> build take the voice booking path below B's gate, `insertAppointment`,
+> `notifyDesk`, `decideBookingRequest`, provisioning and the console's booking and
+> calendar cards (5 October). What B, C, D and E keep, and what they get from it,
+> is in `docs/design/google-calendar-2026-10-05.md` §6, and what is still to be
+> settled with them in its §9.
 
 > The section and finding references below ("the billing-core map F5", "the
 > web-checkout map §5(d)" and so on) point at seven read-only engineering maps of

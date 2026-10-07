@@ -1,21 +1,36 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  agreementKindOfVersion,
+  type AgreementKind,
   type BillingInterval,
+  CHANNELS,
   currentBaaTemplate,
+  getDpaTemplate,
   getPlan,
   getPlatform,
   isBillingInterval,
   isSpecialtyId,
   NO_PLATFORM_ID,
+  regimeFor,
+  type RegulatoryRegime,
   supportsVerifiedAttribution, emptyOnboarding } from "@healdesk/catalog";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
-import { unsafeDb } from "@/db";
-import { organization } from "@/db/auth-schema";
-import { clinics, provisioningAttempts } from "@/db/schema";
+import { unsafeDb, type Transaction } from "@/db";
+import { member, organization, user } from "@/db/auth-schema";
+import {
+  baaAcceptances,
+  checkoutIntents,
+  clinicChannels,
+  clinicMemberships,
+  clinics,
+  entitlements,
+  provisioningAttempts,
+} from "@/db/schema";
 
 import { bindAgreement } from "./agreements";
+import { agreementKindSufficient } from "./agreements/kind";
 import { AuditRecorder } from "./audit";
 import { seedAgentConfig } from "./onboarding/agent-config";
 import { addRecipient } from "./reporting/recipients";
@@ -23,6 +38,7 @@ import { recordSecurityEvent } from "./audit";
 import type { RequestContext } from "./audit";
 import { seedEntitlements } from "./billing/entitlements";
 import { replayParkedBillingEvents } from "./billing/events";
+import { setupDeadline } from "./clinic/setup-window";
 
 /**
  * Turning a completed checkout into a clinic.
@@ -119,8 +135,12 @@ export type ProvisionRequest = {
   specialty: string;
   /** Platform id from @healdesk/catalog, including "none". */
   platform: string;
-  attributionMode: "estimated" | "verified";
-  /** Required when attributionMode is "estimated" — it is the whole input. */
+  /**
+   * Phase two (revenue attribution is fenced out of v1). Optional since the
+   * funnel plan stopped asking: absent means "estimated", the column default,
+   * and the value below is kept only when a caller still sends it.
+   */
+  attributionMode?: "estimated" | "verified";
   averageTreatmentValueUsd?: number;
   plan: string;
   /**
@@ -186,10 +206,18 @@ export type ProvisionRequest = {
   idempotencyKey: string;
 };
 
+/** What provisioning also does when the purchase came through a checkout intent. */
+export type ProvisionOptions = {
+  /** Consumed in the same transaction, so an intent provisions one clinic. */
+  intentRef?: string;
+};
+
 export type ProvisionResult = {
   organizationId: string;
   clinicId: string;
   clinicSlug: string;
+  /** The clinic's one sign-in, on a genuine creation (design D3). */
+  ownerUserId?: string;
   /**
    * True when this key had already been provisioned and nothing was written.
    *
@@ -246,7 +274,11 @@ export function validateProvisionRequest(
     }
   }
 
-  if (body.attributionMode !== "estimated" && body.attributionMode !== "verified") {
+  if (
+    body.attributionMode !== undefined &&
+    body.attributionMode !== "estimated" &&
+    body.attributionMode !== "verified"
+  ) {
     throw new ProvisioningError("Invalid attribution mode.", "attributionMode");
   }
 
@@ -263,13 +295,13 @@ export function validateProvisionRequest(
     );
   }
 
-  // Estimated attribution is the default path, and this value is its only
-  // input. Without it the first monthly report would have nothing to say.
-  if (body.attributionMode === "estimated") {
+  // Optional now (design 4.2): the funnel plan stopped asking, because the
+  // monthly revenue report it fed is phase two. Still checked when sent.
+  if (body.averageTreatmentValueUsd !== undefined) {
     const value = body.averageTreatmentValueUsd;
     if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
       throw new ProvisioningError(
-        "Average treatment value is required for estimated attribution.",
+        "Average treatment value must be a positive number.",
         "averageTreatmentValueUsd",
       );
     }
@@ -331,6 +363,7 @@ export function validateProvisionRequest(
 export async function provisionClinic(
   request: ProvisionRequest,
   context: RequestContext = {},
+  options: ProvisionOptions = {},
 ): Promise<ProvisionResult> {
   const email = request.contactEmail.trim().toLowerCase();
   const platform = getPlatform(request.platform)!;
@@ -373,6 +406,10 @@ export async function provisionClinic(
     return { ...seen[0], replayed: true };
   }
 
+  // Which paper the clinic is under, and whether it may be provisioned
+  // against it (plan Part L), decided before anything is written.
+  const agreement = await agreementForProvisioning(request);
+
   const baseSlug = slugify(request.clinicName);
 
   // Retry on slug collision rather than checking first. Under RLS a
@@ -384,7 +421,7 @@ export async function provisionClinic(
     const slug =
       attempt === 0 ? baseSlug : `${baseSlug}-${randomUUID().slice(0, 6)}`;
     try {
-      return await provisionOnce({ request, context, email, platform, slug });
+      return await provisionOnce({ request, context, options, email, platform, slug, agreement });
     } catch (error) {
       if (attempt < 4 && isSlugCollision(error)) continue;
       throw error;
@@ -395,16 +432,21 @@ export async function provisionClinic(
 async function provisionOnce({
   request,
   context,
+  options,
   email,
   platform,
   slug,
+  agreement,
 }: {
   request: ProvisionRequest;
   context: RequestContext;
+  options: ProvisionOptions;
   email: string;
   platform: { id: string };
   slug: string;
+  agreement: ProvisionedAgreement;
 }): Promise<ProvisionResult> {
+  let ownerUserId = "";
   const organizationId = `org_${randomUUID().replace(/-/g, "").slice(0, 20)}`;
 
   /**
@@ -450,8 +492,9 @@ async function provisionOnce({
     });
 
     // Bind the agreement they already signed, rather than recording a new one —
-    // and do it BEFORE the clinic row, because the clinic needs the
-    // covered-entity determination out of the signed document.
+    // and do it BEFORE the clinic row, which takes its covered-entity
+    // determination and agreement kind from that same signed row (read by
+    // agreementForProvisioning before this transaction opened).
     //
     // If this fails the whole provision fails, and that is the correct
     // behaviour: an account whose agreement could not be attached is an account
@@ -483,19 +526,25 @@ async function provisionOnce({
         ...(request.phoneSystemType && request.phoneSystemType !== "unknown"
           ? { phone_type_confirmed: new Date().toISOString() }
           : {}),
-        ...(signed.isCoveredEntity !== null && signed.isCoveredEntity !== undefined
+        ...(agreement.isCoveredEntity !== null
           ? { covered_entity_confirmed: new Date().toISOString() }
           : {}),
       },
-      attributionMode: request.attributionMode,
+      attributionMode: request.attributionMode ?? "estimated",
       averageTreatmentValueUsd:
         request.averageTreatmentValueUsd?.toFixed(2) ?? null,
       plan: request.plan,
       // Taken from the signed agreement, never re-asked. This one determination
       // decides the contract, the consent standard, the state-law exposure and
       // the TCPA defence, so it must be the answer that is actually in the
-      // document — `null` where the buyer said they did not know.
-      isCoveredEntity: signed.isCoveredEntity ?? null,
+      // document — `null` where the buyer said they did not know, and false
+      // under a DPA, which only a practice outside HIPAA signs.
+      isCoveredEntity: agreement.isCoveredEntity,
+      // The gate columns (drizzle/0051): the specialty's regime and the kind of
+      // the agreement just bound, which the PHI gate reads with the line above.
+      // Written here, on insert; the runtime role cannot update either.
+      regulatoryRegime: agreement.regime,
+      agreementKind: agreement.kind,
       // Always synthetic at creation, whatever the buyer selected. Moving a
       // clinic to 'production' requires a signed BAA and is a deliberate,
       // separate act — until then the database refuses PHI writes entirely
@@ -508,12 +557,61 @@ async function provisionOnce({
     // and the webhook cannot find, so the two must not be able to exist apart.
     // Allowances and channels are copied from the catalog HERE, at the moment
     // of sale, for the reasons in lib/billing/entitlements.ts.
+    const plan = getPlan(request.plan)!;
     const billingStatus = await seedEntitlements(tx, clinicId, {
-      plan: getPlan(request.plan)!,
+      plan,
       interval: request.billingInterval ?? "month",
       stripeCustomerId: request.stripeCustomerId,
       stripeSubscriptionId: request.stripeSubscriptionId,
     });
+
+    // What was sold stays on record beside what is billed (plan_code follows
+    // the channels in service once the plan starts), and the setup window
+    // ends on the clinic's own calendar: the 30th day after today.
+    await tx
+      .update(entitlements)
+      .set({
+        boughtPlanId: plan.id,
+        setupDeadlineAt: setupDeadline(new Date(), request.timezone ?? "America/New_York"),
+      })
+      .where(eq(entitlements.clinicId, clinicId));
+
+    // One row per channel the package includes: where each stands, from
+    // setting up to live, and what the price steps up by (contracts §2).
+    const bought = CHANNELS.filter((channel) => plan.channels[channel]);
+    if (bought.length > 0) {
+      await tx.insert(clinicChannels).values(bought.map((channel) => ({ clinicId, channel })));
+    }
+
+    // The clinic's one sign-in (plan C2, design D3): the address that bought
+    // it, as the owner, with no password and no invitation. Created directly
+    // rather than through Better Auth, whose create hook admits only invited
+    // addresses; the payment is the invitation.
+    ownerUserId = await ensureOwner(tx, {
+      email,
+      name: request.contactName.trim(),
+      organizationId,
+      clinicId,
+      context,
+    });
+
+    // The intent that carried this purchase is spent here, inside the same
+    // transaction, so one intent makes one clinic however Stripe redelivers.
+    if (options.intentRef) {
+      const consumed = await tx
+        .update(checkoutIntents)
+        .set({
+          consumedAt: sql`now()`,
+          stripeSubscriptionId: request.stripeSubscriptionId ?? null,
+          provisionedClinicId: clinicId,
+          provisionedUserId: ownerUserId,
+        })
+        .where(and(eq(checkoutIntents.ref, options.intentRef), isNull(checkoutIntents.consumedAt)))
+        .returning({ ref: checkoutIntents.ref });
+      if (consumed.length === 0) {
+        throw new ProvisioningError("That purchase has already been set up.", "ref");
+      }
+    }
 
     // The agent's default words, from the specialty, so onboarding starts
     // from something the clinic can correct rather than from a blank.
@@ -547,6 +645,8 @@ async function provisionOnce({
         billingStatus,
         attributionMode: request.attributionMode,
         agreementId: request.agreementId,
+        agreementKind: agreement.kind,
+        regulatoryRegime: agreement.regime,
       },
     });
 
@@ -570,8 +670,135 @@ async function provisionOnce({
     organizationId,
     clinicId,
     clinicSlug: slug,
+    ownerUserId,
     replayed: false,
   };
+}
+
+/** The agreement a clinic is provisioned under, as read from the signed row. */
+type ProvisionedAgreement = {
+  kind: AgreementKind;
+  regime: RegulatoryRegime;
+  /** The determination that goes on the clinic row: the signed answer under a BAA, false under a DPA. */
+  isCoveredEntity: boolean | null;
+};
+
+/**
+ * Read the signed agreement before anything is written, and refuse a clinic
+ * its agreement cannot cover (plan Part L, "Hand-offs").
+ *
+ * The kind comes from the row's own version (`agreementKindOfVersion`, the
+ * mirror of the generated `baa_acceptances.agreement_kind`), never from the
+ * request. A DPA is provisioned only under a released DPA template: the bound
+ * row's own template, as the plan asks, where the BAA gate above still reads
+ * the current BAA template until plan C15 changes it. A DPA is signed only by
+ * a practice outside HIPAA, so it must name this specialty and record no
+ * covered answer but "No", and the clinic is stored as not covered. Last, the
+ * kind must cover the specialty's regime with that answer, by the rule the PHI
+ * gate applies (app_agreement_kind_sufficient, drizzle/0051): a BAA at a
+ * veterinary practice, or a DPA at a practice HIPAA always reaches, never
+ * becomes an account.
+ */
+async function agreementForProvisioning(request: ProvisionRequest): Promise<ProvisionedAgreement> {
+  // validateProvisionRequest has already refused it on the route; this keeps
+  // a direct caller from reaching regimeFor() with an id it would throw on.
+  if (!isSpecialtyId(request.specialty)) {
+    throw new ProvisioningError("Unknown specialty.", "specialty");
+  }
+  const [row] = await unsafeDb
+    .select({ version: baaAcceptances.documentVersion, variables: baaAcceptances.variables })
+    .from(baaAcceptances)
+    .where(eq(baaAcceptances.id, request.agreementId))
+    .limit(1);
+  if (!row) {
+    throw new ProvisioningError(
+      "That agreement could not be attached — it may already belong to another account.",
+      "agreementId",
+    );
+  }
+
+  const kind = agreementKindOfVersion(row.version);
+  const regime = regimeFor(request.specialty);
+  const signed = (row.variables ?? {}) as { isCoveredEntity?: unknown; specialty?: unknown };
+
+  let isCoveredEntity: boolean | null;
+  if (kind === "dpa") {
+    if (getDpaTemplate(row.version)?.approvedByCounsel !== true) {
+      throw new Error(
+        `Data protection agreement ${row.version} is not released. Refusing to provision a ` +
+          `clinic against it: nothing may be signed under an unreleased template.`,
+      );
+    }
+    if (signed.specialty !== request.specialty) {
+      throw new ProvisioningError(
+        "The signed agreement was written for a different kind of practice.",
+        "specialty",
+      );
+    }
+    if (signed.isCoveredEntity !== undefined && signed.isCoveredEntity !== false) {
+      throw new ProvisioningError(
+        "A data protection agreement is only for a practice outside HIPAA.",
+        "agreementId",
+      );
+    }
+    isCoveredEntity = false;
+  } else {
+    isCoveredEntity = typeof signed.isCoveredEntity === "boolean" ? signed.isCoveredEntity : null;
+  }
+
+  if (!agreementKindSufficient(regime, kind, isCoveredEntity)) {
+    throw new ProvisioningError(
+      kind === "baa"
+        ? "A veterinary practice signs the data protection agreement, not the business associate agreement."
+        : "This practice signs the business associate agreement, not the data protection agreement.",
+      "agreementId",
+    );
+  }
+  return { kind, regime, isCoveredEntity };
+}
+
+/**
+ * Find or create the user for the buying address, and make it the owner of
+ * the new clinic. An address that already has a clinic keeps its one user,
+ * so one sign-in opens both.
+ */
+async function ensureOwner(
+  tx: Transaction,
+  input: { email: string; name: string; organizationId: string; clinicId: string; context: RequestContext },
+): Promise<string> {
+  const now = new Date();
+  await tx
+    .insert(user)
+    .values({
+      id: `usr_${randomUUID().replace(/-/g, "")}`,
+      name: input.name || input.email,
+      email: input.email,
+      emailVerified: false,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing({ target: user.email });
+  const [owner] = await tx.select({ id: user.id }).from(user).where(eq(user.email, input.email)).limit(1);
+  if (!owner) throw new Error("The owner's user could not be found after it was written.");
+
+  await tx.insert(member).values({
+    id: `mem_${randomUUID().replace(/-/g, "")}`,
+    organizationId: input.organizationId,
+    userId: owner.id,
+    role: "owner",
+    createdAt: now,
+  });
+  await tx.insert(clinicMemberships).values({ clinicId: input.clinicId, userId: owner.id, role: "owner" });
+  await recordSecurityEvent(tx, {
+    event: "role_granted",
+    actorLabel: "provisioning",
+    userId: owner.id,
+    organizationId: input.organizationId,
+    ipAddress: input.context.ipAddress ?? null,
+    userAgent: input.context.userAgent ?? null,
+    metadata: { role: "owner" },
+  });
+  return owner.id;
 }
 
 function slugify(name: string): string {

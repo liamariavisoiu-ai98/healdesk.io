@@ -227,7 +227,154 @@ export const COUNTERS: Tab = {
   ],
 };
 
-export const TABS: readonly Tab[] = [LEADS, LEAD_EVENTS, CALL_CONSENTS, COUNTERS];
+/**
+ * One personalised demo: a private page that answers as one prospect's clinic
+ * (src/lib/demo). Built from the clinic's public website on an operator's
+ * request, after the prospect asked for it.
+ *
+ * Business data only. `profile` is the clinic's own published services,
+ * prices, hours and FAQs; `lead_email` and `phone_e164` are the owner's work
+ * contact details. Nothing a visitor types into the demo is ever written
+ * here: the chat and the calls are not stored on our side at all.
+ *
+ * `slug` is the capability: knowing it is what lets a browser use the demo,
+ * so it carries a random suffix and is never listed anywhere public.
+ */
+export type DemoSessionStatus = "building" | "ready" | "failed";
+
+export type DemoSession = {
+  id: string;
+  slug: string;
+  status: DemoSessionStatus;
+  leadEmail: string | null;
+  clinicName: string;
+  websiteUrl: string;
+  /** The owner's number from the request, to prefill "call me". Never dialled without a fresh consent tick. */
+  phoneE164: string | null;
+  /** The niche as the operator or the webhook gave it, verbatim. */
+  niche: string | null;
+  /** SpecialtyId, from the extraction or the niche. */
+  specialty: string | null;
+  brandName: string | null;
+  logoUrl: string | null;
+  brandColor: string | null;
+  /** The ClinicProfile, as JSON. */
+  profile: Record<string, unknown> | null;
+  scrapeSource: string | null;
+  /** Why a build failed, or what it had to skip. Operator-facing. */
+  buildNote: string | null;
+  createdBy: string | null;
+  createdAt: Date;
+  readyAt: Date | null;
+  expiresAt: Date;
+  claimed: boolean;
+  claimedAt: Date | null;
+  claimedPlan: string | null;
+  emailSentAt: Date | null;
+};
+
+export const DEMO_SESSIONS: Tab = {
+  title: "demo_sessions",
+  columns: [
+    col("id", "id", "text"),
+    col("slug", "slug", "text"),
+    col("status", "status", "text"),
+    col("lead_email", "leadEmail", "text"),
+    col("clinic_name", "clinicName", "text"),
+    col("website_url", "websiteUrl", "text"),
+    col("phone_e164", "phoneE164", "text"),
+    col("niche", "niche", "text"),
+    col("specialty", "specialty", "text"),
+    col("brand_name", "brandName", "text"),
+    col("logo_url", "logoUrl", "text"),
+    col("brand_color", "brandColor", "text"),
+    col("profile", "profile", "json"),
+    col("scrape_source", "scrapeSource", "text"),
+    col("build_note", "buildNote", "text"),
+    col("created_by", "createdBy", "text"),
+    col("created_at", "createdAt", "timestamp"),
+    col("ready_at", "readyAt", "timestamp"),
+    col("expires_at", "expiresAt", "timestamp"),
+    col("claimed_status", "claimed", "bool"),
+    col("claimed_at", "claimedAt", "timestamp"),
+    col("claimed_plan", "claimedPlan", "text"),
+    col("email_sent_at", "emailSentAt", "timestamp"),
+  ],
+};
+
+/**
+ * One "Tell us about your clinic" request, and the setup link sent back.
+ *
+ * Business contact data only, like every tab here: who asked, for which
+ * clinic, at which address, and where the request has got to. The link's
+ * token is never stored (it is an HMAC over these fields and the expiry;
+ * see src/lib/setup-link.ts), only when it was sent and when it expires.
+ * `paid_at` makes the link single-use: the checkout refuses a request that
+ * has one.
+ */
+export type SetupRequestStatus = "new" | "invited" | "paid" | "declined";
+
+export type SetupRequest = {
+  id: string;
+  /** The person asking, as typed. */
+  name: string;
+  clinicName: string;
+  /** Host or URL as typed, or null for a clinic with no website. */
+  website: string | null;
+  /** The address the clinic will use with healdesk; a shared inbox is fine. */
+  email: string;
+  emailNormalized: string;
+  /** Comma-separated channel ids from the form: phone, web, instagram, messenger, whatsapp. */
+  channels: string | null;
+  /** The nurture lead this came from, when the Day 7 link brought them. */
+  leadId: string | null;
+  status: SetupRequestStatus;
+  invitedAt: Date | null;
+  linkExpiresAt: Date | null;
+  openedAt: Date | null;
+  remindedAt: Date | null;
+  signedAt: Date | null;
+  paidAt: Date | null;
+  /** The one-click opt-out on the setup-link emails; stops the reminder. */
+  unsubscribedAt: Date | null;
+  ipAddress: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export const SETUP_REQUESTS: Tab = {
+  title: "setup_requests",
+  columns: [
+    col("id", "id", "text"),
+    col("name", "name", "text"),
+    col("clinic_name", "clinicName", "text"),
+    col("website", "website", "text"),
+    col("email", "email", "text"),
+    col("email_normalized", "emailNormalized", "text"),
+    col("channels", "channels", "text"),
+    col("lead_id", "leadId", "text"),
+    col("status", "status", "text"),
+    col("invited_at", "invitedAt", "timestamp"),
+    col("link_expires_at", "linkExpiresAt", "timestamp"),
+    col("opened_at", "openedAt", "timestamp"),
+    col("reminded_at", "remindedAt", "timestamp"),
+    col("signed_at", "signedAt", "timestamp"),
+    col("paid_at", "paidAt", "timestamp"),
+    col("unsubscribed_at", "unsubscribedAt", "timestamp"),
+    col("ip_address", "ipAddress", "text"),
+    col("created_at", "createdAt", "timestamp"),
+    col("updated_at", "updatedAt", "timestamp"),
+  ],
+};
+
+export const TABS: readonly Tab[] = [
+  LEADS,
+  LEAD_EVENTS,
+  CALL_CONSENTS,
+  COUNTERS,
+  SETUP_REQUESTS,
+  DEMO_SESSIONS,
+];
 
 // -----------------------------------------------------------------------------
 // Ranges

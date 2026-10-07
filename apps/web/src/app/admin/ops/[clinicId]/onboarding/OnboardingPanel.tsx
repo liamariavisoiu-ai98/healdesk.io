@@ -94,6 +94,7 @@ export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingV
       <p className="text-muted mt-1 text-sm">
         {v.clinic.specialty} · {v.clinic.timezone} · {v.clinic.dataClassification}
         {v.clinic.wentLiveAt ? ` · live since ${v.clinic.wentLiveAt.slice(0, 10)}` : ""}
+        {" · "}<a href={`/admin/ops/${v.clinic.id}/billing`} className="underline">billing</a>
       </p>
 
       <Section title={`Checklist — ${done} of ${v.steps.length}`}>

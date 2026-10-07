@@ -1,4 +1,5 @@
 import type { CapabilitySet } from "../capabilities";
+import { phoneShapedKey } from "../guards";
 import type { ConnectorAdapter } from "../port";
 import { failure, fromHttpStatus, ok, type Result } from "../result";
 import type {
@@ -203,16 +204,24 @@ export class FixtureAdapter implements ConnectorAdapter {
     });
   }
 
-  /** What a prior create stored under that key — including one that timed out. */
+  /**
+   * What a prior create stored under that key — including one that timed out.
+   *
+   * Given an address, it matches the address and a time near `around`, like
+   * a vendor that can only be searched by attendee and date. Without one it
+   * matches the key alone, the way Google Calendar reads an event straight
+   * back by the id derived from the key.
+   */
   async findAppointmentByKey(
     _context: ConnectorContext,
-    input: { idempotencyKey: string; attendeeEmail: string; around: Date },
+    input: { idempotencyKey: string; attendeeEmail?: string; around: Date },
   ): Promise<Result<{ externalId: string } | null>> {
     const hit = this.#writes.find(
       (write) =>
         write.input.idempotencyKey === input.idempotencyKey &&
-        write.input.attendee.email === input.attendeeEmail &&
-        Math.abs(write.input.startsAt.getTime() - input.around.getTime()) <= DAY_MS,
+        (input.attendeeEmail === undefined ||
+          (write.input.attendee.email === input.attendeeEmail &&
+            Math.abs(write.input.startsAt.getTime() - input.around.getTime()) <= DAY_MS)),
     );
     return ok(hit ? { externalId: hit.externalId } : null);
   }
@@ -277,17 +286,6 @@ export class FixtureAdapter implements ConnectorAdapter {
       to: window.to,
     });
   }
-}
-
-/** The first phone-shaped key anywhere in the value, a few levels deep. */
-function phoneShapedKey(value: unknown, depth = 0): string | undefined {
-  if (depth > 3 || typeof value !== "object" || value === null) return undefined;
-  for (const [key, nested] of Object.entries(value)) {
-    if (/phone|mobile|^tel|sms/i.test(key)) return key;
-    const found = phoneShapedKey(nested, depth + 1);
-    if (found) return found;
-  }
-  return undefined;
 }
 
 function paginate<T>(items: T[], cursor?: string): Page<T> {

@@ -5,21 +5,33 @@ import {
   annualTotalUsd,
   billableVoiceMinutes,
   cardForPlan,
+  channelList,
+  CHANNELS,
   CHAT_CONVERSATION_SILENCE_MS,
   chatChannelOf,
   FIRST_PERIOD_REFUND_DAYS,
+  FORWARDING_PASS_THROUGH_DAYS,
   getPlan,
   getPricingCard,
+  META_SOLD_ALONE,
   meteredPriceLookupKey,
+  METERS,
   offersChatChoice,
+  OVERAGE_BLOCK_UNITS,
+  overageBlockCents,
+  overageBlocks,
+  overageChargeCents,
   overageRateCents,
   parseLookupKey,
+  type Channel,
   type Plan,
+  PLAN_START_PLACEHOLDER_LOOKUP_KEY,
   planForCard,
+  planForChannels,
   planMeteredPrices,
   plans,
   pricingCards,
-  SETUP_FEE_REFUND_NOT_LIVE_DAYS,
+  sellsMetaAlone,
   stripeLookupKey,
   type PriceKind,
 } from "./plans";
@@ -77,33 +89,121 @@ describe("metered price lookup keys", () => {
     expect(() => overageRateCents(Number.NaN)).toThrow(/whole number of cents/);
   });
 
-  test("the key encodes the meter and the rate", () => {
-    expect(meteredPriceLookupKey("voiceMinutes", 0.8)).toBe("healdesk_meter_voice_minutes_80");
-    expect(meteredPriceLookupKey("chatConversations", 0.3)).toBe(
-      "healdesk_meter_chat_conversations_30",
+  test("the key encodes the meter, the block size and the block price", () => {
+    // Per started block of 100 since 6 October 2026: a new price, so a new key.
+    // The 5 October per-unit keys (healdesk_meter_voice_minutes_80) are gone.
+    expect(meteredPriceLookupKey("voiceMinutes", 0.8)).toBe(
+      "healdesk_meter_voice_minutes_block100_8000",
     );
+    expect(meteredPriceLookupKey("chatConversations", 0.4)).toBe(
+      "healdesk_meter_chat_conversations_block100_4000",
+    );
+    expect(meteredPriceLookupKey("chatConversations", 0.3)).toBe(
+      "healdesk_meter_chat_conversations_block100_3000",
+    );
+    for (const meter of Object.keys(METERS) as (keyof typeof METERS)[]) {
+      expect(meteredPriceLookupKey(meter, 0.3)).toMatch(
+        new RegExp(`^${METERS[meter].lookupKeyPrefix}_block${OVERAGE_BLOCK_UNITS}_\\d+$`),
+      );
+    }
   });
 
-  test("each package bills its own channels at its own rate", () => {
+  test("each package bills its own channels at its own rate, per block", () => {
     expect(planMeteredPrices(getPlan("chat-meta")!)).toEqual([
-      { meter: "chatConversations", rateUsd: 0.4, lookupKey: "healdesk_meter_chat_conversations_40" },
+      {
+        meter: "chatConversations",
+        rateUsd: 0.4,
+        blockCents: 4_000,
+        lookupKey: "healdesk_meter_chat_conversations_block100_4000",
+      },
     ]);
     expect(planMeteredPrices(getPlan("voice")!)).toEqual([
-      { meter: "voiceMinutes", rateUsd: 0.8, lookupKey: "healdesk_meter_voice_minutes_80" },
+      {
+        meter: "voiceMinutes",
+        rateUsd: 0.8,
+        blockCents: 8_000,
+        lookupKey: "healdesk_meter_voice_minutes_block100_8000",
+      },
     ]);
     expect(planMeteredPrices(getPlan("complete")!)).toEqual([
-      { meter: "voiceMinutes", rateUsd: 0.8, lookupKey: "healdesk_meter_voice_minutes_80" },
-      { meter: "chatConversations", rateUsd: 0.3, lookupKey: "healdesk_meter_chat_conversations_30" },
+      {
+        meter: "voiceMinutes",
+        rateUsd: 0.8,
+        blockCents: 8_000,
+        lookupKey: "healdesk_meter_voice_minutes_block100_8000",
+      },
+      {
+        meter: "chatConversations",
+        rateUsd: 0.3,
+        blockCents: 3_000,
+        lookupKey: "healdesk_meter_chat_conversations_block100_3000",
+      },
     ]);
   });
 
   test("the catalog needs exactly three metered prices on two meters", () => {
     const keys = new Set(plans.flatMap((p) => planMeteredPrices(p).map((x) => x.lookupKey)));
     expect([...keys].sort()).toEqual([
-      "healdesk_meter_chat_conversations_30",
-      "healdesk_meter_chat_conversations_40",
-      "healdesk_meter_voice_minutes_80",
+      "healdesk_meter_chat_conversations_block100_3000",
+      "healdesk_meter_chat_conversations_block100_4000",
+      "healdesk_meter_voice_minutes_block100_8000",
     ]);
+  });
+});
+
+describe("overage billed per started block of 100", () => {
+  test("a block is 100 units, and any part of one is a whole block", () => {
+    expect(OVERAGE_BLOCK_UNITS).toBe(100);
+    expect(overageBlocks(0)).toBe(0);
+    expect(overageBlocks(1)).toBe(1);
+    expect(overageBlocks(100)).toBe(1);
+    expect(overageBlocks(101)).toBe(2);
+    expect(overageBlocks(250)).toBe(3);
+  });
+
+  test("nothing over, or a count that cannot be trusted, is no block at all", () => {
+    for (const units of [-1, -250, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(overageBlocks(units), String(units)).toBe(0);
+    }
+  });
+
+  test("a block costs the per-unit rate times 100, in whole cents", () => {
+    // $80 a block of 100 voice minutes; $40 or $30 a block of 100 chat conversations.
+    expect(overageBlockCents(0.8)).toBe(8_000);
+    expect(overageBlockCents(0.4)).toBe(4_000);
+    expect(overageBlockCents(0.3)).toBe(3_000);
+    // A rate that is not a positive whole number of cents is refused, as for a unit.
+    expect(() => overageBlockCents(0)).toThrow(/whole number of cents/);
+    expect(() => overageBlockCents(0.035)).toThrow(/whole number of cents/);
+  });
+
+  test("the charge is started blocks times the block price, never units times the rate", () => {
+    expect(overageChargeCents(1, 0.8)).toBe(8_000);
+    expect(overageChargeCents(100, 0.8)).toBe(8_000);
+    expect(overageChargeCents(101, 0.8)).toBe(16_000);
+    expect(overageChargeCents(250, 0.8)).toBe(24_000);
+    expect(overageChargeCents(250, 0.4)).toBe(12_000);
+    expect(overageChargeCents(250, 0.3)).toBe(9_000);
+    // Per unit, 250 minutes would have been $200: the blocks are the bill.
+    expect(overageChargeCents(250, 0.8)).not.toBe(250 * overageRateCents(0.8));
+  });
+
+  test("nothing over costs nothing, even on a meter the package has no rate for", () => {
+    expect(overageChargeCents(0, 0.8)).toBe(0);
+    expect(overageChargeCents(0, 0)).toBe(0);
+    // Units over with no rate is a catalog fault, refused rather than billed as $0.
+    expect(() => overageChargeCents(1, 0)).toThrow(/whole number of cents/);
+  });
+
+  test("every package's block price is its own per-unit rate times 100", () => {
+    for (const plan of plans) {
+      for (const price of planMeteredPrices(plan)) {
+        expect(price.blockCents, `${plan.id} ${price.meter}`).toBe(
+          overageRateCents(price.rateUsd) * OVERAGE_BLOCK_UNITS,
+        );
+        expect(price.lookupKey).toBe(meteredPriceLookupKey(price.meter, price.rateUsd));
+      }
+    }
   });
 });
 
@@ -149,6 +249,17 @@ describe("the twin packages", () => {
       (["month", "year", "setup"] as const).map((kind) => stripeLookupKey(p, kind)),
     );
     expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+describe("the channel ids", () => {
+  test("CHANNELS is every key of a package's channels, in channelList's order", () => {
+    // apps/app builds its channel CHECKs from this list, so a channel added
+    // to the type and not here would be refused on its first row.
+    for (const p of plans) {
+      expect(Object.keys(p.channels).sort(), p.id).toEqual([...CHANNELS].sort());
+    }
+    expect(channelList(plan("complete"))).toEqual(CHANNELS);
   });
 });
 
@@ -204,8 +315,15 @@ describe("package lookup keys read back", () => {
 
   test("anything that is not a package price is not ours to read", () => {
     for (const key of [
+      // The metered overage prices, per block (6 October 2026) and the
+      // archived per-unit ones before them (5 October).
+      "healdesk_meter_voice_minutes_block100_8000",
+      "healdesk_meter_chat_conversations_block100_4000",
+      "healdesk_meter_chat_conversations_block100_3000",
       "healdesk_meter_voice_minutes_80",
+      "healdesk_meter_chat_conversations_40",
       "healdesk_meter_chat_conversations_30",
+      ...plans.flatMap((p) => planMeteredPrices(p).map((x) => x.lookupKey)),
       "scalabid_pro_month_9900",
       "healdesk_chat-voice_weekly_100",
       "healdesk_Complete_month_100",
@@ -258,9 +376,71 @@ describe("an extra location", () => {
   });
 });
 
-describe("refund windows", () => {
-  test("carry the numbers the terms quote", () => {
-    expect(SETUP_FEE_REFUND_NOT_LIVE_DAYS).toBe(30);
+describe("the refund window", () => {
+  test("carries the number the terms quote", () => {
     expect(FIRST_PERIOD_REFUND_DAYS).toBe(14);
+  });
+
+  test("forwarded calls pass through for the 30 days terms § 7 promises", () => {
+    expect(FORWARDING_PASS_THROUGH_DAYS).toBe(30);
+  });
+});
+
+describe("the package for the channels in service", () => {
+  /**
+   * Written out by hand, so a package whose channels changed would have to
+   * change this table too: billing follows these sets, and a wrong one bills a
+   * clinic for a channel it does not have.
+   */
+  const SETS: [Channel[], string][] = [
+    [["web"], "chat-web"],
+    [["meta"], "chat-meta"],
+    [["voice"], "voice"],
+    [["web", "meta"], "chat-dual"],
+    [["web", "voice"], "web-voice"],
+    [["meta", "voice"], "meta-voice"],
+    [["web", "meta", "voice"], "complete"],
+  ];
+
+  test("each of the seven channel sets is exactly one package", () => {
+    for (const [channels, id] of SETS) {
+      expect(planForChannels(channels)?.id, channels.join("+")).toBe(id);
+    }
+    expect(new Set(SETS.map(([, id]) => id)).size).toBe(plans.length);
+  });
+
+  test("every package is the answer for its own channels", () => {
+    for (const p of plans) expect(planForChannels(channelList(p))?.id, p.id).toBe(p.id);
+  });
+
+  test("order and repeats do not matter, and any iterable will do", () => {
+    expect(planForChannels(["voice", "web"])?.id).toBe("web-voice");
+    expect(planForChannels(["meta", "meta", "web", "meta"])?.id).toBe("chat-dual");
+    expect(planForChannels(new Set<Channel>(["voice", "meta", "web"]))?.id).toBe("complete");
+  });
+
+  test("no channel in service is no package, never a guess", () => {
+    expect(planForChannels([])).toBeNull();
+    expect(planForChannels(new Set<Channel>())).toBeNull();
+  });
+});
+
+describe("the plan-start placeholder", () => {
+  test("is the $0 price's lookup key, and never reads as a package price", () => {
+    expect(PLAN_START_PLACEHOLDER_LOOKUP_KEY).toBe("healdesk_plan_start_placeholder_month");
+    expect(parseLookupKey(PLAN_START_PLACEHOLDER_LOOKUP_KEY)).toBeNull();
+  });
+});
+
+describe("selling Meta on its own", () => {
+  test("is open, by the owner's decision of 5 October 2026", () => {
+    // Opened ahead of App Review because no marketing has launched (see the
+    // flag). Flipping it back is a launch decision, not a refactor: this pin
+    // and the /api/checkout test change with it.
+    expect(META_SOLD_ALONE).toBe(true);
+  });
+
+  test("across the catalog, exactly one package is Meta alone", () => {
+    expect(plans.filter(sellsMetaAlone).map((p) => p.id)).toEqual(["chat-meta"]);
   });
 });

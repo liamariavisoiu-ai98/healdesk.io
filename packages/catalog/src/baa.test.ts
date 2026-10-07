@@ -1,0 +1,192 @@
+import { describe, expect, test } from "vitest";
+
+import {
+  BACKUP_RETENTION_DAYS,
+  BaaRenderError,
+  getBaaTemplate,
+  PAYMENTS_CLAUSE_BODY,
+  prepareBaa,
+  STATE_LAW_CLAUSE_HEADING,
+  stateLawClauseBody,
+  type BaaVariables,
+} from "./baa";
+import { buildBaaSelections } from "./baa-selections";
+import { BOOKING_SYSTEMS } from "./booking-systems";
+import { CALENDAR_ACCOUNTS, CALENDAR_CLAUSE_HEADING } from "./calendar-terms";
+
+/**
+ * BAA 1.3.0 as the pre-release audit of 6 October 2026 left it
+ * (docs/counsel/agreement-changes.md §12.14), checked here on the catalog's
+ * side: the shared state-law clause in both agreements' words, the render
+ * guard, and every clause a document names resolving to one of its own
+ * headings. apps/app/tests/baa-golden.test.ts freezes the bytes.
+ */
+
+const unwrap = (text: string) => text.replace(/\s+/g, " ").trim();
+
+const SIGNER = {
+  clinicLegalName: "Golden Clinic LLC",
+  signatoryName: "Alex Chen",
+  signatoryTitle: "Owner",
+  signatoryEmail: "alex@golden.test",
+  effectiveDate: "2026-10-06",
+};
+
+/** Every 1.3.0 document checkout can produce: each booking system, account kind and status answer. */
+function everyDocument(): { label: string; variables: BaaVariables }[] {
+  const template = getBaaTemplate("1.3.0")!;
+  return BOOKING_SYSTEMS.flatMap((system) =>
+    CALENDAR_ACCOUNTS.flatMap((calendarAccount) =>
+      ([true, false, null] as const).map((isCoveredEntity) => ({
+        label: `${system.id}/${calendarAccount}/${String(isCoveredEntity)}`,
+        variables: {
+          ...buildBaaSelections({
+            specialtyId: "med-spa",
+            attributionMode: "estimated",
+            bookingSystem: system.id,
+            isCoveredEntity,
+            calendarAccount,
+            template,
+          }),
+          ...SIGNER,
+        },
+      })),
+    ),
+  );
+}
+
+describe("the shared state-law clause", () => {
+  test("is the BAA's clause 4, its calendar text following the booking sync", () => {
+    const template = getBaaTemplate("1.3.0")!;
+    for (const { label, variables } of everyDocument()) {
+      const clause = template.clauses.find((c) => c.id === "state-law")!;
+      expect(clause.heading).toBe(STATE_LAW_CLAUSE_HEADING);
+      const sync =
+        BOOKING_SYSTEMS.find((s) => s.id === variables.bookingSystem)!.readsGoogleCalendar === "yes"
+          ? "live"
+          : "manual";
+      expect(clause.body(variables), label).toBe(
+        stateLawClauseBody({ subject: "patient information", sync }),
+      );
+    }
+  });
+
+  test("defaults its kind from the subject, and names the calendar clause by its heading", () => {
+    for (const sync of ["live", "manual"] as const) {
+      expect(stateLawClauseBody({ subject: "patient information", sync })).toBe(
+        stateLawClauseBody({ subject: "patient information", kind: "baa", sync }),
+      );
+      expect(stateLawClauseBody({ subject: "Client Information", sync })).toBe(
+        stateLawClauseBody({ subject: "Client Information", kind: "dpa", sync }),
+      );
+    }
+    const live = unwrap(stateLawClauseBody({ subject: "patient information", sync: "live" }));
+    expect(live).toContain(`the clause headed "${CALENDAR_CLAUSE_HEADING}"`);
+    const manual = unwrap(stateLawClauseBody({ subject: "patient information", sync: "manual" }));
+    expect(manual).not.toContain(`the clause headed "${CALENDAR_CLAUSE_HEADING}"`);
+    expect(manual).not.toContain("free and busy times on each calendar");
+    expect(manual).toContain("where a calendar election for a location provides for it");
+  });
+
+  test("in the DPA's words names no PHI and no patient, and carries the CMIA sentence itself", () => {
+    for (const sync of ["live", "manual"] as const) {
+      const dpa = stateLawClauseBody({ subject: "Client Information", sync });
+      const flat = unwrap(dpa);
+      expect(flat, sync).not.toMatch(/\bPHI\b|patient|45 CFR|covered entity/i);
+      expect(flat, sync).toContain(
+        'the other booking details the clause headed "Minimum necessary, and who receives Client Information" lists',
+      );
+      expect(flat, sync).toContain(
+        'as the clause headed "Reporting incidents and breaches" provides for a breach',
+      );
+      expect(flat, sync).toContain('handled as the clause headed "Clients\' requests" provides');
+      expect(flat, sync).toContain("Cal. Civ. Code 56.10(c)(3)");
+      // No own-use clause in a DPA, so no statistics purpose.
+      expect(flat, sync).not.toMatch(/\bi\. de-identify|de-identified statistics/);
+      expect(flat, sync).toContain("and meet healdesk's own legal obligations.");
+      for (const line of dpa.split("\n")) expect(line.length, line).toBeLessThanOrEqual(78);
+    }
+  });
+
+  test("in the BAA's words leaves the CMIA sentence to the permitted-uses clause, for every practice", () => {
+    for (const sync of ["live", "manual"] as const) {
+      const baa = unwrap(stateLawClauseBody({ subject: "patient information", sync }));
+      expect(baa, sync).not.toContain("56.10(c)(3)");
+      expect(baa, sync).toContain("i. de-identify it");
+      expect(baa, sync).toContain(`within ${BACKUP_RETENTION_DAYS} days after that`);
+    }
+    const permitted = getBaaTemplate("1.3.0")!
+      .clauses.find((c) => c.id === "permitted-uses")!
+      .body({} as never);
+    expect(unwrap(permitted)).toContain(
+      "under Cal. Civ. Code 56.10(c)(3), whether or not Practice is a covered entity",
+    );
+  });
+
+  test("states one combination rule, one sale-or-share promise and one backup period", () => {
+    const flat = unwrap(stateLawClauseBody({ subject: "patient information", sync: "live" }));
+    expect(flat.match(/will not combine/g)).toHaveLength(1);
+    expect(flat.match(/sell or share/g)).toHaveLength(1);
+    expect(flat).not.toMatch(/six months|return-or-destroy|the Own use clause|email addresses/);
+    expect(flat).toContain(
+      "except to keep the Services secure and to detect and prevent fraud and abuse",
+    );
+  });
+});
+
+describe("the Payments clause", () => {
+  test("names no patient, so the DPA shares it word for word", () => {
+    expect(PAYMENTS_CLAUSE_BODY).not.toMatch(/patient|PHI/i);
+    expect(PAYMENTS_CLAUSE_BODY).toContain("healdesk may send a payment link");
+    expect(PAYMENTS_CLAUSE_BODY).toContain("On a call it sends none");
+  });
+});
+
+describe("1.3.0's render guard", () => {
+  test("refuses verified reporting, the phase-two read-back it does not describe", () => {
+    const template = getBaaTemplate("1.3.0")!;
+    expect(template.clauses.map((c) => c.id)).not.toContain("data-sources-verified");
+    const verified = buildBaaSelections({
+      specialtyId: "med-spa",
+      attributionMode: "verified",
+      bookingSystem: "boulevard",
+      isCoveredEntity: true,
+      calendarAccount: "workspace_baa",
+      template,
+    });
+    expect(() => prepareBaa(template, { ...verified, ...SIGNER })).toThrow(BaaRenderError);
+    expect(() => prepareBaa(template, { ...verified, ...SIGNER })).toThrow(
+      /no verified-reporting clause/,
+    );
+  });
+});
+
+describe("every 1.3.0 document", () => {
+  test("names other clauses only by headings it has, and fits 78 columns", () => {
+    const template = getBaaTemplate("1.3.0")!;
+    for (const { label, variables } of everyDocument()) {
+      const { text } = prepareBaa(template, variables);
+      const headings = [...text.matchAll(/^\d+\. (.+)$/gm)].map((m) => m[1]!);
+      const flat = unwrap(text);
+      for (const [, heading] of flat.matchAll(/the clause headed "([^"]+)"/gi)) {
+        expect(
+          headings.filter((h) => h === heading!.toUpperCase()),
+          `${label}: "${heading}"`,
+        ).toHaveLength(1);
+      }
+      for (const [, words] of flat.matchAll(/\b[Tt]he ((?:[A-Z][\w']*,? ?)+?) clause\b/g)) {
+        const opening = words!.trim().replace(/,$/, "").toUpperCase();
+        expect(
+          headings.filter(
+            (h) => h === opening || h.startsWith(`${opening} `) || h.startsWith(`${opening},`),
+          ),
+          `${label}: "the ${words} clause"`,
+        ).toHaveLength(1);
+      }
+      for (const line of text.split("\n"))
+        expect(line.length, `${label}: ${line}`).toBeLessThanOrEqual(78);
+      expect(text, label).not.toMatch(/revenue|\{\{|undefined|\[object/i);
+    }
+    // 72 documents and every reference in each: give a busy runner room.
+  }, 30_000);
+});

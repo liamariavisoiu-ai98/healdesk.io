@@ -1,4 +1,5 @@
 import { WordmarkSlogan } from "@/components/Wordmark";
+import { TRADEMARKS } from "@/lib/integrations";
 import { ENTITY, entityLine } from "@/lib/legal";
 import { site } from "@/lib/site";
 
@@ -46,7 +47,7 @@ import { site } from "@/lib/site";
  *   deliver.
  */
 const COMMITMENTS = [
-  "We sign a BAA with every clinic",
+  "We sign a business associate agreement and handle patient data under it",
   "We never use patient data to train models",
   "We write bookings only to the Google Calendar you connect",
   "Encrypted at rest, and in transit wherever we control both ends",
@@ -138,6 +139,9 @@ export function Footer() {
           © {new Date().getFullYear()} {site.name}. Pricing figures shown in demos
           are approximate industry ranges, not quotes.
         </p>
+        {/* The homepage's hero carries these logos; lib/integrations.ts
+            keeps this line in step with them. */}
+        <p className="text-muted text-xs">{TRADEMARKS}</p>
       </div>
     </footer>
   );

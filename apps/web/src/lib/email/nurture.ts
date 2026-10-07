@@ -86,9 +86,9 @@ export const TOUCHES: readonly Touch[] = [
       `The question I hear at this point is "what does setup actually involve". Here it is, without the brochure:\n\n` +
       `- You keep your phone number. You forward it to ${site.agent} for every call, for overflow and after hours, or after hours only, and you can remove the forwarding yourself at any time.\n` +
       `- We pre-fill the agent from your website. You confirm your services, prices and hours, set how she behaves, and connect your Google Calendar: about fifteen minutes of your time. An automated test of your prices, bookings and clinical questions has to pass before she answers a patient.\n` +
-      `- Each channel goes live on its own: website chat once the snippet is on your site, Instagram and Messenger once you connect them, WhatsApp once your WhatsApp account has a payment method, your phone once forwarding is set, usually the same day.\n` +
-      `- You sign the Business Associate Agreement at checkout, before payment. The full text is on that step, and a copy is emailed to you.\n` +
-      `- Your portal and a weekly email show conversations handled, appointments booked, calls answered that would have rung out, deposits collected and booked value.\n\n` +
+      `- Each channel goes live on its own: website chat once the snippet is on your site, Instagram and Messenger once you connect them, WhatsApp once your WhatsApp account has a payment method, your phone once forwarding is set.\n` +
+      `- You sign the data agreement your practice needs at checkout, before payment. The full text is on that step, and a copy is emailed to you.\n` +
+      `- Your dashboard and a daily summary email show conversations handled, appointments booked, calls answered that would have rung out, deposits collected and booked value.\n\n` +
       `If the missing piece is a vendor question — "does it work with X" — reply with X.` +
       footer(lead),
   },
@@ -100,7 +100,7 @@ export const TOUCHES: readonly Touch[] = [
       `Hi ${firstName(lead)},\n\n` +
       `This is the last email in this sequence; I don't chase. If the timing is wrong, nothing happens and you won't hear from me again unless you come back.\n\n` +
       `If it was a specific doubt — price, the booking system, whether a cash-pay practice even needs the HIPAA paperwork — reply with it and I'll answer it straight, including "no, not yet" where that is the answer.\n\n` +
-      `One thing I can do for the founding cohort: waive the one-time setup fee in full ($${setupFeeRange()} depending on the package). It is applied automatically if you start from this link within ${COHORT_SETUP_CREDIT.validDays} days: ${site.url}/get-started?lead=${lead.id}\n\n` +
+      `One thing I can do: a setup credit that waives the one-time setup fee in full ($${setupFeeRange()} depending on the package). It applies when you start from this link within ${COHORT_SETUP_CREDIT.validDays} days: ${site.url}/get-started?lead=${lead.id}\n\n` +
       `Thanks for trying it.` +
       footer(lead),
   },

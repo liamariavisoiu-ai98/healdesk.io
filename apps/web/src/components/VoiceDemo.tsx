@@ -43,7 +43,8 @@ const LINE_DELAY_MS = 1_600;
  */
 export function VoiceDemo() {
   const [visibleLines, setVisibleLines] = useState(0);
-  const [playing, setPlaying] = useState(false);
+  /** Has the visitor asked for the call? Survives the end of playback. */
+  const [started, setStarted] = useState(false);
   const [seconds, setSeconds] = useState(0);
 
   const [sent, setSent] = useState(false);
@@ -55,6 +56,17 @@ export function VoiceDemo() {
   const [last4, setLast4] = useState<string | null>(null);
 
   const totalLines = DEMO_AGENT.voice.length;
+
+  /**
+   * Whether the example call is running: from the press of play until the
+   * last line lands.
+   *
+   * Worked out from the line count rather than kept as state of its own. As
+   * state it needed an effect to switch it off once the script ran out, so the
+   * render that put the last line up still had the call timer counting and the
+   * button reading "Restart", and it took one more render to put both right.
+   */
+  const playing = started && visibleLines < totalLines;
 
   /**
    * The line currently landing.
@@ -82,22 +94,19 @@ export function VoiceDemo() {
   const start = useCallback(() => {
     setVisibleLines(0);
     setSeconds(0);
-    setPlaying(true);
+    setStarted(true);
   }, []);
 
-  // Reveal one line at a time.
+  // Reveal one line at a time. Nothing here has to stop the call at the end:
+  // the render that shows the last line is the one where `playing` turns false.
   useEffect(() => {
     if (!playing) return;
-    if (visibleLines >= totalLines) {
-      setPlaying(false);
-      return;
-    }
     const timer = setTimeout(
       () => setVisibleLines((count) => count + 1),
       visibleLines === 0 ? 500 : LINE_DELAY_MS,
     );
     return () => clearTimeout(timer);
-  }, [playing, visibleLines, totalLines]);
+  }, [playing, visibleLines]);
 
   useEffect(() => {
     if (!playing) return;
@@ -149,8 +158,6 @@ export function VoiceDemo() {
     [consent, firstName, phone, submitting],
   );
 
-  /** Has the visitor asked for the call? Survives the end of playback. */
-  const started = playing || visibleLines > 0;
   const finished = !playing && visibleLines >= totalLines;
   const timestamp = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 

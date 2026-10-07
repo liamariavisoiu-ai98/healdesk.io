@@ -216,12 +216,20 @@ RDS instance, not after, because the first item cannot be added later.
 - *RDS:* storage encryption with our KMS key at creation; `rds.force_ssl=1`; the
   `healdesk_app` (NOBYPASSRLS) and `healdesk_migrator` roles; 35-day automated backups;
   the RDS CA trusted in the container (production sets `rejectUnauthorized: true` and
-  fails without it); Config rule `rds-storage-encrypted`; a restore drill.
+  fails without it); Config rule `rds-storage-encrypted`; a restore drill, by the steps
+  in "Restoring" below; an alarm on any transaction open longer than five minutes
+  (`pg_stat_activity.xact_start`), because one held open is the way left around the
+  record clock's day and offboarding's thirty days (see "Retention and offboarding").
 - *KMS:* one customer-managed key; a task-role policy limited to `GenerateDataKey`,
-  `Decrypt` and `Encrypt` on it; `HEALDESK_KMS_PROVIDER`, `HEALDESK_KMS_KEY_ID` and
-  `AWS_REGION` in every task definition (the KMS client has no region fallback);
-  `@aws-sdk/client-kms` in the image once the bundler inlining in CLAUDE.md is fixed; a
-  rotation runbook.
+  `Decrypt` and `Encrypt` on it; `HEALDESK_KMS_PROVIDER=aws-kms` and `HEALDESK_KMS_KEY_ID`
+  in every task definition, the key ID as the key's full ARN
+  (`arn:aws:kms:us-east-1:<account>:key/<key id>`), since an alias, a bare ID, a
+  multi-Region key or another region is refused; `AWS_REGION` unset or `us-east-1`, since
+  the KMS client falls back to us-east-1 and refuses any other region;
+  `@aws-sdk/client-kms` is a dependency of apps/app and ships in the image (fixed 6 October
+  2026); the worker's start-up log line ("credential key self-check passed") to confirm
+  the task role reaches the key (the read-only ops operation `getCredentialKeyStatus` asks
+  the web tier the same, but nothing in `/admin` calls it yet); a rotation runbook.
 - *S3:* a bucket in the designated region; SSE-KMS with our key; a policy denying non-TLS
   requests; Block Public Access; versioning; lifecycle expiry matched to
   `clinics.retention_media_days`; Config rule `s3-bucket-ssl-requests-only`; no patient
@@ -234,8 +242,10 @@ RDS instance, not after, because the first item cannot be added later.
   default because `lib/queue/boss.ts` passes no `timeout`; a two-minute drain needs
   `timeout: 120_000` there and a `stopTimeout` above it, and Fargate's maximum is 120 s.
 - *Load balancer:* an HTTPS listener with an ACM certificate, HTTP redirected, WebSocket
-  upgrades allowed through to the voice endpoint, the health check on `GET /api/health`
-  status only, rate limiting on the host.
+  upgrades allowed through to the voice endpoint, the health check on
+  `GET /api/health?probe=liveness` (200 whenever the process is up; the plain path answers
+  503 while a critical email is late, which is the uptime check's alarm, not a reason to
+  replace a task), rate limiting on the host.
 - *CloudTrail:* on and kept, encrypted with our key, log-file validation, S3 data events
   on for the PHI bucket, Config rule `cloud-trail-encryption-enabled`.
 - *CloudWatch Logs:* every log group encrypted with our key and set to "Never expire"
@@ -309,22 +319,64 @@ a Next route. Every job ships switched off and is enabled from the ops console; 
 ### Retention and offboarding
 
 Two clocks per clinic, on the `clinics` row: `retention_media_days` (90) clears
-transcript references; `retention_record_days` (730) deletes conversation, appointment
-and transaction rows and then contacts nothing refers to. `retention-purge` runs both nightly and writes
-one audit row per clinic with counts. `baa_acceptances` has its own six-year floor.
+transcript references; `retention_record_days` (90, never below a day) deletes
+conversation, appointment, booking request and transaction rows and then contacts nothing
+refers to. A booking request goes once every date on it is past the clock (when it was
+made, the slot it was confirmed for, its appointment's time), and a shortened clock
+reaches booking requests a day after it is set. Every request's id and token hash stay
+in `booking_request_keys` after it is deleted, and are never written again. The day, and
+offboarding's thirty, run from when the change is written (`clock_timestamp()`, not the
+start of its transaction), and saving the clock's current value again restarts nothing.
+What SQL cannot see is when a transaction commits: one that shortens the clock or starts
+offboarding and then stays open for the day (or the thirty) commits a change whose wait
+has already run, holding the clinic's row locked all that time. The long-transaction
+alarm in the AWS list is what catches it.
+`retention-purge` runs both nightly and writes one audit row per clinic with counts.
+`baa_acceptances` has its own six-year floor.
 Vendor-side retention (Retell's per-agent setting) is a setting, not a delete we run:
 set it to the minimum and screenshot it. Single-patient erasure is `eraseContact()` in
 `apps/app/src/lib/retention/purge.ts`. Set the host's snapshot retention to 35 days.
 
 When Stripe sends `customer.subscription.deleted` (or an operator starts it), the clinic
-gets `offboarding_started_at` and a `destroy_after` thirty days out. In between: switch
-the clinic's voice agent off at the vendor and send it the forwarding-removal codes, so
-its calls fall through to its own line; produce the return bundle with
+gets `offboarding_started_at` and a `destroy_after` thirty days out, both stamped by the
+database (`app_start_offboarding()`); the runtime role cannot write either. In between:
+switch the clinic's voice agent off at the vendor and send it the forwarding-removal
+codes, so its calls fall through to its own line; produce the return bundle with
 `npm run patient-export -w @healdesk/app -- --clinic <id> --all --requested-by "…"`, hand
 it over, and record it on the care page. `offboarding-destroy` deletes every patient row
 once `destroy_after` has passed and the export is recorded (or 90 days after the start),
 revokes the connections, and writes one security event. Export first, then destroy; the
 BAA obligations persist until it is done.
+
+### Restoring
+
+Restore from the host's physical snapshot or point-in-time recovery, or from a full
+`pg_dump` of schema and data, in which the triggers are created after the data. A
+data-only load into a migrated schema (`pg_restore --data-only`, or a `\copy` of one
+table) fires two BEFORE INSERT triggers from 0054 that refuse it: `clinics_insert_guard`
+refuses every offboarded or destroyed clinic, and `booking_requests_keys_once` refuses
+every booking request whose key is already there, which is all of them, since
+`booking_request_keys` sorts ahead of `booking_requests` in a dump. For such a load the
+owner disables both by name, loads every table, `booking_request_keys` included, and
+enables both again, in one transaction:
+
+```sql
+BEGIN;
+ALTER TABLE clinics DISABLE TRIGGER clinics_insert_guard;
+ALTER TABLE booking_requests DISABLE TRIGGER booking_requests_keys_once;
+-- the data-only load
+ALTER TABLE clinics ENABLE TRIGGER clinics_insert_guard;
+ALTER TABLE booking_requests ENABLE TRIGGER booking_requests_keys_once;
+COMMIT;
+```
+
+(`pg_restore --data-only --disable-triggers` does the same for every table, foreign keys
+included, but only as a superuser, which RDS does not give.) Then check that both
+triggers and `clinics_record_clock` read `tgenabled = 'O'` in `pg_trigger`, the check
+0054 ends with, and that every booking request has its key, counting clinic by clinic
+inside each clinic's tenant as 0054's backfill does (`booking_requests` is FORCEd): a
+request loaded without its key could be deleted and written again with another decision.
+`tests/booking-request-destruction.test.ts` runs these steps.
 
 ### Logs
 
@@ -348,6 +400,17 @@ task name, a queue name or a resource tag.
   `tests/database-audit.test.ts` fails until the grant is added.
 - **Nothing writes the two gate columns except `app_mark_clinic_production()`**, and
   nothing binds an agreement except `app_bind_agreement()`. Both are `SECURITY DEFINER`.
+  Likewise only `app_start_offboarding()` and `app_mark_clinic_destroyed()` write
+  `offboarding_started_at`, `destroy_after` and `destroyed_at`, from the database's clock,
+  because `app_destroy_booking_requests()` reads them as its floor. A guard in a
+  `SECURITY DEFINER` function binds nothing if it reads a column the runtime role can write,
+  and that includes a column on another table and one it can set on INSERT: a new clinic
+  is refused the three dates (`clinics_insert_guard`), and `app_purge_booking_requests()`
+  reads a request's own frozen dates and the record clock in force, not an appointment's
+  time or the setting alone. Where the runtime role can make a delete happen at all, make
+  sure it cannot put the row back: `booking_request_keys` refuses a deleted request's id
+  or token hash, and it is written at insert, so a re-insert racing the delete is refused
+  too.
 
 `apps/app/tests/rls-drift.test.ts` asks the catalog which tables carry a `clinic_id` and
 demands each one have row-level security enabled **and forced**. If it goes red, someone

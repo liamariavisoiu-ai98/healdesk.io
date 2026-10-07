@@ -2,8 +2,10 @@ import { timingSafeEqual } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
+import { DEMO_RETENTION_AFTER_EXPIRY_DAYS, purgeExpiredDemoSessions } from "@/lib/demo/sessions";
 import { purgeStaleCallConsents, purgeStaleLeads } from "@/lib/leads";
 import { POLICY } from "@/lib/legal";
+import { purgeStaleSetupRequests } from "@/lib/setup-requests";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +20,13 @@ export const dynamic = "force-dynamic";
  * public internet and a delete.
  *
  * What it deletes is exactly what the privacy policy says: leads not seen
- * for POLICY.leadRetentionMonths. The count is logged; the addresses never are.
+ * for POLICY.leadRetentionMonths, and setup requests not updated for as long.
+ * The count is logged; the addresses never are.
+ *
+ * It also deletes personalised demos (lib/demo) that expired more than
+ * DEMO_RETENTION_AFTER_EXPIRY_DAYS ago and never sold. Each holds an owner's
+ * work email and phone beside their clinic's public website, and once the
+ * link is dead there is no reason to keep them.
  */
 export async function GET(request: Request): Promise<NextResponse> {
   const expected = process.env.CRON_SECRET;
@@ -37,11 +45,15 @@ export async function GET(request: Request): Promise<NextResponse> {
 
   const deleted = await purgeStaleLeads(POLICY.leadRetentionMonths);
   const consentsDeleted = await purgeStaleCallConsents(POLICY.callConsentRetentionYears);
+  const setupRequestsDeleted = await purgeStaleSetupRequests(POLICY.leadRetentionMonths);
+  const demosDeleted = await purgeExpiredDemoSessions(DEMO_RETENTION_AFTER_EXPIRY_DAYS);
   console.info("[healdesk] lead retention purge", {
     deleted,
     consentsDeleted,
+    setupRequestsDeleted,
+    demosDeleted,
     olderThanMonths: POLICY.leadRetentionMonths,
     consentsOlderThanYears: POLICY.callConsentRetentionYears,
   });
-  return NextResponse.json({ ok: true, deleted, consentsDeleted });
+  return NextResponse.json({ ok: true, deleted, consentsDeleted, setupRequestsDeleted, demosDeleted });
 }

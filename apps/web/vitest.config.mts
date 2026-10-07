@@ -11,7 +11,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "scripts/**/*.test.ts"],
   },
   /**
    * The app's tsconfig sets `jsx: "preserve"` — Next compiles the JSX itself —
@@ -22,7 +22,9 @@ export default defineConfig({
    * empty it is) are all in components, and all of them were unguarded.
    *
    * The tests render to static markup and assert on the text, so `node` stays
-   * the environment — no DOM, no testing-library, no new dependency.
+   * the environment — no testing-library. One file opts into a DOM with its own
+   * `@vitest-environment happy-dom` line: the agreement step's "Sign again"
+   * test, because that bug lived in an effect, which static markup never runs.
    */
   oxc: { jsx: { runtime: "automatic" } },
   resolve: {

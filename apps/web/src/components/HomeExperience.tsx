@@ -70,7 +70,11 @@ export function HomeExperience() {
           </p>
         </div>
 
-        <div className="grid gap-5 lg:grid-cols-2 lg:gap-6">
+        {/* One column below lg has to be declared: an undeclared one is sized
+            to the demos' widest content, which ran the chat card past a 320px
+            screen in Firefox (311px in a 280px grid) and 9px into the page's
+            margin in Chrome. grid-cols-1 is minmax(0, 1fr), the grid's width. */}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-6">
           <div className="demo-field-warm rounded-[28px] p-3 sm:p-5">
             <ChatDemo />
           </div>

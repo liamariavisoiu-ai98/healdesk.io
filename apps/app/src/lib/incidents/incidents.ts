@@ -7,23 +7,38 @@ import type { TenantTx } from "@/lib/tenant";
  * Incidents: the BAA's promises as rows with deadlines.
  *
  * The agreement (packages/catalog/src/baa.ts, "Reporting breaches and
- * security incidents") commits healdesk to tell the clinic:
+ * security incidents") commits healdesk to tell the clinic, immediately
+ * following discovery and in any case WITHIN 24 HOURS of it, of:
  *
- *   a. within FIVE BUSINESS DAYS of becoming aware of any use or disclosure
- *      the agreement does not permit;
- *   b. within FIVE CALENDAR DAYS of discovering a breach of unsecured PHI;
- *   c. within five business days of any security incident.
+ *   a. any use or disclosure of PHI the agreement does not permit;
+ *   b. any breach of unsecured PHI;
+ *   c. any security incident, a state-law breach of security included.
+ *
+ * That is BAA 1.3.0's one rule for every practice, covered entity or not
+ * (docs/counsel/agreement-changes.md §12.14, release gate 5, PT-14). BAA
+ * 1.2.1 allowed five business days for (a) and (c) and five calendar days
+ * for (b); 24 hours meets those as well, so every clinic gets the 24-hour
+ * clock whichever version it signed, and the runbook works to it
+ * (docs/incident-response.md). For a breach at a clinic that is not a
+ * covered entity, a state law can ask for notice "immediately following
+ * discovery" as well, as California's does of a business holding data for
+ * its owner (Cal. Civ. Code 1798.82(b)). Here that is also 24 hours from
+ * discovery, and whichever of the two clocks is earlier is the one kept.
  *
  * A clock that lives in someone's memory is a clock that is missed. Opening
- * an incident computes `notify_by` from the class and the discovery time;
- * the console lists open incidents with the deadline; resolving one records
- * how the clinic was told. For a clinic that is not a covered entity, a
- * breach also gets `ftc_notify_by`, 60 days from discovery. The column's name
- * predates a correction: the FTC Health Breach Notification Rule (16 CFR
- * 318.2) reaches vendors of personal health records, not a clinic's booking
- * records, so the second clock is a conservative floor under state
- * breach-notification law, not the Rule's own deadline (docs/incident-
- * response.md, 1 October 2026).
+ * an incident computes `notify_by` from the class, the discovery time and
+ * the clinic's covered-entity status; the console lists open incidents with
+ * the deadline; resolving one records how the clinic was told. For a clinic
+ * that is not a covered entity, a breach also gets `ftc_notify_by`, 30 days
+ * from discovery: California's deadline for the owner of the data, which is
+ * the clinic, to notify the people affected (Cal. Civ. Code
+ * 1798.82(a)(2)(A)), the strictest owner clock among the states (decision of
+ * 3 October 2026). The clause commits healdesk to help the practice meet it.
+ * The column's name predates two corrections: the FTC Health Breach
+ * Notification Rule (16 CFR 318.2) reaches vendors of personal health
+ * records, not a clinic's booking records (docs/incident-response.md,
+ * 1 October 2026), and the clock it held was 60 days until 3 October 2026.
+ * Covered clinics keep the BAA's clocks and get no second one.
  *
  * Nothing here holds patient data: a summary in ids, and a conversation id
  * where the transcript is the evidence — never the transcript.
@@ -33,7 +48,16 @@ export type IncidentClass = "security_incident" | "improper_use_or_disclosure" |
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Five business days, skipping Saturday and Sunday in UTC. */
+/** The agreement's deadline for (a), (b) and (c): within 24 hours of discovery. */
+const REPORT_WITHIN_MS = DAY_MS;
+
+/** "Immediately following discovery", as a deadline the console can show. */
+const IMMEDIATELY_MS = DAY_MS;
+
+/** California's clock for the owner of the data to notify the people affected. */
+const OWNER_NOTICE_DAYS = 30;
+
+/** Business days, skipping Saturday and Sunday in UTC. */
 export function addBusinessDays(from: Date, days: number): Date {
   const d = new Date(from.getTime());
   let left = days;
@@ -45,17 +69,39 @@ export function addBusinessDays(from: Date, days: number): Date {
   return d;
 }
 
-export function notifyDeadline(cls: IncidentClass, discoveredAt: Date): Date {
+/**
+ * When the clinic must be told: discovery plus 24 hours for a breach, a
+ * security incident and an improper use or disclosure, at every clinic,
+ * covered entity or not. The status is required, not defaulted: for a breach
+ * at a clinic that is not a covered entity the state-law clock runs too, and
+ * the earlier of the two is kept, so a caller that forgot the status would
+ * miss that clock the day it became the shorter one.
+ */
+export function notifyDeadline(cls: IncidentClass, discoveredAt: Date, isCoveredEntity: boolean | null): Date {
   switch (cls) {
     case "breach":
-      return new Date(discoveredAt.getTime() + 5 * DAY_MS);
     case "improper_use_or_disclosure":
-    case "security_incident":
-      return addBusinessDays(discoveredAt, 5);
+    case "security_incident": {
+      // A breach at a clinic that is not a covered entity also runs the
+      // state-law clause's "immediately"; the earlier of the two is kept.
+      const stateLaw = cls === "breach" && isCoveredEntity === false;
+      return new Date(discoveredAt.getTime() + (stateLaw ? Math.min(REPORT_WITHIN_MS, IMMEDIATELY_MS) : REPORT_WITHIN_MS));
+    }
     case "service_complaint":
       // Not a BAA clock; a service promise. Two business days to a first reply.
       return addBusinessDays(discoveredAt, 2);
   }
+}
+
+/**
+ * The second clock, stored in `ftc_notify_by`: the day by which a clinic
+ * that is not a covered entity must itself notify the people a breach
+ * affected. Null for every other incident, and for a covered clinic.
+ */
+export function ownerNotifyDeadline(cls: IncidentClass, discoveredAt: Date, isCoveredEntity: boolean | null): Date | null {
+  return cls === "breach" && isCoveredEntity === false
+    ? new Date(discoveredAt.getTime() + OWNER_NOTICE_DAYS * DAY_MS)
+    : null;
 }
 
 export type OpenIncidentInput = {
@@ -64,7 +110,11 @@ export type OpenIncidentInput = {
   conversationId?: string | null;
   discoveredAt?: Date;
   openedBy: string;
-  /** From clinics.is_covered_entity; false adds the FTC clock for a breach. */
+  /**
+   * From clinics.is_covered_entity. For a breach, false adds the owner's
+   * 30-day clock, and the state-law clock wherever it is shorter than the
+   * 24 hours every clinic gets.
+   */
   isCoveredEntity: boolean | null;
 };
 
@@ -78,11 +128,8 @@ export async function openIncident(tx: TenantTx, input: OpenIncidentInput) {
       summary: input.summary.slice(0, 2000),
       conversationId: input.conversationId ?? null,
       discoveredAt,
-      notifyBy: notifyDeadline(input.class, discoveredAt),
-      ftcNotifyBy:
-        input.class === "breach" && input.isCoveredEntity === false
-          ? new Date(discoveredAt.getTime() + 60 * DAY_MS)
-          : null,
+      notifyBy: notifyDeadline(input.class, discoveredAt, input.isCoveredEntity),
+      ftcNotifyBy: ownerNotifyDeadline(input.class, discoveredAt, input.isCoveredEntity),
       openedBy: input.openedBy,
     })
     .returning();

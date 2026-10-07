@@ -31,7 +31,10 @@
  *
  * Past the allowance a package bills $0.80 a voice minute, and $0.40 a chat
  * conversation on the single-channel chat packages (`chat-web`, `chat-meta`) or $0.30 on
- * every other package with chat. The owner set these on 5 October 2026,
+ * every other package with chat, charged per started block of 100 since 6
+ * October 2026 (`OVERAGE_BLOCK_UNITS` below): $80 for each started block of
+ * 100 extra minutes, $40 or $30 for each started block of 100 extra
+ * conversations. The owner set the rates on 5 October 2026,
  * replacing the $0.35 and $0.25 signed off on 21 September, before any cost
  * had been measured. They are still a judgement, not a measurement: the spec
  * (docs/v1-product-spec.md → "Unit economics and infrastructure" → "What still
@@ -56,7 +59,7 @@
  * more than change what the page displays. While it is true,
  * `meteredLookupKeysFor()` in apps/web/src/lib/billing.ts attaches no metered
  * price to a monthly checkout. The terms also replace their overage sentence
- * with "Until those rates are published, usage above the allowance is not
+ * with "Until those prices are published, usage above the allowance is not
  * billed." Flipping it would change what Stripe bills and what the service
  * agreement says. That is a billing and counsel decision, not a copy one.
  * Until someone makes it, false means: the pricing page prints these numbers,
@@ -127,6 +130,13 @@
  */
 
 export type Channel = "web" | "meta" | "voice";
+
+/**
+ * Every channel, in `channelList`'s order. The runtime list of `Channel`, so a
+ * database CHECK on a channel column is built from it rather than retyped: a
+ * clinic's channels are rows keyed by these ids, and billing steps up by them.
+ */
+export const CHANNELS: readonly Channel[] = ["web", "meta", "voice"];
 
 export type BillingInterval = "month" | "year";
 
@@ -199,10 +209,26 @@ const CHAT_OVERAGE = 0.3;
 export const COHORT_SETUP_CREDIT = {
   /** Stripe coupon id; stripe:setup creates it. */
   couponId: "healdesk-cohort-setup",
-  name: "Founding-cohort setup credit",
+  /**
+   * Shown by Stripe on the Checkout page and the invoice, so it is client
+   * copy: nothing that says we are new. Re-run stripe:setup after changing
+   * it, because the coupon already in Stripe keeps its old name.
+   */
+  name: "Setup credit",
   /** Days after the offer email during which checkout honours it. */
   validDays: 14,
 } as const;
+
+/**
+ * The days a clinic has to finish its own setup (the owner's decision of
+ * 6 October 2026). While no channel is answering patients it gets a reminder
+ * every five days, six in all; at the end of the last day an account with
+ * nothing live is closed, and the setup fee, which is never refunded, is kept.
+ * Provisioning stamps the deadline on the clinic, so changing these moves
+ * only clinics bought afterwards.
+ */
+export const SETUP_WINDOW_DAYS = 30;
+export const SETUP_REMINDER_EVERY_DAYS = 5;
 
 export const plans: readonly Plan[] = [
   {
@@ -342,7 +368,7 @@ export const pricingCards: readonly PricingCard[] = [
     id: "chat-voice",
     name: "Web OR Meta + Voice",
     planIds: ["web-voice", "meta-voice"],
-    highlight: "Most clinics",
+    highlight: "Recommended",
   },
   { id: "complete", name: "Complete FrontDesk AI", planIds: ["complete"] },
 ] as const;
@@ -384,6 +410,34 @@ export function chatChannelOf(plan: Plan): ChatChannel {
 }
 
 /** The recurring amount for one billing period, in whole dollars. */
+/**
+ * The $0 recurring price a subscription carries until AYA first answers a
+ * patient (the deferred start, contracts §2). Checkout bills the setup fee and
+ * this; at the first answer Package C swaps it for the package's price. It is
+ * what makes the start deferred without being a trial: Stripe never sees a
+ * trial, so nothing is ever "trialing" and no charge reads "TRIAL OVER".
+ */
+export const PLAN_START_PLACEHOLDER_LOOKUP_KEY = "healdesk_plan_start_placeholder_month";
+export const PLAN_START_PLACEHOLDER_NAME = "Monthly plan: starts when AYA first answers";
+
+const usdWhole = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+/**
+ * The plan-start sentence (plan Part A3): one wording, in the Checkout page's
+ * custom text, on Home and Billing, in the welcome email and in the Terms.
+ * "Monthly billing ($897) starts the day AYA first answers a patient."
+ * Vets' practices say "client" (audienceFor).
+ */
+export function planStartSentence(
+  plan: Plan,
+  interval: BillingInterval,
+  audience: "patient" | "client" = "patient",
+): string {
+  return interval === "year"
+    ? `Annual billing (${usdWhole.format(annualTotalUsd(plan))} a year) starts the day AYA first answers a ${audience}.`
+    : `Monthly billing (${usdWhole.format(plan.monthlyUsd)}) starts the day AYA first answers a ${audience}.`;
+}
+
 export function recurringUsd(plan: Plan, interval: BillingInterval): number {
   return interval === "year" ? annualTotalUsd(plan) : plan.monthlyUsd;
 }
@@ -415,6 +469,53 @@ export function channelList(plan: Plan): Channel[] {
   if (plan.channels.meta) out.push("meta");
   if (plan.channels.voice) out.push("voice");
   return out;
+}
+
+/**
+ * The package whose channels are exactly `channels`, or null for none.
+ *
+ * Billing follows the channels in service, not the package bought (the
+ * owner's decision of 6 October 2026): a clinic that bought Complete and
+ * whose website chat answered first is billed as Web Chatbot until its next
+ * channel answers. The seven packages are the seven non-empty sets of the
+ * three channels, so every set names exactly one package, and duplicates in
+ * the input do not matter. An empty set is null, never a package: no channel
+ * in service means nothing to bill yet, and a caller must not start or change
+ * a plan on it.
+ */
+export function planForChannels(channels: Iterable<Channel>): Plan | null {
+  const wanted = new Set(channels);
+  if (wanted.size === 0) return null;
+  return (
+    plans.find(
+      (plan) =>
+        plan.channels.web === wanted.has("web") &&
+        plan.channels.meta === wanted.has("meta") &&
+        plan.channels.voice === wanted.has("voice"),
+    ) ?? null
+  );
+}
+
+/**
+ * Whether the Meta channel may be bought as a clinic's only channel.
+ *
+ * Until Meta's App Review of the messaging permissions passes, Instagram,
+ * Messenger and WhatsApp cannot answer a clinic's patients
+ * (docs/v1-product-spec.md, "External gates on the launch date"), so a
+ * clinic that bought Meta Chatbot alone would pay for a package with no
+ * channel that can go live. This was false for that reason. The owner set it
+ * true on 5 October 2026, ahead of App Review: no marketing has launched, so
+ * nobody is expected to buy before approval, and Meta Chatbot is on sale
+ * from the first day there is anyone to sell it to. If App Review slips past
+ * the first campaign, set it back to false: checkout reads it with
+ * `sellsMetaAlone()`, in the UI and again in /api/checkout, which then
+ * refuses the package.
+ */
+export const META_SOLD_ALONE = true;
+
+/** True when Meta is the package's only channel. Today that is Meta Chatbot. */
+export function sellsMetaAlone(plan: Plan): boolean {
+  return plan.channels.meta && !plan.channels.web && !plan.channels.voice;
 }
 
 /**
@@ -470,10 +571,12 @@ export function parseLookupKey(key: string): ParsedLookupKey | null {
 /**
  * The two account-wide meters. Each counts one unit past the allowance, by
  * Stripe customer, and backs one metered price per distinct overage rate:
- * today one voice price ($0.80) and two chat prices ($0.40 on the
- * single-channel chat packages, $0.30 on the rest). A subscription carries the
- * price for its own package's rate, so the usage reporter sends every event
- * to the meter by `eventName` and never has to know the rate.
+ * today one voice price ($80 a block of 100 minutes) and two chat prices ($40
+ * a block of 100 conversations on the single-channel chat packages, $30 on the
+ * rest). A subscription carries the price for its own package's rate, so the
+ * usage reporter sends every event to the meter by `eventName`, in single
+ * units, and never has to know the rate or the block: the price turns the
+ * period's units into started blocks (OVERAGE_BLOCK_UNITS).
  */
 export const METERS = {
   voiceMinutes: {
@@ -506,13 +609,55 @@ export function overageRateCents(rateUsd: number): number {
 }
 
 /**
- * The lookup key of one metered price: the meter plus the rate in cents, e.g.
- * `healdesk_meter_chat_conversations_30`. The rate is in the key for the same
- * reason the amount is in a package key: a rate change cannot silently resolve
- * to the old price.
+ * Overage is billed per STARTED block of this many units (the owner's decision
+ * of 6 October 2026, docs/v1-product-spec.md "Overage prices"): $80 for each
+ * started block of 100 extra voice minutes, and $40 (single-channel chat) or
+ * $30 (the rest) for each started block of 100 extra chat conversations. Per
+ * unit amounts left odd figures on every invoice.
+ *
+ * The per-unit rates on each plan stay the source, and a block is the rate
+ * times this. The meters still count single units. Stripe divides a monthly
+ * period's total by this and rounds up (the metered price's
+ * `transform_quantity`, set by stripe-setup), and the annual overage invoice
+ * does the same sum per closed month. So 1 unit over is one block, 100 is one,
+ * and 101 is two.
+ */
+export const OVERAGE_BLOCK_UNITS = 100;
+
+/** The price of one started block, in whole cents: the per-unit rate × OVERAGE_BLOCK_UNITS. */
+export function overageBlockCents(rateUsd: number): number {
+  return overageRateCents(rateUsd) * OVERAGE_BLOCK_UNITS;
+}
+
+/** Started blocks for a number of units over the allowance. None for nothing (or nonsense). */
+export function overageBlocks(units: number): number {
+  if (!Number.isFinite(units) || units <= 0) return 0;
+  return Math.ceil(units / OVERAGE_BLOCK_UNITS);
+}
+
+/**
+ * What `units` over the allowance cost at `rateUsd` a unit, billed in started
+ * blocks, in cents. Nothing over costs nothing whatever the rate, so a meter
+ * the package does not sell (rate 0) and has counted nothing on is $0 rather
+ * than a throw; units over with no rate still throw, because billing them at
+ * $0 would hide a catalog fault.
+ */
+export function overageChargeCents(units: number, rateUsd: number): number {
+  const blocks = overageBlocks(units);
+  return blocks === 0 ? 0 : blocks * overageBlockCents(rateUsd);
+}
+
+/**
+ * The lookup key of one metered price: the meter, the block size and the block
+ * price in cents, e.g. `healdesk_meter_chat_conversations_block100_3000`. Both
+ * numbers are in the key for the same reason the amount is in a package key: a
+ * Stripe price's amount and transform can never change, so a new rate or block
+ * is a new price, and a key that named only the meter would silently resolve to
+ * the old one. The per-unit keys of 5 October
+ * (`healdesk_meter_voice_minutes_80`) are archived by stripe-setup.
  */
 export function meteredPriceLookupKey(meter: MeterId, rateUsd: number): string {
-  return `${METERS[meter].lookupKeyPrefix}_${overageRateCents(rateUsd)}`;
+  return `${METERS[meter].lookupKeyPrefix}_block${OVERAGE_BLOCK_UNITS}_${overageBlockCents(rateUsd)}`;
 }
 
 /**
@@ -521,12 +666,13 @@ export function meteredPriceLookupKey(meter: MeterId, rateUsd: number): string {
  */
 export function planMeteredPrices(
   plan: Plan,
-): { meter: MeterId; rateUsd: number; lookupKey: string }[] {
-  const out: { meter: MeterId; rateUsd: number; lookupKey: string }[] = [];
+): { meter: MeterId; rateUsd: number; blockCents: number; lookupKey: string }[] {
+  const out: { meter: MeterId; rateUsd: number; blockCents: number; lookupKey: string }[] = [];
   if (plan.channels.voice) {
     out.push({
       meter: "voiceMinutes",
       rateUsd: plan.overagePerVoiceMinuteUsd,
+      blockCents: overageBlockCents(plan.overagePerVoiceMinuteUsd),
       lookupKey: meteredPriceLookupKey("voiceMinutes", plan.overagePerVoiceMinuteUsd),
     });
   }
@@ -534,6 +680,7 @@ export function planMeteredPrices(
     out.push({
       meter: "chatConversations",
       rateUsd: plan.overagePerChatConversationUsd,
+      blockCents: overageBlockCents(plan.overagePerChatConversationUsd),
       lookupKey: meteredPriceLookupKey(
         "chatConversations",
         plan.overagePerChatConversationUsd,
@@ -587,24 +734,26 @@ export function additionalLocationChargeUsd(
 }
 
 // -----------------------------------------------------------------------------
-// Refund windows (terms § 3), here so apps/web's terms and apps/app's refund
-// actions read the same two numbers
+// The refund window (terms § 5), here so apps/web's terms and apps/app's refund
+// actions read the same number
 // -----------------------------------------------------------------------------
 
 /**
- * The one exception to the non-refundable setup fee: refunded when none of the
- * practice's channels has gone live this many days after its payment, unless
- * the delay is something still waiting on the practice. Adopted 3 October 2026
- * (docs/counsel/guarantee-and-refund.md decision 5).
- */
-export const SETUP_FEE_REFUND_NOT_LIVE_DAYS = 30;
-
-/**
- * Days after purchase within which the first period's subscription fee is
- * refundable in full. The setup fee is never refunded under this window
- * (decision of 21 September 2026).
+ * Days after the plan start (the day AYA first answers a patient) within
+ * which the first period's subscription fee is refundable in full. The setup
+ * fee is never refunded (owner, 6 October 2026).
  */
 export const FIRST_PERIOD_REFUND_DAYS = 14;
+
+/**
+ * Days after the service ends for which calls still forwarded to us are
+ * passed straight through to the clinic's direct line, the floor terms § 7
+ * promises (it stops sooner only when the clinic removes its own call
+ * forwarding). Here so apps/app's end-of-service email states the same number
+ * as apps/web's terms, whose `POLICY.forwardingPassThroughDays` a test holds
+ * to this one.
+ */
+export const FORWARDING_PASS_THROUGH_DAYS = 30;
 
 /**
  * What a clinic is displacing, for the comparison on the pricing page.

@@ -6,14 +6,16 @@
     "dev": "next dev --port 3000",
     "build": "next build",
     "start": "next start --port 3000",
-    "lint": "next lint",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf .next .turbo node_modules",
     "stripe:setup": "tsx --env-file-if-exists=.env.local scripts/stripe-setup.ts",
+    "stripe:settings": "tsx scripts/stripe-account-settings.ts",
     "test": "vitest run",
     "qa:gate": "tsx --env-file-if-exists=.env.local scripts/qa-gate.ts",
     "sheets:init": "tsx --env-file-if-exists=.env.local scripts/sheets-init.ts",
-    "retell:demo": "tsx --env-file-if-exists=.env.local scripts/retell-demo-agent.ts"
+    "retell:demo": "tsx --env-file-if-exists=.env.local scripts/retell-demo-agent.ts",
+    "retell:clinic-demo": "tsx --env-file-if-exists=.env.local scripts/retell-clinic-demo-agent.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
@@ -24,6 +26,7 @@
     "qrcode": "^1.5.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "retell-client-js-sdk": "^3.0.2",
     "stripe": "^22.6.1"
   },
   "devDependencies": {
@@ -32,6 +35,9 @@
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.0",
+    "happy-dom": "^20.14.5",
     "postcss": "^8.5.1",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.7.2",

@@ -3,7 +3,9 @@ import {
   COHORT_SETUP_CREDIT,
   OVERAGE_RATES_PROVISIONAL,
   type Plan,
+  PLAN_START_PLACEHOLDER_LOOKUP_KEY,
   planMeteredPrices,
+  planStartSentence,
   type PriceKind,
   stripeLookupKey,
 } from "@healdesk/catalog";
@@ -19,129 +21,102 @@ import { normalizeSiteUrl } from "@/lib/site";
  * end to end without Stripe keys, while production refuses to hand out free
  * accounts.
  *
- * ## What a Session charges
+ * ## What a Session charges (the deferred start, contracts §2)
  *
- * Two line items on one subscription-mode Session: the package's recurring
- * price for the chosen interval, and the package's one-time setup fee. A
- * one-time price is a valid line item in `mode: "subscription"` and Stripe
- * bills it on the FIRST invoice only, alongside the first recurring period:
- * https://docs.stripe.com/payments/checkout/subscriptions/one-time-fees. The
- * SDK's own API reference for `line_items` (stripe-node 22.6.1, generated from
- * Stripe's OpenAPI spec) says the same: "For `subscription` mode, there is a
- * maximum of 20 line items with recurring Prices and 20 line items with
- * one-time Prices. Line items with one-time Prices will be on the initial
- * invoice only."
+ * Two line items on one subscription-mode Session: the package's one-time
+ * setup fee, and a $0 monthly price, "Monthly plan: starts when AYA first
+ * answers" (`PLAN_START_PLACEHOLDER_LOOKUP_KEY`). Stripe bills the one-time
+ * price on the first invoice only
+ * (https://docs.stripe.com/payments/checkout/subscriptions/one-time-fees); the
+ * $0 line makes the subscription that holds the card and bills nothing until
+ * the day AYA first answers a patient, when apps/app swaps it for the
+ * package's price (Package C). So "Due today" is the setup fee alone.
  *
- * So the first invoice is recurring + setup, exactly the "Due today" figure
- * the checkout step shows (`firstInvoiceUsd` in the catalog), and there is no
- * trial. There used to be one; the catalog header explains why a trial and a
- * setup fee do not compose, and nothing here should reintroduce it.
+ * No trial anywhere. Stripe would treat a trial as one, with the card networks'
+ * trial rules and Stripe's "TRIAL OVER" statement wording behind it, and the
+ * wait here gives nothing free. Nothing in this module may reintroduce
+ * `trial_end`.
  *
- * ## The metered overage prices, and when they are attached
+ * Subscription mode even when the setup credit brings the total to $0: payment
+ * mode collects no card for a $0 total, and the plan's first period needs one.
+ * The Session's custom text carries the plan-start sentence and says the setup
+ * fee is non-refundable, the two facts a buyer needs at the moment they pay.
  *
- * `stripe:setup` creates one metered price per distinct overage rate on each
- * meter (voice minutes, chat conversations): three prices on two meters, since
- * the chat rate differs by package. A subscription only bills meter events for
- * a customer when it carries a metered price as an item, so a Session that
- * omits them sells a package whose overage can never be invoiced. They are
- * omitted here ON PURPOSE while `OVERAGE_RATES_PROVISIONAL` is true: the
- * pricing page refuses to print the rates then, and attaching them would bill
- * a number the buyer was never shown.
+ * ## No metered prices at checkout
  *
- * The flag is off: the owner set the catalog's rates (on 21 September 2026,
- * then again on 5 October), so `meteredLookupKeysFor()` attaches the
- * package's own metered prices to a MONTHLY Session (each only for a package
- * that has the channel, at that package's rate) with no `quantity`, which is
- * what the SDK's reference for `line_items` requires of a metered price.
+ * The overage meters only make sense beside a package price, so they join the
+ * subscription with it at the plan start, never at checkout.
+ * `meteredLookupKeysFor()` keeps the rules for which apply: none while
+ * `OVERAGE_RATES_PROVISIONAL` is true, the package's own on a monthly plan,
+ * and none on an annual one, whose overage is invoiced separately (the
+ * 21 September 2026 decision in docs/handover.md).
  *
- * Those rates are still placeholders as far as the v1 spec is concerned:
- * overage prices are to be set from measured cost times a target margin
- * (docs/v1-product-spec.md, "What still has to be computed"). That is a
- * pricing decision, not a billing mechanic, so nothing in this module changes
- * because of it, and nothing is billed at them yet either (see the end of the
- * next paragraph). The measured rates, when they exist, change in
- * packages/catalog; until then, setting the flag back to true is the one
- * switch that stops a Session carrying them.
+ * ## The setup credit
  *
- * An ANNUAL Session gets none, on purpose and not as an oversight: the
- * metered prices bill monthly, the annual package price bills yearly, and one
- * subscription cannot carry both intervals. The decision (21 September 2026)
- * is that annual overage is invoiced separately, monthly in arrears, by hand
- * from the usage the product records — docs/handover.md, "Decisions log",
- * and the `annual-overage-invoicing` task. The terms say exactly that, so an
- * annual buyer is not sold a package whose overage is secretly free; it is
- * just not on the Stripe subscription. Until `usage-meter-events` is built
- * the meters on a monthly subscription bill zero as well.
+ * Day 7 of the nurture sequence offers the setup fee back (packages/catalog
+ * `COHORT_SETUP_CREDIT`). It is a Stripe coupon per package, `amount_off`
+ * equal to that package's setup fee and `duration: "once"`, created by
+ * `stripe:setup` and attached here only when the checkout route established
+ * the lead was offered it within the window. The setup-fee line stays on the
+ * Session, so the invoice shows the fee and the credit.
  *
- * ## The founding-cohort setup credit
+ * ## What Stripe carries
  *
- * Day 7 of the nurture sequence offers the first cohort their setup fee
- * back (packages/catalog `COHORT_SETUP_CREDIT`). It is honoured as a Stripe
- * coupon per package — `amount_off` equal to that package's setup fee,
- * `duration: "once"` — created by `stripe:setup`, and attached here as a
- * `discounts` entry only when the checkout route established that the lead
- * was actually offered it within the window. The line item for the setup
- * fee stays on the Session, so the invoice shows the fee and the credit
- * rather than a package that quietly cost less.
+ * An opaque ref and nothing about the buyer (design D1). Before this Session
+ * exists, apps/app stores the validated purchase as a checkout intent
+ * (POST /api/checkout/intents) and answers with its ref, which press of Pay
+ * this is, and the success URL, which is apps/app's /welcome on its public
+ * origin. The Session and its subscription carry `{ app, ref, plan,
+ * billingInterval, attempt }`, which bind the payment to the terms of that
+ * press, and the Session also carries the attribution ids the lead store
+ * reads back: campaign, lead and setup request. Ids and package names only:
+ * no name, no address.
  *
- * ## Where the provisioning payload lives
+ * Cards only, as the contract says: a delayed method would complete the
+ * Session, and spend the setup link, before any money had moved.
  *
- * In Stripe Session metadata, as one key per field rather than a single JSON
- * blob. Stripe's limits are 50 keys, 40 characters per key, 500 per value; the
- * whole payload serialised as JSON lands around 495 characters for an ordinary
- * customer, which is under the limit only until someone signs up with a long
- * practice name and a hyphenated surname. Per-field, the largest value is
- * `clinicName` at 120 and `contactEmail` at 254, both with room to spare, and
- * 13 keys against a limit of 50 now that `billingInterval` rides along with
- * `plan`. Which chat channel a clinic has is part of the package id itself.
+ * ## Where the account is created
  *
- * It is business contact data, a clinic's name, its owner's work email, not
- * patient data, and Stripe already receives the email as the customer record.
- * Nothing patient-identifying may ever be added here.
- *
- * ## Where the account is created, and where service is switched on
- *
- * Not in this module, and not on the browser returning to the success URL: a
- * customer who closes the tab after paying still gets their account, and
- * someone who hand-crafts a success URL gets nothing. It takes two webhook
- * events, both verified in app/api/webhooks/stripe and relayed to apps/app:
- *
- *   1. `checkout.session.completed` records the account. The webhook forwards
- *      this metadata, `billingInterval` included, to
- *      apps/app, which creates the clinic in the `provisioning` billing state.
- *      Nothing is active at this point.
- *   2. The first invoice's `invoice.paid` (`billing_reason:
- *      "subscription_create"`) moves the clinic from `provisioning` to
- *      `active`. Service activates only on that paid invoice, never on the
- *      checkout Session alone.
- *
- * Two steps, because the first invoice carries real money (recurring + setup)
- * rather than a $0 trial invoice, so "completed" is not the same thing as
- * "paid": a delayed payment method can complete the Session with the invoice
- * still open. The activation belongs to the subscription lifecycle handler in
- * apps/app (lib/billing), which also handles renewals, failed payments and
- * cancellation. This module only creates the Session, and the metadata it
- * writes is what those later events are matched back to the clinic with.
+ * On the first paid invoice, never on the Session and never on the browser
+ * returning (plan C1, design D2): the webhook relays `invoice.paid` with
+ * `billing_reason: "subscription_create"` to apps/app as `{ ref,
+ * idempotencyKey: <subscription id>, attempt, plan, billingInterval }`, and
+ * apps/app provisions from the stored intent, if it still describes what was
+ * paid, before the event itself is applied. A paid first invoice is money
+ * cleared, so the account and its activation are one moment.
  */
 
 export type CheckoutIntent = {
   plan: Plan;
   interval: BillingInterval;
-  clinicName: string;
   contactEmail: string;
-  /** Field-per-key on the Session; read back by the webhook. */
-  provisionPayload: Record<string, unknown>;
+  /** The intent apps/app stored for this purchase, and which press of Pay this is. */
+  intent: {
+    ref: string;
+    attempt: number;
+    /** apps/app's /welcome, with Stripe's `{CHECKOUT_SESSION_ID}` placeholder. */
+    successUrl: string;
+    /** The previous attempt's Session, expired before this one is created. */
+    previousOpenSessionId: string | null;
+  };
   /**
-   * Which cold email, and which lead, this purchase came from. Session-only
-   * metadata (not copied to the subscription), stripped by the webhook before
-   * the provisioning payload is built, and written back to the lead store as
-   * the conversion. Null when organic.
+   * Which cold email, and which lead, this purchase came from, and the setup
+   * request whose link opened it. Session-only metadata, read back by the
+   * webhook for the lead store. Null when organic.
    */
   attribution?: {
     campaign: string | null;
     leadId: string | null;
-    /** "cohort-setup" when the lead was offered the founding-cohort credit inside its window. */
+    /** "cohort-setup" when the lead was offered the setup credit inside its window. */
     offer?: "cohort-setup" | null;
+    /** The personalised demo's slug, when the buyer came from its "Book Onboarding" (lib/demo). */
+    demo?: string | null;
+    /**
+     * The setup request whose link opened this purchase, while purchases are
+     * by invitation. The webhook stamps the request paid, which is what
+     * makes the link single-use (lib/setup-gate.ts).
+     */
+    setupRequestId?: string | null;
   };
 };
 
@@ -152,7 +127,9 @@ export function cohortCouponIdFor(plan: Plan): string {
 
 export type CheckoutResult =
   /** Send the browser here to pay. */
-  | { kind: "redirect"; url: string }
+  | { kind: "redirect"; url: string; sessionId: string }
+  /** The previous attempt's Session was paid: this purchase is done, and nothing new was created. */
+  | { kind: "already-paid" }
   /** No payment configured (development only); the caller provisions immediately. */
   | { kind: "skipped"; reason: string };
 
@@ -218,27 +195,9 @@ export function siteUrl(): string {
   return "http://localhost:3000";
 }
 
-/**
- * Flatten the provisioning payload into Stripe metadata.
- *
- * Every value becomes a string, because Stripe metadata has no other type,
- * which is exactly the trap on the way back: `averageTreatmentValueUsd` returns
- * as `"550"`, and provisioning requires a number. The reverse of this function
- * lives in the webhook and must coerce it.
- */
-export function toMetadata(
-  payload: Record<string, unknown>,
-): Record<string, string> {
-  const meta: Record<string, string> = { app: APP_MARKER };
-  for (const [key, value] of Object.entries(payload)) {
-    if (value === undefined || value === null || value === "") continue;
-    meta[key] = String(value);
-  }
-  return meta;
-}
 
 export async function createCheckout(
-  intent: CheckoutIntent,
+  input: CheckoutIntent,
 ): Promise<CheckoutResult> {
   if (!isBillingConfigured()) {
     if (isProductionDeployment()) {
@@ -255,88 +214,132 @@ export async function createCheckout(
 
   const stripe = stripeClient();
 
-  // The billing terms are written from the validated intent, not copied from
-  // whatever the browser put in the payload under the same names, so the
-  // metadata the webhook forwards is the terms Stripe actually charged.
-  const metadata = toMetadata({
-    ...intent.provisionPayload,
-    plan: intent.plan.id,
-    billingInterval: intent.interval,
-  });
+  // A buyer who cancelled at Stripe and pressed Pay again must never hold two
+  // Sessions they could both complete, and one who already paid must never be
+  // charged again. So the previous attempt's Session is closed first, or this
+  // press creates nothing (closePreviousSession).
+  if (input.intent.previousOpenSessionId) {
+    const previous = await closePreviousSession(stripe, input.intent.previousOpenSessionId);
+    if (previous === "paid") return { kind: "already-paid" };
+  }
 
-  // All looked up by the stable keys the setup script writes, so pricing lives
-  // in one place (packages/catalog) and cannot drift into a state where the
-  // site quotes $397 and the card is charged $797.
-  const [recurringPriceId, setupPriceId, meteredPriceIds] = await Promise.all([
-    priceIdFor(stripe, intent.plan, intent.interval),
-    priceIdFor(stripe, intent.plan, "setup"),
-    Promise.all(
-      meteredLookupKeysFor(intent.plan, intent.interval).map((key) =>
-        priceIdByLookupKey(stripe, key),
-      ),
-    ),
+  // Looked up by the stable keys the setup script writes, so pricing lives in
+  // one place (packages/catalog) and a stale price fails loudly here.
+  const [setupPriceId, placeholderPriceId] = await Promise.all([
+    priceIdFor(stripe, input.plan, "setup"),
+    priceIdByLookupKey(stripe, PLAN_START_PLACEHOLDER_LOOKUP_KEY),
   ]);
 
-  const session = await stripe.checkout.sessions.create({
-    mode: "subscription",
-    customer_email: intent.contactEmail,
+  // The press of Pay this Session belongs to, and the terms it charges for.
+  // The webhook relays the ref, the attempt, the plan and the interval from
+  // the paid subscription to /api/provision, and apps/app refuses to build
+  // the account from an intent that has moved on since (a later press,
+  // another package or billing period).
+  const marker = {
+    app: APP_MARKER,
+    ref: input.intent.ref,
+    plan: input.plan.id,
+    billingInterval: input.interval,
+    attempt: String(input.intent.attempt),
+  };
 
-    line_items: [
-      { price: recurringPriceId, quantity: 1 },
-      // One-time. Billed on the first invoice only; see the header for the
-      // Stripe reference. Never on a renewal.
-      { price: setupPriceId, quantity: 1 },
-      // Metered, so no quantity. Empty while the rates are provisional; see
-      // the header.
-      ...meteredPriceIds.map((price) => ({ price })),
-    ],
-
-    subscription_data: {
-      // Also on the subscription, so later invoice and subscription events can
-      // be traced back to this clinic without re-reading the Session. The
-      // lifecycle handler in apps/app reads `plan` and `billingInterval` from
-      // here when an invoice event arrives.
-      metadata,
+  const session = await stripe.checkout.sessions.create(
+    {
+      mode: "subscription",
+      // Cards only (funnel-portal-contracts §2): the account shares Stripe
+      // with scalabid, whose dashboard settings would otherwise decide, and a
+      // delayed method completes the Session before any money moves.
+      payment_method_types: ["card"],
+      customer_email: input.contactEmail,
+      line_items: [
+        // One-time: on the first invoice only. Never on a renewal.
+        { price: setupPriceId, quantity: 1 },
+        // $0 a month until AYA first answers a patient; see the header.
+        { price: placeholderPriceId, quantity: 1 },
+      ],
+      // On the subscription too, so every later invoice and subscription
+      // event, the first invoice above all, can be traced back to the intent.
+      subscription_data: { metadata: marker },
+      // Collect the card even on a $0 total (a setup credit): the plan's
+      // first period is charged to it the day AYA first answers.
+      payment_method_collection: "always",
+      ...(process.env.STRIPE_AUTOMATIC_TAX === "true" ? { automatic_tax: { enabled: true } } : {}),
+      ...(input.attribution?.offer === "cohort-setup"
+        ? { discounts: [{ coupon: cohortCouponIdFor(input.plan) }] }
+        : {}),
+      custom_text: {
+        submit: {
+          message: `${planStartSentence(input.plan, input.interval)} The setup fee is non-refundable.`,
+        },
+      },
+      metadata: {
+        ...marker,
+        ...(input.attribution?.campaign ? { campaign: input.attribution.campaign } : {}),
+        ...(input.attribution?.leadId ? { leadId: input.attribution.leadId } : {}),
+        ...(input.attribution?.offer ? { offer: input.attribution.offer } : {}),
+        ...(input.attribution?.demo ? { demo: input.attribution.demo } : {}),
+        ...(input.attribution?.setupRequestId ? { setupRequest: input.attribution.setupRequestId } : {}),
+      },
+      // Finds the purchase from the Dashboard without opening metadata.
+      client_reference_id: input.intent.ref,
+      success_url: input.intent.successUrl,
+      cancel_url: `${siteUrl()}/get-started?cancelled=1`,
     },
-
-    /**
-     * Collect the card up front.
-     *
-     * This is the subscription-mode default, and it is also the deliberate
-     * choice: at $397–1,197/mo sold to clinics, a card at signup is the norm,
-     * and with a setup fee on the first invoice there is nothing to defer it
-     * for. It also decides what `payment_status` will be on the way back: with
-     * a card collected and charged, Stripe reports `paid`; with a delayed
-     * method it reports `unpaid` until the invoice settles. See the webhook for
-     * why that field must still never be used as the gate.
-     */
-    payment_method_collection: "always",
-
-    // The founding-cohort credit, only when the route established the offer
-    // (see the header). Stripe rejects a Session naming a coupon that does
-    // not exist, which is the right failure: run `stripe:setup` first.
-    ...(intent.attribution?.offer === "cohort-setup"
-      ? { discounts: [{ coupon: cohortCouponIdFor(intent.plan) }] }
-      : {}),
-
-    metadata: {
-      ...metadata,
-      ...(intent.attribution?.campaign ? { campaign: intent.attribution.campaign } : {}),
-      ...(intent.attribution?.leadId ? { leadId: intent.attribution.leadId } : {}),
-      ...(intent.attribution?.offer ? { offer: intent.attribution.offer } : {}),
-    },
-    // Surfaces in the Dashboard next to the payment, so support can find a
-    // clinic without opening metadata.
-    client_reference_id: intent.clinicName.slice(0, 200),
-
-    success_url: `${siteUrl()}/get-started/done?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${siteUrl()}/get-started?cancelled=1`,
-  });
+    // One Session per press of Pay: a retried request returns the same one.
+    { idempotencyKey: `checkout:${input.intent.ref}:${input.intent.attempt}` },
+  );
 
   if (!session.url) {
     throw new Error("Stripe returned a session with no checkout URL.");
   }
-  return { kind: "redirect", url: session.url };
+  return { kind: "redirect", url: session.url, sessionId: session.id };
+}
+
+/**
+ * Make sure the previous attempt's Session can no longer be paid, or learn
+ * that it already was.
+ *
+ * "paid" when it completed: that purchase is done, and a second Session would
+ * take the non-refundable setup fee twice, on a second subscription. "closed"
+ * when it is expired, by Stripe or by us now. Anything else throws, and the
+ * caller answers 502 having created nothing: a Session that might still be
+ * payable must never sit beside a new one.
+ *
+ * Stripe refuses to expire a Session that is no longer open, with no error
+ * code that says which way it went, so a refusal is answered by asking again:
+ * it may have been paid, or have expired, in the moment since it was read.
+ */
+async function closePreviousSession(stripe: Stripe, sessionId: string): Promise<"paid" | "closed"> {
+  const settled = (status: string | null): "paid" | "closed" | null =>
+    status === "complete" ? "paid" : status === "expired" ? "closed" : null;
+
+  const before = settled((await stripe.checkout.sessions.retrieve(sessionId)).status);
+  if (before) return before;
+  try {
+    await stripe.checkout.sessions.expire(sessionId);
+    return "closed";
+  } catch (error) {
+    const after = settled((await stripe.checkout.sessions.retrieve(sessionId)).status);
+    if (after) return after;
+    throw error;
+  }
+}
+
+/**
+ * Expire a Session this request created but could not record on its intent:
+ * the next press of Pay could not find it to expire it, and the webhook could
+ * not bind its payment to the intent's latest terms, so it must never be
+ * paid. Its URL is never handed out either. Never throws: the request is
+ * refused whatever happens here.
+ */
+export async function expireUnrecordedCheckout(sessionId: string): Promise<void> {
+  try {
+    await stripeClient().checkout.sessions.expire(sessionId);
+  } catch (error) {
+    console.error("[healdesk] could not expire an unrecorded checkout session", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 /**

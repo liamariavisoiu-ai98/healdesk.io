@@ -30,7 +30,7 @@ export function CTA() {
             href="/get-started"
             className="text-ink inline-flex items-center gap-2 rounded-full bg-white px-8 py-4 text-base font-bold transition-transform duration-200 hover:-translate-y-0.5"
           >
-            Get started
+            {site.cta.primary.label}
           </a>
           <a
             href={`mailto:${site.email}?subject=healdesk%20demo`}

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FakeSheets, __setSheetsClientForTests } from "./sheets/client";
 import { __resetSheetSchemaForTests } from "./sheets/schema";
@@ -56,14 +56,24 @@ describe("rateLimit (per-instance keys)", () => {
   });
 
   it("starts a fresh window once the old one has closed", async () => {
+    // The clock is frozen, because a 1ms window on the real one closes again
+    // whenever the reopening call and the check after it straddle a
+    // millisecond, and under load they did: 12 failures in 178 full runs.
     const k = key();
-    // A 1ms window closes before the second call arrives.
-    expect((await rateLimit(k, 1, 1)).ok).toBe(true);
-    await new Promise((r) => setTimeout(r, 15));
-    expect((await rateLimit(k, 1, 1)).ok).toBe(true);
-    expect(await isOverLimit(k, 1)).toBe(true);
-    await new Promise((r) => setTimeout(r, 15));
-    expect(await isOverLimit(k, 1)).toBe(false);
+    const start = Date.now();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(start);
+      expect((await rateLimit(k, 1, 1)).ok).toBe(true);
+      // The 1ms window has closed by the time the second call arrives.
+      vi.setSystemTime(start + 15);
+      expect((await rateLimit(k, 1, 1)).ok).toBe(true);
+      expect(await isOverLimit(k, 1)).toBe(true);
+      vi.setSystemTime(start + 30);
+      expect(await isOverLimit(k, 1)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("clientKey takes the first x-forwarded-for entry, which is what Vercel sets", () => {
@@ -84,8 +94,13 @@ describe("rateLimit (per-instance keys)", () => {
 });
 
 describe("rateLimit (the global daily caps)", () => {
-  it("names exactly the two spend caps the routes use", () => {
-    expect([...GLOBAL_CAP_KEYS].sort()).toEqual(["callback:global:day", "chat:global:day"]);
+  it("names exactly the four spend caps the routes use", () => {
+    expect([...GLOBAL_CAP_KEYS].sort()).toEqual([
+      "callback:global:day",
+      "chat:global:day",
+      "site-read:global:day",
+      "webcall:global:day",
+    ]);
   });
 
   it("goes through the counters tab and survives a fresh instance", async () => {
@@ -147,12 +162,23 @@ describe("rateLimit (the global daily caps)", () => {
   });
 
   it("starts a fresh window once the shared one has closed", async () => {
-    const sheets = new FakeSheets();
-    __setSheetsClientForTests(sheets);
-    expect((await rateLimit("chat:global:day", 1, 1)).ok).toBe(true);
-    await new Promise((r) => setTimeout(r, 15));
-    expect((await rateLimit("chat:global:day", 1, 1)).ok).toBe(true);
-    expect(sheets.records("counters")[0]!.count).toBe(1);
+    // On a frozen clock, like its per-instance twin above, and at both edges
+    // of the window: refused a millisecond before it closes, fresh the moment
+    // it does. Only Date is faked: the one timer on this path is the real
+    // Sheets client's backoff, which FakeSheets never reaches.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const sheets = new FakeSheets();
+      __setSheetsClientForTests(sheets);
+      expect((await rateLimit("chat:global:day", 1, 200)).ok).toBe(true);
+      vi.advanceTimersByTime(199);
+      expect((await rateLimit("chat:global:day", 1, 200)).ok, "a millisecond before it closes").toBe(false);
+      vi.advanceTimersByTime(1);
+      expect((await rateLimit("chat:global:day", 1, 200)).ok, "the moment it closes").toBe(true);
+      expect(sheets.records("counters")[0]!.count).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("falls back to per-instance memory when the Sheet is unconfigured, with one warning in production and no throw", async () => {

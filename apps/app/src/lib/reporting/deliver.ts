@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { domainToASCII } from "node:url";
 
+import type { SESv2ClientConfig } from "@aws-sdk/client-sesv2";
+
 import { env } from "@/lib/env";
 
 import type { RenderedReport } from "./render";
@@ -121,12 +123,41 @@ export type PhiClass =
 export type OutgoingEmail = RenderedReport & {
   attachments?: EmailAttachment[];
   phiClass: PhiClass;
+  // The email platform's fields (lib/email/send.ts, Annex X3). Optional, so the
+  // report mailers and the agreement copy are unchanged. ResendTransport sends
+  // them; SesTransport, the future PHI path, does not carry them yet.
+  /** Overrides HEALDESK_EMAIL_FROM. */
+  from?: string;
+  replyTo?: string;
+  /** Extra headers, e.g. List-Unsubscribe. Names and values must be single-line. */
+  headers?: Readonly<Record<string, string>>;
+  /** Provider tags: ids and kinds only, never an address. */
+  tags?: readonly { name: string; value: string }[];
+  /** Resend's Idempotency-Key: the same key and body within 24 hours sends once. */
+  idempotencyKey?: string;
+};
+
+/**
+ * Why a send failed, as far as the provider said. Absent fields mean the
+ * provider said nothing about them, which the outbox reads as "no answer":
+ * retried, like a timeout.
+ */
+export type DeliveryFailureDetail = {
+  /** The HTTP status the provider answered with; null when no answer arrived. */
+  statusCode?: number | null;
+  /** The provider's error name, e.g. Resend's "daily_quota_exceeded"; "timeout" for our own deadline. */
+  errorName?: string;
 };
 
 export type DeliveryResult =
-  | { status: "sent"; messageId: string }
+  | {
+      status: "sent";
+      messageId: string;
+      /** Resend's `x-resend-daily-quota` header: emails sent today on the account, both apps. */
+      quota?: number;
+    }
   | { status: "skipped"; reason: string }
-  | { status: "failed"; reason: string };
+  | ({ status: "failed"; reason: string; quota?: number } & DeliveryFailureDetail);
 
 export interface EmailTransport {
   readonly name: string;
@@ -367,13 +398,17 @@ let tlsVerifiedFor: string | undefined;
 /**
  * The SES client, imported lazily.
  *
- * Same pattern as crypto/kms.ts: the SDK is a heavy optional dependency that
- * only the production path needs, so development and tests never load it.
+ * Same arrangement as crypto/kms.ts, for the same reason: a dependency of this
+ * app, imported by a literal specifier, and external to the Next build
+ * (next.config.ts). It used to be an optional dependency behind a `const`
+ * specifier, meant to stop the bundler resolving it; Turbopack resolved it
+ * anyway, found nothing, and compiled the import into an unconditional throw,
+ * so no production build could ever send through SES. It is still loaded only
+ * when SES is the selected transport, so development and tests on the console
+ * or Resend transports never load it.
  *
- * Attachments did not change that. The raw path is built here, out of bytes,
- * and handed to SES as `Content.Raw.Data` — it needs no type from the SDK, so
- * @aws-sdk/client-sesv2 stays an install-it-in-production dependency rather
- * than becoming a build-time one for everybody.
+ * Attachments need nothing from it. The raw path is built here, out of bytes,
+ * and handed to SES as `Content.Raw.Data`; the SDK only carries it.
  */
 type SesClient = {
   send: (command: unknown) => Promise<{
@@ -383,13 +418,6 @@ type SesClient = {
   SendEmailCommand: new (input: unknown) => unknown;
   GetConfigurationSetCommand: new (input: unknown) => unknown;
 };
-
-/**
- * Indirected through a constant for the same reason as crypto/kms.ts: a literal
- * specifier makes the bundler resolve an optional dependency at build time and
- * fail when it is absent, which is exactly the case in development.
- */
-const SES_MODULE = "@aws-sdk/client-sesv2";
 
 /**
  * Bounds on how long a mail call may take, because one of them now sits inside
@@ -407,6 +435,19 @@ const SES_MODULE = "@aws-sdk/client-sesv2";
  * `maxAttempts` is 2 rather than the SDK's 3 for the same reason: SendEmail is
  * not idempotent, so every retry is a chance at a duplicate message, and the
  * budget is a multiple of it.
+ *
+ * ## The bound needs `throwOnRequestTimeout`
+ *
+ * Checked against the SDK this app installs (@aws-sdk/client-sesv2 3.1146,
+ * @smithy/node-http-handler 4.12): `requestTimeout` on its own does not end a
+ * request. When it passes, the handler logs a warning — to console.warn,
+ * around lib/log.ts — and keeps waiting. Only with `throwOnRequestTimeout:
+ * true` does it destroy the request and raise a TimeoutError. Without the
+ * flag, the twenty seconds below bound nothing, and a SendEmail on a socket
+ * that went quiet would wait forever: the exact failure the paragraph above
+ * exists to prevent. So the flag is set, and what follows about a timed-out
+ * send being retried holds because of it. tests/kms.test.ts pins the handler's
+ * behaviour, with the flag and without, against the installed version.
  *
  * ## Why the request timeout is long, and was wrong at five seconds
  *
@@ -444,10 +485,11 @@ const SES_MODULE = "@aws-sdk/client-sesv2";
  * specifically — was rejected on testability. The SDK classifies a request
  * timeout as TRANSIENT, alongside a reset connection, and makes the retry
  * decision inside its retry strategy, so suppressing just that case means
- * supplying a custom RetryStrategyV2: SDK-internal surface, written against a
- * package this repo deliberately does not install (see SES_MODULE) and
- * therefore cannot type-check or test. Untested retry logic on the path that
- * mails signed contracts is a worse trade than a longer timeout.
+ * supplying a custom RetryStrategyV2: SDK-internal surface, which when this was
+ * decided was written against a package the repo did not install and so could
+ * not type-check or test. The package is installed now (see client() below);
+ * the strategy is still SDK-internal, and untested retry logic on the path that
+ * mails signed contracts is still a worse trade than a longer timeout.
  *
  * The CONNECT timeout stays short, and stays the fast failure. A connection
  * that was never established cannot have delivered anything, so retrying one is
@@ -457,35 +499,59 @@ const SES_CONNECT_TIMEOUT_MS = 2_000;
 const SES_REQUEST_TIMEOUT_MS = 20_000;
 const SES_MAX_ATTEMPTS = 2;
 
+/**
+ * The SES client's configuration. Exported for the tests that check it is the
+ * one the client is built from (tests/aws-sdk-externals.test.ts,
+ * tests/ses-wire.test.ts).
+ *
+ * Typed by the SDK itself (`satisfies`), so the timeouts and the attempt budget
+ * above are checked against the client's real configuration rather than an
+ * `unknown`. An empty AWS_REGION counts as unset, as it does for the KMS
+ * client: .env.example ships the variable empty, and the SDK's constructor
+ * refuses an empty region ("Region is missing"). With `??` an empty value
+ * would reach it, and every send would fail.
+ */
+export function sesClientConfig() {
+  return {
+    region: process.env.AWS_REGION || "us-east-1",
+    maxAttempts: SES_MAX_ATTEMPTS,
+    requestHandler: {
+      connectionTimeout: SES_CONNECT_TIMEOUT_MS,
+      requestTimeout: SES_REQUEST_TIMEOUT_MS,
+      throwOnRequestTimeout: true,
+    },
+  } satisfies SESv2ClientConfig;
+}
+
 let cached: SesClient | undefined;
 
 async function client(): Promise<SesClient> {
   if (cached) return cached;
 
-  let mod: Record<string, unknown>;
-  try {
-    mod = (await import(/* @vite-ignore */ SES_MODULE)) as never;
-  } catch {
+  // Outside any `try`, as in crypto/kms.ts (loadKms says why): inside one,
+  // Turbopack compiles an import it cannot resolve into a throw and only
+  // warns, so a dropped dependency would ship instead of failing the build.
+  // The `.catch()` is not a `try`. tests/aws-sdk-externals.test.ts holds it.
+  const mod = await import("@aws-sdk/client-sesv2").catch((error: unknown) => {
+    // The package is a dependency, so a failure here is an install or an image
+    // without its node_modules, not a transport nobody set up.
     throw new Error(
-      "HEALDESK_EMAIL_TRANSPORT is 'ses' but @aws-sdk/client-sesv2 is not " +
-        "installed. Run: npm install @aws-sdk/client-sesv2 -w @healdesk/app",
+      "HEALDESK_EMAIL_TRANSPORT is 'ses' but @aws-sdk/client-sesv2 could not be " +
+        "loaded. It is a dependency of @healdesk/app and external to the Next " +
+        "build, so the server requires it from node_modules at run time: the " +
+        "install is incomplete.",
+      { cause: error },
     );
-  }
-
-  const SESv2Client = mod.SESv2Client as new (config: unknown) => {
-    send: SesClient["send"];
-  };
-  const instance = new SESv2Client({
-    region: process.env.AWS_REGION ?? "us-east-1",
-    maxAttempts: SES_MAX_ATTEMPTS,
-    requestHandler: {
-      connectionTimeout: SES_CONNECT_TIMEOUT_MS,
-      requestTimeout: SES_REQUEST_TIMEOUT_MS,
-    },
   });
 
+  const instance = new mod.SESv2Client(sesClientConfig());
+
   cached = {
-    send: (command) => instance.send(command),
+    // SesClient speaks `unknown` so that SesTransport needs no SDK types; every
+    // command it is handed is built from this module's own constructors below,
+    // and the reply is narrowed to the two fields SesTransport reads.
+    send: (command) =>
+      instance.send(command as never) as ReturnType<SesClient["send"]>,
     SendEmailCommand: mod.SendEmailCommand as SesClient["SendEmailCommand"],
     GetConfigurationSetCommand:
       mod.GetConfigurationSetCommand as SesClient["GetConfigurationSetCommand"],

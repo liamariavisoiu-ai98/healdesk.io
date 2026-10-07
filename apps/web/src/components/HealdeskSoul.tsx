@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * The soul: the orb that stands in for the agent in each demo panel header.
@@ -55,6 +55,19 @@ const MODE_CLASS: Record<SoulMode, string> = {
   voice: "soul--voice",
 };
 
+/**
+ * One 384px clip, the same artwork played forward and back, as WebM (about
+ * 40KB) and MP4 (about 69KB): enough for the demo panels and /why-wait,
+ * which draw it at 26 to 72px. A 640px cut of the same source played in the
+ * hero from 5 to 7 October 2026, when a photo of AYA took the soul's place
+ * there; git history has it.
+ */
+const CLIP = {
+  poster: "/brand/healdesk-soul.png",
+  webm: "/brand/healdesk-soul.webm",
+  mp4: "/brand/healdesk-soul.mp4",
+} as const;
+
 export function HealdeskSoul({
   mode = "idle",
   beatMs,
@@ -70,7 +83,7 @@ export function HealdeskSoul({
    * Supplied while she is working, from whatever the panel can measure.
    */
   beatMs?: number;
-  /** Rendered size in px. The asset is 160, so anything up to 80 is crisp. */
+  /** Rendered size, in px. */
   size?: number;
   className?: string;
   /**
@@ -89,8 +102,7 @@ export function HealdeskSoul({
    * Two reasons, and only one of them is reduced motion. The other is that the
    * server has no idea what the reader prefers, so rendering the <video> in
    * the markup would mean tearing it out again on hydration for anyone who
-   * asked for less. The poster is what the video would show anyway, so the
-   * swap is invisible.
+   * asked for less.
    */
   const [still, setStill] = useState(true);
 
@@ -101,6 +113,23 @@ export function HealdeskSoul({
     query.addEventListener("change", sync);
     return () => query.removeEventListener("change", sync);
   }, []);
+
+  /**
+   * A browser that will not autoplay, as an iPhone in Low Power Mode will
+   * not, leaves the clip on its first frame and draws its own play button
+   * over it, a dark disc on the orb. play() rejects with NotAllowedError
+   * there, and the soul falls back to its still, which has no button. Any
+   * other rejection, such as an aborted load, is not a refusal and changes
+   * nothing. The effect runs again when the clip mounts after hydration.
+   */
+  const video = useRef<HTMLVideoElement>(null);
+  const [refused, setRefused] = useState(false);
+
+  useEffect(() => {
+    video.current?.play().catch((error: unknown) => {
+      if (error instanceof DOMException && error.name === "NotAllowedError") setRefused(true);
+    });
+  }, [still]);
 
   return (
     <span
@@ -125,9 +154,9 @@ export function HealdeskSoul({
       <span className="soul__ring" />
 
       <span className="soul__beat soul__edge">
-        {still ? (
+        {still || refused ? (
           <img
-            src="/brand/healdesk-soul.png"
+            src={CLIP.poster}
             alt=""
             width={size}
             height={size}
@@ -136,6 +165,7 @@ export function HealdeskSoul({
           />
         ) : (
           <video
+            ref={video}
             className="soul__orb"
             width={size}
             height={size}
@@ -144,12 +174,12 @@ export function HealdeskSoul({
             loop
             playsInline
             preload="auto"
-            poster="/brand/healdesk-soul.png"
+            poster={CLIP.poster}
             aria-hidden
             tabIndex={-1}
           >
-            <source src="/brand/healdesk-soul.webm" type="video/webm" />
-            <source src="/brand/healdesk-soul.mp4" type="video/mp4" />
+            <source src={CLIP.webm} type="video/webm" />
+            <source src={CLIP.mp4} type="video/mp4" />
           </video>
         )}
       </span>

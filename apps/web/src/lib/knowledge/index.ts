@@ -80,7 +80,29 @@ const entryVoicePlan = cheapestVoicePlan();
  * good and direct booking is stated plainly; src/lib/demo-copy.test.ts holds
  * both.
  */
-export const ROOT_KNOWLEDGE = `
+/**
+ * The one objection whose answer depends on where the conversation is
+ * happening. In the chat demo the proof is the phone panel beside it; on
+ * AYA's demo call the visitor is already on the phone with her, and offering
+ * to place a call they are on is the contradiction this split removes.
+ */
+const ROBOTIC_ANSWER = {
+  chat: `Agree that a bad one does, then stop arguing and offer to prove it: the
+      phone panel on this page can place one demo call to them, because they
+      asked. Never offer a RECORDING, none exists, and promising one is a
+      thing we cannot deliver on. The live call is the better answer anyway.`,
+  call: `Agree that a bad one does, then let this call answer it: offer the
+      role-play, where you are their front desk and they are the patient.
+      Never offer a recording, none exists.`,
+} as const;
+
+export type KnowledgeSurface = keyof typeof ROBOTIC_ANSWER;
+
+export function rootKnowledge(surface: KnowledgeSurface): string {
+  return ROOT_TEMPLATE.replace("{{ROBOTIC_ANSWER}}", ROBOTIC_ANSWER[surface]);
+}
+
+const ROOT_TEMPLATE = `
 HOW A CLINIC FRONT DESK LOSES MONEY
   A front desk cannot answer while it is checking someone in, on another line,
   or gone for the day. Those calls do not queue, the caller rings the next
@@ -116,7 +138,7 @@ WHAT HEALDESK ACTUALLY DOES
   Setup is about fifteen minutes of the clinic's time, and each channel goes
   live on its own: website chat once the snippet is on the site, Instagram and
   Messenger once connected, WhatsApp once the clinic's WhatsApp account has a
-  payment method, the phone once call forwarding is set, usually the same day.
+  payment method, the phone once call forwarding is set.
   Call forwarding is a setting the clinic can undo in one step. No number to
   port, no phone system to replace, no hardware.
 
@@ -140,10 +162,7 @@ HANDLING THE OBJECTIONS THAT ACTUALLY COME UP
       Ask what happens at 6pm, or when two people ring at once. Nobody misses
       the calls they know about. That is what makes this hard to see.
   "It'll sound robotic."
-      Agree that a bad one does, then stop arguing and offer to prove it: the
-      phone panel on this page can place one demo call to them, because they
-      asked. Never offer a RECORDING, none exists, and promising one is a
-      thing we cannot deliver on. The live call is the better answer anyway.
+      {{ROBOTIC_ANSWER}}
   "We already use an answering service."
       Ask whether it books into their calendar or takes a message someone rings
       back tomorrow. The gap between those two is the entire product.
@@ -151,9 +170,9 @@ HANDLING THE OBJECTIONS THAT ACTUALLY COME UP
       Agree completely. The agent's job is to get them to a person sooner, not
       instead, and the current alternative is voicemail, which is nobody.
   "Is this HIPAA safe?"
-      We sign a business associate agreement with every clinic and handle
-      patient data under it. Say that plainly and stop there; do not claim
-      certifications that do not exist for anyone.
+      We sign a business associate agreement and handle patient data under
+      it. Say that plainly and stop there; do not claim certifications that
+      do not exist for anyone.
   "How much?"
       Packages start at ${usd.format(entryPlan.monthlyUsd)} a month plus a
       one-time ${usd.format(entryPlan.setupFeeUsd)} setup fee for chat alone; the
@@ -164,6 +183,9 @@ HANDLING THE OBJECTIONS THAT ACTUALLY COME UP
       At a typical aesthetics ticket that is one or two booked appointments a
       month to break even, say the arithmetic, do not just assert the value.
 `.trim();
+
+/** The chat demo's root layer, worded exactly as it was before the split. */
+export const ROOT_KNOWLEDGE = rootKnowledge("chat");
 
 /**
  * Compose the knowledge for one conversation.

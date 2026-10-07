@@ -1,10 +1,9 @@
 import {
-  annualTotalUsd,
-  firstInvoiceUsd,
   getPlan,
   getPricingCard,
   OVERAGE_RATES_PROVISIONAL,
   plans,
+  planStartSentence,
   recurringUsd,
 } from "@healdesk/catalog";
 import { describe, expect, test } from "vitest";
@@ -22,54 +21,38 @@ import {
 /**
  * The number on the pay button.
  *
- * Step 6 promises "Pay $X and start setup", and X has to be what Stripe's
- * first invoice will actually carry: the first period plus the one-time setup
- * fee, nothing else. The breakdown above the button is the same arithmetic
- * shown as two lines and a total, so the two are checked against each other
- * here as well as against the catalog, for every package and both intervals.
- * A card that says $894 above a button that charges $397 is the failure this
- * guards against, and it is a quiet one: both numbers look plausible.
+ * The deferred start (lib/billing.ts): Stripe's first invoice carries the
+ * one-time setup fee and a $0 monthly line, so "Pay $X and start setup" must
+ * be the setup fee and nothing else. The plan's own price starts the day AYA
+ * first answers a patient, said in the catalog's one sentence. A button that
+ * charged the setup fee under a breakdown adding the first month would be
+ * the quiet failure this guards against: both numbers look plausible.
  */
 describe("due today", () => {
-  test.each(plans.map((plan) => [plan.id, plan] as const))(
-    "%s billed monthly is the monthly price plus the setup fee",
-    (_id, plan) => {
-      const due = dueToday(plan, "month");
-      expect(due.recurringUsd).toBe(plan.monthlyUsd);
+  test.each(plans.flatMap((plan) => (["month", "year"] as const).map((interval) => [plan.id, interval, plan] as const)))(
+    "%s %s: today is the setup fee alone, and the plan starts at its first answer",
+    (_id, interval, plan) => {
+      const due = dueToday(plan, interval);
       expect(due.setupFeeUsd).toBe(plan.setupFeeUsd);
-      expect(due.totalUsd).toBe(plan.monthlyUsd + plan.setupFeeUsd);
-      expect(due.totalUsd).toBe(firstInvoiceUsd(plan, "month"));
-      // The lines add up to the total: the breakdown cannot disagree with it.
-      expect(due.recurringUsd + due.setupFeeUsd).toBe(due.totalUsd);
-      expect(due.periodLabel).toBe("First month");
-    },
-  );
-
-  test.each(plans.map((plan) => [plan.id, plan] as const))(
-    "%s billed annually is twelve months at the annual rate plus the setup fee",
-    (_id, plan) => {
-      const due = dueToday(plan, "year");
-      expect(due.recurringUsd).toBe(plan.annualMonthlyUsd * 12);
-      expect(due.recurringUsd).toBe(annualTotalUsd(plan));
-      expect(due.totalUsd).toBe(plan.annualMonthlyUsd * 12 + plan.setupFeeUsd);
-      expect(due.totalUsd).toBe(firstInvoiceUsd(plan, "year"));
-      expect(due.recurringUsd + due.setupFeeUsd).toBe(due.totalUsd);
-      expect(due.periodLabel).toBe("First year");
+      expect(due.totalUsd).toBe(plan.setupFeeUsd);
+      expect(due.planStart).toBe(planStartSentence(plan, interval));
+      expect(due.planStart).toMatch(/starts the day AYA first answers a patient\.$/);
     },
   );
 
   test("the concrete figures for the entry package", () => {
     const plan = getPlan("chat-web")!;
-    expect(dueToday(plan, "month").totalUsd).toBe(397 + 497);
-    expect(dueToday(plan, "year").totalUsd).toBe(317 * 12 + 497);
+    expect(dueToday(plan, "month").totalUsd).toBe(497);
+    expect(dueToday(plan, "month").planStart).toBe("Monthly billing ($397) starts the day AYA first answers a patient.");
+    expect(dueToday(plan, "year").planStart).toBe(
+      `Annual billing ($${(317 * 12).toLocaleString("en-US")} a year) starts the day AYA first answers a patient.`,
+    );
   });
 
-  test("the setup fee is charged once, so renewal is the recurring amount alone", () => {
+  test("the plan's price is quoted per period, from the catalog", () => {
     for (const plan of plans) {
-      const monthly = plan.monthlyUsd.toLocaleString("en-US");
-      expect(dueToday(plan, "month").renewsAt).toBe(`$${monthly}/mo`);
-      const annual = recurringUsd(plan, "year").toLocaleString("en-US");
-      expect(dueToday(plan, "year").renewsAt).toBe(`$${annual}/yr`);
+      expect(dueToday(plan, "month").planPrice).toBe(`$${plan.monthlyUsd.toLocaleString("en-US")}/mo`);
+      expect(dueToday(plan, "year").planPrice).toBe(`$${recurringUsd(plan, "year").toLocaleString("en-US")}/yr`);
     }
   });
 
@@ -135,28 +118,30 @@ describe("package cards", () => {
     ]);
   });
 
-  test("the overage line quotes each package's own rate", () => {
+  test("the overage line quotes each package's own price for a block of 100", () => {
+    // Billed per started block since 6 October 2026 (docs/v1-product-spec.md,
+    // "Overage prices"); the footnote under the cards says a started block is
+    // billed whole.
     if (OVERAGE_RATES_PROVISIONAL) return;
-    expect(overageLine(getPlan("chat-web")!)).toContain("$0.40/conversation");
-    expect(overageLine(getPlan("chat-dual")!)).toContain("$0.30/conversation");
-    expect(overageLine(getPlan("voice")!)).toContain("$0.80/min");
-    expect(overageLine(getPlan("complete")!)).toContain("$0.80/min");
-    expect(overageLine(getPlan("complete")!)).toContain("$0.30/conversation");
+    expect(overageLine(getPlan("chat-web")!)).toBe("$40 per block of 100 conversations");
+    expect(overageLine(getPlan("chat-meta")!)).toBe("$40 per block of 100 conversations");
+    expect(overageLine(getPlan("chat-dual")!)).toBe("$30 per block of 100 conversations");
+    expect(overageLine(getPlan("voice")!)).toBe("$80 per block of 100 minutes");
+    expect(overageLine(getPlan("complete")!)).toBe(
+      "$80 per block of 100 minutes · $30 per block of 100 conversations",
+    );
   });
 
-  test("no overage number is printed while the rates are provisional", () => {
+  test("no overage number is printed while the rates are provisional, and never a per-unit rate", () => {
     for (const plan of plans) {
       const line = overageLine(plan);
       if (OVERAGE_RATES_PROVISIONAL) {
         expect(line).toBeNull();
       } else {
         expect(line).not.toBeNull();
-        if (plan.overagePerVoiceMinuteUsd === 0) {
-          expect(line).not.toContain("/min");
-        }
-        if (plan.overagePerChatConversationUsd === 0) {
-          expect(line).not.toContain("/conversation");
-        }
+        expect(line).not.toMatch(/\/min|\/conversation|per minute|per conversation|\$0\./);
+        if (!plan.channels.voice) expect(line).not.toContain("minutes");
+        if (!plan.channels.web && !plan.channels.meta) expect(line).not.toContain("conversations");
       }
     }
   });

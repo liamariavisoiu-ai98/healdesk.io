@@ -192,7 +192,9 @@
 
   /* The whole site at 90%, as if the visitor had zoomed out one step. Not on
      a phone: the full-screen modal is sized in dvh, which zoom would leave 10%
-     short, and iOS Safari zooms the page in on focus of any input under 16px. */
+     short, and iOS Safari zooms the page in on focus of any input under 16px.
+     The Calendly frame undoes this with zoom: calc(1 / 0.9) (.hd-meeting-frame
+     below); change both together. */
   @media (min-width: 640px) {
     html {
       zoom: 0.9;
@@ -328,6 +330,90 @@
     max-height: 100dvh;
     height: 100dvh;
   }
+
+  /* Review and pay keeps the terms tick-box and Pay in a bar stuck to the
+     bottom of a phone's screen (ReviewStep.tsx). Whichever box scrolls, the
+     page or the modal, leaves room for it, so a link or field focused from
+     the keyboard is scrolled clear of the bar rather than behind it. */
+  html:has(.hd-pay-bar),
+  .hd-modal-scroll:has(.hd-pay-bar) {
+    scroll-padding-bottom: 10rem;
+  }
+}
+
+/*
+ * "Get in touch": Calendly's scheduler in a frame that fills the dialog under
+ * its header (GetInTouch.tsx), with a fixed height, because a frame cannot
+ * size itself to its content; the scheduler scrolls inside it. On a phone the
+ * rules above make the dialog the whole screen, and these stay out of the way.
+ *
+ * Above 640px the frame undoes the site's 0.9 zoom. Every engine hands that
+ * zoom on to a framed page as a device pixel ratio of 0.9, and WebKit, which
+ * is every browser on an iPad or an iPhone, then lays the page out 10%
+ * narrower than the frame: Calendly sat to the left of a blank strip. At
+ * zoom 1 the scheduler draws at its own size everywhere, so the dialog is
+ * sized for what it draws: 1178px draws 1060 wide, past the 1000 Calendly
+ * needs before it puts the call's details beside the calendar, and 840px
+ * draws 756 tall, about the height of that layout. The limits are percentages
+ * of the viewport, which a modal dialog is positioned against, rather than vw
+ * and dvh, which the zoom draws at 90%.
+ */
+@media (min-width: 640px) {
+  .hd-modal--meeting {
+    width: min(1178px, 100% - 2rem);
+    height: min(840px, 100% - 2rem);
+    max-height: none;
+  }
+
+  .hd-meeting-frame iframe {
+    zoom: calc(1 / 0.9);
+  }
+}
+
+/* Under 1029px wide the dialog gives Calendly less than 1000, and it stacks
+   the details above the calendar: a page 889px tall before a day is picked,
+   against 658 side by side. There the dialog takes the screen's height, up to
+   1100px (990 drawn), which on a tablet held upright shows the whole page
+   without a scroll inside the frame. */
+@media (min-width: 640px) and (max-width: 1028px) {
+  .hd-modal--meeting {
+    height: min(1100px, 100% - 2rem);
+  }
+}
+
+/* A phone on its side is wider than 640px and under 450px tall, and the
+   floating card left the scheduler about 200px of frame. A screen that short
+   gets all of it, as a phone held upright does. */
+@media (min-width: 640px) and (max-height: 500px) {
+  .hd-modal--meeting {
+    inset: 0;
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    margin: 0;
+    border-radius: 0;
+  }
+}
+
+.hd-meeting {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.hd-meeting-frame {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.hd-meeting-frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -851,6 +937,211 @@
 
 .soul--voice .soul__ring {
   animation: soul-emit 1.7s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
+}
+
+/* =============================================================================
+   The hero portrait
+   =============================================================================
+   AYA in profile, with the logos of the tools she works through down her left
+   side. See HeroPortrait.tsx for what is there, where and why.
+
+   ## Laid out
+
+   From 1024px the photo is the hero's background: its right edge meets the
+   screen's, so the crop through her hair and blazer is the screen's edge
+   rather than a line in the page, and the copy sits in the site's column on
+   the photo's white ground, which is the page's own #fdfdfd. The hero stops
+   growing at 1600px, the width it has on a 1440px screen with the zoom, so on
+   a wider one she stays beside the copy instead of drifting off to the
+   screen's edge; there the photo's right edge fades out instead.
+
+   Below 1024px the copy comes first and the photo follows, cropped to its
+   right 70%: her, and the logos at a size a phone can see, without the empty
+   ground to her left. It stops growing at 860px wide, and at 133svh, so on a
+   tablet, a window or a phone on its side she is not taller than the screen.
+
+   The photo stops below her bust, so it fades out over its last fifth rather
+   than cutting her off along a line.
+
+   ## Shares of the photo, in percentages
+
+   The logos' places and size are shares of the photo's box, so the
+   composition is the same at every size and nothing re-lays out in between.
+   Percentages, not container units, which Safari would scale twice under the
+   site's 0.9 zoom.
+
+   ## What moves
+
+   Each logo hops now and then (the bounce), on the compositor. On hover it
+   slides away from her along its own bearing by a quarter of its size. The
+   hover is caught by the node, which does not move and reaches a quarter
+   past the logo on every side, so a logo can slide out from under a pointer
+   resting on its inner edge without losing the hover and sliding straight
+   back. Devices without hover never get it: on a phone a tap would leave the
+   logo stuck out. Scrolled out of reach the logos rest: `data-paused` holds
+   the bounce. Reduced motion: the global rule runs every animation once in
+   0.01ms, so each logo comes to rest in its place.
+   ============================================================================= */
+
+.hero {
+  display: grid;
+  width: 100%;
+  max-width: 1600px;
+  margin-inline: auto;
+}
+
+.hero__frame {
+  overflow: hidden;
+}
+
+@media (max-width: 1023px) {
+  /* The right 70% of the photo, at most 860px or 133svh wide, and always
+     against the right edge: the margin is whatever the width leaves over,
+     negative while it crops. */
+  .hero__frame .portrait {
+    width: min(143%, 860px, 133svh);
+    margin-left: calc(100% - min(143%, 860px, 133svh));
+  }
+}
+
+@media (min-width: 1024px) {
+  .hero > * {
+    grid-area: 1 / 1;
+  }
+
+  .hero__frame {
+    justify-self: end;
+    width: min(74%, 1180px);
+  }
+
+  .hero__copy {
+    position: relative;
+    align-self: center;
+  }
+}
+
+/* Wider than the hero, so the photo ends inside the page: through her hair
+   and blazer on the right, faded out like its bottom edge. */
+@media (min-width: 1441px) {
+  .hero__frame {
+    -webkit-mask-image: linear-gradient(to left, transparent, #000 12%);
+    mask-image: linear-gradient(to left, transparent, #000 12%);
+  }
+}
+
+.portrait {
+  position: relative;
+  aspect-ratio: 1672 / 941;
+  /* A logo's size, a share of the photo's width. At its 24px floor, on a 320px
+     phone, it is 5.2% of the photo, and the closest two still clear. */
+  --portrait-logo: clamp(24px, 5%, 60px);
+  /* How far a hovered logo slides out, as a share of its own size. */
+  --portrait-reach: 0.25;
+}
+
+.portrait__photo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  -webkit-mask-image: linear-gradient(to bottom, #000 80%, transparent);
+  mask-image: linear-gradient(to bottom, #000 80%, transparent);
+  user-select: none;
+}
+
+.portrait__logos {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  pointer-events: none;
+}
+
+/* Where the logo sits, and the hover target. It never moves. */
+.portrait__node {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  width: var(--portrait-logo);
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  pointer-events: auto;
+}
+
+/* The target reaches past the logo by as far as the logo slides. */
+.portrait__node::before {
+  content: "";
+  position: absolute;
+  inset: calc(var(--portrait-reach) * -100%);
+}
+
+.portrait__reach {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transition: transform 550ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (hover: hover) {
+  /* Away from her along the bearing. The percentages are of the logo's own size. */
+  .portrait__node:hover .portrait__reach {
+    transform: translate(
+      calc(var(--dx) * var(--portrait-reach) * 100%),
+      calc(var(--dy) * var(--portrait-reach) * 100%)
+    );
+  }
+}
+
+.portrait__bounce {
+  display: block;
+  width: 100%;
+  height: 100%;
+  animation: portrait-bounce var(--bounce-time) linear var(--drift-delay) infinite;
+}
+
+.portrait[data-paused] .portrait__bounce {
+  animation-play-state: paused;
+}
+
+.portrait__logo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* It follows the logo's own alpha, which is why the backgrounds were cut
+     out: a logo on a white square casts a square shadow. */
+  filter: drop-shadow(0 6px 9px rgb(23 42 58 / 0.16));
+  user-select: none;
+}
+
+/*
+ * A hop, a smaller one, and a long rest: alive, not busy.
+ *
+ * Each step carries its own easing, slowing into the top of a hop and
+ * speeding into the landing, which is what makes it read as a bounce rather
+ * than a float. Heights are shares of the logo's own, so a phone's smaller
+ * logos hop less.
+ */
+@keyframes portrait-bounce {
+  0% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
+  }
+  10% {
+    transform: translateY(-12%);
+    animation-timing-function: cubic-bezier(0.32, 0, 0.67, 0);
+  }
+  20% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
+  }
+  25% {
+    transform: translateY(-3.5%);
+    animation-timing-function: cubic-bezier(0.32, 0, 0.67, 0);
+  }
+  30%,
+  100% {
+    transform: translateY(0);
+  }
 }
 
 /* =============================================================================

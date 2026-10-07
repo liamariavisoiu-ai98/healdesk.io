@@ -23,7 +23,8 @@
  *     fonts.googleapis.com / fonts.gstatic.com here, and adding them would be
  *     a regression, not a fix.
  *   - Video: the niche cards and HealdeskSoul play from /public (webm + mp4),
- *     and HealdeskSoul's poster is a local PNG. `blob:` is allowed in media-src
+ *     and HealdeskSoul's poster is a local PNG, as are the hero's photo and
+ *     logos, local WebPs. `blob:` is allowed in media-src
  *     because MediaSource-backed playback surfaces as a blob: URL and it costs
  *     nothing to permit.
  *   - No WebAssembly and no blob: fetches. The 3D hero needed both
@@ -42,6 +43,13 @@
  *     both in connect-src). Nothing else; docs/architecture.md's "No conversion
  *     attribution to ad platforms" is enforced here as much as in layout.tsx:
  *     a tag manager or pixel added without touching this file is blocked.
+ *   - Scheduling: "Get in touch" in the navbar frames Calendly's booking page
+ *     (calendly.com) in a modal, on every page that has the navbar, so
+ *     calendly.com is the one origin frame-src allows site-wide. The frame is
+ *     built by GetInTouch.tsx, not by Calendly's widget.js, so script-src gains
+ *     nothing; what Calendly's page loads inside the frame is under its own
+ *     policy, not this one. The origin must match site.meeting.url, and a test
+ *     holds the two together.
  *   - The voice demo: scripted playback plus a POST to /api/callback that has
  *     AYA ring the visitor. It never opens the microphone, which is why
  *     Permissions-Policy says `microphone=()` rather than `(self)`.
@@ -145,12 +153,24 @@ export const POSTHOG_ASSETS_ORIGIN = "https://us-assets.i.posthog.com";
 export const POSTHOG_INGEST_ORIGIN = "https://us.i.posthog.com";
 /**
  * Google Sheets, framed by /admin/crm and by nothing else. The public site
- * keeps `frame-src 'none'`; next.config.ts applies this to `/admin/:path*`
- * only, through the `frameSources` option below.
+ * does not frame it; next.config.ts applies this to `/admin/:path*` only,
+ * through the `frameSources` option below.
  */
 export const GOOGLE_DOCS_ORIGIN = "https://docs.google.com";
+/** Calendly's booking page, framed by "Get in touch" on every page with the navbar. */
+export const CALENDLY_ORIGIN = "https://calendly.com";
 /** Stripe-hosted Checkout, the only place a form on this site may ever post besides itself. */
 export const STRIPE_CHECKOUT_ORIGIN = "https://checkout.stripe.com";
+
+/**
+ * The personalised demo's browser call (src/app/demo, retell-client-js-sdk 3).
+ * The SDK's WebRTC signalling goes to api.retellai.com (`/webrtc-proxy/…`)
+ * with the call's short-lived access token, and its LiveKit transport, the
+ * fallback when Retell answers with `transport: "livekit"`, opens a websocket
+ * to a *.livekit.cloud room. The audio itself is WebRTC, which CSP does not
+ * govern. next.config.ts applies these to `/demo/:path*` only.
+ */
+export const RETELL_CALL_ORIGINS = ["https://api.retellai.com", "wss://*.livekit.cloud", "https://*.livekit.cloud"] as const;
 
 /**
  * The Vercel Toolbar that Vercel injects into PREVIEW deployments for
@@ -199,11 +219,21 @@ export type CspDirective = (typeof CSP_DIRECTIVES)[number];
 /**
  * Per-route variations of the policy. Only one exists: the operator console
  * frames the marketing Sheet at /admin/crm, so that route family may frame
- * docs.google.com. Everything else on the site embeds nothing.
+ * docs.google.com. Everything else on the site frames Calendly and nothing
+ * more.
  */
 export type CspOptions = {
-  /** Extra `frame-src` origins. Empty or absent keeps `frame-src 'none'`. */
+  /** Extra `frame-src` origins, beside Calendly's. */
   frameSources?: readonly string[];
+  /** Extra `connect-src` origins: the personalised demo's browser call. */
+  connectSources?: readonly string[];
+  /**
+   * Extra `img-src` sources. The personalised demo shows the clinic's own
+   * logo from the clinic's own site, which can be any https host.
+   */
+  imageSources?: readonly string[];
+  /** Allow the microphone for this route family (`microphone=(self)`). */
+  microphone?: boolean;
 };
 
 /**
@@ -218,7 +248,11 @@ export function cspDirectives(
 ): Record<CspDirective, readonly string[]> {
   const dev = env.nodeEnv === "development";
   const preview = env.vercelEnv === "preview";
-  const frames = [...(preview ? VERCEL_TOOLBAR.frame : []), ...(options.frameSources ?? [])];
+  const frames = [
+    ...(preview ? VERCEL_TOOLBAR.frame : []),
+    CALENDLY_ORIGIN,
+    ...(options.frameSources ?? []),
+  ];
 
   const self = "'self'";
 
@@ -234,7 +268,7 @@ export function cspDirectives(
     ],
     "style-src": [self, "'unsafe-inline'", ...(preview ? VERCEL_TOOLBAR.style : [])],
     // data: for the inline SVGs the components build, blob: for canvas exports.
-    "img-src": [self, "data:", "blob:", ...(preview ? VERCEL_TOOLBAR.img : [])],
+    "img-src": [self, "data:", "blob:", ...(preview ? VERCEL_TOOLBAR.img : []), ...(options.imageSources ?? [])],
     // next/font and the local Ashford woff2. No CDN.
     "font-src": [self, ...(preview ? VERCEL_TOOLBAR.font : [])],
     // The niche and soul videos from /public; blob: for MediaSource playback.
@@ -246,10 +280,12 @@ export function cspDirectives(
       POSTHOG_INGEST_ORIGIN,
       POSTHOG_ASSETS_ORIGIN,
       ...(preview ? VERCEL_TOOLBAR.connect : []),
+      ...(options.connectSources ?? []),
     ],
-    // The site embeds nothing. Stripe Checkout is a redirect, not an iframe.
-    // The one exception is opt-in per route (`frameSources`): /admin/crm.
-    "frame-src": frames.length > 0 ? frames : ["'none'"],
+    // Calendly's booking page, in the "Get in touch" modal, and nothing else.
+    // Stripe Checkout is a redirect, not an iframe. One route family adds an
+    // origin of its own (`frameSources`): /admin/crm.
+    "frame-src": frames,
     "object-src": ["'none'"],
     "base-uri": [self],
     "form-action": [self, STRIPE_CHECKOUT_ORIGIN],
@@ -287,7 +323,10 @@ export const STRICT_TRANSPORT_SECURITY = "max-age=63072000; includeSubDomains; p
 /**
  * Nothing on the site needs any of these. The voice demo is scripted playback
  * and the live call is placed by Retell to the visitor's PHONE, so the
- * browser never opens a microphone. Payment is Stripe-hosted, so the Payment
+ * browser never opens a microphone. The one exception is opt-in per route:
+ * a personalised demo page (/demo/…) lets its visitor talk to the clinic's
+ * assistant from the browser, so that route family alone gets
+ * `microphone=(self)` (`permissionsPolicy({ microphone: true })`). Payment is Stripe-hosted, so the Payment
  * Request API is never used here either.
  *
  * `interest-cohort=()` (FLoC opt-out) is deliberately not included: Chrome
@@ -295,6 +334,10 @@ export const STRICT_TRANSPORT_SECURITY = "max-age=63072000; includeSubDomains; p
  * noise in exactly the console session the report-only rollout depends on.
  */
 export const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=()";
+
+export function permissionsPolicy(options: CspOptions = {}): string {
+  return options.microphone ? PERMISSIONS_POLICY.replace("microphone=()", "microphone=(self)") : PERMISSIONS_POLICY;
+}
 
 /**
  * The full header list for `headers()` in next.config.ts.
@@ -315,7 +358,7 @@ export function securityHeaders(env: SecurityHeadersEnv, options: CspOptions = {
     { key: "Strict-Transport-Security", value: STRICT_TRANSPORT_SECURITY },
     { key: "X-Content-Type-Options", value: "nosniff" },
     { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-    { key: "Permissions-Policy", value: PERMISSIONS_POLICY },
+    { key: "Permissions-Policy", value: permissionsPolicy(options) },
     // Superseded by frame-ancestors, kept for the scanners that still look.
     { key: "X-Frame-Options", value: "DENY" },
     // Nothing here opens a window it needs a handle to; Stripe is a full

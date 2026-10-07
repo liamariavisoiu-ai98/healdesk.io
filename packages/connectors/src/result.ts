@@ -48,10 +48,11 @@ export type ConnectorError = {
    * status word (`unauthorized`, `conflict`), or ours (`timeout`, `network`,
    * `emails_or_workflows_on`). Never a response body, never PHI.
    *
-   * For a write, `timeout`, `network` and `unconfirmed` (a 2xx whose body
-   * could not be read) mean "the outcome is unknown": read back before
-   * retrying. Everything else means the platform answered, and its answer
-   * was no.
+   * For a write, `timeout`, `network` and `unconfirmed` mean "the outcome is
+   * unknown": read back before retrying. `unconfirmed` covers a 2xx whose
+   * body could not be read, and a 5xx, since a platform can commit a write
+   * and then fail before it answers. Everything else means the platform
+   * answered, and its answer was no.
    */
   reason?: string;
 };

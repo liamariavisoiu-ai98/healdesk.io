@@ -151,6 +151,91 @@ describeDb("tenant isolation", () => {
     }
   });
 
+  test("the channel and closure tables (0044) show a clinic only its own rows, and take no write into another", async () => {
+    const alpha = await seedClinic("alpha-ch");
+    const beta = await seedClinic("beta-ch");
+    for (const c of [alpha, beta]) {
+      await inTenant(c.clinicId, async (client) => {
+        await client.query(`insert into clinic_channels (clinic_id, channel) values ($1, 'web')`, [
+          c.clinicId,
+        ]);
+        await client.query(
+          `insert into channel_events (clinic_id, channel, kind) values ($1, 'web', 'first_answer')`,
+          [c.clinicId],
+        );
+        await client.query(
+          `insert into clinic_closures (clinic_id, closed_on) values ($1, '2026-12-25')`,
+          [c.clinicId],
+        );
+      });
+    }
+
+    for (const table of ["clinic_channels", "channel_events", "clinic_closures"]) {
+      const seen = await asTenant(alpha.clinicId, async (c) => {
+        const result = await c.query(`select clinic_id from ${table}`);
+        return result.rows;
+      });
+      expect(seen, table).toEqual([{ clinic_id: alpha.clinicId }]);
+
+      const { rows } = await getAppPool().query<{ count: number }>(
+        `select count(*)::int as count from ${table}`,
+      );
+      expect(rows[0]!.count, `${table} leaked rows with no tenant set`).toBe(0);
+    }
+
+    for (const insert of [
+      `insert into clinic_channels (clinic_id, channel) values ($1, 'voice')`,
+      `insert into channel_events (clinic_id, channel, kind) values ($1, 'voice', 'live')`,
+      `insert into clinic_closures (clinic_id, closed_on) values ($1, '2026-12-26')`,
+    ]) {
+      await expect(
+        asTenant(alpha.clinicId, (c) => c.query(insert, [beta.clinicId])),
+      ).rejects.toMatchObject({ code: "42501" });
+    }
+  });
+
+  test("the billing request ledger (0050) shows a clinic only its own rows, and takes no write into another", async () => {
+    const alpha = await seedClinic("alpha-req");
+    const beta = await seedClinic("beta-req");
+    for (const c of [alpha, beta]) {
+      await inTenant(c.clinicId, async (client) => {
+        await client.query(
+          `insert into billing_requests (clinic_id, kind, reason) values ($1, 'plan_start', 'first_answer')`,
+          [c.clinicId],
+        );
+      });
+    }
+
+    const seen = await asTenant(alpha.clinicId, async (c) => {
+      const result = await c.query(`select clinic_id from billing_requests`);
+      return result.rows;
+    });
+    expect(seen).toEqual([{ clinic_id: alpha.clinicId }]);
+
+    const { rows } = await getAppPool().query<{ count: number }>(
+      `select count(*)::int as count from billing_requests`,
+    );
+    expect(rows[0]!.count, "billing_requests leaked rows with no tenant set").toBe(0);
+
+    await expect(
+      asTenant(alpha.clinicId, (c) =>
+        c.query(
+          `insert into billing_requests (clinic_id, kind, reason) values ($1, 'close_setup', 'deadline')`,
+          [beta.clinicId],
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "42501" });
+    // And a tenant cannot reach another's row to rewrite it: the update finds nothing.
+    const moved = await asTenant(alpha.clinicId, async (c) => {
+      const result = await c.query(
+        `update billing_requests set next_attempt_at = now() where clinic_id = $1 returning id`,
+        [beta.clinicId],
+      );
+      return result.rows;
+    });
+    expect(moved).toEqual([]);
+  });
+
   test("the tenant setting does not survive into the next borrower of a pooled connection", async () => {
     const clinic = await seedClinic("pooled");
 

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { clinicVoiceVariables } from "@/lib/demo/clinic-prompts";
+import { getDemoSession, isDemoActive, isDemoSlug, profileOf } from "@/lib/demo/sessions";
 import { GATE_COOKIE, verifyGateToken } from "@/lib/gate";
 import { markCallPlaced, recordCallConsent } from "@/lib/leads";
 import { canContactProspect } from "@/lib/prospect-consent";
@@ -16,7 +18,11 @@ export const dynamic = "force-dynamic";
  * POST /api/callback, "have AYA call me" on the voice demo.
  *
  * A demo call to a clinic owner or staff member who asked for one, placed
- * through Retell to AYA's demo agent (see lib/retell-demo-call.ts).
+ * through Retell to AYA's demo agent (see lib/retell-demo-call.ts), or, when
+ * the request names a personalised demo (`demoSlug`), to the clinic-demo
+ * agent speaking as that clinic (lib/demo). Same checks either way: a
+ * personalised demo page is still a stranger's number typed into a form,
+ * and the slug proves which demo, not who is holding the phone.
  * It is not a patient call-back: the product is inbound only and never dials
  * a patient, and the panel that posts here says so.
  *
@@ -101,12 +107,13 @@ export async function POST(request: Request): Promise<NextResponse> {
     return fail("Invalid request body.", 400);
   }
 
-  const { phone, consent, consentVersion, specialtyId, name } = (body ?? {}) as {
+  const { phone, consent, consentVersion, specialtyId, name, demoSlug } = (body ?? {}) as {
     phone?: unknown;
     consent?: unknown;
     consentVersion?: unknown;
     specialtyId?: unknown;
     name?: unknown;
+    demoSlug?: unknown;
   };
 
   // 2. Consent, decided by the one gate every prospect contact passes
@@ -121,6 +128,18 @@ export async function POST(request: Request): Promise<NextResponse> {
   // 3. Shape.
   const parsed = normalizePhone(phone);
   if (!parsed.ok) return fail(parsed.reason, 400);
+
+  // 3b. A personalised demo, when named, must exist and be inside its week.
+  //     Checked before any budget is charged: an expired link costs nobody a call.
+  let demo: { slug: string; profile: NonNullable<ReturnType<typeof profileOf>> } | null = null;
+  if (demoSlug !== undefined) {
+    if (!isDemoSlug(demoSlug)) return fail("That demo doesn't exist.", 404);
+    const session = await getDemoSession(demoSlug);
+    const profile = session ? profileOf(session) : null;
+    if (!session || !profile) return fail("That demo doesn't exist.", 404);
+    if (!isDemoActive(session)) return fail("This demo has expired.", 410);
+    demo = { slug: demoSlug, profile };
+  }
 
   // 4. Per-number limit. Checked here but CHARGED only after the call is
   //    actually placed, at the bottom of this handler.
@@ -198,11 +217,12 @@ export async function POST(request: Request): Promise<NextResponse> {
   console.info("[healdesk] callback requested", {
     consentId,
     specialty: specialty?.id,
+    demo: demo?.slug,
     consentVersion: decision.consentVersion,
     at: new Date().toISOString(),
   });
 
-  const config = readRetellDemoConfig();
+  const config = readRetellDemoConfig(demo ? "clinic" : "aya");
   if (!config.ok) {
     console.error(
       `[healdesk] callback requested but Retell is unconfigured: ${config.missing.join(", ")}`,
@@ -215,9 +235,15 @@ export async function POST(request: Request): Promise<NextResponse> {
     // The first name is spoken in the opening line ("Hi Sam"); with none it
     // falls back to "Hi there". The practice notes are the same knowledge the
     // chat demo uses for this specialty, so discovery asks the right things.
-    variables: voiceDemoVariables({ name: callerName, specialtyId: specialty?.id }),
+    // On a personalised demo, the clinic's name and website profile instead,
+    // and an opening line that says why their phone rang.
+    variables: demo
+      ? clinicVoiceVariables(demo.profile, "phone", callerName?.split(/\s+/)[0])
+      : voiceDemoVariables({ name: callerName, specialtyId: specialty?.id }),
     // For matching a call to its consent record; the agent never reads it.
-    metadata: { consent_id: consentId ?? "", source: "healdesk.io demo" },
+    metadata: demo
+      ? { consent_id: consentId ?? "", source: "healdesk.io personalised demo", demo_slug: demo.slug }
+      : { consent_id: consentId ?? "", source: "healdesk.io demo" },
     // One consent record, one call, however often the request is retried.
     idempotencyKey: consentId ?? undefined,
   });

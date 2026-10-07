@@ -117,15 +117,25 @@ describe("the uuid is not a credential here either", () => {
   });
 
   test("the timestamp window is closed in both directions", async () => {
-    const body = JSON.stringify({ agreementId: A });
-    const now = Math.floor(Date.now() / 1000);
+    // Date is frozen on a whole second. The test floors the clock to seconds
+    // and the route reads it in milliseconds, so on a live clock a second that
+    // ticked over in between put "now + 301" 300.x seconds ahead, inside the
+    // window, and the route served it.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-06T12:00:00.000Z"));
+    try {
+      const body = JSON.stringify({ agreementId: A });
+      const now = Math.floor(Date.now() / 1000);
 
-    const stale = await call(A, body, signedHeaders(body, now - 301));
-    const ahead = await call(A, body, signedHeaders(body, now + 301));
+      const stale = await call(A, body, signedHeaders(body, now - 301));
+      const ahead = await call(A, body, signedHeaders(body, now + 301));
 
-    expect(stale.status).toBe(401);
-    expect(ahead.status).toBe(401);
-    expect(selectSpy).not.toHaveBeenCalled();
+      expect(stale.status).toBe(401);
+      expect(ahead.status).toBe(401);
+      expect(selectSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("a valid signature repointed at another agreement is refused", async () => {

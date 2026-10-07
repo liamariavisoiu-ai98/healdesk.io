@@ -2,8 +2,8 @@ import { isMarketingStoreConfigured, sheetsClient, type SheetsClient } from "@/l
 import { COUNTERS, dataRange, ensureSheetSchema, recordToRow, rowRange, rowToRecord, type Counter } from "@/lib/sheets/schema";
 
 /**
- * Fixed-window rate limiter: per-instance memory, plus a shared row for the
- * two site-wide daily spend caps.
+ * Fixed-window rate limiter: per-instance memory, plus a shared row for each
+ * of the four site-wide daily spend caps.
  *
  * ## What is shared and what is not, and why
  *
@@ -18,12 +18,14 @@ import { COUNTERS, dataRange, ensureSheetSchema, recordToRow, rowRange, rowToRec
  * Routing sixteen counters through that would turn the sign-in throttle into
  * a sign-in outage.
  *
- * The two counters that bound the BILL rather than a visitor are different:
- * `chat:global:day` (api/chat) and `callback:global:day` (api/callback) cap
- * model turns and dialled calls per UTC day across the whole site, and a cap
- * that resets on every cold start is not a cap. Those two, and only those two
- * (`GLOBAL_CAP_KEYS`), are backed by the `counters` tab of the marketing
- * Sheet.
+ * The counters that bound the BILL rather than a visitor are different:
+ * `chat:global:day` (api/chat and the personalised demo's chat),
+ * `callback:global:day` (api/callback), `site-read:global:day`
+ * (api/clinic-site) and `webcall:global:day` (the personalised demo's browser
+ * calls) cap model turns, voice calls and website reads per UTC day across
+ * the whole site, and a cap that resets on every cold start is not a cap.
+ * Those four, and only those (`GLOBAL_CAP_KEYS`), are backed by the
+ * `counters` tab of the marketing Sheet.
  *
  * ## How the shared path works, and what it gets wrong on purpose
  *
@@ -60,8 +62,20 @@ export type RateLimitResult = {
   retryAfter: number;
 };
 
-/** The only keys that go through the Sheet. Anything else is per-instance memory. */
-export const GLOBAL_CAP_KEYS: ReadonlySet<string> = new Set(["chat:global:day", "callback:global:day"]);
+/**
+ * The only keys that go through the Sheet. Anything else is per-instance
+ * memory. `site-read:global:day` (api/clinic-site) caps the website reads at
+ * checkout, each of which is a model call. `webcall:global:day` (6 October
+ * 2026) caps the personalised demo's browser calls (api/demo/[slug]/retell),
+ * which spend the same voice minutes a dialled call does, under their own
+ * ceiling so a busy demo week cannot use up the homepage's "call me".
+ */
+export const GLOBAL_CAP_KEYS: ReadonlySet<string> = new Set([
+  "chat:global:day",
+  "callback:global:day",
+  "site-read:global:day",
+  "webcall:global:day",
+]);
 
 export function isGlobalCapKey(key: string): boolean {
   return GLOBAL_CAP_KEYS.has(key);
@@ -127,7 +141,7 @@ const shared = new Map<string, Shared>();
 let warnedNoStore = false;
 let lastErrorLogAt = 0;
 
-function useSharedStore(): boolean {
+function hasSharedStore(): boolean {
   if (isMarketingStoreConfigured()) return true;
   if (!warnedNoStore) {
     warnedNoStore = true;
@@ -251,7 +265,7 @@ export async function rateLimit(
   limit: number,
   windowMs: number,
 ): Promise<RateLimitResult> {
-  if (!isGlobalCapKey(key) || !useSharedStore()) return rateLimitInMemory(key, limit, windowMs);
+  if (!isGlobalCapKey(key) || !hasSharedStore()) return rateLimitInMemory(key, limit, windowMs);
   try {
     return await rateLimitShared(key, limit, windowMs);
   } catch (error) {
@@ -274,7 +288,7 @@ export async function rateLimit(
  * lock would be the wrong trade for a counter whose charge is deferred.
  */
 export async function isOverLimit(key: string, limit: number): Promise<boolean> {
-  if (!isGlobalCapKey(key) || !useSharedStore()) return isOverLimitInMemory(key, limit);
+  if (!isGlobalCapKey(key) || !hasSharedStore()) return isOverLimitInMemory(key, limit);
   try {
     const client = await counters();
     const now = Date.now();

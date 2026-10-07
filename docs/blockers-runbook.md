@@ -903,15 +903,24 @@ Because the key encodes the amount, a catalog price change cannot silently resol
 old price — it fails loudly with `No active Stripe price with lookup_key "…"` until the
 script is re-run.
 
-The metered overage prices are one per distinct rate on each meter — since 5 October
-2026, three prices on two meters: `healdesk_meter_voice_minutes_80` ($0.80 a minute),
-`healdesk_meter_chat_conversations_40` ($0.40 a conversation, the single-channel chat
-package) and `healdesk_meter_chat_conversations_30` ($0.30, every other package with
-chat). Like the package keys, each metered key encodes its rate, so a rate change makes a
-new price and the old one is reported STALE. They are created unconditionally; checkout
-attaches a package's own metered prices to a monthly Session unless
-`OVERAGE_RATES_PROVISIONAL` is set back to true. After the 5 October change, re-run the
-script before the next checkout: the new keys do not exist in Stripe until it has run.
+The metered overage prices are one per distinct rate on each meter — three prices on two
+meters, billed per started block of 100 since 6 October 2026:
+`healdesk_meter_voice_minutes_block100_8000` ($80 for each started block of 100 voice
+minutes), `healdesk_meter_chat_conversations_block100_4000` ($40 a block of 100
+conversations, the single-channel chat package) and
+`healdesk_meter_chat_conversations_block100_3000` ($30, every other package with chat).
+Each is package-priced: `per_unit` at the block price, with `transform_quantity` dividing
+the month's metered total by 100 and rounding up, so the app still reports single minutes
+and conversations. Like the package keys, each metered key encodes its block size and
+price, so a rate change makes a new price and the old one is reported STALE. The script
+archives only the per-unit prices of 5 October (`healdesk_meter_voice_minutes_80` and the
+two chat ones), once a meter's block prices exist; a subscription still carrying one keeps
+billing on it until apps/app's metered-item reconcile moves it onto the block price. The
+block prices are created unconditionally; checkout attaches a package's own metered prices
+to a monthly Session unless `OVERAGE_RATES_PROVISIONAL` is set back to true. After the 6
+October change, re-run the script together with the deploy that carries the block keys:
+the new keys do not exist in Stripe until it has run, and once it has run the per-unit
+keys an older deploy asks for are archived.
 
 ### Steps
 
@@ -927,9 +936,10 @@ script before the next checkout: the new keys do not exist in Stripe until it ha
    STRIPE_SECRET_KEY=sk_test_... npm run stripe:setup --workspace @healdesk/web
    ```
    The script is idempotent by lookup key: re-running finds each existing price, checks it
-   still matches the catalog, and leaves it alone. Nothing is ever archived, updated or
-   deleted. A catalog price *change* produces a new key and therefore a new price; the old
-   one stays active for subscriptions already on it and is reported as **STALE** for a
+   still matches the catalog, and leaves it alone. Nothing is deleted and no price amount
+   is ever updated; the one thing it archives is the per-unit metered prices of 5 October,
+   above. Any other catalog price *change* produces a new key and therefore a new price; the
+   old one stays active for subscriptions already on it and is reported as **STALE** for a
    human to archive once nobody is billing on it. Do not create products by hand in the
    Dashboard — the amount would then live in two places that can disagree.
 
@@ -1004,20 +1014,23 @@ script before the next checkout: the new keys do not exist in Stripe until it ha
 
 6. **Dashboard settings the code depends on.** The script prints these; they are not
    optional:
-   - **Customer Portal** (Settings → Billing → Customer portal): payment method and
-     invoice history ON; cancel subscription ON but **"at end of billing period" only**;
-     switch plan **OFF** — Stripe's portal cannot update a subscription that carries metered
-     prices, and a plan change must swap the metered items to the new package's rates too
-     (`planMeteredPrices` in the catalog). Until healdesk's own Billing screen changes plans,
-     change a package by hand in the Dashboard: swap the package price **and** the metered
-     prices. Pause subscription OFF. Cancel immediately OFF.
-   - **Stripe Tax** (Settings → Tax): enable and set a default tax behavior. Prices are
-     created without `tax_behavior` and inherit it.
-   - **Failed payments** (Subscriptions → Manage failed payments): must **not** cancel the
-     subscription. healdesk owns the terminal transition — the billing sweep suspends the
-     clinic when its grace window closes, and `customer.subscription.updated` with
-     `status=unpaid` suspends it too — so a Stripe-side cancel would race it. That job
-     ships OFF; enable it from the ops console the same day you set this.
+   - **Customer Portal**: set by `stripe-account-settings.ts`, not by hand, as a separate
+     configuration tagged as healdesk's (never the account default, so scalabid's portal
+     is untouched). Payment method and invoice history ON; cancel **OFF**, because
+     auto-renew is the app's own switch in Billing (`setAutoRenew`); switch plan **OFF** —
+     Stripe's portal cannot update a subscription that carries metered prices, and a plan
+     change must swap the metered items to the new package's rates too (`changePlan`).
+     Until healdesk's own Billing screen changes plans, change a package by hand in the
+     Dashboard: swap the package price **and** the metered prices. No pause.
+   - **Stripe Tax** (Settings → Tax): off unless the owner's accountant says it is needed;
+     then enable it and set a default tax behavior. Prices are created without
+     `tax_behavior` and inherit it.
+   - **Failed payments** (Settings → Billing → Revenue recovery → Retries): if all retries
+     fail, mark the subscription **unpaid**; never cancel it. healdesk owns the terminal
+     transition — `customer.subscription.updated` with `status=unpaid` suspends the
+     clinic, and the billing sweep suspends it when its grace window closes — so a
+     Stripe-side cancel would race both. That job ships OFF; enable it from the ops
+     console the same day you set this.
 
 7. **Local testing** — the only path that exercises provisioning end to end today:
    ```

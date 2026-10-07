@@ -113,9 +113,24 @@ export async function seedPortalUser(
   return { userId, email };
 }
 
+export type SeedChannelRow = {
+  channel: "web" | "meta" | "voice";
+  /** The Settings On/Off. Default true. */
+  enabled?: boolean;
+  readyAt?: Date | null;
+  waitingOn?: "setup" | "forwarding" | "snippet" | "meta_connect" | "whatsapp_payment_method" | null;
+  liveAt?: Date | null;
+  firstAnswerAt?: Date | null;
+};
+
 export type SeedEntitledOptions = {
-  /** Catalog package id. Default "complete". */
+  /** The package on `plan_code`: the one Stripe bills. Default "complete". */
   planId?: string;
+  /**
+   * The package bought (`bought_plan_id`), which decides `channels_enabled`.
+   * Default: `planId`. Not with `legacy`.
+   */
+  boughtPlanId?: string;
   interval?: "month" | "year";
   /**
    * false: the no-Stripe path (no ids, seeded straight to active). Otherwise
@@ -123,25 +138,57 @@ export type SeedEntitledOptions = {
    * and is moved to `active` as the first paid invoice would.
    */
   stripe?: false | { customerId?: string; subscriptionId?: string };
-  /** Record the first invoice's period and setup fee. Default: a period starting `periodStart`. */
+  /**
+   * The first invoice, through `recordFirstInvoice`: the setup fee, paid at
+   * `periodStart`. On a legacy row its period also opens the allowance
+   * window, as it did before the deferred start; on any other row it opens
+   * none (the $0 placeholder buys no period). Default: a period starting
+   * 2026-10-01.
+   */
   firstInvoice?: false | { periodStart?: Date; periodEnd?: Date; setupFeePaidUsd?: number };
   /** Leave the row in `provisioning` instead of moving it to `active`. */
   status?: "active" | "provisioning";
   locations?: number;
+  /**
+   * The first plan invoice was paid then: stamps `plan_started_at`, opens the
+   * first allowance window from it through `allowanceWindow` (an annual
+   * plan's first month) and sets `paid_through` to the end of the period
+   * bought. Not with `legacy`.
+   */
+  planStartedAt?: Date;
+  /** The plan-start worker's Stripe update went through then (R8). Not with `legacy`. */
+  planStartAppliedAt?: Date;
+  /** The first plan invoice's id (R9). Not with `legacy`. */
+  firstPlanInvoiceId?: string;
+  setupDeadlineAt?: Date;
+  /** clinic_channels rows on this clinic (seedChannels). */
+  channelRows?: SeedChannelRow[];
+  /**
+   * The row as written before the deferred start: no bought package, so
+   * `channels_enabled` follows `plan_code`, and the first invoice opens the
+   * allowance window. What every fixture got before 6 October 2026.
+   */
+  legacy?: boolean;
 };
 
 /**
  * An entitlements row for a seeded clinic, written through the real writers
- * (seedEntitlements, recordFirstInvoice, transition) on the RUNTIME role
- * inside the clinic's tenant, so the fixture obeys the same grants and edges
- * production does. Imported lazily so suites that never call it do not open
- * the application's own pool.
+ * (seedEntitlements, applyBoughtPlan, recordFirstInvoice, transition and the
+ * deferred start's writers) on the RUNTIME role inside the clinic's tenant,
+ * so the fixture obeys the same grants and edges production does. Imported
+ * lazily so suites that never call it do not open the application's own
+ * pool.
+ *
+ * The default is a clinic bought under the deferred start whose plan has not
+ * started: `bought_plan_id` set, the setup fee paid, `active`, and no
+ * allowance window. `planStartedAt` starts it; `legacy: true` writes the row
+ * every fixture got before 6 October 2026.
  */
 export async function seedEntitled(
   clinicId: string,
   options: SeedEntitledOptions = {},
 ): Promise<{ stripeCustomerId: string | null; stripeSubscriptionId: string | null }> {
-  const [{ getPlan }, { seedEntitlements, recordFirstInvoice }, { transition }, { withTenant }, { entitlements }, { eq }] =
+  const [{ getPlan }, writers, { transition }, { withTenant }, { entitlements }, { eq }] =
     await Promise.all([
       import("@healdesk/catalog"),
       import("@/lib/billing/entitlements"),
@@ -151,8 +198,19 @@ export async function seedEntitled(
       import("drizzle-orm"),
     ]);
 
+  if (
+    options.legacy &&
+    (options.boughtPlanId !== undefined ||
+      options.planStartedAt !== undefined ||
+      options.planStartAppliedAt !== undefined ||
+      options.firstPlanInvoiceId !== undefined)
+  ) {
+    throw new Error("seedEntitled: a legacy row has no bought package and no plan start.");
+  }
   const plan = getPlan(options.planId ?? "complete");
   if (!plan) throw new Error(`seedEntitled: no plan ${options.planId}`);
+  const bought = options.legacy ? null : getPlan(options.boughtPlanId ?? plan.id);
+  if (!options.legacy && !bought) throw new Error(`seedEntitled: no plan ${options.boughtPlanId}`);
   const interval = options.interval ?? "month";
   const suffix = randomUUID().replace(/-/g, "").slice(0, 14);
   const stripeCustomerId = options.stripe === false ? null : (options.stripe?.customerId ?? `cus_test${suffix}`);
@@ -160,32 +218,77 @@ export async function seedEntitled(
     options.stripe === false ? null : (options.stripe?.subscriptionId ?? `sub_test${suffix}`);
 
   await withTenant({ clinicId, actor: { type: "service", serviceName: "test-fixture" } }, async (tx) => {
-    const status = await seedEntitlements(tx.db, clinicId, {
+    const status = await writers.seedEntitlements(tx.db, clinicId, {
       plan,
       interval,
       stripeCustomerId,
       stripeSubscriptionId,
     });
+    if (bought) await writers.applyBoughtPlan(tx.db, clinicId, bought);
     if (options.firstInvoice !== false) {
       const periodStart = options.firstInvoice?.periodStart ?? new Date("2026-10-01T00:00:00Z");
       const periodEnd =
         options.firstInvoice?.periodEnd ??
         new Date(Date.UTC(periodStart.getUTCFullYear() + (interval === "year" ? 1 : 0), periodStart.getUTCMonth() + (interval === "year" ? 0 : 1), periodStart.getUTCDate()));
-      await recordFirstInvoice(tx.db, clinicId, {
+      await writers.recordFirstInvoice(tx.db, clinicId, {
         periodStart,
         periodEnd,
-        setupFeePaidUsd: options.firstInvoice?.setupFeePaidUsd ?? plan.setupFeeUsd,
+        setupFeePaidUsd: options.firstInvoice?.setupFeePaidUsd ?? (bought ?? plan).setupFeeUsd,
+        paidAt: periodStart,
       });
     }
     if (status === "provisioning" && (options.status ?? "active") === "active") {
       await transition(tx, "active", { actor: "system", reason: "invoice.paid" });
     }
     if (options.locations !== undefined) {
-      await tx.db.update(entitlements).set({ locations: options.locations }).where(eq(entitlements.clinicId, clinicId));
+      await writers.setLocations(tx.db, clinicId, options.locations);
+    }
+    if (options.setupDeadlineAt !== undefined) {
+      await writers.setSetupDeadline(tx.db, clinicId, options.setupDeadlineAt);
+    }
+    if (options.planStartedAt !== undefined) {
+      const start = options.planStartedAt;
+      const end = writers.addMonthsUtc(start, interval === "year" ? 12 : 1);
+      await writers.markPlanStarted(tx.db, clinicId, start);
+      await writers.openAllowanceWindow(tx.db, clinicId, { start, end });
+      await tx.db.update(entitlements).set({ paidThrough: end }).where(eq(entitlements.clinicId, clinicId));
+    }
+    if (options.planStartAppliedAt !== undefined) {
+      await writers.markPlanStartApplied(tx.db, clinicId, options.planStartAppliedAt);
+    }
+    if (options.firstPlanInvoiceId !== undefined) {
+      await writers.markFirstPlanInvoice(tx.db, clinicId, options.firstPlanInvoiceId);
     }
   });
 
+  if (options.channelRows?.length) await seedChannels(clinicId, options.channelRows);
+
   return { stripeCustomerId, stripeSubscriptionId };
+}
+
+/**
+ * clinic_channels rows for a clinic (a billing clinic or one of its
+ * locations), on the RUNTIME role inside its tenant, as provisioning and the
+ * channel lifecycle write them.
+ */
+export async function seedChannels(clinicId: string, rows: readonly SeedChannelRow[]): Promise<void> {
+  const [{ withTenant }, { clinicChannels }] = await Promise.all([
+    import("@/lib/tenant"),
+    import("@/db/schema"),
+  ]);
+  await withTenant({ clinicId, actor: { type: "service", serviceName: "test-fixture" } }, async (tx) => {
+    await tx.db.insert(clinicChannels).values(
+      rows.map((row) => ({
+        clinicId,
+        channel: row.channel,
+        enabled: row.enabled ?? true,
+        readyAt: row.readyAt ?? null,
+        waitingOn: row.waitingOn ?? null,
+        liveAt: row.liveAt ?? null,
+        firstAnswerAt: row.firstAnswerAt ?? null,
+      })),
+    );
+  });
 }
 
 /** Insert a contact as the migrator, inside a declared tenant. */

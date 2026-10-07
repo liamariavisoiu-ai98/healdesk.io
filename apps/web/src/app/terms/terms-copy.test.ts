@@ -1,3 +1,4 @@
+import { OVERAGE_RATES_PROVISIONAL } from "@healdesk/catalog";
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
@@ -101,25 +102,86 @@ describe("the terms describe v1 as the spec defines it", () => {
   });
 });
 
+describe("usage above the allowance is billed per started block of 100", () => {
+  const text = pageText();
+
+  test("section 3 states the block rule plainly, provisional until measured", () => {
+    // The owner's decision of 6 October 2026 (docs/v1-product-spec.md,
+    // "Overage prices"): $80 for each started block of 100 extra voice
+    // minutes, $40 or $30 for each started block of 100 extra chat
+    // conversations. Stripe bills exactly that from the same catalog, and
+    // src/lib/overage-copy.test.ts holds the table's prices to it.
+    if (OVERAGE_RATES_PROVISIONAL) return;
+    expect(text).toContain(
+      "Usage above the included allowance is billed in blocks: each month, every started block of 100 extra voice minutes or 100 extra chat conversations is billed at your package's block price in the table above, so a single minute or conversation over the allowance is billed as a whole block.",
+    );
+    expect(text).toContain(
+      "These block prices are provisional until we have measured what that usage costs to serve.",
+    );
+    expect(text).toContain(
+      "On a monthly package the blocks are billed in arrears on the next invoice; on an annual package they are invoiced separately, monthly in arrears, at the same prices.",
+    );
+    expect(text).toContain("Extra voice, per started block of 100 minutes");
+    expect(text).toContain("Extra chat, per started block of 100 conversations");
+  });
+
+  test("and nothing in the terms is priced per minute or per conversation", () => {
+    expect(text).not.toContain("per voice minute and per chat conversation");
+    // Word boundaries, because "extra voice minutes" holds "a voice minute".
+    expect(text).not.toMatch(
+      /\/min\b|\/conversation|\bper (?:voice )?minute|\bper (?:chat )?conversation|\ba voice minute|\ba chat conversation|\$0\.\d\d/i,
+    );
+  });
+});
+
 describe("refunds say what is refunded, how, and when", () => {
   const text = pageText();
 
-  test("the setup fee has exactly one exception, and section 5 points to it", () => {
-    // A flat "never refundable" for a service that was never delivered is the
-    // term the FTC Act and a card dispute both reach
-    // (docs/counsel/guarantee-and-refund.md, decision 5).
+  test("the setup fee is never refunded, and section 5 says so too", () => {
+    // The owner's decision of 6 October 2026: the work starts the moment the
+    // fee is paid. It ended the one exception adopted on 3 October
+    // (docs/counsel/guarantee-and-refund.md, decision 5), for a Practice
+    // with nothing live 30 days after payment.
+    expect(text).toContain("That work starts as soon as it is paid, so the setup fee is never refunded.");
+    expect(text).toContain("The setup fee is never refunded (section 3).");
+    expect(text).not.toContain("except in one case");
+    expect(text).not.toContain("except as section 3 says");
+    expect(text).not.toMatch(/founding/i);
+  });
+
+  test("billing starts on the plan start, and everything that counts from a date counts from it", () => {
+    expect(text).toContain("Your plan starts the day the agent first answers a patient.");
+    expect(text).toContain("Until then your subscription carries a $0 monthly line, and the setup fee is all you have paid.");
+    expect(text).toContain("the price is that of the package made up of those channels");
+    expect(text).toContain("counted from your plan start (section 3)");
+    expect(text).toContain(`If you cancel within ${POLICY.refundWindowDays} days of your plan start we refund the first period's subscription fee in full.`);
+    expect(text).toContain("If you cancel before your plan starts, it never starts");
+    // No date in the terms counts from the first payment any more, and
+    // nothing here is a trial.
+    expect(text).not.toContain("first payment");
+    expect(text).not.toMatch(/\btrial\b/i);
+  });
+
+  test("an account with nothing live after 30 days is closed, keeping only what the law requires", () => {
+    expect(text).toContain("You have 30 days to finish setup.");
+    expect(text).toContain("we email you a reminder every five days");
     expect(text).toContain(
-      `It is not refundable, except in one case. If none of your channels has gone live within ${POLICY.setupFeeRefundNotLiveDays} days of your payment, and the delay is not caused by something still waiting on you (such as connecting your calendar or a channel, or setting up call forwarding), we refund the setup fee.`,
+      "If at the end of the 30th day after your payment none of them is, your subscription is cancelled and your account closed: nothing more is charged, nothing is refunded, and we keep only the signed Business Associate Agreement and the billing records the law requires us to keep.",
     );
-    expect(text).toContain("The setup fee is not refundable, except as section 3 says.");
-    // The flat versions are gone from both sections.
-    expect(text).not.toContain("It is not refundable. Moving");
-    expect(text).not.toMatch(/The setup fee is not refundable\.\s/);
+  });
+
+  test("everything goes to the account's one address, and nothing describes roles v1 does not have", () => {
+    expect(text).toContain("If a subscription payment fails we retry it and email the address on your account.");
+    expect(text).toContain("Your Practice has one sign-in, the email address on your account");
+    expect(text).toContain("Notices to you go to the email address on your account.");
+    expect(text).not.toContain("any password");
+    expect(text).not.toContain("billing contact");
+    expect(text).not.toContain("public inbox");
   });
 
   test("the annual-plan asymmetry is stated in section 4, not only discovered in section 5", () => {
     expect(text).toContain(
-      `Under section 5 an annual plan is refunded in one of two amounts: the whole first year's subscription fee if you cancel within ${POLICY.refundWindowDays} days of your first payment, or, under the first-month guarantee, one month at your plan's annual per-month price.`,
+      `Under section 5 an annual plan is refunded in one of two amounts: the whole first year's subscription fee if you cancel within ${POLICY.refundWindowDays} days of your plan start, or, under the first-month guarantee, one month at your plan's annual per-month price.`,
     );
   });
 
@@ -146,7 +208,7 @@ describe("the first-month guarantee", () => {
     expect(whole).toContain(
       `A call the caller ends after ${POLICY.guaranteeAbandonedCallSeconds} seconds and before the opening line has started does count as missed.`,
     );
-    expect(whole).toContain(`Your first month is the ${POLICY.guaranteeFirstMonthDays} days that start on the day your first channel goes live`);
+    expect(whole).toContain(`Your first month is the ${POLICY.guaranteeFirstMonthDays} days that start on your plan start, the day the assistant first answers a patient`);
     expect(whole).toContain(`Within ${POLICY.guaranteeClaimWindowDays} days after your first month ends, the account owner emails ${ENTITY.supportEmail}`);
     expect(whole).toContain(`We tell you our finding within ${POLICY.guaranteeFindingBusinessDays} business days of your claim.`);
     expect(whole).toContain(
@@ -185,11 +247,9 @@ describe("the first-month guarantee", () => {
     expect(text).toContain("Sections 5, 7 and 9 to 20 survive termination");
   });
 
-  test("the page carries the version that introduced it, or a later one", () => {
-    // 2026-10-05.2 introduced the guarantee. A later version is the same text
-    // plus changes elsewhere (2026-10-05.3 moved the demo call to Retell on
-    // /privacy and /subprocessors); an earlier one would predate it. The
-    // versions are YYYY-MM-DD.n, so they compare as strings.
+  test("has been in the terms since the version that introduced it, and the page prints its version", () => {
+    // Introduced in 2026-10-05.2. Versions are dated, so later ones sort after
+    // it; legal-version.test.ts is what pins each version's exact text.
     expect(LEGAL_VERSION >= "2026-10-05.2").toBe(true);
     expect(text).toContain(`Version ${LEGAL_VERSION}`);
   });

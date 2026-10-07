@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/nurture",
-      "schedule": "7 5 * * *"
+      "schedule": "7 14 * * *"
     }
   ]
 }

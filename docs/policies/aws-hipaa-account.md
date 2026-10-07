@@ -19,7 +19,7 @@ checklist the first build and every quarterly review are measured against.
 | --- | --- |
 | Entity bound | Viixi FZC, a UAE free zone company, trading as healdesk |
 | Account | `865780386982`, account name `healdesk.io`, supplied by the owner on 23 September 2026. Not in the PDF; readable in the console under Security credentials → Account details, or with `aws sts get-caller-identity --query Account --output text` |
-| Region | `us-east-1`, confirmed by the owner on 23 September 2026. The addendum is account-scoped and silent on regions; the code assumes this one (`apps/app/src/lib/reporting/deliver.ts:479`) and `AWS_REGION` overrides it |
+| Region | `us-east-1`, confirmed by the owner on 23 September 2026. The addendum is account-scoped and silent on regions; the code assumes this one. The KMS key must be the full ARN of a single-region key in it, and while KMS holds the key an `AWS_REGION` naming any other region is refused (`apps/app/src/lib/crypto/kms.ts`); SES falls back to it when `AWS_REGION` is unset or empty (`sesClientConfig()` in `apps/app/src/lib/reporting/deliver.ts`) |
 | Addendum | AWS Business Associate Addendum (Online), Doc #3256920v3, form dated 20 January 2023, four pages; an addendum to the AWS Customer Agreement |
 | Agreement type | Account agreement in AWS Artifact. If the account ever joins an Organization, that Organization's BAA controls instead (§8) |
 | Effective date | 22 September 2026, the day the accept button was clicked, per the owner. The PDF prints no acceptance date; confirm against the `effectiveStart` timestamp |

@@ -1,6 +1,11 @@
 import { sql } from "drizzle-orm";
 
-import { openRequiredSteps, type OnboardingStep } from "@healdesk/catalog";
+import {
+  CURRENT_BAA_VERSION,
+  isBaaVersionAcceptable,
+  openRequiredSteps,
+  type OnboardingStep,
+} from "@healdesk/catalog";
 
 import { unsafeDb } from "@/db";
 import { recordSecurityEvent } from "@/lib/audit";
@@ -10,20 +15,36 @@ import { listClinics, type ClinicOverview } from "@/lib/ops/clinics";
 /**
  * Go-live: the flip from synthetic to production.
  *
- * The database function (drizzle/0033) is the authority and refuses on its
- * own; this wrapper exists to give the operator the list of what is missing
- * BEFORE the call, in the console's words, and to write the security event
- * naming who flipped it. Both checks agree because both read the same row.
+ * The database function (drizzle/0033, last redefined in 0048) is the
+ * authority and refuses on its own; this wrapper exists to give the operator
+ * the list of what is missing BEFORE the call, in the console's words, and to
+ * write the security event naming who flipped it. Both checks agree because
+ * both read the same row, and the same agreement: `baaVersion` comes from
+ * app_agreement_in_effect(), which the function reads too.
  */
 
 export type GoLiveCheck = { ok: true } | { ok: false; missing: string[] };
 
 export function goLivePreconditions(clinic: ClinicOverview): GoLiveCheck {
+  // TODO(plan Part J "Go-live", with app_mark_clinic_production): ask whether
+  // the agreement covers the clinic (agreementKindSufficient in
+  // lib/agreements/kind.ts, over clinics.regulatory_regime and
+  // clinics.agreement_kind, drizzle/0051). The overview does not project those
+  // columns yet, and recreating app_clinics_overview() for them belongs to the
+  // rewrite of both checks. Meanwhile the PHI gate refuses an uncovered
+  // clinic's data on every write.
   const missing: string[] = [];
   if (clinic.isCoveredEntity === null) missing.push("Covered-entity status is undetermined.");
-  if (!clinic.baaSignedAt && !clinic.wentLiveAt) {
-    // baa_signed_at is set BY go-live from the bound agreement; before it the
-    // precondition is the bound agreement itself, which the function checks.
+  // baa_signed_at is set BY go-live from the bound agreement, so before it the
+  // precondition is the agreement in effect, and it must not be superseded
+  // (docs/counsel/agreement-changes.md §10): an account bound to an older
+  // version lacks clauses the current one has.
+  if (clinic.baaVersion === null) {
+    missing.push("No signed business associate agreement is in effect for this account.");
+  } else if (!isBaaVersionAcceptable(clinic.baaVersion)) {
+    missing.push(
+      `The agreement in effect is BAA v${clinic.baaVersion}, which has been superseded. The practice must accept v${CURRENT_BAA_VERSION} before go-live.`,
+    );
   }
   if (!clinic.openingHoursPresent) missing.push("Opening hours are not on file.");
   if (!clinic.callRoutingConfirmedAt) missing.push("Call routing has not been confirmed.");
@@ -74,7 +95,31 @@ export async function goLive(
   } catch (error) {
     // The function's message names exactly what is missing and carries no
     // patient data; it is the honest answer for the console.
-    const message = error instanceof Error ? error.message : "Refused.";
-    return { status: "refused", reason: message.slice(0, 300), missing: [] };
+    return { status: "refused", reason: refusalReason(error), missing: [] };
   }
+}
+
+/**
+ * The database's own refusal, not drizzle's wrapper around it.
+ *
+ * drizzle-orm 0.45 wraps the driver error in a `DrizzleQueryError` whose
+ * message is "Failed query: select app_mark_clinic_production($1::uuid) …"
+ * followed by the parameters; the RAISE text and its HINT sit on the pg
+ * error at `.cause`. Until this walked the chain, every refusal the database
+ * made reached the console as the failed query. Bounded depth, as
+ * lib/provisioning.ts and the connect action walk it. An error with no
+ * SQLSTATE anywhere in the chain (the database unreachable, say) keeps its
+ * own message.
+ */
+export function refusalReason(error: unknown): string {
+  let current: unknown = error;
+  for (let depth = 0; current && depth < 5; depth += 1) {
+    const e = current as { code?: unknown; message?: unknown; hint?: unknown };
+    if (typeof e.code === "string" && /^[0-9A-Z]{5}$/.test(e.code) && typeof e.message === "string") {
+      const hint = typeof e.hint === "string" && e.hint ? ` ${e.hint}` : "";
+      return `${e.message}${hint}`.slice(0, 500);
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return error instanceof Error ? error.message.slice(0, 500) : "Refused.";
 }

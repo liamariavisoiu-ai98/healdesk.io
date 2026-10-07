@@ -4,14 +4,24 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { runAnnualOverageJob } from "@/lib/billing/annual-overage";
 import { resolveBillingClinicId, withBillingTenant } from "@/lib/billing/billing-clinic";
+import { runCardExpiringJob } from "@/lib/billing/card-expiring";
 import { purgeBillingHousekeeping, runBillingHousekeepingJob } from "@/lib/billing/housekeeping";
 import { reconcileMeteredItems } from "@/lib/billing/metered-items";
 import { enqueueNotice, runBillingNoticesJob, sendPendingNotices } from "@/lib/billing/notices";
 import { billingRecipients } from "@/lib/billing/recipients";
+import { runBillingReconcileJob } from "@/lib/billing/reconcile";
+import { drainBillingRequests, runBillingRequestsJob } from "@/lib/billing/requests";
 import { runUsageAlertsJob } from "@/lib/billing/usage-alerts";
 import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
 import { addRecipient } from "@/lib/reporting/recipients";
-import { getJob, JOB_BILLING_HOUSEKEEPING, setJobEnabled } from "@/lib/scheduler/jobs";
+import {
+  getJob,
+  JOB_BILLING_HOUSEKEEPING,
+  JOB_BILLING_RECONCILE,
+  JOB_BILLING_REQUESTS,
+  JOB_CARD_EXPIRING,
+  setJobEnabled,
+} from "@/lib/scheduler/jobs";
 import { runTick } from "@/lib/scheduler/tick";
 import { withTenant } from "@/lib/tenant";
 
@@ -152,6 +162,7 @@ describeDb("billing foundation", () => {
             amountDueCents: 89_700,
             hostedInvoiceUrl: "https://invoice.stripe.com/i/test",
             graceEndsAt: "2026-10-12T00:00:00.000Z",
+            isFirstPlanCharge: false,
           }),
         );
       expect(await enqueue("in_test_1")).toBe(true);
@@ -159,7 +170,10 @@ describeDb("billing foundation", () => {
       expect(await enqueue("in_test_2")).toBe(true);
       // Same key, different kind: a different notice.
       const other = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
-        enqueueNotice(tx, "payment_action_required", "in_test_1", { hostedInvoiceUrl: null }),
+        enqueueNotice(tx, "payment_action_required", "in_test_1", {
+          amountDueCents: 89_700,
+          hostedInvoiceUrl: null,
+        }),
       );
       expect(other).toBe(true);
 
@@ -169,7 +183,7 @@ describeDb("billing foundation", () => {
           tx,
           "grace_ending",
           "in_test_1",
-          { graceEndsAt: "2026-10-07T00:00:00.000Z", hostedInvoiceUrl: null },
+          { graceEndsAt: "2026-10-07T00:00:00.000Z", hostedInvoiceUrl: null, amountDueCents: null },
           { sendAfter },
         ),
       );
@@ -210,7 +224,7 @@ describeDb("billing foundation", () => {
       for (const key of ["", "   ", "x".repeat(201)]) {
         await expect(
           withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
-            enqueueNotice(tx, "restored", key, {}),
+            enqueueNotice(tx, "restored", key, { receiptUrl: null }),
           ),
         ).rejects.toThrow(/dedupe key/);
       }
@@ -251,7 +265,7 @@ describeDb("billing foundation", () => {
       });
       const state = (createdAt: Date) =>
         pool.query(
-          `insert into stripe_connect_states (state_hash, target_clinic_id, return_to, created_at, expires_at) values ($1, $2, 'portal', $3, $3::timestamptz + interval '15 minutes')`,
+          `insert into stripe_connect_states (state_hash, target_clinic_id, return_to, created_at, expires_at) values ($1, $2, 'settings', $3, $3::timestamptz + interval '15 minutes')`,
           [createHash("sha256").update(randomBytes(16)).digest(), clinic.clinicId, createdAt],
         );
       await state(new Date(now.getTime() - 2 * DAY));
@@ -289,6 +303,38 @@ describeDb("billing foundation", () => {
       });
     });
 
+    test("purges chat threads idle for more than 30 days in every clinic, and keeps the live ones", async () => {
+      // A thread holds an HMAC of the sender's id (a WhatsApp number among
+      // them): kept past its use, it is a record of who messaged the clinic.
+      const now = new Date("2026-10-05T06:00:00Z");
+      const thread = (clinicId: string, partyRef: string, lastInboundAt: Date) =>
+        inTenant(clinicId, (c) =>
+          c.query(
+            `insert into chat_threads (clinic_id, channel, party_ref, conversation_id, conversation_started_at, last_inbound_at)
+             values ($1, 'whatsapp', $2, $3, $4, $4)`,
+            [clinicId, partyRef, randomUUID(), lastInboundAt],
+          ),
+        );
+      const a = await seedClinic("threads-a");
+      const b = await seedClinic("threads-b");
+      await thread(a.clinicId, "v1:idle-a", new Date(now.getTime() - 31 * DAY));
+      await thread(a.clinicId, "v1:live-a", new Date(now.getTime() - 29 * DAY));
+      await thread(b.clinicId, "v1:idle-b", new Date(now.getTime() - 45 * DAY));
+      await thread(b.clinicId, "v1:live-b", new Date(now.getTime() - DAY));
+
+      const result = await purgeBillingHousekeeping(now);
+      expect(result).toMatchObject({ chatThreads: 2, clinicsFailed: 0 });
+      const left = (clinicId: string) =>
+        inTenant(clinicId, async (c) =>
+          (await c.query<{ party_ref: string }>(`select party_ref from chat_threads`)).rows.map(
+            (r) => r.party_ref,
+          ),
+        );
+      expect(await left(a.clinicId)).toEqual(["v1:live-a"]);
+      expect(await left(b.clinicId)).toEqual(["v1:live-b"]);
+      expect((await purgeBillingHousekeeping(now)).chatThreads).toBe(0);
+    });
+
     test("runs only behind its switch, and records what it did", async () => {
       const now = new Date("2026-10-05T06:00:00Z");
       expect(await runBillingHousekeepingJob({ now })).toEqual({ status: "disabled" });
@@ -315,10 +361,33 @@ describeDb("billing foundation", () => {
       );
       expect(at6["billing-housekeeping"]).toBe("disabled");
       expect(at6["annual-overage-invoice"]).toBeUndefined();
-      for (const hourly of ["usage-meter-report", "usage-alerts", "billing-notices"]) {
+      // The Stripe build (drizzle/0050): the reconcile and the requests
+      // worker every hour, the card-expiry check at 07 only.
+      for (const hourly of [
+        "usage-meter-report",
+        "usage-alerts",
+        "billing-reconcile",
+        "billing-requests",
+      ]) {
         expect(at5[hourly], hourly).toBe("disabled");
         expect(at6[hourly], hourly).toBe("disabled");
       }
+      expect(at5["card-expiring"]).toBeUndefined();
+      expect(at6["card-expiring"]).toBeUndefined();
+      const at7 = Object.fromEntries(
+        (await runTick(new Date("2026-10-05T07:00:00Z"))).map((o) => [o.job, o.status]),
+      );
+      expect(at7["card-expiring"]).toBe("disabled");
+      expect(at7["billing-housekeeping"]).toBeUndefined();
+      // The reconcile runs before the worker, so a request it records this
+      // hour is carried out this hour.
+      const order = (await runTick(new Date("2026-10-05T08:00:00Z"))).map((o) => o.job);
+      expect(order.indexOf("billing-reconcile")).toBeLessThan(order.indexOf("billing-requests"));
+      // setup-closure is a switch the worker reads, never a job the tick runs.
+      expect(order).not.toContain("setup-closure");
+      // The notices sender runs every minute from the `notices` queue now, not
+      // from the hourly tick (lib/email/outbox.ts).
+      expect(at5["billing-notices"]).toBeUndefined();
     });
 
     test("the stubs later packages replace are safe: they run behind their switches and do nothing", async () => {
@@ -326,17 +395,82 @@ describeDb("billing foundation", () => {
       expect(await runUsageMeterReportJob({ now })).toEqual({ status: "disabled" });
       expect(await runAnnualOverageJob({ now })).toEqual({ status: "disabled" });
       expect(await runUsageAlertsJob({ now })).toEqual({ status: "disabled" });
+      // The sender is real now (lib/email/outbox.ts), and still does nothing
+      // while its switch, the billing-notices job row, is off.
       expect(await runBillingNoticesJob({ now })).toEqual({ status: "disabled" });
-      expect(await sendPendingNotices({ now })).toEqual({ sent: 0, failed: 0, skipped: 0 });
+      expect(await sendPendingNotices({ now })).toEqual({ sent: 0, failed: 0, skipped: 0, held: 0 });
+      // Real now (Package C-actions): a clinic with no billing row is skipped.
       expect(await reconcileMeteredItems(randomUUID())).toEqual({
         status: "skipped",
-        reason: "Not built yet.",
+        reason: "no_entitlements",
       });
+      // The Stripe build's jobs (S0's entry points, C-requests' bodies), each
+      // behind its switch.
+      expect(await runBillingRequestsJob({ now })).toEqual({ status: "disabled" });
+      expect(await runBillingReconcileJob({ now })).toEqual({ status: "disabled" });
+      expect(await runCardExpiringJob({ now })).toEqual({ status: "disabled" });
+      expect(await drainBillingRequests({ now })).toEqual({ processed: 0, deferred: 0, failed: 0 });
+    });
+
+    test("the Stripe build's jobs record their runs once switched on, and leave no lock behind", async () => {
+      const now = new Date("2026-10-05T07:00:00Z");
+      const ops = await seedOpsUser();
+      for (const [name, run] of [
+        [JOB_BILLING_REQUESTS, () => runBillingRequestsJob({ now })],
+        [JOB_BILLING_RECONCILE, () => runBillingReconcileJob({ now })],
+        [JOB_CARD_EXPIRING, () => runCardExpiringJob({ now })],
+      ] as const) {
+        await setJobEnabled(name, true, ops);
+        expect(await run(), name).toMatchObject({ status: "ok" });
+        const job = await getJob(name);
+        expect(job?.lastRunStatus, name).toBe("ok");
+        expect(job?.runningSince, name).toBeNull();
+        await setJobEnabled(name, false, ops);
+      }
+      // The minute worker skips runJob's 60-minute lock: a run left "running"
+      // by a crashed process does not stop the next one (runSwitchedJob).
+      await setJobEnabled(JOB_BILLING_REQUESTS, true, ops);
+      await getMigratorPool().query(`update scheduled_jobs set running_since = $2 where name = $1`, [
+        JOB_BILLING_REQUESTS,
+        new Date(now.getTime() - 60_000),
+      ]);
+      expect(await runBillingRequestsJob({ now })).toMatchObject({ status: "ok" });
+      await setJobEnabled(JOB_BILLING_REQUESTS, false, ops);
     });
   });
 
   describe("fixtures", () => {
     test("seedEntitled writes an active row through the real writers; seedPortalUser grants and the portal can see it", async () => {
+      type Row = {
+        status: string;
+        plan_code: string;
+        bought_plan_id: string | null;
+        channels_enabled: Record<string, boolean>;
+        locations: number;
+        current_period_start: Date | null;
+        current_period_end: Date | null;
+        plan_started_at: Date | null;
+        plan_start_applied_at: Date | null;
+        first_plan_invoice_id: string | null;
+        first_paid_at: Date | null;
+        paid_through: Date | null;
+        setup_deadline_at: Date | null;
+      };
+      const rowOf = (clinicId: string) =>
+        inTenant(clinicId, async (c) => {
+          const { rows } = await c.query<Row>(
+            `select status, plan_code, bought_plan_id, channels_enabled, locations,
+                    current_period_start, current_period_end, plan_started_at,
+                    plan_start_applied_at, first_plan_invoice_id, first_paid_at, paid_through,
+                    setup_deadline_at
+               from entitlements where clinic_id = $1`,
+            [clinicId],
+          );
+          return rows[0]!;
+        });
+
+      // The default: bought under the deferred start, setup fee paid, plan not
+      // started, so no allowance window yet.
       const clinic = await seedClinic("fixtures");
       const ids = await seedEntitled(clinic.clinicId, {
         planId: "web-voice",
@@ -344,20 +478,76 @@ describeDb("billing foundation", () => {
         locations: 2,
       });
       expect(ids.stripeSubscriptionId).toMatch(/^sub_test/);
-      const row = await inTenant(clinic.clinicId, async (c) => {
-        const { rows } = await c.query<{
-          status: string;
-          plan_code: string;
-          locations: number;
-          current_period_start: Date | null;
-        }>(
-          `select status, plan_code, locations, current_period_start from entitlements where clinic_id = $1`,
-          [clinic.clinicId],
-        );
-        return rows[0]!;
+      const row = await rowOf(clinic.clinicId);
+      expect(row).toMatchObject({
+        status: "active",
+        plan_code: "web-voice",
+        bought_plan_id: "web-voice",
+        locations: 2,
+        current_period_start: null,
+        plan_started_at: null,
       });
-      expect(row).toMatchObject({ status: "active", plan_code: "web-voice", locations: 2 });
-      expect(row.current_period_start).not.toBeNull();
+      expect(row.first_paid_at?.toISOString()).toBe("2026-10-01T00:00:00.000Z");
+
+      // Bought Complete, billed as Web Chatbot, started: channels follow what
+      // was bought, and the window opens from the start through
+      // allowanceWindow (an annual plan's first month).
+      const started = await seedClinic("fixtures-started");
+      const startedAt = new Date("2026-10-10T00:00:00Z");
+      await seedEntitled(started.clinicId, {
+        planId: "chat-web",
+        boughtPlanId: "complete",
+        interval: "year",
+        planStartedAt: startedAt,
+        planStartAppliedAt: startedAt,
+        firstPlanInvoiceId: "in_fixturefirstplan",
+        setupDeadlineAt: new Date("2026-11-05T00:00:00Z"),
+        channelRows: [
+          { channel: "web", liveAt: startedAt, firstAnswerAt: startedAt },
+          { channel: "voice", readyAt: startedAt, waitingOn: "forwarding" },
+        ],
+      });
+      const startedRow = await rowOf(started.clinicId);
+      expect(startedRow).toMatchObject({
+        plan_code: "chat-web",
+        bought_plan_id: "complete",
+        channels_enabled: { web: true, meta: true, voice: true },
+        first_plan_invoice_id: "in_fixturefirstplan",
+      });
+      expect(startedRow.plan_started_at?.toISOString()).toBe(startedAt.toISOString());
+      expect(startedRow.plan_start_applied_at?.toISOString()).toBe(startedAt.toISOString());
+      expect(startedRow.current_period_start?.toISOString()).toBe(startedAt.toISOString());
+      expect(startedRow.current_period_end?.toISOString()).toBe("2026-11-10T00:00:00.000Z");
+      expect(startedRow.paid_through?.toISOString()).toBe("2027-10-10T00:00:00.000Z");
+      expect(startedRow.setup_deadline_at?.toISOString()).toBe("2026-11-05T00:00:00.000Z");
+      const channels = await inTenant(started.clinicId, async (c) => {
+        const { rows } = await c.query<{
+          channel: string;
+          waiting_on: string | null;
+          first_answer_at: Date | null;
+        }>(
+          `select channel, waiting_on, first_answer_at from clinic_channels where clinic_id = $1 order by channel`,
+          [started.clinicId],
+        );
+        return rows;
+      });
+      expect(channels.map((c) => [c.channel, c.waiting_on, c.first_answer_at !== null])).toEqual([
+        ["voice", "forwarding", false],
+        ["web", null, true],
+      ]);
+
+      // legacy: the row every fixture got before the deferred start.
+      const legacy = await seedClinic("fixtures-legacy");
+      await seedEntitled(legacy.clinicId, { planId: "web-voice", interval: "year", legacy: true });
+      const legacyRow = await rowOf(legacy.clinicId);
+      expect(legacyRow).toMatchObject({ plan_code: "web-voice", bought_plan_id: null });
+      expect(legacyRow.current_period_start?.toISOString()).toBe("2026-10-01T00:00:00.000Z");
+      await expect(
+        seedEntitled((await seedClinic("fixtures-bad")).clinicId, {
+          legacy: true,
+          planStartedAt: startedAt,
+        }),
+      ).rejects.toThrow(/legacy row/);
 
       const noStripe = await seedClinic("fixtures-nostripe");
       expect(await seedEntitled(noStripe.clinicId, { stripe: false, firstInvoice: false })).toEqual(

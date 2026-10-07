@@ -5,6 +5,7 @@ import {
   boolean,
   check,
   customType,
+  date,
   index,
   inet,
   integer,
@@ -20,10 +21,21 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-import type { BillingInterval, Channel, OnboardingState } from "@healdesk/catalog";
+import {
+  type AgreementKind,
+  type BillingInterval,
+  type BookingSystemId,
+  type CalendarAccount,
+  type Channel,
+  CHANNELS,
+  type OnboardingState,
+  type RegulatoryRegime,
+} from "@healdesk/catalog";
 
 import type { OpeningHours } from "../lib/clinic/opening-hours";
 import type { SealedPayload } from "../lib/crypto/envelope";
+import { NOTICE_KINDS } from "../lib/email/kinds";
+import { DEVICE_LABEL_MAX } from "../lib/factors/device";
 
 import { organization, user } from "./auth-schema";
 
@@ -318,22 +330,62 @@ export const clinics = pgTable(
     baaSignedAt: timestamp("baa_signed_at", { withTimezone: true }),
 
     /**
+     * The regime of the clinic's specialty when it was provisioned
+     * (`regimeFor` in @healdesk/catalog): 'hipaa', 'hipaa-if-covered' or
+     * 'non-hipaa'. With `agreementKind` and `isCoveredEntity` it is what
+     * app_agreement_kind_sufficient() reads (drizzle/0051) to decide whether
+     * the agreement in force covers this clinic's data, which the PHI gate
+     * asks on every write. A gate column: provisioning writes it on insert and
+     * the runtime role holds no UPDATE on it, so a later edit of `specialty`
+     * does not move it.
+     */
+    regulatoryRegime: text("regulatory_regime").$type<RegulatoryRegime>(),
+    /**
+     * The kind of data agreement the clinic is under, 'baa' or 'dpa', taken at
+     * provisioning from the bound acceptance's version and moved afterwards
+     * only by app_supersede_agreement(), from a DPA to a BAA (drizzle/0051).
+     * A gate column like `regulatoryRegime`. Null only on a clinic created
+     * before 0051 whose organisation held no bound agreement, which the PHI
+     * gate treats as it always has.
+     */
+    agreementKind: text("agreement_kind").$type<AgreementKind>(),
+
+    /**
      * The retention clocks, in days, per clinic. Two, because the two kinds
      * of data have different value and different risk:
      *
      *   media   — transcript references. Pure liability after the dispute
      *             window closes; 90 days by default. (No audio is kept.)
-     *   records — the conversation, appointment and transaction rows the
-     *             revenue report is built from. Two years by default, so a
-     *             year-over-year comparison is possible and no longer.
+     *   records — the conversation, appointment and transaction rows. 90
+     *             days by default too, because the BAA says "healdesk keeps
+     *             transcripts and conversation records for 90 days"
+     *             (TRANSCRIPT_RETENTION_DAYS in @healdesk/catalog). It was
+     *             730 until 0048, for a year-over-year revenue report that
+     *             is phase two, and a default the agreement contradicts is
+     *             wrong for every clinic that keeps it.
      *
      * Consent records, suppressions and contact attempts are NOT on either
      * clock: they are the evidence that a call was lawful and that an
      * opt-out was honoured, and deleting evidence is not a privacy control.
      * The purge job (lib/retention/purge.ts) is the only reader.
+     *
+     * The record clock is never below a day (a CHECK below), and the
+     * practice may shorten it, but app_purge_booking_requests runs on the
+     * clock in force: for a day after a shortening, the longer clock it
+     * replaced (the two columns below). The runtime role writes the clock, so
+     * without that day it could shorten the clock, purge decided requests on
+     * it and put it back in one transaction.
      */
     retentionMediaDays: integer("retention_media_days").notNull().default(90),
-    retentionRecordDays: integer("retention_record_days").notNull().default(730),
+    retentionRecordDays: integer("retention_record_days").notNull().default(90),
+    /**
+     * The record clock's last shortening: the clock in force just before it
+     * and when it happened. Written only by the clinics_record_clock trigger
+     * (booking_request_destruction migration); the runtime role has no UPDATE
+     * on either column, and a new clinic carries neither.
+     */
+    retentionRecordDaysPrevious: integer("retention_record_days_previous"),
+    retentionRecordDaysShortenedAt: timestamp("retention_record_days_shortened_at", { withTimezone: true }),
 
     // --- Onboarding: the road from payment to the first answered call. ---
     /**
@@ -418,11 +470,19 @@ export const clinics = pgTable(
     wentLiveAt: timestamp("went_live_at", { withTimezone: true }),
 
     // --- Offboarding: the BAA's return-or-destroy clause, as dates. ---
+    // offboarding_started_at, destroy_after and destroyed_at are the
+    // database's: the runtime role has no UPDATE on them, a new clinic cannot
+    // carry them (the clinics_insert_guard trigger), and only
+    // app_start_offboarding() and app_mark_clinic_destroyed() write them, from
+    // the database's clock, because app_destroy_booking_requests() reads them
+    // as its floor (booking_request_destruction migration).
+    // app_mark_clinic_destroyed() also waits for the rows destruction deletes
+    // to be gone, so destroyed_at is never a destruction that did not run.
     /** The clinic left (subscription deleted, or an operator ended it). */
     offboardingStartedAt: timestamp("offboarding_started_at", { withTimezone: true }),
     /** The export was produced and handed over; destruction may proceed after destroy_after. */
     exportDeliveredAt: timestamp("export_delivered_at", { withTimezone: true }),
-    /** Hard-delete of every PHI row is allowed from this instant. */
+    /** Hard-delete of every PHI row is allowed from this instant, thirty days after the start. */
     destroyAfter: timestamp("destroy_after", { withTimezone: true }),
     /** The destruction ran. The clinic row and its audit trail remain; nothing else does. */
     destroyedAt: timestamp("destroyed_at", { withTimezone: true }),
@@ -468,6 +528,20 @@ export const clinics = pgTable(
       "clinics_billing_clinic_not_self",
       sql`${t.billingClinicId} is null or ${t.billingClinicId} <> ${t.id}`,
     ),
+    check(
+      "clinics_regulatory_regime_check",
+      sql`${t.regulatoryRegime} is null or ${t.regulatoryRegime} in ('hipaa', 'hipaa-if-covered', 'non-hipaa')`,
+    ),
+    check(
+      "clinics_agreement_kind_check",
+      sql`${t.agreementKind} is null or ${t.agreementKind} in ('baa', 'dpa')`,
+    ),
+    // A specialty HIPAA always reaches never holds a DPA, whatever else is true.
+    check(
+      "clinics_dpa_never_hipaa",
+      sql`${t.agreementKind} is distinct from 'dpa' or ${t.regulatoryRegime} is distinct from 'hipaa'`,
+    ),
+    check("clinics_retention_record_days_positive", sql`${t.retentionRecordDays} >= 1`),
   ],
 );
 
@@ -923,9 +997,10 @@ export const agentConfigs = pgTable(
     /** Anything else the agent may say, e.g. parking, new-patient policy. */
     notes: text("notes"),
     /**
-     * The clinic's deposit rule, as the agent must state it. Null means no
-     * deposit is mentioned. With Stripe Connect unavailable the only
-     * collection path is the front desk, and the agent says so on the call.
+     * The clinic's default deposit, for a service that sets none of its own
+     * (AgentService.depositUsd). Null means no default. Whether a deposit is
+     * then asked for, and how, is lib/billing/deposits.ts depositDecision:
+     * deposits switched on, a connected Stripe account, and the channel.
      */
     depositPolicy: jsonb("deposit_policy").$type<DepositPolicy>(),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
@@ -943,6 +1018,13 @@ export type AgentService = {
   priceToUsd: number | null;
   /** Minutes, for scheduling. */
   durationMinutes: number | null;
+  /**
+   * The deposit this service asks for, in dollars, 0 to 10,000 (BD27; the
+   * spec sets deposits per service). 0 means none, even when the clinic has a
+   * default; null or absent means the clinic default, `deposit_policy`.
+   * lib/billing/deposits.ts effectiveDepositUsd reads it.
+   */
+  depositUsd?: number | null;
 };
 
 // -----------------------------------------------------------------------------
@@ -967,8 +1049,43 @@ export const reportRecipients = pgTable(
 );
 
 /**
+ * The ledger's kinds: the four the report mailers have always written, then
+ * every outbox kind, because each send from the outbox (billing_notices)
+ * writes one ledger row per recipient (Annex X3 of
+ * docs/design/funnel-onboarding-portal-2026-10-06.md). Built from the kind
+ * registry like the outbox's own CHECK, so a kind added there widens both.
+ */
+export const REPORT_DELIVERY_KINDS = [
+  "monthly",
+  "weekly",
+  "alert",
+  "renewal",
+  ...NOTICE_KINDS,
+] as const;
+export type ReportDeliveryKind = (typeof REPORT_DELIVERY_KINDS)[number];
+
+/**
+ * What Resend's webhook last said about one message. `bounced` means a
+ * PERMANENT bounce: the relay records a transient or undetermined one as
+ * `delayed`, because the one decision this column drives, whether the
+ * clinic's address is undeliverable, must not be taken on a soft bounce.
+ */
+export const DELIVERY_STATUSES = [
+  "sent",
+  "delivered",
+  "bounced",
+  "complained",
+  "suppressed",
+  "delayed",
+] as const;
+export type DeliveryStatus = (typeof DELIVERY_STATUSES)[number];
+
+/**
  * One row per (clinic, kind, period, recipient). The unique index is what
- * makes a re-run a conflict rather than a second email.
+ * makes a re-run a conflict rather than a second email. Since the email
+ * platform (Annex X3) it is the ledger of every email to a clinic: an outbox
+ * send uses the notice's id as the period key, and the row's id travels as
+ * the `delivery` tag so Resend's webhook can find it again.
  */
 export const reportDeliveries = pgTable(
   "report_deliveries",
@@ -977,21 +1094,98 @@ export const reportDeliveries = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
-    /** "monthly" | "weekly" | "alert" | "renewal" */
-    kind: text("kind").notNull(),
-    /** e.g. "2026-08" for monthly, "2026-W37" for weekly, an event id for alerts. */
+    /** A report kind ("monthly" | "weekly" | "alert" | "renewal") or an outbox kind. */
+    kind: text("kind").$type<ReportDeliveryKind>().notNull(),
+    /**
+     * e.g. "2026-08" for monthly, "2026-W37" for weekly, an event id for
+     * alerts, the billing_notices row id for an outbox send.
+     */
     periodKey: text("period_key").notNull(),
     recipient: text("recipient").notNull(),
-    /** "sent" | "skipped" | "failed" */
+    /** "sent" | "skipped" | "failed": what the API said when we sent. */
     status: text("status").notNull(),
     messageId: text("message_id"),
     reason: text("reason"),
     attemptedAt: timestamp("attempted_at", { withTimezone: true }).notNull().defaultNow(),
     sentAt: timestamp("sent_at", { withTimezone: true }),
+    /** What the mail provider reported afterwards, through the webhook relay. Null until then. */
+    deliveryStatus: text("delivery_status").$type<DeliveryStatus>(),
+    /** When the provider's event happened (the event's own timestamp, not ours). */
+    deliveryAt: timestamp("delivery_at", { withTimezone: true }),
   },
   (t) => [
     uniqueIndex("report_deliveries_once_idx").on(t.clinicId, t.kind, t.periodKey, t.recipient),
+    check("report_deliveries_kind_check", sql`${t.kind} in (${sqlList(REPORT_DELIVERY_KINDS)})`),
+    check(
+      "report_deliveries_delivery_status_check",
+      sql`${t.deliveryStatus} is null or ${t.deliveryStatus} in (${sqlList(DELIVERY_STATUSES)})`,
+    ),
   ],
+);
+
+/**
+ * The ops log: one row per alert notifyOps raised (I1 in Annex X5), with no
+ * clinic_id column because ops alerts are ours, not a tenant's. Two jobs:
+ *
+ *   - dedupe. Identical alerts, the same event about the same ids, within an
+ *     hour, are one email: a later one bumps `repeats` instead of mailing
+ *     again. Every process (web tier, worker, voice) shares the answer, which
+ *     an in-memory map could not give, and the free plan's 100 emails a day
+ *     cannot be spent on one stuck notice;
+ *   - the state row I1 keys on. A kind with no clinic keeps its state on its
+ *     own row and uses that row's id in Resend's idempotency key (Annex X3).
+ *
+ * `fields` holds ids, counts and categories only, as lib/log.ts allows them;
+ * never an address, a name or free text.
+ */
+export const opsAlerts = pgTable(
+  "ops_alerts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** An OPS_EVENTS name (lib/ops/notify.ts). */
+    event: text("event").notNull(),
+    /** The ids and categories that make two alerts "the same", serialised. */
+    dedupeKey: text("dedupe_key").notNull(),
+    fields: jsonb("fields")
+      .$type<Record<string, string | number | boolean | null>>()
+      .notNull()
+      .default({}),
+    raisedAt: timestamp("raised_at", { withTimezone: true }).notNull().defaultNow(),
+    /** The last time the same alert was raised again inside its window. */
+    lastRaisedAt: timestamp("last_raised_at", { withTimezone: true }).notNull().defaultNow(),
+    repeats: integer("repeats").notNull().default(0),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    messageId: text("message_id"),
+    lastError: text("last_error"),
+  },
+  (t) => [
+    index("ops_alerts_dedupe_idx").on(t.event, t.dedupeKey, t.raisedAt),
+    check("ops_alerts_event_check", sql`${t.event} ~ '^[a-z0-9]+(_[a-z0-9]+)*$'`),
+    check("ops_alerts_dedupe_key_check", sql`char_length(${t.dedupeKey}) <= 400`),
+  ],
+);
+
+export type OpsAlertRow = typeof opsAlerts.$inferSelect;
+
+/**
+ * Resend's daily count, one row per UTC day, as its `x-resend-daily-quota`
+ * response header last reported it. The header counts every email the
+ * account sent that day, apps/web's included, so the highest value seen is
+ * the day's count. The free plan stops at 100 a day, sign-in links and
+ * urgent alerts included, so notifyOps fires once at 70 (`alerted_at`) and
+ * the 07:00 ops digest (I2) reads the count from here.
+ */
+export const emailDailyQuota = pgTable(
+  "email_daily_quota",
+  {
+    /** The UTC calendar day, which is Resend's quota day. */
+    day: date("day").primaryKey(),
+    used: integer("used").notNull(),
+    observedAt: timestamp("observed_at", { withTimezone: true }).notNull().defaultNow(),
+    /** When notifyOps was told the count reached 70. Set once per day. */
+    alertedAt: timestamp("alerted_at", { withTimezone: true }),
+  },
+  (t) => [check("email_daily_quota_used_check", sql`${t.used} >= 0`)],
 );
 
 // -----------------------------------------------------------------------------
@@ -1021,7 +1215,10 @@ export type PhiBasis = "vendor_baa" | "practice_account";
 export type DepositPolicy = {
   required: boolean;
   amountUsd: number | null;
-  /** How it is collected. "front_desk" until Stripe Connect is enabled for the clinic. */
+  /**
+   * Ignored since BD27: how a deposit is collected follows from the channel
+   * and the clinic's deposit switches. Kept so existing rows still parse.
+   */
   collection: "front_desk" | "stripe_connect";
 };
 
@@ -1045,16 +1242,28 @@ export const incidents = pgTable(
     /** A conversation id, never its transcript. */
     conversationId: uuid("conversation_id"),
     discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull(),
-    /** From the class: 5 business days, or 5 calendar days for a breach. */
+    /**
+     * From the class: discovery plus 24 hours for a breach, a security
+     * incident and an improper use or disclosure, at every clinic (BAA
+     * 1.3.0's reporting clause, which 1.2.1's five days are met by too), or
+     * the state-law clause's "immediately following discovery" for a breach
+     * at a clinic that is not a covered entity, if that is ever earlier; two
+     * business days to a first reply for a service complaint. Set when the
+     * incident is opened: rows opened before 7 October 2026 keep the five-day
+     * clocks they were opened with (lib/incidents/incidents.ts).
+     */
     notifyBy: timestamp("notify_by", { withTimezone: true }).notNull(),
     notifiedAt: timestamp("notified_at", { withTimezone: true }),
     notifiedHow: text("notified_how"),
     /**
-     * For non-covered clinics, a second clock 60 days from discovery. Named
-     * for the FTC Health Breach Notification Rule, which on a closer reading
-     * (1 October 2026) does not reach a clinic's booking records: 16 CFR 318.2
-     * covers vendors of personal health records. Kept as a conservative floor
-     * under state breach-notification law; see lib/incidents/incidents.ts.
+     * For a breach at a non-covered clinic, a second clock 30 days from
+     * discovery: California's deadline for the clinic, as owner of the data,
+     * to notify the people affected (Cal. Civ. Code 1798.82(a)(2)(A)), the
+     * strictest owner clock among the states. 60 days until 3 October 2026.
+     * Named for the FTC Health Breach Notification Rule, which on a closer
+     * reading (1 October 2026) does not reach a clinic's booking records:
+     * 16 CFR 318.2 covers vendors of personal health records. The name is
+     * kept; see lib/incidents/incidents.ts.
      */
     ftcNotifyBy: timestamp("ftc_notify_by", { withTimezone: true }),
     openedBy: text("opened_by").notNull(),
@@ -1115,12 +1324,22 @@ export const bookingRequests = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
-    // Cascade: offboarding deletes contacts, and the app role has no DELETE
-    // here on purpose. Referential actions run as the table owner, so the
-    // request goes with the person it was about.
+    // NO ACTION, not the cascade it had until the
+    // booking_request_destruction migration: the app role may DELETE
+    // contacts and re-point appointments and calls, so with a cascade it
+    // could delete a person, put them back under the same id and put a
+    // decided request back with another decision. A person cannot be deleted
+    // while a request names them. Requests are deleted first, only through
+    // SECURITY DEFINER functions scoped to their tenant, each bound to state
+    // the app role cannot write: app_erase_contacts takes the people's own
+    // requests and the people in the same call, app_destroy_booking_requests
+    // needs offboarding stamped thirty days ago by the database, and
+    // app_purge_booking_requests the request's own frozen dates and the
+    // record clock in force. A request's id and token hash are kept after it
+    // is deleted (bookingRequestKeys), so it never comes back.
     contactId: uuid("contact_id")
       .notNull()
-      .references(() => contacts.id, { onDelete: "cascade" }),
+      .references(() => contacts.id),
     /**
      * Where the request came from. The desk has the final say on every
      * request; whether the assistant takes a request or books directly is
@@ -1171,7 +1390,16 @@ export const bookingRequests = pgTable(
     deskNote: text("desk_note"),
     /** Set when the desk confirmed a slot; the appointment row is the booking. */
     confirmedFor: timestamp("confirmed_for", { withTimezone: true }),
-    appointmentId: uuid("appointment_id").references(() => appointments.id, { onDelete: "set null" }),
+    /**
+     * The booking this request produced. NO ACTION, not the SET NULL it had
+     * until the booking_request_destruction migration: a confirmed request
+     * must keep its appointment (CHECK, 0039) and a decided one cannot be
+     * rewritten (trigger, 0041), so SET NULL could only ever fail, and fail
+     * as "cannot be re-decided". An appointment a request points at cannot be
+     * deleted until the request is; the request goes first, through the
+     * functions named on contactId above.
+     */
+    appointmentId: uuid("appointment_id").references(() => appointments.id),
     /**
      * The fourth decision — "propose other times". Up to three slots (a
      * CHECK), offered by the desk or read from the calendar, which the desk
@@ -1210,6 +1438,30 @@ export const bookingRequests = pgTable(
 export type ProposedSlot = { at: string; label: string; source: "calendar" | "desk" };
 /** See bookingRequests.bookedVia. 0041 dropped 'callback' from the CHECK: healdesk places no calls. */
 export type BookedVia = "desk" | "agent_direct";
+
+/**
+ * The id and token hash of every booking request ever written, kept after
+ * the request is deleted, so a request is written once
+ * (booking_request_destruction migration). The runtime role keeps INSERT on
+ * booking_requests and the no-rewrite trigger is BEFORE UPDATE only, so
+ * without this a request that destruction, erasure or the purge deleted could
+ * be put back under the same id and the same desk link with another
+ * decision. A BEFORE INSERT trigger on booking_requests, SECURITY DEFINER,
+ * writes both here and refuses a request whose id or token hash is already
+ * here. It is written at insert, not at delete, so a re-insert racing the
+ * delete that frees the id finds it taken all the same. The runtime role
+ * holds no privilege here at all. No clinic, no person: a random id and a
+ * digest of a random token, which identify nobody.
+ */
+export const bookingRequestKeys = pgTable(
+  "booking_request_keys",
+  {
+    id: uuid("id").primaryKey(),
+    tokenHash: customType<{ data: Buffer }>({ dataType: () => "bytea" })("token_hash").notNull(),
+    writtenAt: timestamp("written_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("booking_request_keys_token_idx").on(t.tokenHash)],
+);
 
 /**
  * The half-collected request: what the person has said so far on one thread,
@@ -1362,6 +1614,20 @@ export const baaAcceptances = pgTable(
     documentHash: text("document_hash").notNull(),
 
     /**
+     * Which kind of agreement the row is: 'dpa' when the version is in the
+     * DPA's namespace ("dpa/1.0.0"), 'baa' for every other version. GENERATED
+     * ALWAYS from the version, like `retentionEligibleAt`, so no writer can
+     * label a signature with a kind its document does not have; a CHECK in
+     * 0051 keeps any other namespace out of `documentVersion`.
+     * `agreementKindOfVersion` in @healdesk/catalog is the TypeScript mirror,
+     * and tests/agreement-kinds.test.ts runs both over the same versions.
+     */
+    agreementKind: text("agreement_kind")
+      .$type<AgreementKind>()
+      .notNull()
+      .generatedAlwaysAs(sql`case when document_version like 'dpa/%' then 'dpa' else 'baa' end`),
+
+    /**
      * The exact document this person was shown, rendered.
      *
      * Stored in full rather than reconstructed on demand. Re-rendering from the
@@ -1485,6 +1751,13 @@ export const baaAcceptances = pgTable(
     check(
       "baa_acceptances_copy_hash_format",
       sql`${t.copyDocumentSha256} is null or ${t.copyDocumentSha256} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check("baa_acceptances_agreement_kind_check", sql`${t.agreementKind} in ('baa', 'dpa')`),
+    // A namespaced version is a DPA's; no other namespace may be stored, so
+    // the generated kind can never call an unknown document a BAA.
+    check(
+      "baa_acceptances_version_namespace",
+      sql`${t.documentVersion} not like '%/%' or ${t.documentVersion} like 'dpa/%'`,
     ),
   ],
 );
@@ -2002,7 +2275,7 @@ export const connectionLinks = pgTable(
      * unknown token. Set at issue, never updated (the UPDATE grant is used_at
      * and consumed_ip only).
      */
-    purpose: text("purpose").$type<"connect" | "setup">().notNull().default("connect"),
+    purpose: text("purpose").$type<"connect" | "setup" | "meta" | "whatsapp">().notNull().default("connect"),
 
     /**
      * The ops user who issued it, as an immutable snapshot rather than an FK —
@@ -2247,7 +2520,10 @@ export const entitlements = pgTable(
      * `included × locations`, computed where usage is counted.
      */
     locations: integer("locations").notNull().default(1),
-    /** When the first invoice was paid. The clock for both refund windows. */
+    /**
+     * When the first invoice (the setup fee) was paid. Not a refund clock:
+     * both refund windows run from the plan start (`planStartedAt`).
+     */
     firstPaidAt: timestamp("first_paid_at", { withTimezone: true }),
     /**
      * End of the paid licensed period, from the latest paid invoice's package
@@ -2267,9 +2543,92 @@ export const entitlements = pgTable(
       .default(sql`'{}'::text[]`),
     /** Stripe's `cancel_at`, when a cancellation is scheduled for a date. */
     cancelAt: timestamp("cancel_at", { withTimezone: true }),
-    setupFeeRefundedAt: timestamp("setup_fee_refunded_at", { withTimezone: true }),
-    setupFeeRefundedUsd: numeric("setup_fee_refunded_usd", { precision: 12, scale: 2 }),
+    // setup_fee_refunded_at and setup_fee_refunded_usd were dropped by
+    // drizzle/0050: the setup fee is never refundable (owner, 6 October 2026),
+    // so nothing may ever record a refund of it.
     firstPeriodRefundedAt: timestamp("first_period_refunded_at", { withTimezone: true }),
+
+    // --- 0044: the deferred start and the setup window (funnel and portal
+    // contracts). Null on every row written before it. ---
+    /** When the first plan invoice was paid: the monthly plan has started. */
+    planStartedAt: timestamp("plan_started_at", { withTimezone: true }),
+    /**
+     * The package bought at checkout. `planCode` follows the package Stripe
+     * bills, which matches the channels in service until every bought channel
+     * is; this stays what was sold, and the metered rates stay its.
+     */
+    boughtPlanId: text("bought_plan_id"),
+    /**
+     * The end of the setup window: the end of the 30th day after purchase,
+     * set at provisioning and extended only by ops. A clinic with no live
+     * channel by then is closed by a job, and its setup fee is not refunded.
+     */
+    setupDeadlineAt: timestamp("setup_deadline_at", { withTimezone: true }),
+
+    // --- 0050: the Stripe build (packages B, C and D). Null on every row
+    // written before it. ---
+    /**
+     * When the plan-start worker's Stripe update went through: the package
+     * price replaced the $0 placeholder. The plan has STARTED once this or
+     * `planStartedAt` is set (`hasPlanStarted` in lib/billing/entitlements.ts),
+     * because the paid date alone would leave the minutes between Stripe's
+     * update and its invoice.paid looking like "not started", and a step-up
+     * or a cancellation decided in that gap would act on the placeholder.
+     */
+    planStartAppliedAt: timestamp("plan_start_applied_at", { withTimezone: true }),
+    /**
+     * The first plan invoice, stamped when it is paid. The refunds read its
+     * package line, so a later invoice can never be mistaken for it.
+     */
+    firstPlanInvoiceId: text("first_plan_invoice_id"),
+    /**
+     * One Stripe mutation of the subscription at a time per billing clinic.
+     * The plan-start, step-up, close-setup and cancel-now workers and the
+     * plan-change, extra-location, auto-renew and refund actions each claim
+     * it with a conditional UPDATE and release it once their outcome is
+     * written, so two of them can never each read the subscription, decide,
+     * and overwrite the other's change. A claim whose holder died is taken
+     * over once `until` has passed.
+     */
+    stripeMutationLeaseUntil: timestamp("stripe_mutation_lease_until", { withTimezone: true }),
+    stripeMutationLeaseOwner: text("stripe_mutation_lease_owner"),
+    /**
+     * An extra location being added: the request, the location count it
+     * makes, and when Stripe charged for it. Set before the charge and
+     * cleared once the location's clinic exists, so a failure after the
+     * charge is resumed from where it stopped instead of charged again.
+     */
+    pendingLocationRequestId: text("pending_location_request_id"),
+    pendingLocationCount: integer("pending_location_count"),
+    pendingLocationChargedAt: timestamp("pending_location_charged_at", { withTimezone: true }),
+    /**
+     * What the open invoice above asks for, in cents, beside its URL: the
+     * Billing screen reads the database only (lib/billing/summary.ts), and
+     * "pay the open invoice" needs its amount as well as its link.
+     */
+    openInvoiceAmountCents: integer("open_invoice_amount_cents"),
+    /**
+     * A plan change in flight (review fix, 7 October 2026): the request it was
+     * started under, the package and the interval it moves to. Set under the
+     * Stripe mutation lease before anything is charged and cleared in the
+     * transaction that applies it, exactly as pending_location_* are. Without
+     * it a change whose Stripe response was lost left the bought package
+     * unchanged, and the clinic's retry, which carries a fresh request id,
+     * charged the setup-fee difference a second time. A retry now adopts the
+     * pending request and finds its own charge.
+     */
+    pendingPlanChangeRequestId: text("pending_plan_change_request_id"),
+    pendingPlanChangePlanId: text("pending_plan_change_plan_id"),
+    pendingPlanChangeInterval: text("pending_plan_change_interval").$type<BillingInterval>(),
+    /**
+     * When the subscription state last applied from Stripe was read (review
+     * fix): customer.subscription.updated applies the live subscription it
+     * retrieved before its transaction, and two deliveries can commit in the
+     * opposite order to their reads. Compared and set under the row lock, so a
+     * snapshot read before the one already applied is skipped instead of
+     * overwriting it.
+     */
+    stripeSubscriptionSyncedAt: timestamp("stripe_subscription_synced_at", { withTimezone: true }),
 
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -2294,6 +2653,26 @@ export const entitlements = pgTable(
       sql`${t.overageMode} in ('allow', 'hard_cap')`,
     ),
     check("entitlements_locations_check", sql`${t.locations} >= 1`),
+    // A lease is a holder and an expiry together: an expiry with no holder
+    // could never be released by anyone, and a holder with no expiry would
+    // never lapse.
+    check(
+      "entitlements_stripe_mutation_lease_check",
+      sql`(${t.stripeMutationLeaseUntil} is null) = (${t.stripeMutationLeaseOwner} is null) and (${t.stripeMutationLeaseOwner} is null or char_length(${t.stripeMutationLeaseOwner}) between 1 and 120)`,
+    ),
+    // A pending location is a request and the count it makes, set together;
+    // it can be charged only while it is pending; the count is at least two
+    // (the clinic itself plus the new one); and the request id is an opaque
+    // token, because it rides into Stripe metadata and idempotency keys.
+    // A pending plan change is a request, a package and an interval, set together.
+    check(
+      "entitlements_pending_plan_change_check",
+      sql`(${t.pendingPlanChangeRequestId} is null) = (${t.pendingPlanChangePlanId} is null) and (${t.pendingPlanChangeRequestId} is null) = (${t.pendingPlanChangeInterval} is null) and (${t.pendingPlanChangeInterval} is null or ${t.pendingPlanChangeInterval} in ('month', 'year')) and (${t.pendingPlanChangeRequestId} is null or ${t.pendingPlanChangeRequestId} ~ '^[A-Za-z0-9_-]{1,64}$')`,
+    ),
+    check(
+      "entitlements_pending_location_check",
+      sql`(${t.pendingLocationRequestId} is null) = (${t.pendingLocationCount} is null) and (${t.pendingLocationChargedAt} is null or ${t.pendingLocationRequestId} is not null) and (${t.pendingLocationCount} is null or ${t.pendingLocationCount} >= 2) and (${t.pendingLocationRequestId} is null or ${t.pendingLocationRequestId} ~ '^[A-Za-z0-9_-]{1,64}$')`,
+    ),
   ],
 );
 
@@ -2428,19 +2807,48 @@ export type CheckoutIntentPayload = {
   /** Lowercased. */
   contactEmail: string;
   contactTitle?: string;
-  phoneSystemType: "landline" | "voip" | "unknown";
-  callRouting: "conditional" | "always";
+  /**
+   * Only when the purchase asked. The four-step funnel asks neither: which
+   * calls reach AYA is the wizard's question (step 2.2), and an answer stored
+   * here would reach provisioning as the clinic's confirmed choice.
+   */
+  phoneSystemType?: "landline" | "voip" | "unknown";
+  callRouting?: "conditional" | "always";
   agreementId: string;
+  /**
+   * The covered-entity answer the purchase was checked against the signed
+   * agreement with (true, false, or null for "Not sure"). Provisioning takes
+   * the determination from the agreement itself, never from here.
+   */
+  isCoveredEntity?: boolean | null;
+  /**
+   * The funnel's answers (plan Part A3), absent on an intent from before it:
+   * where bookings live today, and the kind of Google account they would go
+   * into, which together select the agreement's calendar terms; and the
+   * website, or null for a practice with none (which is never sold website
+   * chat). The read of that website is in its own column.
+   */
+  bookingSystem?: BookingSystemId;
+  calendarAccount?: CalendarAccount;
+  website?: string | null;
+  /** The buyer's browser time zone: the fallback for the clinic's own. */
+  timezone?: string;
 };
+
+/** Whether the website was read at checkout: read, tried and failed, or there was none. */
+export const CHECKOUT_PROFILE_STATUSES = ["read", "failed", "none"] as const;
+export type CheckoutProfileStatus = (typeof CHECKOUT_PROFILE_STATUSES)[number];
 
 /**
  * A purchase waiting on its first paid invoice.
  *
  * apps/web stores nothing, so before it creates a Checkout Session it hands
  * the validated purchase form to apps/app, which keeps it here and returns an
- * opaque `ref`. Stripe then carries `{ app, ref }` and nothing else, which is
- * what removes the "paid, then provisioning refused the form" case and the
- * buyer's details from Stripe metadata (design D1).
+ * opaque `ref`. Stripe then carries the ref and the terms of that press of
+ * Pay (`{ app, ref, plan, billingInterval, attempt }`) and nothing about the
+ * buyer, which is what removes the "paid, then provisioning refused the form"
+ * case and the buyer's details from Stripe metadata (design D1), and what
+ * lets provisioning refuse a payment for terms the intent no longer has.
  *
  * Identity plane: no clinic exists yet, so there is no clinic_id and no RLS.
  * The provisioned clinic is a stored result, deliberately not called
@@ -2464,9 +2872,43 @@ export const checkoutIntents = pgTable(
     provisionedClinicId: uuid("provisioned_clinic_id"),
     /** When the paying browser was handed its one-time sign-in link. */
     handoffIssuedAt: timestamp("handoff_issued_at", { withTimezone: true }),
+    /**
+     * The website read at checkout (plan Part B), validated on the way in,
+     * and whether there was one: 'read', 'failed' (we tried; setup asks three
+     * questions instead) or 'none' (no website, or none given).
+     */
+    profile: jsonb("profile"),
+    profileStatus: text("profile_status").$type<CheckoutProfileStatus>().notNull().default("none"),
+    /**
+     * The setup request whose link opened this purchase, while purchases are
+     * by invitation. Unique: one intent per setup link, which a cancelled and
+     * retried payment reuses, and which a second purchase cannot.
+     */
+    inviteRef: text("invite_ref").unique(),
+    /** How many times Pay was pressed for this intent; each press is one Checkout Session. */
+    attempt: integer("attempt").notNull().default(0),
+    /** The Checkout Session of the latest attempt, expired when another replaces it. */
+    openSessionId: text("open_session_id"),
+    /**
+     * SHA-256 of the nonce cookie set on the paying browser. /welcome hands the
+     * sign-in link only to the browser that holds the nonce.
+     */
+    nonceHash: bytea("nonce_hash"),
+    /** The owner's sign-in, created at provisioning (design D3). */
+    provisionedUserId: text("provisioned_user_id"),
+    /** Provisioning refused this intent: /welcome says so instead of waiting. */
+    provisionFailedAt: timestamp("provision_failed_at", { withTimezone: true }),
   },
   (t) => [
     check("checkout_intents_interval_check", sql`${t.billingInterval} in ('month', 'year')`),
+    check(
+      "checkout_intents_profile_status_check",
+      sql`${t.profileStatus} in (${sqlList(CHECKOUT_PROFILE_STATUSES)})`,
+    ),
+    check(
+      "checkout_intents_nonce_hash_length",
+      sql`${t.nonceHash} is null or octet_length(${t.nonceHash}) = 32`,
+    ),
     index("checkout_intents_expires_idx").on(t.expiresAt),
   ],
 );
@@ -2577,6 +3019,12 @@ export const clinicSettings = pgTable(
     aiPausedAt: timestamp("ai_paused_at", { withTimezone: true }),
     aiPausedByLabel: text("ai_paused_by_label"),
     /**
+     * When a pause ends by itself ("for 1 hour", "until tomorrow 8 am"). Read
+     * only while `aiPausedAt` is set, and null then means until someone turns
+     * AYA back on.
+     */
+    aiPausedUntil: timestamp("ai_paused_until", { withTimezone: true }),
+    /**
      * A clinic line that does NOT forward back to us: where every degradation
      * path sends a caller (CLAUDE.md, "Failure"). E.164.
      */
@@ -2609,7 +3057,8 @@ export type UsageSource = "voice_call" | "meta" | "web_chat";
  * The usage ledger: one row per billed call or chat conversation, the source
  * of truth behind the entitlements counters (design D10). The tenant is the
  * BILLING clinic whose allowance was used; `location_clinic_id` says which
- * location answered. `source_ref` is a sha256 hex, never a raw vendor id, and
+ * location answered. `source_ref` is an identifierRef (lib/identifier-ref.ts:
+ * a keyed HMAC, never a raw vendor id), and
  * the unique index makes a redelivered webhook a no-op. Append-only apart
  * from the three Stripe reporting columns.
  */
@@ -2660,8 +3109,9 @@ export type ChatThreadChannel = "messenger" | "instagram" | "whatsapp" | "web_ch
 /**
  * One person's thread on one channel, for counting chat conversations (owner
  * decision 3): a conversation starts at their first message and ends when 24
- * hours pass with no message from them. `party_ref` is sha256 hex of the
- * platform sender id; `conversation_id` is regenerated when a new
+ * hours pass with no message from them. `party_ref` is the identifierRef of
+ * the platform sender id (a keyed HMAC: a WhatsApp id is a phone number, which
+ * a plain hash would not hide); `conversation_id` is regenerated when a new
  * conversation starts. Tenant plane.
  */
 export const chatThreads = pgTable(
@@ -2676,6 +3126,17 @@ export const chatThreads = pgTable(
     conversationStartedAt: timestamp("conversation_started_at", { withTimezone: true }).notNull(),
     lastInboundAt: timestamp("last_inbound_at", { withTimezone: true }).notNull(),
     conversationsCount: integer("conversations_count").notNull().default(1),
+    /**
+     * The conversation whose first reply has carried the channel's opening
+     * line, metaChannelGreeting() on Meta (BAA 1.3.0: the first reply in each
+     * conversation says that it is an AI assistant and that the channel is
+     * not secure). A reply in any other conversation is a first reply and
+     * opens with it; null means none has gone out. Written only once that
+     * reply has been sent, in the transaction it was sent in, so a reply
+     * dropped outside Meta's window leaves it owed (lib/meta/greeting.ts,
+     * drizzle/0055).
+     */
+    greetedConversationId: uuid("greeted_conversation_id"),
   },
   (t) => [
     primaryKey({ columns: [t.clinicId, t.channel, t.partyRef] }),
@@ -2688,7 +3149,8 @@ export const chatThreads = pgTable(
 
 /**
  * Meta message ids already handled, so a redelivered webhook is skipped
- * entirely (no second answer, no second count). sha256 hex of the message id;
+ * entirely (no second answer, no second count). The identifierRef of the
+ * message id;
  * purged after 7 days by the billing-housekeeping job. Tenant plane.
  */
 export const metaInboundMessages = pgTable(
@@ -2711,24 +3173,12 @@ export const metaInboundMessages = pgTable(
   ],
 );
 
-export const BILLING_NOTICE_KINDS = [
-  "payment_failed",
-  "payment_action_required",
-  "grace_ending",
-  "suspended",
-  "restored",
-  "cancel_scheduled",
-  "cancel_reversed",
-  "canceled",
-  "renewal_upcoming",
-  "usage_80",
-  "usage_100",
-  "overage_invoiced",
-  "plan_changed",
-  "location_added",
-  "connect_disconnected",
-  "welcome_resend",
-] as const;
+/**
+ * The outbox's kinds: the keys of the registry in lib/email/kinds.ts (Annex
+ * X3), which also says how each is sent. F0's name and export are kept, so
+ * every reader of this list reads the registry.
+ */
+export const BILLING_NOTICE_KINDS = NOTICE_KINDS;
 export type BillingNoticeKind = (typeof BILLING_NOTICE_KINDS)[number];
 
 /**
@@ -2787,6 +3237,13 @@ export const overageInvoices = pgTable(
     windowEnd: timestamp("window_end", { withTimezone: true }).notNull(),
     voiceUnits: integer("voice_units").notNull().default(0),
     chatUnits: integer("chat_units").notNull().default(0),
+    /**
+     * The price of one STARTED BLOCK of 100 units on each meter, never a
+     * per-minute or per-conversation rate: overage is billed in blocks since
+     * 6 October 2026, so amount_cents is ceil(units / 100) times this, per
+     * meter (lib/billing/annual-overage.ts). 0 for a meter the package does
+     * not sell.
+     */
     voiceRateCents: integer("voice_rate_cents").notNull().default(0),
     chatRateCents: integer("chat_rate_cents").notNull().default(0),
     amountCents: integer("amount_cents").notNull().default(0),
@@ -2806,6 +3263,130 @@ export const overageInvoices = pgTable(
 );
 
 export type OverageInvoice = typeof overageInvoices.$inferSelect;
+
+/**
+ * What a billing request asks Stripe to do: swap the $0 placeholder for the
+ * package price (`plan_start`), add a channel's price (`step_up`), close an
+ * account whose 30-day setup window ran out with nothing live
+ * (`close_setup`), or cancel at once after a first-period refund
+ * (`cancel_now`).
+ */
+export const BILLING_REQUEST_KINDS = ["plan_start", "step_up", "close_setup", "cancel_now"] as const;
+export type BillingRequestKind = (typeof BILLING_REQUEST_KINDS)[number];
+
+/** Why it was recorded: a channel's first answer, a waiting channel's 30 days, the setup deadline, an operator, or the hourly reconcile. */
+export const BILLING_REQUEST_REASONS = [
+  "first_answer",
+  "waiting",
+  "deadline",
+  "ops",
+  "reconcile",
+] as const;
+export type BillingRequestReason = (typeof BILLING_REQUEST_REASONS)[number];
+
+/** How a finished request ended. A pending one has no outcome. */
+export const BILLING_REQUEST_OUTCOMES = ["done", "skipped", "dead_letter"] as const;
+export type BillingRequestOutcome = (typeof BILLING_REQUEST_OUTCOMES)[number];
+
+/** The channel a step_up adds; every other kind carries "-", so the unique key still holds. */
+export type BillingRequestChannelKey = Channel | "-";
+
+/**
+ * The billing-request ledger (drizzle/0050, build decision BD1): what the
+ * engine has asked Stripe to do, recorded in the same transaction as the
+ * event that asked (a channel's first answer, the reconcile, an operator),
+ * and carried out afterwards by a worker that calls Stripe outside any
+ * transaction.
+ *
+ * Why a table and not a queue job: a pg-boss send is not part of the
+ * caller's transaction, so a crash between the commit and the send would
+ * lose a plan start for good and leave the clinic answering on the $0 line.
+ * Here the row commits or rolls back with the first answer itself.
+ *
+ * Rows live on the BILLING clinic. The recorders go through the definer
+ * `app_record_billing_request`, which resolves the billing clinic from the
+ * caller's tenant, so a location's transaction can record one and every
+ * claim, outcome and re-arm then runs in the billing clinic's tenant. One row
+ * per (clinic, kind, channel): a second request for the same thing is a
+ * no-op, and a finished one is re-armed rather than inserted again, which
+ * also bounds a clinic to six rows.
+ *
+ * The worker claims a row by a conditional UPDATE that sets a short
+ * `lease_until` and counts the attempt, then writes the outcome
+ * conditionally on the attempt it claimed. The runtime role may SELECT and
+ * INSERT, UPDATE only those worker columns, and never DELETE: this is billing
+ * evidence, kept through offboarding. Tenant plane, no PHI.
+ */
+export const billingRequests = pgTable(
+  "billing_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<BillingRequestKind>().notNull(),
+    channelKey: text("channel_key").$type<BillingRequestChannelKey>().notNull().default("-"),
+    reason: text("reason").$type<BillingRequestReason>().notNull(),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    /** While set and in the future, a worker holds the row. */
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    /**
+     * How many times the row has been re-armed (review fix). Re-arming resets
+     * `attempts` for the backoff and the dead-letter count, so the attempt
+     * number alone would repeat, and with it the idempotency keys Stripe still
+     * holds a cached failure under. The keys and the lease owner carry the
+     * epoch too, so a re-armed request always reaches Stripe afresh.
+     */
+    epoch: integer("epoch").notNull().default(0),
+    /** A closed code and a short reason, never a Stripe payload or an exception's text. */
+    lastError: text("last_error"),
+    doneAt: timestamp("done_at", { withTimezone: true }),
+    outcome: text("outcome").$type<BillingRequestOutcome>(),
+    /** A snake_case code: already_started, cancel_pending, live_channel, no_change… */
+    outcomeReason: text("outcome_reason"),
+  },
+  (t) => [
+    uniqueIndex("billing_requests_key_idx").on(t.clinicId, t.kind, t.channelKey),
+    // The drainer's question, "what is due", runs on pending rows only.
+    index("billing_requests_due_idx")
+      .on(t.nextAttemptAt)
+      .where(sql`${t.doneAt} is null`),
+    check("billing_requests_kind_check", sql`${t.kind} in (${sqlList(BILLING_REQUEST_KINDS)})`),
+    check(
+      "billing_requests_channel_check",
+      sql`${t.channelKey} = '-' or ${t.channelKey} in (${sqlList(CHANNELS)})`,
+    ),
+    // A step-up names the channel it adds, and nothing else names one.
+    check(
+      "billing_requests_step_up_channel_check",
+      sql`(${t.kind} = 'step_up') = (${t.channelKey} <> '-')`,
+    ),
+    check(
+      "billing_requests_reason_check",
+      sql`${t.reason} in (${sqlList(BILLING_REQUEST_REASONS)})`,
+    ),
+    check("billing_requests_attempts_check", sql`${t.attempts} >= 0`),
+    check("billing_requests_epoch_check", sql`${t.epoch} >= 0`),
+    check(
+      "billing_requests_last_error_check",
+      sql`${t.lastError} is null or char_length(${t.lastError}) <= 300`,
+    ),
+    check(
+      "billing_requests_outcome_check",
+      sql`${t.outcome} is null or ${t.outcome} in (${sqlList(BILLING_REQUEST_OUTCOMES)})`,
+    ),
+    // Finished means an outcome, and only a finished request has one.
+    check("billing_requests_done_check", sql`(${t.doneAt} is null) = (${t.outcome} is null)`),
+    check(
+      "billing_requests_outcome_reason_check",
+      sql`${t.outcomeReason} is null or ${t.outcomeReason} ~ '^[a-z_]{1,40}$'`,
+    ),
+  ],
+);
+
+export type BillingRequest = typeof billingRequests.$inferSelect;
 
 export type DepositPaymentStatus =
   | "creating"
@@ -2846,6 +3427,12 @@ export const depositPayments = pgTable(
   },
   (t) => [
     index("deposit_payments_appointment_idx").on(t.clinicId, t.appointmentId),
+    // One live link per appointment (drizzle/0050): a retried booking turn or
+    // a second request for the same appointment gets the open session back
+    // (createDepositLink) instead of a second link the patient could also pay.
+    uniqueIndex("deposit_payments_open_appointment_idx")
+      .on(t.clinicId, t.appointmentId)
+      .where(sql`${t.status} in ('creating', 'open') and ${t.appointmentId} is not null`),
     check("deposit_payments_channel_check", sql`${t.channel} in ('web', 'meta')`),
     check("deposit_payments_amount_check", sql`${t.amountCents} > 0`),
     check(
@@ -2888,6 +3475,14 @@ export const stripeConnectEvents = pgTable(
 );
 
 /**
+ * Where a Connect callback sends the browser back to (drizzle/0050): the
+ * portal's Settings, the setup wizard, or the neutral page an operator's link
+ * lands on. Never /admin.
+ */
+export const STRIPE_CONNECT_RETURN_TO = ["settings", "setup", "ops"] as const;
+export type StripeConnectReturnTo = (typeof STRIPE_CONNECT_RETURN_TO)[number];
+
+/**
  * Single-use Stripe Connect OAuth state. Stores SHA-256 of the state, never
  * the state. Identity plane: the callback arrives with no tenant, and this
  * row is how it learns one.
@@ -2903,15 +3498,416 @@ export const stripeConnectStates = pgTable(
     stateHash: bytea("state_hash").primaryKey(),
     clinicId: uuid("target_clinic_id").notNull(),
     userId: text("user_id"),
-    returnTo: text("return_to").$type<"portal" | "ops">().notNull(),
+    returnTo: text("return_to").$type<StripeConnectReturnTo>().notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     usedAt: timestamp("used_at", { withTimezone: true }),
   },
   (t) => [
     check("stripe_connect_states_hash_length", sql`octet_length(${t.stateHash}) = 32`),
-    check("stripe_connect_states_return_check", sql`${t.returnTo} in ('portal', 'ops')`),
+    check(
+      "stripe_connect_states_return_check",
+      sql`${t.returnTo} in (${sqlList(STRIPE_CONNECT_RETURN_TO)})`,
+    ),
   ],
+);
+
+// -----------------------------------------------------------------------------
+// The funnel and portal contracts (drizzle/0044): channels, their events, and
+// the days a clinic is closed
+// -----------------------------------------------------------------------------
+
+/** The one thing a channel ready on our side is waiting for the clinic to do. */
+export const CHANNEL_WAITING_ON = [
+  "setup",
+  "forwarding",
+  "snippet",
+  "meta_connect",
+  "whatsapp_payment_method",
+] as const;
+export type ChannelWaitingOn = (typeof CHANNEL_WAITING_ON)[number];
+
+/**
+ * One row per channel the clinic bought, written at provisioning. The channel
+ * is the catalog's (`CHANNELS`: web, meta, voice), because billing steps up by
+ * those three: Meta is one row for Instagram, Messenger and WhatsApp.
+ *
+ * The row is the channel's state now; `channel_events` is how it got there.
+ * `enabled` is the Settings On/Off. `ready_at` is when it was ready on our
+ * side, `waiting_on` the clinic's one outstanding action meanwhile, `live_at`
+ * when it went live, and `first_answer_at` its first answered patient
+ * conversation: the day its price joins the plan. lib/channels/state.ts turns
+ * a row into a status word.
+ *
+ * The runtime role cannot DELETE a row or move its key, so a channel in
+ * service never drops out of the price by losing it. Tenant plane, no PHI.
+ */
+export const clinicChannels = pgTable(
+  "clinic_channels",
+  {
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    channel: text("channel").$type<Channel>().notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    readyAt: timestamp("ready_at", { withTimezone: true }),
+    waitingOn: text("waiting_on").$type<ChannelWaitingOn>(),
+    liveAt: timestamp("live_at", { withTimezone: true }),
+    firstAnswerAt: timestamp("first_answer_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.clinicId, t.channel] }),
+    check("clinic_channels_channel_check", sql`${t.channel} in (${sqlList(CHANNELS)})`),
+    check(
+      "clinic_channels_waiting_on_check",
+      sql`${t.waitingOn} is null or ${t.waitingOn} in (${sqlList(CHANNEL_WAITING_ON)})`,
+    ),
+  ],
+);
+
+export type ClinicChannelRow = typeof clinicChannels.$inferSelect;
+
+export const CHANNEL_EVENT_KINDS = [
+  "ready",
+  "waiting",
+  "live",
+  "first_answer",
+  "paused",
+  "resumed",
+  "turned_off",
+  "turned_on",
+] as const;
+export type ChannelEventKind = (typeof CHANNEL_EVENT_KINDS)[number];
+
+/**
+ * What happened to a clinic's channels, append-only: ready on our side,
+ * waiting on the clinic (and for what), live, the first answer, the header's
+ * pause and resume, and the Settings switch.
+ *
+ * It is billing evidence. The plan starts on the clinic's first
+ * `first_answer` and each later channel's price joins on its own, so the
+ * partial unique index below makes the database, not the engine's memory,
+ * the reason a channel's first answer is recorded once. A pause is
+ * clinic-wide, so `paused` and `resumed` may name no channel; every other
+ * kind names one.
+ *
+ * `actor` is 'system', 'ops', or the label of the device whose passkey did it.
+ * `detail` holds ids, ISO dates and counts, never conversation content. The
+ * runtime role may SELECT and INSERT, nothing else. Tenant plane, no PHI.
+ */
+export const channelEvents = pgTable(
+  "channel_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    channel: text("channel").$type<Channel>(),
+    kind: text("kind").$type<ChannelEventKind>().notNull(),
+    waitingOn: text("waiting_on").$type<ChannelWaitingOn>(),
+    actor: text("actor"),
+    detail: jsonb("detail")
+      .$type<Record<string, string | number | boolean | null>>()
+      .notNull()
+      .default({}),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("channel_events_first_answer_idx")
+      .on(t.clinicId, t.channel)
+      .where(sql`${t.kind} = 'first_answer'`),
+    index("channel_events_clinic_idx").on(t.clinicId, t.occurredAt),
+    check(
+      "channel_events_channel_check",
+      sql`${t.channel} is null or ${t.channel} in (${sqlList(CHANNELS)})`,
+    ),
+    check("channel_events_kind_check", sql`${t.kind} in (${sqlList(CHANNEL_EVENT_KINDS)})`),
+    check(
+      "channel_events_waiting_on_check",
+      sql`${t.waitingOn} is null or ${t.waitingOn} in (${sqlList(CHANNEL_WAITING_ON)})`,
+    ),
+    check(
+      "channel_events_channel_required",
+      sql`${t.channel} is not null or ${t.kind} in ('paused', 'resumed')`,
+    ),
+  ],
+);
+
+export type ChannelEvent = typeof channelEvents.$inferSelect;
+
+/**
+ * Whole local days the clinic is closed (a holiday, a training day), on top
+ * of its weekly hours, which stay in `clinics.opening_hours`. `closed_on` is
+ * a date in the clinic's own time zone; lib/clinic/closures.ts reads it. The
+ * runtime role may add a day, relabel it and remove it, never move it.
+ * Tenant plane, no PHI.
+ */
+export const clinicClosures = pgTable(
+  "clinic_closures",
+  {
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    closedOn: date("closed_on", { mode: "string" }).notNull(),
+    label: text("label"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.clinicId, t.closedOn] }),
+    check(
+      "clinic_closures_label_check",
+      sql`${t.label} is null or char_length(${t.label}) <= 80`,
+    ),
+  ],
+);
+
+// -----------------------------------------------------------------------------
+// The portal's second factors and step-up (drizzle/0047). Identity plane, like
+// sign_in_links: a factor belongs to the clinic's one sign-in, not to a clinic,
+// and is read before any tenant is known, so no clinic_id and no RLS.
+// -----------------------------------------------------------------------------
+
+export const USER_FACTOR_KINDS = ["passkey", "totp"] as const;
+export type UserFactorKind = (typeof USER_FACTOR_KINDS)[number];
+
+/**
+ * The second factors of one sign-in (plan Part D3): a passkey per phone or
+ * computer, named by the person adding it, and at most one authenticator-app
+ * secret as the backup. One sign-in is shared by a clinic's staff, so the
+ * device a passkey lives on is the only "who" there is: step_ups snapshots
+ * the label and the access log records it.
+ *
+ * Each kind has its own columns and a CHECK refuses the other kind's: a
+ * passkey row is a WebAuthn credential (id, COSE public key, signature
+ * counter, transports, whether it is synced), a TOTP row a sealed secret
+ * (envelope.ts, bound to this row's id) and the last time step spent.
+ *
+ * The runtime role may move only `counter`, `last_step`, `last_used_at` and
+ * `revoked_at`, never DELETE, and a trigger freezes a revoked row and refuses
+ * a counter or step going backwards (app_user_factor_no_rewrite).
+ */
+export const userFactors = pgTable(
+  "user_factors",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<UserFactorKind>().notNull(),
+    /** Chosen by the person. Required for passkeys; the TOTP backup has none. */
+    deviceLabel: text("device_label"),
+    /** base64url, as the browser reports it. */
+    credentialId: text("credential_id"),
+    /** The COSE-encoded public key, exactly as registered. */
+    publicKey: bytea("public_key"),
+    /** The authenticator's signature counter; synced passkeys keep it at 0. */
+    counter: bigint("counter", { mode: "number" }),
+    transports: text("transports").array(),
+    /** Synced to the platform's keychain at registration (a "multi-device" passkey). */
+    backedUp: boolean("backed_up"),
+    /** The base32 TOTP secret, sealed. Never stored or logged in the clear. */
+    secretSealed: jsonb("secret_sealed").$type<SealedPayload>(),
+    /** The highest RFC 6238 time step already accepted: the replay guard. */
+    lastStep: bigint("last_step", { mode: "number" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("user_factors_credential_id_idx")
+      .on(t.credentialId)
+      .where(sql`${t.credentialId} is not null`),
+    uniqueIndex("user_factors_one_totp_idx")
+      .on(t.userId)
+      .where(sql`${t.kind} = 'totp' and ${t.revokedAt} is null`),
+    index("user_factors_user_idx").on(t.userId, t.createdAt),
+    check("user_factors_kind_check", sql`${t.kind} in (${sqlList(USER_FACTOR_KINDS)})`),
+    check(
+      "user_factors_passkey_columns",
+      sql`${t.kind} <> 'passkey' or (${t.credentialId} is not null and ${t.publicKey} is not null and ${t.counter} is not null and ${t.deviceLabel} is not null and ${t.backedUp} is not null and ${t.secretSealed} is null and ${t.lastStep} is null)`,
+    ),
+    check(
+      "user_factors_totp_columns",
+      sql`${t.kind} <> 'totp' or (${t.secretSealed} is not null and ${t.lastStep} is not null and ${t.credentialId} is null and ${t.publicKey} is null and ${t.counter} is null and ${t.transports} is null and ${t.backedUp} is null)`,
+    ),
+    check(
+      "user_factors_device_label_check",
+      sql`${t.deviceLabel} is null or (char_length(${t.deviceLabel}) between 1 and ${sql.raw(String(DEVICE_LABEL_MAX))} and ${t.deviceLabel} = btrim(${t.deviceLabel}) and ${t.deviceLabel} !~ '[[:cntrl:]]')`,
+    ),
+    // A length check, not a regex bound: Postgres caps {m,n} at 255. 1364 is
+    // base64url of WebAuthn's longest credential id, 1023 bytes.
+    check(
+      "user_factors_credential_id_format",
+      sql`${t.credentialId} is null or (${t.credentialId} ~ '^[A-Za-z0-9_-]+$' and char_length(${t.credentialId}) <= 1364)`,
+    ),
+    check("user_factors_counter_check", sql`${t.counter} is null or ${t.counter} >= 0`),
+    check("user_factors_last_step_check", sql`${t.lastStep} is null or ${t.lastStep} >= 0`),
+  ],
+);
+
+export type UserFactor = typeof userFactors.$inferSelect;
+
+/**
+ * Backup codes for the authenticator app (plan Part D3): ten per set, shown
+ * once, stored as SHA-256 of the normalised code. A code is spent by one
+ * conditional UPDATE of `used_at`; a new set revokes the old set's unspent
+ * codes rather than deleting them, so "which code was used, and when" keeps
+ * an answer. The runtime role has no DELETE and may UPDATE `used_at` and
+ * `revoked_at` only, and a spent or revoked code is frozen.
+ */
+export const userBackupCodes = pgTable(
+  "user_backup_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    codeHash: bytea("code_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("user_backup_codes_live_idx")
+      .on(t.userId, t.codeHash)
+      .where(sql`${t.usedAt} is null and ${t.revokedAt} is null`),
+    check("user_backup_codes_hash_length", sql`octet_length(${t.codeHash}) = 32`),
+  ],
+);
+
+export const WEBAUTHN_CHALLENGE_PURPOSES = ["register", "authenticate"] as const;
+export type WebauthnChallengePurpose = (typeof WEBAUTHN_CHALLENGE_PURPOSES)[number];
+
+/**
+ * Why this session may add a passkey, decided before the browser is asked to
+ * make one (plan Part D3): the sign-in's first passkey before any of its
+ * clinics has gone live, a passkey step-up on this session, or a code from
+ * the authenticator app or a backup code.
+ */
+export const PASSKEY_ENROL_BASES = ["first_passkey", "step_up", "code"] as const;
+export type PasskeyEnrolBasis = (typeof PASSKEY_ENROL_BASES)[number];
+
+/**
+ * WebAuthn challenges, single-use: consumed by one conditional UPDATE of
+ * `used_at` (`used_at IS NULL AND expires_at > now()`), the sign_in_links
+ * pattern, so one ceremony's response can be verified once. Each is bound to
+ * the session that asked for it (SHA-256 of its Better Auth token, as in
+ * step_ups), so a response lifted from one browser cannot step up another.
+ * A registration carries the basis it was allowed on. Five minutes at most,
+ * pinned by a CHECK. The runtime role may UPDATE `used_at` only, never DELETE.
+ */
+export const webauthnChallenges = pgTable(
+  "webauthn_challenges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    sessionTokenHash: bytea("session_token_hash").notNull(),
+    purpose: text("purpose").$type<WebauthnChallengePurpose>().notNull(),
+    /** base64url, exactly as the options handed to the browser carry it. */
+    challenge: text("challenge").notNull(),
+    enrolBasis: text("enrol_basis").$type<PasskeyEnrolBasis>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("webauthn_challenges_challenge_idx").on(t.challenge),
+    index("webauthn_challenges_user_idx").on(t.userId, t.createdAt),
+    check(
+      "webauthn_challenges_purpose_check",
+      sql`${t.purpose} in (${sqlList(WEBAUTHN_CHALLENGE_PURPOSES)})`,
+    ),
+    check(
+      "webauthn_challenges_basis_check",
+      sql`(${t.purpose} = 'register') = (${t.enrolBasis} is not null) and (${t.enrolBasis} is null or ${t.enrolBasis} in (${sqlList(PASSKEY_ENROL_BASES)}))`,
+    ),
+    check(
+      "webauthn_challenges_challenge_format",
+      sql`${t.challenge} ~ '^[A-Za-z0-9_-]{16,128}$'`,
+    ),
+    check(
+      "webauthn_challenges_session_hash_length",
+      sql`octet_length(${t.sessionTokenHash}) = 32`,
+    ),
+    check(
+      "webauthn_challenges_expiry_check",
+      sql`${t.expiresAt} > ${t.createdAt} and ${t.expiresAt} <= ${t.createdAt} + interval '5 minutes'`,
+    ),
+  ],
+);
+
+/**
+ * Passkey step-ups (plan Part D2): this session proved, with this device's
+ * passkey, that someone holding the device is here. Patient pages and
+ * sensitive changes ask for one that has been active in the last 15 minutes
+ * and is at most 8 hours old (lib/portal/step-up.ts).
+ *
+ * Bound to the Better Auth session by SHA-256 of its token, never the token:
+ * the token is the cookie's bearer value, and Better Auth 1.6 never rotates
+ * it (`disableSessionRefresh`, and a refresh would only move `expires_at`),
+ * so the hash is stable for the session's fourteen days. A step-up outlives
+ * its session only as a record: once the session row is gone no request can
+ * present the token again, and sign-out revokes it besides (lib/auth.ts).
+ *
+ * `device_label` is a snapshot, so the access log still names the device
+ * after it is renamed or removed. The runtime role may UPDATE
+ * `last_activity_at` and `revoked_at` only, never DELETE; a revoked row is
+ * frozen, activity never moves backwards, and a CHECK keeps it inside the
+ * eight hours.
+ */
+export const stepUps = pgTable(
+  "step_ups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionTokenHash: bytea("session_token_hash").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    factorId: uuid("factor_id")
+      .notNull()
+      .references(() => userFactors.id, { onDelete: "cascade" }),
+    deviceLabel: text("device_label").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("step_ups_session_idx")
+      .on(t.sessionTokenHash)
+      .where(sql`${t.revokedAt} is null`),
+    index("step_ups_factor_idx").on(t.factorId),
+    index("step_ups_user_idx").on(t.userId, t.createdAt),
+    check("step_ups_session_hash_length", sql`octet_length(${t.sessionTokenHash}) = 32`),
+    check(
+      "step_ups_activity_window",
+      sql`${t.lastActivityAt} >= ${t.createdAt} and ${t.lastActivityAt} <= ${t.createdAt} + interval '8 hours'`,
+    ),
+  ],
+);
+
+/**
+ * Wrong second-factor codes, counted per sign-in so a lockout survives a
+ * restart and holds across instances (plan Part D3). attempt-limit.ts is
+ * in-memory and per process, which is right for what it bounds and wrong for
+ * this. Five wrong codes (authenticator or backup) within fifteen minutes
+ * lock code entry for fifteen minutes; a right code clears the count.
+ */
+export const factorLockouts = pgTable(
+  "factor_lockouts",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
+    failures: integer("failures").notNull().default(0),
+    windowStartedAt: timestamp("window_started_at", { withTimezone: true }),
+    lockedUntil: timestamp("locked_until", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("factor_lockouts_failures_check", sql`${t.failures} >= 0`)],
 );
 
 /** Tables carrying a clinic_id, and therefore requiring RLS. Asserted by tests. */
@@ -2946,4 +3942,8 @@ export const TENANT_SCOPED_TABLES = [
   "billing_notices",
   "overage_invoices",
   "deposit_payments",
+  "clinic_channels",
+  "channel_events",
+  "clinic_closures",
+  "billing_requests",
 ] as const;

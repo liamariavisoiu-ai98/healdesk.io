@@ -1,15 +1,17 @@
 healdesk Business Associate Agreement — version 1.3.0, DRAFT, as redrafted on
 6 October 2026 by the adversarial audit that precedes its release, and
 corrected on 7 October by the verification of that redraft
-(docs/counsel/agreement-changes.md §12.14). Not released and not offered:
-approvedByCounsel is false and the template sits at BAA_TEMPLATES[1], below
-1.2.1. Signing refuses it: validateSignRequest and signAgreement take only
-BAA_TEMPLATES[0], or a released version inside its BAA_RELEASE_OVERLAP window
-(plan C3); provisioning does not yet check the bound version, which plan C15
-changes before the release. The owner releases it once the release gates in
-§12.14 are closed (plan C19, owner answer Q2). Nothing below depends on that
-release, so releasing it moves no hash; an edit before then regenerates this
-text and its golden hashes in the same commit (§12.12).
+(docs/counsel/agreement-changes.md §12.14) and by clause 11's sentence on
+booking requests, which now have a period of their own (§12.12). Not released
+and not offered: approvedByCounsel is false and the template sits at
+BAA_TEMPLATES[1], below 1.2.1. Signing refuses it: validateSignRequest and
+signAgreement take only BAA_TEMPLATES[0], or a released version inside its
+BAA_RELEASE_OVERLAP window (plan C3); provisioning does not yet check the
+bound version, which plan C15 changes before the release. The owner releases
+it once the release gates in §12.14 are closed (plan C19, owner answer Q2).
+Nothing below depends on that release, so releasing it moves no hash; an edit
+before then regenerates this text and its golden hashes in the same commit
+(§12.12).
 
 What is new against 1.2.1 (agreement-changes.md §12 and §12.14): the one
 unconditional Google Calendar clause is replaced by three, exactly one of
@@ -39,7 +41,7 @@ business associate agreement. The specialty shows as the golden test passes
 it, an id rather than the catalogue's display name. From the title line on,
 the sample is exactly what apps/app/tests/baa-golden.test.ts freezes as 1.3.0
 / covered_estimated (SHA-256
-ae25aee567b331bdcba230f46ad804a1c2f72475d45a4930518444e3b72add56). The clauses
+164d09a2028f07d2e2f087c337a691695cb055bd631a4b030fb4f6331c99d864). The clauses
 that render only for some practices follow in Appendix A, the calendar
 election in Appendix B, and the Google Calendar disclosure the practice ticks
 before connecting in Appendix C. Source: packages/catalog/src/baa.ts (template
@@ -508,13 +510,14 @@ EFFECTIVE 13 September 2026
 
   healdesk keeps each conversation, with its transcript, for 90 days after it
   took place, and each appointment record for 90 days after the appointment's
-  time. A booking request is kept with the contact details of the person it
-  concerns. Both are kept until 90 days after the latest of that person's last
-  conversation, their last appointment's time and the last time their details
-  were recorded or changed. Practice may shorten these periods in its portal.
-  A backup copy of anything healdesk deletes expires within 35 days of the
-  deletion. No call audio is kept at all. The Term clause governs what is held
-  after termination.
+  time. It keeps each booking request for 90 days after the latest of when it
+  was made, the time it was confirmed for and its appointment's time. A
+  person's contact details are kept while any conversation, appointment record
+  or booking request of theirs is kept, and in any case until 90 days after
+  the last time those details were recorded or changed. Practice may shorten
+  these periods in its portal. A backup copy of anything healdesk deletes
+  expires within 35 days of the deletion. No call audio is kept at all. The
+  Term clause governs what is held after termination.
 
 12. REPORTING BREACHES AND SECURITY INCIDENTS
 

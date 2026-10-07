@@ -216,7 +216,10 @@ RDS instance, not after, because the first item cannot be added later.
 - *RDS:* storage encryption with our KMS key at creation; `rds.force_ssl=1`; the
   `healdesk_app` (NOBYPASSRLS) and `healdesk_migrator` roles; 35-day automated backups;
   the RDS CA trusted in the container (production sets `rejectUnauthorized: true` and
-  fails without it); Config rule `rds-storage-encrypted`; a restore drill.
+  fails without it); Config rule `rds-storage-encrypted`; a restore drill, by the steps
+  in "Restoring" below; an alarm on any transaction open longer than five minutes
+  (`pg_stat_activity.xact_start`), because one held open is the way left around the
+  record clock's day and offboarding's thirty days (see "Retention and offboarding").
 - *KMS:* one customer-managed key; a task-role policy limited to `GenerateDataKey`,
   `Decrypt` and `Encrypt` on it; `HEALDESK_KMS_PROVIDER=aws-kms` and `HEALDESK_KMS_KEY_ID`
   in every task definition, the key ID as the key's full ARN
@@ -321,7 +324,13 @@ conversation, appointment, booking request and transaction rows and then contact
 refers to. A booking request goes once every date on it is past the clock (when it was
 made, the slot it was confirmed for, its appointment's time), and a shortened clock
 reaches booking requests a day after it is set. Every request's id and token hash stay
-in `booking_request_keys` after it is deleted, and are never written again.
+in `booking_request_keys` after it is deleted, and are never written again. The day, and
+offboarding's thirty, run from when the change is written (`clock_timestamp()`, not the
+start of its transaction), and saving the clock's current value again restarts nothing.
+What SQL cannot see is when a transaction commits: one that shortens the clock or starts
+offboarding and then stays open for the day (or the thirty) commits a change whose wait
+has already run, holding the clinic's row locked all that time. The long-transaction
+alarm in the AWS list is what catches it.
 `retention-purge` runs both nightly and writes one audit row per clinic with counts.
 `baa_acceptances` has its own six-year floor.
 Vendor-side retention (Retell's per-agent setting) is a setting, not a delete we run:
@@ -338,6 +347,36 @@ it over, and record it on the care page. `offboarding-destroy` deletes every pat
 once `destroy_after` has passed and the export is recorded (or 90 days after the start),
 revokes the connections, and writes one security event. Export first, then destroy; the
 BAA obligations persist until it is done.
+
+### Restoring
+
+Restore from the host's physical snapshot or point-in-time recovery, or from a full
+`pg_dump` of schema and data, in which the triggers are created after the data. A
+data-only load into a migrated schema (`pg_restore --data-only`, or a `\copy` of one
+table) fires two BEFORE INSERT triggers from 0053 that refuse it: `clinics_insert_guard`
+refuses every offboarded or destroyed clinic, and `booking_requests_keys_once` refuses
+every booking request whose key is already there, which is all of them, since
+`booking_request_keys` sorts ahead of `booking_requests` in a dump. For such a load the
+owner disables both by name, loads every table, `booking_request_keys` included, and
+enables both again, in one transaction:
+
+```sql
+BEGIN;
+ALTER TABLE clinics DISABLE TRIGGER clinics_insert_guard;
+ALTER TABLE booking_requests DISABLE TRIGGER booking_requests_keys_once;
+-- the data-only load
+ALTER TABLE clinics ENABLE TRIGGER clinics_insert_guard;
+ALTER TABLE booking_requests ENABLE TRIGGER booking_requests_keys_once;
+COMMIT;
+```
+
+(`pg_restore --data-only --disable-triggers` does the same for every table, foreign keys
+included, but only as a superuser, which RDS does not give.) Then check that both
+triggers and `clinics_record_clock` read `tgenabled = 'O'` in `pg_trigger`, the check
+0053 ends with, and that every booking request has its key, counting clinic by clinic
+inside each clinic's tenant as 0053's backfill does (`booking_requests` is FORCEd): a
+request loaded without its key could be deleted and written again with another decision.
+`tests/booking-request-destruction.test.ts` runs these steps.
 
 ### Logs
 

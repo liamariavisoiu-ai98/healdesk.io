@@ -112,12 +112,12 @@ Read in the code on 6 October 2026, at origin/main d652a0b.
 | Sentence (clause) | The code fact | Where |
 | --- | --- | --- |
 | Destruction "runs once a day" (17) | `offboarding-destroy` runs at hour 4 in the scheduler tick, when the job is switched on | `apps/app/src/lib/scheduler/tick.ts:75` |
-| Destroyed "once thirty days have passed … if the export has been delivered … otherwise at the first run after the export is delivered … in any case … once ninety days have passed" (17) | `DESTROY_AFTER_DAYS = 30` sets `destroy_after`; `DESTROY_WITHOUT_EXPORT_AFTER_DAYS = 90`; `dueForDestruction` | `apps/app/src/lib/offboarding/offboarding.ts`; pinned by `apps/app/tests/agreement-kinds.test.ts` |
+| Destroyed "once thirty days have passed … if the export has been delivered … otherwise at the first run after the export is delivered … in any case … once ninety days have passed" (17) | `app_start_offboarding()` stamps `destroy_after` thirty days after the start, by the database's clock, and `DESTROY_AFTER_DAYS = 30` states that period; `DESTROY_WITHOUT_EXPORT_AFTER_DAYS = 90`; `dueForDestruction` | `apps/app/drizzle/0053_booking_request_destruction.sql`; `apps/app/src/lib/offboarding/offboarding.ts`; the constants and `dueForDestruction` pinned by `apps/app/tests/agreement-kinds.test.ts`, the stamp's thirty days to `DESTROY_AFTER_DAYS` by `apps/app/tests/incidents-and-offboarding.test.ts` and `apps/app/tests/booking-request-destruction.test.ts` |
 | The clock starts "when the Services end" (17) | `startOffboarding` on `customer.subscription.deleted`, or an operator's `startOffboarding` | `apps/app/src/lib/billing/events.ts`, `apps/app/src/lib/ops/api.ts` |
 | "Within thirty days … deliver … an export … in a usable electronic form" (17) | Terms § 7 promises it; `exportClinic` (`npm run patient-export -- --all`) produces it and ops `markExportDelivered` stamps it | `apps/web/src/app/terms/page.tsx`; `apps/app/src/lib/patient-rights/export.ts`; `apps/app/scripts/patient-export.ts` |
 | Calls pass through to the direct line "for as long as the Terms provide" (17) | Terms § 7, `POLICY.forwardingPassThroughDays = 30` | `apps/web/src/lib/legal.ts` |
-| Destruction "deletes the conversations, bookings, booking requests and contact details … and the credentials" (17) | `destroyClinicData` deletes reconciliation exceptions, transactions, booking requests (first, through `app_destroy_booking_requests()`, drizzle/0053, once offboarding started thirty days before by the database's clock), appointments, conversations, Meta booking drafts, contacts, webhook payloads, provider connections and closures; suppressions, consent records and contact attempts stay (BAA 1.3.0 release gate 7 changes that) | `offboarding.ts` |
-| "no Client Information … except the telephone number of any client who asked to have their information deleted" (17), and the same in (13) | `eraseContact` leaves a `suppressions` row, which destruction keeps. Nothing else that survives destruction holds client data today: `suppress`/`recordAttempt` have no callers, and `consent_records`, `contact_attempts`, `chat_threads`, `usage_events`, `deposit_payments` and `meta_inbound_messages` have no writer yet | `apps/app/src/lib/retention/purge.ts`; `apps/app/src/lib/compliance/contact-policy.ts` |
+| Destruction "deletes the conversations, bookings, booking requests and contact details … and the credentials" (17) | `destroyClinicData` deletes reconciliation exceptions, transactions, booking requests (first, through `app_destroy_booking_requests()`, drizzle/0053, once offboarding started thirty days before by the database's clock), appointments, conversations, the keyed hashes of who messaged the practice and of the messages handled (`chat_threads`, `meta_inbound_messages`), Meta booking drafts, contacts, webhook payloads, provider connections and closures, and `app_mark_clinic_destroyed()` refuses to record the destruction while any of them is left; suppressions, consent records and contact attempts stay (BAA 1.3.0 release gate 7 changes that) | `offboarding.ts`; drizzle/0053 |
+| "no Client Information … except the telephone number of any client who asked to have their information deleted" (17), and the same in (13) | `eraseContact` leaves a `suppressions` row, which destruction keeps. Nothing else that survives destruction holds client data today: `suppress`/`recordAttempt` have no callers, and `consent_records`, `contact_attempts`, `usage_events` and `deposit_payments` have no writer yet (`chat_threads` and `meta_inbound_messages` do not survive it) | `apps/app/src/lib/retention/purge.ts`; `apps/app/src/lib/compliance/contact-policy.ts` |
 | "The signed copy … kept for at least six years after it ends" (17) | `retention_eligible_at` is a floor; healdesk_app has no DELETE on `baa_acceptances`; nothing deletes one | `drizzle/0025_baa_retention.sql`; `apps/app/src/lib/agreements/retention.ts` |
 | What the assistant asks for (10) | `BOOKING_FIELDS`: the locked four and the five a practice may switch on; `EXCLUDED_FIELDS` has no email | `packages/catalog/src/booking-requirements.ts` |
 | The opening line says AI, and on a call that it is transcribed (10) | The fixed disclosure lines | `apps/app/src/lib/compliance/disclosure.ts` |
@@ -186,19 +186,21 @@ Read in the code on 6 October 2026, at origin/main d652a0b.
    shorten" only once the portal control exists), regenerating the hashes,
    or release without a period.
 3. **Deletion on request has no operator path.** `eraseContact` exists and is
-   tested, but no script or ops operation runs it, and it leaves a client's
-   half-finished Meta booking draft (`meta_booking_drafts`) in place. The
-   DPA's clause 13 and the state-law clause promise deletion within ten
-   business days; before release, give the operator a script like
-   `patient-export` and have it delete the draft.
+   tested, and takes a client's half-finished Meta booking draft
+   (`meta_booking_drafts`) with the rest, found by the number, but no script
+   or ops operation runs it. The DPA's clause 13 and the state-law clause
+   promise deletion within ten business days; before release, give the
+   operator a script like `patient-export`.
 4. **BAA 1.2.1's minimum-necessary list is narrower than the booking
    catalogue** (§ 5, item 4).
-5. **`chat_threads` is not destroyed.** It has no writer yet, but package B
-   will write it, keyed by a SHA-256 of the sender's platform id; for
-   WhatsApp that id is a telephone number, and a digest of a telephone
-   number can be reversed by trying every number. `destroyClinicData` must
-   delete it before package B ships, or clause 17's "no Client Information
-   except" becomes false.
+5. **`chat_threads` at destruction: resolved.** It has no writer yet;
+   package B will write it, keyed by a hash of the sender's platform id,
+   which for WhatsApp is a telephone number (0050 made it a keyed
+   `identifierRef()` HMAC, since a plain digest of a number can be reversed
+   by trying every number). `destroyClinicData` now deletes it and
+   `meta_inbound_messages`, and `app_mark_clinic_destroyed()` refuses to
+   record a destruction while either holds a row (drizzle/0053), so clause
+   17's "no Client Information except" holds for both.
 6. **The calendar election names only the BAA.** `calendar-election/1.0.0`
    says it takes the place of the calendar clause "of the Business Associate
    Agreement", and its last sentence defines "this agreement" as that BAA.
@@ -301,7 +303,8 @@ its trigger.
       wants them collected (the text allows it; nothing asks for them yet).
 - [ ] The signing path, PDF and copy email for a DPA (gap 9).
 - [ ] The calendar election able to amend a DPA (gap 6).
-- [ ] Gaps 2, 3 and 5 resolved, or the text changed to match.
+- [ ] Gaps 2 and 3 resolved, or the text changed to match. (Gap 5 is
+      resolved.)
 - [ ] `offboarding-destroy` and `retention-purge` switched on for live
       clinics (gap 1).
 - [ ] Go-live admits a released DPA (gap 11): the migration, the TypeScript

@@ -3041,7 +3041,12 @@ const CLAUSES_1_3: readonly BaaClause[] = [
    * settings or its specialty's defaults switch on; never an email address
    * (PT-02). The periods are the nightly purge's (apps/app
    * src/lib/retention/purge.ts), with TRANSCRIPT_RETENTION_DAYS the clinic's
-   * default and BACKUP_RETENTION_DAYS the host's (PT-28).
+   * default and BACKUP_RETENTION_DAYS the host's (PT-28). A booking request's
+   * period runs from its own dates, which nothing moves once it is decided
+   * (app_purge_booking_requests, apps/app drizzle/0053); it no longer goes
+   * with its contact by cascade, so the text gives it its own sentence, and a
+   * person's contact details stay while any record of theirs does (purge
+   * step 3).
    */
   {
     id: "minimum-necessary",
@@ -3082,13 +3087,14 @@ const CLAUSES_1_3: readonly BaaClause[] = [
       wrap(
         `healdesk keeps each conversation, with its transcript, for ${TRANSCRIPT_RETENTION_DAYS} ` +
           `days after it took place, and each appointment record for ${TRANSCRIPT_RETENTION_DAYS} ` +
-          `days after the appointment's time. A booking request is kept with the contact details ` +
-          `of the person it concerns. Both are kept until ${TRANSCRIPT_RETENTION_DAYS} days after ` +
-          `the latest of that person's last conversation, their last appointment's time and the ` +
-          `last time their details were recorded or changed. Practice may shorten these periods ` +
-          `in its portal. A backup copy of anything healdesk deletes expires within ` +
-          `${BACKUP_RETENTION_DAYS} days of the deletion. No call audio is kept at all. The Term ` +
-          `clause governs what is held after termination.`,
+          `days after the appointment's time. It keeps each booking request for ` +
+          `${TRANSCRIPT_RETENTION_DAYS} days after the latest of when it was made, the time it was ` +
+          `confirmed for and its appointment's time. A person's contact details are kept while any ` +
+          `conversation, appointment record or booking request of theirs is kept, and in any case ` +
+          `until ${TRANSCRIPT_RETENTION_DAYS} days after the last time those details were recorded ` +
+          `or changed. Practice may shorten these periods in its portal. A backup copy of anything ` +
+          `healdesk deletes expires within ${BACKUP_RETENTION_DAYS} days of the deletion. No call ` +
+          `audio is kept at all. The Term clause governs what is held after termination.`,
       ),
   },
 

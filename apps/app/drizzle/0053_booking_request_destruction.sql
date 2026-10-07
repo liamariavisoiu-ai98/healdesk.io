@@ -96,7 +96,16 @@ ALTER TABLE "clinics" ADD CONSTRAINT "clinics_retention_record_days_positive" CH
 -- which is the practice's own setting, and from a day later purge any request
 -- that clock has passed; erase a person, whole; and delete a clinic that has
 -- no audit row yet, with whatever requests it wrote without one. None of them
--- can be followed by putting a request back.
+-- can be followed by putting a request back. And the waits run from when a
+-- change is written (clock_timestamp(), never the transaction's start), while
+-- a transaction keeps what it wrote from everyone else until it commits, and
+-- nothing in SQL can see when that is. So a transaction that shortens the
+-- clock, or starts offboarding, and then stays open for the day (or the
+-- thirty) commits a change whose wait has already run, which no one saw
+-- while it ran. It holds the clinic's row locked all that time, so every
+-- other write to that row waits behind it, and it sits in pg_stat_activity
+-- as a transaction open for a day; docs/handover.md has the host alert on
+-- any transaction open longer than a few minutes.
 --
 -- The no-rewrite rule is untouched: the trigger, the CHECKs and the column
 -- grant on booking_requests are exactly as 0041 left them. The two foreign
@@ -134,7 +143,9 @@ REVOKE UPDATE (offboarding_started_at, destroy_after, destroyed_at) ON clinics F
 -- column of an INSERT and sends DEFAULT for the ones it was not given, and
 -- Postgres then wants INSERT on each. So a trigger refuses a new row that
 -- carries any of the three, or the record clock's history (further down).
--- Provisioning and every fixture set none of them.
+-- Provisioning and every fixture set none of them. A data-only restore
+-- (pg_restore --data-only, a COPY) fires it too, and would refuse every
+-- offboarded or destroyed clinic: docs/handover.md says how to load one.
 CREATE OR REPLACE FUNCTION app_clinic_insert_guard()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -161,6 +172,12 @@ CREATE TRIGGER clinics_insert_guard
 -- destroy_after thirty days later (DESTROY_AFTER_DAYS), both from the
 -- database's clock, and only once: starting again moves neither. Returns
 -- destroy_after.
+--
+-- The stamp is the moment of the call, clock_timestamp(), not now(), which
+-- is when the calling transaction began: a transaction opened thirty days
+-- ago and left idle would otherwise stamp a start already thirty days old,
+-- and the clinic would be due for destruction the moment it committed,
+-- though no one could have seen it offboarding before.
 CREATE OR REPLACE FUNCTION app_start_offboarding(target_clinic uuid)
 RETURNS timestamptz
 LANGUAGE plpgsql
@@ -170,6 +187,7 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
   tenant uuid := app_current_clinic_id();
+  stamp timestamptz := clock_timestamp();
   due timestamptz;
 BEGIN
   IF tenant IS NULL OR target_clinic IS DISTINCT FROM tenant THEN
@@ -178,8 +196,8 @@ BEGIN
   END IF;
 
   UPDATE clinics c
-     SET offboarding_started_at = coalesce(c.offboarding_started_at, now()),
-         destroy_after = coalesce(c.destroy_after, now() + interval '30 days'),
+     SET offboarding_started_at = coalesce(c.offboarding_started_at, stamp),
+         destroy_after = coalesce(c.destroy_after, stamp + interval '30 days'),
          updated_at = now()
    WHERE c.id = target_clinic
   RETURNING c.destroy_after INTO due;
@@ -201,6 +219,15 @@ GRANT EXECUTE ON FUNCTION app_start_offboarding(uuid) TO healdesk_app;--> statem
 -- and the ops console treat the clinic as destroyed for good, and a stamp
 -- ahead of the deletes would leave its patients held with nothing left to
 -- remove them. Keeps the first stamp. Returns destroyed_at.
+--
+-- The list below is every table with a clinic_id that destruction does not
+-- keep on purpose, chat_threads and meta_inbound_messages (0043) among them:
+-- each row holds a keyed hash of a sender's or a message's id, a WhatsApp
+-- number among them, so it still points at a person. The destruction test
+-- (booking-request-destruction.test.ts) asks the catalog for every table
+-- with a clinic_id, fails until a new one is added here or to its list of
+-- the tables destruction keeps, and pins destroyClinicData's deletes to the
+-- tables named here.
 CREATE OR REPLACE FUNCTION app_mark_clinic_destroyed(target_clinic uuid)
 RETURNS timestamptz
 LANGUAGE plpgsql
@@ -237,7 +264,9 @@ BEGIN
      OR EXISTS (SELECT 1 FROM meta_booking_drafts d WHERE d.clinic_id = target_clinic)
      OR EXISTS (SELECT 1 FROM webhook_events w WHERE w.clinic_id = target_clinic)
      OR EXISTS (SELECT 1 FROM provider_connections k WHERE k.clinic_id = target_clinic)
-     OR EXISTS (SELECT 1 FROM clinic_closures z WHERE z.clinic_id = target_clinic) THEN
+     OR EXISTS (SELECT 1 FROM clinic_closures z WHERE z.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM chat_threads h WHERE h.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM meta_inbound_messages m WHERE m.clinic_id = target_clinic) THEN
     RAISE EXCEPTION 'Clinic % still holds rows that destruction deletes; refusing to mark it destroyed.', target_clinic
       USING ERRCODE = 'check_violation',
             HINT = 'destroyClinicData deletes them first, in the same transaction, and then stamps it.';
@@ -405,6 +434,16 @@ GRANT EXECUTE ON FUNCTION app_erase_contacts(uuid[]) TO healdesk_app;--> stateme
 -- (clinics_insert_guard). A lengthened clock applies at once. The rest of the
 -- purge, rows the runtime role may delete by hand anyway, follows the setting
 -- as before.
+--
+-- Two details of the trigger, each from the review of 7 October. The day
+-- runs from when the shorter clock is written, clock_timestamp(): now() is
+-- when the writing transaction began, so one opened a day before and left
+-- idle stamped a shortening that was already a day old as it committed, and
+-- could purge on it at once and put the clock back. And only a change starts
+-- the day: saving the value already set is no shortening, and a form that
+-- writes the field on every save, as the portal's Settings card may, would
+-- otherwise restart the day each time and keep a practice's shorter clock
+-- from ever reaching its booking requests.
 CREATE OR REPLACE FUNCTION app_record_days_in_force(record_days integer, previous_days integer, shortened_at timestamptz)
 RETURNS integer
 LANGUAGE sql
@@ -430,9 +469,10 @@ DECLARE
 BEGIN
   in_force := app_record_days_in_force(OLD.retention_record_days, OLD.retention_record_days_previous,
                                        OLD.retention_record_days_shortened_at);
-  IF NEW.retention_record_days < in_force THEN
+  IF NEW.retention_record_days IS DISTINCT FROM OLD.retention_record_days
+     AND NEW.retention_record_days < in_force THEN
     NEW.retention_record_days_previous := in_force;
-    NEW.retention_record_days_shortened_at := now();
+    NEW.retention_record_days_shortened_at := clock_timestamp();
   END IF;
   RETURN NEW;
 END
@@ -556,7 +596,10 @@ GRANT EXECUTE ON FUNCTION app_purge_booking_requests(timestamptz) TO healdesk_ap
 -- primary key for the delete and then goes through: the race puts the
 -- request back. Here the id has been taken since the request was first
 -- written, so the re-insert is refused at once, whatever else is in flight.
--- An insert that fails or rolls back takes its keys with it.
+-- An insert that fails or rolls back takes its keys with it. A data-only
+-- restore fires the trigger too, and booking_request_keys sorts ahead of
+-- booking_requests in a dump, so every restored request would be refused as
+-- written before: docs/handover.md says how to load one.
 --
 -- A random id and a digest of a random token identify nobody. 0003's default
 -- privileges gave the runtime role DML on the new table; it keeps none. The
@@ -626,7 +669,7 @@ $$;--> statement-breakpoint
 -- Comments
 -- -----------------------------------------------------------------------------
 COMMENT ON FUNCTION app_start_offboarding(uuid) IS
-  'Stamps clinics.offboarding_started_at and destroy_after thirty days later from the database''s clock, once; starting again moves neither. The tenant''s own clinic only. The runtime role cannot UPDATE either column and a new clinic cannot carry them, because app_destroy_booking_requests reads them as its floor. Returns destroy_after.';--> statement-breakpoint
+  'Stamps clinics.offboarding_started_at and destroy_after thirty days later from the database''s clock at the call (clock_timestamp(), not the transaction''s start), once; starting again moves neither. The tenant''s own clinic only. The runtime role cannot UPDATE either column and a new clinic cannot carry them, because app_destroy_booking_requests reads them as its floor. Returns destroy_after.';--> statement-breakpoint
 COMMENT ON FUNCTION app_mark_clinic_destroyed(uuid) IS
   'Stamps clinics.destroyed_at from the database''s clock, once, for destroyClinicData. Refuses unless the clinic passed is app.clinic_id, is due for destruction by the rule app_destroy_booking_requests applies, and holds none of the rows destroyClinicData deletes. Returns destroyed_at.';--> statement-breakpoint
 COMMENT ON FUNCTION app_destroy_booking_requests(uuid) IS
@@ -650,9 +693,9 @@ COMMENT ON COLUMN clinics.retention_record_days IS
 COMMENT ON COLUMN clinics.retention_record_days_previous IS
   'The record clock in force just before its last shortening, which stays in force for booking requests for a day (app_record_days_in_force). Written only by the clinics_record_clock trigger.';--> statement-breakpoint
 COMMENT ON COLUMN clinics.retention_record_days_shortened_at IS
-  'When the record clock was last shortened. Written only by the clinics_record_clock trigger.';--> statement-breakpoint
+  'When the record clock was last shortened, by the database''s clock at the write (clock_timestamp(), not the transaction''s start); saving the value already set moves nothing. Written only by the clinics_record_clock trigger.';--> statement-breakpoint
 COMMENT ON COLUMN clinics.offboarding_started_at IS
-  'When the clinic left (subscription deleted, or an operator ended it). Written only by app_start_offboarding(), from the database''s clock; a new clinic cannot carry it (clinics_insert_guard).';--> statement-breakpoint
+  'When the clinic left (subscription deleted, or an operator ended it). Written only by app_start_offboarding(), from the database''s clock at the call; a new clinic cannot carry it (clinics_insert_guard).';--> statement-breakpoint
 COMMENT ON COLUMN clinics.destroy_after IS
   'Hard-delete of patient data is permitted from this instant, thirty days after offboarding_started_at, and only if export_delivered_at is set or 90 days have passed since offboarding_started_at. Written only by app_start_offboarding(), from the database''s clock; a new clinic cannot carry it (clinics_insert_guard). See lib/offboarding.';--> statement-breakpoint
 COMMENT ON COLUMN clinics.destroyed_at IS

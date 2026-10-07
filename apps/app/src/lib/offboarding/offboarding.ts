@@ -3,11 +3,13 @@ import { eq, sql } from "drizzle-orm";
 import { unsafeDb } from "@/db";
 import {
   appointments,
+  chatThreads,
   clinicClosures,
   clinics,
   contacts,
   conversations,
   metaBookingDrafts,
+  metaInboundMessages,
   providerConnections,
   reconciliationExceptions,
   transactions,
@@ -41,14 +43,18 @@ import { withTenant } from "@/lib/tenant";
  *
  * So the dates are the database's. `offboarding_started_at`, `destroy_after`
  * and `destroyed_at` are stamped by app_start_offboarding() and
- * app_mark_clinic_destroyed(), from the database's clock; the runtime role
+ * app_mark_clinic_destroyed(), from the database's clock (the start at the
+ * moment of the call, not when its transaction began); the runtime role
  * has no UPDATE on them, and a new clinic cannot carry them (a trigger): if
  * it could write the dates the delete function reads, it could stamp a live
  * clinic as due, empty its requests and put the dates back.
  * app_mark_clinic_destroyed() also refuses while any row destroyClinicData
  * deletes is still there, because once `destroyed_at` is set the daily job
- * passes the clinic over for good. Tests that need thirty days to pass move
- * the stamps back as the migrator, which owns the table.
+ * passes the clinic over for good. Its list and the deletes below are one
+ * list: tests/booking-request-destruction.test.ts fails if they differ, or
+ * if a table with a clinic_id is on neither it nor the list of what stays.
+ * Tests that need thirty days to pass move the stamps back as the migrator,
+ * which owns the table.
  *
  * What stays: the clinic row (a customer we had), the audit log
  * (append-only, and the record that the destruction happened), the signed
@@ -64,6 +70,13 @@ import { withTenant } from "@/lib/tenant";
  * go yet: the runtime role holds no DELETE on it (a channel in service must
  * never drop out of the price), and destruction runs as that role. It holds
  * no patient data.
+ *
+ * Of 0043's, chat_threads and meta_inbound_messages go too. Each holds an
+ * HMAC of what a patient's messages carried (the sender's id, a WhatsApp
+ * number among them; a message's id), and the key is ours
+ * (lib/identifier-ref.ts), so beside the clinic messaged and when, a row
+ * still identifies a person: keeping it would leave patient-derived rows
+ * behind a destruction record that says none remain.
  *
  * Vendor-side data — recordings at Synthflow, the agent itself — is deleted
  * in the vendor console by the operator and noted on the security event;
@@ -88,9 +101,9 @@ export async function markExportDelivered(tx: TenantTx, how: string, now: Date =
 export type DestructionResult = { clinicId: string; deleted: Record<string, number> };
 
 /**
- * Every patient row for one clinic, booking requests included, and its
- * closed days, gone. Consent evidence, suppressions, audit, agreements and
- * billing stay.
+ * Every patient row for one clinic, booking requests included, the hashes of
+ * who messaged it, and its closed days, gone. Consent evidence, suppressions,
+ * audit, agreements and billing stay.
  */
 export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult> {
   const c = tx.clinicId;
@@ -110,6 +123,9 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   deleted.booking_requests = requests.rows[0]?.n ?? 0;
   await del("appointments", () => tx.db.delete(appointments).where(eq(appointments.clinicId, c)).returning({ id: appointments.id }));
   await del("conversations", () => tx.db.delete(conversations).where(eq(conversations.clinicId, c)).returning({ id: conversations.id }));
+  // Who messaged the clinic, as keyed hashes of their sender ids (see the header).
+  await del("chat_threads", () => tx.db.delete(chatThreads).where(eq(chatThreads.clinicId, c)).returning({ id: chatThreads.partyRef }));
+  await del("meta_inbound_messages", () => tx.db.delete(metaInboundMessages).where(eq(metaInboundMessages.clinicId, c)).returning({ id: metaInboundMessages.messageRef }));
   // The half-collected drafts hold a phone number and nothing the record
   // needs, so they are deleted outright.
   await del("meta_booking_drafts", () => tx.db.delete(metaBookingDrafts).where(eq(metaBookingDrafts.clinicId, c)).returning({ id: metaBookingDrafts.senderId }));

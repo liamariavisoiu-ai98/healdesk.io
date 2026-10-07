@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 
+import { getBaaTemplate, type BaaVariables } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import {
@@ -182,6 +183,95 @@ async function backdateOffboarding(clinicId: string, days: number): Promise<void
       where id = $1`,
     [clinicId, days],
   );
+}
+
+/**
+ * What destruction keeps, table by table, and why. Every other table with a
+ * clinic_id is destroyed: destroyClinicData deletes it, and
+ * app_mark_clinic_destroyed() refuses to record the destruction while any of
+ * its rows is left. A new table with a clinic_id fails the catalog test below
+ * until it is put on one side or the other, so it cannot slip past the record
+ * of a destruction that says nothing of the clinic's patients remains.
+ */
+const KEPT_AT_DESTRUCTION: Record<string, string> = {
+  agent_configs: "what the agent says for the clinic (greeting, services, hours); no patient",
+  audit_log: "append-only, and the record that the destruction ran",
+  billing_notices: "billing evidence: the billing-email outbox, no patient",
+  billing_requests: "billing evidence, which the runtime role cannot delete (0050)",
+  billing_transitions: "billing evidence: the history of the billing status",
+  channel_events: "billing evidence: the plan start and every step-up were charged from it",
+  clinic_channels: "the channels bought; no DELETE for the runtime role, and no patient",
+  clinic_memberships: "who could reach the clinic's records: access history",
+  clinic_settings: "the portal's switches; no patient",
+  clinic_touches: "our own notes on the account, never a patient",
+  connection_links: "append-only by grant: single-use credential links, no patient",
+  consent_records: "TCPA evidence on its own four-year clock (BAA 1.3.0 release gate 7)",
+  contact_attempts: "TCPA evidence on its own four-year clock (BAA 1.3.0 release gate 7)",
+  deposit_payments: "money records, kept without the appointment they were taken for",
+  entitlements: "the plan and its allowances; no patient",
+  incidents: "the record of each incident and of its notice",
+  overage_invoices: "billing evidence",
+  report_deliveries: "the ledger of every email sent to the clinic",
+  report_recipients: "the clinic's own addresses for its email",
+  suppressions: "do-not-contact evidence, honoured for good (BAA 1.3.0 release gate 7)",
+  sync_runs: "append-only by grant: what each sync ran, no patient",
+  usage_events: "billing evidence: the usage ledger the clinic was charged from",
+};
+
+/** Every table with a clinic_id column, from the catalog. */
+async function clinicTables(): Promise<string[]> {
+  const { rows } = await getMigratorPool().query<{ relname: string }>(
+    `select c.relname
+       from pg_class c
+       join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public'
+        and c.relkind in ('r', 'p')
+        and exists (select 1 from pg_attribute a
+                     where a.attrelid = c.oid and a.attname = 'clinic_id'
+                       and a.attnum > 0 and not a.attisdropped)
+      order by c.relname`,
+  );
+  return rows.map((r) => r.relname);
+}
+
+/** The tables app_mark_clinic_destroyed() requires to be empty, read from its source. */
+async function checkedBeforeDestroyed(): Promise<string[]> {
+  const { rows } = await getMigratorPool().query<{ prosrc: string }>(
+    `select p.prosrc from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'app_mark_clinic_destroyed'`,
+  );
+  expect(rows).toHaveLength(1);
+  return [
+    ...rows[0]!.prosrc.matchAll(
+      /exists\s*\(\s*select\s+1\s+from\s+([a-z_]+)\s+[a-z]+\s+where\s+[a-z]+\.clinic_id\s*=\s*target_clinic\s*\)/gi,
+    ),
+  ]
+    .map((m) => m[1]!)
+    .sort();
+}
+
+/** One row in each of the two tables 0043 added that point at whoever messaged the clinic. */
+async function seedMessagingRefs(
+  clinicId: string,
+  which: { thread?: boolean; inbound?: boolean } = { thread: true, inbound: true },
+): Promise<void> {
+  await inTenant(clinicId, async (client) => {
+    if (which.thread) {
+      await client.query(
+        `insert into chat_threads
+           (clinic_id, channel, party_ref, conversation_id, conversation_started_at, last_inbound_at)
+         values ($1, 'whatsapp', $2, $3, now() - interval '40 days', now() - interval '40 days')`,
+        [clinicId, `v1:${randomBytes(32).toString("hex")}`, randomUUID()],
+      );
+    }
+    if (which.inbound) {
+      await client.query(
+        `insert into meta_inbound_messages (clinic_id, platform, message_ref, received_at)
+         values ($1, 'whatsapp', $2, now() - interval '40 days')`,
+        [clinicId, `v1:${randomBytes(32).toString("hex")}`],
+      );
+    }
+  });
 }
 
 /** What one seeded person leaves in a clinic. */
@@ -1139,5 +1229,388 @@ describeDb("booking requests at destruction, erasure and purge", () => {
         code: "42501",
       });
     }
+  });
+
+  // The third review of 7 October. Each test below fails without the change
+  // it pins (to this migration, to destroyClinicData, or to clause 11 of BAA
+  // 1.3.0), except the last, which runs the restore steps docs/handover.md
+  // gives so they cannot quietly stop working.
+
+  test("every table with a clinic_id is destroyed, and checked before the destruction is recorded, or kept on purpose", async () => {
+    const tables = await clinicTables();
+    const checked = await checkedBeforeDestroyed();
+    // Guard against either query matching nothing and the test passing vacuously.
+    expect(tables.length).toBeGreaterThan(20);
+    expect(checked).toContain("booking_requests");
+
+    expect(checked.filter((t) => !tables.includes(t))).toEqual([]);
+    expect(checked.filter((t) => t in KEPT_AT_DESTRUCTION)).toEqual([]);
+    expect(Object.keys(KEPT_AT_DESTRUCTION).filter((t) => !tables.includes(t))).toEqual([]);
+    // The one that matters: a clinic table on neither list would outlive a
+    // destruction recorded as complete.
+    expect(tables.filter((t) => !checked.includes(t) && !(t in KEPT_AT_DESTRUCTION))).toEqual(
+      [],
+    );
+  });
+
+  test("destruction takes the hashes of who messaged the clinic, and the database records it only once they are gone", async () => {
+    const both = await seedClinic("destroy-refs");
+    const threadOnly = await seedClinic("destroy-refs-thread");
+    const inboundOnly = await seedClinic("destroy-refs-inbound");
+    await seedPerson(both.clinicId, "+15550118001", new Date(Date.now() - 40 * DAY));
+    await seedMessagingRefs(both.clinicId);
+    await seedMessagingRefs(threadOnly.clinicId, { thread: true });
+    await seedMessagingRefs(inboundOnly.clinicId, { inbound: true });
+    for (const c of [both, threadOnly, inboundOnly]) {
+      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+        startOffboarding(tx, "operator"),
+      );
+      await backdateOffboarding(c.clinicId, 31);
+      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+        markExportDelivered(tx, "bundle handed to the practice manager"),
+      );
+    }
+
+    // Due, and holding nothing but a WhatsApp sender's thread, or a handled
+    // message's reference: no record of destruction yet, or the daily job
+    // would pass the clinic over for good with the row still there.
+    for (const c of [threadOnly, inboundOnly]) {
+      await expect(
+        asApp(c.clinicId, (q) =>
+          q.query(`select app_mark_clinic_destroyed($1::uuid)`, [c.clinicId]),
+        ),
+      ).rejects.toMatchObject({ code: "23514", message: expect.stringMatching(/still holds/) });
+    }
+
+    const results = (await destroyDueClinics()).filter((r) =>
+      [both.clinicId, threadOnly.clinicId, inboundOnly.clinicId].includes(r.clinicId),
+    );
+    expect(results.map((r) => r.clinicId).sort()).toEqual(
+      [both.clinicId, threadOnly.clinicId, inboundOnly.clinicId].sort(),
+    );
+    const mine = results.find((r) => r.clinicId === both.clinicId)!;
+    expect(mine.deleted).toMatchObject({
+      chat_threads: 1,
+      meta_inbound_messages: 1,
+      booking_requests: 3,
+    });
+    // destroyClinicData deletes exactly the tables the database checks.
+    const checked = await checkedBeforeDestroyed();
+    for (const r of results) expect(Object.keys(r.deleted).sort()).toEqual(checked);
+
+    for (const c of [both, threadOnly, inboundOnly]) {
+      const left = await inTenant(c.clinicId, async (client) => ({
+        threads: (await client.query(`select 1 from chat_threads`)).rows.length,
+        inbound: (await client.query(`select 1 from meta_inbound_messages`)).rows.length,
+      }));
+      expect(left).toEqual({ threads: 0, inbound: 0 });
+      const { rows } = await getMigratorPool().query<{ destroyed_at: Date | null }>(
+        `select destroyed_at from clinics where id = $1`,
+        [c.clinicId],
+      );
+      expect(rows[0]!.destroyed_at).not.toBeNull();
+    }
+  });
+
+  test("the database stamps a change when it is written, not when its transaction began", async () => {
+    const c = await seedClinic("stamp-at-write");
+    // A transaction that waited before writing, as one opened a day or thirty
+    // days before would: the record clock's day and offboarding's thirty run
+    // from the write, so the wait cannot be spent before anyone sees it.
+    const stamps = await asApp(c.clinicId, async (q) => {
+      await q.query(`select pg_sleep(1.2)`);
+      await q.query(`update clinics set retention_record_days = 30 where id = $1`, [c.clinicId]);
+      await q.query(`select app_start_offboarding($1::uuid)`, [c.clinicId]);
+      return (
+        await q.query<{ shortened: number; started: number; due: number }>(
+          `select extract(epoch from retention_record_days_shortened_at - now())::float8
+                    as shortened,
+                  extract(epoch from offboarding_started_at - now())::float8 as started,
+                  extract(epoch from destroy_after - offboarding_started_at)::float8 as due
+             from clinics where id = $1`,
+          [c.clinicId],
+        )
+      ).rows[0]!;
+    });
+    expect(stamps.shortened).toBeGreaterThanOrEqual(1.2);
+    expect(stamps.started).toBeGreaterThanOrEqual(1.2);
+    expect(stamps.due * 1000).toBe(DESTROY_AFTER_DAYS * DAY);
+  });
+
+  test("saving the record clock's current value again starts no new day; a shorter clock does", async () => {
+    const c = await seedClinic("clock-resave");
+    await seedPerson(c.clinicId, "+15550119001", new Date(Date.now() - 40 * DAY));
+    const setClock = (days: number) =>
+      asAppCommitted(c.clinicId, (q) =>
+        q.query(`update clinics set retention_record_days = $2 where id = $1`, [c.clinicId, days]),
+      );
+    const moveBack = (hours: number) =>
+      getMigratorPool().query(
+        `update clinics
+            set retention_record_days_shortened_at =
+                  retention_record_days_shortened_at - make_interval(hours => $2)
+          where id = $1`,
+        [c.clinicId, hours],
+      );
+    const history = async () =>
+      (
+        await getMigratorPool().query<{ previous: number | null; hours: number }>(
+          `select retention_record_days_previous as previous,
+                  extract(epoch from now() - retention_record_days_shortened_at)::float8 / 3600
+                    as hours
+             from clinics where id = $1`,
+          [c.clinicId],
+        )
+      ).rows[0]!;
+    const purgeAt = (days: number) =>
+      asApp(
+        c.clinicId,
+        async (q) =>
+          (
+            await q.query<{ n: number }>(
+              `select app_purge_booking_requests(now() - make_interval(days => $1)) as n`,
+              [days],
+            )
+          ).rows[0]!.n,
+      );
+
+    // Shortened by the practice from ninety days to thirty, twenty-three hours
+    // ago; then the Settings card is saved again with the clock unchanged.
+    await setClock(30);
+    await moveBack(23);
+    await setClock(30);
+    const resaved = await history();
+    expect(resaved.previous).toBe(90);
+    expect(resaved.hours).toBeGreaterThan(22.9);
+    // So an hour on, the day is up and the shorter clock reaches the requests.
+    await moveBack(1);
+    expect(await purgeAt(30)).toBe(3);
+
+    // A shorter clock still starts a day of its own, and a longer one applies
+    // at once without moving it.
+    await setClock(10);
+    expect((await history()).previous).toBe(30);
+    expect((await history()).hours).toBeLessThan(1);
+    await expect(purgeAt(10)).rejects.toMatchObject({
+      code: "23514",
+      message: expect.stringMatching(/record clock/),
+    });
+    await setClock(60);
+    expect((await history()).previous).toBe(30);
+    await expect(purgeAt(30)).rejects.toMatchObject({ code: "23514" });
+    expect(await purgeAt(60)).toBe(0);
+  });
+
+  test("the purge keeps a booking request for its own period, and a person while any record of theirs is kept, as clause 11 of BAA 1.3.0 says", async () => {
+    // The sentences the purge is held to.
+    const clause = getBaaTemplate("1.3.0")!
+      .clauses.find((k) => k.id === "minimum-necessary")!
+      .body({} as BaaVariables)
+      .replace(/\s+/g, " ");
+    expect(clause).toContain(
+      "It keeps each booking request for 90 days after the latest of when it was made, the time it was confirmed for and its appointment's time.",
+    );
+    expect(clause).toContain(
+      "A person's contact details are kept while any conversation, appointment record or booking request of theirs is kept, and in any case until 90 days after the last time those details were recorded or changed.",
+    );
+
+    const c = await seedClinic("purge-clause");
+    const old = new Date(Date.now() - 200 * DAY);
+    const declined = (client: Client, contactId: string) =>
+      client.query<{ id: string }>(
+        `insert into booking_requests
+           (clinic_id, contact_id, channel, preferred_window, status, token_hash, expires_at,
+            decided_at, created_at)
+         values ($1, $2, 'voice', 'any evening', 'declined', $3, now() - interval '93 days',
+                 now() - interval '99 days', now() - interval '100 days')
+         returning id`,
+        [c.clinicId, contactId, randomBytes(32)],
+      );
+    // Asked a hundred days ago and declined, and called again ten days ago.
+    const called = await seedContact(c.clinicId, "+15550120001");
+    // Asked on WhatsApp yesterday, with nothing else on record for months.
+    const asked = await seedContact(c.clinicId, "+15550120002");
+    // Asked a hundred days ago and declined, and nothing since.
+    const gone = await seedContact(c.clinicId, "+15550120003");
+    const fresh = await inTenant(c.clinicId, async (client) => {
+      for (const id of [called, asked, gone]) {
+        await client.query(`update contacts set updated_at = $2 where id = $1`, [id, old]);
+      }
+      await declined(client as unknown as Client, called);
+      await declined(client as unknown as Client, gone);
+      const { rows } = await client.query<{ id: string }>(
+        `insert into booking_requests
+           (clinic_id, contact_id, channel, platform, external_id, sender_id, preferred_window,
+            token_hash, expires_at, created_at)
+         values ($1, $2, 'meta', 'whatsapp', 'waba_1', 'wa_asked', 'Saturday', $3,
+                 now() + interval '6 days', now() - interval '1 day')
+         returning id`,
+        [c.clinicId, asked, randomBytes(32)],
+      );
+      return rows[0]!.id;
+    });
+    await seedConversation(c.clinicId, {
+      startedAt: new Date(Date.now() - 10 * DAY),
+      contactId: called,
+    });
+
+    const result = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      purgeClinic(tx, new Date()),
+    );
+    expect(result).toMatchObject({
+      bookingRequestsDeleted: 2,
+      contactsDeleted: 1,
+      conversationsDeleted: 0,
+    });
+    const left = await inTenant(c.clinicId, async (client) => ({
+      requests: (await client.query<{ id: string }>(`select id from booking_requests`)).rows.map(
+        (r) => r.id,
+      ),
+      contacts: (
+        await client.query<{ id: string }>(`select id from contacts order by phone`)
+      ).rows.map((r) => r.id),
+    }));
+    // The declined requests went at the end of their own ninety days, though
+    // one person called since; that person stays with their call, the one
+    // who asked yesterday stays with the request, and the one with nothing
+    // left went with their last record.
+    expect(left).toEqual({ requests: [fresh], contacts: [called, asked] });
+  });
+
+  test("a data-only restore loads an offboarded clinic and its requests once the two insert triggers are off, as docs/handover.md says, and every key comes back", async () => {
+    const client = await getMigratorPool().connect();
+    const q = <T = Record<string, unknown>>(text: string, values?: unknown[]) =>
+      client.query(text, values) as unknown as Promise<{ rows: T[] }>;
+    const enabled = async () =>
+      (
+        await q<{ tgname: string; tgenabled: string }>(
+          `select tgname, tgenabled from pg_trigger
+            where not tgisinternal
+              and tgname in ('clinics_insert_guard', 'clinics_record_clock',
+                             'booking_requests_keys_once')
+            order by tgname`,
+        )
+      ).rows;
+    const refused = (pattern: RegExp) => ({
+      code: "42501",
+      message: expect.stringMatching(pattern),
+    });
+    try {
+      await q("begin");
+      // A clinic that offboarded, with a person and a decided request, as a
+      // dump of the database holds them.
+      const clinicId = randomUUID();
+      await q(
+        `insert into organization (id, name, slug, created_at) values ($1, 'Restored', $1, now())`,
+        [`org_${clinicId}`],
+      );
+      await q(
+        `insert into clinics (id, organization_id, slug, name, specialty)
+         values ($1, $2, $3, 'Restored', 'med-spa')`,
+        [clinicId, `org_${clinicId}`, `restored-${clinicId.slice(0, 8)}`],
+      );
+      await q(
+        `update clinics
+            set offboarding_started_at = now() - interval '40 days',
+                destroy_after = now() - interval '10 days'
+          where id = $1`,
+        [clinicId],
+      );
+      await q(`select set_config('app.clinic_id', $1, true)`, [clinicId]);
+      const { rows: contact } = await q<{ id: string }>(
+        `insert into contacts (clinic_id, phone) values ($1, '+15550121001') returning id`,
+        [clinicId],
+      );
+      const contactId = contact[0]!.id;
+      const { rows: request } = await q<{ id: string }>(
+        `insert into booking_requests
+           (clinic_id, contact_id, channel, preferred_window, status, token_hash, expires_at,
+            decided_at, created_at)
+         values ($1, $2, 'voice', 'any evening', 'declined', $3, now() + interval '6 days',
+                 now(), now() - interval '1 day')
+         returning id`,
+        [clinicId, contactId, randomBytes(32)],
+      );
+      const requestId = request[0]!.id;
+      const dump = (
+        await q<{ clinic: unknown; contact: unknown; request: unknown; key: unknown }>(
+          `select (select to_jsonb(c) from clinics c where c.id = $1) as clinic,
+                  (select to_jsonb(p) from contacts p where p.id = $2) as contact,
+                  (select to_jsonb(r) from booking_requests r where r.id = $3) as request,
+                  (select to_jsonb(k) from booking_request_keys k where k.id = $3) as key`,
+          [clinicId, contactId, requestId],
+        )
+      ).rows[0]!;
+      expect(dump.key).not.toBeNull();
+
+      // The empty, migrated database a data-only restore loads into.
+      await q(`delete from booking_requests where id = $1`, [requestId]);
+      await q(`delete from booking_request_keys where id = $1`, [requestId]);
+      await q(`delete from contacts where id = $1`, [contactId]);
+      await q(`delete from clinics where id = $1`, [clinicId]);
+
+      const load = (table: string, row: unknown) =>
+        q(`insert into ${table} select * from jsonb_populate_record(null::${table}, $1)`, [row]);
+      const loadAll = async () => {
+        await load("booking_request_keys", dump.key);
+        await load("clinics", dump.clinic);
+        await load("contacts", dump.contact);
+        await load("booking_requests", dump.request);
+      };
+
+      // With the triggers on, the load fails twice over: the clinic carries
+      // its offboarding dates, and the request's key, which sorts first in a
+      // dump, is already there.
+      await q("savepoint plain");
+      await load("booking_request_keys", dump.key);
+      await expect(load("clinics", dump.clinic)).rejects.toMatchObject(refused(/new clinic/));
+      await q("rollback to savepoint plain");
+      await q(`alter table clinics disable trigger clinics_insert_guard`);
+      await load("booking_request_keys", dump.key);
+      await load("clinics", dump.clinic);
+      await load("contacts", dump.contact);
+      await expect(load("booking_requests", dump.request)).rejects.toMatchObject(
+        refused(/written before/),
+      );
+      await q("rollback to savepoint plain");
+
+      // The steps the handover gives: both off by name, every table loaded,
+      // the keys included, both on again, and the triggers checked.
+      await q(`alter table clinics disable trigger clinics_insert_guard`);
+      await q(`alter table booking_requests disable trigger booking_requests_keys_once`);
+      await loadAll();
+      await q(`alter table clinics enable trigger clinics_insert_guard`);
+      await q(`alter table booking_requests enable trigger booking_requests_keys_once`);
+      expect(await enabled()).toEqual([
+        { tgname: "booking_requests_keys_once", tgenabled: "O" },
+        { tgname: "clinics_insert_guard", tgenabled: "O" },
+        { tgname: "clinics_record_clock", tgenabled: "O" },
+      ]);
+      const restored = (
+        await q<{ started: Date | null; status: string; keys: number }>(
+          `select (select offboarding_started_at from clinics where id = $1) as started,
+                  (select status from booking_requests where id = $2) as status,
+                  (select count(*)::int from booking_request_keys where id = $2) as keys`,
+          [clinicId, requestId],
+        )
+      ).rows[0]!;
+      expect(restored).toMatchObject({ status: "declined", keys: 1 });
+      expect(restored.started).not.toBeNull();
+
+      // And the restored request is still written once: deleted, it cannot
+      // come back.
+      await q(`delete from booking_requests where id = $1`, [requestId]);
+      await expect(load("booking_requests", dump.request)).rejects.toMatchObject(
+        refused(/written before/),
+      );
+    } finally {
+      await client.query("rollback").catch(() => {});
+      client.release();
+    }
+    // Rolled back, the triggers included.
+    const { rows } = await getMigratorPool().query(
+      `select 1 from pg_trigger where tgname = 'clinics_insert_guard' and tgenabled = 'O'`,
+    );
+    expect(rows).toHaveLength(1);
   });
 });

@@ -3,6 +3,7 @@ import {
   agreementPlatformFor,
   type AgreementKind,
   applicableClauses,
+  applicableDpaClauses,
   type BaaExplainerTerm,
   type BaaTemplate,
   type BaaVariables,
@@ -10,7 +11,11 @@ import {
   buildBaaSelections,
   type CalendarAccount,
   currentBaaTemplate,
+  currentDpaTemplate,
+  type DpaTemplate,
+  type DpaVariables,
   renderBaa,
+  renderDpa,
   type SpecialtyId,
 } from "@healdesk/catalog";
 
@@ -19,12 +24,15 @@ import {
  * assent wording and its document, looked up by what `agreementKindFor`
  * decided and never chosen by the step itself (plan Part L).
  *
- * Only the Business Associate Agreement is here. The Data Protection
- * Agreement, for a practice HIPAA does not reach, plugs in as `dpa` with its
- * own explainer, assent label and renderer once it is released; until then
- * `agreementKindFor` never answers "dpa", and a step that somehow asked for
- * it would find no entry and sign nothing. The BAA's explainer is the BAA's
- * alone: it never appears beside the other document.
+ * Two kinds: the Business Associate Agreement, and the Data Protection
+ * Agreement a practice HIPAA does not reach signs instead, each with its own
+ * explainer, notes, assent wording and renderer from the catalogue's
+ * AGREEMENT_COPY. The DPA's entry is here before its release, so the step can
+ * sign it the day the owner releases it, and nothing signs it sooner: while
+ * it is unreleased `agreementKindFor` never answers "dpa", so the step never
+ * looks the entry up, and apps/app refuses a DPA signature whatever is sent.
+ * The BAA's explainer is the BAA's alone: it never appears beside the other
+ * document.
  *
  * ## One template, one version, everything said about it
  *
@@ -83,7 +91,8 @@ export type AgreementCopy = {
   /**
    * The document, rendered exactly as the server renders it to hash it, with
    * a note for each clause that describes the service rather than the law.
-   * Throws (BaaRenderError) on answers no document can be written from.
+   * Throws (BaaRenderError, DpaRenderError) on answers no document can be
+   * written from.
    */
   render: (input: AgreementDocumentInput) => { text: string; notes: ClauseNote[] };
   /** The start of the file name the buyer's copy downloads under. */
@@ -144,12 +153,70 @@ function renderBaaPreview(
   return { text, notes };
 }
 
-export const AGREEMENT_COPY: { readonly baa: AgreementCopy; readonly dpa?: AgreementCopy } = {
+/**
+ * The Data Protection Agreement's entry for one template (plan Part L). The
+ * document is built from the eight values apps/app's prepareDpaAgreement
+ * builds it from: the names and the date as the server trims and dates them,
+ * the specialty by its id, and both calendar answers. The DPA takes no
+ * covered-entity answer and no platform: its status clause follows the
+ * specialty, and its calendar clause the two answers, exactly as BAA 1.3.0's
+ * does.
+ */
+export function dpaAgreementCopy(template: DpaTemplate): AgreementCopy {
+  const catalog = CATALOG_COPY.dpa;
+  return {
+    kind: "dpa",
+    title: catalog.title,
+    explainer: catalog.explainer(template.version),
+    assentLabel: catalog.assentLabel,
+    assentSentence: catalog.assentSentence,
+    actionLabel: catalog.actionLabel,
+    version: template.version,
+    released: template.approvedByCounsel,
+    render: (input) => renderDpaPreview(template, input),
+    fileStem: "healdesk-dpa",
+  };
+}
+
+function renderDpaPreview(
+  template: DpaTemplate,
+  input: AgreementDocumentInput,
+): { text: string; notes: ClauseNote[] } {
+  const variables: DpaVariables = {
+    clinicLegalName: input.clinicLegalName,
+    signatoryName: input.signatoryName,
+    signatoryTitle: input.signatoryTitle || undefined,
+    signatoryEmail: input.signatoryEmail,
+    effectiveDate: input.effectiveDate,
+    specialty: input.specialty,
+    bookingSystem: input.bookingSystem,
+    calendarAccount: input.calendarAccount,
+  };
+  const text = renderDpa(template, variables);
+  const notes = applicableDpaClauses(template, variables).flatMap((clause) => {
+    const note = CATALOG_COPY.dpa.clauseNote(template.version, clause.id);
+    return note ? [{ id: clause.id, heading: clause.heading, ...note }] : [];
+  });
+  return { text, notes };
+}
+
+export const AGREEMENT_COPY: { readonly baa: AgreementCopy; readonly dpa: AgreementCopy } = {
   baa: baaAgreementCopy(currentBaaTemplate()),
+  dpa: dpaAgreementCopy(currentDpaTemplate()),
 };
 
 export function agreementCopyFor(kind: AgreementKind): AgreementCopy | null {
   return AGREEMENT_COPY[kind] ?? null;
+}
+
+/**
+ * A version as the document itself prints it: a DPA's version is namespaced
+ * ("dpa/1.0.0") so that a stored acceptance says which kind it is, and its
+ * text says "Version 1.0.0". A BAA's version has no namespace and is shown as
+ * it is.
+ */
+export function versionLabel(version: string): string {
+  return version.slice(version.lastIndexOf("/") + 1);
 }
 
 /** Today in UTC, as the server dates the document. */

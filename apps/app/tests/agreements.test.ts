@@ -822,9 +822,11 @@ describe("validation", () => {
 
 /**
  * Which agreement a practice signs is agreementKindFor's to decide (packages/
- * catalog/src/agreement-kind.ts), and this endpoint signs only the business
- * associate agreement. A practice the decision sends anywhere else is
- * refused by name, never handed a BAA.
+ * catalog/src/agreement-kind.ts). This endpoint signs the business associate
+ * agreement, and the Data Protection Agreement once the owner releases it
+ * (tests/dpa-signing.test.ts). A practice the decision sends to the DPA is
+ * never handed a BAA, and while the DPA is unreleased a veterinary practice
+ * is refused by name.
  */
 describe("which agreement a request signs", () => {
   test("a veterinary practice is refused, because there is no agreement it can sign yet", () => {
@@ -861,15 +863,20 @@ describe("which agreement a request signs", () => {
     }
   });
 
-  test("once the DPA is released, a practice it would sign is refused here, not handed a BAA", () => {
-    // The branch the funnel's DPA change replaces with DPA signing.
+  test("once the DPA is released, a practice it would sign is sent to it, never handed a BAA", () => {
     for (const request of [
       { specialty: "med-spa", isCoveredEntity: false },
       { specialty: "hair-restoration", isCoveredEntity: false },
       { specialty: "veterinary", isCoveredEntity: null },
     ]) {
+      expect(agreementKindForRequest(request, { dpaReleased: true }), request.specialty).toBe(
+        "dpa",
+      );
+      // The BAA's own path refuses it, whoever calls.
       expect(
-        refusal(() => agreementKindForRequest(request, { dpaReleased: true })),
+        refusal(() =>
+          prepareAgreement(validSignRequest(request), DATE, { dpaReleased: true }),
+        ),
         request.specialty,
       ).toMatchObject({ field: "specialty" });
     }

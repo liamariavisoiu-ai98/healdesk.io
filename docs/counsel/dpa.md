@@ -209,12 +209,25 @@ Read in the code on 6 October 2026, at origin/main d652a0b.
    agreement-changes.md § 12.11, item 9). Inherited from the quote.
 8. **The state-law clause names "Practice's portal settings"**, a portal not
    built yet (Gate A includes the portal, M3).
-9. **Signing and the PDF are BAA-only.** `validateSignRequest` and
-   `signAgreement` (`apps/app/src/lib/agreements.ts`, owned by another
-   session) render only BAA templates, and the PDF and email copy
-   (`lib/agreements/pdf.ts`, `lib/email/agreement-copy.ts`) are titled for a
-   BAA. The DPA's signing path needs both, built through `prepareDpa`, the
-   per-kind `AGREEMENT_COPY` and the assent labels.
+9. **Signing, the PDF and the copy email: built, and refused until the
+   release.** `validateSignRequest` and `signAgreement`
+   (`apps/app/src/lib/agreements.ts`) sign a DPA through
+   `prepareDpaAgreement`: rendered by `prepareDpa`, stored as `dpa/1.0.0`
+   (so the generated `agreement_kind` is `dpa`) with the DPA's own variables
+   and, beside them, `isCoveredEntity: false`, the platform sent and the
+   variant. It meets the BAA path's refusals by field, its displayed-hash
+   comparison and `signableDpaTemplate`, the BAA's released-templates-only
+   rule for the DPA's one version. The PDF (`lib/agreements/pdf.ts`) and the
+   copy email (`lib/email/agreement-copy.ts`) name the document by the kind
+   its version carries (`healdesk-dpa-1.0.0-<date>.pdf`, "Your signed data
+   protection agreement for …"); a BAA's copy keeps its bytes. In apps/web
+   the agreement step has the DPA's entry (`dpaAgreementCopy`, whose preview
+   a test holds byte for byte against the server's render for every DPA
+   practice, booking system and account kind) and `/api/agreement` forwards
+   it. While `approvedByCounsel` is false, every DPA request is refused as it
+   was (`apps/app/tests/dpa-signing.test.ts`, which signs with the release
+   stood in for and provisions the row once `getDpaTemplate` reports it
+   released).
 10. **Terms §§ 7, 9 and 14 name only the Business Associate Agreement.** The
     plan's "Data Agreement" definition (A6) is what makes them read for a DPA
     practice; until it lands, Terms § 7's "destroy … when and as the Business
@@ -299,7 +312,7 @@ its trigger.
       boundary, which clause 15 promises.
 - [ ] The animal's name and species in the booking catalogue, if the owner
       wants them collected (the text allows it; nothing asks for them yet).
-- [ ] The signing path, PDF and copy email for a DPA (gap 9).
+- [x] The signing path, PDF and copy email for a DPA (gap 9).
 - [ ] The calendar election able to amend a DPA (gap 6).
 - [ ] Gaps 2, 3 and 5 resolved, or the text changed to match.
 - [ ] `offboarding-destroy` and `retention-purge` switched on for live

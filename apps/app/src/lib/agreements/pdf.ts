@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { agreementKindOfVersion, DPA_VERSION_PREFIX } from "@healdesk/catalog";
 import {
   PDFDocument,
   StandardFonts,
@@ -11,7 +12,10 @@ import {
 import type { baaAcceptances } from "@/db/schema";
 
 /**
- * A stored BAA acceptance, rendered as a file the clinic can keep.
+ * A stored acceptance, rendered as a file the clinic can keep: a business
+ * associate agreement, or a Data Protection Agreement, which shares the table
+ * and this renderer and differs only in what the file calls itself (see
+ * `DOCUMENT_NAMES`).
  *
  * Until this existed the counterparty to a HIPAA business associate agreement
  * held nothing: the signature lived in our database, the clinic had a screen
@@ -260,6 +264,34 @@ const SHA256_HEX = /^[0-9a-f]{64}$/i;
 /** Shown wherever a fact was not recorded. Never blank, never a plausible zero. */
 const ABSENT = "Not recorded";
 
+/**
+ * What the file calls the document, by the kind its stored version carries
+ * (`agreementKindOfVersion`, the mirror of the generated
+ * `baa_acceptances.agreement_kind`): the running title in every footer, the
+ * PDF's own title, and the start of the file name. A Data Protection
+ * Agreement printed as a business associate agreement would misname the
+ * contract on every page of the copy the practice keeps.
+ *
+ * The BAA's three are the strings this file has always drawn, so a BAA's
+ * bytes, and every `copy_document_sha256` already recorded, do not move.
+ */
+const DOCUMENT_NAMES = {
+  baa: {
+    running: "healdesk business associate agreement",
+    title: "healdesk Business Associate Agreement",
+    fileStem: "healdesk-baa",
+  },
+  dpa: {
+    running: "healdesk data protection agreement",
+    title: "healdesk Data Protection Agreement",
+    fileStem: "healdesk-dpa",
+  },
+} as const;
+
+function documentNamesFor(version: string | null | undefined) {
+  return DOCUMENT_NAMES[agreementKindOfVersion(String(version ?? ""))];
+}
+
 export async function renderAgreementPdf(
   acceptance: BaaAcceptanceRecord,
 ): Promise<AgreementPdf> {
@@ -461,6 +493,7 @@ export async function renderAgreementPdf(
   // and running it through safe() twice would double-count a substitution
   // against the disclosure this block carries.
   const versionLabel = present(acceptance.documentVersion, safe);
+  const names = documentNamesFor(acceptance.documentVersion);
 
   const assentRows: [string, string][] = [
     ["Accepted by", safe(acceptance.acceptedByName)],
@@ -627,7 +660,7 @@ export async function renderAgreementPdf(
     // number would read as a corrupted document. The full version is stated
     // in the record of assent, so nothing is only ever seen truncated.
     const left = clampToWidth(
-      `healdesk business associate agreement — template ${versionLabel}`,
+      `${names.running} — template ${versionLabel}`,
       mono,
       FOOTER_SIZE,
       CONTENT_WIDTH - pageLabelWidth - 12,
@@ -659,7 +692,7 @@ export async function renderAgreementPdf(
 
   // Fixed metadata. Anything derived from the clock here would change the
   // bytes on every render and make the returned digest meaningless.
-  pdf.setTitle(`healdesk Business Associate Agreement ${versionLabel}`);
+  pdf.setTitle(`${names.title} ${versionLabel}`);
   pdf.setSubject(`Executed copy — agreement text SHA-256 ${storedHash}`);
   pdf.setAuthor("healdesk");
   pdf.setProducer("healdesk");
@@ -679,7 +712,10 @@ export async function renderAgreementPdf(
 }
 
 /**
- * `healdesk-baa-<version>-<YYYY-MM-DD>.pdf`, and nothing else.
+ * `healdesk-baa-<version>-<YYYY-MM-DD>.pdf`, or for a Data Protection
+ * Agreement `healdesk-dpa-<version>-<YYYY-MM-DD>.pdf`, and nothing else. A
+ * DPA's version is namespaced ("dpa/1.0.0"); the stem already says which
+ * agreement it is, so the namespace is not repeated ("healdesk-dpa-1.0.0-…").
  *
  * No clinic name and no signer name: this string travels in a
  * Content-Disposition header, an inbox, and whatever the clinic's mail server
@@ -688,13 +724,16 @@ export async function renderAgreementPdf(
  * path verbatim is how a filename becomes a header injection or a traversal.
  */
 function buildFilename(version: string, acceptedAt: Date): string {
-  const slug = (version ?? "")
-    .trim()
+  const names = documentNamesFor(version);
+  const raw = (version ?? "").trim();
+  const unprefixed =
+    names === DOCUMENT_NAMES.dpa ? raw.slice(DPA_VERSION_PREFIX.length) : raw;
+  const slug = unprefixed
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "");
   const date = acceptedAt.toISOString().slice(0, 10);
-  return `healdesk-baa-${slug.length > 0 ? slug : "unversioned"}-${date}.pdf`;
+  return `${names.fileStem}-${slug.length > 0 ? slug : "unversioned"}-${date}.pdf`;
 }
 
 /**

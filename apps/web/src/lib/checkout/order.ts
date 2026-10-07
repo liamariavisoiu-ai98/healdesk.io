@@ -281,10 +281,15 @@ export function intentFields(order: Order): Record<string, unknown> {
  * offers; `platform`, which the released agreement still renders from, must
  * be the one the booking system implies, so the document cannot name one
  * system while the purchase names another; and the practice must be one this
- * screen can sign for: `agreementKindFor` decides, and today only the
- * Business Associate Agreement is signed here.
+ * screen can sign for: `agreementKindFor` decides, the Business Associate
+ * Agreement or, once the owner releases it, the Data Protection Agreement.
+ * While the DPA is unreleased the decision never names it, and refuses a
+ * veterinary practice. `dpaReleased` is for tests; the route passes nothing.
  */
-export function signRequestRefusal(body: Record<string, unknown>): OrderRefusal | null {
+export function signRequestRefusal(
+  body: Record<string, unknown>,
+  options: { dpaReleased?: boolean } = {},
+): OrderRefusal | null {
   if (!isBookingSystemId(body.bookingSystem)) {
     return { field: "bookingSystem", error: "Tell us where your bookings live today." };
   }
@@ -309,8 +314,12 @@ export function signRequestRefusal(body: Record<string, unknown>): OrderRefusal 
         : isCovered === null
           ? "not_sure"
           : null;
-  const choice = agreementKindFor({ specialty: String(body.specialty ?? ""), covered });
-  if (!choice.ok || choice.kind !== "baa") {
+  const choice = agreementKindFor({
+    specialty: String(body.specialty ?? ""),
+    covered,
+    dpaReleased: options.dpaReleased,
+  });
+  if (!choice.ok) {
     return { field: "specialty", error: "We can't offer an agreement for this practice here." };
   }
   return null;

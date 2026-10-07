@@ -13,12 +13,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vit
 
 import type { BillingRequestKind } from "@/db/schema";
 import { claimStripeMutationLease } from "@/lib/billing/entitlements";
+import { expectedMeteredKeys } from "@/lib/billing/metered-items";
 import { __clearPriceCacheForTests } from "@/lib/billing/prices";
 import {
   BILLING_REQUEST_RETRY_MINUTES,
   closeUnfinishedSetup,
   drainBillingRequests,
   MAX_BILLING_REQUEST_ATTEMPTS,
+  rearmBillingRequest,
   requestCancelNow,
   retryDelayMs,
   runBillingRequestsJob,
@@ -273,6 +275,7 @@ type RequestRow = {
   channel_key: string;
   reason: string;
   attempts: number;
+  epoch: number;
   next_attempt_at: Date;
   lease_until: Date | null;
   done_at: Date | null;
@@ -377,6 +380,56 @@ async function patchRequest(clinicId: string, id: string, set: string, values: u
   await inTenant(clinicId, (c) =>
     c.query(`update billing_requests set ${set} where id = $1`, [id, ...values]),
   );
+}
+
+/**
+ * changePlan's last transaction, held open: `sql` writes the entitlements
+ * row (the new package bought, the mutation lease released with it) and the
+ * transaction waits, holding the row lock, while `whileHeld` starts the
+ * worker. It commits once the worker is queued behind the lock. A worker
+ * that read the row before queueing then claims the lease the change just
+ * released and acts on the package before it: the interleaving the review
+ * found. One that reads under the lock sees the change.
+ */
+async function commitWhileQueued<T>(
+  clinicId: string,
+  sql: string,
+  whileHeld: () => Promise<T>,
+): Promise<T> {
+  const holder = await getMigratorPool().connect();
+  try {
+    await holder.query("begin");
+    await holder.query(`select set_config('app.clinic_id', $1, true)`, [clinicId]);
+    await holder.query(sql, [clinicId]);
+    const { rows } = await holder.query<{ xid: string }>(
+      `select (pg_current_xact_id()::text::bigint & 4294967295)::text as xid`,
+    );
+    const xid = rows[0]!.xid;
+    let isSettled = false;
+    const running = whileHeld().finally(() => {
+      isSettled = true;
+    });
+    running.catch(() => undefined);
+    const deadline = Date.now() + 45_000;
+    for (;;) {
+      const { rows: waiting } = await getMigratorPool().query<{ n: number }>(
+        `select count(*)::int as n from pg_locks
+          where locktype = 'transactionid' and not granted and transactionid::text = $1`,
+        [xid],
+      );
+      // Finished without ever waiting: commit, and let the assertions say why.
+      if (waiting[0]!.n > 0 || isSettled) break;
+      if (Date.now() > deadline) throw new Error("the worker never queued behind the row lock");
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    await holder.query("commit");
+    return await running;
+  } catch (error) {
+    await holder.query("rollback").catch(() => undefined);
+    throw error;
+  } finally {
+    holder.release();
+  }
 }
 
 /** In service: ready, live and answered. */
@@ -512,7 +565,7 @@ describeDb("the billing-request worker", () => {
       expect(fake.callsTo("customers.update")[0]!.args).toEqual([
         billing.customerId,
         { invoice_settings: { default_payment_method: "pm_from_checkout" } },
-        { ...WORKER_OPTIONS, idempotencyKey: `hd-pm-sync:${billing.clinicId}:${request.id}:1` },
+        { ...WORKER_OPTIONS, idempotencyKey: `hd-pm-sync:${billing.clinicId}:${request.id}:0:1` },
       ]);
       expect(fake.callsTo("subscriptions.update")[0]!.args).toEqual([
         billing.subscriptionId,
@@ -532,7 +585,10 @@ describeDb("the billing-request worker", () => {
           expand: ["latest_invoice"],
           default_payment_method: "",
         },
-        { ...WORKER_OPTIONS, idempotencyKey: `hd-plan-start:${billing.clinicId}:${request.id}:1` },
+        {
+          ...WORKER_OPTIONS,
+          idempotencyKey: `hd-plan-start:${billing.clinicId}:${request.id}:0:1`,
+        },
       ]);
       // R37: no call anywhere carried a trial parameter (the fake refuses them).
       expect(JSON.stringify(fake.calls)).not.toMatch(/trial_/);
@@ -589,7 +645,7 @@ describeDb("the billing-request worker", () => {
         { price: priceId(packageKey("chat-web", "year")), quantity: 1 },
       ]);
       expect(params).not.toHaveProperty("default_payment_method");
-      expect(options.idempotencyKey).toBe(`hd-plan-start:${billing.clinicId}:${request.id}:1`);
+      expect(options.idempotencyKey).toBe(`hd-plan-start:${billing.clinicId}:${request.id}:0:1`);
       expect(await entitlementsOf(billing.clinicId)).toMatchObject({
         plan_code: "chat-web",
         billing_interval: "year",
@@ -727,6 +783,101 @@ describeDb("the billing-request worker", () => {
       ]);
     });
 
+    test("reads the row under its lock, so a plan change committing as the lease frees is priced, not the package before it (review fix)", async () => {
+      // Bought Complete, web and voice answering: Web + Voice would be billed.
+      // The clinic moves to Web Chatbot before the start, and changePlan's last
+      // transaction commits while the worker is reading the row. Its lease has
+      // run out (slow Stripe calls), so the worker's claim waits on the row
+      // lock rather than failing, and succeeds the moment the change commits:
+      // a plain read before it would have priced the old package.
+      const billing = await seedBilling("start-locked", {
+        planId: "complete",
+        channelRows: [inService("web"), inService("voice")],
+      });
+      await record(billing.clinicId, "plan_start");
+      await withTenant({ clinicId: billing.clinicId, actor: ACTOR }, (tx) =>
+        claimStripeMutationLease(tx.db, billing.clinicId, "change_plan:portal", {
+          now: at(-10 * MINUTE),
+        }),
+      );
+      const w = world({
+        customerId: billing.customerId,
+        subscriptionId: billing.subscriptionId,
+        items: [item("si_hold", PLAN_START_PLACEHOLDER_LOOKUP_KEY)],
+      });
+
+      const drained = await commitWhileQueued(
+        billing.clinicId,
+        `update entitlements
+            set bought_plan_id = 'chat-web', plan_code = 'chat-web',
+                channels_enabled = '{"web": true, "meta": false, "voice": false}'::jsonb,
+                stripe_mutation_lease_owner = null, stripe_mutation_lease_until = null
+          where clinic_id = $1`,
+        () => drainBillingRequests({ now: NOW, stripe: w.stripe }),
+      );
+
+      expect(drained).toEqual({ processed: 1, deferred: 0, failed: 0 });
+      const [, params] = w.fake.callsTo("subscriptions.update")[0]!.args as [
+        string,
+        Stripe.SubscriptionUpdateParams,
+      ];
+      // The package the clinic now owns, at its own metered rates.
+      expect(params.items).toEqual([
+        { id: "si_hold", deleted: true },
+        { price: priceId(packageKey("chat-web", "month")), quantity: 1 },
+        ...expectedMeteredKeys("chat-web", "month")!.map((key) => ({ price: priceId(key) })),
+      ]);
+      expect(await entitlementsOf(billing.clinicId)).toMatchObject({
+        plan_code: "chat-web",
+        bought_plan_id: "chat-web",
+      });
+    }, 60_000);
+
+    test("a plan start or a step-up waits, without spending an attempt, while a plan change is still being completed (review fix)", async () => {
+      const starting = await seedBilling("start-change-pending", {
+        planId: "complete",
+        channelRows: [inService("web")],
+      });
+      await record(starting.clinicId, "plan_start");
+      const stepping = await seedBilling("step-change-pending", {
+        planId: "chat-web",
+        boughtPlanId: "complete",
+        ...STARTED,
+        channelRows: [inService("web"), inService("voice")],
+      });
+      await record(stepping.clinicId, "step_up", { channel: "voice" });
+      for (const clinic of [starting, stepping]) {
+        await inTenant(clinic.clinicId, (c) =>
+          c.query(
+            `update entitlements
+                set pending_plan_change_request_id = 'chg_1', pending_plan_change_plan_id = 'chat-web',
+                    pending_plan_change_interval = 'year'
+              where clinic_id = $1`,
+            [clinic.clinicId],
+          ),
+        );
+      }
+      const fake = createStripeFake();
+
+      expect(await drainBillingRequests({ now: NOW, stripe: fake.stripe })).toEqual({
+        processed: 0,
+        deferred: 2,
+        failed: 0,
+      });
+      expect(fake.calls).toEqual([]);
+      expect(await requestOf(starting.clinicId, "plan_start")).toMatchObject({
+        attempts: 0,
+        outcome: null,
+      });
+      expect(await requestOf(stepping.clinicId, "step_up", "voice")).toMatchObject({
+        attempts: 0,
+        outcome: null,
+      });
+      for (const clinic of [starting, stepping]) {
+        expect((await entitlementsOf(clinic.clinicId)).stripe_mutation_lease_owner).toBeNull();
+      }
+    });
+
     test("a start that lands on a subscription set to cancel alerts ops (R5)", async () => {
       const billing = await seedBilling("start-cancel-race", { channelRows: [inService("web")] });
       await record(billing.clinicId, "plan_start");
@@ -804,8 +955,8 @@ describeDb("the billing-request worker", () => {
           .callsTo("subscriptions.update")
           .map((call) => (call.args[2] as Stripe.RequestOptions).idempotencyKey),
       ).toEqual([
-        `hd-plan-start:${billing.clinicId}:${request.id}:1`,
-        `hd-plan-start:${billing.clinicId}:${request.id}:2`,
+        `hd-plan-start:${billing.clinicId}:${request.id}:0:1`,
+        `hd-plan-start:${billing.clinicId}:${request.id}:0:2`,
       ]);
       expect(await requestOf(billing.clinicId, "plan_start")).toMatchObject({
         outcome: "done",
@@ -813,6 +964,81 @@ describeDb("the billing-request worker", () => {
         attempts: 2,
       });
     });
+
+    test("a re-armed request never replays a failure Stripe cached under an earlier attempt's key (review fix)", async () => {
+      const billing = await seedBilling("rearm-keys", { channelRows: [inService("web")] });
+      const request = await record(billing.clinicId, "plan_start");
+      const w = world({
+        customerId: billing.customerId,
+        subscriptionId: billing.subscriptionId,
+        items: [item("si_hold", PLAN_START_PLACEHOLDER_LOOKUP_KEY)],
+      });
+      // Stripe keeps the first answer under an idempotency key for 24 hours,
+      // a 500 included, and replays it for the same key without running it.
+      const cached = new Map<string, () => unknown>();
+      let isIncident = true;
+      w.fake.on("subscriptions.update", (...args: unknown[]) => {
+        const key = (args[2] as Stripe.RequestOptions).idempotencyKey!;
+        let answer = cached.get(key);
+        if (!answer) {
+          if (isIncident) {
+            const error = stripeError("api", { statusCode: 500 });
+            answer = () => {
+              throw error;
+            };
+          } else {
+            const result = w.handlers["subscriptions.update"]!(...args);
+            answer = () => result;
+          }
+          cached.set(key, answer);
+        }
+        return answer();
+      });
+
+      // Three attempts during an incident, each when its backoff made it due.
+      let dueAt = NOW;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        expect(await drainBillingRequests({ now: dueAt, stripe: w.stripe })).toMatchObject({
+          failed: 1,
+        });
+        dueAt = (await requestOf(billing.clinicId, "plan_start")).next_attempt_at;
+      }
+      expect(await requestOf(billing.clinicId, "plan_start")).toMatchObject({
+        attempts: 3,
+        epoch: 0,
+        outcome: null,
+      });
+      const failedKeys = new Set(cached.keys());
+      expect(failedKeys.size).toBe(3);
+
+      // Stripe recovers, and an operator presses Retry well before the
+      // fourth attempt would have come round.
+      isIncident = false;
+      const retryAt = new Date(dueAt.getTime() - 20 * MINUTE);
+      expect(
+        await withTenant({ clinicId: billing.clinicId, actor: ACTOR }, (tx) =>
+          rearmBillingRequest(tx, request.id, "ops", retryAt),
+        ),
+      ).toBe(true);
+      expect(await drainBillingRequests({ now: retryAt, stripe: w.stripe })).toEqual({
+        processed: 1,
+        deferred: 0,
+        failed: 0,
+      });
+
+      const lastKey = (
+        w.fake.callsTo("subscriptions.update").at(-1)!.args[2] as Stripe.RequestOptions
+      ).idempotencyKey!;
+      expect(lastKey).toBe(`hd-plan-start:${billing.clinicId}:${request.id}:1:1`);
+      expect(failedKeys.has(lastKey)).toBe(false);
+      expect(await requestOf(billing.clinicId, "plan_start")).toMatchObject({
+        outcome: "done",
+        outcome_reason: "started",
+        attempts: 1,
+        epoch: 1,
+      });
+      expect((await entitlementsOf(billing.clinicId)).plan_start_applied_at).not.toBeNull();
+    }, 60_000);
 
     test("a 5xx after Stripe applied the update is read back as done, not retried", async () => {
       const billing = await seedBilling("applied-5xx", { channelRows: [inService("web")] });
@@ -915,7 +1141,7 @@ describeDb("the billing-request worker", () => {
       ]);
       for (const s of seen) {
         expect(s.attempts).toBe(1);
-        expect(s.owner).toBe(`billing_request:${request.id}:1`);
+        expect(s.owner).toBe(`billing_request:${request.id}:0:1`);
         const lease = s.lease!.getTime() - NOW.getTime();
         expect(lease).toBeGreaterThanOrEqual(5 * MINUTE);
         expect(lease).toBeLessThan(6 * MINUTE);
@@ -955,7 +1181,7 @@ describeDb("the billing-request worker", () => {
       expect(
         (w.fake.callsTo("subscriptions.update")[0]!.args[2] as Stripe.RequestOptions)
           .idempotencyKey,
-      ).toBe(`hd-plan-start:${billing.clinicId}:${request.id}:2`);
+      ).toBe(`hd-plan-start:${billing.clinicId}:${request.id}:0:2`);
     });
 
     test("an attempt overtaken mid-flight stops before its next Stripe call and writes nothing", async () => {
@@ -1176,7 +1402,7 @@ describeDb("the billing-request worker", () => {
           metadata: { hd_step_up: request.id },
           expand: ["latest_invoice"],
         },
-        { ...WORKER_OPTIONS, idempotencyKey: `hd-step-up:${billing.clinicId}:${request.id}:1` },
+        { ...WORKER_OPTIONS, idempotencyKey: `hd-step-up:${billing.clinicId}:${request.id}:0:1` },
       ]);
       expect(await requestOf(billing.clinicId, "step_up", "meta")).toMatchObject({
         outcome: "done",
@@ -1216,6 +1442,7 @@ describeDb("the billing-request worker", () => {
         items: [item("si_package", packageKey("chat-web", "year"), 2)],
         latestInvoice: {
           id: "in_stepup",
+          billing_reason: "subscription_update",
           hosted_invoice_url: "https://invoice.stripe.com/i/acct_test/test_stepup",
         },
       });
@@ -1266,6 +1493,136 @@ describeDb("the billing-request worker", () => {
       // Our row follows what Stripe bills.
       expect((await entitlementsOf(billing.clinicId)).plan_code).toBe("web-voice");
     });
+
+    test("an update that went through with its outcome lost finishes as the step-up it was: L3 with its invoice, once (review fix)", async () => {
+      const billing = await seedBilling("step-lost", {
+        planId: "chat-web",
+        boughtPlanId: "web-voice",
+        interval: "year",
+        ...STARTED,
+        channelRows: [inService("web"), inService("voice")],
+      });
+      const request = await record(billing.clinicId, "step_up", { channel: "voice" });
+      const w = world({
+        customerId: billing.customerId,
+        subscriptionId: billing.subscriptionId,
+        items: [item("si_package", packageKey("chat-web", "year"))],
+      });
+      // The update applies and invoices the difference at once; then its
+      // answer is lost, and so is the re-read, so the attempt can only fail.
+      let isLosing = true;
+      let isRereadLost = false;
+      w.fake.on("subscriptions.update", (...args: unknown[]) => {
+        const result = w.handlers["subscriptions.update"]!(...args);
+        if (!isLosing) return result;
+        isLosing = false;
+        isRereadLost = true;
+        w.state.sub.latest_invoice = {
+          id: "in_stepup_lost",
+          billing_reason: "subscription_update",
+          hosted_invoice_url: "https://invoice.stripe.com/i/acct_test/test_lost",
+        };
+        throw stripeError("connection");
+      });
+      w.fake.on("subscriptions.retrieve", (...args: unknown[]) => {
+        if (isRereadLost) {
+          isRereadLost = false;
+          throw stripeError("connection");
+        }
+        return w.handlers["subscriptions.retrieve"]!(...args);
+      });
+
+      expect(await drainBillingRequests({ now: NOW, stripe: w.stripe })).toMatchObject({
+        failed: 1,
+      });
+      // Charged on Stripe, and nothing recorded here.
+      expect(await noticesOf(billing.clinicId, "price_stepped_up")).toEqual([]);
+      expect((await entitlementsOf(billing.clinicId)).plan_code).toBe("chat-web");
+
+      expect(await drainBillingRequests({ now: at(2 * MINUTE), stripe: w.stripe })).toMatchObject({
+        processed: 1,
+      });
+      expect(w.fake.callsTo("subscriptions.update")).toHaveLength(1);
+      expect(w.fake.callsTo("subscriptions.retrieve").at(-1)!.args).toEqual([
+        billing.subscriptionId,
+        { expand: ["latest_invoice"] },
+        WORKER_OPTIONS,
+      ]);
+      expect(await requestOf(billing.clinicId, "step_up", "voice")).toMatchObject({
+        outcome: "done",
+        outcome_reason: "stepped_up",
+        attempts: 2,
+      });
+      const webVoice = packageKey("web-voice", "year");
+      const notices = await noticesOf(billing.clinicId, "price_stepped_up");
+      expect(notices).toEqual([
+        {
+          dedupe_key: `step_up:voice:${priceId(webVoice)}`,
+          payload: {
+            channel: "voice",
+            planName: "Web + Voice",
+            amountCents: 717 * 12 * 100,
+            interval: "year",
+            isInvoicedNow: true,
+            hostedInvoiceUrl: "https://invoice.stripe.com/i/acct_test/test_lost",
+          },
+        },
+      ]);
+      expect(() => assertPayloadAllowed(notices[0]!.payload, "price_stepped_up")).not.toThrow();
+      expect((await entitlementsOf(billing.clinicId)).plan_code).toBe("web-voice");
+      const stepUpNotes = async () =>
+        (await notesOf(billing.clinicId)).filter((reason) => reason === "step_up");
+      expect(await stepUpNotes()).toHaveLength(1);
+
+      // Re-armed later, the marker is still there: no second L3, no second note.
+      await withTenant({ clinicId: billing.clinicId, actor: ACTOR }, (tx) =>
+        rearmBillingRequest(tx, request.id, "reconcile", at(3 * MINUTE)),
+      );
+      await drainBillingRequests({ now: at(3 * MINUTE), stripe: w.stripe });
+      expect(w.fake.callsTo("subscriptions.update")).toHaveLength(1);
+      expect(await noticesOf(billing.clinicId, "price_stepped_up")).toHaveLength(1);
+      expect(await stepUpNotes()).toHaveLength(1);
+    });
+
+    test("reads the row under its lock, so a downgrade committing as the lease frees never prices a dropped channel back in (review fix)", async () => {
+      // Bought Complete, billed Web Chatbot; voice answers and its step-up is
+      // due. The clinic downgrades to Web Chatbot as the worker reads the row
+      // (changePlan's lease has run out, as in the plan start's test).
+      const billing = await seedBilling("step-locked", {
+        planId: "chat-web",
+        boughtPlanId: "complete",
+        ...STARTED,
+        channelRows: [inService("web"), inService("voice")],
+      });
+      await record(billing.clinicId, "step_up", { channel: "voice" });
+      await withTenant({ clinicId: billing.clinicId, actor: ACTOR }, (tx) =>
+        claimStripeMutationLease(tx.db, billing.clinicId, "change_plan:portal", {
+          now: at(-10 * MINUTE),
+        }),
+      );
+      const w = world({
+        customerId: billing.customerId,
+        subscriptionId: billing.subscriptionId,
+        items: [item("si_package", packageKey("chat-web", "month"))],
+      });
+
+      await commitWhileQueued(
+        billing.clinicId,
+        `update entitlements
+            set bought_plan_id = 'chat-web',
+                channels_enabled = '{"web": true, "meta": false, "voice": false}'::jsonb,
+                stripe_mutation_lease_owner = null, stripe_mutation_lease_until = null
+          where clinic_id = $1`,
+        () => drainBillingRequests({ now: NOW, stripe: w.stripe }),
+      );
+
+      expect(w.fake.callsTo("subscriptions.update")).toHaveLength(0);
+      expect(await requestOf(billing.clinicId, "step_up", "voice")).toMatchObject({
+        outcome: "done",
+        outcome_reason: "no_change",
+      });
+      expect(await noticesOf(billing.clinicId, "price_stepped_up")).toEqual([]);
+    }, 60_000);
   });
 
   describe("setup closure (BD11, R12)", () => {
@@ -1342,7 +1699,10 @@ describeDb("the billing-request worker", () => {
           invoice_now: false,
           cancellation_details: { comment: "hd_setup_closure" },
         },
-        { ...WORKER_OPTIONS, idempotencyKey: `hd-close-setup:${billing.clinicId}:${request.id}:1` },
+        {
+          ...WORKER_OPTIONS,
+          idempotencyKey: `hd-close-setup:${billing.clinicId}:${request.id}:0:1`,
+        },
       ]);
       expect(await requestOf(billing.clinicId, "close_setup")).toMatchObject({
         outcome: "done",
@@ -1427,7 +1787,10 @@ describeDb("the billing-request worker", () => {
           invoice_now: false,
           cancellation_details: { comment: "hd_first_period_refund" },
         },
-        { ...WORKER_OPTIONS, idempotencyKey: `hd-cancel-now:${billing.clinicId}:${request.id}:1` },
+        {
+          ...WORKER_OPTIONS,
+          idempotencyKey: `hd-cancel-now:${billing.clinicId}:${request.id}:0:1`,
+        },
       ]);
       expect(await requestOf(billing.clinicId, "cancel_now")).toMatchObject({
         outcome: "done",

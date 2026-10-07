@@ -359,6 +359,37 @@ describe("decideReconcile: setup closure, stuck requests and pending locations",
       ),
     ).toEqual([{ type: "resume_location" }]);
   });
+
+  test("an extra location pending with no charge on record is settled from Stripe once nobody holds the lease (review fix)", () => {
+    const pending = { pendingLocationRequestId: "loc_req_2", pendingLocationCount: 2 };
+    expect(decideReconcile(input({ row: row(pending) }))).toEqual([
+      { type: "settle_location", requestId: "loc_req_2", count: 2 },
+    ]);
+    // A lease that has run out is free.
+    expect(
+      decideReconcile(
+        input({
+          row: row({
+            ...pending,
+            stripeMutationLeaseOwner: "add_location:loc_req_2",
+            stripeMutationLeaseUntil: at(-MINUTE),
+          }),
+        }),
+      ),
+    ).toEqual([{ type: "settle_location", requestId: "loc_req_2", count: 2 }]);
+    // Still leased: the request that set it may be waiting on Stripe.
+    expect(
+      decideReconcile(
+        input({
+          row: row({
+            ...pending,
+            stripeMutationLeaseOwner: "add_location:loc_req_2",
+            stripeMutationLeaseUntil: at(MINUTE),
+          }),
+        }),
+      ),
+    ).toEqual([]);
+  });
 });
 
 // -----------------------------------------------------------------------------

@@ -54,9 +54,10 @@
  * ## Not settable here
  *
  * What Stripe does after the last retry of a failed payment is Dashboard-only:
- * Settings → Billing → Revenue recovery, and it must leave the subscription
- * past due, never cancel it (healdesk owns that transition; see the closing
- * notes of stripe-setup.ts). Stripe Tax is off by the owner's decision of
+ * Settings → Billing → Revenue recovery, and it must mark the subscription
+ * unpaid, never cancel it (healdesk owns that transition: `unpaid` suspends
+ * the clinic and Stripe attempts no further payment; see the closing notes of
+ * stripe-setup.ts). Stripe Tax is off by the owner's decision of
  * 5 October 2026.
  */
 
@@ -526,7 +527,7 @@ async function main(): Promise<void> {
   );
   console.log(
     "\nStill by hand in the Dashboard: Settings → Billing → Revenue recovery → after the\n" +
-      "last retry, leave the subscription PAST DUE (never cancel it).",
+      "last retry, mark the subscription UNPAID (never cancel it).",
   );
   if (tally.unreachable > 0) process.exitCode = 1;
 }

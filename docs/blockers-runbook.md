@@ -1014,20 +1014,23 @@ keys an older deploy asks for are archived.
 
 6. **Dashboard settings the code depends on.** The script prints these; they are not
    optional:
-   - **Customer Portal** (Settings → Billing → Customer portal): payment method and
-     invoice history ON; cancel subscription ON but **"at end of billing period" only**;
-     switch plan **OFF** — Stripe's portal cannot update a subscription that carries metered
-     prices, and a plan change must swap the metered items to the new package's rates too
-     (`planMeteredPrices` in the catalog). Until healdesk's own Billing screen changes plans,
-     change a package by hand in the Dashboard: swap the package price **and** the metered
-     prices. Pause subscription OFF. Cancel immediately OFF.
-   - **Stripe Tax** (Settings → Tax): enable and set a default tax behavior. Prices are
-     created without `tax_behavior` and inherit it.
-   - **Failed payments** (Subscriptions → Manage failed payments): must **not** cancel the
-     subscription. healdesk owns the terminal transition — the billing sweep suspends the
-     clinic when its grace window closes, and `customer.subscription.updated` with
-     `status=unpaid` suspends it too — so a Stripe-side cancel would race it. That job
-     ships OFF; enable it from the ops console the same day you set this.
+   - **Customer Portal**: set by `stripe-account-settings.ts`, not by hand, as a separate
+     configuration tagged as healdesk's (never the account default, so scalabid's portal
+     is untouched). Payment method and invoice history ON; cancel **OFF**, because
+     auto-renew is the app's own switch in Billing (`setAutoRenew`); switch plan **OFF** —
+     Stripe's portal cannot update a subscription that carries metered prices, and a plan
+     change must swap the metered items to the new package's rates too (`changePlan`).
+     Until healdesk's own Billing screen changes plans, change a package by hand in the
+     Dashboard: swap the package price **and** the metered prices. No pause.
+   - **Stripe Tax** (Settings → Tax): off unless the owner's accountant says it is needed;
+     then enable it and set a default tax behavior. Prices are created without
+     `tax_behavior` and inherit it.
+   - **Failed payments** (Settings → Billing → Revenue recovery → Retries): if all retries
+     fail, mark the subscription **unpaid**; never cancel it. healdesk owns the terminal
+     transition — `customer.subscription.updated` with `status=unpaid` suspends the
+     clinic, and the billing sweep suspends it when its grace window closes — so a
+     Stripe-side cancel would race both. That job ships OFF; enable it from the ops
+     console the same day you set this.
 
 7. **Local testing** — the only path that exercises provisioning end to end today:
    ```

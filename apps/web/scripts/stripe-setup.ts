@@ -955,14 +955,15 @@ function printNext(live: boolean): void {
       `     without --dry-run, with a key that can write Products, Webhook\n` +
       `     Endpoints and Customer Portal. It sets "${STATEMENT_DESCRIPTOR}" on these products\n` +
       `     only (one account serves scalabid too), and${live ? " writes the new\n     endpoint's signing secret to a git-ignored file for STRIPE_WEBHOOK_SECRET." : "\n     skips the webhook in test mode; locally run\n     stripe listen --forward-to localhost:3000/api/webhooks/stripe"}\n` +
-      `  2. Stripe Tax  Settings → Tax → enable, and set a default tax behavior\n` +
+      `  2. Stripe Tax  stays off unless the owner's accountant says it is\n` +
+      `     needed. Then Settings → Tax → enable, and set a default tax behavior\n` +
       `     (prices here are created without tax_behavior and inherit it).\n` +
-      `  3. Subscriptions → Manage failed payments → "on payment failure":\n` +
-      `     must NOT cancel the subscription. Leave it active/past_due; healdesk\n` +
-      `     owns the terminal transition — the billing-sweep job suspends the\n` +
-      `     clinic once its grace window closes, and customer.subscription.updated\n` +
-      `     with status=unpaid suspends it too — so a Stripe-side cancel would\n` +
-      `     race it. That job ships OFF: enable it from the ops console.\n`,
+      `  3. Settings → Billing → Revenue recovery → Retries, if all retries\n` +
+      `     fail: mark the subscription unpaid, never cancel it. healdesk owns\n` +
+      `     the terminal transition — customer.subscription.updated with\n` +
+      `     status=unpaid suspends the clinic, and the billing-sweep job suspends\n` +
+      `     it once its grace window closes — so a Stripe-side cancel would race\n` +
+      `     both. That job ships OFF: enable it from the ops console.\n`,
   );
 }
 

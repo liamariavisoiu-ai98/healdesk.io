@@ -173,6 +173,7 @@ type OperatorOp =
   | "resolveIncident"
   | "startOffboarding"
   | "markExportDelivered"
+  | "markVoiceVendorDataDeleted"
   // The billing panel (build spec §7 E, R35).
   | "getClinicBilling"
   | "setOverageMode"
@@ -2228,6 +2229,26 @@ export type CareView = {
     exportDeliveredOn: string | null;
     destroyAfterOn: string | null;
     destroyedOn: string | null;
+    /**
+     * When the clinic's data goes, by the rule of the agreement its service
+     * ended under (destructionPlan in apps/app's lib/offboarding), as
+     * "YYYY-MM-DD HH:MM UTC". Null while it is not offboarding.
+     */
+    destruction: {
+      rule: "thirty_days" | "export_or_ninety";
+      basis: "agreement" | "no_agreement" | "unknown_version";
+      agreementVersion: string | null;
+      exportDueAt: string;
+      destroyDueAt: string;
+      latestDestroyAt: string;
+    } | null;
+    /** The clinic's calls and agent deleted at the voice vendor: outstanding until recordedAt. */
+    voiceVendorDeletion: {
+      deadline: string;
+      recordedAt: string | null;
+      recordedBy: string | null;
+      how: string | null;
+    } | null;
   };
   recipients: { email: string; label: string | null; addedBy: string; addedOn: string }[];
   deliveries: {
@@ -2277,6 +2298,8 @@ function readCareView(value: unknown): CareView {
       exportDeliveredOn: on(clinic.exportDeliveredAt, "care.clinic.exportDeliveredAt"),
       destroyAfterOn: on(clinic.destroyAfter, "care.clinic.destroyAfter"),
       destroyedOn: on(clinic.destroyedAt, "care.clinic.destroyedAt"),
+      destruction: readDestruction(clinic.destruction),
+      voiceVendorDeletion: readVoiceVendorDeletion(clinic.voiceVendorDeletion),
     },
     recipients: list(data.recipients, "care.recipients").map((entry) => {
       const r = object(entry, "care.recipient");
@@ -2318,6 +2341,30 @@ function readCareView(value: unknown): CareView {
   };
 }
 
+function readDestruction(value: unknown): CareView["clinic"]["destruction"] {
+  if (value === null || value === undefined) return null;
+  const d = object(value, "care.clinic.destruction");
+  return {
+    rule: literal(d.rule, ["thirty_days", "export_or_ninety"], "care.clinic.destruction.rule"),
+    basis: literal(d.basis, ["agreement", "no_agreement", "unknown_version"], "care.clinic.destruction.basis"),
+    agreementVersion: optionalText(d.agreementVersion, "care.clinic.destruction.agreementVersion"),
+    exportDueAt: instant(d.exportDueBy, "care.clinic.destruction.exportDueBy").at,
+    destroyDueAt: instant(d.destroyDueAt, "care.clinic.destruction.destroyDueAt").at,
+    latestDestroyAt: instant(d.latestDestroyAt, "care.clinic.destruction.latestDestroyAt").at,
+  };
+}
+
+function readVoiceVendorDeletion(value: unknown): CareView["clinic"]["voiceVendorDeletion"] {
+  if (value === null || value === undefined) return null;
+  const d = object(value, "care.clinic.voiceVendorDeletion");
+  return {
+    deadline: instant(d.deadline, "care.clinic.voiceVendorDeletion.deadline").at,
+    recordedAt: optionalInstant(d.recordedAt, "care.clinic.voiceVendorDeletion.recordedAt")?.at ?? null,
+    recordedBy: optionalText(d.recordedBy, "care.clinic.voiceVendorDeletion.recordedBy"),
+    how: optionalText(d.how, "care.clinic.voiceVendorDeletion.how"),
+  };
+}
+
 export function fetchClinicCare(clinicId: string): Promise<OpsResult<CareView>> {
   return callOps("getClinicCare", "read", { clinicId }, readCareView);
 }
@@ -2349,6 +2396,9 @@ export function startOffboarding(clinicId: string, reason: string) {
 }
 export function markExportDelivered(clinicId: string, how: string) {
   return careWrite("markExportDelivered", { clinicId, how });
+}
+export function markVoiceVendorDataDeleted(clinicId: string, how: string) {
+  return careWrite("markVoiceVendorDataDeleted", { clinicId, how });
 }
 
 export type OpenIncidentOutcome =

@@ -8,6 +8,7 @@ import {
   fetchClinicCare,
   markExportDelivered as exportDeliveredUpstream,
   markIncidentNotified as notifiedUpstream,
+  markVoiceVendorDataDeleted as vendorDeletedUpstream,
   openIncident as openIncidentUpstream,
   removeReportRecipient as removeRecipientUpstream,
   resolveIncident as resolveUpstream,
@@ -24,9 +25,10 @@ import { CarePanel } from "./CarePanel";
  * Nothing on this page is a patient. The recipient list and the delivery
  * ledger are addresses the clinic gave us for its own staff; an incident is
  * a summary the ops API refused unless it was written in ids; offboarding is
- * three dates. The one thing that IS a patient — the export — is a script on
- * the app host (docs/incident-response.md), and this page only records that
- * it was handed over.
+ * dates, the rule they follow and two operator records. The one thing that IS
+ * a patient — the export — is a script on the app host
+ * (docs/incident-response.md), and this page only records that it was handed
+ * over, and that the voice vendor's copy was deleted.
  */
 
 export const metadata: Metadata = { title: "Care" };
@@ -85,11 +87,26 @@ export default async function CarePage({ params }: { params: Promise<{ clinicId:
     revalidatePath(path);
     return result;
   }
+  async function markVoiceVendorDataDeleted(how: string) {
+    "use server";
+    const result = await vendorDeletedUpstream(clinicId, how);
+    revalidatePath(path);
+    return result;
+  }
 
   return (
     <CarePanel
       view={view}
-      actions={{ addRecipient, removeRecipient, openIncident, markNotified, resolve, startOffboarding, markExportDelivered }}
+      actions={{
+        addRecipient,
+        removeRecipient,
+        openIncident,
+        markNotified,
+        resolve,
+        startOffboarding,
+        markExportDelivered,
+        markVoiceVendorDataDeleted,
+      }}
     />
   );
 }

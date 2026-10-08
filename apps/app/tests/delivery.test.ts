@@ -452,6 +452,9 @@ describeDb("delivery", () => {
           // and the requests worker's hourly backstop.
           "billing-reconcile",
           "billing-requests",
+          // Destruction runs every hour (drizzle/0058), on every rule, so a
+          // clinic is gone before its agreement's thirty days, or ninety, are up.
+          "offboarding-destroy",
           // The setup reminder (drizzle/0056), hourly behind its switch: each
           // clinic's reminder waits for that clinic's own daytime.
           "setup-reminders",

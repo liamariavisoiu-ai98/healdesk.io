@@ -97,9 +97,12 @@ import { wrap } from "./wrap";
  *
  * The Term clause is written from the offboarding clock in apps/app
  * (`DESTROY_AFTER_DAYS`, `DESTROY_WITHOUT_EXPORT_AFTER_DAYS` and
- * `dueForDestruction` in lib/offboarding/offboarding.ts, run once a day by the
+ * `dueForDestruction` in lib/offboarding/offboarding.ts, run by the
  * `offboarding-destroy` job), not from the BAA's "within thirty days", which
- * the code does not keep when the export has not been delivered. The
+ * the code does not keep when the export has not been delivered. Since 7
+ * October 2026 that job runs every hour and destroys a day before each limit
+ * the clause states, so the clause's "once a day" and "at the first run once"
+ * give the latest it destroys; the text is left as it is. The
  * deletion residue it names is what `destroyClinicData` and `eraseContact`
  * leave. docs/counsel/dpa.md lists every fact the text rests on and the file
  * it was read from.
@@ -869,10 +872,13 @@ const CLAUSES_1_0: readonly DpaClause[] = [
   /**
    * Written from the clock apps/app runs (lib/offboarding/offboarding.ts):
    * offboarding starts when the subscription ends and sets destroy_after
-   * thirty days out; the daily job destroys once destroy_after has passed and
-   * the export was delivered, or once ninety days have passed without one.
-   * 1.2.1 says "within thirty days", which that clock keeps only when the
-   * export has been delivered by then (agreement-changes.md § 12.11, item 8).
+   * thirty days out; the daily job destroyed once destroy_after had passed
+   * and the export was delivered, or once ninety days had passed without
+   * one. Since 7 October 2026 the job runs every hour and destroys a day
+   * before each of those limits, at day 29 with the export delivered and at
+   * day 89 without, which this text, left as it is, still bounds. 1.2.1 says
+   * "within thirty days", which that clock keeps only when the export has
+   * been delivered by then (agreement-changes.md § 12.11, item 8).
    *
    * "Without penalty", which the shared notice of a new subcontractor
    * promises (subprocessor-notice.ts), has the effect BAA 1.3.0's Term clause

@@ -29,9 +29,10 @@ import type { NoticeKind } from "@/lib/email/kinds";
 import { linkProblem } from "@/lib/email/lint";
 import { log } from "@/lib/log";
 import {
-  DESTROY_AFTER_DAYS,
-  DESTROY_WITHOUT_EXPORT_AFTER_DAYS,
+  alertIfOffboardingStartedLate,
+  destructionPlanIn,
   startOffboarding,
+  type OffboardingStart,
 } from "@/lib/offboarding/offboarding";
 import { notifyOps } from "@/lib/ops/notify";
 import { withTenant, type TenantTx } from "@/lib/tenant";
@@ -372,6 +373,11 @@ export async function handleStripeEvent(
       },
       (tx) => dispatch(tx, delivery),
     );
+    // After the commit and outside the transaction: an ops alert sends an
+    // email of its own, and the stamp it reports is now the clinic's.
+    if (effects.offboardingStart) {
+      await alertIfOffboardingStartedLate(resolved, effects.offboardingStart);
+    }
 
     const result = effects.ignored
       ? await finish(event.id, "ignored", clinicId, effects.ignored)
@@ -756,10 +762,12 @@ type Effects = {
   critical: boolean;
   /** Set when the delivery turned out to need nothing; recorded as the ledger's note. */
   ignored: string | null;
+  /** The subscription ended and offboarding started: the caller tells ops after the commit if its clock started late. */
+  offboardingStart: OffboardingStart | null;
 };
 
 async function dispatch(tx: TenantTx, delivery: Delivery): Promise<Effects> {
-  const effects: Effects = { critical: false, ignored: null };
+  const effects: Effects = { critical: false, ignored: null, offboardingStart: null };
   const { type } = delivery;
   switch (type) {
     case "checkout.session.completed":
@@ -784,7 +792,7 @@ async function dispatch(tx: TenantTx, delivery: Delivery): Promise<Effects> {
       break;
 
     case "customer.subscription.deleted":
-      await onSubscriptionDeleted(tx, delivery);
+      await onSubscriptionDeleted(tx, delivery, effects);
       break;
 
     case "charge.dispute.created":
@@ -1752,7 +1760,11 @@ function cancelScheduledPayload(
  * subscription) with how long calls still pass through, how to undo its call
  * forwarding, and when its data goes.
  */
-async function onSubscriptionDeleted(tx: TenantTx, delivery: Delivery): Promise<void> {
+async function onSubscriptionDeleted(
+  tx: TenantTx,
+  delivery: Delivery,
+  effects: Effects,
+): Promise<void> {
   const subscription = delivery.object;
   const row = await lockedEntitlements(tx);
   await moveUnless(tx, "canceled", ["canceled", "purged"], {
@@ -1762,14 +1774,18 @@ async function onSubscriptionDeleted(tx: TenantTx, delivery: Delivery): Promise<
 
   const comment = asString(prop(prop(subscription, "cancellation_details"), "comment"));
   if (comment === SETUP_CLOSURE_COMMENT) {
-    // Stamped by the database (app_start_offboarding), never from the event.
+    // Our own cancellation, followed within seconds by this event: the
+    // database stamps the moment it is processed (app_start_offboarding).
     await startOffboarding(tx, "setup_closure");
     return;
   }
 
-  // The customer left: start the return-or-destroy clock (lib/offboarding),
-  // stamped by the database when this is processed.
-  await startOffboarding(tx, delivery.type);
+  // The customer left: start the return-or-destroy clock (lib/offboarding)
+  // at the subscription's own end, which the database clamps to the week
+  // before now, so a delivery Stripe retried for hours or a person replayed
+  // days later does not start the agreement's thirty days late.
+  const endedAt = subscriptionEndedAt(subscription, delivery);
+  effects.offboardingStart = await startOffboarding(tx, delivery.type, endedAt);
   // A clinic already destroyed has nobody left to tell.
   if (row.status === "purged") return;
   const subscriptionId = asString(prop(subscription, "id")) ?? delivery.ids.subscriptionId;
@@ -1778,35 +1794,48 @@ async function onSubscriptionDeleted(tx: TenantTx, delivery: Delivery): Promise<
     tx,
     "canceled",
     subscriptionId,
-    await canceledPayload(tx, row, subscription, delivery.now),
+    await canceledPayload(tx, row, endedAt),
   );
 }
 
 /**
- * E2's facts (R31). The two data dates follow dueForDestruction's rule
- * (lib/offboarding): the data may go `destroy_after` (30 days after the end)
- * once the export has been delivered, and goes 90 days after the end if it
- * never is. So `exportByOn` is the first of those, the day to have the export
- * by, and `destroyByOn` the second, the day the data is gone whatever
- * happens; each is true in both cases, which a single date would not be.
+ * When a deleted subscription's service ended, from Stripe's signed event:
+ * its `ended_at`, set on every deleted subscription, else the event's
+ * `created` (delivery.createdAt, which falls back to the processing time).
+ * Never `canceled_at`: for a subscription set to cancel at its period's end
+ * (every Auto-renew-off cancellation) that is when the request was made,
+ * which on an annual plan can be months before the end.
+ */
+function subscriptionEndedAt(subscription: unknown, delivery: Delivery): Date {
+  return unixDate(prop(subscription, "ended_at")) ?? delivery.createdAt;
+}
+
+/**
+ * E2's facts (R31). The two data dates are destructionPlan's (lib/offboarding),
+ * read in this transaction after it started offboarding, so the email and the
+ * destruction job cannot disagree: `exportByOn`, the last day to have the
+ * export by, and `destroyByOn`, the day the data is gone whatever happens. On
+ * either rule the first is the date a day before day 29, when a run may
+ * first destroy the data; the second is day 30's date on the thirty days (BAA
+ * 1.2.1 and earlier) and day 90's on the export rule (BAA 1.3.0, DPA 1.0.0),
+ * a day after the latest the clinic can be due. Each is true however the
+ * export goes, which a single date would not be.
  */
 async function canceledPayload(
   tx: TenantTx,
   row: Entitlements,
-  subscription: unknown,
-  now: Date,
+  endedAt: Date,
 ): Promise<NoticePayloads["canceled"]> {
   const clinic = await ownClinic(tx);
-  const endedAt =
-    unixDate(prop(subscription, "ended_at")) ?? unixDate(prop(subscription, "canceled_at")) ?? now;
-  const offboardingFrom = clinic?.offboardingStartedAt ?? now;
+  const plan = await destructionPlanIn(tx);
+  if (!plan) throw new Error(`Clinic ${tx.clinicId} has no destruction plan; offboarding has not started.`);
   return {
     passThroughDays: FORWARDING_PASS_THROUGH_DAYS,
     endedAt: endedAt.toISOString(),
     isBeforeStart: !hasPlanStarted(row),
     channels: CHANNELS.filter((channel) => row.channelsEnabled[channel]),
-    exportByOn: isoDay(clinic?.destroyAfter ?? addDays(offboardingFrom, DESTROY_AFTER_DAYS)),
-    destroyByOn: isoDay(addDays(offboardingFrom, DESTROY_WITHOUT_EXPORT_AFTER_DAYS)),
+    exportByOn: plan.exportByOn,
+    destroyByOn: plan.destroyByOn,
     ...forwardingFactsOf(clinic),
   };
 }
@@ -1947,10 +1976,6 @@ function unixDate(value: unknown): Date | null {
 /** The UTC calendar date, YYYY-MM-DD: what every `…On` payload field carries. */
 function isoDay(date: Date): string {
   return date.toISOString().slice(0, 10);
-}
-
-function addDays(date: Date, days: number): Date {
-  return new Date(date.getTime() + days * DAY_MS);
 }
 
 function metadataApp(value: unknown): string | null {

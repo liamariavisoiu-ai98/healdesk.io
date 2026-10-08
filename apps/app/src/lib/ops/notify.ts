@@ -59,6 +59,13 @@ export const OPS_EVENTS = [
   // raised once, ever, by the dmarc-review job on the 14th day after Resend
   // first sent as healdesk.io (lib/scheduler/dmarc-review.ts).
   "dmarc_review_due",
+  // Offboarding (lib/offboarding, the destruction_clock migration): a clinic
+  // on the thirty days with no export recorded as delivered, raised once by
+  // the destruction job from day 21; and a subscription deletion processed
+  // more than a week after the service ended, which the database's clamp
+  // started a week back and no further.
+  "export_undelivered_before_destruction",
+  "offboarding_started_late",
   // The Google Calendar connection (the calendar session; the funnel and
   // portal contract of 6 October 2026 routes its ops alerts here): a
   // location's connection broke and it now takes booking requests. Raised
@@ -165,6 +172,7 @@ const NOT_IDENTITY = new Set([
   "months",
   "ms",
   "units",
+  "lateDays",
 ]);
 
 /** What the email may carry: each field the payload allowlist accepts on its own. */

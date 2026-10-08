@@ -1,3 +1,4 @@
+import { GOOGLE_CALENDAR_PROVIDER } from "@healdesk/connectors";
 import { sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
@@ -19,16 +20,23 @@ import { JOB_NIGHTLY_SYNC, runJob } from "./jobs";
  * webhook-triggered sync and the nightly one collapse into one run. On the
  * 1st of the month: a reconcile per verified clinic, before the report job
  * reads a settled month.
+ *
+ * Never a Google Calendar connection: it is v1's write target, not a
+ * booking platform to read back, and its health is the calendar watch's
+ * (plan §9). A sync of one would ask Google for the clinic's appointments,
+ * which the calendar terms say healdesk never reads.
  */
 export async function enqueueNightlySync(now: Date): Promise<{ syncs: number; reconciles: number }> {
   const result = await unsafeDb.execute<{ clinic_id: string; connection_id: string; provider: string }>(
     sql`select clinic_id, connection_id, provider from app_active_connections()`,
   );
-  const rows = ((result as unknown as { rows?: unknown[] }).rows ?? result) as {
-    clinic_id: string;
-    connection_id: string;
-    provider: string;
-  }[];
+  const rows = (
+    ((result as unknown as { rows?: unknown[] }).rows ?? result) as {
+      clinic_id: string;
+      connection_id: string;
+      provider: string;
+    }[]
+  ).filter((row) => row.provider !== GOOGLE_CALENDAR_PROVIDER);
 
   let syncs = 0;
   for (const [index, row] of rows.entries()) {

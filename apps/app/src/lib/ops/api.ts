@@ -67,6 +67,8 @@ import {
 import { applyEmailEvent, isDeliveryStatus } from "@/lib/email/events";
 import { KIND_SHAPE } from "@/lib/email/kind-rules";
 import { markExportDelivered, startOffboarding } from "@/lib/offboarding/offboarding";
+import { sweepCalendarTerms } from "@/lib/connections/google-calendar";
+import { opDisconnectCalendar, opIssueCalendarLink } from "@/lib/ops/calendar-ops";
 import { startForwardingTest } from "@/lib/onboarding/forwarding-test";
 import { listConnections } from "@/lib/connections/store";
 import { selfCheckCredentialKey, type CredentialKeySelfCheck } from "@/lib/crypto/envelope";
@@ -321,6 +323,12 @@ const OPERATIONS = [
   "issueSetupLink",
   "retryCalendarWrite",
   "listCalendarWrites",
+  // The Google Calendar connection (plan §10): mail the location's calendar
+  // link to the practice's own address (never to one the console names),
+  // and disconnect its calendar. Neither returns a link, but for the demo
+  // clinic's.
+  "issueCalendarLink",
+  "disconnectCalendar",
   // The email platform (Annex X3): a Resend webhook event for mail this app
   // sent, relayed by apps/web's one webhook. Machine to machine: the relay's
   // caller verified Resend's signature, and the event carries ids, a status and
@@ -393,6 +401,10 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   // Mutating because it moves the appointment's calendar columns and may
   // create a booking in the clinic's calendar.
   "retryCalendarWrite",
+  // Mutating: a link minted and mailed, or a calendar disconnected and its
+  // grant revoked at Google.
+  "issueCalendarLink",
+  "disconnectCalendar",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -919,6 +931,10 @@ export async function runOperation(
       return opRetryCalendarWrite(args, operator);
     case "listCalendarWrites":
       return opListCalendarWrites(args, operator);
+    case "issueCalendarLink":
+      return opIssueCalendarLink(args, operator);
+    case "disconnectCalendar":
+      return opDisconnectCalendar(args, operator);
     case "emailEvent":
       return opEmailEvent(args);
     case "getCredentialKeyStatus":
@@ -1713,6 +1729,15 @@ async function opMarkAgreementTerminated(
     // the connect link records hours rather than a timestamp.
     terminatedAtEpochMs: terminatedAt.getTime(),
   });
+
+  // A terminated agreement voids every location's calendar terms (plan
+  // §2.7): each of the organisation's locations loses its Google Calendar
+  // now, rather than at the watch's next run, and its grant is revoked when
+  // unused. Every live calendar is swept, since a location's organisation is
+  // its own tenant's to read; the sweep reads each location's terms afresh,
+  // so every other location, and one still under an agreement in effect,
+  // keeps its calendar. Never throws.
+  await sweepCalendarTerms(undefined, { actor: actorFor(operator) });
 
   return ok({
     status: "recorded",
@@ -3381,6 +3406,9 @@ async function opStartOffboarding(
     (tx) => startOffboarding(tx, reason),
   );
   await audit(operator, "offboarding_started", { clinicSlug: clinic.slug });
+  // Google access ends when offboarding starts, not at destruction (owner,
+  // Q7): the calendar is disconnected and its grant revoked when unused.
+  await sweepCalendarTerms([clinic.id], { actor: actorFor(operator) });
   return care.updated();
 }
 

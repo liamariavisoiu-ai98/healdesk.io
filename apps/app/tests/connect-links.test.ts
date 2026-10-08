@@ -6,6 +6,8 @@ import type { ActorContext } from "@/lib/audit";
 import {
   CONNECTION_LINK_TTL_DAYS,
   MAX_CONNECTION_LINK_TTL_DAYS,
+  calendarLinkClinicForReissue,
+  consumeCalendarLinkWithin,
   consumeConnectionLink,
   consumeConnectionLinkWithin,
   issueConnectionLink,
@@ -775,6 +777,104 @@ describeDb("connection links", () => {
     await inTenant(clinic.clinicId, (client) =>
       client.query(`update connection_links set used_at = now() where id = $1`, [linkId]),
     );
+  });
+
+  test("the library mints a calendar link with its audience, recipients and flags, and reads them back", async () => {
+    const clinic = await seedConnectableClinic("link-calendar-library");
+    const pending = {
+      bookingSystem: "google_calendar" as const,
+      calendarAccount: "personal" as const,
+      documentVersion: "calendar-election/1.0.0",
+      documentHash: "c".repeat(64),
+    };
+    const confirm = await issueConnectionLink(
+      clinic.clinicId,
+      {
+        purpose: "calendar",
+        expiresInDays: 3,
+        audience: "owner",
+        sentTo: [" Owner@Clinic.TEST ", "owner@clinic.test"],
+        pendingElection: pending,
+      },
+      { actor, request: {} },
+    );
+    expect(await resolveConnectionLink(confirm.token, {}, "calendar")).toMatchObject({
+      linkId: confirm.linkId,
+      audience: "owner",
+      allowsAccountChange: false,
+      pendingElection: pending,
+      sentTo: ["owner@clinic.test"],
+    });
+    // Every other purpose stays plain, and its recipients unrecorded.
+    const connect = await issueConnectionLink(clinic.clinicId, {}, { actor, request: {} });
+    expect(await resolveConnectionLink(connect.token)).toMatchObject({
+      audience: "recipients",
+      allowsAccountChange: false,
+      pendingElection: null,
+      sentTo: null,
+    });
+    // The database refuses a change link that is not the owner's.
+    const refused: unknown = await issueConnectionLink(
+      clinic.clinicId,
+      { purpose: "calendar", audience: "recipients", allowsAccountChange: true },
+      { actor, request: {} },
+    ).catch((error: unknown) => error);
+    let constraint: unknown = null;
+    for (
+      let e = refused as { constraint?: unknown; cause?: unknown } | undefined;
+      e;
+      e = e.cause as typeof e
+    ) {
+      constraint ??= e.constraint ?? null;
+    }
+    expect(constraint).toBe("connection_links_account_change_owner");
+  });
+
+  test("the calendar burn names the link it spent, and only a calendar link; a re-issue finds only a recent calendar link", async () => {
+    const clinic = await seedConnectableClinic("link-calendar-burn");
+    const calendar = await issueConnectionLink(
+      clinic.clinicId,
+      { purpose: "calendar" },
+      { actor, request: {} },
+    );
+    const connect = await issueConnectionLink(clinic.clinicId, {}, { actor, request: {} });
+    const burn = (token: string) =>
+      withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+        consumeCalendarLinkWithin(tx, token, "203.0.113.9"),
+      );
+    expect(await burn(connect.token)).toBeNull();
+    expect(await resolveConnectionLink(connect.token)).not.toBeNull();
+    expect(await burn(calendar.token)).toBe(calendar.linkId);
+    expect(await burn(calendar.token)).toBeNull();
+    expect(await burn("not a token")).toBeNull();
+
+    // A spent calendar link may still ask for a new one; nothing else may.
+    expect(await calendarLinkClinicForReissue(calendar.token)).toBe(clinic.clinicId);
+    expect(await calendarLinkClinicForReissue(connect.token)).toBeNull();
+    expect(await calendarLinkClinicForReissue("Q".repeat(43))).toBeNull();
+    // Older than thirty days: no.
+    const old = await issueConnectionLink(
+      clinic.clinicId,
+      { purpose: "calendar" },
+      { actor, request: {} },
+    );
+    // Issued 31 days ago and spent: the issuance facts are frozen, so the
+    // schema owner moves them with the table's triggers off, as the days would.
+    await inTenant(clinic.clinicId, async (client) => {
+      await client.query(`alter table connection_links disable trigger user`);
+      try {
+        await client.query(
+          `update connection_links
+              set created_at = now() - interval '31 days', expires_at = now() - interval '24 days',
+                  used_at = now() - interval '30 days'
+            where id = $1`,
+          [old.linkId],
+        );
+      } finally {
+        await client.query(`alter table connection_links enable trigger user`);
+      }
+    });
+    expect(await calendarLinkClinicForReissue(old.token)).toBeNull();
   });
 
   /* ---------------------------------------------------------------- the token */

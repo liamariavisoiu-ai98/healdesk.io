@@ -63,6 +63,21 @@ describeDb("nightly sync", () => {
     expect(new Set(calls.map((c) => c[2].startAfter)).size).toBe(2);
   });
 
+  test("never a sync for a Google Calendar connection: it is the write target, not a system to read back", async () => {
+    const clinic = await seedClinic("sync-google");
+    await inTenant(clinic.clinicId, async (client) => {
+      await client.query(
+        `insert into provider_connections
+           (clinic_id, provider, status, ciphertext, iv, auth_tag, wrapped_dek, key_version, aad_version)
+         values ($1, 'google_calendar', 'active', 'x', 'x', 'x', 'x', 'v1', 1)`,
+        [clinic.clinicId],
+      );
+    });
+    await enqueueNightlySync(new Date("2026-09-15T02:00:00Z"));
+    const calls = enqueue.mock.calls as unknown as [string, { clinicId: string }][];
+    expect(calls.filter(([, payload]) => payload.clinicId === clinic.clinicId)).toEqual([]);
+  });
+
   test("on the first of the month, a reconcile per verified production clinic", async () => {
     const verified = await seedClinic("sync-verified");
     await seedClinic("sync-estimated");

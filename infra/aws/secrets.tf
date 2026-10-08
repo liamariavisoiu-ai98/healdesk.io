@@ -7,9 +7,10 @@
 # unset.
 
 locals {
-  # The web tier and the worker. Every one is read by apps/app on main today
-  # (lib/env.ts, lib/reporting/resend-transport.ts, lib/meta/*). The Google
-  # OAuth client joins this list with the calendar build's C8.
+  # The web tier and the worker. Every one is read by apps/app (lib/env.ts,
+  # lib/reporting/resend-transport.ts, lib/meta/*); the Google OAuth client
+  # is the calendar connection's (lib/connections/google-oauth.ts), and lives
+  # here only, never on apps/web or a Vercel project.
   runtime_secret_keys = [
     "DATABASE_URL",
     "BETTER_AUTH_SECRET",
@@ -27,6 +28,8 @@ locals {
     "META_WHATSAPP_CONFIG_ID",
     "HEALDESK_VOICE_WEBHOOK_SECRET",
     "HEALDESK_VOICE_TOOLS_SECRET",
+    "GOOGLE_OAUTH_CLIENT_ID",
+    "GOOGLE_OAUTH_CLIENT_SECRET",
   ]
 
   # The one-off tasks only. The runtime tasks never see the migrator's

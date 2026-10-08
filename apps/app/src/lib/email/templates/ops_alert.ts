@@ -184,6 +184,13 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "A clinic's welcome email, its order confirmation with the receipt and the Continue setup link, is still unsent an hour after its account was made, or setup moved on before it could go. Check Resend, then email the order details to the clinic's address by hand.",
   },
+  // Raised by the connect flow when Google's token endpoint refuses
+  // healdesk's own client: every clinic's connect fails until it is fixed.
+  google_oauth_client_rejected: {
+    title: "Google refused healdesk's OAuth client",
+    action:
+      "Google's token endpoint refused healdesk's own OAuth client while a clinic was connecting its calendar, so no clinic can connect one. Check the Calendar OAuth client in the Google Cloud project, and GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET in the apps/app secret store, then ask the clinic to try again.",
+  },
 };
 
 /**

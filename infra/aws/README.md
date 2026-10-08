@@ -48,8 +48,6 @@ the database and two small ARM tasks. Traffic adds to it.
 - **Rate limiting** on the host (AWS WAF), **VPC flow logs**, **ALB access logs**.
 - **SES production access.** The account starts in SES's sandbox; leaving it
   is a support request, and nothing needs SES yet.
-- **The Google OAuth client** (`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`).
-  It joins `runtime_secret_keys` in `secrets.tf` with the calendar build's C8.
 - **The KMS lock-label rule** (`kms_require_lock_labels`) is on: the calendar
   build's C6b ("Lock every sealed credential's data key to its clinic and
   login") is on `main`, so every image now sends the labels. Turn it off only to
@@ -105,7 +103,11 @@ DNS only.
 `HEALDESK_PROVISION_SECRET` (the same value as `apps/web`'s on Vercel) and
 `ANTHROPIC_API_KEY` (from the Anthropic organisation covered by its BAA), plus
 whichever of `RESEND_API_KEY`, `STRIPE_*`, `META_*` and the voice secrets are
-in use. The database passwords, `BETTER_AUTH_SECRET` and
+in use. The Google Calendar connection's OAuth client
+(`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`) is in
+`runtime_secret_keys` too: until the owner adds the client from the production
+Google Cloud project, the script writes both empty and apps/app sends no
+clinic to Google. The database passwords, `BETTER_AUTH_SECRET` and
 `HEALDESK_IDENTIFIER_REF_KEY` are generated. Then:
 
 ```sh

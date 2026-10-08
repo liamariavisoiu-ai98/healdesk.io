@@ -68,6 +68,11 @@ export const OPS_EVENTS = [
   // provisioning, or one the clinic has moved past before it could go, so
   // the order confirmation has to be sent by hand.
   "welcome_email_unsent",
+  // Google refused healdesk's own OAuth client (invalid, unauthorised or
+  // deleted): no clinic can connect or keep a calendar until someone fixes
+  // the Google Cloud project. Raised by the connect flow's code exchange
+  // (lib/connections/google-oauth.ts).
+  "google_oauth_client_rejected",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

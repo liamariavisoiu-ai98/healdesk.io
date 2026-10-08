@@ -17,7 +17,7 @@ the code on 7 October 2026. The plan's commit names, C0 to C20, are kept.
 | Commit  | What                                                                                               | State                                          |
 | ------- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
 | C0r     | KMS and SES that hold in production (§5)                                                           | Built (6740037)                                |
-| C1      | The Google adapter, OAuth helpers, watch probe and offline fake (`packages/connectors`)            | Built (c3acc82); the list changes before C8    |
+| C1      | The Google adapter, OAuth helpers, watch probe and offline fake (`packages/connectors`)            | Built (c3acc82); C8 adds the own-domain list   |
 | C2      | The catalog interface (§3) and the BAA 1.3.0 draft                                                 | Built (cc56c9d)                                |
 | C3      | Signing takes the two calendar answers (§3)                                                        | Built (ad02b30)                                |
 | C4, C16 | Checkout's manual-booking notice and its Google-account question                                   | Dropped (§7)                                   |
@@ -25,7 +25,7 @@ the code on 7 October 2026. The plan's commit names, C0 to C20, are kept.
 | C6      | Migration A: elections, OAuth states, slot holds, Auto-confirm, `clinics.client_number`, providers | Built (3cca422); the funnel's M3 goes after it |
 | C6b     | The KMS lock labels (§5)                                                                           | Built                                          |
 | C7      | The agreement and calendar terms in effect, elections, the demo clinic                             | Built                                          |
-| C8      | Connecting, choosing calendars, disconnecting, revoking (§2, §4)                                   | To build                                       |
+| C8      | Connecting, choosing calendars, disconnecting, revoking (§2, §4)                                   | Built                                          |
 | C9      | Booking mode and Auto-confirm (§2)                                                                 | To build                                       |
 | C10     | The five-minute calendar watch                                                                     | To build; ships switched off                   |
 | C11     | Privacy §11 and `/data-deletion` say what the code does                                            | To build                                       |
@@ -47,7 +47,8 @@ the code on 7 October 2026. The plan's commit names, C0 to C20, are kept.
   floor.
 - **One calendar per provider.** The 1.3.0 calendar clauses are to say "the calendar, or one
   calendar per provider, that Practice chooses" (6 October). `google-calendar-disclosure/1`, which
-  nobody has seen yet, also speaks of one calendar, and needs the same change before C8 shows it.
+  C8's page is the first to show, says so since the pre-release audit (`agreement-changes.md`
+  §12.14, PT-06).
 - **"Owns" is Google's owner role**, which is not ownership (§4). The C19 audit checks the
   catalog's "calendar that account owns" (`WHICH_CALENDAR` in `calendar-terms.ts`, and the
   disclosure's first paragraph) against what the code checks.
@@ -96,10 +97,12 @@ app.healdesk.io; apps/web never does.
 - **Who acted.** The connect flow and `disconnect` write audit rows
   (`calendar_disclosure_accepted` at the start, `calendar_connected` at the callback, the
   disconnect), and an audit row takes its actor from an `ActorContext`, which only the caller can
-  build, from `requirePortal`'s `PortalContext.userId`. So `startGoogleConnect` and `disconnect`
-  are to take the portal `actor`, as `setAutoConfirm` does, with the OAuth state row carrying it
-  to the callback; otherwise C8 records a clinic user's connect or disconnect as the system. That
-  changes the agreed signatures (§9, item 8).
+  build, from `requirePortal`'s `PortalContext.userId`. C8 built it that way: `disconnect`,
+  `getCalendarConnection`, `listCalendars`, `chooseCalendar` and the provider functions take an
+  optional `{ actor, request }`, as `setAutoConfirm` takes its actor; `startGoogleConnect` takes an
+  optional `userId`, and without one asks `requirePortal(slug)` itself; and the OAuth state row
+  carries the user to the callback, which acts as them. Without an actor, a call is recorded as
+  the calendar service (§9, item 8).
 - **`listCalendars(clinicId)`** (C8): the calendars on which the connected account has Google's
   owner role, which a calendar shared in from another account or domain can have too (§4), hidden
   ones left out, primary first; 100 or more is refused (`too_many_calendars`) rather than shown
@@ -220,7 +223,7 @@ signed booking system in `clinics.booking_provider`.
 
 ## 4. Google access
 
-The constants and the adapter are built (C1); the connect flow that applies them is C8.
+The constants and the adapter are built (C1), and C8's connect flow applies them.
 
 - **Five scopes, in this order** (`GOOGLE_SCOPES`; owner, 6 October): `openid`,
   `https://www.googleapis.com/auth/userinfo.email`,
@@ -248,19 +251,37 @@ The constants and the adapter are built (C1); the connect flow that applies them
   clinic's own records.
 - **A covered clinic stays in its own domain** (owner, 6 October, HRC-04). Under `workspace_baa`
   terms only the primary calendar, or a secondary one shown to belong to the connected account's
-  own Workspace organisation, may be chosen, as the shared calendar or a provider's. C8 checks it
-  when a calendar is chosen and stores what it verified, and C12's `writeToCalendar` (with the
-  write guard) and C13's writer re-check it before every insert. Nothing checks it yet: C1's
-  `CALENDAR_LIST_QUERY` filters only by `minAccessRole=owner`, and `verify()` refuses only a
-  calendar without the owner role (`docs/counsel/agreement-changes.md` §12.11, item 7). Before C8,
-  C1's list asks `showOwnOrganizationOnly=true` for a managed account, or adds `dataOwner` to its
-  fields (Google sets it only for secondary calendars); until then, covered terms book only into
-  the primary calendar.
+  own Workspace organisation, may be chosen, as the shared calendar or a provider's. Since C8:
+  covered terms refuse a consumer account at the callback (`mismatch`, from the ID token's `hd`);
+  the calendar list for a covered location is asked with `showOwnOrganizationOnly=true`
+  (`OWN_ORGANIZATION_QUERY`), so its picker and its providers are offered only its own
+  organisation's calendars; `chooseCalendar` and `saveProviders` refuse anything else
+  (`outside_organisation`); and `confirmCalendarTarget` (`lib/connections/google-calendar.ts`)
+  asks Google again, failing closed (`unverified` when Google cannot be asked), for C12's
+  `writeToCalendar` and C13's writer to call before every insert.
 - **Unverified at Google** until the sandbox checks on a spare Workspace (plan §1.3 and risk 7):
   whether `events.owned` writes to `primary`, and to an owner-role calendar that another account
   data-owns; whether Google accepts PKCE from a confidential client; what an insert with a deleted
   event's id does; whether `hd` comes with and without the email scope; and how long a revoked
   access token keeps working.
+- **Changing the account** (C8). A different account replaces a live connection only through the
+  owner's change link or the owner in the portal. One of another kind, or in another Workspace
+  domain, is refused as `election_needed` until the owner records a calendar election after the
+  connection was made (the connection stores the newest election's sequence as
+  `metadata.termsSequence`); the change link's page shows that election form. A reconnect keeps
+  its chosen calendar and moves to `primary` only when Google definitively refuses it, audited as
+  `calendar_target_changed`; an answer Google could not give ends the sign-in as `probe`. A connect
+  with another account than the location last held deactivates the named providers on the old
+  account's other calendars, and `listProviderCalendars` marks a provider whose calendar the
+  account no longer lists (`calendarAvailable`).
+- **Ending access** (C8). The token is erased, and the grant revoked at Google when no location
+  holds the account live, on a disconnect, on the terms sweep (`sweepCalendarTerms`: after ops
+  records a termination, when offboarding starts, from ops or from Stripe's
+  `customer.subscription.deleted`, and before destruction) and when an election takes the calendar
+  away. When Google answers that the grant is gone, the token is erased too, and after a lost
+  calendar scope the grant is revoked. A row revoked with `broken_at` is one Google took away; a
+  deliberate disconnect clears it, so the clinic is not told "access was removed in your Google
+  Account".
 - **What is stored:** the sealed refresh token, never an access token; the Google `sub` only as
   `account_ref = sha256hex("google:" + sub)`, which keeps one live connection per account across
   clinics; the account's email address in the connection's metadata, for the clinic only.
@@ -567,21 +588,20 @@ stood on 6 and 7 October. Each is to be settled with the other session before th
    keys on the clinic and the calendar, but a staff-confirmed appointment records no calendar. With
    named providers it needs one, the provider's, for the guard to key on; which calendar a
    confirmation occupies, and where Bookings asks for it, is to be agreed.
-5. **Calendar links (C8, with the funnel).** The plan's single-use calendar links to the practice
-   (the recipients link, the owner's change and confirm links, the rotated link) came before the
-   portal. With connects through `startGoogleConnect`, calendar emails through O13 and one owner
-   sign-in per clinic, which kinds remain, and whether a new location or account gets one, is to be
-   agreed.
-6. **Choosing the shared calendar (C8).** The contract has `listCalendars`, and `saveProviders` for
-   named providers, but no function for the shared calendar the portal's picker chooses.
-7. **A covered clinic's picker (C8, with the funnel).** Until C1's calendar list can tell the
-   account's own organisation's calendars from ones shared in (§4), a location under
-   `workspace_baa` terms books only into its primary calendar, so the picker offers it nothing
-   else, and setup step 3.2 offers it no named providers, each of whom needs a calendar of their
-   own.
-8. **Who acted (C8, with the funnel).** `startGoogleConnect` and `disconnect` are to take the
-   portal user as `actor`, as `setAutoConfirm` does (§2), which changes the signatures agreed on 6
-   October.
+5. **Calendar links (C8, with the funnel).** C8 built the plan's four kinds (the recipients link,
+   the owner's change and confirm links, and the continuation link the page goes on under), and
+   provisioning mails a recipients link when the location has something to do. With connects
+   through `startGoogleConnect`, calendar emails through O13 and one address per clinic, every kind
+   reaches the same inbox. Still to agree: which kinds remain once the portal ships, and whether a
+   new location is sent one.
+6. **Choosing the shared calendar (C8).** Settled: `chooseCalendar(clinicId, calendarId)`, which
+   the portal's picker and the link page both call.
+7. **A covered clinic's picker (C8, with the funnel).** Settled (§4): a covered location's calendar
+   list is asked for its own organisation's calendars only, so the picker and setup step 3.2 offer
+   nothing else.
+8. **Who acted (C8, with the funnel).** C8's functions take an optional `{ actor, request }`, and
+   `startGoogleConnect` an optional `userId` (without one it asks `requirePortal`); the state row
+   carries the user to the callback, which acts as them. The funnel is to pass its portal user.
 9. **Google's 100-user cap (C8, with the funnel).** The funnel's /admin is to show the count from
    the calendar backend. No planned commit records it, and destroying a clinic's data deletes the
    connection rows it could be counted from.

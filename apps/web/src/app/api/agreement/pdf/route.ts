@@ -9,7 +9,9 @@ import {
 import { rateLimit } from "@/lib/rate-limit";
 
 /**
- * GET /api/agreement/pdf?id=<agreementId>, the executed BAA, as a file.
+ * GET /api/agreement/pdf?id=<agreementId>, the executed agreement, as a file:
+ * the business associate agreement, or the Data Protection Agreement a
+ * practice HIPAA does not reach signs instead.
  *
  * ## This is a security boundary, and the id is not the credential
  *
@@ -132,8 +134,13 @@ const MAX_PDF_BYTES = 20 * 1024 * 1024;
 /** "%PDF-". Compared as bytes so no decoder has to be trusted with them. */
 const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46, 0x2d];
 
-/** Used when upstream sends no usable filename. Names the document, nothing else. */
-const FALLBACK_FILENAME = "healdesk-baa.pdf";
+/**
+ * Used when upstream sends no usable filename. Names the document, nothing
+ * else, and not its kind: this route knows only the id, and the agreement may
+ * be a business associate agreement or a Data Protection Agreement, whose own
+ * names apps/app's renderer gives (`healdesk-baa-…`, `healdesk-dpa-…`).
+ */
+const FALLBACK_FILENAME = "healdesk-agreement.pdf";
 
 /**
  * One sentence the checkout can show, and never anything from upstream.

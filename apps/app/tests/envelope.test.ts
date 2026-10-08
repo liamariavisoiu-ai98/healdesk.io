@@ -8,25 +8,30 @@ import {
   getKeyWrapper,
   __setKeyWrapperForTests,
   type KeyWrapper,
+  type LockLabel,
 } from "@/lib/crypto/kms";
 
 const clinicA = randomUUID();
 const clinicB = randomUUID();
 const credential = randomUUID();
 
+/**
+ * One lock label for every test here, so each one varies only the AAD it is
+ * about. What a different label does is tests/lock-labels.test.ts's subject.
+ */
+const label: LockLabel = { clinic: "7", login: "google_calendar" };
+
 describe("envelope encryption", () => {
   test("round-trips a credential", async () => {
-    const sealed = await seal("sk_live_secret", {
-      clinicId: clinicA,
-      credentialId: credential,
-    });
+    const sealed = await seal(
+      "sk_live_secret",
+      { clinicId: clinicA, credentialId: credential },
+      label,
+    );
 
     expect(sealed.ciphertext).not.toContain("sk_live_secret");
 
-    const opened = await open(sealed, {
-      clinicId: clinicA,
-      credentialId: credential,
-    });
+    const opened = await open(sealed, { clinicId: clinicA, credentialId: credential }, label);
     expect(opened).toBe("sk_live_secret");
   });
 
@@ -34,32 +39,35 @@ describe("envelope encryption", () => {
     // The attack the AAD exists to stop: copy clinic A's encrypted row into
     // clinic B's. Every field needed to decrypt travels with the row, so
     // without AAD binding this would succeed.
-    const sealed = await seal("sk_live_secret", {
-      clinicId: clinicA,
-      credentialId: credential,
-    });
+    const sealed = await seal(
+      "sk_live_secret",
+      { clinicId: clinicA, credentialId: credential },
+      label,
+    );
 
     await expect(
-      open(sealed, { clinicId: clinicB, credentialId: credential }),
+      open(sealed, { clinicId: clinicB, credentialId: credential }, label),
     ).rejects.toThrow(/authentication tag mismatch/);
   });
 
   test("REFUSES a ciphertext moved to another credential row", async () => {
-    const sealed = await seal("sk_live_secret", {
-      clinicId: clinicA,
-      credentialId: credential,
-    });
+    const sealed = await seal(
+      "sk_live_secret",
+      { clinicId: clinicA, credentialId: credential },
+      label,
+    );
 
     await expect(
-      open(sealed, { clinicId: clinicA, credentialId: randomUUID() }),
+      open(sealed, { clinicId: clinicA, credentialId: randomUUID() }, label),
     ).rejects.toThrow(/authentication tag mismatch/);
   });
 
   test("REFUSES tampered ciphertext", async () => {
-    const sealed = await seal("sk_live_secret", {
-      clinicId: clinicA,
-      credentialId: credential,
-    });
+    const sealed = await seal(
+      "sk_live_secret",
+      { clinicId: clinicA, credentialId: credential },
+      label,
+    );
 
     const raw = Buffer.from(sealed.ciphertext, "base64url");
     raw[0] = raw[0]! ^ 0xff;
@@ -68,14 +76,15 @@ describe("envelope encryption", () => {
       open(
         { ...sealed, ciphertext: raw.toString("base64url") },
         { clinicId: clinicA, credentialId: credential },
+        label,
       ),
     ).rejects.toThrow(/authentication tag mismatch/);
   });
 
   test("each seal uses a distinct data key and IV", async () => {
     const identity = { clinicId: clinicA, credentialId: credential };
-    const one = await seal("same-plaintext", identity);
-    const two = await seal("same-plaintext", identity);
+    const one = await seal("same-plaintext", identity, label);
+    const two = await seal("same-plaintext", identity, label);
 
     expect(one.ciphertext).not.toBe(two.ciphertext);
     expect(one.iv).not.toBe(two.iv);
@@ -84,7 +93,7 @@ describe("envelope encryption", () => {
 
   test("rewrap moves a payload to the new key and preserves the plaintext", async () => {
     const identity = { clinicId: clinicA, credentialId: credential };
-    const sealed = await seal("sk_live_secret", identity);
+    const sealed = await seal("sk_live_secret", identity, label);
 
     /**
      * A wrapper that unwraps under the OLD key and wraps under the new one.
@@ -103,22 +112,25 @@ describe("envelope encryption", () => {
         private readonly previous: KeyWrapper,
       ) {}
 
-      generateDek() {
-        return this.next.generateDek();
+      generateDek(lockLabel: LockLabel) {
+        return this.next.generateDek(lockLabel);
       }
 
-      async wrapExisting(dek: Buffer) {
-        const wrapped = await this.next.wrapExisting(dek);
+      async wrapExisting(dek: Buffer, lockLabel: LockLabel) {
+        const wrapped = await this.next.wrapExisting(dek, lockLabel);
         return { ...wrapped, keyVersion: this.keyVersion };
       }
 
-      async unwrapDek(wrapped: { wrapped: string; keyVersion: string }) {
+      async unwrapDek(
+        wrapped: { wrapped: string; keyVersion: string },
+        lockLabel: LockLabel | null,
+      ) {
         // New key first, then the old one — the order a partially migrated
         // estate needs, where both generations exist at once.
         try {
-          return await this.next.unwrapDek(wrapped);
+          return await this.next.unwrapDek(wrapped, lockLabel);
         } catch {
-          return this.previous.unwrapDek(wrapped);
+          return this.previous.unwrapDek(wrapped, lockLabel);
         }
       }
     }
@@ -136,7 +148,7 @@ describe("envelope encryption", () => {
       // and the ciphertext stayed on the old key while reporting success.
       expect(rotating.keyVersion).not.toBe(sealed.keyVersion);
 
-      const migrated = await rewrap(sealed);
+      const migrated = await rewrap(sealed, label);
 
       expect(migrated.keyVersion).toBe(rotating.keyVersion);
       expect(migrated.wrappedDek).not.toBe(sealed.wrappedDek);
@@ -145,10 +157,10 @@ describe("envelope encryption", () => {
       // encryption exists at all.
       expect(migrated.ciphertext).toBe(sealed.ciphertext);
 
-      expect(await open(migrated, identity)).toBe("sk_live_secret");
+      expect(await open(migrated, identity, label)).toBe("sk_live_secret");
 
       // And it is a no-op once already on the current key.
-      expect(await rewrap(migrated)).toBe(migrated);
+      expect(await rewrap(migrated, label)).toBe(migrated);
     } finally {
       __setKeyWrapperForTests(undefined);
     }

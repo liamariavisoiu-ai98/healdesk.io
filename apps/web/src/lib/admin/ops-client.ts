@@ -1821,12 +1821,52 @@ export type OnboardingStepView = {
 
 export type AgentService = {
   name: string;
+  /** Dollars, to the cent. */
   priceFromUsd: number | null;
   priceToUsd: number | null;
   durationMinutes: number | null;
+  /**
+   * What the clinic's setup and Knowledge add to a service: how the price is
+   * stated, a per-unit price's unit and the deposit. The console shows them
+   * and sends them back as it got them; it does not edit them. apps/app also
+   * keeps the stored ones for a service sent without them.
+   */
+  priceKind?: ServicePriceKind | null;
+  unit?: string | null;
   /** The service's own deposit in dollars; null or absent means the clinic default. */
   depositUsd?: number | null;
 };
+
+export type ServicePriceKind = "exact" | "from" | "range" | "per_unit";
+const SERVICE_PRICE_KINDS: readonly ServicePriceKind[] = ["exact", "from", "range", "per_unit"];
+
+/**
+ * One service from getOnboarding, keeping what the clinic set beyond the
+ * console's four fields. Dropping them here used to send every service back
+ * without its kind, unit and deposit, and a greeting edit erased them.
+ */
+export function readAgentService(entry: unknown): AgentService {
+  const row = object(entry, "service");
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const service: AgentService = {
+    name: text(row.name, "service.name"),
+    priceFromUsd: num(row.priceFromUsd),
+    priceToUsd: num(row.priceToUsd),
+    durationMinutes: num(row.durationMinutes),
+  };
+  // Kept only when present and well formed, so what the console sends back
+  // is what it was given, and a key it never had stays absent for apps/app
+  // to fill from the stored service.
+  if (row.priceKind === null || SERVICE_PRICE_KINDS.includes(row.priceKind as ServicePriceKind)) {
+    service.priceKind = row.priceKind as ServicePriceKind | null;
+  }
+  if (row.unit === null) service.unit = null;
+  else if (typeof row.unit === "string") service.unit = text(row.unit, "service.unit");
+  if (row.depositUsd === null || num(row.depositUsd) !== null) {
+    service.depositUsd = num(row.depositUsd);
+  }
+  return service;
+}
 
 export type OnboardingView = {
   clinic: {
@@ -2017,19 +2057,10 @@ function readOnboardingView(value: unknown): OnboardingView {
       ? {
           version: count(agent.version, "agent.version"),
           greeting: editable(agent.greeting, "agent.greeting", MAX_GREETING),
-          services: list(agent.services, "agent.services").map((entry) => {
-            const row = object(entry, "service");
-            const num = (v: unknown) => (typeof v === "number" ? v : null);
-            return {
-              name: text(row.name, "service.name"),
-              priceFromUsd: num(row.priceFromUsd),
-              priceToUsd: num(row.priceToUsd),
-              durationMinutes: num(row.durationMinutes),
-              // Read back so a save of the script carries it, rather than
-              // wiping every service's own deposit.
-              depositUsd: num(row.depositUsd),
-            };
-          }),
+          // Read back with what the clinic set beyond the console's four
+          // fields, its deposit included, so a save of the script carries
+          // them rather than wiping them (readAgentService).
+          services: list(agent.services, "agent.services").map(readAgentService),
           escalationPhone: optionalString(agent.escalationPhone),
           escalationHours: optionalString(agent.escalationHours),
           notes: optionalString(agent.notes),

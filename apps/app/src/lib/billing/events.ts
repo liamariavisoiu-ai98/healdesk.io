@@ -1753,12 +1753,14 @@ async function onSubscriptionDeleted(tx: TenantTx, delivery: Delivery): Promise<
 
   const comment = asString(prop(prop(subscription, "cancellation_details"), "comment"));
   if (comment === SETUP_CLOSURE_COMMENT) {
-    await startOffboarding(tx, "setup_closure", delivery.now);
+    // Stamped by the database (app_start_offboarding), never from the event.
+    await startOffboarding(tx, "setup_closure");
     return;
   }
 
-  // The customer left: start the return-or-destroy clock (lib/offboarding).
-  await startOffboarding(tx, delivery.type, delivery.now);
+  // The customer left: start the return-or-destroy clock (lib/offboarding),
+  // stamped by the database when this is processed.
+  await startOffboarding(tx, delivery.type);
   // A clinic already destroyed has nobody left to tell.
   if (row.status === "purged") return;
   const subscriptionId = asString(prop(subscription, "id")) ?? delivery.ids.subscriptionId;
@@ -2220,12 +2222,12 @@ function invoicePeriod(invoice: unknown): { start: Date; end: Date } {
  * The package a subscription is on: the first item whose price is ours and
  * not metered, with its quantity (the locations). The metered overage items
  * are skipped here, but they DO depend on the package since 5 October 2026
- * (the chat rate is $0.40 on chat-web and chat-meta and $0.30 elsewhere;
- * packages/catalog `planMeteredPrices`), so a plan change must also swap them
- * — reading the package from the licensed item alone says nothing about
- * whether the metered items still match it. The $0 placeholder's key does not
- * parse as a package price, so before the plan starts there is no package
- * item and nothing here moves.
+ * (a started block of 100 chat conversations is $40 on chat-web and chat-meta
+ * and $30 elsewhere; packages/catalog `planMeteredPrices`), so a plan change
+ * must also swap them — reading the package from the licensed item alone says
+ * nothing about whether the metered items still match it. The $0
+ * placeholder's key does not parse as a package price, so before the plan
+ * starts there is no package item and nothing here moves.
  */
 function packageItemOf(
   subscription: unknown,

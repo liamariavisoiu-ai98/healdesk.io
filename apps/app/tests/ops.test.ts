@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vite
 
 import { AwsKmsKeyWrapper, __setKeyWrapperForTests } from "@/lib/crypto/kms";
 import {
-  agreementCarriesCalendarWrite,
+  agreementCarriesVendorCalendarWrite,
   isIanaTimeZone,
   isMutating,
   isOpName,
@@ -19,7 +19,7 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import { inTenant, seedClinic } from "./setup/factories";
+import { inTenant, seedClinic, seedDemoClinic, seedGoogleConnection } from "./setup/factories";
 import { fakeKms, restoreKeyEnvironment, setKeyEnvironment, TEST_KEY_ARN } from "./setup/kms";
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
@@ -445,9 +445,9 @@ describeDb("ops: booking hand-off and direct booking", () => {
     }
   });
 
-  test("agreementCarriesCalendarWrite reads the bound, in-effect agreement's own clauses", async () => {
+  test("agreementCarriesVendorCalendarWrite reads the bound, in-effect agreement's own clauses", async () => {
     const { organizationId } = await seedClinic("ops-calendar-clause");
-    expect(await agreementCarriesCalendarWrite(organizationId)).toBe(false);
+    expect(await agreementCarriesVendorCalendarWrite(organizationId)).toBe(false);
 
     // A bound 1.0.0 agreement: no calendar-write clause was in that document.
     await getMigratorPool().query(
@@ -455,7 +455,7 @@ describeDb("ops: booking hand-off and direct booking", () => {
        values ($1, '1.0.0', repeat('a', 64), 'BAA', '{"appliedClauses":["parties","safeguards"],"calendarWrite":null}'::jsonb, 'I agree', 'Alex', 'alex@clause.test', now() - interval '2 days', now() - interval '2 days')`,
       [organizationId],
     );
-    expect(await agreementCarriesCalendarWrite(organizationId)).toBe(false);
+    expect(await agreementCarriesVendorCalendarWrite(organizationId)).toBe(false);
 
     // A later bound agreement whose rendered document carried the clause.
     await getMigratorPool().query(
@@ -463,11 +463,56 @@ describeDb("ops: booking hand-off and direct booking", () => {
        values ($1, '1.1.0-draft', repeat('b', 64), 'BAA', '{"appliedClauses":["parties","calendar-write"],"calendarWrite":{"platform":"Cal.com"}}'::jsonb, 'I agree', 'Alex', 'alex@clause.test', now(), now())`,
       [organizationId],
     );
-    expect(await agreementCarriesCalendarWrite(organizationId)).toBe(true);
+    expect(await agreementCarriesVendorCalendarWrite(organizationId)).toBe(true);
 
     // Terminated: counts for nothing again.
     await getMigratorPool().query(`update baa_acceptances set terminated_at = now() where organization_id = $1 and document_version = '1.1.0-draft'`, [organizationId]);
-    expect(await agreementCarriesCalendarWrite(organizationId)).toBe(false);
+    expect(await agreementCarriesVendorCalendarWrite(organizationId)).toBe(false);
+  });
+
+  test("the Google Calendar clauses and a data protection agreement never carry the vendor write", async () => {
+    // Each its own organisation, so each acceptance is the agreement in effect.
+    let n = 0;
+    const signed = async (version: string, variables: Record<string, unknown>) => {
+      const { organizationId } = await seedClinic(`ops-vendor-write-${(n += 1)}`);
+      await getMigratorPool().query(
+        `insert into baa_acceptances (organization_id, document_version, document_hash, rendered_text, variables, assent_label, accepted_by_name, accepted_by_email, accepted_at, bound_at)
+         values ($1, $2, repeat('c', 64), 'AGREEMENT', $3::jsonb, 'I agree', 'Alex', 'alex@vendor-write.test', now(), now())`,
+        [organizationId, version, JSON.stringify(variables)],
+      );
+      return agreementCarriesVendorCalendarWrite(organizationId);
+    };
+    // 1.2.x's unconditional Google clause.
+    expect(
+      await signed("1.2.1", {
+        appliedClauses: ["parties", "google-calendar"],
+        calendarWrite: null,
+      }),
+    ).toBe(false);
+    // 1.3.0's three calendar clauses.
+    for (const clause of [
+      "google-calendar-covered",
+      "google-calendar-uncovered",
+      "google-calendar-not-used",
+    ]) {
+      expect(
+        await signed("1.3.0", { appliedClauses: ["parties", clause], calendarWrite: null }),
+        clause,
+      ).toBe(false);
+    }
+    // A recorded clause list without the vendor clause is the answer, whatever else the row says.
+    expect(
+      await signed("1.1.0-draft", {
+        appliedClauses: ["parties"],
+        calendarWrite: { platform: "Cal.com" },
+      }),
+    ).toBe(false);
+    // Only a BAA counts: a DPA is never read for the vendor write.
+    expect(await signed("dpa/1.0.0", { appliedClauses: ["parties", "calendar-write"] })).toBe(
+      false,
+    );
+    // A row from before the clause list was recorded falls back to the 1.1.0 draft's selection.
+    expect(await signed("1.1.0-draft", { calendarWrite: { platform: "Cal.com" } })).toBe(true);
   });
 
   test("setBookingMode direct refuses listing the missing gates; desk_confirms stamps the withdrawal", async () => {
@@ -514,4 +559,98 @@ describeDb("ops: booking hand-off and direct booking", () => {
     const events = await getMigratorPool().query(`select count(*)::int as n from security_events where event = 'setup_link_issued'`);
     expect(events.rows[0].n).toBeGreaterThanOrEqual(1);
   });
+});
+
+describeDb("ops: the Google Calendar connection and the demo clinic", () => {
+  beforeAll(async () => {
+    await runMigrations();
+    await truncateAll();
+  }, 60_000);
+
+  afterAll(async () => {
+    await closePools();
+  });
+
+  const SLOW = 60_000;
+
+  test(
+    "setConnectionPhiBasis refuses a Google Calendar connection, whose basis is the location's calendar terms",
+    async () => {
+      const { clinicId } = await seedClinic("ops-google-basis");
+      const { connectionId } = await seedGoogleConnection(clinicId);
+      const refused = await run("setConnectionPhiBasis", {
+        clinicId,
+        connectionId,
+        basis: "practice_account",
+      });
+      expect(refused).toMatchObject({
+        status: "error",
+        message: expect.stringMatching(/calendar terms/),
+      });
+      const row = await inTenant(
+        clinicId,
+        async (client) =>
+          (
+            await client.query<{ phi_basis: string | null }>(
+              `select phi_basis from provider_connections where id = $1`,
+              [connectionId],
+            )
+          ).rows[0]!,
+      );
+      expect(row.phi_basis).toBeNull();
+      const events = await getMigratorPool().query(
+        `select count(*)::int as n from security_events where event = 'connection_phi_basis_set' and metadata ->> 'provider' = 'google_calendar'`,
+      );
+      expect(events.rows[0].n).toBe(0);
+    },
+    SLOW,
+  );
+
+  test(
+    "a Google Calendar connection is never the legacy write path's, nor offered a basis, even with one forced onto the row",
+    async () => {
+      const { clinicId } = await seedClinic("ops-google-writable");
+      const { connectionId } = await seedGoogleConnection(clinicId);
+      // Only the migrator could do this; the legacy path must still not take it.
+      await inTenant(clinicId, (client) =>
+        client.query(
+          `update provider_connections set phi_basis = 'practice_account' where id = $1`,
+          [connectionId],
+        ),
+      );
+      const view = await run("getOnboarding", { clinicId });
+      expect(view.calendarConnection).toBeNull();
+      const direct = view.directBooking as { gates: { id: string; ok: boolean }[] };
+      expect(direct.gates.find((g) => g.id === "calendar")).toEqual({ id: "calendar", ok: false });
+      const { writableConnection } = await import("@/lib/booking/calendar");
+      const { withTenant } = await import("@/lib/tenant");
+      expect(
+        await withTenant({ clinicId, actor: { type: "service", serviceName: "test" } }, (tx) =>
+          writableConnection(tx),
+        ),
+      ).toBeNull();
+    },
+    SLOW,
+  );
+
+  test(
+    "goLive refuses a demo clinic, which stays synthetic, and goes on to judge any other",
+    async () => {
+      const demo = await seedDemoClinic("ops-golive-demo");
+      const refused = await run("goLive", { clinicId: demo.clinicId });
+      expect(refused).toMatchObject({
+        status: "refused",
+        message: expect.stringMatching(/demo clinic/),
+      });
+      const after = (await listClinics()).find((c) => c.id === demo.clinicId)!;
+      expect(after.dataClassification).toBe("synthetic");
+      expect(after.wentLiveAt).toBeNull();
+
+      // A clinic that is not a demo clinic is judged as before: here, not ready.
+      const { clinicId } = await seedClinic("ops-golive-real");
+      const judged = await run("goLive", { clinicId });
+      expect(judged).toMatchObject({ status: "refused", message: "Not ready." });
+    },
+    SLOW,
+  );
 });

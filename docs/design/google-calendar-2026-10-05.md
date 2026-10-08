@@ -22,9 +22,9 @@ the code on 7 October 2026. The plan's commit names, C0 to C20, are kept.
 | C3      | Signing takes the two calendar answers (§3)                                                        | Built (ad02b30)                                |
 | C4, C16 | Checkout's manual-booking notice and its Google-account question                                   | Dropped (§7)                                   |
 | C5      | This record                                                                                        | This file                                      |
-| C6      | Migration A: elections, OAuth states, slot holds, Auto-confirm, `clinics.client_number`, providers | To build; the funnel renumbers its M3 after it |
-| C6b     | The KMS lock labels (§5)                                                                           | To build                                       |
-| C7      | The agreement and calendar terms in effect, elections, the demo clinic                             | To build                                       |
+| C6      | Migration A: elections, OAuth states, slot holds, Auto-confirm, `clinics.client_number`, providers | Built (3cca422); the funnel's M3 goes after it |
+| C6b     | The KMS lock labels (§5)                                                                           | Built                                          |
+| C7      | The agreement and calendar terms in effect, elections, the demo clinic                             | Built                                          |
 | C8      | Connecting, choosing calendars, disconnecting, revoking (§2, §4)                                   | To build                                       |
 | C9      | Booking mode and Auto-confirm (§2)                                                                 | To build                                       |
 | C10     | The five-minute calendar watch                                                                     | To build; ships switched off                   |
@@ -278,38 +278,112 @@ connects within 2 s, gives each request 5 s with `throwOnRequestTimeout` and tri
 worker start and behind the read-only ops operation `getCredentialKeyStatus`, which no /admin card
 shows yet.
 
-**Lock labels** (owner, 5 October; C6b, to build):
+**Lock labels** (owner, 5 October; built in C6b):
 
 - Migration A adds `clinics.client_number`: unique, numbered in creation order and then from a
-  sequence, so a customer's second location takes the next number. A trigger refuses any change for
-  every role (42501), and `healdesk_app` has no UPDATE grant on it. Migration A makes
-  `provider_connections.provider` unchangeable the same way, asserted in the database audit:
-  `healdesk_app` holds 0003's table-level UPDATE on that table and no trigger guards the column,
-  and a changed provider would leave every envelope sealed under the old label unopenable.
+  sequence, so a customer's second location takes the next number. The trigger
+  `clinics_client_number_fixed` refuses any change for every role (42501), and `healdesk_app` has no
+  UPDATE grant on the column. `healdesk_app` keeps 0003's table-level UPDATE on
+  `provider_connections`, so there the guard is the trigger `provider_connections_identity_fixed`
+  (migration A), which refuses any change of `id`, `clinic_id` or `provider` for every role (42501):
+  a changed provider would leave every envelope sealed under the old label unopenable. The database
+  audit asserts both (`apps/app/tests/database-audit.test.ts`).
 - The AWS KMS wrapper sends
   `EncryptionContext: { "healdesk:clinic": "<clinic label>", "healdesk:login": "<kind>" }` on
-  GenerateDataKey, Decrypt and Encrypt (the rewrap). Every caller of `seal()` and `open()` in
-  `lib/crypto/envelope.ts`, four today, gets a label, taken at open time from values that cannot
-  change:
+  GenerateDataKey, Decrypt and Encrypt (the rewrap). `seal()`, `open()` and `rewrap()` in
+  `lib/crypto/envelope.ts` each take the label as an argument, and all four callers pass one,
+  derived from values that cannot change, when sealing and again at every open; the envelope never
+  stores it, since a label that travelled with a row would travel with a copied row too. The fixed
+  labels are `FIXED_LOCK_LABELS` in `lib/crypto/kms.ts`, and `healdesk:clinic` takes nothing but a
+  client number or one of the two planes those labels use, `ops` and `users`:
 
-| Sealer                                                                         | `healdesk:clinic`                       | `healdesk:login`                                   |
-| ------------------------------------------------------------------------------ | --------------------------------------- | -------------------------------------------------- |
-| A `provider_connections` row (`lib/connections/store.ts`)                      | The clinic's `client_number`            | The row's `provider`: `google_calendar`, `meta`, … |
-| The operator's TOTP secret (`lib/ops/admin-totp.ts`)                           | `ops`                                   | `admin-code`                                       |
-| A portal user's authenticator-app secret (`lib/factors/totp.ts`, the funnel's) | Fixed, for example `users` (§9, item 3) | For example `user-totp`                            |
-| The key self-check, `selfCheckCredentialKey()`                                 | `ops`                                   | `self-check`                                       |
+| Sealer                                                                         | `healdesk:clinic`                            | `healdesk:login`                                            |
+| ------------------------------------------------------------------------------ | -------------------------------------------- | ----------------------------------------------------------- |
+| A `provider_connections` row (`lib/connections/store.ts`)                      | The clinic's `client_number`, read each time | The row's `provider`: `google_calendar`, `meta-whatsapp`, … |
+| The operator's TOTP secret (`lib/ops/admin-totp.ts`)                           | `ops`                                        | `admin-code`                                                |
+| A portal user's authenticator-app secret (`lib/factors/totp.ts`, the funnel's) | `users` (§9, item 3)                         | `user-totp`                                                 |
+| The key self-check, `selfCheckCredentialKey()`                                 | `ops`                                        | `self-check`                                                |
 
 - A labelled envelope carries `aad_version = 2`, and only such an envelope is opened with a
-  context. A version-1 envelope opens without one: always under `LocalKeyWrapper`, and on AWS only
-  until the condition below is applied. `LocalKeyWrapper` binds the label into its AES-GCM AAD, so
-  tests catch a mismatch, and C6b tests that the AWS wrapper refuses to seal or open without both
-  keys, so that a sealer added later without a label fails a test rather than production.
-- For the AWS build, the task role's KMS permission requires both keys to be present: a `Null`
-  condition of `"false"` on `kms:EncryptionContext:healdesk:clinic` and on
-  `kms:EncryptionContext:healdesk:login`. Not `ForAllValues` on `kms:EncryptionContextKeys`, which
-  also holds for a request with no context at all. The condition goes on only once every sealer
-  above sends both keys: before that, KMS would refuse the authenticator-app backup that lets a
-  clinic user's new device add its passkey, and the self-check would report `denied` for good.
+  context. The version is inside the AAD, so editing it cannot skip the label: a version-2 envelope
+  marked 1 asks KMS without the context and is refused. `open()` and `rewrap()` read the version
+  once and refuse a missing one, or any value but 1 or 2, before the key is asked anything, so
+  whether the label is used and which AAD the payload carries are decided from the same number. A
+  version-1 envelope opens without a context: always under `LocalKeyWrapper`, and on AWS only until
+  the infra rule below is applied. Its label is still checked for shape, but a whole label of the
+  wrong clinic or login goes unnoticed there, since a version-1 envelope relies on its AAD alone.
+  `rewrap()` keeps the label, and refuses a version-1 envelope rather than wrap its key again
+  without one. `LocalKeyWrapper` binds the label into its AES-GCM AAD, so tests catch a mismatch.
+  Both wrappers refuse to wrap a data key without both keys, or to unwrap one under a label missing
+  either; only an explicit `null`, which `open()` passes for a version-1 envelope alone, unwraps
+  without a label. So a sealer added later without a label fails a test rather than production
+  (`apps/app/tests/lock-labels.test.ts`, and each sealer's own suite).
+- **Infra rule, for the AWS build.** The task role's KMS permission on the one key is two
+  statements in its IAM policy, and the key policy gives the task role nothing of its own.
+
+  1. The application's own calls: `kms:GenerateDataKey`, `kms:Decrypt` and `kms:Encrypt`, only when
+     no AWS service is making the call and the encryption context carries both lock-label keys and
+     no other:
+
+     ```json
+     {
+       "Effect": "Allow",
+       "Action": ["kms:GenerateDataKey", "kms:Decrypt", "kms:Encrypt"],
+       "Resource": "arn:aws:kms:us-east-1:<account>:key/<key id>",
+       "Condition": {
+         "Null": {
+           "kms:EncryptionContext:healdesk:clinic": "false",
+           "kms:EncryptionContext:healdesk:login": "false",
+           "kms:ViaService": "true"
+         },
+         "ForAllValues:StringEquals": {
+           "kms:EncryptionContextKeys": ["healdesk:clinic", "healdesk:login"]
+         }
+       }
+     }
+     ```
+
+     The two `Null` `"false"` conditions are what require the label. `ForAllValues` on
+     `kms:EncryptionContextKeys` alone also holds for a request with no context at all (IAM
+     documents this of `ForAllValues`), so it only adds that no other key is sent. `Null` `"true"`
+     on `kms:ViaService` keeps the statement to calls the application makes itself.
+
+  2. S3's calls for the transcript bucket. The bucket is SSE-KMS under the same key
+     (`docs/policies/aws-hipaa-account.md`), and S3 asks KMS with the task role's own permissions
+     (GenerateDataKey for an upload, Decrypt for a download) and the context
+     `{ "aws:s3:arn": … }`, which carries neither label key and another key besides. The first
+     statement refuses that, so without this one every transcript upload and download fails:
+
+     ```json
+     {
+       "Effect": "Allow",
+       "Action": ["kms:GenerateDataKey", "kms:Decrypt"],
+       "Resource": "arn:aws:kms:us-east-1:<account>:key/<key id>",
+       "Condition": {
+         "StringEquals": { "kms:ViaService": "s3.us-east-1.amazonaws.com" },
+         "StringLike": { "kms:EncryptionContext:aws:s3:arn": "arn:aws:s3:::<transcript bucket>/*" }
+       }
+     }
+     ```
+
+     With S3 Bucket Keys on, S3 sends the bucket's ARN rather than the object's, and the condition
+     names `arn:aws:s3:::<transcript bucket>` instead. No call the application makes itself
+     carries `kms:ViaService`, so this statement serves none of them: every direct call still needs
+     the label.
+
+  The key policy delegates to IAM through the account's own statement
+  (`"Principal": { "AWS": "arn:aws:iam::<account>:root" }`) and names the task role in no
+  statement of its own. KMS allows a call that either the key policy or an IAM policy allows, so a
+  key-policy statement naming the role without these conditions, such as the console's default "key
+  users" statement, would let every call through and leave both statements moot; any that has to
+  name the role carries the same conditions. The rule binds the task role only: RDS, CloudTrail and
+  CloudWatch Logs use the key under their own principals (the grant RDS creates with the instance,
+  and the service principals in the key policy), so it does not touch them.
+
+  Since C6b every sealer above sends both keys, so the rule can go on with the role itself; until it
+  does, KMS would serve a call without them. Once it is on, KMS also refuses the unlabelled Decrypt
+  a version-1 envelope needs, so any such envelope on AWS is to be sealed again first. If the owner
+  wants no S3 exception at all, S3 needs a key of its own, which reopens "one key for everything".
 
 ## 6. Seams with the Stripe packages and the runtime
 
@@ -484,8 +558,11 @@ stood on 6 and 7 October. Each is to be settled with the other session before th
    calendar terms is to be settled before migration A.
 3. **The portal user's lock label (C6b, with the funnel).** The funnel's `lib/factors/totp.ts`
    seals each clinic user's authenticator-app secret through the same envelope, keyed by the user,
-   so it has no `client_number`. Its fixed label (§5), and who changes its two calls, are to be
-   agreed.
+   so it has no `client_number`. C6b changed its two calls, since `seal()` and `open()` now require
+   a label, and gave them the fixed label `users` / `user-totp` (§5). The funnel is to confirm it
+   before any sign-in enrols in production: a secret sealed under one label does not open under
+   another, and the application cannot re-seal a secret, so a later change means every sign-in
+   enrols again.
 4. **Staff confirmations with named providers (C6 and C12, with the funnel).** The overlap guard
    keys on the clinic and the calendar, but a staff-confirmed appointment records no calendar. With
    named providers it needs one, the provider's, for the guard to key on; which calendar a

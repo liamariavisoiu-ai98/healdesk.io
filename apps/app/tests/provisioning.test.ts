@@ -546,6 +546,80 @@ describeDb("provisioning", () => {
     expect(row.channels_enabled).toEqual({ web: true, meta: false, voice: false });
   });
 
+  test("the demo option is provisioning's own: a request carrying it provisions a customer like any other", async () => {
+    // /api/provision builds the options itself and never from the body, so a
+    // body claiming the marker is just a body. validateProvisionRequest lets
+    // it through untouched, and nothing reads it.
+    const smuggled = {
+      ...validRequest({
+        clinicName: "Smuggled Demo",
+        contactEmail: "smuggled@example.test",
+        agreementId: await signFor("Smuggled Demo", "smuggled@example.test"),
+      }),
+      demo: true,
+    } as ProvisionRequest;
+    expect(() => validateProvisionRequest(smuggled)).not.toThrow();
+    const result = await provisionClinic(smuggled);
+    const row = await readEntitlements(result.clinicId);
+    expect(row.status).toBe("active");
+    expect(await isDemo(result.clinicId)).toBe(false);
+  });
+
+  test("with the internal option, a demo clinic: status demo, no Stripe ids, no setup window, synthetic", async () => {
+    const result = await provisionClinic(
+      validRequest({
+        clinicName: "Demo Practice",
+        contactEmail: "demo-ops@example.test",
+        agreementId: await signFor("Demo Practice", "demo-ops@example.test"),
+        plan: "complete",
+      }),
+      {},
+      { demo: true },
+    );
+    const row = await readEntitlements(result.clinicId);
+    expect(row.status).toBe("demo");
+    expect(row.stripe_customer_id).toBeNull();
+    expect(row.stripe_subscription_id).toBeNull();
+    expect(await isDemo(result.clinicId)).toBe(true);
+    const deadline = await inClinicTenant(result.clinicId, (client) =>
+      client.query<{ setup_deadline_at: Date | null; reason: string }>(
+        `select e.setup_deadline_at, t.reason
+           from entitlements e join billing_transitions t on t.clinic_id = e.clinic_id
+          where e.clinic_id = $1`,
+        [result.clinicId],
+      ),
+    );
+    expect(deadline.rows).toEqual([{ setup_deadline_at: null, reason: "provisioned_demo" }]);
+    // Its one sign-in is the operator's, as owner.
+    expect(result.ownerUserId).toBeTruthy();
+
+    // Never a purchase: refused with a Stripe id or a checkout intent.
+    await expect(
+      provisionClinic(
+        validRequest({
+          clinicName: "Demo With Stripe",
+          contactEmail: "demo-stripe@example.test",
+          agreementId: await signFor("Demo With Stripe", "demo-stripe@example.test"),
+          stripeCustomerId: "cus_demo_refused",
+          stripeSubscriptionId: "sub_demo_refused",
+        }),
+        {},
+        { demo: true },
+      ),
+    ).rejects.toThrow(/not a purchase/);
+    await expect(
+      provisionClinic(
+        validRequest({
+          clinicName: "Demo With Intent",
+          contactEmail: "demo-intent@example.test",
+          agreementId: await signFor("Demo With Intent", "demo-intent@example.test"),
+        }),
+        {},
+        { demo: true, intentRef: "intent_demo_refused" },
+      ),
+    ).rejects.toThrow(/not a purchase/);
+  });
+
   test("two clinics cannot be provisioned onto one Stripe subscription", async () => {
     await expect(
       provisionClinic(
@@ -584,6 +658,34 @@ async function readEntitlements(clinicId: string): Promise<{
     await client.query("rollback");
     expect(rows).toHaveLength(1);
     return rows[0];
+  } finally {
+    client.release();
+  }
+}
+
+/** app_clinic_is_demo(), asked inside the clinic's tenant. */
+async function isDemo(clinicId: string): Promise<boolean> {
+  const result = await inClinicTenant(clinicId, (client) =>
+    client.query<{ demo: boolean }>(`select app_clinic_is_demo($1) as demo`, [clinicId]),
+  );
+  return result.rows[0]!.demo;
+}
+
+/** One migrator transaction with the clinic's tenant declared. */
+async function inClinicTenant<T>(
+  clinicId: string,
+  fn: (client: import("pg").PoolClient) => Promise<T>,
+): Promise<T> {
+  const client = await getMigratorPool().connect();
+  try {
+    await client.query("begin");
+    await client.query(`select set_config('app.clinic_id', $1, true)`, [clinicId]);
+    const result = await fn(client);
+    await client.query("commit");
+    return result;
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
   } finally {
     client.release();
   }

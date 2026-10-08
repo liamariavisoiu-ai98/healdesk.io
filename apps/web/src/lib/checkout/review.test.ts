@@ -77,15 +77,29 @@ describe("each month", () => {
     );
   });
 
-  test("the overage is the package's own rate, and said to be provisional", () => {
+  test("the overage is the package's own price per started block of 100, and said to be provisional", () => {
     if (OVERAGE_RATES_PROVISIONAL) return;
-    expect(overageSentence(plan("chat-web"), "month")).toMatch(
-      /^Past that: \$0\.40 a chat conversation, on your next invoice\./,
+    expect(overageSentence(plan("chat-web"), "month")).toBe(
+      "Past that: $40 for each started block of 100 extra chat conversations, on your next invoice. " +
+        "These rates are provisional until we have measured what a minute and a conversation cost to serve.",
+    );
+    expect(overageSentence(plan("voice"), "month")).toMatch(
+      /^Past that: \$80 for each started block of 100 extra voice minutes, on your next invoice\./,
     );
     expect(overageSentence(plan("complete"), "year")).toMatch(
-      /^Past that: \$0\.80 a voice minute and \$0\.30 a chat conversation, invoiced monthly\./,
+      /^Past that: \$80 for each started block of 100 extra voice minutes and \$30 for each started block of 100 extra chat conversations, invoiced monthly\./,
     );
-    for (const p of plans) expect(overageSentence(p, "month")).toMatch(/provisional/);
+    for (const p of plans) {
+      for (const interval of ["month", "year"] as const) {
+        const sentence = overageSentence(p, interval);
+        expect(sentence).toMatch(/provisional/);
+        // Billed per started block since 6 October 2026: never a per-unit rate.
+        // Word boundaries, because "extra voice minutes" holds "a voice minute".
+        expect(sentence).not.toMatch(
+          /\ba voice minute|\ba chat conversation|\bper minute|\bper conversation|\$0\./i,
+        );
+      }
+    }
   });
 
   test("the run-out line fits the package's channels", () => {

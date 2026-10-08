@@ -55,14 +55,15 @@ ALTER ROLE healdesk_app      PASSWORD :'app_password';
 -- with CREATEROLE that holds those attributes itself, as RDS's master does.
 ALTER ROLE healdesk_app NOCREATEDB NOCREATEROLE;
 
--- Check, rather than set, the attributes that would defeat RLS. Only a
--- superuser may even name SUPERUSER in ALTER ROLE, NOSUPERUSER included, and
--- naming BYPASSRLS needs BYPASSRLS, so the `ALTER ROLE ... NOSUPERUSER
--- NOBYPASSRLS` this file used to run stopped here on RDS, after the
--- passwords and before every grant below. CREATE ROLE's defaults are already
--- NOSUPERUSER NOBYPASSRLS; what can go wrong is a role that existed before
--- this ran, so fail loudly and let a superuser (or the master, dropping and
--- re-running) fix it.
+-- The attributes that would defeat RLS must be off, in case the roles existed
+-- before this ran with different settings. A superuser (CI, a laptop) strips
+-- them. Nobody else may: only a superuser may even name SUPERUSER in ALTER
+-- ROLE, NOSUPERUSER included, and naming BYPASSRLS needs BYPASSRLS, so on RDS,
+-- whose master user is not a superuser, the `ALTER ROLE ... NOSUPERUSER
+-- NOBYPASSRLS` this file used to run stopped here, after the passwords and
+-- before every grant below. There the roles are checked instead: CREATE ROLE
+-- above made them with every one of these off, and a role found otherwise
+-- stops the script rather than being trusted.
 --
 -- Membership is checked for the same reason: a role carries the privileges of
 -- every role it belongs to, so a runtime role inside the migrator (an owner)
@@ -70,6 +71,11 @@ ALTER ROLE healdesk_app NOCREATEDB NOCREATEROLE;
 -- own attributes look clean.
 DO $$
 BEGIN
+  IF (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN
+    ALTER ROLE healdesk_app      NOSUPERUSER NOBYPASSRLS;
+    ALTER ROLE healdesk_migrator NOSUPERUSER NOBYPASSRLS;
+  END IF;
+
   IF EXISTS (SELECT 1 FROM pg_roles
               WHERE rolname IN ('healdesk_app', 'healdesk_migrator')
                 AND (rolsuper OR rolbypassrls)) THEN

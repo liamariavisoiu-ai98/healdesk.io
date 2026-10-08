@@ -1,0 +1,11 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+# Variable files may name addresses and hosts; keep them local. The lock file
+# (.terraform.lock.hcl) IS committed.
+*.tfvars
+# Never commit the values file scripts/put-secrets.py reads.
+*.env

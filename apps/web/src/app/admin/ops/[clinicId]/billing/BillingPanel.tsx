@@ -604,7 +604,7 @@ function UsageSwitches({ e, actions }: { e: Entitlements; actions: Actions }) {
           }}
           className={`${INPUT} w-full`}
         >
-          <option value="allow">Keep answering and bill the extra</option>
+          <option value="allow">Keep going and bill the extra</option>
           <option value="hard_cap">Stop and fall back</option>
         </select>
         <Said note={mode.note} />

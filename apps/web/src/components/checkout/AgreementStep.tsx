@@ -13,7 +13,7 @@ import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
 
 import { site } from "@/lib/site";
 
-import { agreementCopyFor, effectiveDateToday } from "./agreement-kinds";
+import { agreementCopyFor, effectiveDateToday, versionLabel } from "./agreement-kinds";
 import { FIELD_LABEL, PrimaryButton, RadioGroup, type RadioOption, StepShell, TextField } from "./StepShell";
 
 /**
@@ -30,8 +30,10 @@ import { FIELD_LABEL, PrimaryButton, RadioGroup, type RadioOption, StepShell, Te
  *
  * Never chosen here. `agreementKindFor` decides from the specialty and the
  * covered-entity answer (plan Part L), and the document, its explainer and its
- * assent wording come from AGREEMENT_COPY for that kind. Today every practice
- * offered signs the Business Associate Agreement.
+ * assent wording come from AGREEMENT_COPY for that kind. Until the owner
+ * releases the Data Protection Agreement every practice offered signs the
+ * Business Associate Agreement; from then on a veterinary practice, and one
+ * HIPAA reaches only if covered that answers "No", sign the DPA here.
  *
  * ## Why this is heavier than a checkbox
  *
@@ -376,7 +378,7 @@ export function AgreementStep({
             <span aria-hidden className="text-red-deep">✓ </span>
             {copy.title} signed
           </span>
-          <span className="text-muted text-xs font-semibold">Version {signed.version}</span>
+          <span className="text-muted text-xs font-semibold">Version {versionLabel(signed.version)}</span>
         </div>
         <div className="scroll-subtle px-5 py-4 sm:max-h-80 sm:overflow-y-auto" tabIndex={0} role="region" aria-label={`${copy.title} you signed`}>
           <pre className="text-muted font-sans text-[15.6px] leading-relaxed whitespace-pre-wrap">{signed.text}</pre>
@@ -471,7 +473,7 @@ export function AgreementStep({
           <div className="border-line rounded-2xl border bg-white">
             <div className="border-line flex items-center justify-between gap-3 border-b px-5 py-3">
               <span className="text-sm font-bold">{copy.title}</span>
-              <span className="text-muted text-xs font-semibold">Version {copy.version}</span>
+              <span className="text-muted text-xs font-semibold">Version {versionLabel(copy.version)}</span>
             </div>
 
             <div

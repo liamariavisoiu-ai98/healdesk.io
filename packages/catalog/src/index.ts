@@ -14,6 +14,7 @@
 
 export * from "./agreement-copy";
 export * from "./agreement-kind";
+export * from "./assistant-settings";
 export * from "./audience";
 export * from "./baa";
 export * from "./baa-explainer";
@@ -26,6 +27,7 @@ export * from "./clinical-content";
 export * from "./connection-steps";
 export * from "./direct-booking-addendum";
 export * from "./dpa";
+export * from "./dpa-calendar-election";
 export * from "./dpa-explainer";
 export * from "./forwarding";
 export * from "./google-calendar-disclosure";
@@ -38,5 +40,7 @@ export * from "./segments";
 export * from "./sender-identity";
 export * from "./specialties";
 export * from "./subprocessor-notice";
+export * from "./time-zones";
 export * from "./treatment-names";
+export * from "./urgent-content";
 export * from "./welcome";

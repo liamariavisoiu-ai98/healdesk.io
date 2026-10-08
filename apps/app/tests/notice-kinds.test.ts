@@ -46,9 +46,13 @@ describe("the notice kind registry", () => {
     for (const kind of BILLING_NOTICE_KINDS) {
       expect(NOTICE_KIND_REGISTRY[kind].owner, kind).not.toBe("plan");
     }
-    expect([...PLAN_NOTICE_KINDS].sort()).toEqual(
-      ["calendar_reconnected", "calendar_stopped", "setup_closed", "setup_reminder"],
-    );
+    expect([...PLAN_NOTICE_KINDS].sort()).toEqual([
+      "calendar_reconnected",
+      "calendar_stopped",
+      "setting_changed",
+      "setup_closed",
+      "setup_reminder",
+    ]);
     for (const kind of PLAN_NOTICE_KINDS) expect(NOTICE_KIND_REGISTRY[kind].owner, kind).toBe("plan");
   });
 
@@ -56,6 +60,7 @@ describe("the notice kind registry", () => {
     expect(NOTICE_KIND_REGISTRY.setup_reminder).toMatchObject({ annex: "O7", quietHours: "daytime" });
     expect(NOTICE_KIND_REGISTRY.setup_closed.quietHours).toBe("any_hour");
     expect(NOTICE_KIND_REGISTRY.calendar_stopped).toMatchObject({ annex: "O13", quietHours: "any_hour" });
+    expect(NOTICE_KIND_REGISTRY.setting_changed).toMatchObject({ annex: "O4", quietHours: "any_hour" });
     for (const kind of PLAN_NOTICE_KINDS) {
       expect(NOTICE_KIND_REGISTRY[kind]).toMatchObject({
         class: "transactional",

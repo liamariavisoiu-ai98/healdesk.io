@@ -23,6 +23,7 @@ import { eq, sql } from "drizzle-orm";
 import type { Transaction } from "@/db";
 import { clinics, clinicSettings, clinicSettingsHistory } from "@/db/schema";
 import { normaliseE164, updateClinicSettings } from "@/lib/billing/settings";
+import { notifySettingChanged } from "@/lib/notices/setting-changed";
 import { completeStep } from "@/lib/onboarding/steps";
 import type { SettingsHistoryField } from "@/lib/setup/screen-ids";
 import type { TenantTx } from "@/lib/tenant";
@@ -42,8 +43,10 @@ import type { TenantTx } from "@/lib/tenant";
  *
  * Changes to where calls and urgent callers go, how long records are kept and
  * whether AYA books on its own keep their before and after in
- * clinic_settings_history, in the same transaction. Free text (the
- * greetings) is screened with findClinicalContent before it is stored.
+ * clinic_settings_history, in the same transaction, and a change to the
+ * direct line or the transfer number after it was first set emails the
+ * clinic (O4, lib/notices/setting-changed.ts). Free text (the greetings) is
+ * screened with findClinicalContent before it is stored.
  */
 
 export type SetupSettings = {
@@ -225,7 +228,25 @@ export async function saveSetupSettings(
         actorLabel: actorLabel.slice(0, 200),
         changedAt: now,
       }));
-    if (history.length > 0) await tx.db.insert(clinicSettingsHistory).values(history);
+    if (history.length > 0) {
+      const written = await tx.db
+        .insert(clinicSettingsHistory)
+        .values(history)
+        .returning({ id: clinicSettingsHistory.id, field: clinicSettingsHistory.field });
+      // O4 for a transfer number changed after it was first set (plan Part
+      // D4). The direct line's own email is saveDirectLine's, below.
+      const transfer = written.find((row) => row.field === "transfer_e164");
+      if (transfer && current.transferE164 !== null) {
+        await notifySettingChanged(tx, {
+          field: "transfer_e164",
+          before: current.transferE164,
+          after: changed.transferE164 ?? null,
+          historyId: transfer.id,
+          actorLabel,
+          at: now,
+        });
+      }
+    }
 
     tx.audit.record({
       action: "update",
@@ -341,14 +362,29 @@ export async function saveDirectLine(
     throw error;
   }
   if (after !== before) {
-    await tx.db.insert(clinicSettingsHistory).values({
-      clinicId: tx.clinicId,
-      field: "direct_line_e164",
-      beforeValue: before,
-      afterValue: after,
-      actorLabel: actorLabel.slice(0, 200),
-      changedAt: now,
-    });
+    const [row] = await tx.db
+      .insert(clinicSettingsHistory)
+      .values({
+        clinicId: tx.clinicId,
+        field: "direct_line_e164",
+        beforeValue: before,
+        afterValue: after,
+        actorLabel: actorLabel.slice(0, 200),
+        changedAt: now,
+      })
+      .returning({ id: clinicSettingsHistory.id });
+    // A change after the line was first set emails the clinic (O4): the
+    // first time is part of setup and sends nothing (plan Part D4).
+    if (before !== null && row) {
+      await notifySettingChanged(tx, {
+        field: "direct_line_e164",
+        before,
+        after,
+        historyId: row.id,
+        actorLabel,
+        at: now,
+      });
+    }
   }
   return after;
 }

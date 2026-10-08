@@ -136,7 +136,7 @@ describe("the template registry", () => {
     }
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds, then B1, O7, the setup closure and O13", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds, then B1, O7, the setup closure, O13 and O4", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -168,6 +168,7 @@ describe("the template registry", () => {
       "setup_closed",
       "calendar_stopped",
       "calendar_reconnected",
+      "setting_changed",
     ]);
   });
 

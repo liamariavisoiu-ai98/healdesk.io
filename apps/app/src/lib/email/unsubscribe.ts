@@ -17,13 +17,14 @@ import { UNSUBSCRIBE_PATH_PREFIX } from "./lint";
  * Resend's tags and logs, and anyone holding one could switch a clinic's
  * alerts off.
  *
- * The page behind it is not built yet. It lands with the switches themselves
- * (the usage-alerts, daily-summary and product-updates toggles in Settings,
- * M3): a GET shows a confirmation page whose button posts, so a link scanner
- * cannot unsubscribe anyone, and a POST carrying "List-Unsubscribe=One-Click"
- * turns the switch off at once. Until then no optional or commercial kind has
- * a template, and tests/email-templates.test.ts fails the day one gets a
- * template without that route, so a dead stop link cannot ship.
+ * The page behind it is /email/stop/<token> (src/app/email/stop): a GET
+ * shows a confirmation page whose button posts, so a link scanner cannot
+ * unsubscribe anyone, and a POST carrying "List-Unsubscribe=One-Click" turns
+ * the switch off at once (lib/email/stop.ts). The switches are the ones
+ * Settings and Billing show: the daily summary and usage alerts. Product
+ * updates (M7) and commercial mail have no switch on a clinic yet, so a link
+ * for them changes nothing, and tests/email-templates.test.ts fails the day an
+ * optional or commercial kind gets a template without that route.
  */
 
 /** What a stop link turns off: an optional email's switch, or commercial mail. */

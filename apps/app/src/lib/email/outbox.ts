@@ -12,8 +12,9 @@ import { getJob, JOB_BILLING_NOTICES, runSwitchedJob, type JobOutcome } from "@/
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { carriesUnsubscribe, CRITICAL_NOTICE_KINDS, optionalSwitchOf } from "./kind-rules";
-import { NOTICE_KIND_REGISTRY, NOTICE_KINDS, type NoticeKind, type NoticeSwitch } from "./kinds";
+import { NOTICE_KIND_REGISTRY, NOTICE_KINDS, type NoticeKind } from "./kinds";
 import { assertPayloadAllowed, LinkNotAllowedError, PayloadNotAllowedError } from "./lint";
+import { optionalEmailAllowed } from "./stop";
 import { EmailEnvelopeError, sendEmail } from "./send";
 import { EmailCompositionError } from "./templates/compose";
 import { audienceFor, clinicReason } from "./templates/context";
@@ -472,18 +473,6 @@ async function recordOutcome(
   return { outcome: "sent" };
 }
 
-/**
- * Whether a clinic's optional email switch lets this kind go. The switches
- * themselves (usage alerts, the daily summary, product updates) land on
- * clinic_settings with Settings in M3, together with the stop-link page; until
- * then each is on, which is every switch's default, and this is the one place
- * the sender asks.
- */
-async function optionalEmailAllowed(tx: TenantTx, which: NoticeSwitch): Promise<boolean> {
-  void tx;
-  void which;
-  return true;
-}
 
 // -----------------------------------------------------------------------------
 // Time

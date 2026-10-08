@@ -25,6 +25,7 @@ import { REFUND_ISSUED_ENTRY } from "./refund_issued";
 import { RENEWAL_UPCOMING_ENTRY } from "./renewal_upcoming";
 import { RESTORED_ENTRY } from "./restored";
 import { SETUP_CLOSED_ENTRY } from "./setup_closed";
+import { SETTING_CHANGED_ENTRY } from "./setting_changed";
 import { SETUP_REMINDER_ENTRY } from "./setup_reminder";
 import { SIGN_IN_LINK_ENTRY } from "./sign_in_link";
 import { STEP_UP_REMINDER_ENTRY } from "./step_up_reminder";
@@ -93,6 +94,8 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   setup_closed: SETUP_CLOSED_ENTRY,
   calendar_stopped: CALENDAR_STOPPED_ENTRY,
   calendar_reconnected: CALENDAR_RECONNECTED_ENTRY,
+  // The portal (M3, part two): O4.
+  setting_changed: SETTING_CHANGED_ENTRY,
 };
 
 export type PendingTemplate = {
@@ -138,6 +141,7 @@ export const PENDING_TEMPLATES: Record<
     | "setup_closed"
     | "calendar_stopped"
     | "calendar_reconnected"
+    | "setting_changed"
     | BillingTemplatedKind
   >,
   PendingTemplate

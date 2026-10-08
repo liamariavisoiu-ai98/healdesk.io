@@ -2,6 +2,7 @@ import type { Transaction } from "@/db";
 import { billingNotices } from "@/db/schema";
 import { PLAN_NOTICE_KINDS, type PlanNoticeKind } from "@/lib/email/kinds";
 import type { CalendarStatePayload } from "@/lib/email/templates/calendar_state";
+import type { SettingChangedPayload } from "@/lib/email/templates/setting_changed";
 import type { SetupClosedPayload } from "@/lib/email/templates/setup_closed";
 import type { SetupReminderPayload } from "@/lib/email/templates/setup_reminder";
 
@@ -32,6 +33,8 @@ export type PlanNoticePayloads = {
   calendar_stopped: CalendarStatePayload;
   /** Dedupe: the calendar backend's key for the change. */
   calendar_reconnected: CalendarStatePayload;
+  /** Dedupe `setting_changed:<clinic_settings_history id>`: once per change. */
+  setting_changed: SettingChangedPayload;
 };
 
 // The payload map and the registry's plan kinds name the same kinds: adding a

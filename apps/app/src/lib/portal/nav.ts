@@ -32,7 +32,12 @@ const SECTIONS: readonly { section: PortalSection; label: string; path: string }
 ];
 
 /** The screens that exist in this build. Conversations and Bookings join in M5. */
-const BUILT: ReadonlySet<PortalSection> = new Set<PortalSection>(["home", "settings", "knowledge"]);
+const BUILT: ReadonlySet<PortalSection> = new Set<PortalSection>([
+  "home",
+  "settings",
+  "knowledge",
+  "billing",
+]);
 
 /** The patient screens, which open after go-live (M5). */
 const AFTER_GO_LIVE: ReadonlySet<PortalSection> = new Set<PortalSection>([

@@ -13,7 +13,9 @@ import { SETUP_SCREENS } from "@/lib/setup/screen-ids";
  *   - a page this app has: a screen of this build on the clinic's own portal
  *     (lib/portal/nav.ts, which a page file backs), one of its setup screens,
  *     the protect and step-up pages, /help/call, /sign-in, or the Stripe
- *     Connect start route with this clinic's slug.
+ *     Connect start route with this clinic's slug;
+ *   - a download a screen offers, while its route file exists: Billing's
+ *     signed agreement.
  *
  * Anything else is reported. Returns the problems, empty when every link works.
  */
@@ -79,5 +81,12 @@ function linkProblem(href: string, slug: string, ids: Set<string>): string | nul
       : "not a setup screen";
   }
   if (rest === "/protect" || rest === "/step-up") return null;
+  if (rest === "/billing/agreement") {
+    return existsSync(
+      join(process.cwd(), "src", "app", "c", "[slug]", "billing", "agreement", "route.ts"),
+    )
+      ? null
+      : "no agreement download in this build";
+  }
   return "no such page";
 }

@@ -34,7 +34,7 @@ import { withTenant, type TenantTx } from "@/lib/tenant";
  * A location's Google Calendar connection: one `google_calendar` row in
  * provider_connections, holding the sealed refresh token and nothing else
  * secret (plan §4.8), with the breakage stamps the calendar watch reads
- * (drizzle/0056). Here: what counts as broken and what happens when it is;
+ * (drizzle/0057). Here: what counts as broken and what happens when it is;
  * disconnecting, revoking at Google and the terms sweep (plan §4.12, §4.13);
  * the portal's reads and choices (the funnel's contract of 6 October 2026:
  * getCalendarConnection, listCalendars, disconnect, the calendar the
@@ -585,7 +585,7 @@ export type GrantRevocation =
 
 /**
  * Revoke a grant healdesk no longer keeps, but only when no location holds
- * the same Google account live (app_google_account_live_count, 0056).
+ * the same Google account live (app_google_account_live_count, 0057).
  * Google's revoke ends every grant that Google user gave healdesk, on every
  * clinic, so a revoke while another location uses the account would take
  * that location's calendar away too; a same-account reconnect, a losing

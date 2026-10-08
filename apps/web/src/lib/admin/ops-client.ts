@@ -173,6 +173,7 @@ type OperatorOp =
   | "resolveIncident"
   | "startOffboarding"
   | "markExportDelivered"
+  | "markVoiceVendorDataDeleted"
   // The billing panel (build spec §7 E, R35).
   | "getClinicBilling"
   | "setOverageMode"
@@ -1821,12 +1822,52 @@ export type OnboardingStepView = {
 
 export type AgentService = {
   name: string;
+  /** Dollars, to the cent. */
   priceFromUsd: number | null;
   priceToUsd: number | null;
   durationMinutes: number | null;
+  /**
+   * What the clinic's setup and Knowledge add to a service: how the price is
+   * stated, a per-unit price's unit and the deposit. The console shows them
+   * and sends them back as it got them; it does not edit them. apps/app also
+   * keeps the stored ones for a service sent without them.
+   */
+  priceKind?: ServicePriceKind | null;
+  unit?: string | null;
   /** The service's own deposit in dollars; null or absent means the clinic default. */
   depositUsd?: number | null;
 };
+
+export type ServicePriceKind = "exact" | "from" | "range" | "per_unit";
+const SERVICE_PRICE_KINDS: readonly ServicePriceKind[] = ["exact", "from", "range", "per_unit"];
+
+/**
+ * One service from getOnboarding, keeping what the clinic set beyond the
+ * console's four fields. Dropping them here used to send every service back
+ * without its kind, unit and deposit, and a greeting edit erased them.
+ */
+export function readAgentService(entry: unknown): AgentService {
+  const row = object(entry, "service");
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const service: AgentService = {
+    name: text(row.name, "service.name"),
+    priceFromUsd: num(row.priceFromUsd),
+    priceToUsd: num(row.priceToUsd),
+    durationMinutes: num(row.durationMinutes),
+  };
+  // Kept only when present and well formed, so what the console sends back
+  // is what it was given, and a key it never had stays absent for apps/app
+  // to fill from the stored service.
+  if (row.priceKind === null || SERVICE_PRICE_KINDS.includes(row.priceKind as ServicePriceKind)) {
+    service.priceKind = row.priceKind as ServicePriceKind | null;
+  }
+  if (row.unit === null) service.unit = null;
+  else if (typeof row.unit === "string") service.unit = text(row.unit, "service.unit");
+  if (row.depositUsd === null || num(row.depositUsd) !== null) {
+    service.depositUsd = num(row.depositUsd);
+  }
+  return service;
+}
 
 export type OnboardingView = {
   clinic: {
@@ -2017,19 +2058,10 @@ function readOnboardingView(value: unknown): OnboardingView {
       ? {
           version: count(agent.version, "agent.version"),
           greeting: editable(agent.greeting, "agent.greeting", MAX_GREETING),
-          services: list(agent.services, "agent.services").map((entry) => {
-            const row = object(entry, "service");
-            const num = (v: unknown) => (typeof v === "number" ? v : null);
-            return {
-              name: text(row.name, "service.name"),
-              priceFromUsd: num(row.priceFromUsd),
-              priceToUsd: num(row.priceToUsd),
-              durationMinutes: num(row.durationMinutes),
-              // Read back so a save of the script carries it, rather than
-              // wiping every service's own deposit.
-              depositUsd: num(row.depositUsd),
-            };
-          }),
+          // Read back with what the clinic set beyond the console's four
+          // fields, its deposit included, so a save of the script carries
+          // them rather than wiping them (readAgentService).
+          services: list(agent.services, "agent.services").map(readAgentService),
           escalationPhone: optionalString(agent.escalationPhone),
           escalationHours: optionalString(agent.escalationHours),
           notes: optionalString(agent.notes),
@@ -2197,6 +2229,26 @@ export type CareView = {
     exportDeliveredOn: string | null;
     destroyAfterOn: string | null;
     destroyedOn: string | null;
+    /**
+     * When the clinic's data goes, by the rule of the agreement its service
+     * ended under (destructionPlan in apps/app's lib/offboarding), as
+     * "YYYY-MM-DD HH:MM UTC". Null while it is not offboarding.
+     */
+    destruction: {
+      rule: "thirty_days" | "export_or_ninety";
+      basis: "agreement" | "no_agreement" | "unknown_version";
+      agreementVersion: string | null;
+      exportDueAt: string;
+      destroyDueAt: string;
+      latestDestroyAt: string;
+    } | null;
+    /** The clinic's calls and agent deleted at the voice vendor: outstanding until recordedAt. */
+    voiceVendorDeletion: {
+      deadline: string;
+      recordedAt: string | null;
+      recordedBy: string | null;
+      how: string | null;
+    } | null;
   };
   recipients: { email: string; label: string | null; addedBy: string; addedOn: string }[];
   deliveries: {
@@ -2246,6 +2298,8 @@ function readCareView(value: unknown): CareView {
       exportDeliveredOn: on(clinic.exportDeliveredAt, "care.clinic.exportDeliveredAt"),
       destroyAfterOn: on(clinic.destroyAfter, "care.clinic.destroyAfter"),
       destroyedOn: on(clinic.destroyedAt, "care.clinic.destroyedAt"),
+      destruction: readDestruction(clinic.destruction),
+      voiceVendorDeletion: readVoiceVendorDeletion(clinic.voiceVendorDeletion),
     },
     recipients: list(data.recipients, "care.recipients").map((entry) => {
       const r = object(entry, "care.recipient");
@@ -2287,6 +2341,30 @@ function readCareView(value: unknown): CareView {
   };
 }
 
+function readDestruction(value: unknown): CareView["clinic"]["destruction"] {
+  if (value === null || value === undefined) return null;
+  const d = object(value, "care.clinic.destruction");
+  return {
+    rule: literal(d.rule, ["thirty_days", "export_or_ninety"], "care.clinic.destruction.rule"),
+    basis: literal(d.basis, ["agreement", "no_agreement", "unknown_version"], "care.clinic.destruction.basis"),
+    agreementVersion: optionalText(d.agreementVersion, "care.clinic.destruction.agreementVersion"),
+    exportDueAt: instant(d.exportDueBy, "care.clinic.destruction.exportDueBy").at,
+    destroyDueAt: instant(d.destroyDueAt, "care.clinic.destruction.destroyDueAt").at,
+    latestDestroyAt: instant(d.latestDestroyAt, "care.clinic.destruction.latestDestroyAt").at,
+  };
+}
+
+function readVoiceVendorDeletion(value: unknown): CareView["clinic"]["voiceVendorDeletion"] {
+  if (value === null || value === undefined) return null;
+  const d = object(value, "care.clinic.voiceVendorDeletion");
+  return {
+    deadline: instant(d.deadline, "care.clinic.voiceVendorDeletion.deadline").at,
+    recordedAt: optionalInstant(d.recordedAt, "care.clinic.voiceVendorDeletion.recordedAt")?.at ?? null,
+    recordedBy: optionalText(d.recordedBy, "care.clinic.voiceVendorDeletion.recordedBy"),
+    how: optionalText(d.how, "care.clinic.voiceVendorDeletion.how"),
+  };
+}
+
 export function fetchClinicCare(clinicId: string): Promise<OpsResult<CareView>> {
   return callOps("getClinicCare", "read", { clinicId }, readCareView);
 }
@@ -2318,6 +2396,9 @@ export function startOffboarding(clinicId: string, reason: string) {
 }
 export function markExportDelivered(clinicId: string, how: string) {
   return careWrite("markExportDelivered", { clinicId, how });
+}
+export function markVoiceVendorDataDeleted(clinicId: string, how: string) {
+  return careWrite("markVoiceVendorDataDeleted", { clinicId, how });
 }
 
 export type OpenIncidentOutcome =

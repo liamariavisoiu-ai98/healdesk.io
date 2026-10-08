@@ -257,11 +257,10 @@ function coveredAnswerOf(isCoveredEntity: unknown): CoveredAnswer | null {
  * must see the new one.
  *
  * Both signing entry points ask this, validateSignRequest and signAgreement
- * (through prepareAgreement), so neither can sign a draft. That reaches past
- * the endpoint: provisioning binds the acceptance a purchase names, and until
- * plan C15 its approval gate reads the current template rather than the
- * bound row's version, so a row signed against a draft would carry an
- * unreleased text into a live account.
+ * (through prepareAgreement), so neither can sign a draft. Provisioning,
+ * which binds the acceptance a purchase names, refuses a draft's row too,
+ * since plan C15 by the bound row's own version, so neither check alone
+ * stands between an unreleased text and a live account.
  */
 export function signableTemplate(version: unknown, options: SignableOptions = {}): BaaTemplate {
   const template = typeof version === "string" ? getBaaTemplate(version) : undefined;

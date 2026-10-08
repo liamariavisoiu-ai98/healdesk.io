@@ -10,6 +10,7 @@ import {
   prepareBaa,
   prepareDpa,
   regimeFor,
+  selectCalendarClause,
   specialties,
   type CoveredAnswer,
   type DpaVariables,
@@ -17,12 +18,15 @@ import {
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { agreementKindSufficient, supersedeAgreement, SupersedeError } from "@/lib/agreements/kind";
+import { calendarTermsFor } from "@/lib/booking/terms";
 import {
   DESTROY_AFTER_DAYS,
   DESTROY_WITHOUT_EXPORT_AFTER_DAYS,
+  destructionRuleFor,
   dueForDestruction,
 } from "@/lib/offboarding/offboarding";
 import { ProvisioningError, provisionClinic, type ProvisionRequest } from "@/lib/provisioning";
+import { withTenant } from "@/lib/tenant";
 
 import {
   closePools,
@@ -199,7 +203,16 @@ describe("the DPA's Term clause is the offboarding clock in this app", () => {
     );
   });
 
-  test("and dueForDestruction does what the text says", () => {
+  test("and dueForDestruction destroys no later than the text says, for a clinic whose service ended under it", () => {
+    // The rule is read from the agreement the service ended under, and the
+    // DPA's namespaced version maps to this one (DESTRUCTION_RULES). The
+    // hourly job keeps BAA 1.3.0's words for it (the calendar session's
+    // decision, 7 October 2026): each of the text's limits met a day early,
+    // which no run of the job can pass.
+    expect(destructionRuleFor(currentDpaTemplate().version)).toEqual({
+      rule: "export_or_ninety",
+      basis: "agreement",
+    });
     const day = 86_400_000;
     const ended = new Date("2026-11-01T15:00:00Z");
     const at = (days: number) => new Date(ended.getTime() + days * day);
@@ -208,16 +221,18 @@ describe("the DPA's Term clause is the offboarding clock in this app", () => {
       destroyAfter: at(DESTROY_AFTER_DAYS),
       exportDeliveredAt: exportDays === null ? null : at(exportDays),
       destroyedAt: null,
+      destructionAgreementVersion: currentDpaTemplate().version,
     });
-    // Delivered within thirty days: destroyed once thirty days have passed, not before.
-    expect(dueForDestruction(clinic(10), at(29.9))).toBe(false);
-    expect(dueForDestruction(clinic(10), at(30))).toBe(true);
+    // Delivered within thirty days: destroyed a day before they have passed.
+    expect(dueForDestruction(clinic(10), at(28.9))).toBe(false);
+    expect(dueForDestruction(clinic(10), at(DESTROY_AFTER_DAYS - 1))).toBe(true);
     // Delivered later: destroyed at the run after delivery.
     expect(dueForDestruction({ ...clinic(null) }, at(40))).toBe(false);
+    expect(dueForDestruction(clinic(45), at(44.9))).toBe(false);
     expect(dueForDestruction(clinic(45), at(45))).toBe(true);
-    // Never delivered: destroyed once ninety days have passed.
-    expect(dueForDestruction(clinic(null), at(89.9))).toBe(false);
-    expect(dueForDestruction(clinic(null), at(90))).toBe(true);
+    // Never delivered: destroyed a day before ninety days have passed.
+    expect(dueForDestruction(clinic(null), at(88.9))).toBe(false);
+    expect(dueForDestruction(clinic(null), at(DESTROY_WITHOUT_EXPORT_AFTER_DAYS - 1))).toBe(true);
   });
 });
 
@@ -797,6 +812,58 @@ describeDb("provisioning records the regime and the kind (0051)", () => {
       });
       expect(clinic.onboarding.covered_entity_confirmed).toBeTruthy();
 
+      // The DPA chooses its calendar clause from the same two answers as BAA
+      // 1.3.0, so the location it sets up starts under that clause: its
+      // agreement row, sequence 1, carries the DPA's own version and hash
+      // (plan C15). No booking system and a personal account: uncovered.
+      const { clauseId } = selectCalendarClause({
+        bookingSystem: "none",
+        calendarAccount: "personal",
+      });
+      expect(clauseId).toBe("google-calendar-uncovered");
+      const { rows: signed } = await getMigratorPool().query<{ document_hash: string }>(
+        `select document_hash from baa_acceptances where id = $1`,
+        [noAgreement],
+      );
+      const elections = await asApp(result.clinicId, (c) =>
+        c.query(
+          `select sequence, source, clause_id, terms_kind, calendar_account, booking_sync,
+                  booking_system, document_version, document_hash
+             from calendar_elections where clinic_id = $1 order by sequence`,
+          [result.clinicId],
+        ),
+      );
+      expect(elections.rows).toEqual([
+        {
+          sequence: 1,
+          source: "agreement",
+          clause_id: clauseId,
+          terms_kind: "uncovered",
+          calendar_account: "personal",
+          booking_sync: "live",
+          booking_system: "none",
+          document_version: "dpa/1.0.0",
+          document_hash: signed[0]!.document_hash,
+        },
+      ]);
+      const terms = await withTenant(
+        {
+          clinicId: result.clinicId,
+          actor: { type: "service", serviceName: "agreement-kinds-test" },
+        },
+        (tx) => calendarTermsFor(tx),
+      );
+      expect(terms).toMatchObject({
+        kind: "uncovered",
+        clauseId,
+        source: "agreement",
+        sequence: 1,
+        documentVersion: "dpa/1.0.0",
+        agreementId: noAgreement,
+        agreementVersion: "dpa/1.0.0",
+        allowsWrite: true,
+      });
+
       const vetAgreement = await signDpa({
         clinicLegalName: "Paws Clinic",
         specialty: "veterinary",
@@ -837,6 +904,43 @@ describeDb("provisioning records the regime and the kind (0051)", () => {
       await expect(provisionClinic(request({ agreementId: covered }))).rejects.toBeInstanceOf(
         ProvisioningError,
       );
+    } finally {
+      release.dpa = false;
+    }
+  });
+
+  test("a released DPA row without the calendar answers it was signed with provisions nothing", async () => {
+    release.dpa = true;
+    try {
+      // Not a row signing writes: the DPA's render guard needs both answers.
+      // Refused before anything is written, rather than failing inside
+      // provisioning's transaction, so a paid purchase reaches ops at once.
+      const { clauseId } = selectCalendarClause({
+        bookingSystem: "none",
+        calendarAccount: "personal",
+      });
+      const agreementId = await seedAcceptance({
+        version: "dpa/1.0.0",
+        variables: {
+          clinicLegalName: "Unanswered Clinic",
+          specialty: "med-spa",
+          bookingSystem: "none",
+          appliedClauses: [clauseId],
+        },
+      });
+      const req = request({ agreementId, clinicName: "Unanswered Clinic" });
+      await expect(provisionClinic(req)).rejects.toMatchObject({
+        name: "ProvisioningError",
+        field: "agreementId",
+        message: expect.stringMatching(/does not record the calendar terms/),
+      });
+      const { rows } = await getMigratorPool().query<{ n: number; bound: boolean }>(
+        `select (select count(*) from clinics where name = 'Unanswered Clinic')::int
+              + (select count(*) from provisioning_attempts where idempotency_key = $1)::int as n,
+                (select organization_id is not null from baa_acceptances where id = $2) as bound`,
+        [req.idempotencyKey, agreementId],
+      );
+      expect(rows[0]).toEqual({ n: 0, bound: false });
     } finally {
       release.dpa = false;
     }

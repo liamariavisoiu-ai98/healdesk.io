@@ -169,6 +169,27 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "Resend has been sending as healdesk.io since the day below, 14 or more days ago. Read healdesk.io's DMARC aggregate reports from that day on: if the only senders they show are Resend and the owner's own mail, change healdesk.io's DMARC record from p=none to p=quarantine. If anything else sends as healdesk.io, find out what it is first.",
   },
+  // Raised once per clinic by the destruction job (lib/offboarding) from day
+  // 21 after a clinic on the thirty days (BAA 1.2.1 or earlier, or no
+  // agreement) left with no export recorded as delivered. Its one fact is
+  // when the data goes (destroyAt). The export is owed whether or not the
+  // practice asks: those agreements give it "on request", but Terms §7
+  // promises it to every leaving practice and the canceled email tells the
+  // practice it is coming, so it has no reason to ask.
+  export_undelivered_before_destruction: {
+    title: "A leaving practice has no export delivered",
+    action:
+      "Deliver this practice's export, and record the handover on its care page, before the time below: Terms §7 promises every leaving practice its export within 30 days of the end, whether or not it asks. Its data is destroyed at that time whether or not the export was delivered, because its agreement gives thirty days, or it has none on file.",
+  },
+  // Raised once by the Stripe webhook (lib/billing/events.ts) when a
+  // subscription's end was processed more than a week after it happened, so
+  // the database started the clock a week back and no further. Its facts are
+  // the end and the days the clamp cost.
+  offboarding_started_late: {
+    title: "A subscription's end was processed over a week late",
+    action:
+      "The destruction clock started a week back and no further, so this practice's data is destroyed the days below later than its agreement counts from the end. Find out why the event was late, and tell the owner: only the database owner can bring the destruction forward.",
+  },
   // Raised once per breakage by markCalendarBroken. `code` is Google's
   // answer as the adapter names it: invalid_grant, admin_policy_enforced and
   // scope_lost mean the access itself was removed and the stored token has
@@ -178,6 +199,11 @@ const WORDING: Record<OpsEvent, Wording> = {
     title: "A clinic's Google Calendar stopped working",
     action:
       "Google refused healdesk's access to a clinic's calendar, so that location now takes booking requests for its staff to confirm. Ask the clinic whether it removed the access on purpose; if not, it reconnects its calendar. Look the clinic up in the console.",
+  },
+  welcome_email_unsent: {
+    title: "A welcome email has not reached a clinic",
+    action:
+      "A clinic's welcome email, its order confirmation with the receipt and the Continue setup link, is still unsent an hour after its account was made, or setup moved on before it could go. Check Resend, then email the order details to the clinic's address by hand.",
   },
   // Raised by the connect flow when Google's token endpoint refuses
   // healdesk's own client: every clinic's connect fails until it is fixed.
@@ -216,6 +242,9 @@ const LABELS: Record<string, string> = {
   attempts: "Attempts",
   count: "Count",
   windowStart: "Day",
+  destroyAt: "Destruction due (UTC)",
+  serviceEndedAt: "Service ended (UTC)",
+  lateDays: "Days late",
 };
 
 function wordingFor(payload: OpsAlertPayload): Wording {

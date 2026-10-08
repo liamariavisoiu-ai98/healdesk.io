@@ -42,19 +42,6 @@ const SECRET = "checkout-purchase-test-secret";
 process.env.HEALDESK_PROVISION_SECRET = SECRET;
 process.env.BETTER_AUTH_URL ??= "http://localhost:3001";
 
-/** Every calendar link the provision route offered, then offered for real (plan §4.1). */
-const calendarOffers = vi.hoisted(() => [] as { clinicId: string; reason: string }[]);
-vi.mock("@/lib/connections/calendar-links", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/connections/calendar-links")>();
-  return {
-    ...actual,
-    offerCalendarLink: async (clinicId: string, reason: "provisioning" | "location_added") => {
-      calendarOffers.push({ clinicId, reason });
-      return actual.offerCalendarLink(clinicId, reason);
-    },
-  };
-});
-
 const describeDb = hasTestDatabase ? describe : describe.skip;
 
 function signed(url: string, body: unknown): Request {
@@ -416,15 +403,9 @@ describeDb("provisioning from a paid intent, and /welcome", () => {
     expect(daysOut).toBeGreaterThan(29);
     expect(daysOut).toBeLessThan(32);
 
-    // A calendar link is offered once, for the clinic just made.
-    const offers = () => calendarOffers.filter((offer) => offer.clinicId === clinicId);
-    expect(offers()).toEqual([{ clinicId, reason: "provisioning" }]);
-
     // Stripe redelivers: the same subscription is a replay, another is refused.
     expect((await provision(ref, sub)).json.replayed).toBe(true);
     expect((await provision(ref, `sub_test_${randomUUID().slice(0, 8)}`)).status).toBe(409);
-    // A replay mails nothing again.
-    expect(offers()).toHaveLength(1);
     // The setup link that bought it can't open a second purchase.
     expect((await intent(p.body)).status).toBe(409);
   });
@@ -569,9 +550,9 @@ describeDb("provisioning from a paid intent, and /welcome", () => {
     const token = (ready as { url: string }).url.split("/link/")[1]!;
     const consumed = await consumeSignInLink(token, null);
     expect(consumed).toMatchObject({ ok: true, purpose: "checkout" });
-    // The plan's first screen after /welcome: "Protect patient details", then the clinic.
+    // The plan's first screen after /welcome: "Protect patient details", then setup.
     expect((consumed as { redirectTo: string }).redirectTo).toMatch(
-      /^\/c\/([a-z0-9-]+)\/protect\?next=%2Fc%2F\1$/,
+      /^\/c\/([a-z0-9-]+)\/protect\?next=%2Fc%2F\1%2Fsetup$/,
     );
 
     // Polled again (a reload, a second tab): the link was already handed out.

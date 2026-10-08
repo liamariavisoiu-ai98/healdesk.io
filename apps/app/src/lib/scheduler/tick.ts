@@ -7,6 +7,8 @@ import { runUsageAlertsJob } from "@/lib/billing/usage-alerts";
 import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
 import { expireLapsedRequests } from "@/lib/meta/booking-requests";
 import { applyBookingRequirementDefaults } from "@/lib/onboarding/requirements";
+import { runSetupRemindersJob } from "@/lib/setup/reminders";
+import { runWelcomeBackstop } from "@/lib/setup/welcome-email";
 
 import { runAnnualRenewalReminderJob } from "./annual-renewal-reminder";
 import { runBillingSweepJob } from "./billing-sweep";
@@ -34,7 +36,10 @@ import { runWeeklyRecapJob } from "./weekly-recap";
  * at night; the annual overage invoices at 05, billing housekeeping at 06 and
  * the card-expiry check at 07; the DMARC review reminder at 08; the mailers
  * in the morning; the sweeps every hour because their effect is time-bounded
- * anyway.
+ * anyway. Destruction runs every hour too, and every run destroys every
+ * clinic due on either rule: a clinic is due a day before its agreement's
+ * thirty days, or ninety, are up, so whatever hour it left its data is gone
+ * before them (lib/offboarding).
  */
 export type TickOutcome = { job: string; status: string; note?: string };
 
@@ -82,10 +87,28 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // defaults stamped as its booking requirement set. Same shape as the sweep
   // above: a pure function of the clock over rows that already exist.
   await record("booking-requirements-defaults", async () => ({ status: "ok", note: `${await applyBookingRequirementDefaults(now)} defaulted` }));
+  // Every hour, on either rule: a clinic is due at day 29 (on BAA 1.3.0 or
+  // the DPA once its export is delivered, or at the delivery when later) or
+  // at day 89, and the next hourly run destroys it (lib/offboarding, "Which
+  // rule, and why").
+  await record("offboarding-destroy", () => runOffboardingDestroyJob({ now }));
+  // The setup reminder (O7), hourly: each clinic's due reminder is queued
+  // only in its own daytime, so the hour it runs is the clinic's, not UTC's.
+  await record("setup-reminders", () => runSetupRemindersJob({ now }));
+  // The welcome email's backstop. Not a switched job: the welcome itself goes
+  // at every provisioning, unswitched, so its retry must not wait for a
+  // switch that ships off. It reaches only a clinic whose provisioning
+  // recorded a welcome as owed and has not sent it (lib/setup/welcome-email.ts).
+  await record("welcome-email", async () => {
+    const result = await runWelcomeBackstop({ now });
+    return {
+      status: "ok",
+      note: `${result.resent} resent, ${result.unsent} still unsent, ${result.failed} failed`,
+    };
+  });
   // Phase two, like the monthly report.
   if (hour === 2) await record("nightly-sync", () => runNightlySyncJob({ now }));
   if (hour === 3) await record("retention-purge", () => runRetentionPurgeJob({ now }));
-  if (hour === 4) await record("offboarding-destroy", () => runOffboardingDestroyJob({ now }));
   // A closed allowance month is invoiced once; the job's own ledger
   // (overage_invoices, one row per window) makes a re-run a no-op.
   if (hour === 5) await record("annual-overage-invoice", () => runAnnualOverageJob({ now }));

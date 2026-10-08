@@ -26,22 +26,45 @@ import {
 
 import {
   type AgreementKind,
+  ASSISTANT_LANGUAGES,
+  ASSISTANT_TONES,
+  type AssistantLanguage,
+  type AssistantTone,
   type BillingInterval,
   type BookingSync,
+  BOOKING_DETAILS,
+  BOOKING_SYSTEMS,
+  type BookingDetail,
   type BookingSystemId,
+  CALENDAR_ACCOUNTS,
   type CalendarAccount,
   type CalendarClauseId,
   type CalendarTermsKind,
   type Channel,
   CHANNELS,
+  type ClinicProfile,
+  COVERAGE_MODES,
+  type CoverageModeId,
   type OnboardingState,
   type RegulatoryRegime,
+  type ServicePriceKind,
+  TRANSCRIPT_RETENTION_DAYS_OPTIONS,
+  type TranscriptRetentionDays,
 } from "@healdesk/catalog";
 
 import type { OpeningHours } from "../lib/clinic/opening-hours";
 import type { SealedPayload } from "../lib/crypto/envelope";
-import { NOTICE_KINDS } from "../lib/email/kinds";
+import { LEDGER_DIRECT_KINDS } from "../lib/email/direct-kinds";
+import { NOTICE_KINDS, PACKAGE_NOTICE_KINDS, type NoticeKind } from "../lib/email/kinds";
 import { DEVICE_LABEL_MAX } from "../lib/factors/device";
+import {
+  SETTINGS_HISTORY_FIELDS,
+  SETUP_SCREEN_OUTCOMES,
+  SETUP_SCREENS,
+  type SettingsHistoryField,
+  type SetupScreenId,
+  type SetupScreenOutcome,
+} from "../lib/setup/screen-ids";
 
 import { organization, user } from "./auth-schema";
 
@@ -226,7 +249,7 @@ export const phoneSystemTypeEnum = pgEnum("phone_system_type", [
 
 /**
  * Issues `clinics.client_number`. Declared here so drizzle-kit creates it;
- * 0056 sets where it starts (after the clinics that existed then) and makes
+ * 0057 sets where it starts (after the clinics that existed then) and makes
  * the column its owner.
  */
 export const clinicsClientNumberSeq = pgSequence("clinics_client_number_seq", {
@@ -274,7 +297,7 @@ export const clinics = pgTable(
      * under another. Issued by `clinics_client_number_seq` through the column
      * default, never named by a writer: a trigger accepts at insert only the
      * number the default just drew and refuses any change after, for every
-     * role, and the runtime role holds no UPDATE on it (drizzle/0056).
+     * role, and the runtime role holds no UPDATE on it (drizzle/0057).
      */
     clientNumber: integer("client_number")
       .notNull()
@@ -399,9 +422,11 @@ export const clinics = pgTable(
      *             wrong for every clinic that keeps it.
      *
      * Consent records, suppressions and contact attempts are NOT on either
-     * clock: they are the evidence that a call was lawful and that an
-     * opt-out was honoured, and deleting evidence is not a privacy control.
-     * The purge job (lib/retention/purge.ts) is the only reader.
+     * clock: a suppression is a "stop", or the record of an erasure, and
+     * has to outlast the rows it stopped. They go with the rest of the
+     * clinic's data when it is destroyed at offboarding (lib/offboarding,
+     * drizzle/0058). The purge job (lib/retention/purge.ts) is the only
+     * reader of the two clocks.
      *
      * The record clock is never below a day (a CHECK below), and the
      * practice may shorten it, but app_purge_booking_requests runs on the
@@ -503,20 +528,23 @@ export const clinics = pgTable(
     /** When app_mark_clinic_production() ran. */
     wentLiveAt: timestamp("went_live_at", { withTimezone: true }),
 
-    // --- Offboarding: the BAA's return-or-destroy clause, as dates. ---
-    // offboarding_started_at, destroy_after and destroyed_at are the
-    // database's: the runtime role has no UPDATE on them, a new clinic cannot
-    // carry them (the clinics_insert_guard trigger), and only
-    // app_start_offboarding() and app_mark_clinic_destroyed() write them, from
-    // the database's clock, because app_destroy_booking_requests() reads them
-    // as its floor (booking_request_destruction migration).
+    // --- Offboarding: each agreement's return-or-destroy clause, as dates. ---
+    // offboarding_started_at, destroy_after, export_delivered_at and
+    // destroyed_at are the database's: the runtime role has no UPDATE on
+    // them, a new clinic cannot carry them (the clinics_insert_guard
+    // trigger), and only app_start_offboarding(), app_mark_export_delivered()
+    // and app_mark_clinic_destroyed() write them, from the database's clock,
+    // because app_destruction_due() reads them as the floor under the
+    // deletes (booking_request_destruction and destruction_clock
+    // migrations). Which day the data goes is the rule of the agreement the
+    // service ended under (destructionPlan in lib/offboarding).
     // app_mark_clinic_destroyed() also waits for the rows destruction deletes
     // to be gone, so destroyed_at is never a destruction that did not run.
-    /** The clinic left (subscription deleted, or an operator ended it). */
+    /** The service ended: Stripe's end of the subscription (clamped to the week before it was processed), or when an operator ended it. */
     offboardingStartedAt: timestamp("offboarding_started_at", { withTimezone: true }),
-    /** The export was produced and handed over; destruction may proceed after destroy_after. */
+    /** The export reached the practice: the operator's record of the handover, never its production. */
     exportDeliveredAt: timestamp("export_delivered_at", { withTimezone: true }),
-    /** Hard-delete of every PHI row is allowed from this instant, thirty days after the start. */
+    /** Thirty days after the start, the thirty days every agreement counts; destructionPlan says what is due when. */
     destroyAfter: timestamp("destroy_after", { withTimezone: true }),
     /** The destruction ran. The clinic row and its audit trail remain; nothing else does. */
     destroyedAt: timestamp("destroyed_at", { withTimezone: true }),
@@ -539,6 +567,26 @@ export const clinics = pgTable(
      * is cleared, so "why did deposits stop" has a date to point at.
      */
     stripeConnectDisconnectedAt: timestamp("stripe_connect_disconnected_at", { withTimezone: true }),
+
+    // --- The setup wizard (0056): the practice as the clinic confirms it. ---
+    /**
+     * The location's street address, as the clinic writes it: what AYA
+     * tells a caller who asks where the practice is, and where the time zone
+     * was read from. Business contact data, never a patient's.
+     */
+    address: text("address"),
+    /**
+     * The practice's website, host and path without the scheme (catalog
+     * `cleanWebsite`), or null when it has none. Seeded from the purchase.
+     */
+    website: text("website"),
+    /**
+     * The website as read at checkout (plan Part B), screened again under the
+     * specialty bought: the setup wizard's starting point and the drift
+     * check's baseline (plan Part B, "Re-reads"). Null when there was no
+     * website or the read failed. Business data, never patient information.
+     */
+    siteProfile: jsonb("site_profile").$type<ClinicProfile>(),
 
     /** The BAA gate, made mechanical. See drizzle/0004_baa_gate.sql. */
     dataClassification: dataClassificationEnum("data_classification")
@@ -578,6 +626,14 @@ export const clinics = pgTable(
       sql`${t.agreementKind} is distinct from 'dpa' or ${t.regulatoryRegime} is distinct from 'hipaa'`,
     ),
     check("clinics_retention_record_days_positive", sql`${t.retentionRecordDays} >= 1`),
+    check(
+      "clinics_address_check",
+      sql`${t.address} is null or (char_length(${t.address}) between 1 and 300 and ${t.address} !~ '[[:cntrl:]]')`,
+    ),
+    check(
+      "clinics_website_check",
+      sql`${t.website} is null or (char_length(${t.website}) between 4 and 200 and ${t.website} !~ '[[:space:][:cntrl:]]')`,
+    ),
   ],
 );
 
@@ -642,7 +698,7 @@ export const clinicMemberships = pgTable(
  * table could copy clinic A's ciphertext into clinic B's row and the app would
  * decrypt it happily. See src/lib/crypto/envelope.ts. What the seal is bound
  * to never moves: a trigger refuses any change of `id`, `clinic_id` or
- * `provider`, for every role (drizzle/0056), the provider being half of the
+ * `provider`, for every role (drizzle/0057), the provider being half of the
  * KMS lock label each credential's data key is wrapped under
  * (lib/connections/store.ts).
  *
@@ -697,7 +753,7 @@ export const providerConnections = pgTable(
      */
     phiBasis: text("phi_basis").$type<PhiBasis>(),
 
-    // --- The Google Calendar connection (0056). ---
+    // --- The Google Calendar connection (0057). ---
     /**
      * Which Google account this is: sha256 hex of "google:" + the ID token's
      * `sub`. The raw sub is never stored. The live-account index below lets
@@ -985,7 +1041,7 @@ export const appointments = pgTable(
     /** A short vendor status for the desk page — never a name or a number. */
     calendarWriteError: text("calendar_write_error"),
 
-    // --- Healdesk's own bookings and the Google write (0056). ---
+    // --- Healdesk's own bookings and the Google write (0057). ---
     /** Minutes the booking occupies, 5–480. NULL is read as 30 by the overlap guard. */
     durationMinutes: smallint("duration_minutes"),
     /**
@@ -1119,6 +1175,19 @@ export const agentConfigs = pgTable(
      * deposits switched on, a connected Stripe account, and the channel.
      */
     depositPolicy: jsonb("deposit_policy").$type<DepositPolicy>(),
+    // --- Knowledge (0056): what the setup wizard and Knowledge edit. Each is
+    // screened by findClinicalContent before it is written, except never-say,
+    // which is clinical on purpose (lib/setup/knowledge.ts). ---
+    /** The promotions box: what AYA offers when "Mention promotions" is on. Empty by default. */
+    promotions: text("promotions"),
+    /** Quick answers, question and answer, for temporary things like parking during building work. */
+    quickAnswers: jsonb("quick_answers").$type<KnowledgeAnswer[]>().notNull().default([]),
+    /** Phrases AYA must never use: the clinical defaults at provisioning, then the clinic's. */
+    neverSay: jsonb("never_say").$type<string[]>().notNull().default([]),
+    /** The one thing patients ask most, and the clinic's answer (wizard 1.4). */
+    mostAsked: jsonb("most_asked").$type<KnowledgeAnswer>(),
+    /** The practice's policies, one per entry: cancellations, late arrivals, payment. */
+    policies: jsonb("policies").$type<string[]>().notNull().default([]),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
     approvedByLabel: text("approved_by_label"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -1129,11 +1198,25 @@ export const agentConfigs = pgTable(
 
 export type AgentService = {
   name: string;
-  /** Whole dollars; null means "quote on the call is not allowed, offer a consult". */
+  /**
+   * Dollars, to the cent; null means "quote on the call is not allowed, offer
+   * a consult". An exact price has both ends equal, a "from" price no top, a
+   * range both, a per-unit price the price of one unit.
+   */
   priceFromUsd: number | null;
   priceToUsd: number | null;
   /** Minutes, for scheduling. */
   durationMinutes: number | null;
+  /**
+   * How the menu states the price (catalog SERVICE_PRICE_KINDS), from 0056.
+   * Absent on a service written before it, which reads as exact when both
+   * ends are equal, as a "from" price when there is no top, and as a range
+   * otherwise (lib/setup/prices.ts, which also keeps it, the unit and the
+   * deposit through the ops console's form).
+   */
+  priceKind?: ServicePriceKind | null;
+  /** What a per-unit price is per ("unit", "syringe"); only with `per_unit`. */
+  unit?: string | null;
   /**
    * The deposit this service asks for, in dollars, 0 to 10,000 (BD27; the
    * spec sets deposits per service). 0 means none, even when the clinic has a
@@ -1142,6 +1225,9 @@ export type AgentService = {
    */
   depositUsd?: number | null;
 };
+
+/** A question and the clinic's answer: a quick answer, or the most-asked question. */
+export type KnowledgeAnswer = { question: string; answer: string };
 
 // -----------------------------------------------------------------------------
 // Report delivery — who gets the monthly email, and proof of what was sent
@@ -1177,6 +1263,10 @@ export const REPORT_DELIVERY_KINDS = [
   "alert",
   "renewal",
   ...NOTICE_KINDS,
+  // The link emails sent to a clinic's address (lib/email/direct-kinds.ts):
+  // the welcome email (B1) keeps its once-per-clinic state here, because its
+  // single-use link may never be stored in an outbox payload.
+  ...LEDGER_DIRECT_KINDS,
 ] as const;
 export type ReportDeliveryKind = (typeof REPORT_DELIVERY_KINDS)[number];
 
@@ -2183,8 +2273,10 @@ export const consentRecords = pgTable(
  *
  *   - `channel` is NULLABLE, and null means EVERY channel. Someone who says
  *     "stop calling me" has not invited a text instead.
- *   - Nothing here is ever deleted. Re-consent creates a new consent record; it
- *     does not erase the record of them having asked us to stop.
+ *   - Nothing here is deleted while the clinic is a customer. Re-consent
+ *     creates a new consent record; it does not erase the record of them
+ *     having asked us to stop. Destruction at offboarding takes the clinic's
+ *     suppressions with the rest of its data (lib/offboarding).
  */
 export const suppressions = pgTable(
   "suppressions",
@@ -2389,7 +2481,7 @@ export const connectionLinks = pgTable(
      * What the link is for. `connect` hands us a booking credential; `setup`
      * confirms the booking requirement set (0040); `meta` and `whatsapp`
      * connect those channels (0049); `calendar` connects the location's
-     * Google Calendar and records its calendar elections (0056). Resolution
+     * Google Calendar and records its calendar elections (0057). Resolution
      * and consumption both filter on it, so a token issued for one cannot be
      * spent on another — a mismatch resolves to nothing, the same anti-oracle
      * rule as an unknown token. Set at issue, never updated (the UPDATE grant
@@ -2400,7 +2492,7 @@ export const connectionLinks = pgTable(
       .notNull()
       .default("connect"),
 
-    // --- Calendar links (0056). Set at issue and frozen, like `purpose`. ---
+    // --- Calendar links (0057). Set at issue and frozen, like `purpose`. ---
     /** The lower-cased addresses the link was mailed to. Evidence of who could hold it. */
     sentTo: text("sent_to").array(),
     /**
@@ -2434,7 +2526,7 @@ export const connectionLinks = pgTable(
     uniqueIndex("connection_links_token_hash_idx").on(t.tokenHash),
     index("connection_links_clinic_idx").on(t.clinicId, t.createdAt),
     // The target of the (clinic, link) keys on calendar_elections and
-    // google_oauth_states (0056, below its banner), which keep an election or
+    // google_oauth_states (0057, below its banner), which keep an election or
     // a Google sign-in on a link of its own clinic.
     unique("connection_links_clinic_link_unique").on(t.clinicId, t.id),
     check("connection_links_audience_check", sql`${t.audience} in ('recipients', 'owner')`),
@@ -2459,7 +2551,7 @@ export const connectionLinks = pgTable(
  * The widening election an owner confirm link carries (plan §2.6): what the
  * holder of a recipients link asked for, which the owner accepts only if the
  * document still renders to the same version and hash (the confirm page's
- * check, plan §4.1). The election guard (drizzle/0056) holds a row recorded
+ * check, plan §4.1). The election guard (drizzle/0057) holds a row recorded
  * through the link to its booking system, account kind and version. It
  * cannot compare the hash: the stored text carries the name the owner types
  * when confirming, so its hash is known only then.
@@ -3071,9 +3163,21 @@ export const checkoutIntents = pgTable(
     provisionedUserId: text("provisioned_user_id"),
     /** Provisioning refused this intent: /welcome says so instead of waiting. */
     provisionFailedAt: timestamp("provision_failed_at", { withTimezone: true }),
+    /**
+     * Stripe's hosted page for the paid first invoice, where the setup-fee
+     * receipt is, as the invoice.paid relay passed it to provisioning (0056).
+     * The welcome email (B1) links it on every attempt: plan C4, and contracts
+     * §3, under which no separate receipt goes for the welcome's invoice. Null
+     * on a purchase that did not come through Stripe's relay.
+     */
+    firstInvoiceUrl: text("first_invoice_url"),
   },
   (t) => [
     check("checkout_intents_interval_check", sql`${t.billingInterval} in ('month', 'year')`),
+    check(
+      "checkout_intents_first_invoice_url_check",
+      sql`${t.firstInvoiceUrl} is null or (char_length(${t.firstInvoiceUrl}) <= 500 and ${t.firstInvoiceUrl} ~ '^https://invoice\\.stripe\\.com/[!-~]+$')`,
+    ),
     check(
       "checkout_intents_profile_status_check",
       sql`${t.profileStatus} in (${sqlList(CHECKOUT_PROFILE_STATUSES)})`,
@@ -3198,14 +3302,12 @@ export const clinicSettings = pgTable(
      */
     aiPausedUntil: timestamp("ai_paused_until", { withTimezone: true }),
     /**
-     * Auto-confirm (spec: "Every switch in the portal"): on, the assistant's
-     * booking goes straight into the clinic's calendar; off, every booking it
-     * takes is a request staff approve. On by default, as is a clinic with no
-     * row. It gates only the assistant's own bookings, never a staff
-     * confirmation, and the database reads it too (app_calendar_write_permitted,
-     * drizzle/0056). Who changed it and when travel together.
+     * Who last changed Auto-confirm (autoConfirmBookings, below with the
+     * setup wizard's columns) and when; the two travel together (migration A,
+     * drizzle/0057). The database reads Auto-confirm itself in
+     * app_calendar_write_permitted: it gates only the assistant's own
+     * bookings, never a staff confirmation.
      */
-    autoConfirmBookings: boolean("auto_confirm_bookings").notNull().default(true),
     autoConfirmChangedAt: timestamp("auto_confirm_changed_at", { withTimezone: true }),
     autoConfirmChangedByLabel: text("auto_confirm_changed_by_label"),
     /**
@@ -3214,6 +3316,75 @@ export const clinicSettings = pgTable(
      */
     directLineE164: text("direct_line_e164"),
     directLineSetAt: timestamp("direct_line_set_at", { withTimezone: true }),
+
+    // --- The setup wizard and Settings (0056). Every column carries the
+    // spec's default ("Every switch in the portal"), so a missing row and a
+    // fresh row mean the same thing. lib/setup/settings.ts reads and writes
+    // them; lib/billing/settings.ts keeps the deposit, pause and direct-line
+    // columns above. ---
+    /** How AYA speaks on every channel. */
+    tone: text("tone").$type<AssistantTone>().notNull().default("warm"),
+    /** Said after the locked AI line on a call; null means the default, built from the clinic's name. */
+    phoneGreeting: text("phone_greeting"),
+    /** The first line in chat and DMs after the locked AI line; null means the default. */
+    chatGreeting: text("chat_greeting"),
+    /** The languages AYA answers in. It answers in the caller's language and stays in it. */
+    languages: text("languages")
+      .array()
+      .$type<AssistantLanguage[]>()
+      .notNull()
+      .default(sql`'{en}'::text[]`),
+    /** On lets AYA suggest complementary treatments during a booking (phone and website chat only). */
+    suggestAddOns: boolean("suggest_add_ons").notNull().default(false),
+    /** Whether the promotions box is used in conversation (phone and website chat only). */
+    mentionPromotions: boolean("mention_promotions").notNull().default(true),
+    /**
+     * Auto-confirm (contracts §6): on, a booking AYA takes is booked; off,
+     * every booking is a request staff approve. Provisioning sets it from the
+     * booking system: off where that system does not read Google Calendar.
+     * The calendar backend's `setAutoConfirm` is its writer from Settings,
+     * behind a step-up; the effective mode also needs a healthy calendar,
+     * terms that allow writing and the owner's kill switch.
+     */
+    autoConfirmBookings: boolean("auto_confirm_bookings").notNull().default(true),
+    /** Book into one shared calendar, or against a named provider's own. */
+    bookingDetail: text("booking_detail").$type<BookingDetail>().notNull().default("generic"),
+    /**
+     * "Where do bookings live today?", as the funnel asked it and the wizard
+     * corrects it. What the clinic told us; its calendar terms come from the
+     * signed agreement and its elections, never from here.
+     */
+    bookingSystem: text("booking_system").$type<BookingSystemId>(),
+    /** "Which Google account will bookings go into?", as the funnel asked it. */
+    calendarAccount: text("calendar_account").$type<CalendarAccount>(),
+    /**
+     * "A number patients can call for urgent help": what AYA gives someone
+     * reporting a complication or an urgent symptom, after 911. E.164.
+     */
+    urgentHelpE164: text("urgent_help_e164"),
+    /** A veterinary practice's emergency referral number, which its urgent reply gives. E.164. */
+    vetReferralE164: text("vet_referral_e164"),
+    /** On lets the voice agent transfer a caller to a real number during opening hours. */
+    transferLiveCalls: boolean("transfer_live_calls").notNull().default(false),
+    /** Where a live transfer goes; null means the direct line. E.164. */
+    transferE164: text("transfer_e164"),
+    /** The daily summary email, at the start of each working day. */
+    dailySummary: boolean("daily_summary").notNull().default(true),
+    /**
+     * Which calls reach AYA: the single source (plan Part F2). Seeded from
+     * clinics.call_routing for clinics made before it; while the readers on
+     * call_routing remain, the wizard writes both (lib/setup/settings.ts).
+     */
+    coverageMode: text("coverage_mode")
+      .$type<CoverageModeId>()
+      .notNull()
+      .default("overflow_after_hours"),
+    /** How long transcripts and conversation records are kept: 90 days, or shortened to 30 or 7. */
+    transcriptRetentionDays: integer("transcript_retention_days")
+      .$type<TranscriptRetentionDays>()
+      .notNull()
+      .default(90),
+
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -3232,6 +3403,39 @@ export const clinicSettings = pgTable(
     check(
       "clinic_settings_auto_confirm_stamp_check",
       sql`(${t.autoConfirmChangedAt} is null) = (${t.autoConfirmChangedByLabel} is null)`,
+    ),
+    check("clinic_settings_tone_check", sql`${t.tone} in (${sqlList(ASSISTANT_TONES)})`),
+    check(
+      "clinic_settings_greetings_check",
+      sql`(${t.phoneGreeting} is null or char_length(${t.phoneGreeting}) between 1 and 300) and (${t.chatGreeting} is null or char_length(${t.chatGreeting}) between 1 and 300)`,
+    ),
+    check(
+      "clinic_settings_languages_check",
+      sql`cardinality(${t.languages}) between 1 and ${sql.raw(String(ASSISTANT_LANGUAGES.length))} and ${t.languages} <@ array[${sqlList(ASSISTANT_LANGUAGES)}]::text[]`,
+    ),
+    check(
+      "clinic_settings_booking_detail_check",
+      sql`${t.bookingDetail} in (${sqlList(BOOKING_DETAILS)})`,
+    ),
+    check(
+      "clinic_settings_booking_system_check",
+      sql`${t.bookingSystem} is null or ${t.bookingSystem} in (${sqlList(BOOKING_SYSTEMS.map((b) => b.id))})`,
+    ),
+    check(
+      "clinic_settings_calendar_account_check",
+      sql`${t.calendarAccount} is null or ${t.calendarAccount} in (${sqlList(CALENDAR_ACCOUNTS)})`,
+    ),
+    check(
+      "clinic_settings_numbers_check",
+      sql`(${t.urgentHelpE164} is null or ${t.urgentHelpE164} ~ '^\\+[1-9][0-9]{6,14}$') and (${t.vetReferralE164} is null or ${t.vetReferralE164} ~ '^\\+[1-9][0-9]{6,14}$') and (${t.transferE164} is null or ${t.transferE164} ~ '^\\+[1-9][0-9]{6,14}$')`,
+    ),
+    check(
+      "clinic_settings_coverage_mode_check",
+      sql`${t.coverageMode} in (${sqlList(COVERAGE_MODES)})`,
+    ),
+    check(
+      "clinic_settings_retention_check",
+      sql`${t.transcriptRetentionDays} in (${sql.raw(TRANSCRIPT_RETENTION_DAYS_OPTIONS.join(", "))})`,
     ),
   ],
 );
@@ -3362,11 +3566,15 @@ export const metaInboundMessages = pgTable(
 );
 
 /**
- * The outbox's kinds: the keys of the registry in lib/email/kinds.ts (Annex
- * X3), which also says how each is sent. F0's name and export are kept, so
- * every reader of this list reads the registry.
+ * The kinds lib/billing/notices.ts enqueues: Package C's and D's, the
+ * registry's kinds whose owner is a package (lib/email/kinds.ts, Annex X3).
+ * F0's name and export are kept, so lib/billing's payload map and its
+ * compile-time check read this list. The plan's own kinds (the setup
+ * reminder, the setup closure, the calendar emails) are enqueued by
+ * lib/notices/plan-notices.ts against their own payload map; the outbox's
+ * CHECK below covers both, from `NOTICE_KINDS`.
  */
-export const BILLING_NOTICE_KINDS = NOTICE_KINDS;
+export const BILLING_NOTICE_KINDS = PACKAGE_NOTICE_KINDS;
 export type BillingNoticeKind = (typeof BILLING_NOTICE_KINDS)[number];
 
 /**
@@ -3383,7 +3591,7 @@ export const billingNotices = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
-    kind: text("kind").$type<BillingNoticeKind>().notNull(),
+    kind: text("kind").$type<NoticeKind>().notNull(),
     dedupeKey: text("dedupe_key").notNull(),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -3400,10 +3608,11 @@ export const billingNotices = pgTable(
       .where(sql`${t.sentAt} is null`),
     check(
       "billing_notices_kind_check",
-      // Built from the list, so a kind added there changes this CHECK and
+      // Built from the registry, so a kind added there changes this CHECK and
       // drizzle-kit generates the migration, instead of the INSERT failing at
-      // runtime inside the Stripe event's transaction.
-      sql`${t.kind} in (${sqlList(BILLING_NOTICE_KINDS)})`,
+      // runtime inside the Stripe event's transaction. Every kind, the plan's
+      // and the packages', since 0056.
+      sql`${t.kind} in (${sqlList(NOTICE_KINDS)})`,
     ),
   ],
 );
@@ -3852,6 +4061,90 @@ export const clinicClosures = pgTable(
 );
 
 // -----------------------------------------------------------------------------
+// The setup wizard (drizzle/0056): where a clinic is in it, and the changes
+// to where calls go that it and Settings record
+// -----------------------------------------------------------------------------
+
+/**
+ * The setup wizard's progress, one row per screen a clinic has left (plan
+ * Part E): answered (`done`) or skipped, when, and from which device. The
+ * wizard resumes on the first screen of the clinic's own list with no row,
+ * so a clinic that stops at step three comes back to step three, whoever
+ * signs in. Setup answers about the practice, no patient data. Tenant plane;
+ * the runtime role may change a row's outcome, never move it, and it goes
+ * with the clinic's data at destruction.
+ */
+export const clinicSetupScreens = pgTable(
+  "clinic_setup_screens",
+  {
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    screen: text("screen").$type<SetupScreenId>().notNull(),
+    outcome: text("outcome").$type<SetupScreenOutcome>().notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    /** The device whose passkey was live, or the sign-in's own label. Never a person's name. */
+    actorLabel: text("actor_label").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.clinicId, t.screen] }),
+    check("clinic_setup_screens_screen_check", sql`${t.screen} in (${sqlList(SETUP_SCREENS)})`),
+    check(
+      "clinic_setup_screens_outcome_check",
+      sql`${t.outcome} in (${sqlList(SETUP_SCREEN_OUTCOMES)})`,
+    ),
+    check(
+      "clinic_setup_screens_actor_check",
+      sql`char_length(${t.actorLabel}) between 1 and 200`,
+    ),
+  ],
+);
+
+export type ClinicSetupScreenRow = typeof clinicSetupScreens.$inferSelect;
+
+/**
+ * Before and after, for every change to a setting that decides where calls
+ * and urgent callers go, how long records are kept, or whether AYA books on
+ * its own (plan Part D4: "record before/after values in
+ * clinic_settings_history"). Append-only: the runtime role may INSERT and
+ * SELECT, nothing else. The values are the clinic's own numbers, a day count
+ * or a flag, never anything about a patient. Kept at destruction with the
+ * audit log, as the record of who sent calls where.
+ */
+export const clinicSettingsHistory = pgTable(
+  "clinic_settings_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    field: text("field").$type<SettingsHistoryField>().notNull(),
+    beforeValue: text("before_value"),
+    afterValue: text("after_value"),
+    /** The device whose passkey was live, or the sign-in's own label, or a service. */
+    actorLabel: text("actor_label").notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("clinic_settings_history_clinic_idx").on(t.clinicId, t.changedAt),
+    check(
+      "clinic_settings_history_field_check",
+      sql`${t.field} in (${sqlList(SETTINGS_HISTORY_FIELDS)})`,
+    ),
+    check(
+      "clinic_settings_history_values_check",
+      sql`(${t.beforeValue} is null or char_length(${t.beforeValue}) <= 64) and (${t.afterValue} is null or char_length(${t.afterValue}) <= 64)`,
+    ),
+    check(
+      "clinic_settings_history_actor_check",
+      sql`char_length(${t.actorLabel}) between 1 and 200`,
+    ),
+  ],
+);
+
+export type ClinicSettingsHistoryRow = typeof clinicSettingsHistory.$inferSelect;
+
+// -----------------------------------------------------------------------------
 // The portal's second factors and step-up (drizzle/0047). Identity plane, like
 // sign_in_links: a factor belongs to the clinic's one sign-in, not to a clinic,
 // and is read before any tenant is known, so no clinic_id and no RLS.
@@ -4099,7 +4392,7 @@ export const factorLockouts = pgTable(
 );
 
 // -----------------------------------------------------------------------------
-// Google Calendar (drizzle/0056): calendar terms per location, the OAuth
+// Google Calendar (drizzle/0057): calendar terms per location, the OAuth
 // state, slot holds and named providers
 // -----------------------------------------------------------------------------
 
@@ -4114,7 +4407,7 @@ export type CalendarElectionSource = (typeof CALENDAR_ELECTION_SOURCES)[number];
  * decides; nothing falls back to an older one.
  *
  * Contract evidence, not PHI, so no BAA gate. Append-only for every role:
- * app_calendar_election_guard (drizzle/0056) assigns `sequence`, checks the
+ * app_calendar_election_guard (drizzle/0057) assigns `sequence`, checks the
  * row against the agreement, and refuses any UPDATE or DELETE. It also holds
  * the rules on who may record what: an `agreement` row only for the
  * location set up at signing; a released document and a booking sync as the
@@ -4178,7 +4471,7 @@ export const calendarElections = pgTable(
     /**
      * The calendar link it was recorded through, for a `calendar_link` row:
      * one of this location's own. The foreign key is (clinic_id, link_id) to
-     * connection_links (clinic_id, id), written by hand in drizzle/0056,
+     * connection_links (clinic_id, id), written by hand in drizzle/0057,
      * because drizzle-kit emits a new table's foreign keys before the unique
      * constraint they need on an existing one.
      */
@@ -4285,7 +4578,7 @@ export const googleOauthStates = pgTable(
     /**
      * The calendar link the sign-in started from, for `calendar_link`: one of
      * the target clinic's own. The foreign key is (target_clinic_id, link_id)
-     * to connection_links (clinic_id, id), written by hand in drizzle/0056 for
+     * to connection_links (clinic_id, id), written by hand in drizzle/0057 for
      * the reason calendar_elections.link_id's is. Foreign keys are checked
      * past row-level security, which this identity-plane table needs.
      */
@@ -4350,7 +4643,7 @@ export type SlotHoldChannel = (typeof SLOT_HOLD_CHANNELS)[number];
  * held → writing | reserved | released | expired; reserved → converted |
  * released | expired; writing → converted | released | unknown; unknown →
  * converted | released. converted, released and expired are final
- * (app_slot_hold_transition, drizzle/0056).
+ * (app_slot_hold_transition, drizzle/0057).
  */
 export const SLOT_HOLD_STATUSES = [
   "held",
@@ -4627,4 +4920,6 @@ export const TENANT_SCOPED_TABLES = [
   "slot_holds",
   "clinic_providers",
   "clinic_provider_services",
+  "clinic_setup_screens",
+  "clinic_settings_history",
 ] as const;

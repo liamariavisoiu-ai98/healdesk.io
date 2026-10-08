@@ -154,7 +154,7 @@ const LINK_ACTOR: ActorContext = {
  * (property 3), because "this is a real link for a different page" is exactly
  * the kind of confirmation a stranger holding a URL should not get.
  * `calendar` connects a location's Google Calendar and records its calendar
- * elections (drizzle/0056, which also gives it an audience and the owner's
+ * elections (drizzle/0057, which also gives it an audience and the owner's
  * flags): app/calendar/[token], minted and mailed by
  * lib/connections/calendar-links.ts.
  */
@@ -186,7 +186,7 @@ export type ResolvedLink = {
   /** The link's own id: what an election or a Google sign-in started from it records. */
   linkId: string;
   /**
-   * Calendar links only (drizzle/0056); every other purpose is `recipients`
+   * Calendar links only (drizzle/0057); every other purpose is `recipients`
    * with no flags. `owner` links were mailed to the practice owner alone:
    * the change link (`allowsAccountChange`) and the confirm link
    * (`pendingElection`).

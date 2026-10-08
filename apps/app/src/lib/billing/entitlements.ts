@@ -120,7 +120,7 @@ export type SeedEntitlementsInput = {
   /**
    * healdesk's own fictional demo clinic (scripts/demo-clinic.ts, owner
    * decision Q6): status `demo`, the one marker on which a draft calendar
-   * election counts (app_clinic_is_demo, drizzle/0056). Only provisioning's
+   * election counts (app_clinic_is_demo, drizzle/0057). Only provisioning's
    * internal option sets it, never a purchase, and never with a Stripe id.
    */
   demo?: boolean;

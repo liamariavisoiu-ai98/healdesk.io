@@ -404,9 +404,9 @@ nothing and removes the argument.
 > it: `validateSignRequest` and `signAgreement` both settle the version
 > through `signableTemplate` (plan C3), which takes only `BAA_TEMPLATES[0]`,
 > or a released version inside its `BAA_RELEASE_OVERLAP` window.
-> Provisioning does not check it: its approval gate reads
-> `currentBaaTemplate()`, not the bound acceptance's version, until plan C15
-> changes that, and C15 must land before the release. The full text is
+> Provisioning refuses a row signed under it too: since plan C15 its approval
+> gate reads the bound acceptance's own version (`isBaaVersionAcceptable`),
+> where it used to read `currentBaaTemplate()`. The full text is
 > rendered in `docs/baa-v1.3.0-draft-calendar-clauses.txt`. The owner decided
 > on 5 October 2026 (answer Q2) that Claude releases 1.3.0 and the calendar
 > election after its own adversarial audit of the full text, with no counsel
@@ -836,6 +836,10 @@ release by changing the code, the clause or the site copy:
    `dueForDestruction` in `apps/app/src/lib/offboarding/offboarding.ts`). The
    funnel's design flags the same gap for this version
    (`docs/design/funnel-onboarding-portal-2026-10-06.md`, Part L, on main).
+   (Since 7 October 2026 the code keeps each agreement's own rule: 1.2.1 and
+   earlier destroy before thirty days are up whatever the export, and the
+   ninety days apply only where the agreement states them; drizzle/0058 and
+   release gate 7 in §12.14.)
 9. **The Payments clause describes a link nothing creates.** "Where Practice
    takes deposits, healdesk creates a payment link through Practice's own
    payment processor." No code does: deposit links are package D, which is
@@ -865,13 +869,14 @@ release by changing the code, the clause or the site copy:
     note ("fifteen days' notice"). Before 1.3.0 is offered it has to look
     them up through `clauseExplainer(template.version, id)`, or a 1.3.0 buyer
     reads fifteen days beside a clause that gives 24 hours.
-13. **The gate that is not built yet.** Signing refuses 1.3.0 today only
+13. **The gates on an unreleased version.** Signing refuses 1.3.0 today
     because `signableTemplate` takes `BAA_TEMPLATES[0]`, or a released
     version inside its `BAA_RELEASE_OVERLAP` window, and 1.3.0 is neither.
     Plan C3, which made both signing paths settle the version that way, has
-    landed. Plan C15, which makes provisioning's approval gate read the bound
-    acceptance's version instead of `currentBaaTemplate()`, has not, and
-    must land before the release.
+    landed, and so has plan C15, which makes provisioning's approval gate
+    read the bound acceptance's own version (`isBaaVersionAcceptable`)
+    instead of `currentBaaTemplate()`: a row signed under 1.3.0 provisions
+    nothing until the release.
 
 The pre-release audit (§ 12.14) settled these: items 1 (ICD-17), 2
 (ICD-25), 3 (ICD-05, SL-01), 4 (ICD-11), 8 (HRC-02) and 11 (PT-29) are fixed
@@ -1357,16 +1362,43 @@ these is closed, by code, a page, a signed paper or a host setting, and
    kept "so the request itself is honoured forever" changes with it. That is
    what clause 4(c) promises: "only a record of the request, for no longer
    than it needs one to make sure the information stays deleted".
-7. **Offboarding (HRC-02, PT-01).**
-   - The funnel's change lands: 1.2.1 and earlier keep their flat thirty
-     days, by the bound version, and 1.3.0 keeps the DPA's rule, which
-     clause 17 states.
-   - `export_delivered_at` is stamped only once the export has been
-     delivered to Practice, never when it is merely produced.
-   - `dueForDestruction` meets the 30- and 90-day marks as deadlines (the
-     job runs once a day).
-   - `destroyClinicData` also deletes suppressions, consent records and
-     contact attempts, with the grant they need.
+7. **Offboarding (HRC-02, PT-01).** Code in
+   `drizzle/0058_destruction_clock.sql` and
+   `apps/app/src/lib/offboarding/offboarding.ts`, pinned by
+   `tests/destruction-clock.test.ts`.
+   - Done: 1.2.1 and earlier keep their flat thirty days and 1.3.0 and the
+     DPA keep the DPA's rule, which clause 17 states, read from the
+     agreement the clinic was bound to when its service ended, terminated
+     since or not (`app_agreement_at_end`, `DESTRUCTION_RULES`,
+     `destructionPlan`; `app_destruction_due()` is the same rule as the
+     database's floor). No agreement, or a version the map does not know,
+     gets the thirty days. The clock starts at the subscription's own end,
+     which the database takes up to a week back.
+   - Done: `export_delivered_at` is stamped only by the operator's record of
+     the handover, which is refused until a bundle has been produced since
+     offboarding started, through `app_mark_export_delivered()`, the
+     column's only writer. The portal export, when it is built, stamps it
+     once its download has reached Practice.
+   - Done: the job runs every hour, and a clinic on the thirty days is due
+     at day 29, so its data is gone before thirty days have passed.
+   - Done (the calendar session's decision, 7 October 2026): 1.3.0's Term
+     clause keeps its words, "thirty days after the Services end if the
+     export has been delivered by then; otherwise as soon as the export is
+     delivered; and in any case no later than ninety days after the Services
+     end", and the code meets them exactly. Every hourly run destroys on
+     this rule too, and a 1.3.0 or DPA clinic is due at day 29 once its
+     export has been delivered (by day 30), at the delivery when that is
+     later, and at day 89 without one, so neither limit is passed whatever
+     the hour (`THIRTY_DAY_LIMIT_DUE_DAYS`, `NINETY_DAY_LIMIT_DUE_DAYS`;
+     `app_destruction_due()` the same in the database). The 04 UTC run,
+     which could come up to a day after day 30, after a delivery and after
+     day 90, is gone. 1.3.0 and the DPA keep one rule. The DPA's clause 17
+     ("runs once a day ... at the first run once") is left as it is: the
+     hourly job destroys no later than it says.
+   - Done: `destroyClinicData` also deletes suppressions, consent records and
+     contact attempts, through `app_destroy_contact_evidence()` (the runtime
+     role keeps no DELETE on them), and `app_mark_clinic_destroyed()` refuses
+     while any is left.
    - Done: destruction, `eraseContact` and the purge succeed for a practice
      with a confirmed booking request
      (`drizzle/0054_booking_request_destruction.sql`). The request's
@@ -1374,8 +1406,19 @@ these is closed, by code, a page, a signed paper or a host setting, and
      requests now go first, through three functions bound to the practice,
      and `docs/counsel/dpa.md` § 9 records how.
      `tests/booking-request-destruction.test.ts` pins each path.
-   - The clinic's calls and agent are deleted at Retell by the deadline.
-   - A restore re-runs destruction.
+   - The clinic's calls and agent are deleted at Retell by the deadline. An
+     operator step for now: recorded on the care page as a
+     `voice_vendor_data_deleted` security event, and shown outstanding, with
+     its deadline (the day the data is destroyed here), until it is. Nothing
+     in apps/app reaches Retell yet; the deletion moves into code with the
+     voice runtime.
+   - Done: a restore re-runs destruction. `docs/handover.md` ("Restoring")
+     gives the steps: each destruction's `clinic data destroyed` log line
+     carries the dates it ran on, which the owner puts back where a restore
+     lost them, and `npm run destroy-due -w @healdesk/app`
+     (`destroyEverythingDue`) then destroys every clinic due and exits
+     non-zero while any still is. `tests/destruction-clock.test.ts` restores
+     a destroyed clinic and runs both.
 8. **Amendment record (PT-17).** An append-only amendment linked to the
    booking request or conversation it amends, carried by `exportPatient`,
    `exportClinic` and the portal export. The DPA's clause 13 promises the

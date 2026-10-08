@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { SENDER_IDENTITY } from "@healdesk/catalog";
+import { annualTotalUsd, getPlan, SENDER_IDENTITY } from "@healdesk/catalog";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
-import { DIRECT_KIND_REGISTRY, DIRECT_KINDS } from "@/lib/email/direct-kinds";
+import { DIRECT_KIND_REGISTRY, DIRECT_KINDS, LEDGER_DIRECT_KINDS } from "@/lib/email/direct-kinds";
 import {
   carriesUnsubscribe,
   classOf,
@@ -42,6 +42,7 @@ import {
 import { renderOpsAlert } from "@/lib/email/templates/ops_alert";
 import { PENDING_TEMPLATES, TEMPLATES, templateFor } from "@/lib/email/templates/registry";
 import type { EmailAudience, TemplateContext } from "@/lib/email/templates/types";
+import { WELCOME_ENTRY } from "@/lib/email/templates/welcome";
 import {
   readUnsubscribeToken,
   unsubscribeHeaders,
@@ -135,7 +136,7 @@ describe("the template registry", () => {
     }
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3, the billing kinds and the calendar's two", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds, then B1, O7, the setup closure and O13, and the calendar's two", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -162,9 +163,22 @@ describe("the template registry", () => {
       "refund_issued",
       "card_expiring",
       "connect_connected",
+      "welcome",
+      "setup_reminder",
+      "setup_closed",
+      "calendar_stopped",
+      "calendar_reconnected",
       "calendar_link",
       "calendar_election_recorded",
     ]);
+  });
+
+  test("the ledger records exactly the direct kinds flagged for it: the welcome email", () => {
+    const flagged = DIRECT_KINDS.filter((kind) => DIRECT_KIND_REGISTRY[kind].ledger);
+    expect([...LEDGER_DIRECT_KINDS]).toEqual(flagged);
+    expect(flagged).toEqual(["welcome"]);
+    expect(isLinkEmail("welcome")).toBe(true);
+    expect(locksOutClinic("welcome")).toBe(true);
   });
 
   test("every template's fixture passes the payload allowlist", () => {
@@ -233,6 +247,40 @@ describe("each template's output", () => {
   }
 });
 
+describe("the welcome email (B1)", () => {
+  const usd = (amount: number) => `$${amount.toLocaleString("en-US")}`;
+
+  test("the monthly price either way: an annual plan's per month, with the year's total", () => {
+    const plan = getPlan(WELCOME_ENTRY.fixture.planId)!;
+    const monthly = WELCOME_ENTRY.render(WELCOME_ENTRY.fixture, contextFor("welcome"));
+    expect(monthly.text).toContain(`Monthly price: ${usd(plan.monthlyUsd)}`);
+    expect(monthly.text).toContain(`Monthly billing (${usd(plan.monthlyUsd)}) starts the day`);
+
+    const annual = WELCOME_ENTRY.render(
+      { ...WELCOME_ENTRY.fixture, interval: "year" },
+      contextFor("welcome"),
+    );
+    expect(annual.text).toContain(
+      `Price: ${usd(plan.annualMonthlyUsd)} a month, billed annually (${usd(annualTotalUsd(plan))} a year)`,
+    );
+    expect(annual.text).toContain("Billing: Annual");
+    expect(annual.text).not.toContain("Monthly price");
+  });
+
+  test("Help: the voicemail line in the plan's words while one is set, and nothing while not", () => {
+    const set = WELCOME_ENTRY.render(WELCOME_ENTRY.fixture, contextFor("welcome", "clients"));
+    expect(set.text).toContain(
+      "Or leave a message on (888) 555-0100: we reply the next business day. Please don't include client details.",
+    );
+    const unset = WELCOME_ENTRY.render(
+      { ...WELCOME_ENTRY.fixture, helpPhoneE164: null, callUrl: null },
+      contextFor("welcome"),
+    );
+    expect(unset.text).toContain("Questions? Reply to this email, or write to hello@healdesk.io.");
+    expect(unset.text).not.toMatch(/leave a message|five-minute call|\/help\/call/);
+  });
+});
+
 describe("ops alerts beyond the fixture", () => {
   // The registry's fixture is one event. An alert whose wording is an
   // instruction someone acts on once, unprompted, gets a snapshot of its own,
@@ -241,6 +289,59 @@ describe("ops alerts beyond the fixture", () => {
     expect(
       renderOpsAlert(
         { event: "dmarc_review_due", windowStart: "2026-10-06" },
+        contextFor("ops_alert"),
+      ),
+    ).toMatchSnapshot();
+  });
+
+  // The destruction clock (lib/offboarding): a practice on the thirty days
+  // with no export delivered, from day 21, and a subscription's end the
+  // database could start only a week back. Ids, instants and a count.
+  test("a leaving practice with no export delivered: the snapshot", () => {
+    expect(
+      renderOpsAlert(
+        {
+          event: "export_undelivered_before_destruction",
+          clinicId: CLINIC_ID,
+          destroyAt: "2026-11-30T10:00:00.000Z",
+        },
+        contextFor("ops_alert"),
+      ),
+    ).toMatchSnapshot();
+  });
+
+  // BAA 1.2.1 gives the export "on request", but Terms §7 promises every
+  // leaving practice one within thirty days of the end and the canceled email
+  // tells it one is coming, so it has no reason to ask. The data goes at day
+  // 29 whatever the export, so an alert telling ops to deliver only "any export
+  // the practice asked for" let a practice that was told to expect one lose its
+  // records for good.
+  test("a leaving practice with no export delivered: ops is told to deliver it, asked for or not", () => {
+    const { text, preheader } = renderOpsAlert(
+      {
+        event: "export_undelivered_before_destruction",
+        clinicId: CLINIC_ID,
+        destroyAt: "2026-11-30T10:00:00.000Z",
+      },
+      contextFor("ops_alert"),
+    );
+    for (const body of [text, preheader]) {
+      expect(body).toContain("Deliver this practice's export");
+      expect(body).toContain("whether or not it asks");
+      expect(body).toContain("Terms §7");
+      expect(body).not.toMatch(/asked for/);
+    }
+  });
+
+  test("a subscription's end processed over a week late: the snapshot", () => {
+    expect(
+      renderOpsAlert(
+        {
+          event: "offboarding_started_late",
+          clinicId: CLINIC_ID,
+          serviceEndedAt: "2026-10-27T10:00:00.000Z",
+          lateDays: 3,
+        },
         contextFor("ops_alert"),
       ),
     ).toMatchSnapshot();

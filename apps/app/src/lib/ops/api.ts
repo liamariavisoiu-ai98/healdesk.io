@@ -6,6 +6,7 @@ import { and, desc, eq, gt, isNull, ne, sql } from "drizzle-orm";
 import { unsafeDb } from "@/db";
 import {
   appointments,
+  auditLog,
   baaAcceptances,
   bookingRequests,
   clinics,
@@ -31,15 +32,21 @@ import {
 } from "@/lib/agreements/search";
 import {
   BOOKING_FIELDS,
+  cleanProfileText,
+  CLINIC_PROFILE_LIMITS,
   currentDirectBookingAddendum,
   EXCLUDED_FIELDS,
+  findClinicalContent,
   forwardingInstructions,
   getConnectionGuide,
   isCarrier,
   isOnboardingStep,
+  isServicePriceKind,
+  isSpecialtyId,
   ONBOARDING_LABELS,
   ONBOARDING_STEPS,
   resolveBookingRequirements,
+  serviceNameScreen,
   type ForwardingInstruction,
   type OnboardingState,
 } from "@healdesk/catalog";
@@ -60,7 +67,15 @@ import {
 } from "@/lib/incidents/incidents";
 import { applyEmailEvent, isDeliveryStatus } from "@/lib/email/events";
 import { KIND_SHAPE } from "@/lib/email/kind-rules";
-import { markExportDelivered, startOffboarding } from "@/lib/offboarding/offboarding";
+import {
+  destructionPlan,
+  markExportDelivered,
+  recordVoiceVendorDeletion,
+  startOffboarding,
+  voiceVendorDeletionOf,
+  type DestructionBasis,
+  type DestructionRule,
+} from "@/lib/offboarding/offboarding";
 import { sweepCalendarTerms } from "@/lib/connections/google-calendar";
 import {
   opDisconnectCalendar,
@@ -136,6 +151,9 @@ import { goLive, goLivePreconditions } from "@/lib/onboarding/go-live";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { completeStep, reopenStep } from "@/lib/onboarding/steps";
 import { getJob, listJobs as listJobRecords, PHASE_TWO_JOBS } from "@/lib/scheduler/jobs";
+import { SETUP_CLOSURE_REASON } from "@/lib/setup/closure-email";
+import { moveSetupDeadlineToZone } from "@/lib/setup/practice";
+import { toCents } from "@/lib/setup/prices";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 import { log } from "@/lib/log";
 
@@ -281,6 +299,7 @@ const OPERATIONS = [
   "resolveIncident",
   "startOffboarding",
   "markExportDelivered",
+  "markVoiceVendorDataDeleted",
   // The billing panel (lib/ops/billing.ts; build spec §7 E, R35): one clinic's
   // subscription, usage, switches and the billing engine's ledgers, and the
   // support actions on them. Ids, counts, cents and codes; never a payload.
@@ -372,6 +391,7 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "resolveIncident",
   "startOffboarding",
   "markExportDelivered",
+  "markVoiceVendorDataDeleted",
   // The billing panel's writes. getClinicBilling and previewRefund are reads:
   // the preview asks Stripe and writes nothing but its audit row.
   "setOverageMode",
@@ -873,6 +893,8 @@ export async function runOperation(
       return opStartOffboarding(args, operator);
     case "markExportDelivered":
       return opMarkExportDelivered(args, operator);
+    case "markVoiceVendorDataDeleted":
+      return opMarkVoiceVendorDataDeleted(args, operator);
     case "getClinicBilling":
       return opGetClinicBilling(args, operator);
     case "previewRefund":
@@ -2919,24 +2941,48 @@ export type AgentConfigState =
   | { status: "updated"; version: number; approvedAt: string | null; auditRecorded: boolean }
   | { status: "error"; message: string };
 
-function readAgentInput(args: Record<string, unknown>): AgentConfigInput | string {
+function readAgentInput(args: Record<string, unknown>, specialty: string): AgentConfigInput | string {
   const greeting = stringArg(args, "greeting", 600);
   if (!greeting) return "The greeting is required.";
   const rawServices = Array.isArray(args.services) ? args.services : [];
+  // Prices to the cent, as the wizard stores them ("$14.50 per pulse"):
+  // rounding to whole dollars rewrote the clinic's own prices on every save.
+  const dollars = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? toCents(v) : null);
+  const minutes = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v) : null);
   const services = rawServices.map((raw) => {
     const r = (raw ?? {}) as Record<string, unknown>;
-    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v) : null);
     const depositNum = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
     return {
       name: typeof r.name === "string" ? r.name.trim().slice(0, 120) : "",
-      priceFromUsd: num(r.priceFromUsd),
-      priceToUsd: num(r.priceToUsd),
-      durationMinutes: num(r.durationMinutes),
+      priceFromUsd: dollars(r.priceFromUsd),
+      priceToUsd: dollars(r.priceToUsd),
+      durationMinutes: minutes(r.durationMinutes),
+      // What the wizard and Knowledge add to a service (0056), which the
+      // console carries and does not edit. Kept as sent; left out or
+      // malformed, it stays undefined and updateAgentConfig takes the stored
+      // service's own (lib/setup/prices.ts).
+      priceKind: r.priceKind === null ? null : isServicePriceKind(r.priceKind) ? r.priceKind : undefined,
+      unit:
+        r.unit === null
+          ? null
+          : typeof r.unit === "string"
+            ? cleanProfileText(r.unit, CLINIC_PROFILE_LIMITS.unit) || null
+            : undefined,
       // Carried through, or every operator save would wipe the per-service
-      // deposits (BD27); validateAgentConfig checks the range.
+      // deposits (BD27); validateAgentConfig checks the range. Left out, it
+      // stays out, and updateAgentConfig takes the stored service's own.
       ...(r.depositUsd === undefined ? {} : { depositUsd: depositNum(r.depositUsd) }),
     };
   });
+  // A unit is words AYA says ("$14.50 per pulse"), screened as the wizard
+  // screens it: by the specialty's own rule for its menu.
+  const units = findClinicalContent(
+    Object.fromEntries(services.flatMap((s, i) => (s.unit ? [[`services[${i}].unit`, `per ${s.unit}`]] : []))),
+    serviceNameScreen(isSpecialtyId(specialty) ? specialty : null),
+  );
+  if (units.length > 0) {
+    return `A service's unit mentions ${units[0]!.label} ("${units[0]!.excerpt}"). Name it the way the menu does.`;
+  }
   return {
     greeting,
     services,
@@ -2965,7 +3011,7 @@ async function opUpdateAgentConfig(
 ): Promise<OpsOutcome> {
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies AgentConfigState);
-  const input = readAgentInput(args);
+  const input = readAgentInput(args, clinic.specialty);
   if (typeof input === "string") return ok({ status: "error", message: input } satisfies AgentConfigState);
 
   try {
@@ -3112,6 +3158,30 @@ export type CareView = {
     exportDeliveredAt: string | null;
     destroyAfter: string | null;
     destroyedAt: string | null;
+    /**
+     * The destruction plan by the agreement the service ended under
+     * (destructionPlan in lib/offboarding), or null while the clinic is not
+     * offboarding. ISO instants, and the rule's name; contract metadata.
+     */
+    destruction: {
+      rule: DestructionRule;
+      basis: DestructionBasis;
+      agreementVersion: string | null;
+      exportDueBy: string;
+      destroyDueAt: string;
+      latestDestroyAt: string;
+    } | null;
+    /**
+     * The operator step at the voice vendor: the clinic's calls and agent
+     * deleted at Retell by the time its data is destroyed here (destroyDueAt),
+     * outstanding until recorded. Null while the clinic is not offboarding.
+     */
+    voiceVendorDeletion: {
+      deadline: string;
+      recordedAt: string | null;
+      recordedBy: string | null;
+      how: string | null;
+    } | null;
   };
   recipients: { email: string; label: string | null; addedBy: string; addedAt: string }[];
   deliveries: {
@@ -3146,6 +3216,8 @@ async function opGetClinicCare(
 ): Promise<OpsOutcome> {
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return opsProblem("No such clinic.", 404, "invalid_args");
+  const plan = destructionPlan(clinic);
+  const vendorDeletion = plan ? await voiceVendorDeletionOf(clinic.id) : null;
 
   const view = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
@@ -3171,6 +3243,24 @@ async function opGetClinicCare(
           exportDeliveredAt: clinic.exportDeliveredAt?.toISOString() ?? null,
           destroyAfter: clinic.destroyAfter?.toISOString() ?? null,
           destroyedAt: clinic.destroyedAt?.toISOString() ?? null,
+          destruction: plan
+            ? {
+                rule: plan.rule,
+                basis: plan.basis,
+                agreementVersion: plan.agreementVersion,
+                exportDueBy: plan.exportDueBy.toISOString(),
+                destroyDueAt: plan.destroyDueAt.toISOString(),
+                latestDestroyAt: plan.latestDestroyAt.toISOString(),
+              }
+            : null,
+          voiceVendorDeletion: plan
+            ? {
+                deadline: plan.destroyDueAt.toISOString(),
+                recordedAt: vendorDeletion?.recordedAt.toISOString() ?? null,
+                recordedBy: vendorDeletion?.recordedBy ?? null,
+                how: vendorDeletion?.how ?? null,
+              }
+            : null,
         },
         recipients: recipients.map((r) => ({
           email: r.email,
@@ -3381,6 +3471,15 @@ async function opStartOffboarding(
   if (clinic.destroyedAt) return care.error("This clinic's data has already been destroyed.");
   const reason = incidentText(stringArg(args, "reason", 300), "reason");
   if (typeof reason !== "string") return care.error(reason.error);
+  // The setup closure's reason belongs to Package C's deletion handler: on it,
+  // startOffboarding queues the clinic's "your account has closed" email
+  // (lib/setup/closure-email.ts), once per clinic. Typed here it would send
+  // that with nothing cancelled, and hold back the real one later.
+  if (reason.toLowerCase() === SETUP_CLOSURE_REASON) {
+    return care.error(
+      `"${SETUP_CLOSURE_REASON}" is kept for the setup window's own closure, which emails the clinic that its account has closed. To close an unfinished setup, use Billing's "Close the unfinished setup". Here, say why the clinic is leaving.`,
+    );
+  }
   await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
     (tx) => startOffboarding(tx, reason),
@@ -3392,21 +3491,82 @@ async function opStartOffboarding(
   return care.updated();
 }
 
+/**
+ * The operator's record that the export reached the practice: what
+ * "delivered" means on this path. It refuses until a whole-clinic bundle has
+ * been produced since offboarding started (exportClinic writes the audit row
+ * it looks for), so a delivery cannot be recorded for an export nobody made,
+ * and producing one records nothing: the operator hands it over, then
+ * records how. The stamp is the database's, at this moment
+ * (app_mark_export_delivered).
+ */
 async function opMarkExportDelivered(
   args: Record<string, unknown>,
   operator: Operator,
 ): Promise<OpsOutcome> {
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return care.error("No such clinic.");
-  if (!clinic.offboardingStartedAt) return care.error("Start offboarding first; the export is part of leaving.");
+  const startedAt = clinic.offboardingStartedAt;
+  if (!startedAt) return care.error("Start offboarding first; the export is part of leaving.");
   if (clinic.destroyedAt) return care.error("This clinic's data has already been destroyed.");
+  if (clinic.exportDeliveredAt) return care.error(`The export was recorded as delivered on ${asDate(clinic.exportDeliveredAt)}.`);
   const how = incidentText(stringArg(args, "how", 200), "how");
   if (typeof how !== "string") return care.error(how.error);
-  await withTenant(
+  const delivered = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
-    (tx) => markExportDelivered(tx, how),
+    async (tx) => {
+      const [produced] = await tx.db
+        .select({ id: auditLog.id })
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.clinicId, tx.clinicId),
+            eq(auditLog.action, "export"),
+            eq(auditLog.resourceType, "clinic_bundle"),
+            gt(auditLog.occurredAt, startedAt),
+          ),
+        )
+        .limit(1);
+      if (!produced) return false;
+      await markExportDelivered(tx, how);
+      return true;
+    },
   );
+  if (!delivered) {
+    return care.error(
+      "No return bundle has been produced since offboarding started. Produce it on the app host (npm run patient-export -w @healdesk/app -- --clinic <id> --all), hand it over, then record the handover here.",
+    );
+  }
   await audit(operator, "offboarding_export_delivered", { clinicSlug: clinic.slug });
+  return care.updated();
+}
+
+/**
+ * The operator's record that the clinic's calls and agent were deleted at the
+ * voice vendor (Retell), in the vendor's console: nothing in apps/app talks
+ * to the vendor yet. The care view shows the step outstanding, with its
+ * deadline, until this is recorded; it is recorded once, as a security event
+ * naming the operator (recordVoiceVendorDeletion in lib/offboarding).
+ */
+async function opMarkVoiceVendorDataDeleted(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return care.error("No such clinic.");
+  if (!clinic.offboardingStartedAt) return care.error("Start offboarding first; the vendor's copy goes on the way out.");
+  const earlier = await voiceVendorDeletionOf(clinic.id);
+  if (earlier) return care.error(`Already recorded on ${asDate(earlier.recordedAt)} by ${earlier.recordedBy}.`);
+  const how = incidentText(stringArg(args, "how", 200), "how");
+  if (typeof how !== "string") return care.error(how.error);
+  await recordVoiceVendorDeletion({
+    clinicId: clinic.id,
+    clinicSlug: clinic.slug,
+    how,
+    actorLabel: operator.email,
+    ipAddress: operator.request.ipAddress ?? null,
+    userAgent: operator.request.userAgent ?? null,
+  });
   return care.updated();
 }
 
@@ -3590,7 +3750,11 @@ async function opSetClinicTimezone(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
     async (tx) => {
       const now = new Date();
+      const [before] = await tx.db.select({ timezone: clinics.timezone }).from(clinics).where(eq(clinics.id, tx.clinicId)).limit(1);
       await tx.db.update(clinics).set({ timezone, timezoneConfirmedAt: now, updatedAt: now }).where(eq(clinics.id, tx.clinicId));
+      // The setup window's last day stays the day the emails named, on the
+      // clinic's corrected calendar (lib/setup/practice.ts).
+      if (before) await moveSetupDeadlineToZone(tx, before.timezone, timezone, now);
       tx.audit.record({ action: "update", resourceType: "clinic_timezone", resourceId: tx.clinicId, metadata: { timezone, confirmed: true } });
     },
   );

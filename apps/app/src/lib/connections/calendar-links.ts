@@ -59,7 +59,7 @@ import { calendarRecipients, ownerRecipients } from "./recipients";
  * | continuation  | as its parent| 1 day               | every election and connect made on the page; never mailed |
  *
  * Each records, when minted, where it was mailed (`sent_to`), and every
- * flag is frozen with it (drizzle/0056). Opening a link never spends it;
+ * flag is frozen with it (drizzle/0057). Opening a link never spends it;
  * connecting, recording an election and confirming one do, and the page then
  * goes on under a continuation link, so a URL that was used is dead.
  */

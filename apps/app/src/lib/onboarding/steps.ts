@@ -35,10 +35,14 @@ export async function completeStep(
   const at = (options.at ?? new Date()).toISOString();
   // jsonb concatenation keeps a step that is already stamped: coalesce on the
   // existing value so a second completion never moves the first timestamp.
+  // An open step is a JSON null (provisioning seeds every step that way, and
+  // reopenStep writes one), which `->` returns as a value rather than SQL
+  // NULL, so it is turned into NULL first: without that, coalesce kept the
+  // JSON null and a step seeded open could never be stamped.
   await tx.db
     .update(clinics)
     .set({
-      onboarding: sql`coalesce(${clinics.onboarding}, '{}'::jsonb) || jsonb_build_object(${step}::text, coalesce(${clinics.onboarding} -> ${step}::text, to_jsonb(${at}::text)))`,
+      onboarding: sql`coalesce(${clinics.onboarding}, '{}'::jsonb) || jsonb_build_object(${step}::text, coalesce(nullif(${clinics.onboarding} -> ${step}::text, 'null'::jsonb), to_jsonb(${at}::text)))`,
       updatedAt: new Date(),
     })
     .where(eq(clinics.id, tx.clinicId));

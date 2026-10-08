@@ -498,15 +498,26 @@ describeDb("the deposit switches, against the database", DB_TEST_OPTIONS, () => 
     const stored = await inTenant(c.clinicId, (client) =>
       client.query<{ services: AgentService[] }>(`select services from agent_configs`),
     );
+    // With the price kind each one's prices say, and no unit, which
+    // updateAgentConfig stores for a service sent without them (0056).
     expect(stored.rows[0]!.services).toEqual([
       {
         name: "Chemical peel",
+        priceKind: "range",
         priceFromUsd: 150,
         priceToUsd: 250,
+        unit: null,
         durationMinutes: 60,
         depositUsd: 40,
       },
-      { name: "Consultation", priceFromUsd: 0, priceToUsd: 0, durationMinutes: 30 },
+      {
+        name: "Consultation",
+        priceKind: "exact",
+        priceFromUsd: 0,
+        priceToUsd: 0,
+        unit: null,
+        durationMinutes: 30,
+      },
     ]);
     // And a deposit out of range is refused, not stored.
     const refused = await runOperation(

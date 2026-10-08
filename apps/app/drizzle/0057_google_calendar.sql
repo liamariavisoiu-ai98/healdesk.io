@@ -138,7 +138,6 @@ ALTER TABLE "appointments" ADD COLUMN "calendar_write_claimed_at" timestamp with
 ALTER TABLE "appointments" ADD COLUMN "calendar_write_attempts" smallint DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "appointments" ADD COLUMN "calendar_write_lease" uuid;--> statement-breakpoint
 ALTER TABLE "appointments" ADD COLUMN "calendar_event_key" text;--> statement-breakpoint
-ALTER TABLE "clinic_settings" ADD COLUMN "auto_confirm_bookings" boolean DEFAULT true NOT NULL;--> statement-breakpoint
 ALTER TABLE "clinic_settings" ADD COLUMN "auto_confirm_changed_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "clinic_settings" ADD COLUMN "auto_confirm_changed_by_label" text;--> statement-breakpoint
 ALTER TABLE "clinics" ADD COLUMN "client_number" integer DEFAULT nextval('clinics_client_number_seq') NOT NULL;--> statement-breakpoint
@@ -1482,6 +1481,123 @@ COMMENT ON FUNCTION app_google_account_live_count(text) IS
   'How many clinics hold this Google account (account_ref) live: 0 or 1. Read before revoking a grant at Google. A count only; raises on a malformed reference.';--> statement-breakpoint
 COMMENT ON FUNCTION app_reissue_undelivered_booking_token(uuid, bytea) IS
   'Puts a fresh token hash on a booking request of the caller''s tenant that is still requested, unexpired and never notified, so a desk notice can carry a working link after the original token died with its process. The only path to booking_requests.token_hash after insert.';--> statement-breakpoint
+
+
+-- -----------------------------------------------------------------------------
+-- 13b. Destruction takes the calendar's clinic rows (0054's rule, as 0056 left it, extended)
+-- -----------------------------------------------------------------------------
+-- 0054 made app_mark_clinic_destroyed() refuse while any table with a
+-- clinic_id that destruction does not keep still holds the clinic's rows, and
+-- its test fails until every such table is on one list or the other. Three of
+-- this migration's tables go with the clinic: slot_holds (a time, and who and
+-- what it was for), and clinic_providers with clinic_provider_services (the
+-- clinic's own setup, which the setup-window rule deletes with the account).
+-- calendar_elections stays: each election is part of the signed agreement
+-- (BAA 1.3.0, Definitions), append-only for every role, and holds no patient.
+--
+-- The runtime role deletes slot_holds itself (it holds DELETE). It has no
+-- DELETE on clinic_providers, which are deactivated, never deleted, while the
+-- clinic is a customer, so app_destroy_clinic_providers() deletes them, after
+-- the runtime role has deleted their mappings, on app_destroy_booking_requests()'s due-for-destruction
+-- rule: the tenant of the transaction, offboarding started thirty days ago
+-- and destroy_after passed, by the database's clock.
+CREATE OR REPLACE FUNCTION app_destroy_clinic_providers(target_clinic uuid)
+RETURNS integer
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  tenant uuid := app_current_clinic_id();
+  started timestamptz;
+  due timestamptz;
+  gone integer;
+BEGIN
+  IF tenant IS NULL OR target_clinic IS DISTINCT FROM tenant THEN
+    RAISE EXCEPTION 'app_destroy_clinic_providers: clinic % is not the tenant of this transaction', target_clinic
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT c.offboarding_started_at, c.destroy_after INTO started, due
+    FROM clinics c
+   WHERE c.id = target_clinic;
+  IF started IS NULL OR due IS NULL OR started > now() - interval '30 days' OR due > now() THEN
+    RAISE EXCEPTION 'Clinic % is not due for destruction; refusing to delete its providers.', target_clinic
+      USING ERRCODE = 'check_violation',
+            HINT = 'Destruction runs thirty days after offboarding started (app_start_offboarding), by the database''s clock.';
+  END IF;
+
+  -- destroyClinicData deletes the mappings first; any left go by cascade.
+  DELETE FROM clinic_providers p WHERE p.clinic_id = target_clinic;
+  GET DIAGNOSTICS gone = ROW_COUNT;
+  RETURN gone;
+END
+$$;--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_destroy_clinic_providers(uuid) FROM PUBLIC;--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_destroy_clinic_providers(uuid) TO healdesk_app;--> statement-breakpoint
+
+-- app_mark_clinic_destroyed as the setup wizard's migration (0056) last
+-- defined it, with the three tables above added to the rows that must be gone
+-- before a destruction is recorded. Nothing else changes.
+CREATE OR REPLACE FUNCTION app_mark_clinic_destroyed(target_clinic uuid)
+RETURNS timestamptz
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  tenant uuid := app_current_clinic_id();
+  started timestamptz;
+  due timestamptz;
+  done timestamptz;
+BEGIN
+  IF tenant IS NULL OR target_clinic IS DISTINCT FROM tenant THEN
+    RAISE EXCEPTION 'app_mark_clinic_destroyed: clinic % is not the tenant of this transaction', target_clinic
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT c.offboarding_started_at, c.destroy_after INTO started, due
+    FROM clinics c
+   WHERE c.id = target_clinic;
+  IF started IS NULL OR due IS NULL OR started > now() - interval '30 days' OR due > now() THEN
+    RAISE EXCEPTION 'Clinic % is not due for destruction; refusing to mark it destroyed.', target_clinic
+      USING ERRCODE = 'check_violation',
+            HINT = 'Destruction runs thirty days after offboarding started (app_start_offboarding), by the database''s clock.';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM booking_requests r WHERE r.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM appointments a WHERE a.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM conversations v WHERE v.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM contacts p WHERE p.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM transactions t WHERE t.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM reconciliation_exceptions x WHERE x.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM meta_booking_drafts d WHERE d.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM webhook_events w WHERE w.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM provider_connections k WHERE k.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM clinic_closures z WHERE z.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM chat_threads h WHERE h.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM meta_inbound_messages m WHERE m.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM clinic_setup_screens s WHERE s.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM slot_holds sh WHERE sh.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM clinic_provider_services ps WHERE ps.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM clinic_providers pr WHERE pr.clinic_id = target_clinic) THEN
+    RAISE EXCEPTION 'Clinic % still holds rows that destruction deletes; refusing to mark it destroyed.', target_clinic
+      USING ERRCODE = 'check_violation',
+            HINT = 'destroyClinicData deletes them first, in the same transaction, and then stamps it.';
+  END IF;
+
+  UPDATE clinics c
+     SET destroyed_at = coalesce(c.destroyed_at, now()),
+         updated_at = now()
+   WHERE c.id = target_clinic
+  RETURNING c.destroyed_at INTO done;
+  RETURN done;
+END
+$$;--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_mark_clinic_destroyed(uuid) FROM PUBLIC;--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_mark_clinic_destroyed(uuid) TO healdesk_app;--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
 -- 14. The posture, re-asserted: a later widening fails here, not in

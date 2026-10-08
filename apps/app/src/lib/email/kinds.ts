@@ -97,9 +97,9 @@ export const NOTICE_KIND_REGISTRY = {
   connect_connected: kind("O14", "transactional", "normal", null, "any_hour", "package_d"),
 
   // The plan's own kinds (M3): the setup reminder, the email that says an
-  // unfinished setup has closed the account, the calendar emails and the
-  // setting-changed email. Their payloads and their enqueue are
-  // lib/notices/plan-notices.ts's.
+  // unfinished setup has closed the account, the calendar emails, the
+  // setting-changed email and the channel-ready email. Their payloads and
+  // their enqueue are lib/notices/plan-notices.ts's.
   //
   // O7, one email naming each channel's single action. It waits for daytime,
   // and the job that queues it queues it only in the clinic's daytime too, so
@@ -118,6 +118,10 @@ export const NOTICE_KIND_REGISTRY = {
   // stepped up for it (lib/notices/setting-changed.ts). At any hour: it is
   // how a change nobody at the clinic made gets noticed.
   setting_changed: kind("O4", "transactional", "normal", null, "any_hour", "plan"),
+  // O10: a channel ready on our side and still waiting on the clinic an
+  // hour later (lib/notices/channel-ready.ts, the seam the voice runtime
+  // calls). It waits for daytime: it is a step to take, not an alert.
+  channel_ready: kind("O10", "transactional", "normal", null, "daytime", "plan"),
 } as const;
 
 export type NoticeKind = keyof typeof NOTICE_KIND_REGISTRY;

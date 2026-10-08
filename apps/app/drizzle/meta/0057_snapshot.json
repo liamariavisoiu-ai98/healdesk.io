@@ -1,5 +1,5 @@
 {
-  "id": "27e3c116-f1a5-4cb8-bdbc-6abe5545fa20",
+  "id": "1436ba40-e95b-4da4-b792-d671833f9dd8",
   "prevId": "69f8c58c-1e52-4bc5-b498-c0d3642f3632",
   "version": "7",
   "dialect": "postgresql",
@@ -1242,7 +1242,7 @@
       "checkConstraints": {
         "billing_notices_kind_check": {
           "name": "billing_notices_kind_check",
-          "value": "\"billing_notices\".\"kind\" in ('payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected', 'setting_changed')"
+          "value": "\"billing_notices\".\"kind\" in ('payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected', 'setting_changed', 'channel_ready')"
         }
       },
       "isRLSEnabled": false
@@ -6189,7 +6189,7 @@
       "checkConstraints": {
         "report_deliveries_kind_check": {
           "name": "report_deliveries_kind_check",
-          "value": "\"report_deliveries\".\"kind\" in ('monthly', 'weekly', 'alert', 'renewal', 'payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected', 'setting_changed', 'welcome')"
+          "value": "\"report_deliveries\".\"kind\" in ('monthly', 'weekly', 'alert', 'renewal', 'payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected', 'setting_changed', 'channel_ready', 'welcome', 'steps_sent')"
         },
         "report_deliveries_delivery_status_check": {
           "name": "report_deliveries_delivery_status_check",

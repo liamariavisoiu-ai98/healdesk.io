@@ -20,12 +20,15 @@ export const dynamic = "force-dynamic";
  * this page, and it has no reason to say whose link it is.
  */
 
-const WHAT: Partial<Record<StopScope, { name: string; where: string }>> = {
+const WHAT: Partial<Record<StopScope, { name: string; where: string | null }>> = {
   usage_alerts: {
     name: "usage alert emails (at 80% and 100% of your allowance)",
     where: "Billing",
   },
   daily_summary: { name: "the daily summary email", where: "Settings → Alerts" },
+  // O11: steps a practice sent on to this address. Not a switch anyone here
+  // can turn back on: the practice can only send them to another address.
+  steps: { name: "the setup steps a practice sends on to this address", where: null },
 };
 
 export default async function StopConfirmPage({
@@ -54,15 +57,18 @@ export default async function StopConfirmPage({
         <>
           <h1 className="text-2xl font-semibold">Stopped</h1>
           <p className="text-muted mt-3">
-            We won&rsquo;t send {what.name} any more. You can turn them back on in {what.where}.
+            We won&rsquo;t send {what.name} any more.
+            {what.where ? ` You can turn them back on in ${what.where}.` : ""}
           </p>
         </>
       ) : (
         <>
           <h1 className="text-2xl font-semibold">Stop these emails?</h1>
           <p className="text-muted mt-3">
-            This stops {what.name}. Everything else healdesk sends, alerts and billing included,
-            keeps arriving.
+            This stops {what.name}.
+            {what.where
+              ? " Everything else healdesk sends, alerts and billing included, keeps arriving."
+              : ""}
           </p>
           <form method="post" action={`/email/stop/${encodeURIComponent(token)}`} className="mt-8">
             <button

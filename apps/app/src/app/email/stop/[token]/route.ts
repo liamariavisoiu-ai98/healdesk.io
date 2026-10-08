@@ -64,7 +64,7 @@ export async function POST(
   const oneClick = /(^|&)List-Unsubscribe=One-Click(&|$)/.test(body);
   if (!read) return plain("This link isn't one of ours, so nothing was changed.", 404);
   try {
-    await stopOptionalEmail(read.clinicId, read.scope);
+    await stopOptionalEmail(read);
   } catch (error) {
     log.error("email stop link failed", { error: describeError(error), kind: read.scope });
     return plain("Something went wrong on our side, so nothing was changed. Try again later.", 500);

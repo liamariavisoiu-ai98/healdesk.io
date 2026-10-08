@@ -3,10 +3,11 @@ import { eq } from "drizzle-orm";
 import { clinics, clinicSettings, entitlements } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { getEntitlementsForUpdate, setUsageAlertsEnabled } from "@/lib/billing/entitlements";
+import { stopStepsTo } from "@/lib/notices/steps-sent";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import type { NoticeSwitch } from "./kinds";
-import type { StopScope } from "./unsubscribe";
+import type { StopTarget } from "./unsubscribe";
 
 /**
  * The optional emails' switches (Annex X3, "Optional email"), read by the
@@ -20,7 +21,9 @@ import type { StopScope } from "./unsubscribe";
  *   - `product_updates`: L33, M7's. No email carries it yet and it has no
  *     column, so it is always on and a stop link for it changes nothing.
  *
- * Every other email is part of the service and has no switch.
+ * Every other email is part of the service and has no switch. O11's link
+ * (`steps`) is not a clinic's switch: it stops the clinic's sent-on steps
+ * reaching the one address it went to (lib/notices/steps-sent.ts).
  */
 
 /** Whether a clinic's switch lets an optional email of this kind go. Read in the notice's own tenant. */
@@ -63,7 +66,13 @@ const STOP_ACTOR: ActorContext = { type: "service", serviceName: "email-stop-lin
  * that one clinic and signs nobody in. Idempotent: a second click, or a mail
  * client's one-click POST after the person's own, changes nothing more.
  */
-export async function stopOptionalEmail(clinicId: string, scope: StopScope): Promise<StopOutcome> {
+export async function stopOptionalEmail(target: StopTarget): Promise<StopOutcome> {
+  const { clinicId, scope } = target;
+  if (scope === "steps") {
+    if (!target.deliveryId) return { status: "nothing" };
+    const done = await stopStepsTo(clinicId, target.deliveryId, STOP_ACTOR);
+    return done ? { status: "stopped", clinicName: done.clinicName } : { status: "nothing" };
+  }
   if (scope !== "usage_alerts" && scope !== "daily_summary") return { status: "nothing" };
   return withTenant({ clinicId, actor: STOP_ACTOR }, async (tx) => {
     const [clinic] = await tx.db

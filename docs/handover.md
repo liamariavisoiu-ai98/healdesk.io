@@ -211,45 +211,66 @@ The HIPAA Account build list, from the AWS addendum (§4.2–4.3) and the servic
 [policies/aws-hipaa-account.md](./policies/aws-hipaa-account.md). Build it with the first
 RDS instance, not after, because the first item cannot be added later.
 
-- *Decide the database first:* RDS under this agreement, or Neon on Scale under its own.
-  The list below assumes RDS.
-- *RDS:* storage encryption with our KMS key at creation; `rds.force_ssl=1`; the
-  `healdesk_app` (NOBYPASSRLS) and `healdesk_migrator` roles; 35-day automated backups;
-  the RDS CA trusted in the container (production sets `rejectUnauthorized: true` and
-  fails without it); Config rule `rds-storage-encrypted`; a restore drill.
-- *KMS:* one customer-managed key; a task-role policy limited to `GenerateDataKey`,
-  `Decrypt` and `Encrypt` on it; `HEALDESK_KMS_PROVIDER=aws-kms` and `HEALDESK_KMS_KEY_ID`
-  in every task definition, the key ID as the key's full ARN
-  (`arn:aws:kms:us-east-1:<account>:key/<key id>`), since an alias, a bare ID, a
-  multi-Region key or another region is refused; `AWS_REGION` unset or `us-east-1`, since
-  the KMS client falls back to us-east-1 and refuses any other region;
-  `@aws-sdk/client-kms` is a dependency of apps/app and ships in the image (fixed 6 October
-  2026); the worker's start-up log line ("credential key self-check passed") to confirm
-  the task role reaches the key (the read-only ops operation `getCredentialKeyStatus` asks
-  the web tier the same, but nothing in `/admin` calls it yet); a rotation runbook.
-- *S3:* a bucket in the designated region; SSE-KMS with our key; a policy denying non-TLS
-  requests; Block Public Access; versioning; lifecycle expiry matched to
-  `clinics.retention_media_days`; Config rule `s3-bucket-ssl-requests-only`; no patient
-  identifier in any key.
-- *ECS on Fargate:* three task definitions from one image — the web tier, the worker,
-  and the Retell voice endpoint once it exists (a long-lived WebSocket process); a task
-  role carrying only the KMS, SES and S3 permissions; secrets from the host's secret
-  store, never the image; a one-off migration task as `healdesk_migrator`; ECR; no PHI in
-  names or tags; a `stopTimeout` above the worker's drain. pg-boss stops with its 30 s
-  default because `lib/queue/boss.ts` passes no `timeout`; a two-minute drain needs
+**Status, 7 October 2026.** The list is now code: Terraform in `infra/aws`, applied by
+`.github/workflows/infra.yml`, and `.github/workflows/deploy-app.yml` to build, migrate and
+roll, with [`infra/aws/README.md`](../infra/aws/README.md) as the runbook. *Done in
+`infra/aws`* below means defined there and checked locally (validate, checkov, the images
+built and run against a local Postgres shaped like RDS). **Nothing is applied**, so every
+item stays unproven until the owner's first `infra.yml` apply and first deploy.
+
+- *Decide the database first:* **done.** RDS under this agreement, the owner's choice of
+  7 October 2026 (`infra/aws/rds.tf`).
+- *RDS:* **done in `infra/aws`:** storage encryption with our KMS key at creation;
+  `rds.force_ssl=1`, with TLS 1.2 as the minimum; the `healdesk_app` (NOBYPASSRLS) and
+  `healdesk_migrator` roles, created by the one-off db-bootstrap task with the RDS-safe
+  `provision-roles.sql`; 35-day automated backups and no final snapshot; the RDS CA trusted
+  in the container (the us-east-1 bundle in the image, `sslmode=verify-full` in both URLs,
+  and production refuses a `DATABASE_URL` without it); Config rule `rds-storage-encrypted`.
+  **Open:** the restore drill. The procedure is in the runbook; it has not been run.
+- *KMS:* **done in `infra/aws`:** one customer-managed key, `alias/healdesk-production`; a
+  task-role policy limited to `GenerateDataKey`, `Decrypt` and `Encrypt` on it, with no
+  encryption context; `HEALDESK_KMS_PROVIDER=aws-kms` and `HEALDESK_KMS_KEY_ID`, the key's full
+  ARN (`arn:aws:kms:us-east-1:<account>:key/<key id>`), on the web and worker task definitions
+  (the migrate task needs neither), since an alias, a bare ID, a multi-Region key or another
+  region is refused; `AWS_REGION=us-east-1`, since the KMS client refuses any other region;
+  `@aws-sdk/client-kms` ships in the image (fixed 6 October 2026). **Open:** reading the
+  worker's start-up line ("credential key self-check passed") after the first deploy, to
+  confirm the task role reaches the key (the read-only ops operation `getCredentialKeyStatus`
+  asks the web tier the same, but nothing in `/admin` calls it yet); the rotation runbook,
+  drafted in the runbook's "Rotating secrets" and not yet adopted or exercised.
+- *S3:* **open, deliberately not built:** no code uses S3 yet. When it is: a bucket in the
+  designated region; SSE-KMS with our key; a policy denying non-TLS requests; Block Public
+  Access; versioning, with superseded versions gone within 35 days; lifecycle expiry matched
+  to `clinics.retention_media_days`; no patient identifier in any key. Config rule
+  `s3-bucket-ssl-requests-only` is defined already and checks every bucket in the account.
+- *ECS on Fargate:* **done in `infra/aws`:** the web tier and the worker as services from one
+  image, plus one-off task definitions for the migrations (as `healdesk_migrator`, before every
+  rollout) and the role creation; a task role carrying only the KMS permissions (SES and S3
+  join when they exist); secrets from SSM Parameter Store, never the image; ECR; no PHI in
+  names or tags; the worker's `stopTimeout` at 60 s, above pg-boss's 30 s graceful stop.
+  **Open:** the Retell voice endpoint (a long-lived WebSocket process; `infra/aws/ecs.tf` ends
+  with a disabled placeholder listing what it needs). pg-boss stops with its 30 s default
+  because `lib/queue/boss.ts` passes no `timeout`; a two-minute drain still needs
   `timeout: 120_000` there and a `stopTimeout` above it, and Fargate's maximum is 120 s.
-- *Load balancer:* an HTTPS listener with an ACM certificate, HTTP redirected, WebSocket
-  upgrades allowed through to the voice endpoint, the health check on
-  `GET /api/health?probe=liveness` (200 whenever the process is up; the plain path answers
-  503 while a critical email is late, which is the uptime check's alarm, not a reason to
-  replace a task), rate limiting on the host.
-- *CloudTrail:* on and kept, encrypted with our key, log-file validation, S3 data events
-  on for the PHI bucket, Config rule `cloud-trail-encryption-enabled`.
-- *CloudWatch Logs:* every log group encrypted with our key and set to "Never expire"
-  (§4.2(c)), Config rule `cloudwatch-log-group-encrypted`.
-- **SES sending.** `SesTransport` throws with instructions. Needs a verified domain,
-  DKIM, and a configuration set with `TlsPolicy: Require`. Wire bounces and complaints to
-  the clinic contact they belong to, never to patient suppression tables.
+- *Load balancer:* **done in `infra/aws`:** an HTTPS listener with an ACM certificate, HTTP
+  redirected, the health check on `GET /api/health?probe=liveness` (200 whenever the process
+  is up; the plain path answers 503 while a critical email is late, which is the uptime
+  check's alarm, not a reason to replace a task), rate limiting on the host (a WAF rate rule
+  that answers 429), and the hop to the task re-encrypted by a TLS sidecar. **Open:**
+  WebSocket upgrades already pass through the load balancer and the sidecar, but the voice
+  endpoint's own target group and listener rule wait for the voice process; the external
+  uptime check (`docs/on-call.md`) is not set up.
+- *CloudTrail:* **done in `infra/aws`:** on and kept (one multi-region trail, management reads
+  and writes, KMS events included), encrypted with our key, log-file validation, Config rule
+  `cloud-trail-encryption-enabled`. **Open:** S3 data events, which arrive with the PHI
+  bucket.
+- *CloudWatch Logs:* **done in `infra/aws`:** every log group created before anything writes
+  to it, encrypted with our key and set to "Never expire" (§4.2(c)), the RDS engine log
+  included; Config rule `cloudwatch-log-group-encrypted`.
+- **SES sending. Open, deliberately not built:** no v1 message is classed `may-carry-phi`.
+  `SesTransport` throws with instructions. Needs a verified domain, DKIM, and a configuration
+  set with `TlsPolicy: Require`. Wire bounces and complaints to the clinic contact they belong
+  to, never to patient suppression tables.
 - **A2P 10DLC — dropped.** No SMS in v1. SMS is a phase-two paid add-on with per-clinic
   carrier registration of one to four weeks.
 - **The monthly report job stays off.** It is the phase-two revenue report.

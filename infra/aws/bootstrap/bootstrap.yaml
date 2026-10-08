@@ -1,0 +1,319 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  healdesk bootstrap: the Terraform state bucket and its key, the GitHub OIDC
+  provider, and the role Terraform runs as from GitHub Actions. Launched once,
+  by hand, in us-east-1.
+
+# =============================================================================
+# README
+#
+# What this is. The part of the AWS host that Terraform cannot create for
+# itself: somewhere to keep its state, a key to encrypt that state, and a role
+# GitHub Actions can assume without a stored access key. Everything else lives
+# in infra/aws/*.tf and is applied by .github/workflows/infra.yml.
+#
+# Launch it once, signed in as the account administrator, in us-east-1 (the
+# account and region designated under the AWS BAA):
+#
+#   1. CloudFormation console -> Create stack -> With new resources ->
+#      Upload a template file -> choose this file.
+#   2. Stack name: healdesk-bootstrap. Keep every parameter's default: they
+#      name the GitHub owner and repository, by name and by numeric id.
+#   3. Tick "I acknowledge that AWS CloudFormation might create IAM resources
+#      with custom names", then Submit.
+#   4. When the stack shows CREATE_COMPLETE, open its Outputs tab and copy
+#      the three values into GitHub (repository Settings -> Secrets and
+#      variables -> Actions -> Variables, not Secrets: none of them is
+#      sensitive):
+#        StateBucketName  -> TF_STATE_BUCKET
+#        StateKmsKeyArn   -> TF_STATE_KMS_KEY_ARN
+#        TerraformRoleArn -> AWS_TERRAFORM_ROLE_ARN
+#   5. In GitHub, Settings -> Environments -> production (the existing
+#      "Production" is the same environment: GitHub ignores the case of
+#      environment names) -> Deployment branches and tags -> Selected branches
+#      and tags -> add main. The role trusts every job that runs in this
+#      environment, and a branch can rewrite a workflow, so this rule, not the
+#      workflows' own checks, is what keeps a branch from assuming the role.
+#      Add yourself as a required reviewer too if the GitHub plan offers it for
+#      a private repository.
+#
+# The stack refuses to launch anywhere but us-east-1 in account 865780386982
+# (the Rules below): the bucket and key are kept when a stack is deleted, so a
+# launch in the wrong region would leave a bucket holding the name the right
+# one needs.
+#
+# If IAM -> Identity providers already lists token.actions.githubusercontent.com,
+# set CreateGitHubOidcProvider to false: an account holds one provider per URL,
+# and the stack would otherwise fail on the duplicate. The role trusts the
+# provider by its ARN either way.
+#
+# Deleting the stack removes the role and the provider but keeps the bucket and
+# its key (DeletionPolicy: Retain): the state in them is the only record of
+# what Terraform created, and without the key it cannot be read.
+#
+# The state holds the secrets Terraform generates (the database passwords and
+# URLs, the auth secrets), which is why the bucket takes no public access,
+# answers only over TLS and encrypts with a key of its own. It holds no PHI.
+# =============================================================================
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: GitHub repository allowed to run Terraform
+        Parameters:
+          - GitHubOwner
+          - GitHubOwnerId
+          - GitHubRepo
+          - GitHubRepoId
+      - Label:
+          default: Existing resources
+        Parameters:
+          - CreateGitHubOidcProvider
+    ParameterLabels:
+      GitHubOwner:
+        default: GitHub owner (user or organisation) name
+      GitHubOwnerId:
+        default: GitHub owner numeric id
+      GitHubRepo:
+        default: GitHub repository name
+      GitHubRepoId:
+        default: GitHub repository numeric id
+      CreateGitHubOidcProvider:
+        default: Create the GitHub OIDC provider
+
+Parameters:
+  GitHubOwner:
+    Type: String
+    Default: liamariavisoiu-ai98
+    AllowedPattern: "^[A-Za-z0-9][A-Za-z0-9-]{0,38}$"
+    Description: The account that owns the repository.
+  GitHubOwnerId:
+    Type: String
+    Default: "262780224"
+    AllowedPattern: "^[0-9]+$"
+    Description: >-
+      The owner's numeric id. GitHub puts it in the token's subject for
+      repositories created after 15 July 2026, so a renamed or re-registered
+      account of the same name cannot match.
+  GitHubRepo:
+    Type: String
+    Default: healdesk.io
+    AllowedPattern: "^[A-Za-z0-9._-]{1,100}$"
+    Description: The repository name.
+  GitHubRepoId:
+    Type: String
+    Default: "1326499636"
+    AllowedPattern: "^[0-9]+$"
+    Description: The repository's numeric id, also part of the token's subject.
+  CreateGitHubOidcProvider:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: >-
+      false only if the account already has the provider for
+      token.actions.githubusercontent.com.
+
+# Checked before anything is created. Terraform's backend, its provider and
+# both workflows all expect this account and region, and nothing else is
+# covered by the AWS BAA (docs/policies/aws-hipaa-account.md).
+Rules:
+  DesignatedAccountAndRegion:
+    Assertions:
+      - Assert: !Equals [!Ref "AWS::Region", us-east-1]
+        AssertDescription: >-
+          Launch this stack in us-east-1 (N. Virginia), the region designated
+          under the AWS BAA. Switch region in the console's top bar.
+      - Assert: !Equals [!Ref "AWS::AccountId", "865780386982"]
+        AssertDescription: >-
+          Launch this stack in account 865780386982, the account designated
+          under the AWS BAA.
+
+Conditions:
+  CreateOidcProvider: !Equals [!Ref CreateGitHubOidcProvider, "true"]
+
+Resources:
+  # Its own key rather than the product key (alias/healdesk-production, made
+  # by Terraform): the state has to be readable before Terraform has created
+  # anything, and the product key must never be replaced, so it cannot also be
+  # what a bootstrap does or undoes.
+  StateKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: healdesk Terraform state (S3 SSE-KMS). Holds no PHI.
+      EnableKeyRotation: true
+      KeySpec: SYMMETRIC_DEFAULT
+      KeyUsage: ENCRYPT_DECRYPT
+      MultiRegion: false
+      PendingWindowInDays: 30
+      # The account administers the key through IAM: the Terraform role
+      # (AdministratorAccess) and the account's own administrators can use it,
+      # and S3 uses it on their behalf. Nothing outside the account can.
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AccountAdministersThroughIam
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+            Action: "kms:*"
+            Resource: "*"
+      Tags:
+        - Key: Project
+          Value: healdesk
+        - Key: Purpose
+          Value: terraform-state
+
+  StateKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/healdesk-terraform-state
+      TargetKeyId: !Ref StateKey
+
+  StateBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "healdesk-terraform-state-${AWS::AccountId}"
+      # Every write keeps the version before it, so a bad apply or a
+      # corrupted state can be rolled back by restoring the previous object.
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt StateKey.Arn
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          # Ninety days of superseded state is long enough to notice a bad
+          # apply and restore the version before it, and short enough that
+          # rotated passwords do not pile up in old versions for ever. The
+          # lock files Terraform creates and deletes on every run
+          # (use_lockfile) leave delete markers, cleared once their versions
+          # expire.
+          - Id: expire-superseded-state
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 90
+            ExpiredObjectDeleteMarker: true
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      Tags:
+        - Key: Project
+          Value: healdesk
+        - Key: Purpose
+          Value: terraform-state
+
+  StateBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref StateBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt StateBucket.Arn
+              - !Sub "${StateBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+          - Sid: DenyTlsOlderThan12
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt StateBucket.Arn
+              - !Sub "${StateBucket.Arn}/*"
+            Condition:
+              NumericLessThan:
+                s3:TlsVersion: "1.2"
+
+  # No thumbprint: for GitHub's issuer IAM verifies the certificate against its
+  # own library of trusted root CAs and ignores any thumbprint given.
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      Tags:
+        - Key: Project
+          Value: healdesk
+
+  # The role infra.yml assumes. It holds AdministratorAccess because Terraform
+  # creates IAM roles and policies (the task and execution roles, the deploy
+  # role) along with everything else, and a role that can write IAM policies
+  # can grant itself anything: a narrower list would be longer without being
+  # safer. What limits it is who can assume it: only a GitHub Actions job of
+  # this one repository running in its production environment, matched by the
+  # immutable subject GitHub issues for repositories created after 15 July
+  # 2026 (owner and repository by numeric id). No branch, pull request or fork
+  # can match, and a session lasts at most an hour.
+  #
+  # The subject is listed in both capitalisations of "production". GitHub
+  # treats environment names case-insensitively, the repository already has a
+  # "Production" environment (Vercel's deployments), and a job that names
+  # "production" may receive either spelling in its token. Both name the same
+  # environment of the same repository, so the second entry admits no one the
+  # first does not. The comparison is otherwise exact: no wildcards.
+  TerraformRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: healdesk-github-terraform
+      Description: >-
+        Terraform from GitHub Actions (infra.yml), production environment of
+        the healdesk repository only.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: GitHubProductionEnvironmentOnly
+            Effect: Allow
+            Principal:
+              Federated: !If
+                - CreateOidcProvider
+                - !Ref GitHubOidcProvider
+                - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub:
+                  - !Sub "repo:${GitHubOwner}@${GitHubOwnerId}/${GitHubRepo}@${GitHubRepoId}:environment:production"
+                  - !Sub "repo:${GitHubOwner}@${GitHubOwnerId}/${GitHubRepo}@${GitHubRepoId}:environment:Production"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AdministratorAccess"
+      Tags:
+        - Key: Project
+          Value: healdesk
+
+Outputs:
+  StateBucketName:
+    Description: GitHub variable TF_STATE_BUCKET (the S3 backend's bucket).
+    Value: !Ref StateBucket
+  StateKmsKeyArn:
+    Description: GitHub variable TF_STATE_KMS_KEY_ARN (the S3 backend's kms_key_id).
+    Value: !GetAtt StateKey.Arn
+  TerraformRoleArn:
+    Description: GitHub variable AWS_TERRAFORM_ROLE_ARN (assumed by infra.yml).
+    Value: !GetAtt TerraformRole.Arn

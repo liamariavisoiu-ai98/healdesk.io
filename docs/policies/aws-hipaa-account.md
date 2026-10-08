@@ -26,29 +26,50 @@ checklist the first build and every quarterly review are measured against.
 | Accepted by | [founder's legal name — fill in], Founder and sole operator, for Viixi FZC. AWS records no name |
 | Evidence filed | The executed download (MD5 `596d7ae079b99bec8727215d17091fb6`, byte-identical to the blank form) and the Artifact **Active** screenshot **[not yet taken]**, in the Security Official's compliance file at [location — fill in]. The PDF stays out of the repository: §7 makes its terms AWS Confidential Information |
 | Custodian | The [Security Official](./security-official.md) |
-| Runs in it today | Nothing. No infrastructure is provisioned; `apps/app` runs on local Docker Postgres with synthetic data |
+| Runs in it today | Defined in `infra/aws`, not yet applied (7 October 2026). Terraform, a CloudFormation bootstrap stack and two GitHub workflows describe the whole host: ECS on Fargate behind a load balancer at `app.healdesk.io`, RDS for PostgreSQL, one KMS key, Parameter Store, CloudTrail, Config, GuardDuty, WAF and alarms ([runbook](../../infra/aws/README.md)). Nothing is provisioned until the owner launches the bootstrap stack and runs `infra.yml`; until then `apps/app` runs on local Docker Postgres with synthetic data |
 
 ## Services designated for PHI
 
 Eligibility per the [HIPAA Eligible Services Reference](https://aws.amazon.com/compliance/hipaa-eligible-services-reference/),
-last updated 3 September 2026, checked 22 September 2026. The build tasks
-behind each line are in the handover under "Once AWS lands".
+last updated 3 September 2026: checked 22 September 2026 for the first eight
+services, and again on 7 October 2026, before anything is applied, for the
+services the `infra/aws` build adds. Every service below is listed on it by
+name except AWS Budgets, marked in its row. The Security Official confirms the
+added rows against the Reference on the day of the first apply (rule 1 below).
+The build is written as code in `infra/aws` (the
+[runbook](../../infra/aws/README.md) has the detail); the handover's "Once AWS
+lands" marks what it covers and what is still open.
 
 | Service | Use | PHI | Configuration that makes it compliant |
 | --- | --- | --- | --- |
-| Amazon RDS for PostgreSQL | The product database, if RDS is chosen. The spec recommends RDS under this agreement or Neon on its Scale plan under Neon's own BAA; the choice is not made. If Neon is chosen, remove this row and record Neon in the risk analysis | Yes | Encrypted with our KMS key at creation; TLS forced; the certificate validated in production (`apps/app/src/db/index.ts`) |
-| AWS KMS | The key behind stored credentials, RDS, S3, logs and the trail | Keys only | One customer-managed key; production refuses the local wrapper (`lib/crypto/kms.ts`) |
-| Amazon SES | Any message classed `may-carry-phi`; none exists yet, today's mail is PHI-free and goes over Resend. The v1 urgent alerts and handover requests either carry no patient detail and link into the portal, or carry the minimum and go only through here; never through Resend (decision open, [hipaa-compliance.md](../hipaa-compliance.md)) | Designated | Configuration set `healdesk-phi` with `TlsPolicy=REQUIRE`; the transport refuses to send otherwise (`lib/reporting/deliver.ts`) |
-| Amazon S3 | Transcript objects, referenced by URI from Postgres; none exist yet. No call audio is kept | Yes | SSE-KMS with our key; TLS-only policy; Block Public Access; lifecycle tied to the clinic's retention |
-| Amazon ECS on AWS Fargate ("ECS and EKS engines only") | The web tier, the worker and the Retell voice endpoint (a long-lived WebSocket process, not built yet), all from one image | In memory and in transit | Secrets from the host's store, never the image; a task role holding only the KMS, SES and S3 permissions |
-| Elastic Load Balancing | TLS termination in front of the web tier and the voice endpoint's WebSocket | In transit | HTTPS listener, HTTP redirected |
-| AWS CloudTrail | Every KMS operation and management call; S3 data events for the PHI bucket | No | On, kept, encrypted with our key, log-file validation |
-| Amazon CloudWatch Logs | stdout of both tasks, from the allowlisted, scrubbing logger (`lib/log.ts`) | No | Encrypted with our key; retention "Never expire" (§4.2(c)) |
+| Amazon RDS for PostgreSQL | The product database: one instance, `healdesk-production`, PostgreSQL 17. Chosen by the owner on 7 October 2026 (RDS under this addendum, not Neon), defined in `infra/aws/rds.tf` | Yes | Encrypted with our KMS key at creation; `rds.force_ssl=1` and TLS 1.2 minimum; production refuses a `DATABASE_URL` without `sslmode=verify-full`, and the image carries the RDS CA bundle (`apps/app/src/lib/env.ts`, `apps/app/Dockerfile`); private subnets, port 5432 from the ECS tasks only; 35-day automated backups and no snapshot kept longer (no final snapshot on deletion); the master password managed by RDS and used only to create the two roles |
+| AWS KMS | The key behind stored credentials, RDS, the parameters, ECR, logs and the trail (`alias/healdesk-production`); a second key, `alias/healdesk-terraform-state`, only for the Terraform state bucket | Keys only | Customer-managed, single-region, automatic rotation, never replaced; production refuses the local wrapper (`lib/crypto/kms.ts`); the app's task role may only generate, decrypt and encrypt data keys, and never with an encryption context, so it cannot decrypt what AWS services stored under the same key |
+| Amazon SES | Any message classed `may-carry-phi`; none exists yet, today's mail is PHI-free and goes over Resend. The v1 urgent alerts and handover requests either carry no patient detail and link into the portal, or carry the minimum and go only through here; never through Resend (decision open, [hipaa-compliance.md](../hipaa-compliance.md)). Not in `infra/aws` yet | Designated | Configuration set `healdesk-phi` with `TlsPolicy=REQUIRE`; the transport refuses to send otherwise (`lib/reporting/deliver.ts`) |
+| Amazon S3 | Transcript objects, referenced by URI from Postgres; none exist yet, and `infra/aws` creates no transcript bucket. No call audio is kept. Three buckets hold no PHI: the Terraform state (bootstrap stack), the CloudTrail trail and AWS Config's snapshots | Yes (transcripts); No (the other three) | SSE-KMS with our key; TLS-only policy; Block Public Access; lifecycle tied to the clinic's retention, with superseded versions gone within 35 days. The other three: TLS-only, Block Public Access, versioned; the trail's under our key and never expiring, the state's under its own key, Config's under S3-managed keys |
+| Amazon ECS on AWS Fargate ("ECS and EKS engines only") | The web tier (with an nginx sidecar that re-encrypts the load balancer's traffic), the worker, and two one-off tasks, migrations and role creation, all from one image; the Retell voice endpoint (a long-lived WebSocket process) is not built yet | In memory and in transit | Private subnets, no public address, no ECS Exec; secrets from Parameter Store and the RDS master secret at task start, never the image or a task definition's environment; a task role holding only the KMS permissions above (SES and S3 when they are used) |
+| Elastic Load Balancing | TLS termination for `app.healdesk.io` in front of the web tier, re-encrypted to the task; later the voice endpoint's WebSocket | In transit | HTTPS listener with an ACM certificate and the TLS 1.3/1.2 policy `ELBSecurityPolicy-TLS13-1-2-Res-PQ-2025-09`; HTTP redirected; invalid header fields dropped; no access logs, because their bucket cannot use our key and URLs carry no PHI |
+| AWS CloudTrail | Every management call, reads included, so every KMS operation; S3 data events join with the transcript bucket | No | One multi-region trail, log-file validation, encrypted with our key, in its own private bucket kept indefinitely |
+| Amazon CloudWatch Logs | stdout of every task (web, worker, migrations, role creation, the TLS sidecar), from the allowlisted, scrubbing logger (`lib/log.ts`), and the Postgres engine log | No | Every group created first, with our key and retention "Never expire" (§4.2(c)); the engine log terse and without statements, so no row values or passwords reach it |
+| Amazon Elastic Container Registry (ECR) | The three images (`healdesk/app`, `healdesk/db-admin`, `healdesk/tls-proxy`), tagged with the git commit | No | Immutable tags, scan on push, encrypted with our key, last 30 images kept |
+| AWS Systems Manager (Parameter Store only) | Every application secret and both database URLs, as SecureString parameters under `/healdesk/production/` | No | Encrypted with our key; read by the ECS agent at task start, never placed in a task definition's environment or a run-task override (CloudTrail records both) |
+| AWS Secrets Manager | The RDS master credentials only, managed and rotated every seven days by RDS | No | Encrypted with our key; readable only by the ECS execution role, and referenced only by the role-creation task's definition; the app never uses it |
+| Amazon Virtual Private Cloud (VPC) | One VPC over two zones: the load balancer and one NAT gateway in public subnets, the tasks and RDS in private subnets; no VPC endpoints in the lean default | In transit | NAT gateways and endpoints are features of Amazon VPC, and what crosses them is the app's own TLS; the default security group stripped of rules; the database reachable only from the tasks; flow logs off by default and, when on, to an encrypted, never-expiring group |
+| AWS Certificate Manager | The public certificate for `app.healdesk.io` | No | DNS-validated through a DNS-only Cloudflare record, which stays for renewal |
+| AWS Web Application Firewall (WAF) | A per-address rate limit on the load balancer, answering 429 | In transit | Counts requests by source address only; no managed rule groups, no sampled requests and no WAF logging, because samples and logs would store request headers |
+| Amazon GuardDuty | Threat detection over CloudTrail, VPC flow and DNS logs, which AWS reads without us storing them | No | One detector; Runtime Monitoring off; findings read in the console |
+| AWS Config | Records resource configuration and checks `rds-storage-encrypted`, `s3-bucket-ssl-requests-only`, `cloud-trail-encryption-enabled` and `cloudwatch-log-group-encrypted` | No | Its own private, TLS-only bucket; findings read each quarter (rule 2 below) |
+| Amazon Simple Notification Service (SNS) | The alarm topic `healdesk-production-alarms`, emailed to one address | No | Messages carry metric names, counts and thresholds only. The topic is not under our key, which is acceptable only because nothing in it may ever be PHI |
+| AWS Budgets | One monthly cost alert | No | **Not on the Reference.** It sees cost figures only, and nothing may put PHI in it |
+| AWS CloudFormation | The one-off bootstrap stack: the Terraform state bucket and its key, GitHub's sign-in provider and the role Terraform runs as | No | Refuses to launch outside this account and `us-east-1` |
+| AWS CloudShell | The administrator's terminal in the console, for the one-off commands in the runbook | No | Signed in as the administrator's own IAM user; never used to read patient data |
 
 **Never for PHI:** anything outside this table (§4.2(a)) and any other AWS
 account (§1 and §3.1 leave every other account uncovered). AWS App Runner is
-not on the list; ECS on Fargate replaces it. No patient identifier goes in a
-resource name, key or tag: those land in CloudTrail and billing outside our key.
+not on the list; ECS on Fargate replaces it. IAM and STS, which hold the roles,
+the policies and GitHub's sign-in, are the account's control plane and are not
+on the list either; nothing in them may name a patient. No patient identifier
+goes in a resource name, key or tag: those land in CloudTrail and billing
+outside our key.
 
 ## Our obligations under §4
 
@@ -56,10 +77,10 @@ resource name, key or tag: those land in CloudTrail and billing outside our key.
 | --- | --- | --- |
 | §4.1 | Identify the account by accepting from inside it | Done 22 September 2026; account `865780386982`; the Active screenshot is outstanding |
 | §4.2(a) | PHI only in eligible services | The table above is the whole list; `apps/app` is the only PHI side |
-| §4.2(b) | The highest level of audit logging | Outstanding: CloudTrail, with the first RDS instance |
-| §4.2(c) | Maximum retention of logs | Outstanding: trail kept indefinitely, log groups never expire; on AWS this supersedes any shorter log retention |
-| §4.3.1 | Encrypt all PHI at rest and in transit per HHS guidance | In code: TLS to Postgres validated in production, SES refuses without TLS, credentials envelope-encrypted. Outstanding: every configuration above |
-| §4.4 | Consents obtained before PHI is placed | No real patient data until every PHI vendor has a BAA (Retell, Anthropic and the database provider pending; Neon only if chosen) and the clinic has signed ours; the database's BAA gate refuses writes without one |
+| §4.2(b) | The highest level of audit logging | Outstanding until applied. Defined in `infra/aws/cloudtrail.tf`: one multi-region trail of management reads and writes, KMS events included, validated, under our key. Data events wait for the transcript bucket |
+| §4.2(c) | Maximum retention of logs | Outstanding until applied. Defined: every log group "Never expire" (`infra/aws/logs.tf`), the trail bucket without expiry; on AWS this supersedes any shorter log retention |
+| §4.3.1 | Encrypt all PHI at rest and in transit per HHS guidance | In code: TLS to Postgres verified in production (`verify-full` with the RDS CA; anything less refused), SES refuses without TLS, credentials envelope-encrypted. Defined in `infra/aws`, outstanding until applied: the database, its backups, the parameters, the images, the logs and the trail under our key; TLS 1.2 or later at the load balancer and the database; the load balancer's traffic re-encrypted to the task |
+| §4.4 | Consents obtained before PHI is placed | No real patient data until every PHI vendor has a BAA (Retell and Anthropic pending; the database is RDS, under this addendum) and the clinic has signed ours; the database's BAA gate refuses writes without one |
 | §4.5–4.6 | Nothing that makes AWS breach the addendum or HIPAA | The clinic BAA directs nothing at AWS; counsel checks each revision |
 
 ## What AWS commits to

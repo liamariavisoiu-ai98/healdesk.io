@@ -178,3 +178,36 @@ jobs:
             fi
           done
           exit "$failed"
+
+  # The Terraform for the product host (infra/aws) is applied only by hand,
+  # through infra.yml, so a formatting slip or a broken reference would
+  # otherwise surface for the first time in front of production. This needs no
+  # AWS credentials and no state: init without a backend only downloads the
+  # providers, and validate checks the configuration against their schemas.
+  # It runs beside the test job, not after it.
+  infra:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: infra/aws
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.16.5
+          terraform_wrapper: false
+
+      - run: terraform fmt -check -recursive -diff
+
+      # readonly: exactly the provider builds .terraform.lock.hcl pins, checked
+      # against its hashes. A change that needs any other build fails here
+      # instead of quietly getting a newer one.
+      - run: terraform init -backend=false -input=false -lockfile=readonly
+
+      - run: terraform validate -no-color

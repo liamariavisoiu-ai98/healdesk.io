@@ -1,14 +1,20 @@
 -- =============================================================================
--- Role provisioning. Run ONCE, as a superuser, BEFORE the first migration.
+-- Role provisioning. Run BEFORE the first migration, connected to the app's
+-- database as a role that can create roles and owns that database:
 --
---   psql "$SUPERUSER_URL" \
+--   * on RDS, the master user (CREATEROLE, CREATEDB, owner of the database
+--     named at creation; NOT a superuser), from the db-admin image
+--     (infra/aws/images/db-admin), which runs exactly this file;
+--   * in CI and on a laptop, the container's superuser (ci.yml, dev-db.sh).
+--
+--   psql "$ADMIN_URL" -v ON_ERROR_STOP=1 \
 --     -v migrator_password="$MIGRATOR_PASSWORD" \
 --     -v app_password="$APP_PASSWORD" \
 --     -f scripts/provision-roles.sql
 --
 -- Deliberately outside the migration journal: it creates roles, which are
 -- cluster-level objects, and needs privileges the migration role must not have.
--- Re-running it is safe — it resets passwords and re-asserts attributes.
+-- Re-running it is safe — it resets passwords and re-checks attributes.
 --
 -- Why two roles at all:
 --
@@ -45,12 +51,42 @@ $$;
 ALTER ROLE healdesk_migrator PASSWORD :'migrator_password';
 ALTER ROLE healdesk_app      PASSWORD :'app_password';
 
--- Belt and braces: explicitly strip the attributes that would defeat RLS, in
--- case the roles already existed with different settings.
-ALTER ROLE healdesk_app      NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
-ALTER ROLE healdesk_migrator NOSUPERUSER NOBYPASSRLS;
+-- The runtime role may not create databases or roles. Settable by any role
+-- with CREATEROLE that holds those attributes itself, as RDS's master does.
+ALTER ROLE healdesk_app NOCREATEDB NOCREATEROLE;
 
--- Nothing reachable by default.
+-- Check, rather than set, the attributes that would defeat RLS. Only a
+-- superuser may even name SUPERUSER in ALTER ROLE, NOSUPERUSER included, and
+-- naming BYPASSRLS needs BYPASSRLS, so the `ALTER ROLE ... NOSUPERUSER
+-- NOBYPASSRLS` this file used to run stopped here on RDS, after the
+-- passwords and before every grant below. CREATE ROLE's defaults are already
+-- NOSUPERUSER NOBYPASSRLS; what can go wrong is a role that existed before
+-- this ran, so fail loudly and let a superuser (or the master, dropping and
+-- re-running) fix it.
+--
+-- Membership is checked for the same reason: a role carries the privileges of
+-- every role it belongs to, so a runtime role inside the migrator (an owner)
+-- or rds_superuser would hold what this split exists to withhold while its
+-- own attributes look clean.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles
+              WHERE rolname IN ('healdesk_app', 'healdesk_migrator')
+                AND (rolsuper OR rolbypassrls)) THEN
+    RAISE EXCEPTION 'healdesk_app or healdesk_migrator is SUPERUSER or BYPASSRLS: drop the role and re-run this file';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM pg_auth_members m
+               JOIN pg_roles u ON u.oid = m.member
+              WHERE u.rolname IN ('healdesk_app', 'healdesk_migrator')) THEN
+    RAISE EXCEPTION 'healdesk_app or healdesk_migrator is a member of another role: revoke the membership and re-run this file';
+  END IF;
+END
+$$;
+
+-- Nothing reachable by default. On PostgreSQL 15 and later `public` belongs to
+-- pg_database_owner, so the database's owner can do this without being a
+-- superuser.
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 
 GRANT USAGE, CREATE ON SCHEMA public TO healdesk_migrator;

@@ -90,7 +90,7 @@ describeDb("clinic settings", () => {
       depositHoldMinutes: DEFAULT_CLINIC_SETTINGS.depositHoldMinutes,
       aiPausedAt: null,
       aiPausedUntil: DEFAULT_CLINIC_SETTINGS.aiPausedUntil,
-      // Auto-confirm is on by default (spec), in drizzle/0056 as here.
+      // Auto-confirm is on by default (spec), in drizzle/0057 as here.
       autoConfirmBookings: true,
       autoConfirmChangedAt: DEFAULT_CLINIC_SETTINGS.autoConfirmChangedAt,
       autoConfirmChangedByLabel: DEFAULT_CLINIC_SETTINGS.autoConfirmChangedByLabel,

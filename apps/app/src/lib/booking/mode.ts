@@ -56,7 +56,7 @@ import { calendarTermsFor, type CalendarTerms } from "./terms";
  * clinic_settings.booking_detail does not enter it.
  *
  * The database holds the same line from its side: app_calendar_write_permitted
- * (drizzle/0056) refuses a hold's move into `writing` unless the terms, the
+ * (drizzle/0057) refuses a hold's move into `writing` unless the terms, the
  * connection and Auto-confirm allow it, and every gate it checks is checked
  * here too, so "live" is never wider than what the database lets through.
  */

@@ -55,7 +55,7 @@ export type ClinicSettings = {
 
 /**
  * Must match the column defaults in drizzle/0043 and, for Auto-confirm,
- * drizzle/0056. tests/clinic-settings.test.ts compares them.
+ * drizzle/0057. tests/clinic-settings.test.ts compares them.
  */
 export const DEFAULT_CLINIC_SETTINGS: ClinicSettings = Object.freeze({
   depositsEnabled: false,
@@ -227,7 +227,7 @@ export async function lockAutoConfirm(tx: TenantTx): Promise<void> {
  * names them is a programming error and is refused.
  *
  * Switching Auto-confirm stamps who switched it and when, together, as the
- * column CHECK in drizzle/0056 requires; re-saving the value it already has
+ * column CHECK in drizzle/0057 requires; re-saving the value it already has
  * moves neither, so "off since …, by …" stays true. It is compared under
  * lockAutoConfirm, so two switches at once are taken one after the other.
  * The database reads the column too (app_calendar_write_permitted), so a

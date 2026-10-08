@@ -179,6 +179,13 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "Google refused healdesk's access to a clinic's calendar, so that location now takes booking requests for its staff to confirm. Ask the clinic whether it removed the access on purpose; if not, it reconnects its calendar. Look the clinic up in the console.",
   },
+  // Raised by the connect flow when Google's token endpoint refuses
+  // healdesk's own client: every clinic's connect fails until it is fixed.
+  google_oauth_client_rejected: {
+    title: "Google refused healdesk's OAuth client",
+    action:
+      "Google's token endpoint refused healdesk's own OAuth client while a clinic was connecting its calendar, so no clinic can connect one. Check the Calendar OAuth client in the Google Cloud project, and GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET in the apps/app secret store, then ask the clinic to try again.",
+  },
 };
 
 /**

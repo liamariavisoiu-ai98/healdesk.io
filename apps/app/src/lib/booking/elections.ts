@@ -274,6 +274,15 @@ function pendingElectionFor(
   choice: ElectionChoice,
   election: CalendarElection,
 ): PendingCalendarElection {
+  return pendingDocumentFor(context, choice, election).pending;
+}
+
+/** The document an owner is asked to accept, as pendingElectionFor hashes it, and that hash. */
+function pendingDocumentFor(
+  context: ElectionContext & { agreement: NonNullable<ElectionContext["agreement"]> },
+  choice: ElectionChoice,
+  election: CalendarElection,
+): { text: string; pending: PendingCalendarElection } {
   const text = renderCalendarElection(
     {
       clinicLegalName: context.clinicLegalName,
@@ -288,10 +297,13 @@ function pendingElectionFor(
     election,
   );
   return {
-    bookingSystem: choice.bookingSystem,
-    calendarAccount: choice.calendarAccount,
-    documentVersion: election.version,
-    documentHash: hashCalendarElection(text),
+    text,
+    pending: {
+      bookingSystem: choice.bookingSystem,
+      calendarAccount: choice.calendarAccount,
+      documentVersion: election.version,
+      documentHash: hashCalendarElection(text),
+    },
   };
 }
 
@@ -323,6 +335,52 @@ export async function planCalendarElection(
     documentReleased: election.approvedByCounsel,
     demo: context.demo,
     pending: pendingElectionFor({ ...context, agreement: context.agreement }, choice, election),
+  };
+}
+
+/**
+ * What an owner confirm link asks the owner to accept, as it renders now
+ * (the confirm page, plan §4.1): the election document with the owner's
+ * signature still to come, and whether it is still the one the link was
+ * minted for. `current` is false when anything the owner would accept has
+ * changed since (the agreement, the location, the document's version or
+ * wording), and the page then says "This election has changed; start
+ * again" rather than showing a document the link does not carry. Reads;
+ * records nothing.
+ */
+export async function previewPendingElection(
+  tx: TenantTx,
+  asked: PendingCalendarElection,
+): Promise<
+  | { status: "unavailable"; reason: ElectionUnavailableReason }
+  | {
+      status: "ready";
+      text: string;
+      current: boolean;
+      widens: boolean;
+    }
+> {
+  const choice = { bookingSystem: asked.bookingSystem, calendarAccount: asked.calendarAccount };
+  checkChoice(choice);
+  const context = await electionContext(tx);
+  const election = currentCalendarElection();
+  if (!context.agreement) return { status: "unavailable", reason: "no_agreement" };
+  if (!election.approvedByCounsel && !context.demo) {
+    return { status: "unavailable", reason: "draft_terms" };
+  }
+  const { text, pending } = pendingDocumentFor(
+    { ...context, agreement: context.agreement },
+    choice,
+    election,
+  );
+  const { kind } = selectCalendarClause(choice);
+  return {
+    status: "ready",
+    text,
+    current:
+      pending.documentVersion === asked.documentVersion &&
+      pending.documentHash === asked.documentHash,
+    widens: electionWidens(context.previousKind, kind),
   };
 }
 

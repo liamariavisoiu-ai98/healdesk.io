@@ -96,6 +96,246 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 }
 `;
 
+exports[`each template's output > calendar_election_recorded, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your calendar election was recorded</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Radiance Med Spa&#39;s calendar terms changed on October 6, 2026.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Radiance Med Spa recorded a calendar election on October 6, 2026. For this location, it takes the place of the Google Calendar clause of your business associate agreement with healdesk. healdesk adds the bookings it makes to the calendar this location connects, as the terms below describe.</p>
+<p style="margin:0 0 16px;">The terms you accepted:</p>
+<p style="margin:0 0 16px;">Practice connects a Google account it controls by OAuth, under Practice&#39;s own agreement with Google. healdesk uses a calendar on which that account has owner access: one of its own calendars, or one another account has shared with it with permission to make changes and manage sharing. Practice chooses the calendar or, where it books by provider, one such calendar for each provider. Until Practice chooses, healdesk uses that account&#39;s main calendar. In this clause &quot;the calendar&quot; means each calendar healdesk uses, and every term of this clause applies to each of them.</p>
+<p style="margin:0 0 16px;">Practice has told healdesk that this account is a personal Google account, for which Google offers no business associate agreement, so no business associate agreement between Practice and Google covers the calendar.</p>
+<p style="margin:0 0 16px;">healdesk reads the names of the calendars on which that account has owner access, so that Practice can choose; when the calendar is free or busy; and the appointments healdesk itself added to it. Google&#39;s permissions also reach three further things: the list of every calendar that account is subscribed to, the other events on the calendars it owns, and the availability of the other calendars it has access to. healdesk does not read or store any of them. healdesk holds the OAuth token encrypted and uses it for nothing else. It stops using the token when the Services end. It deletes the token when Practice disconnects the calendar through healdesk, or when healdesk finds that Practice has removed healdesk&#39;s access in its Google Account. In any case it deletes the token when healdesk destroys Practice&#39;s data after the Services end.</p>
+<p style="margin:0 0 16px;">Practice nonetheless directs healdesk to add an appointment to the calendar when the assistant books one, and when Practice&#39;s staff confirm a booking request through healdesk. Practice gives this direction knowing that Google will hold each appointment outside any business associate agreement. That disclosure is made at Practice&#39;s direction, through an account Practice controls under Practice&#39;s own agreement with Google. Practice is responsible for it, including for any notification or other obligation that arises from Google&#39;s handling of what it holds. healdesk&#39;s responsibility for it is limited to sending only the details below, only to the calendar, only as this clause describes, and to safeguarding them under this agreement until they are sent. Each appointment carries a first name, the service and the time, and no other information about the patient or the person booking. It never carries a telephone number, an email address, or anything clinical beyond the name of the service. The first name is the one given by the person booking, who may not be the patient; where that name cannot be used, it is the word &quot;Patient&quot;. The service is named as in Practice&#39;s own service list; where none was given or its name cannot be used, the appointment says &quot;Appointment&quot;. healdesk marks each appointment private, invites no one to it and sets no reminders on it. It moves, edits or cancels nothing it did not create. Google keeps a deleted event in the calendar&#39;s trash for up to 30 days under Google&#39;s own terms.</p>
+<p style="margin:0 0 16px;">Practice may withdraw this direction at any time, by disconnecting the calendar or by telling healdesk. healdesk then adds nothing further to the calendar, and the assistant takes booking requests for Practice&#39;s staff to confirm instead.</p>
+<p style="margin:0 0 16px;">Practice acknowledges that healdesk&#39;s access to the calendar is governed by this agreement.</p>
+<p style="margin:0 0 4px;"><strong>Election:</strong> 7d0b2c1e-0000-4000-8000-000000000000</p>
+<p style="margin:0 0 16px;">If nobody at your practice made this change, reply to this email.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Radiance Med Spa's calendar terms changed on October 6, 2026.",
+  "subject": "Your calendar election was recorded",
+  "text": "Radiance Med Spa recorded a calendar election on October 6, 2026. For this location, it takes the place of the Google Calendar clause of your business associate agreement with healdesk. healdesk adds the bookings it makes to the calendar this location connects, as the terms below describe.
+
+The terms you accepted:
+
+Practice connects a Google account it controls by OAuth, under Practice's own agreement with Google. healdesk uses a calendar on which that account has owner access: one of its own calendars, or one another account has shared with it with permission to make changes and manage sharing. Practice chooses the calendar or, where it books by provider, one such calendar for each provider. Until Practice chooses, healdesk uses that account's main calendar. In this clause "the calendar" means each calendar healdesk uses, and every term of this clause applies to each of them.
+
+Practice has told healdesk that this account is a personal Google account, for which Google offers no business associate agreement, so no business associate agreement between Practice and Google covers the calendar.
+
+healdesk reads the names of the calendars on which that account has owner access, so that Practice can choose; when the calendar is free or busy; and the appointments healdesk itself added to it. Google's permissions also reach three further things: the list of every calendar that account is subscribed to, the other events on the calendars it owns, and the availability of the other calendars it has access to. healdesk does not read or store any of them. healdesk holds the OAuth token encrypted and uses it for nothing else. It stops using the token when the Services end. It deletes the token when Practice disconnects the calendar through healdesk, or when healdesk finds that Practice has removed healdesk's access in its Google Account. In any case it deletes the token when healdesk destroys Practice's data after the Services end.
+
+Practice nonetheless directs healdesk to add an appointment to the calendar when the assistant books one, and when Practice's staff confirm a booking request through healdesk. Practice gives this direction knowing that Google will hold each appointment outside any business associate agreement. That disclosure is made at Practice's direction, through an account Practice controls under Practice's own agreement with Google. Practice is responsible for it, including for any notification or other obligation that arises from Google's handling of what it holds. healdesk's responsibility for it is limited to sending only the details below, only to the calendar, only as this clause describes, and to safeguarding them under this agreement until they are sent. Each appointment carries a first name, the service and the time, and no other information about the patient or the person booking. It never carries a telephone number, an email address, or anything clinical beyond the name of the service. The first name is the one given by the person booking, who may not be the patient; where that name cannot be used, it is the word "Patient". The service is named as in Practice's own service list; where none was given or its name cannot be used, the appointment says "Appointment". healdesk marks each appointment private, invites no one to it and sets no reminders on it. It moves, edits or cancels nothing it did not create. Google keeps a deleted event in the calendar's trash for up to 30 days under Google's own terms.
+
+Practice may withdraw this direction at any time, by disconnecting the calendar or by telling healdesk. healdesk then adds nothing further to the calendar, and the assistant takes booking requests for Practice's staff to confirm instead.
+
+Practice acknowledges that healdesk's access to the calendar is governed by this agreement.
+
+Election: 7d0b2c1e-0000-4000-8000-000000000000
+
+If nobody at your practice made this change, reply to this email.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > calendar_election_recorded, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your calendar election was recorded</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Radiance Med Spa&#39;s calendar terms changed on October 6, 2026.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Radiance Med Spa recorded a calendar election on October 6, 2026. For this location, it takes the place of the Google Calendar clause of your business associate agreement with healdesk. healdesk adds the bookings it makes to the calendar this location connects, as the terms below describe.</p>
+<p style="margin:0 0 16px;">The terms you accepted:</p>
+<p style="margin:0 0 16px;">Practice connects a Google account it controls by OAuth, under Practice&#39;s own agreement with Google. healdesk uses a calendar on which that account has owner access: one of its own calendars, or one another account has shared with it with permission to make changes and manage sharing. Practice chooses the calendar or, where it books by provider, one such calendar for each provider. Until Practice chooses, healdesk uses that account&#39;s main calendar. In this clause &quot;the calendar&quot; means each calendar healdesk uses, and every term of this clause applies to each of them.</p>
+<p style="margin:0 0 16px;">Practice has told healdesk that this account is a personal Google account, for which Google offers no business associate agreement, so no business associate agreement between Practice and Google covers the calendar.</p>
+<p style="margin:0 0 16px;">healdesk reads the names of the calendars on which that account has owner access, so that Practice can choose; when the calendar is free or busy; and the appointments healdesk itself added to it. Google&#39;s permissions also reach three further things: the list of every calendar that account is subscribed to, the other events on the calendars it owns, and the availability of the other calendars it has access to. healdesk does not read or store any of them. healdesk holds the OAuth token encrypted and uses it for nothing else. It stops using the token when the Services end. It deletes the token when Practice disconnects the calendar through healdesk, or when healdesk finds that Practice has removed healdesk&#39;s access in its Google Account. In any case it deletes the token when healdesk destroys Practice&#39;s data after the Services end.</p>
+<p style="margin:0 0 16px;">Practice nonetheless directs healdesk to add an appointment to the calendar when the assistant books one, and when Practice&#39;s staff confirm a booking request through healdesk. Practice gives this direction knowing that Google will hold each appointment outside any business associate agreement. That disclosure is made at Practice&#39;s direction, through an account Practice controls under Practice&#39;s own agreement with Google. Practice is responsible for it, including for any notification or other obligation that arises from Google&#39;s handling of what it holds. healdesk&#39;s responsibility for it is limited to sending only the details below, only to the calendar, only as this clause describes, and to safeguarding them under this agreement until they are sent. Each appointment carries a first name, the service and the time, and no other information about the patient or the person booking. It never carries a telephone number, an email address, or anything clinical beyond the name of the service. The first name is the one given by the person booking, who may not be the patient; where that name cannot be used, it is the word &quot;Patient&quot;. The service is named as in Practice&#39;s own service list; where none was given or its name cannot be used, the appointment says &quot;Appointment&quot;. healdesk marks each appointment private, invites no one to it and sets no reminders on it. It moves, edits or cancels nothing it did not create. Google keeps a deleted event in the calendar&#39;s trash for up to 30 days under Google&#39;s own terms.</p>
+<p style="margin:0 0 16px;">Practice may withdraw this direction at any time, by disconnecting the calendar or by telling healdesk. healdesk then adds nothing further to the calendar, and the assistant takes booking requests for Practice&#39;s staff to confirm instead.</p>
+<p style="margin:0 0 16px;">Practice acknowledges that healdesk&#39;s access to the calendar is governed by this agreement.</p>
+<p style="margin:0 0 4px;"><strong>Election:</strong> 7d0b2c1e-0000-4000-8000-000000000000</p>
+<p style="margin:0 0 16px;">If nobody at your practice made this change, reply to this email.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Radiance Med Spa's calendar terms changed on October 6, 2026.",
+  "subject": "Your calendar election was recorded",
+  "text": "Radiance Med Spa recorded a calendar election on October 6, 2026. For this location, it takes the place of the Google Calendar clause of your business associate agreement with healdesk. healdesk adds the bookings it makes to the calendar this location connects, as the terms below describe.
+
+The terms you accepted:
+
+Practice connects a Google account it controls by OAuth, under Practice's own agreement with Google. healdesk uses a calendar on which that account has owner access: one of its own calendars, or one another account has shared with it with permission to make changes and manage sharing. Practice chooses the calendar or, where it books by provider, one such calendar for each provider. Until Practice chooses, healdesk uses that account's main calendar. In this clause "the calendar" means each calendar healdesk uses, and every term of this clause applies to each of them.
+
+Practice has told healdesk that this account is a personal Google account, for which Google offers no business associate agreement, so no business associate agreement between Practice and Google covers the calendar.
+
+healdesk reads the names of the calendars on which that account has owner access, so that Practice can choose; when the calendar is free or busy; and the appointments healdesk itself added to it. Google's permissions also reach three further things: the list of every calendar that account is subscribed to, the other events on the calendars it owns, and the availability of the other calendars it has access to. healdesk does not read or store any of them. healdesk holds the OAuth token encrypted and uses it for nothing else. It stops using the token when the Services end. It deletes the token when Practice disconnects the calendar through healdesk, or when healdesk finds that Practice has removed healdesk's access in its Google Account. In any case it deletes the token when healdesk destroys Practice's data after the Services end.
+
+Practice nonetheless directs healdesk to add an appointment to the calendar when the assistant books one, and when Practice's staff confirm a booking request through healdesk. Practice gives this direction knowing that Google will hold each appointment outside any business associate agreement. That disclosure is made at Practice's direction, through an account Practice controls under Practice's own agreement with Google. Practice is responsible for it, including for any notification or other obligation that arises from Google's handling of what it holds. healdesk's responsibility for it is limited to sending only the details below, only to the calendar, only as this clause describes, and to safeguarding them under this agreement until they are sent. Each appointment carries a first name, the service and the time, and no other information about the patient or the person booking. It never carries a telephone number, an email address, or anything clinical beyond the name of the service. The first name is the one given by the person booking, who may not be the patient; where that name cannot be used, it is the word "Patient". The service is named as in Practice's own service list; where none was given or its name cannot be used, the appointment says "Appointment". healdesk marks each appointment private, invites no one to it and sets no reminders on it. It moves, edits or cancels nothing it did not create. Google keeps a deleted event in the calendar's trash for up to 30 days under Google's own terms.
+
+Practice may withdraw this direction at any time, by disconnecting the calendar or by telling healdesk. healdesk then adds nothing further to the calendar, and the assistant takes booking requests for Practice's staff to confirm instead.
+
+Practice acknowledges that healdesk's access to the calendar is governed by this agreement.
+
+Election: 7d0b2c1e-0000-4000-8000-000000000000
+
+If nobody at your practice made this change, reply to this email.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > calendar_link, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Connect your Google Calendar to healdesk</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Your assistant books into the calendar you connect.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Use this link to connect the Google Calendar Radiance Med Spa&#39;s assistant books into. The page says what healdesk reads and what it adds before you sign in with Google.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/calendar/Zq8vLm3TxR7wYb2NcK5pHs9JdF4gA6eU1oIiQ0yBtVw" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Connect your calendar</a></p>
+<p style="margin:0 0 16px;">The link works once, until Tuesday, October 13 at 10:32 AM EDT. If it runs out, follow it anyway and ask for a new one: it goes to this address.</p>
+<p style="margin:0 0 16px;">Until a calendar is connected, your assistant takes each booking as a request for your staff to confirm.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Your assistant books into the calendar you connect.",
+  "subject": "Connect your Google Calendar to healdesk",
+  "text": "Use this link to connect the Google Calendar Radiance Med Spa's assistant books into. The page says what healdesk reads and what it adds before you sign in with Google.
+
+Connect your calendar: https://app.healdesk.test/calendar/Zq8vLm3TxR7wYb2NcK5pHs9JdF4gA6eU1oIiQ0yBtVw
+
+The link works once, until Tuesday, October 13 at 10:32 AM EDT. If it runs out, follow it anyway and ask for a new one: it goes to this address.
+
+Until a calendar is connected, your assistant takes each booking as a request for your staff to confirm.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > calendar_link, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Connect your Google Calendar to healdesk</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Your assistant books into the calendar you connect.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Use this link to connect the Google Calendar Radiance Med Spa&#39;s assistant books into. The page says what healdesk reads and what it adds before you sign in with Google.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/calendar/Zq8vLm3TxR7wYb2NcK5pHs9JdF4gA6eU1oIiQ0yBtVw" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Connect your calendar</a></p>
+<p style="margin:0 0 16px;">The link works once, until Tuesday, October 13 at 10:32 AM EDT. If it runs out, follow it anyway and ask for a new one: it goes to this address.</p>
+<p style="margin:0 0 16px;">Until a calendar is connected, your assistant takes each booking as a request for your staff to confirm.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Your assistant books into the calendar you connect.",
+  "subject": "Connect your Google Calendar to healdesk",
+  "text": "Use this link to connect the Google Calendar Radiance Med Spa's assistant books into. The page says what healdesk reads and what it adds before you sign in with Google.
+
+Connect your calendar: https://app.healdesk.test/calendar/Zq8vLm3TxR7wYb2NcK5pHs9JdF4gA6eU1oIiQ0yBtVw
+
+The link works once, until Tuesday, October 13 at 10:32 AM EDT. If it runs out, follow it anyway and ask for a new one: it goes to this address.
+
+Until a calendar is connected, your assistant takes each booking as a request for your staff to confirm.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
 exports[`each template's output > cancel_reversed, for clients: the snapshot 1`] = `
 {
   "html": "<!doctype html>

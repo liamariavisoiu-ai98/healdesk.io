@@ -64,6 +64,11 @@ export const OPS_EVENTS = [
   // location's connection broke and it now takes booking requests. Raised
   // once per breakage by markCalendarBroken (lib/connections/google-calendar.ts).
   "calendar_broken",
+  // Google refused healdesk's own OAuth client (invalid, unauthorised or
+  // deleted): no clinic can connect or keep a calendar until someone fixes
+  // the Google Cloud project. Raised by the connect flow's code exchange
+  // (lib/connections/google-oauth.ts).
+  "google_oauth_client_rejected",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

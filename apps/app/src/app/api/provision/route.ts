@@ -13,6 +13,7 @@ import {
   type StoredIntent,
 } from "@/lib/checkout/intents";
 import { sendOrderConfirmedDelayed } from "@/lib/checkout/order-delayed";
+import { offerCalendarLink } from "@/lib/connections/calendar-links";
 import { issueConnectionLink } from "@/lib/connections/links";
 import { sendSetupLink } from "@/lib/email/setup-link";
 import { env } from "@/lib/env";
@@ -39,9 +40,13 @@ import { notifyOps } from "@/lib/ops/notify";
  * invite anyone into. See lib/provisioning.ts for why, and
  * lib/email/connect-link.ts for the single-use link that replaced the account.
  *
- * It sends exactly one email, and only on a genuine creation: the setup link
- * (design of 23 September 2026, §H.2), through which the practice confirms
- * which booking-request fields the assistant may ask for. The link is issued
+ * It sends its emails only on a genuine creation: the setup link (design of
+ * 23 September 2026, §H.2), through which the practice confirms which
+ * booking-request fields the assistant may ask for, and, when the location
+ * has something to do with its Google Calendar (its terms allow writing and
+ * nothing is connected, or an election can be recorded), a calendar link
+ * mailed only to the practice's own address (offerCalendarLink, plan §4.1;
+ * never thrown from, never logged). The setup link is issued
  * AFTER provisionClinic's transaction has committed, so a mail failure cannot
  * roll back provisioning and a rollback cannot leave a live link in an inbox;
  * a mail failure is logged and the link stays issued for the ops console to
@@ -218,6 +223,7 @@ export async function POST(request: Request): Promise<Response> {
     // check; anything else a customer can perceive belongs there too.
     if (!result.replayed) {
       await mailSetupLink(result.clinicId, provisionRequest);
+      await offerCalendarLink(result.clinicId, "provisioning");
     }
 
     return Response.json(

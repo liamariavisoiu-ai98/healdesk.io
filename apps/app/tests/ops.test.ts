@@ -1,4 +1,7 @@
+import { createHash } from "node:crypto";
+
 import { CURRENT_BAA_VERSION, ONBOARDING_STEPS } from "@healdesk/catalog";
+import { FAKE_GOOGLE_CLIENT, fakeGoogleCalendar, setGoogleFetch } from "@healdesk/connectors";
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { AwsKmsKeyWrapper, __setKeyWrapperForTests } from "@/lib/crypto/kms";
@@ -19,7 +22,13 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import { inTenant, seedClinic, seedDemoClinic, seedGoogleConnection } from "./setup/factories";
+import {
+  inTenant,
+  seedCalendarTerms,
+  seedClinic,
+  seedDemoClinic,
+  seedGoogleConnection,
+} from "./setup/factories";
 import { fakeKms, restoreKeyEnvironment, setKeyEnvironment, TEST_KEY_ARN } from "./setup/kms";
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
@@ -306,6 +315,11 @@ describe("ops: the credential key (getCredentialKeyStatus)", () => {
   test("is a read: on the list, off the mutating half, so it writes no audit row", () => {
     expect(isOpName("getCredentialKeyStatus")).toBe(true);
     expect(isMutating("getCredentialKeyStatus")).toBe(false);
+    // The calendar's two: each mints, mails or revokes something, so each is audited.
+    for (const op of ["issueCalendarLink", "disconnectCalendar"]) {
+      expect(isOpName(op), op).toBe(true);
+      expect(isMutating(op as Parameters<typeof isMutating>[0]), op).toBe(true);
+    }
   });
 
   test("on the local wrapper: configured, no key to name, and a live check that passes", async () => {
@@ -629,6 +643,153 @@ describeDb("ops: the Google Calendar connection and the demo clinic", () => {
           writableConnection(tx),
         ),
       ).toBeNull();
+    },
+    SLOW,
+  );
+
+  test(
+    "issueCalendarLink mails the practice's own address, takes none, and shows a link only for the demo clinic",
+    async () => {
+      const saved = {
+        id: process.env.GOOGLE_OAUTH_CLIENT_ID,
+        secret: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+      };
+      process.env.GOOGLE_OAUTH_CLIENT_ID = FAKE_GOOGLE_CLIENT.clientId;
+      process.env.GOOGLE_OAUTH_CLIENT_SECRET = FAKE_GOOGLE_CLIENT.clientSecret;
+      try {
+        const clinic = await seedClinic("ops-calendar-link");
+        await seedCalendarTerms(clinic);
+        const issued = await run("issueCalendarLink", { clinicId: clinic.clinicId });
+        expect(issued).toMatchObject({ status: "issued", delivery: { recipients: 1, failed: 0 } });
+        expect(issued).not.toHaveProperty("url");
+        expect(JSON.stringify(issued)).not.toMatch(/\/calendar\//);
+        const links = await inTenant(
+          clinic.clinicId,
+          async (client) =>
+            (
+              await client.query<{ sent_to: string[]; audience: string }>(
+                `select sent_to, audience from connection_links where clinic_id = $1 and purpose = 'calendar'`,
+                [clinic.clinicId],
+              )
+            ).rows,
+        );
+        expect(links).toEqual([
+          { sent_to: [clinic.staffEmail.toLowerCase()], audience: "recipients" },
+        ]);
+
+        expect(
+          await run("issueCalendarLink", {
+            clinicId: clinic.clinicId,
+            to: "someone@elsewhere.test",
+          }),
+        ).toMatchObject({
+          status: "error",
+          message: expect.stringMatching(/own address/),
+        });
+        expect(
+          await run("issueCalendarLink", { clinicId: clinic.clinicId, expiresInDays: 31 }),
+        ).toMatchObject({ status: "error" });
+
+        // No agreement in effect: a link would show nothing to do.
+        const bare = await seedClinic("ops-calendar-bare");
+        expect(await run("issueCalendarLink", { clinicId: bare.clinicId })).toMatchObject({
+          status: "error",
+        });
+
+        // The demo clinic's link is for the verification video, so it is shown.
+        const demo = await seedDemoClinic("ops-calendar-demo");
+        const shown = await run("issueCalendarLink", { clinicId: demo.clinicId, expiresInDays: 2 });
+        expect(shown).toMatchObject({
+          status: "issued",
+          url: expect.stringMatching(/\/calendar\/[A-Za-z0-9_-]{43}$/),
+        });
+      } finally {
+        if (saved.id === undefined) delete process.env.GOOGLE_OAUTH_CLIENT_ID;
+        else process.env.GOOGLE_OAUTH_CLIENT_ID = saved.id;
+        if (saved.secret === undefined) delete process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+        else process.env.GOOGLE_OAUTH_CLIENT_SECRET = saved.secret;
+      }
+    },
+    SLOW,
+  );
+
+  test(
+    "disconnectCalendar, a recorded termination and the start of offboarding each take the calendar away and revoke the grant at Google",
+    async () => {
+      const google = fakeGoogleCalendar();
+      setGoogleFetch(google.fetch);
+      const connect = async (label: string) => {
+        const clinic = await seedClinic(label);
+        const { agreementId } = await seedCalendarTerms(clinic);
+        const sub = `13${Date.now()}${Math.floor(Math.random() * 1e6)}`;
+        google.addAccount({ sub, email: `${label}@clinic.test`, hd: "clinic.test" });
+        const { refreshToken } = google.grant({ sub });
+        await seedGoogleConnection(clinic.clinicId, {
+          refreshToken,
+          accountRef: createHash("sha256").update(`google:${sub}`).digest("hex"),
+        });
+        return { clinic, agreementId, refreshToken };
+      };
+      const statusOf = (clinicId: string) =>
+        inTenant(
+          clinicId,
+          async (client) =>
+            (
+              await client.query<{ status: string; last_error: string | null }>(
+                `select status, last_error from provider_connections where clinic_id = $1 and provider = 'google_calendar'`,
+                [clinicId],
+              )
+            ).rows[0]!,
+        );
+      try {
+        const operated = await connect("ops-disconnect");
+        expect(
+          await run("disconnectCalendar", { clinicId: operated.clinic.clinicId }),
+        ).toMatchObject({
+          status: "disconnected",
+          revokedAtGoogle: true,
+        });
+        expect(await statusOf(operated.clinic.clinicId)).toEqual({
+          status: "revoked",
+          last_error: "operator",
+        });
+        expect(google.grantOf(operated.refreshToken)?.revoked).toBe(true);
+        expect(await run("disconnectCalendar", { clinicId: operated.clinic.clinicId })).toEqual({
+          status: "not_connected",
+        });
+
+        const terminated = await connect("ops-terminated");
+        const untouched = await connect("ops-terminated-other");
+        expect(
+          await run("markAgreementTerminated", {
+            agreementId: terminated.agreementId,
+            terminationDate: new Date().toISOString().slice(0, 10),
+          }),
+        ).toMatchObject({ status: "recorded" });
+        expect(await statusOf(terminated.clinic.clinicId)).toEqual({
+          status: "revoked",
+          last_error: "terms_ended",
+        });
+        expect(google.grantOf(terminated.refreshToken)?.revoked).toBe(true);
+        expect(await statusOf(untouched.clinic.clinicId)).toEqual({
+          status: "active",
+          last_error: null,
+        });
+        expect(google.grantOf(untouched.refreshToken)?.revoked).toBe(false);
+
+        const leaving = await connect("ops-offboarding");
+        await run("startOffboarding", {
+          clinicId: leaving.clinic.clinicId,
+          reason: "The practice cancelled.",
+        });
+        expect(await statusOf(leaving.clinic.clinicId)).toEqual({
+          status: "revoked",
+          last_error: "offboarding",
+        });
+        expect(google.grantOf(leaving.refreshToken)?.revoked).toBe(true);
+      } finally {
+        setGoogleFetch(undefined);
+      }
     },
     SLOW,
   );

@@ -32,7 +32,7 @@ the code on 7 October 2026. The plan's commit names, C0 to C20, are kept.
 | C12     | Availability, the desk path, migration B, the harness parked; HRC-04 at each desk write (§4)       | To build                                       |
 | C13     | The booking engine (§6); HRC-04 at each write (§4)                                                 | To build                                       |
 | C14     | The harness wired to the engine, and the fixed lines                                               | To build                                       |
-| C15     | Provisioning reads the signed acceptance                                                           | To build, before C19                           |
+| C15     | Provisioning reads the signed acceptance                                                           | Built                                          |
 | C17     | The console's cards; `setBookingMode` and `directBookingAllowed` removed                           | To build                                       |
 | C18     | Elections and account changes from the portal                                                      | To build; `requirePortal` is on main           |
 | C19     | Release 1.3.0 and `calendar-election/1.0.0`                                                        | When Claude's own audit finds no blocker       |
@@ -40,11 +40,14 @@ the code on 7 October 2026. The plan's commit names, C0 to C20, are kept.
 
 - **1.3.0** is a draft at `BAA_TEMPLATES[1]` (`approvedByCounsel: false`), merged on main clause by
   clause as the owner chose (6dc50a7; `docs/counsel/agreement-changes.md` §12, the choices in
-  §12.13). Nothing offers it and signing refuses it. C19 adds a migration so that
-  `app_baa_version_acceptable` accepts it, and decides whether `MIN_ACCEPTABLE_BAA_VERSION` rises.
-  If it rises past 1.2.1, C19 leaves 1.2.1 out of `BAA_RELEASE_OVERLAP`: a buyer could sign it and
-  then be refused at go-live, and the go-live floor test fails while a listed version is below the
-  floor.
+  §12.13). Nothing offers it, signing refuses it, and so does provisioning, whose approval gate
+  judges the bound acceptance's own version by `isBaaVersionAcceptable` (C15). C19 adds a migration
+  so that `app_baa_version_acceptable` accepts it, and decides whether `MIN_ACCEPTABLE_BAA_VERSION`
+  rises. If it rises past 1.2.1, C19 leaves 1.2.1 out of `BAA_RELEASE_OVERLAP`: a buyer could sign
+  it and then be refused at Pay, by the checkout intent's own check (`agreementMismatch`), and at
+  go-live, and the go-live floor test fails while a listed version is below the floor. A 1.2.1
+  purchase whose intent was checked before such a release and paid after it is refused at
+  provisioning instead, after paying, and reaches ops as a refused provisioning.
 - **One calendar per provider.** The 1.3.0 calendar clauses are to say "the calendar, or one
   calendar per provider, that Practice chooses" (6 October). `google-calendar-disclosure/1`, which
   C8's page is the first to show, says so since the pre-release audit (`agreement-changes.md`
@@ -218,8 +221,8 @@ the platform when both come. The acceptance keeps `platformId`, `bookingSystem` 
 `calendarAccount` as sent, outside the hash. `signableTemplate` accepts the current template, or a
 released one listed in `BAA_RELEASE_OVERLAP` until its deadline. A veterinary practice gets a 422
 naming `specialty`, as the endpoint signs BAAs only and the DPA is unreleased; main's checkout
-still lists every specialty, so the funnel is to hide it (`specialtyOffered`). C15 is to store the
-signed booking system in `clinics.booking_provider`.
+still lists every specialty, so the funnel is to hide it (`specialtyOffered`). Provisioning (C15)
+stores the signed booking system in `clinics.booking_provider`.
 
 ## 4. Google access
 
@@ -454,9 +457,21 @@ lines.
   compares the `bookingSystem` and `calendarAccount` C3 stores (before 1.3.0, the platform the
   agreement names) with the purchase. C7 builds no second definition of a matching agreement: the
   plan's `assertPlatformMatchesAgreement` is dropped for intents, or at most wraps that function.
-  The funnel's provisioning rewrite keeps C15's first election row, and C15 is to let the signed
-  value win over the request's, with a `provision_platform_mismatch` security event, so nobody is
-  paid but refused.
+  The funnel's provisioning rewrite keeps what C15 built in `lib/provisioning.ts`: the approval gate
+  on the bound acceptance's own version, the location's first election row from a signature that
+  carries calendar terms (the clause as signed, even where the catalogue has since reclassified the
+  booking system), and the signed booking system winning over the request's, with a
+  `provision_platform_mismatch` security event, so nobody is paid but refused. Main's `seedSetup`
+  (cf07f36, 295cdee) also writes where bookings live, into `clinic_settings.booking_system` and
+  `calendar_account`, with Auto-confirm following it, from the intent. The merge is to settle one
+  booking system in provisioning and write it there and to `clinics.booking_provider`: under 1.3.0
+  or the DPA, the signed `bookingSystem` and `calendarAccount`, which Pay has checked against the
+  intent's; before 1.3.0, the intent's answer when it maps to the platform the document names.
+  C15, which sees only the request's platform, takes there the `bookingSystem` C3 keeps beside the
+  row, but that answer is outside the signed text ("Google Calendar only" and "Something else" sign
+  the same 1.2.1 document, and a buyer can swap one for the other without signing again), so the
+  intent's is the later word. Provisioning records `provision_platform_mismatch` whenever the
+  intent's answer is not the one it settles on.
 - **E, the console.** E's portal screens are the funnel's now, and its ops billing panel is C's
   (contracts §1). The panel (d56769d) adds the ops operations `setClinicSettings` (Pause AI and the
   direct line) and `setDepositSettings`, and rewrites `updateClinicSettings` in

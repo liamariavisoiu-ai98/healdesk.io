@@ -2,7 +2,8 @@ import { isIP } from "node:net";
 
 import {
   bookingSyncFor,
-  CALENDAR_CLAUSE_IDS_1_3,
+  CALENDAR_CLAUSE_IDS,
+  calendarTermsKind,
   currentCalendarElection,
   electionWidens,
   hashCalendarElection,
@@ -35,6 +36,7 @@ import {
   googleCalendarConnection,
   type GoogleGrant,
 } from "@/lib/connections/google-calendar";
+import { log } from "@/lib/log";
 import type { TenantTx } from "@/lib/tenant";
 
 import { releaseLiveHolds } from "./holds";
@@ -644,6 +646,96 @@ export async function recordCalendarElection(
 // -----------------------------------------------------------------------------
 
 /**
+ * The calendar terms a signed acceptance carries, read off its stored
+ * variables as they were signed (plan §2.6: the agreement row copies the
+ * signed acceptance's version, hash, account and sync). Pure, so provisioning
+ * asks it before anything is written and recordAgreementTerms again when it
+ * writes, and the two cannot disagree.
+ *
+ * The clause is the one the document applied, and the sync is the one that
+ * clause means (not used is manual, covered and uncovered are live), never
+ * what the catalogue would select from the same two answers today. A booking
+ * system reclassified between signing and provisioning (a vendor's written
+ * confirmation landing, plan Q4) does not change what the practice signed,
+ * and a refusal at provisioning comes after payment. `catalogueKind` is what
+ * the catalogue selects now, for the recorder to log when it differs.
+ *
+ * `none`: the document applied no 1.3.0 calendar clause, as no version
+ * before 1.3.0 does. `malformed`: a row no signing path writes, from which no
+ * one set of terms can be recorded as signed: more than one calendar clause;
+ * no booking system or account kind the catalogue knows; an account its
+ * clause contradicts (covered is only for a Workspace account with Google's
+ * BAA, uncovered only for any other), which calendar_elections_kind_consistent
+ * refuses; or a sync stored beside it that its clause contradicts, which the
+ * election guard (app_calendar_election_guard) refuses.
+ */
+export type SignedCalendarTerms =
+  | { status: "none" }
+  | { status: "malformed"; problem: string }
+  | {
+      status: "signed";
+      kind: CalendarTermsKind;
+      clauseId: CalendarClauseId;
+      sync: BookingSync;
+      bookingSystem: BookingSystemId;
+      calendarAccount: CalendarAccount;
+      /** The kind the catalogue selects from the same answers today. */
+      catalogueKind: CalendarTermsKind;
+    };
+
+export function signedCalendarTerms(variables: unknown): SignedCalendarTerms {
+  const signed = (variables ?? {}) as Record<string, unknown>;
+  const applied: unknown[] = Array.isArray(signed.appliedClauses) ? signed.appliedClauses : [];
+  // The three calendar clauses are 1.3.0's (CALENDAR_CLAUSE_IDS_1_3), and the
+  // DPA's, which takes the same ones.
+  const kinds = (Object.keys(CALENDAR_CLAUSE_IDS) as CalendarTermsKind[]).filter((kind) =>
+    applied.includes(CALENDAR_CLAUSE_IDS[kind]),
+  );
+  if (kinds.length === 0) return { status: "none" };
+  if (kinds.length > 1) {
+    return {
+      status: "malformed",
+      problem: "The signed agreement applies more than one calendar clause.",
+    };
+  }
+
+  const { bookingSystem, calendarAccount } = signed;
+  if (!isBookingSystemId(bookingSystem) || !isCalendarAccount(calendarAccount)) {
+    return {
+      status: "malformed",
+      problem:
+        "The signed agreement does not record its booking system and kind of Google account.",
+    };
+  }
+  const kind = kinds[0]!;
+  const sync: BookingSync = kind === "not_used" ? "manual" : "live";
+  // The kind the clause's own sync gives with the signed account is the
+  // clause itself, unless the account contradicts it.
+  if (calendarTermsKind(sync, calendarAccount) !== kind) {
+    return {
+      status: "malformed",
+      problem:
+        "The signed calendar clause is not one for the kind of Google account signed with it.",
+    };
+  }
+  if (Object.hasOwn(signed, "bookingSync") && signed.bookingSync !== sync) {
+    return {
+      status: "malformed",
+      problem: "The booking sync stored with the signed agreement contradicts its calendar clause.",
+    };
+  }
+  return {
+    status: "signed",
+    kind,
+    clauseId: CALENDAR_CLAUSE_IDS[kind],
+    sync,
+    bookingSystem,
+    calendarAccount,
+    catalogueKind: selectCalendarClause({ bookingSystem, calendarAccount }).kind,
+  };
+}
+
+/**
  * Record the `agreement` row: the calendar terms the practice signed, as the
  * first terms of the location set up at signing (plan §2.6, §3.4(c)).
  * Provisioning calls it once, after the clinic insert, inside its own
@@ -651,10 +743,13 @@ export async function recordCalendarElection(
  * clause: an agreement before 1.3.0 leaves the location to its first
  * election (plan §2.8).
  *
- * Every value is the signed row's own: its version and hash, its account kind
- * and booking system, and the clause it applied, which must be the one those
- * answers select. The guard checks each against the bound acceptance again,
- * and refuses the row for any location but the one set up at signing.
+ * Every value is the signed row's own (signedCalendarTerms): its version and
+ * hash, its account kind and booking system, the clause it applied and the
+ * sync that clause means. A clause the catalogue would no longer select for
+ * those answers is recorded as signed all the same, and logged; the location
+ * changes its terms by an election. The guard checks each value against the
+ * bound acceptance again, and refuses the row for any location but the one
+ * set up at signing.
  */
 export async function recordAgreementTerms(
   tx: TenantTx,
@@ -673,35 +768,19 @@ export async function recordAgreementTerms(
     .limit(1);
   if (!signed) throw new CalendarElectionError("That agreement was not found.", "agreementId");
 
-  const variables = signed.variables ?? {};
-  const applied = Array.isArray(variables.appliedClauses) ? variables.appliedClauses : [];
-  const clauseId = CALENDAR_CLAUSE_IDS_1_3.find((id) => applied.includes(id));
-  if (!clauseId) return null;
-
-  const { bookingSystem, calendarAccount } = variables;
-  if (!isBookingSystemId(bookingSystem) || !isCalendarAccount(calendarAccount)) {
-    throw new CalendarElectionError(
-      "The signed agreement does not record its booking system and kind of Google account.",
-      "agreementId",
-    );
-  }
-  const selected = selectCalendarClause({ bookingSystem, calendarAccount });
-  if (selected.clauseId !== clauseId) {
-    throw new CalendarElectionError(
-      "The signed calendar clause is not the one the signed answers select.",
-      "agreementId",
-    );
-  }
+  const terms = signedCalendarTerms(signed.variables);
+  if (terms.status === "none") return null;
+  if (terms.status === "malformed") throw new CalendarElectionError(terms.problem, "agreementId");
 
   const row = await insertElection(tx, {
     clinicId: tx.clinicId,
     agreementId,
     source: "agreement",
-    termsKind: selected.kind,
-    clauseId: selected.clauseId,
-    calendarAccount,
-    bookingSync: bookingSyncFor(bookingSystem),
-    bookingSystem,
+    termsKind: terms.kind,
+    clauseId: terms.clauseId,
+    calendarAccount: terms.calendarAccount,
+    bookingSync: terms.sync,
+    bookingSystem: terms.bookingSystem,
     documentVersion: signed.version,
     documentHash: signed.hash,
     // The signed document is the released agreement itself; the agreement's
@@ -715,9 +794,18 @@ export async function recordAgreementTerms(
     action: "create",
     resourceType: "calendar_election",
     resourceId: row.id,
-    metadata: { sequence: row.sequence, source: "agreement", termsKind: selected.kind },
+    metadata: { sequence: row.sequence, source: "agreement", termsKind: terms.kind },
   });
-  return { electionId: row.id, sequence: row.sequence, kind: selected.kind };
+  if (terms.catalogueKind !== terms.kind) {
+    log.warn("calendar terms recorded as signed; the catalogue now selects another clause", {
+      clinicId: tx.clinicId,
+      agreementId,
+      kind: terms.kind,
+      provider: terms.bookingSystem,
+      reason: `the catalogue now selects ${terms.catalogueKind}`,
+    });
+  }
+  return { electionId: row.id, sequence: row.sequence, kind: terms.kind };
 }
 
 // -----------------------------------------------------------------------------

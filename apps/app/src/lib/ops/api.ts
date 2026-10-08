@@ -62,7 +62,13 @@ import { applyEmailEvent, isDeliveryStatus } from "@/lib/email/events";
 import { KIND_SHAPE } from "@/lib/email/kind-rules";
 import { markExportDelivered, startOffboarding } from "@/lib/offboarding/offboarding";
 import { sweepCalendarTerms } from "@/lib/connections/google-calendar";
-import { opDisconnectCalendar, opIssueCalendarLink } from "@/lib/ops/calendar-ops";
+import {
+  opDisconnectCalendar,
+  opIssueCalendarLink,
+  opSetAutoConfirm,
+  readBookingProjection,
+  type BookingProjection,
+} from "@/lib/ops/calendar-ops";
 import { startForwardingTest } from "@/lib/onboarding/forwarding-test";
 import { listConnections } from "@/lib/connections/store";
 import { selfCheckCredentialKey, type CredentialKeySelfCheck } from "@/lib/crypto/envelope";
@@ -285,6 +291,10 @@ const OPERATIONS = [
   "replayBillingEvent",
   "commitRefund",
   "setClinicSettings",
+  // Auto-confirm, the clinic's own booking switch, beside its other switches
+  // (lib/ops/calendar-ops.ts, plan §10). The owner's kill switch is an
+  // environment variable, and no operation sets it.
+  "setAutoConfirm",
   "setDepositSettings",
   "disconnectStripeConnect",
   "issueStripeConnectLink",
@@ -369,6 +379,7 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "replayBillingEvent",
   "commitRefund",
   "setClinicSettings",
+  "setAutoConfirm",
   "setDepositSettings",
   "disconnectStripeConnect",
   "issueStripeConnectLink",
@@ -876,6 +887,8 @@ export async function runOperation(
       return opCommitRefund(args, operator);
     case "setClinicSettings":
       return opSetClinicSettings(args, operator);
+    case "setAutoConfirm":
+      return opSetAutoConfirm(args, operator);
     case "setDepositSettings":
       return opSetDepositSettings(args, operator);
     case "disconnectStripeConnect":
@@ -2568,6 +2581,13 @@ export type OnboardingView = {
   calendarConnection: { connectionId: string; platform: string; phiBasis: PhiBasis | null; writable: boolean } | null;
   /** §B.4: every appointment with a calendar write attempted. No name, phone or service. */
   calendarWrites: CalendarWriteRow[];
+  /**
+   * Plan §10: the booking mode and every reason for it, Auto-confirm, the
+   * kill switch, the calendar terms and the Google Calendar connection. The
+   * older keys above (`bookingMode`, `directBooking*`, `calendarConnection`)
+   * stay until the console's cards move onto this one (plan C17).
+   */
+  booking: BookingProjection;
 };
 
 export type DirectBookingGate = "env" | "addendum" | "election" | "calendar" | "production" | "agent";
@@ -2602,7 +2622,7 @@ async function opGetOnboarding(
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return opsProblem("No such clinic.", 404, "invalid_args");
 
-  const { agent, metaChannels, bookingRequests, booking } = await withTenant(
+  const { agent, metaChannels, bookingRequests, booking, bookingView } = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
     async (tx) => {
       tx.audit.record({ action: "read", resourceType: "agent_config", resourceId: tx.clinicId });
@@ -2611,6 +2631,7 @@ async function opGetOnboarding(
         agent: await getAgentConfig(tx),
         bookingRequests: await bookingRequestCounts(tx),
         booking: await readBookingState(tx, clinic, connections),
+        bookingView: await readBookingProjection(tx, clinic.timezone),
         metaChannels: connections
           .filter((c) => c.provider.startsWith("meta-"))
           .map((c) => {
@@ -2705,6 +2726,7 @@ async function opGetOnboarding(
     timezone: clinic.timezone,
     calendarConnection: booking.calendarConnection,
     calendarWrites: booking.calendarWrites,
+    booking: bookingView,
   };
   return ok(view);
 }

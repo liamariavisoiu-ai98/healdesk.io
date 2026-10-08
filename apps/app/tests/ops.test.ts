@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 import { CURRENT_BAA_VERSION, ONBOARDING_STEPS } from "@healdesk/catalog";
 import { FAKE_GOOGLE_CLIENT, fakeGoogleCalendar, setGoogleFetch } from "@healdesk/connectors";
@@ -15,6 +15,7 @@ import {
 } from "@/lib/ops/api";
 import { blockersFor, listClinics, type ClinicOverview } from "@/lib/ops/clinics";
 
+import { asApp, at, claimForWriting, futureBase, insertHold } from "./setup/calendar-db";
 import {
   closePools,
   getMigratorPool,
@@ -790,6 +791,239 @@ describeDb("ops: the Google Calendar connection and the demo clinic", () => {
       } finally {
         setGoogleFetch(undefined);
       }
+    },
+    SLOW,
+  );
+
+  test(
+    "getOnboarding's booking: the mode and its reasons, Auto-confirm and the terms, and never the Google account's address, reference or zone",
+    async () => {
+      const saved = {
+        id: process.env.GOOGLE_OAUTH_CLIENT_ID,
+        secret: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+      };
+      process.env.GOOGLE_OAUTH_CLIENT_ID = FAKE_GOOGLE_CLIENT.clientId;
+      process.env.GOOGLE_OAUTH_CLIENT_SECRET = FAKE_GOOGLE_CLIENT.clientSecret;
+      delete process.env.HEALDESK_DIRECT_BOOKING_ENABLED;
+      try {
+        const bare = await seedClinic("ops-booking-bare");
+        const resting = (await run("getOnboarding", { clinicId: bare.clinicId })).booking;
+        expect(resting).toMatchObject({
+          mode: "manual",
+          canOfferTimes: false,
+          autoConfirm: true,
+          autoConfirmChangedAt: null,
+          killSwitchOn: false,
+          demo: false,
+          terms: {
+            kind: "none",
+            source: null,
+            clauseId: null,
+            documentVersion: null,
+            documentReleased: null,
+            electedAt: null,
+            reason: "no_agreement",
+          },
+          calendar: null,
+          calendarLinkOutstanding: false,
+          pendingAssistantWrites: 0,
+        });
+
+        const clinic = await seedClinic("ops-booking");
+        await seedCalendarTerms(clinic);
+        const { connectionId, accountRef } = await seedGoogleConnection(clinic.clinicId);
+        // What the connect flow stores beside the token: the account's address
+        // and the calendar's own zone, for the clinic's portal only.
+        await inTenant(clinic.clinicId, (client) =>
+          client.query(
+            `update provider_connections
+                set metadata = metadata || jsonb_build_object(
+                      'accountEmail', 'owner@radiance-booking.test',
+                      'calendarTimeZone', 'Europe/Lisbon',
+                      'connectedAt', '2026-10-08T09:00:00.000Z')
+              where id = $1`,
+            [connectionId],
+          ),
+        );
+        const view = await run("getOnboarding", { clinicId: clinic.clinicId });
+        const booking = view.booking as Record<string, unknown>;
+        expect(booking).toMatchObject({
+          mode: "manual",
+          canOfferTimes: false,
+          terms: {
+            kind: "covered",
+            source: "agreement",
+            clauseId: "google-calendar-covered",
+            documentVersion: "1.3.0",
+            documentReleased: true,
+            electedAt: expect.any(String),
+            reason: null,
+          },
+          calendar: {
+            connectionId,
+            status: "active",
+            accountKind: "workspace",
+            hostedDomain: "radiance.test",
+            // The clinic is on America/New_York; only the comparison crosses.
+            timeZoneMatches: false,
+            disclosureCurrent: true,
+            connectedAt: "2026-10-08T09:00:00.000Z",
+            lastVerifiedAt: expect.any(String),
+            lastError: null,
+            brokenAt: null,
+          },
+        });
+        expect((booking.reasons as { code: string }[]).map((r) => r.code)).toEqual([
+          "timezone_unconfirmed",
+          "opening_hours_unknown",
+          "not_production",
+          "agent_not_approved",
+          "kill_switch_off",
+        ]);
+        const json = JSON.stringify(view);
+        expect(json).not.toContain("owner@radiance-booking.test");
+        expect(json).not.toContain(accountRef);
+        expect(JSON.stringify(booking)).not.toContain("Europe/Lisbon");
+
+        // What the console counts. A spent calendar link, a lapsed one and a
+        // live link for something else are not outstanding...
+        const addLink = (purpose: string, createdAgo: string, expiresIn: string, used: boolean) =>
+          inTenant(clinic.clinicId, (client) =>
+            client.query(
+              `insert into connection_links (clinic_id, token_hash, purpose, created_at, expires_at, used_at)
+               values ($1, $2, $3, now() - $4::interval, now() + $5::interval,
+                       case when $6::boolean then now() end)`,
+              [clinic.clinicId, randomBytes(32), purpose, createdAgo, expiresIn, used],
+            ),
+          );
+        await addLink("calendar", "1 day", "6 days", true);
+        await addLink("calendar", "10 days", "-3 days", false);
+        await addLink("connect", "0 seconds", "7 days", false);
+        // ...nor is a hold still held or one released; a write in flight and
+        // one not yet read back are the assistant's writes pending.
+        const base = futureBase();
+        const placeHold = (holder: string, minutes: number) =>
+          asApp(clinic.clinicId, (c) =>
+            insertHold(c, clinic.clinicId, { holder, startsAt: at(base, minutes) }),
+          );
+        const writing = await placeHold("voice:ops-writing", 0);
+        await asApp(clinic.clinicId, (c) => claimForWriting(c, writing));
+        const unknown = await placeHold("voice:ops-unknown", 60);
+        await asApp(clinic.clinicId, (c) => claimForWriting(c, unknown));
+        await asApp(clinic.clinicId, (c) =>
+          c.query(
+            `update slot_holds set status = 'unknown', next_check_at = clock_timestamp() + interval '2 minutes'
+              where id = $1`,
+            [unknown],
+          ),
+        );
+        await placeHold("voice:ops-held", 120);
+        const released = await placeHold("voice:ops-released", 180);
+        await asApp(clinic.clinicId, (c) =>
+          c.query(
+            `update slot_holds set status = 'released', outcome_reason = 'superseded',
+                                   released_at = now(), updated_at = now() where id = $1`,
+            [released],
+          ),
+        );
+        expect((await run("getOnboarding", { clinicId: clinic.clinicId })).booking).toMatchObject({
+          calendarLinkOutstanding: false,
+          pendingAssistantWrites: 2,
+        });
+
+        // An unspent, unexpired calendar link is; and a calendar in the
+        // clinic's own zone matches it.
+        await addLink("calendar", "0 seconds", "7 days", false);
+        await inTenant(clinic.clinicId, (client) =>
+          client.query(
+            `update provider_connections
+                set metadata = metadata || jsonb_build_object('calendarTimeZone', 'America/New_York')
+              where id = $1`,
+            [connectionId],
+          ),
+        );
+        expect((await run("getOnboarding", { clinicId: clinic.clinicId })).booking).toMatchObject({
+          calendarLinkOutstanding: true,
+          pendingAssistantWrites: 2,
+          calendar: { timeZoneMatches: true },
+        });
+      } finally {
+        if (saved.id === undefined) delete process.env.GOOGLE_OAUTH_CLIENT_ID;
+        else process.env.GOOGLE_OAUTH_CLIENT_ID = saved.id;
+        if (saved.secret === undefined) delete process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+        else process.env.GOOGLE_OAUTH_CLIENT_SECRET = saved.secret;
+      }
+    },
+    SLOW,
+  );
+
+  test(
+    "setAutoConfirm switches the clinic's Auto-confirm under the team's name, audits the operator once, and answers with the mode",
+    async () => {
+      expect(isOpName("setAutoConfirm")).toBe(true);
+      expect(isMutating("setAutoConfirm")).toBe(true);
+      const { clinicId } = await seedClinic("ops-auto-confirm");
+      const events = async () =>
+        (
+          await getMigratorPool().query<{ actor_label: string; metadata: Record<string, unknown> }>(
+            `select actor_label, metadata from security_events
+              where event = 'auto_confirm_set' and metadata ->> 'clinicId' = $1`,
+            [clinicId],
+          )
+        ).rows;
+
+      expect(await run("setAutoConfirm", { clinicId })).toMatchObject({ status: "error" });
+      expect(await run("setAutoConfirm", { clinicId, on: "false" })).toMatchObject({
+        status: "error",
+      });
+      expect(
+        await run("setAutoConfirm", {
+          clinicId: "00000000-0000-4000-8000-000000000000",
+          on: false,
+        }),
+      ).toEqual({ status: "error", message: "No such clinic." });
+
+      const off = await run("setAutoConfirm", { clinicId, on: false });
+      expect(off).toMatchObject({
+        status: "updated",
+        changed: true,
+        autoConfirm: false,
+        mode: "manual",
+        auditRecorded: true,
+      });
+      expect((off.reasons as { code: string }[]).map((r) => r.code)).toContain("auto_confirm_off");
+      expect(await events()).toEqual([
+        { actor_label: OPERATOR.email, metadata: { clinicId, on: false } },
+      ]);
+      // The clinic's screens name the team; the audit rows name the operator.
+      const stamp = await inTenant(
+        clinicId,
+        async (client) =>
+          (
+            await client.query<{
+              auto_confirm_bookings: boolean;
+              auto_confirm_changed_by_label: string;
+            }>(
+              `select auto_confirm_bookings, auto_confirm_changed_by_label from clinic_settings where clinic_id = $1`,
+              [clinicId],
+            )
+          ).rows[0]!,
+      );
+      expect(stamp).toEqual({
+        auto_confirm_bookings: false,
+        auto_confirm_changed_by_label: "healdesk support",
+      });
+
+      // Already off: nothing changes and nothing more is audited.
+      expect(await run("setAutoConfirm", { clinicId, on: false })).toMatchObject({
+        status: "updated",
+        changed: false,
+        autoConfirm: false,
+      });
+      expect(await events()).toHaveLength(1);
+      expect(
+        (await run("getOnboarding", { clinicId })).booking as Record<string, unknown>,
+      ).toMatchObject({ autoConfirm: false, autoConfirmChangedAt: expect.any(String) });
     },
     SLOW,
   );

@@ -6,7 +6,7 @@ import type { TenantTx } from "@/lib/tenant";
 
 /**
  * Per-clinic switches the portal and the console edit (design D9): deposits,
- * Pause AI and the direct line.
+ * Pause AI, the direct line and Auto-confirm.
  *
  * They live in clinic_settings rather than on clinics or agent_configs for two
  * reasons. An agent_configs edit is a new version that clears the clinic's
@@ -33,13 +33,30 @@ export type ClinicSettings = {
    * the stamps still say (BD26).
    */
   aiPausedUntil: Date | null;
+  /**
+   * Auto-confirm (spec, "Every switch in the portal"): on, the assistant's
+   * booking goes straight into the clinic's calendar where the booking mode
+   * allows it (lib/booking/mode.ts); off, every booking it takes is a
+   * request staff approve. On by default, as is a clinic with no row. It
+   * gates the assistant's own bookings only, never a staff confirmation.
+   */
+  autoConfirmBookings: boolean;
+  /**
+   * When and by whom Auto-confirm was last switched in Settings or the
+   * console (setAutoConfirm); both null until it first is.
+   */
+  autoConfirmChangedAt: Date | null;
+  autoConfirmChangedByLabel: string | null;
   directLineE164: string | null;
   directLineSetAt: Date | null;
   /** Null when the clinic has never saved a setting (no row). */
   updatedAt: Date | null;
 };
 
-/** Must match the column defaults in drizzle/0043. tests/clinic-settings.test.ts compares them. */
+/**
+ * Must match the column defaults in drizzle/0043 and, for Auto-confirm,
+ * drizzle/0056. tests/clinic-settings.test.ts compares them.
+ */
 export const DEFAULT_CLINIC_SETTINGS: ClinicSettings = Object.freeze({
   depositsEnabled: false,
   bookVoiceWithoutDeposit: true,
@@ -49,6 +66,9 @@ export const DEFAULT_CLINIC_SETTINGS: ClinicSettings = Object.freeze({
   aiPausedAt: null,
   aiPausedByLabel: null,
   aiPausedUntil: null,
+  autoConfirmBookings: true,
+  autoConfirmChangedAt: null,
+  autoConfirmChangedByLabel: null,
   directLineE164: null,
   directLineSetAt: null,
   updatedAt: null,
@@ -66,8 +86,10 @@ const E164 = /^\+[1-9][0-9]{6,14}$/;
 
 /**
  * What a caller may change. Timestamps are not settable: `aiPaused` stamps
- * `aiPausedAt` and `aiPausedByLabel` from the clock and the actor, and a
- * direct-line change stamps `directLineSetAt`, so neither can be back-dated.
+ * `aiPausedAt` and `aiPausedByLabel` from the clock and the actor, a
+ * direct-line change stamps `directLineSetAt`, and switching Auto-confirm
+ * stamps `autoConfirmChangedAt` and `autoConfirmChangedByLabel`, so none can
+ * be back-dated.
  *
  * Deposits are not switched here (R24): turning them on needs a connected
  * Stripe account and an amount above $0, and setDepositSettings in
@@ -85,6 +107,11 @@ export type ClinicSettingsPatch = Partial<{
    * Must be in the future. Pausing again while paused moves only this.
    */
   aiPausedUntil: Date | null;
+  /**
+   * Auto-confirm on or off. The portal sends it through setAutoConfirm
+   * (lib/booking/mode.ts), behind its step-up, and so does the console.
+   */
+  autoConfirmBookings: boolean;
   /** E.164, or null to clear. Spaces, dashes, dots and brackets are stripped first. */
   directLineE164: string | null;
 }>;
@@ -113,6 +140,9 @@ function fromRow(row: Row | undefined): ClinicSettings {
     aiPausedAt: row.aiPausedAt,
     aiPausedByLabel: row.aiPausedByLabel,
     aiPausedUntil: row.aiPausedUntil,
+    autoConfirmBookings: row.autoConfirmBookings,
+    autoConfirmChangedAt: row.autoConfirmChangedAt,
+    autoConfirmChangedByLabel: row.autoConfirmChangedByLabel,
     directLineE164: row.directLineE164,
     directLineSetAt: row.directLineSetAt,
     updatedAt: row.updatedAt,
@@ -138,6 +168,26 @@ export function normaliseE164(value: string): string | null {
 function requireBoolean(field: keyof ClinicSettingsPatch, value: unknown): boolean {
   if (typeof value !== "boolean") throw new ClinicSettingsError(field, "Choose on or off.");
   return value;
+}
+
+/**
+ * Hold the tenant clinic's Auto-confirm until the transaction ends.
+ *
+ * A switch is written only when it differs from what is stored, so two at
+ * once must not both compare with the old value. Under READ COMMITTED the
+ * second would read the value the first is replacing: it would either write
+ * nothing and answer "off" while the first commits on, or write again and
+ * move the first one's stamps. A clinic with no settings row has no row to
+ * lock, so this is an advisory lock on the clinic, as for an ops Connect
+ * link (lib/billing/connect.ts). updateClinicSettings takes it before it
+ * reads; a caller that reads Auto-confirm itself to say what it changed
+ * (setAutoConfirm) takes it first. Taking it twice in one transaction is
+ * harmless.
+ */
+export async function lockAutoConfirm(tx: TenantTx): Promise<void> {
+  await tx.db.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${`auto-confirm:${tx.clinicId}`}, 0))`,
+  );
 }
 
 /**
@@ -176,11 +226,19 @@ function requireBoolean(field: keyof ClinicSettingsPatch, value: unknown): boole
  * lib/billing/deposits.ts is the one writer that checks both. A patch that
  * names them is a programming error and is refused.
  *
+ * Switching Auto-confirm stamps who switched it and when, together, as the
+ * column CHECK in drizzle/0056 requires; re-saving the value it already has
+ * moves neither, so "off since …, by …" stays true. It is compared under
+ * lockAutoConfirm, so two switches at once are taken one after the other.
+ * The database reads the column too (app_calendar_write_permitted), so a
+ * hold claimed after the switch commits is refused there whatever the
+ * caller believed.
+ *
  * The audit entry carries booleans and enums only. The direct line is a
  * phone number, so it is recorded as `directLineSet: true|false`, never the
  * digits (assertNoPhi would refuse them anyway); a pause's end is recorded
  * as `pauseTimed: true|false`, never the date (an ISO date reads as a number
- * to the guard).
+ * to the guard); Auto-confirm as `autoConfirm: true|false`.
  */
 export async function updateClinicSettings(
   tx: TenantTx,
@@ -202,6 +260,7 @@ export async function updateClinicSettings(
     depositHoldMinutes?: number;
     aiPaused?: boolean;
     aiPausedUntil?: Date | null;
+    autoConfirmBookings?: boolean;
     directLine?: string | null;
   } = {};
 
@@ -260,6 +319,9 @@ export async function updateClinicSettings(
     }
     wanted.aiPausedUntil = until;
   }
+  if (patch.autoConfirmBookings !== undefined) {
+    wanted.autoConfirmBookings = requireBoolean("autoConfirmBookings", patch.autoConfirmBookings);
+  }
   if (patch.directLineE164 !== undefined) {
     // The type check comes first: an untyped body can carry a number or an
     // object, and that must be a refusal with a field, not a TypeError.
@@ -298,7 +360,10 @@ export async function updateClinicSettings(
     }
   }
 
-  // 2. Keep only what differs from what is stored.
+  // 2. Keep only what differs from what is stored. An Auto-confirm switch
+  // reads under its lock, so it compares with what a concurrent switch
+  // committed rather than with the value that switch replaced.
+  if (wanted.autoConfirmBookings !== undefined) await lockAutoConfirm(tx);
   const current = await getClinicSettings(tx);
   const values: Partial<typeof clinicSettings.$inferInsert> = {};
   const conflictSet: Record<string, unknown> = {};
@@ -366,6 +431,19 @@ export async function updateClinicSettings(
     audit.aiPaused = false;
   }
 
+  if (
+    wanted.autoConfirmBookings !== undefined &&
+    wanted.autoConfirmBookings !== current.autoConfirmBookings
+  ) {
+    values.autoConfirmBookings = wanted.autoConfirmBookings;
+    values.autoConfirmChangedAt = now;
+    values.autoConfirmChangedByLabel = actorLabel;
+    conflictSet.autoConfirmBookings = values.autoConfirmBookings;
+    conflictSet.autoConfirmChangedAt = values.autoConfirmChangedAt;
+    conflictSet.autoConfirmChangedByLabel = values.autoConfirmChangedByLabel;
+    audit.autoConfirm = wanted.autoConfirmBookings;
+  }
+
   if (wanted.directLine !== undefined && wanted.directLine !== current.directLineE164) {
     values.directLineE164 = wanted.directLine;
     values.directLineSetAt = wanted.directLine === null ? null : now;
@@ -379,7 +457,10 @@ export async function updateClinicSettings(
   const [row] = await tx.db
     .insert(clinicSettings)
     .values({ clinicId: tx.clinicId, ...values, updatedAt: now })
-    .onConflictDoUpdate({ target: clinicSettings.clinicId, set: { ...conflictSet, updatedAt: now } })
+    .onConflictDoUpdate({
+      target: clinicSettings.clinicId,
+      set: { ...conflictSet, updatedAt: now },
+    })
     .returning();
 
   tx.audit.record({

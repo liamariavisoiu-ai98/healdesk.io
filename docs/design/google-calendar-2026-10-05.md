@@ -10,7 +10,7 @@ what remains, §8 lists the owner's decisions, and §9 what the sessions still h
 
 `docs/v1-product-spec.md` wins over this file, and §6 of
 `docs/design/funnel-portal-contracts-2026-10-06.md` is the funnel's side of §2. "Built" means in
-the code on 7 October 2026. The plan's commit names, C0 to C20, are kept.
+the code on 8 October 2026. The plan's commit names, C0 to C20, are kept.
 
 ## 1. Built, and what remains
 
@@ -26,7 +26,7 @@ the code on 7 October 2026. The plan's commit names, C0 to C20, are kept.
 | C6b     | The KMS lock labels (§5)                                                                           | Built                                          |
 | C7      | The agreement and calendar terms in effect, elections, the demo clinic                             | Built                                          |
 | C8      | Connecting, choosing calendars, disconnecting, revoking (§2, §4)                                   | Built                                          |
-| C9      | Booking mode and Auto-confirm (§2)                                                                 | To build                                       |
+| C9      | Booking mode and Auto-confirm (§2)                                                                 | Built                                          |
 | C10     | The five-minute calendar watch                                                                     | To build; ships switched off                   |
 | C11     | Privacy §11 and `/data-deletion` say what the code does                                            | To build                                       |
 | C12     | Availability, the desk path, migration B, the harness parked; HRC-04 at each desk write (§4)       | To build                                       |
@@ -114,17 +114,27 @@ app.healdesk.io; apps/web never does.
   the shared one is, §4) and `setProviderServices`, for setup step 3.2 and Settings → Calendar. The
   switch is the funnel's `clinic_settings.booking_detail`, `generic` (the default) or
   `named_provider`, added in its M3.
-- **`effectiveBookingMode(clinicId) → { mode: "direct" | "requests", reason, reasons }`** (C9) is
-  `bookingModeFor`'s `live` or `manual`. `reasons` holds every gate that applies, each a code and a
-  sentence; `reason` is the one the "Right now: …" line shows. The plan's codes: `kill_switch_off`,
-  `auto_confirm_off`, `no_agreement`, `needs_election`, `manual_booking_system`,
-  `google_not_configured`, `calendar_not_connected`, `calendar_broken`, `calendar_degraded`,
-  `calendar_account_mismatch`, `calendar_disclosure_outdated`, `opening_hours_unknown`,
-  `timezone_unconfirmed`, `offboarding`, `not_production`, `agent_not_approved`.
-- **`setAutoConfirm(clinicId, on, actor)`** (C9) goes through `updateClinicSettings`, stamps who
-  changed it and when, and audits `{ autoConfirm }`; the portal calls it behind step-up, and ops
-  `setAutoConfirm` calls it too. `clinic_settings.auto_confirm_bookings` defaults to on, as does a
-  clinic with no settings row; off makes every booking the assistant takes a request.
+- **`effectiveBookingMode(clinicId) → { mode: "direct" | "requests", reason, reasons }`** (C9,
+  `lib/booking/mode.ts`; an optional `{ actor, request }` as above) is `bookingModeFor`'s `live` or
+  `manual`. `bookingModeFor(tx)`, which C12 and C13 call, reads every fact fresh in the caller's
+  transaction and takes no clock, since no gate depends on the time. `reasons` holds every gate
+  that applies, each `{ code, sentence }` in the clinic's words; `reason` is the first of them, the
+  one the "Right now: …" line shows, and null when direct. The codes, in that order: `offboarding`,
+  `no_agreement`, `needs_election`, `manual_booking_system`, `google_not_configured`,
+  `calendar_not_connected`, `calendar_broken`, `calendar_degraded`, `calendar_account_mismatch`,
+  `calendar_disclosure_outdated`, `timezone_unconfirmed`, `opening_hours_unknown` (these stop real
+  free times being offered), then `auto_confirm_off`, `not_production`, `agent_not_approved` and
+  `kill_switch_off`. The mode is decided per location, and `booking_detail` never enters it: a
+  named provider's calendar is on the location's one connection, and C12 and C13 check each
+  provider's calendar at each write (§4).
+- **`setAutoConfirm(clinicId, on, actor, { request?, label? })`** (C9) goes through
+  `updateClinicSettings`, stamps who changed it and when (the actor's label, or `label`), audits
+  `{ autoConfirm }`, and answers `{ changed, autoConfirm, changedAt, changedByLabel }` with
+  `effectiveBookingMode`'s three fields, read in the same transaction; the portal calls it behind
+  step-up, and ops `setAutoConfirm` calls it too, stamping "healdesk support". Two switches at
+  once are taken one after the other, so `changed` is the call's own.
+  `clinic_settings.auto_confirm_bookings` defaults to on, as does a clinic with no settings row;
+  off makes every booking the assistant takes a request.
 - **The kill switch is the owner's.** Unless `HEALDESK_DIRECT_BOOKING_ENABLED` is the literal
   `true`, the assistant books nothing itself. No commit, script, CI file, Dockerfile, `.env.example`
   value or deploy step sets it, and it never stops staff confirmations writing to Google.
@@ -607,7 +617,11 @@ stood on 6 and 7 October. Each is to be settled with the other session before th
    connection rows it could be counted from.
 10. **A booking mode without a clinic (C9, with the funnel).** Checkout's step 2 shows a line from
     "`effectiveBookingMode`'s global state" before any clinic exists; the agreed signature takes a
-    clinic.
+    clinic. C9 provides no read without one. The funnel keeps its constant, `DIRECT_BOOKING_OPEN`
+    set to `false` (`apps/web/src/lib/checkout/funnel.ts`, on main), which is true while the
+    owner's `HEALDESK_DIRECT_BOOKING_ENABLED` is off, and changes it when the owner sets the
+    switch. Whether checkout should read the switch from apps/app instead is for the owner and the
+    coordinator.
 11. **Desk emails and the desk page (C12 and C13, with the funnel).** `notifyBookingAlert` (on main,
     a no-op until the funnel's M5) replaces `notifyDesk`: its emails carry ids only and point into
     Bookings, and a booking the assistant made raises none unless a deposit is owed (L10); the daily

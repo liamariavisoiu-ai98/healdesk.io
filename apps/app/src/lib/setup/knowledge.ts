@@ -327,6 +327,169 @@ export function neverSayWithDefaults(own: readonly string[] = []): string[] {
 }
 
 // -----------------------------------------------------------------------------
+// Knowledge's own sections (plan Part F3): policies, promotions, quick
+// answers and never-say. Each is validated here, screened like every other
+// stored text (never-say excepted, as above), and written as a new version.
+// -----------------------------------------------------------------------------
+
+/** The most entries Knowledge keeps in each list, and the longest promotions box. */
+export const KNOWLEDGE_LIMITS = { policies: 20, quickAnswers: 30, promotionsChars: 1000 } as const;
+
+/** Validate the practice's policies: one per entry, screened, at most twenty. */
+export function validatePolicies(raw: unknown): string[] {
+  if (!Array.isArray(raw)) throw new KnowledgeError("policies", "Send the list of policies.");
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const [i, entry] of raw.entries()) {
+    const text = cleanText(entry, CLINIC_PROFILE_LIMITS.text);
+    if (!text || seen.has(text.toLowerCase())) continue;
+    seen.add(text.toLowerCase());
+    const findings = findClinicalContent({ [`policies[${i}]`]: text });
+    if (findings.length > 0) {
+      const finding = findings[0]!;
+      throw new KnowledgeError(
+        `policies[${i}]`,
+        `This policy mentions ${finding.label} ("${finding.excerpt}"). AYA passes those questions to your team, so leave it out.`,
+      );
+    }
+    out.push(text);
+  }
+  if (out.length > KNOWLEDGE_LIMITS.policies) {
+    throw new KnowledgeError("policies", `Keep it to ${KNOWLEDGE_LIMITS.policies} policies.`);
+  }
+  return out;
+}
+
+export async function savePolicies(
+  tx: TenantTx,
+  policies: string[],
+  now: Date = new Date(),
+): Promise<void> {
+  await writeAgentConfig(tx, { policies }, now);
+  tx.audit.record({
+    action: "update",
+    resourceType: "agent_config",
+    resourceId: tx.clinicId,
+    metadata: { policies: policies.length },
+  });
+}
+
+/** Validate the promotions box: what AYA offers when "Mention promotions" is on. Empty is none. */
+export function validatePromotions(raw: unknown): string | null {
+  if (raw !== null && raw !== undefined && typeof raw !== "string") {
+    throw new KnowledgeError("promotions", "Write the promotions as text.");
+  }
+  // Line breaks are kept: one offer per line reads better than one run-on line.
+  const text =
+    typeof raw === "string"
+      ? raw
+          .split(/\r?\n/)
+          .map((line) => cleanText(line, KNOWLEDGE_LIMITS.promotionsChars))
+          .filter(Boolean)
+          .join("\n")
+      : "";
+  if (!text) return null;
+  if (text.length > KNOWLEDGE_LIMITS.promotionsChars) {
+    throw new KnowledgeError(
+      "promotions",
+      `Keep the promotions under ${KNOWLEDGE_LIMITS.promotionsChars} characters.`,
+    );
+  }
+  const findings = findClinicalContent({ promotions: text });
+  if (findings.length > 0) {
+    const finding = findings[0]!;
+    throw new KnowledgeError(
+      "promotions",
+      `This mentions ${finding.label} ("${finding.excerpt}"). AYA can offer a price or a deal, but not that.`,
+    );
+  }
+  return text;
+}
+
+export async function savePromotions(
+  tx: TenantTx,
+  promotions: string | null,
+  now: Date = new Date(),
+): Promise<void> {
+  await writeAgentConfig(tx, { promotions }, now);
+  tx.audit.record({
+    action: "update",
+    resourceType: "agent_config",
+    resourceId: tx.clinicId,
+    metadata: { promotions: promotions !== null },
+  });
+}
+
+/** Validate the quick answers: question and answer each, screened, at most thirty. */
+export function validateQuickAnswers(raw: unknown): KnowledgeAnswer[] {
+  if (!Array.isArray(raw)) throw new KnowledgeError("quickAnswers", "Send the list of answers.");
+  const rows = raw.filter((row) => {
+    const r = (row ?? {}) as Partial<KnowledgeAnswer>;
+    return (
+      cleanText(r.question, CLINIC_PROFILE_LIMITS.text) ||
+      cleanText(r.answer, CLINIC_PROFILE_LIMITS.text)
+    );
+  });
+  if (rows.length > KNOWLEDGE_LIMITS.quickAnswers) {
+    throw new KnowledgeError(
+      "quickAnswers",
+      `Keep it to ${KNOWLEDGE_LIMITS.quickAnswers} quick answers.`,
+    );
+  }
+  return rows.map((row, i) => validateAnswer(row, `quickAnswers[${i}]`));
+}
+
+export async function saveQuickAnswers(
+  tx: TenantTx,
+  quickAnswers: KnowledgeAnswer[],
+  now: Date = new Date(),
+): Promise<void> {
+  await writeAgentConfig(tx, { quickAnswers }, now);
+  tx.audit.record({
+    action: "update",
+    resourceType: "agent_config",
+    resourceId: tx.clinicId,
+    metadata: { quickAnswers: quickAnswers.length },
+  });
+}
+
+/**
+ * Validate the never-say list as the clinic edits it: trimmed, de-duplicated,
+ * at most NEVER_SAY_LIMITS. Not screened: it is clinical on purpose. An empty
+ * list is allowed (the engine's own guards still hold); "Restore the
+ * defaults" puts the clinical defaults back (neverSayWithDefaults).
+ */
+export function validateNeverSay(raw: unknown): string[] {
+  if (!Array.isArray(raw)) throw new KnowledgeError("neverSay", "Send the list of phrases.");
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of raw) {
+    const text = cleanText(entry, NEVER_SAY_LIMITS.chars);
+    if (!text || seen.has(text.toLowerCase())) continue;
+    seen.add(text.toLowerCase());
+    out.push(text);
+  }
+  if (out.length > NEVER_SAY_LIMITS.entries) {
+    throw new KnowledgeError("neverSay", `Keep the list to ${NEVER_SAY_LIMITS.entries} phrases.`);
+  }
+  return out;
+}
+
+export async function saveNeverSay(
+  tx: TenantTx,
+  neverSay: string[],
+  now: Date = new Date(),
+): Promise<void> {
+  await writeAgentConfig(tx, { neverSay }, now);
+  tx.audit.record({
+    action: "update",
+    resourceType: "agent_config",
+    resourceId: tx.clinicId,
+    metadata: { neverSay: neverSay.length },
+  });
+}
+
+// -----------------------------------------------------------------------------
 // The write
 // -----------------------------------------------------------------------------
 

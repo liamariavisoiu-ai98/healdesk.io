@@ -125,10 +125,41 @@ const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const PHONE = /(?<![A-Za-z0-9-])\+?\d(?:[\s().-]*\d){6,}(?![A-Za-z0-9-])/g;
 // A URL with a query string or fragment can carry a token or a search term.
 const URL_WITH_QUERY = /https?:\/\/[^\s"']+[?#][^\s"']*/g;
+// Google's OAuth material, in the shapes Google issues it (plan §12): an
+// access token (ya29.…), a refresh token (1//…), an authorization code
+// (4/…), any JWT, which is what an ID token is, and the OAuth client's
+// secret (GOCSPX-…). A fetch or driver error can echo the request that
+// carried one, and a calendar connection's every request carries one. Each
+// is a credential to a clinic's calendar, or to all of them; none has an
+// email or a phone shape for the patterns above to catch.
+const GOOGLE_SECRETS = [
+  /ya29\.[\w.-]+/g,
+  /1\/\/[\w.-]+/g,
+  /\b4\/[\w-]{10,}/g,
+  // The same two form- or URL-encoded (1%2F%2F…, 4%2F…), which is how
+  // Google's token, revoke and callback traffic carries them.
+  /1%2F%2F[\w.%-]+/gi,
+  /\b4%2F[\w%-]{10,}/gi,
+  /eyJ[\w-]+\.[\w-]+\.[\w-]+/g,
+  /GOCSPX-[\w-]+/g,
+];
+// An Authorization header, whatever scheme's token follows it.
+const BEARER = /\bBearer\s+\S+/gi;
+// A credential named by its OAuth parameter, whatever shape its value has, in
+// a form body, a query string, or a relative URL with no scheme for
+// URL_WITH_QUERY to see.
+const OAUTH_PARAMS =
+  /\b(refresh_token|access_token|id_token|client_secret|code_verifier)=[^&\s"']+/gi;
 
-/** Replace anything that could identify a person in free text. Exported for tests. */
+/** Replace anything that could identify a person, or open an account, in free text. Exported for tests. */
 export function scrub(text: string): string {
-  return text
+  // Named parameters first, so a value the shapes below also match is
+  // redacted once, as the parameter's.
+  const withoutSecrets = GOOGLE_SECRETS.reduce(
+    (out, pattern) => out.replace(pattern, "[token redacted]"),
+    text.replace(BEARER, "Bearer [token redacted]").replace(OAUTH_PARAMS, "$1=[token redacted]"),
+  );
+  return withoutSecrets
     .replace(EMAIL, "[email redacted]")
     .replace(URL_WITH_QUERY, "[url redacted]")
     .replace(PHONE, "[number redacted]");

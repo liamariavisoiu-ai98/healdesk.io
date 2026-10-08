@@ -838,7 +838,7 @@ release by changing the code, the clause or the site copy:
    (`docs/design/funnel-onboarding-portal-2026-10-06.md`, Part L, on main).
    (Since 7 October 2026 the code keeps each agreement's own rule: 1.2.1 and
    earlier destroy before thirty days are up whatever the export, and the
-   ninety days apply only where the agreement states them; drizzle/0056 and
+   ninety days apply only where the agreement states them; drizzle/0058 and
    release gate 7 in §12.14.)
 9. **The Payments clause describes a link nothing creates.** "Where Practice
    takes deposits, healdesk creates a payment link through Practice's own
@@ -1362,7 +1362,7 @@ these is closed, by code, a page, a signed paper or a host setting, and
    what clause 4(c) promises: "only a record of the request, for no longer
    than it needs one to make sure the information stays deleted".
 7. **Offboarding (HRC-02, PT-01).** Code in
-   `drizzle/0056_destruction_clock.sql` and
+   `drizzle/0058_destruction_clock.sql` and
    `apps/app/src/lib/offboarding/offboarding.ts`, pinned by
    `tests/destruction-clock.test.ts`.
    - Done: 1.2.1 and earlier keep their flat thirty days and 1.3.0 and the

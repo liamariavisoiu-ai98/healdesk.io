@@ -26,9 +26,10 @@ Today's tick runs the billing sweep, the connection watchdog, the weekly recap, 
 retention purge (03 UTC), offboarding destruction (every hour, on every agreement's
 rule: each clinic is due a day before its thirty days, or on BAA 1.3.0 and the DPA
 without an export its ninety, are up, so it is gone before they are whatever hour it
-left) and the annual renewal reminder (09 UTC). It also still carries the monthly revenue report and the nightly POS
-sync, which are phase two and stay switched off in v1, and two sweeps from the 23
-September booking design (Meta booking drafts, booking-requirement defaults).
+left) and the annual renewal reminder (09 UTC). It also still carries the monthly
+revenue report and the nightly POS sync, which are phase two and stay switched off in
+v1, and two sweeps from the 23 September booking design (Meta booking drafts,
+booking-requirement defaults).
 
 The Stripe launch (drizzle/0043) adds five billing jobs, all seeded off: hourly, the
 usage meter report (overage on monthly plans to Stripe's meters) and the usage alerts

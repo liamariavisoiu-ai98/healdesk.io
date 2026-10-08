@@ -31,7 +31,9 @@
 --     strictest rule. DESTRUCTION_RULES in lib/offboarding/offboarding.ts is
 --     the map; tests/destruction-clock.test.ts holds the two together and
 --     fails when a template in the catalog has no entry.
---   * app_destruction_due() is the floor under both delete functions and the
+--   * app_destruction_due() is the floor under the three delete functions
+--     (app_destroy_booking_requests, app_destroy_contact_evidence below, and
+--     0057's app_destroy_clinic_providers, rebuilt on it here) and the
 --     destroyed stamp, and the same rule dueForDestruction applies. Each
 --     limit is met a day early, so that the job, which now runs every hour
 --     for every rule, has the data gone before the limit passes whatever hour
@@ -59,7 +61,9 @@
 --     agreement's return-or-destroy clause reaches them. The runtime role has
 --     no DELETE on them (0010), so app_destroy_contact_evidence() deletes
 --     the tenant's, on the same floor, and app_mark_clinic_destroyed()
---     refuses while any is left.
+--     refuses while any is left. Its other checks are 0057's, which are
+--     0054's with the setup wizard's screens (0056) and the calendar's slot
+--     holds, providers and their services (0057).
 --   * app_clinics_overview() carries the version the rule was read from.
 --   * The offboarding-destroy job runs every hour, and every run destroys
 --     every clinic due, on either rule (lib/scheduler/tick.ts).
@@ -164,7 +168,7 @@ GRANT EXECUTE ON FUNCTION app_agreement_at_end(uuid) TO healdesk_app;--> stateme
 -- it, so a transaction left open cannot spend its own wait; the dates it
 -- reads are written by app_start_offboarding() and
 -- app_mark_export_delivered() alone. Its days are counted in UTC, whatever
--- zone the caller set (see the header). Not SECURITY DEFINER: only the three
+-- zone the caller set (see the header). Not SECURITY DEFINER: only the four
 -- definers below call it.
 CREATE OR REPLACE FUNCTION app_destruction_due(target_clinic uuid)
 RETURNS boolean
@@ -318,7 +322,7 @@ REVOKE ALL ON FUNCTION app_mark_export_delivered(uuid) FROM PUBLIC;--> statement
 GRANT EXECUTE ON FUNCTION app_mark_export_delivered(uuid) TO healdesk_app;--> statement-breakpoint
 
 -- 0054's insert guard with export_delivered_at added: a clinic born with an
--- export already delivered would meet the DPA rule's day 30 without one.
+-- export already delivered would meet the export rule's day 29 without one.
 CREATE OR REPLACE FUNCTION app_clinic_insert_guard()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -342,7 +346,7 @@ $$;--> statement-breakpoint
 -- Destruction, on the floor above
 -- -----------------------------------------------------------------------------
 -- 0054's definition with the floor replaced: app_destruction_due() instead of
--- thirty days for every clinic. The message is unchanged. It and the two
+-- thirty days for every clinic. The message is unchanged. It and the three
 -- definers below count nothing themselves, and are pinned to UTC all the same,
 -- so no day counted on their behalf, now or after a later edit, is the
 -- caller's (see the header).
@@ -419,10 +423,53 @@ $$;--> statement-breakpoint
 REVOKE ALL ON FUNCTION app_destroy_contact_evidence(uuid) FROM PUBLIC;--> statement-breakpoint
 GRANT EXECUTE ON FUNCTION app_destroy_contact_evidence(uuid) TO healdesk_app;--> statement-breakpoint
 
--- 0054's definition with the floor replaced and the three tables above added
--- to the list it requires empty. Every table it checked before, it still
--- checks; tests/booking-request-destruction.test.ts reads the list from this
--- source and pins destroyClinicData's deletes to it.
+-- 0057's definition with the floor replaced. The calendar's migration gave its
+-- provider delete 0054's floor, thirty days after the start and destroy_after
+-- passed, for every clinic. Under that floor a clinic due at day 29 (the
+-- thirty days, or the export rule with the export delivered) could not be
+-- destroyed at all: destroyClinicData calls this before the stamp, in one
+-- transaction, so the refusal rolled back every delete and the job tried
+-- again each hour until day 30, past the thirty days. The message and the
+-- delete are 0057's.
+CREATE OR REPLACE FUNCTION app_destroy_clinic_providers(target_clinic uuid)
+RETURNS integer
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+SET TimeZone = 'UTC'
+AS $$
+DECLARE
+  tenant uuid := app_current_clinic_id();
+  gone integer;
+BEGIN
+  IF tenant IS NULL OR target_clinic IS DISTINCT FROM tenant THEN
+    RAISE EXCEPTION 'app_destroy_clinic_providers: clinic % is not the tenant of this transaction', target_clinic
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF NOT app_destruction_due(target_clinic) THEN
+    RAISE EXCEPTION 'Clinic % is not due for destruction; refusing to delete its providers.', target_clinic
+      USING ERRCODE = 'check_violation',
+            HINT = 'Destruction is due by the rule of the agreement the service ended under (app_destruction_due), by the database''s clock.';
+  END IF;
+
+  -- destroyClinicData deletes the mappings first; any left go by cascade.
+  DELETE FROM clinic_providers p WHERE p.clinic_id = target_clinic;
+  GET DIAGNOSTICS gone = ROW_COUNT;
+  RETURN gone;
+END
+$$;--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_destroy_clinic_providers(uuid) FROM PUBLIC;--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_destroy_clinic_providers(uuid) TO healdesk_app;--> statement-breakpoint
+
+-- 0057's definition, the last before this one, with the floor replaced and
+-- the three tables app_destroy_contact_evidence() empties added to the list it
+-- requires empty. Every table it checked before, it still checks: 0054's
+-- twelve, the setup wizard's clinic_setup_screens (0056), and the calendar's
+-- slot_holds, clinic_provider_services and clinic_providers (0057).
+-- tests/booking-request-destruction.test.ts reads the list from this source
+-- and pins destroyClinicData's deletes to it.
 CREATE OR REPLACE FUNCTION app_mark_clinic_destroyed(target_clinic uuid)
 RETURNS timestamptz
 LANGUAGE plpgsql
@@ -458,7 +505,11 @@ BEGIN
      OR EXISTS (SELECT 1 FROM clinic_closures z WHERE z.clinic_id = target_clinic)
      OR EXISTS (SELECT 1 FROM chat_threads h WHERE h.clinic_id = target_clinic)
      OR EXISTS (SELECT 1 FROM meta_inbound_messages m WHERE m.clinic_id = target_clinic)
-     OR EXISTS (SELECT 1 FROM suppressions s WHERE s.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM clinic_setup_screens s WHERE s.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM slot_holds sh WHERE sh.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM clinic_provider_services ps WHERE ps.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM clinic_providers pr WHERE pr.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM suppressions u WHERE u.clinic_id = target_clinic)
      OR EXISTS (SELECT 1 FROM consent_records g WHERE g.clinic_id = target_clinic)
      OR EXISTS (SELECT 1 FROM contact_attempts n WHERE n.clinic_id = target_clinic) THEN
     RAISE EXCEPTION 'Clinic % still holds rows that destruction deletes; refusing to mark it destroyed.', target_clinic
@@ -494,7 +545,7 @@ ALTER FUNCTION app_purge_booking_requests(timestamptz) SET TimeZone = 'UTC';--> 
 -- The console projection, with the version the rule is read from
 -- -----------------------------------------------------------------------------
 -- 0048's definition plus destruction_agreement_version
--- (app_agreement_at_end), so the daily job and the console read the rule from
+-- (app_agreement_at_end), so the hourly job and the console read the rule from
 -- the same row. Contract metadata, not patient data. A return type cannot
 -- change under CREATE OR REPLACE, so drop and recreate, as 0048 did.
 DROP FUNCTION IF EXISTS app_clinics_overview();--> statement-breakpoint
@@ -562,17 +613,19 @@ COMMENT ON FUNCTION app_destruction_rule(text) IS
 COMMENT ON FUNCTION app_agreement_at_end(uuid) IS
   'The agreement a clinic was bound to when its service ended: the newest acceptance bound to its organisation that was accepted and bound no later than offboarding_started_at, terminated since or not. No row while the clinic is not offboarding or held none then. The destruction rule is read from it.';--> statement-breakpoint
 COMMENT ON FUNCTION app_destruction_due(uuid) IS
-  'Whether a clinic''s data may be destroyed now, by the database''s clock: under the thirty days (BAA 1.2.1 and earlier, none, unknown) from day 29 after offboarding_started_at; under the export rule (BAA 1.3.0, DPA 1.0.0) from day 29 once export_delivered_at is set, and from day 89 regardless. Each a day before the agreement''s thirty or ninety days, for an hourly job. Days of twenty-four hours: it runs in UTC, whatever zone the caller set. The floor under app_destroy_booking_requests, app_destroy_contact_evidence and app_mark_clinic_destroyed.';--> statement-breakpoint
+  'Whether a clinic''s data may be destroyed now, by the database''s clock: under the thirty days (BAA 1.2.1 and earlier, none, unknown) from day 29 after offboarding_started_at; under the export rule (BAA 1.3.0, DPA 1.0.0) from day 29 once export_delivered_at is set, and from day 89 regardless. Each a day before the agreement''s thirty or ninety days, for an hourly job. Days of twenty-four hours: it runs in UTC, whatever zone the caller set. The floor under app_destroy_booking_requests, app_destroy_contact_evidence, app_destroy_clinic_providers and app_mark_clinic_destroyed.';--> statement-breakpoint
 COMMENT ON FUNCTION app_start_offboarding(uuid, timestamptz) IS
   'Stamps clinics.offboarding_started_at at the end of the service (ended, or the call when NULL), clamped to no earlier than seven days before the call and no later than the call, both by clock_timestamp(); destroy_after thirty days later; once, so starting again moves neither. Days of twenty-four hours: it runs in UTC, whatever zone the caller set. The tenant''s own clinic only. Returns the stamps, whether this call made them, and the end asked for.';--> statement-breakpoint
 COMMENT ON FUNCTION app_mark_export_delivered(uuid) IS
   'Stamps clinics.export_delivered_at from clock_timestamp(), once, when the export reaches the practice (the operator''s record of the handover). The tenant''s own clinic, offboarding and not yet destroyed. The only writer of the column: app_destruction_due reads it.';--> statement-breakpoint
 COMMENT ON FUNCTION app_destroy_contact_evidence(uuid) IS
   'Deletes every suppression, consent record and contact attempt of the tenant''s own clinic, for destroyClinicData. Refuses unless the clinic passed is app.clinic_id and app_destruction_due() says it is due. Returns the three counts.';--> statement-breakpoint
+COMMENT ON FUNCTION app_destroy_clinic_providers(uuid) IS
+  'Deletes every named provider of the tenant''s own clinic, for destroyClinicData, after it has deleted their service mappings. Refuses unless the clinic passed is app.clinic_id and app_destruction_due() says it is due, by the database''s clock. Returns the count.';--> statement-breakpoint
 COMMENT ON FUNCTION app_destroy_booking_requests(uuid) IS
   'Deletes every booking request of the tenant''s own clinic, for destroyClinicData, before its appointments go. Refuses unless the clinic passed is app.clinic_id and app_destruction_due() says it is due, by the database''s clock, on dates only app_start_offboarding and app_mark_export_delivered write. Returns the count.';--> statement-breakpoint
 COMMENT ON FUNCTION app_mark_clinic_destroyed(uuid) IS
-  'Stamps clinics.destroyed_at from the database''s clock, once, for destroyClinicData. Refuses unless the clinic passed is app.clinic_id, app_destruction_due() says it is due, and it holds none of the rows destroyClinicData deletes, suppressions, consent records and contact attempts included. Returns destroyed_at.';--> statement-breakpoint
+  'Stamps clinics.destroyed_at from the database''s clock, once, for destroyClinicData. Refuses unless the clinic passed is app.clinic_id, app_destruction_due() says it is due, and it holds none of the rows destroyClinicData deletes: suppressions, consent records and contact attempts included, and the setup screens, slot holds, providers and provider services 0056 and 0057 added. Returns destroyed_at.';--> statement-breakpoint
 COMMENT ON COLUMN clinics.offboarding_started_at IS
   'When the clinic''s service ended: Stripe''s end of the subscription, or the moment an operator or our own setup closure ended it. Written only by app_start_offboarding(), clamped to the week before the call; a new clinic cannot carry it (clinics_insert_guard).';--> statement-breakpoint
 COMMENT ON COLUMN clinics.destroy_after IS
@@ -609,6 +662,7 @@ BEGIN
                                  'app_destruction_due(uuid)',
                                  'app_destroy_booking_requests(uuid)',
                                  'app_destroy_contact_evidence(uuid)',
+                                 'app_destroy_clinic_providers(uuid)',
                                  'app_mark_clinic_destroyed(uuid)',
                                  'app_record_days_in_force(integer, integer, timestamptz)',
                                  'app_record_cutoff()',

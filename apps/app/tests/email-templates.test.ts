@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { SENDER_IDENTITY } from "@healdesk/catalog";
+import { annualTotalUsd, getPlan, SENDER_IDENTITY } from "@healdesk/catalog";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
-import { DIRECT_KIND_REGISTRY, DIRECT_KINDS } from "@/lib/email/direct-kinds";
+import { DIRECT_KIND_REGISTRY, DIRECT_KINDS, LEDGER_DIRECT_KINDS } from "@/lib/email/direct-kinds";
 import {
   carriesUnsubscribe,
   classOf,
@@ -42,6 +42,7 @@ import {
 import { renderOpsAlert } from "@/lib/email/templates/ops_alert";
 import { PENDING_TEMPLATES, TEMPLATES, templateFor } from "@/lib/email/templates/registry";
 import type { EmailAudience, TemplateContext } from "@/lib/email/templates/types";
+import { WELCOME_ENTRY } from "@/lib/email/templates/welcome";
 import {
   readUnsubscribeToken,
   unsubscribeHeaders,
@@ -135,7 +136,7 @@ describe("the template registry", () => {
     }
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds, then B1, O7, the setup closure and O13", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -162,7 +163,20 @@ describe("the template registry", () => {
       "refund_issued",
       "card_expiring",
       "connect_connected",
+      "welcome",
+      "setup_reminder",
+      "setup_closed",
+      "calendar_stopped",
+      "calendar_reconnected",
     ]);
+  });
+
+  test("the ledger records exactly the direct kinds flagged for it: the welcome email", () => {
+    const flagged = DIRECT_KINDS.filter((kind) => DIRECT_KIND_REGISTRY[kind].ledger);
+    expect([...LEDGER_DIRECT_KINDS]).toEqual(flagged);
+    expect(flagged).toEqual(["welcome"]);
+    expect(isLinkEmail("welcome")).toBe(true);
+    expect(locksOutClinic("welcome")).toBe(true);
   });
 
   test("every template's fixture passes the payload allowlist", () => {
@@ -229,6 +243,40 @@ describe("each template's output", () => {
       });
     });
   }
+});
+
+describe("the welcome email (B1)", () => {
+  const usd = (amount: number) => `$${amount.toLocaleString("en-US")}`;
+
+  test("the monthly price either way: an annual plan's per month, with the year's total", () => {
+    const plan = getPlan(WELCOME_ENTRY.fixture.planId)!;
+    const monthly = WELCOME_ENTRY.render(WELCOME_ENTRY.fixture, contextFor("welcome"));
+    expect(monthly.text).toContain(`Monthly price: ${usd(plan.monthlyUsd)}`);
+    expect(monthly.text).toContain(`Monthly billing (${usd(plan.monthlyUsd)}) starts the day`);
+
+    const annual = WELCOME_ENTRY.render(
+      { ...WELCOME_ENTRY.fixture, interval: "year" },
+      contextFor("welcome"),
+    );
+    expect(annual.text).toContain(
+      `Price: ${usd(plan.annualMonthlyUsd)} a month, billed annually (${usd(annualTotalUsd(plan))} a year)`,
+    );
+    expect(annual.text).toContain("Billing: Annual");
+    expect(annual.text).not.toContain("Monthly price");
+  });
+
+  test("Help: the voicemail line in the plan's words while one is set, and nothing while not", () => {
+    const set = WELCOME_ENTRY.render(WELCOME_ENTRY.fixture, contextFor("welcome", "clients"));
+    expect(set.text).toContain(
+      "Or leave a message on (888) 555-0100: we reply the next business day. Please don't include client details.",
+    );
+    const unset = WELCOME_ENTRY.render(
+      { ...WELCOME_ENTRY.fixture, helpPhoneE164: null, callUrl: null },
+      contextFor("welcome"),
+    );
+    expect(unset.text).toContain("Questions? Reply to this email, or write to hello@healdesk.io.");
+    expect(unset.text).not.toMatch(/leave a message|five-minute call|\/help\/call/);
+  });
 });
 
 describe("ops alerts beyond the fixture", () => {

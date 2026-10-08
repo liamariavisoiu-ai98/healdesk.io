@@ -397,8 +397,22 @@
     {
       "idx": 56,
       "version": "7",
-      "when": 1791395986491,
-      "tag": "0056_destruction_clock",
+      "when": 1791388533203,
+      "tag": "0056_setup_wizard",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1791400925745,
+      "tag": "0057_google_calendar",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1791402927465,
+      "tag": "0058_destruction_clock",
       "breakpoints": true
     }
   ]

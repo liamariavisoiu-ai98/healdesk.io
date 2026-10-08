@@ -2,6 +2,7 @@ import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { AwsKmsKeyWrapper, __setKeyWrapperForTests } from "@/lib/crypto/kms";
 import {
   base32Decode,
   base32Encode,
@@ -26,6 +27,7 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
+import { fakeKms, sealAsVersionOne, TEST_KEY_ARN } from "./setup/kms";
 
 /**
  * The authenticator-app backup (plan Part D3): RFC 6238 on node:crypto, a
@@ -489,5 +491,56 @@ describeDb("the authenticator backup", () => {
       ok: false,
       reason: "incorrect",
     });
+  });
+
+  test("the secret is sealed and opened under the lock label users / user-totp", async () => {
+    const kms = fakeKms();
+    __setKeyWrapperForTests(new AwsKmsKeyWrapper(TEST_KEY_ARN, { client: kms.client }));
+    let userId = "";
+    try {
+      const enrolment = await enrolled();
+      userId = enrolment.userId;
+      expect(
+        await checkSecondFactorCode(
+          userId,
+          codeFor(enrolment.secret, STEP + 1),
+          undefined,
+          at(STEP + 1),
+        ),
+      ).toEqual({ ok: true, method: "totp" });
+    } finally {
+      __setKeyWrapperForTests(undefined);
+    }
+
+    const context = { "healdesk:clinic": "users", "healdesk:login": "user-totp" };
+    expect(kms.calls.map((call) => [call.command, call.encryptionContext])).toEqual([
+      ["GenerateDataKey", context],
+      ["Decrypt", context],
+    ]);
+    const { rows } = await getMigratorPool().query<{ version: string }>(
+      `select secret_sealed ->> 'aadVersion' as version from user_factors where user_id = $1 and kind = 'totp'`,
+      [userId],
+    );
+    expect(rows[0]?.version).toBe("2");
+  });
+
+  test("a secret enrolled before lock labels still opens", async () => {
+    const owner = await seedUser();
+    const { secret } = proposeTotp({ userId: owner.id, email: owner.email });
+    const factorId = randomUUID();
+    // The identity lib/factors/totp.ts binds a secret to, sealed as before labels.
+    const sealed = await sealAsVersionOne(
+      secret,
+      { clinicId: `user:${owner.id}`, credentialId: `user_factors:${factorId}` },
+      { kekBase64: process.env.HEALDESK_LOCAL_KEK! },
+    );
+    await getMigratorPool().query(
+      `insert into user_factors (id, user_id, kind, secret_sealed, last_step) values ($1, $2, 'totp', $3::jsonb, $4)`,
+      [factorId, owner.id, JSON.stringify(sealed), STEP - 1],
+    );
+
+    expect(
+      await checkSecondFactorCode(owner.id, codeFor(secret, STEP), undefined, at(STEP)),
+    ).toEqual({ ok: true, method: "totp" });
   });
 });

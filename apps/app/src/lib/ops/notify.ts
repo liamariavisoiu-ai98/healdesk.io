@@ -66,6 +66,15 @@ export const OPS_EVENTS = [
   // started a week back and no further.
   "export_undelivered_before_destruction",
   "offboarding_started_late",
+  // The Google Calendar connection (the calendar session; the funnel and
+  // portal contract of 6 October 2026 routes its ops alerts here): a
+  // location's connection broke and it now takes booking requests. Raised
+  // once per breakage by markCalendarBroken (lib/connections/google-calendar.ts).
+  "calendar_broken",
+  // The setup wizard (M3): a welcome email (B1) still unsent an hour after
+  // provisioning, or one the clinic has moved past before it could go, so
+  // the order confirmation has to be sent by hand.
+  "welcome_email_unsent",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

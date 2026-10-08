@@ -6,36 +6,65 @@ import {
   check,
   customType,
   date,
+  foreignKey,
   index,
   inet,
   integer,
   jsonb,
   numeric,
   pgEnum,
+  pgSequence,
   pgTable,
   primaryKey,
   smallint,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
 import {
   type AgreementKind,
+  ASSISTANT_LANGUAGES,
+  ASSISTANT_TONES,
+  type AssistantLanguage,
+  type AssistantTone,
   type BillingInterval,
+  type BookingSync,
+  BOOKING_DETAILS,
+  BOOKING_SYSTEMS,
+  type BookingDetail,
   type BookingSystemId,
+  CALENDAR_ACCOUNTS,
   type CalendarAccount,
+  type CalendarClauseId,
+  type CalendarTermsKind,
   type Channel,
   CHANNELS,
+  type ClinicProfile,
+  COVERAGE_MODES,
+  type CoverageModeId,
   type OnboardingState,
   type RegulatoryRegime,
+  type ServicePriceKind,
+  TRANSCRIPT_RETENTION_DAYS_OPTIONS,
+  type TranscriptRetentionDays,
 } from "@healdesk/catalog";
 
 import type { OpeningHours } from "../lib/clinic/opening-hours";
 import type { SealedPayload } from "../lib/crypto/envelope";
-import { NOTICE_KINDS } from "../lib/email/kinds";
+import { LEDGER_DIRECT_KINDS } from "../lib/email/direct-kinds";
+import { NOTICE_KINDS, PACKAGE_NOTICE_KINDS, type NoticeKind } from "../lib/email/kinds";
 import { DEVICE_LABEL_MAX } from "../lib/factors/device";
+import {
+  SETTINGS_HISTORY_FIELDS,
+  SETUP_SCREEN_OUTCOMES,
+  SETUP_SCREENS,
+  type SettingsHistoryField,
+  type SetupScreenId,
+  type SetupScreenOutcome,
+} from "../lib/setup/screen-ids";
 
 import { organization, user } from "./auth-schema";
 
@@ -219,6 +248,19 @@ export const phoneSystemTypeEnum = pgEnum("phone_system_type", [
 // -----------------------------------------------------------------------------
 
 /**
+ * Issues `clinics.client_number`. Declared here so drizzle-kit creates it;
+ * 0057 sets where it starts (after the clinics that existed then) and makes
+ * the column its owner.
+ */
+export const clinicsClientNumberSeq = pgSequence("clinics_client_number_seq", {
+  increment: 1,
+  minValue: 1,
+  maxValue: 2147483647,
+  startWith: 1,
+  cache: 1,
+});
+
+/**
  * A LOCATION, and the root of every PHI query.
  *
  * `organization` (Better Auth) is the customer account — billing, invites,
@@ -245,6 +287,21 @@ export const clinics = pgTable(
 
     /** Route segment: /c/[slug]. Globally unique so routing needs no org lookup. */
     slug: text("slug").notNull(),
+
+    /**
+     * The clinic's client number: 1, 2, 3… in the order clinics were created,
+     * so a customer's second location gets the next number, not a sibling of
+     * the first. It labels every credential sealed for the clinic (the
+     * `healdesk:clinic` key of the KMS encryption context), which is why it
+     * can never change: a ciphertext sealed under one number does not open
+     * under another. Issued by `clinics_client_number_seq` through the column
+     * default, never named by a writer: a trigger accepts at insert only the
+     * number the default just drew and refuses any change after, for every
+     * role, and the runtime role holds no UPDATE on it (drizzle/0057).
+     */
+    clientNumber: integer("client_number")
+      .notNull()
+      .default(sql`nextval('clinics_client_number_seq')`),
 
     name: text("name").notNull(),
     /** Matches an id in apps/web's specialty catalogue where they overlap. */
@@ -368,7 +425,7 @@ export const clinics = pgTable(
      * clock: a suppression is a "stop", or the record of an erasure, and
      * has to outlast the rows it stopped. They go with the rest of the
      * clinic's data when it is destroyed at offboarding (lib/offboarding,
-     * drizzle/0056). The purge job (lib/retention/purge.ts) is the only
+     * drizzle/0058). The purge job (lib/retention/purge.ts) is the only
      * reader of the two clocks.
      *
      * The record clock is never below a day (a CHECK below), and the
@@ -511,6 +568,26 @@ export const clinics = pgTable(
      */
     stripeConnectDisconnectedAt: timestamp("stripe_connect_disconnected_at", { withTimezone: true }),
 
+    // --- The setup wizard (0056): the practice as the clinic confirms it. ---
+    /**
+     * The location's street address, as the clinic writes it: what AYA
+     * tells a caller who asks where the practice is, and where the time zone
+     * was read from. Business contact data, never a patient's.
+     */
+    address: text("address"),
+    /**
+     * The practice's website, host and path without the scheme (catalog
+     * `cleanWebsite`), or null when it has none. Seeded from the purchase.
+     */
+    website: text("website"),
+    /**
+     * The website as read at checkout (plan Part B), screened again under the
+     * specialty bought: the setup wizard's starting point and the drift
+     * check's baseline (plan Part B, "Re-reads"). Null when there was no
+     * website or the read failed. Business data, never patient information.
+     */
+    siteProfile: jsonb("site_profile").$type<ClinicProfile>(),
+
     /** The BAA gate, made mechanical. See drizzle/0004_baa_gate.sql. */
     dataClassification: dataClassificationEnum("data_classification")
       .notNull()
@@ -525,6 +602,8 @@ export const clinics = pgTable(
   },
   (t) => [
     uniqueIndex("clinics_slug_idx").on(t.slug),
+    uniqueIndex("clinics_client_number_idx").on(t.clientNumber),
+    check("clinics_client_number_positive", sql`${t.clientNumber} > 0`),
     index("clinics_org_idx").on(t.organizationId),
     index("clinics_billing_clinic_idx")
       .on(t.billingClinicId)
@@ -547,6 +626,14 @@ export const clinics = pgTable(
       sql`${t.agreementKind} is distinct from 'dpa' or ${t.regulatoryRegime} is distinct from 'hipaa'`,
     ),
     check("clinics_retention_record_days_positive", sql`${t.retentionRecordDays} >= 1`),
+    check(
+      "clinics_address_check",
+      sql`${t.address} is null or (char_length(${t.address}) between 1 and 300 and ${t.address} !~ '[[:cntrl:]]')`,
+    ),
+    check(
+      "clinics_website_check",
+      sql`${t.website} is null or (char_length(${t.website}) between 4 and 200 and ${t.website} !~ '[[:space:][:cntrl:]]')`,
+    ),
   ],
 );
 
@@ -609,7 +696,11 @@ export const clinicMemberships = pgTable(
  * Ciphertext is AES-256-GCM; the data key is wrapped by a KMS key. The AAD is
  * bound to {clinicId, id} — without that binding, anyone who can write to this
  * table could copy clinic A's ciphertext into clinic B's row and the app would
- * decrypt it happily. See src/lib/crypto/envelope.ts.
+ * decrypt it happily. See src/lib/crypto/envelope.ts. What the seal is bound
+ * to never moves: a trigger refuses any change of `id`, `clinic_id` or
+ * `provider`, for every role (drizzle/0057), the provider being half of the
+ * KMS lock label each credential's data key is wrapped under
+ * (lib/connections/store.ts).
  *
  * Not pgcrypto: that decrypts server-side, so the key travels through SQL and
  * lands in pg_stat_activity and query logs.
@@ -634,6 +725,11 @@ export const providerConnections = pgTable(
     wrappedDek: text("wrapped_dek").notNull(),
     /** Lets us re-wrap on key rotation without re-encrypting the payload. */
     keyVersion: text("key_version").notNull(),
+    /**
+     * The envelope's version (envelope.ts): 2 for every seal since lock labels,
+     * whose data key opens only under the row's label; 1 for one sealed before,
+     * opened without a label. The column default is never what a seal writes.
+     */
     aadVersion: integer("aad_version").notNull().default(1),
 
     /**
@@ -657,6 +753,24 @@ export const providerConnections = pgTable(
      */
     phiBasis: text("phi_basis").$type<PhiBasis>(),
 
+    // --- The Google Calendar connection (0057). ---
+    /**
+     * Which Google account this is: sha256 hex of "google:" + the ID token's
+     * `sub`. The raw sub is never stored. The live-account index below lets
+     * one Google account be live on one clinic at a time, across tenants.
+     */
+    accountRef: text("account_ref"),
+    /**
+     * When a definitive failure (access removed at Google, the calendar gone)
+     * was first seen; cleared by a reconnect. Kept on a revoked row, so the
+     * clinic is still told once.
+     */
+    brokenAt: timestamp("broken_at", { withTimezone: true }),
+    /** When the clinic and ops were told about `brokenAt`: the watch claims it once. */
+    brokenAlertedAt: timestamp("broken_alerted_at", { withTimezone: true }),
+    /** Consecutive transient probe failures. Three in a row degrade the connection. */
+    transientFailures: smallint("transient_failures").notNull().default(0),
+
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -670,6 +784,22 @@ export const providerConnections = pgTable(
       t.provider,
     ),
     index("provider_connections_status_idx").on(t.clinicId, t.status),
+    // One live connection per Google account, whichever clinic it is on: a
+    // second location connecting the same account is refused (owner decision
+    // Q7). A revoked row frees the account.
+    uniqueIndex("provider_connections_google_account_live_idx")
+      .on(t.provider, t.accountRef)
+      .where(sql`${t.accountRef} is not null and ${t.status} <> 'revoked'`),
+    check(
+      "provider_connections_account_ref_check",
+      sql`${t.accountRef} is null or ${t.accountRef} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check("provider_connections_transient_failures_check", sql`${t.transientFailures} >= 0`),
+    // An alert stamp with no breakage would hide the next breakage's alert.
+    check(
+      "provider_connections_alert_needs_break",
+      sql`${t.brokenAlertedAt} is null or ${t.brokenAt} is not null`,
+    ),
   ],
 );
 
@@ -911,6 +1041,30 @@ export const appointments = pgTable(
     /** A short vendor status for the desk page — never a name or a number. */
     calendarWriteError: text("calendar_write_error"),
 
+    // --- Healdesk's own bookings and the Google write (0057). ---
+    /** Minutes the booking occupies, 5–480. NULL is read as 30 by the overlap guard. */
+    durationMinutes: smallint("duration_minutes"),
+    /**
+     * Who made this booking through healdesk: the assistant, or staff
+     * confirming a request on a location whose calendar terms let healdesk
+     * write. Set at insert and never changed (a trigger). Non-null is what
+     * makes the row occupy time for the overlap guard; a phase-two vendor
+     * row, or a desk confirmation where nothing is written, leaves it NULL.
+     */
+    bookingOrigin: text("booking_origin").$type<BookingOrigin>(),
+    /** When the current `writing` claim was taken: a claim older than two minutes is stuck. */
+    calendarWriteClaimedAt: timestamp("calendar_write_claimed_at", { withTimezone: true }),
+    /** Calendar write attempts so far; the desk path stops claiming at five. */
+    calendarWriteAttempts: smallint("calendar_write_attempts").notNull().default(0),
+    /** The fencing token of the current claim, so a reclaimed attempt and a slow one cannot both record. */
+    calendarWriteLease: uuid("calendar_write_lease"),
+    /**
+     * The key the Google event id is derived from: "hold:" + the slot hold's
+     * id when the assistant held the time, otherwise the request's id.
+     * Written once (migration B).
+     */
+    calendarEventKey: text("calendar_event_key"),
+
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -919,6 +1073,19 @@ export const appointments = pgTable(
       .defaultNow(),
   },
   (t) => [
+    check(
+      "appointments_duration_check",
+      sql`${t.durationMinutes} is null or ${t.durationMinutes} between 5 and 480`,
+    ),
+    check(
+      "appointments_booking_origin_check",
+      sql`${t.bookingOrigin} is null or ${t.bookingOrigin} in ('assistant', 'desk')`,
+    ),
+    check("appointments_calendar_write_attempts_check", sql`${t.calendarWriteAttempts} >= 0`),
+    check(
+      "appointments_calendar_event_key_check",
+      sql`${t.calendarEventKey} is null or ${t.calendarEventKey} ~ '^(hold:)?[0-9a-f-]{36}$'`,
+    ),
     index("appointments_clinic_idx").on(t.clinicId, t.scheduledFor),
     index("appointments_confirmed_idx")
       .on(t.clinicId, t.externalConfirmedAt)
@@ -1008,6 +1175,19 @@ export const agentConfigs = pgTable(
      * deposits switched on, a connected Stripe account, and the channel.
      */
     depositPolicy: jsonb("deposit_policy").$type<DepositPolicy>(),
+    // --- Knowledge (0056): what the setup wizard and Knowledge edit. Each is
+    // screened by findClinicalContent before it is written, except never-say,
+    // which is clinical on purpose (lib/setup/knowledge.ts). ---
+    /** The promotions box: what AYA offers when "Mention promotions" is on. Empty by default. */
+    promotions: text("promotions"),
+    /** Quick answers, question and answer, for temporary things like parking during building work. */
+    quickAnswers: jsonb("quick_answers").$type<KnowledgeAnswer[]>().notNull().default([]),
+    /** Phrases AYA must never use: the clinical defaults at provisioning, then the clinic's. */
+    neverSay: jsonb("never_say").$type<string[]>().notNull().default([]),
+    /** The one thing patients ask most, and the clinic's answer (wizard 1.4). */
+    mostAsked: jsonb("most_asked").$type<KnowledgeAnswer>(),
+    /** The practice's policies, one per entry: cancellations, late arrivals, payment. */
+    policies: jsonb("policies").$type<string[]>().notNull().default([]),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
     approvedByLabel: text("approved_by_label"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -1018,11 +1198,25 @@ export const agentConfigs = pgTable(
 
 export type AgentService = {
   name: string;
-  /** Whole dollars; null means "quote on the call is not allowed, offer a consult". */
+  /**
+   * Dollars, to the cent; null means "quote on the call is not allowed, offer
+   * a consult". An exact price has both ends equal, a "from" price no top, a
+   * range both, a per-unit price the price of one unit.
+   */
   priceFromUsd: number | null;
   priceToUsd: number | null;
   /** Minutes, for scheduling. */
   durationMinutes: number | null;
+  /**
+   * How the menu states the price (catalog SERVICE_PRICE_KINDS), from 0056.
+   * Absent on a service written before it, which reads as exact when both
+   * ends are equal, as a "from" price when there is no top, and as a range
+   * otherwise (lib/setup/prices.ts, which also keeps it, the unit and the
+   * deposit through the ops console's form).
+   */
+  priceKind?: ServicePriceKind | null;
+  /** What a per-unit price is per ("unit", "syringe"); only with `per_unit`. */
+  unit?: string | null;
   /**
    * The deposit this service asks for, in dollars, 0 to 10,000 (BD27; the
    * spec sets deposits per service). 0 means none, even when the clinic has a
@@ -1031,6 +1225,9 @@ export type AgentService = {
    */
   depositUsd?: number | null;
 };
+
+/** A question and the clinic's answer: a quick answer, or the most-asked question. */
+export type KnowledgeAnswer = { question: string; answer: string };
 
 // -----------------------------------------------------------------------------
 // Report delivery — who gets the monthly email, and proof of what was sent
@@ -1066,6 +1263,10 @@ export const REPORT_DELIVERY_KINDS = [
   "alert",
   "renewal",
   ...NOTICE_KINDS,
+  // The link emails sent to a clinic's address (lib/email/direct-kinds.ts):
+  // the welcome email (B1) keeps its once-per-clinic state here, because its
+  // single-use link may never be stored in an outbox payload.
+  ...LEDGER_DIRECT_KINDS,
 ] as const;
 export type ReportDeliveryKind = (typeof REPORT_DELIVERY_KINDS)[number];
 
@@ -1210,6 +1411,8 @@ export type DepositStatus = "none" | "pending_front_desk" | "pending_link" | "pa
 
 /** See appointments.calendarWriteStatus. */
 export type CalendarWriteStatus = "none" | "writing" | "written" | "failed" | "unknown";
+/** See appointments.bookingOrigin. */
+export type BookingOrigin = "assistant" | "desk";
 
 /** See clinics.bookingMode. */
 export type BookingMode = "desk_confirms" | "direct";
@@ -2276,13 +2479,33 @@ export const connectionLinks = pgTable(
 
     /**
      * What the link is for. `connect` hands us a booking credential; `setup`
-     * confirms the booking requirement set (0040). Resolution and consumption
-     * both filter on it, so a token issued for one cannot be spent on the
-     * other — a mismatch resolves to nothing, the same anti-oracle rule as an
-     * unknown token. Set at issue, never updated (the UPDATE grant is used_at
-     * and consumed_ip only).
+     * confirms the booking requirement set (0040); `meta` and `whatsapp`
+     * connect those channels (0049); `calendar` connects the location's
+     * Google Calendar and records its calendar elections (0057). Resolution
+     * and consumption both filter on it, so a token issued for one cannot be
+     * spent on another — a mismatch resolves to nothing, the same anti-oracle
+     * rule as an unknown token. Set at issue, never updated (the UPDATE grant
+     * is used_at and consumed_ip only, and the no-rewrite trigger freezes it).
      */
-    purpose: text("purpose").$type<"connect" | "setup" | "meta" | "whatsapp">().notNull().default("connect"),
+    purpose: text("purpose")
+      .$type<"connect" | "setup" | "meta" | "whatsapp" | "calendar">()
+      .notNull()
+      .default("connect"),
+
+    // --- Calendar links (0057). Set at issue and frozen, like `purpose`. ---
+    /** The lower-cased addresses the link was mailed to. Evidence of who could hold it. */
+    sentTo: text("sent_to").array(),
+    /**
+     * `recipients`: the practice's calendar contacts. `owner`: the practice
+     * owner only, for the two calendar links that need the owner — a change
+     * of Google account, and confirming an election that widens what reaches
+     * Google. Every other purpose is `recipients`.
+     */
+    audience: text("audience").$type<"recipients" | "owner">().notNull().default("recipients"),
+    /** An owner's change link: any Google account may connect through it. */
+    allowsAccountChange: boolean("allows_account_change").notNull().default(false),
+    /** An owner's confirm link: the widening election it asks the owner to accept. */
+    pendingElection: jsonb("pending_election").$type<PendingCalendarElection>(),
 
     /**
      * The ops user who issued it, as an immutable snapshot rather than an FK —
@@ -2302,8 +2525,43 @@ export const connectionLinks = pgTable(
   (t) => [
     uniqueIndex("connection_links_token_hash_idx").on(t.tokenHash),
     index("connection_links_clinic_idx").on(t.clinicId, t.createdAt),
+    // The target of the (clinic, link) keys on calendar_elections and
+    // google_oauth_states (0057, below its banner), which keep an election or
+    // a Google sign-in on a link of its own clinic.
+    unique("connection_links_clinic_link_unique").on(t.clinicId, t.id),
+    check("connection_links_audience_check", sql`${t.audience} in ('recipients', 'owner')`),
+    // Only a calendar link has an owner audience, an account change or a
+    // pending election; every other purpose keeps 0024's plain shape.
+    check(
+      "connection_links_calendar_only_flags",
+      sql`${t.purpose} = 'calendar' or (${t.audience} = 'recipients' and not ${t.allowsAccountChange} and ${t.pendingElection} is null)`,
+    ),
+    check(
+      "connection_links_account_change_owner",
+      sql`not ${t.allowsAccountChange} or ${t.audience} = 'owner'`,
+    ),
+    check(
+      "connection_links_pending_election_owner",
+      sql`${t.pendingElection} is null or (${t.audience} = 'owner' and jsonb_typeof(${t.pendingElection}) = 'object')`,
+    ),
   ],
 );
+
+/**
+ * The widening election an owner confirm link carries (plan §2.6): what the
+ * holder of a recipients link asked for, which the owner accepts only if the
+ * document still renders to the same version and hash (the confirm page's
+ * check, plan §4.1). The election guard (drizzle/0057) holds a row recorded
+ * through the link to its booking system, account kind and version. It
+ * cannot compare the hash: the stored text carries the name the owner types
+ * when confirming, so its hash is known only then.
+ */
+export type PendingCalendarElection = {
+  bookingSystem: BookingSystemId;
+  calendarAccount: CalendarAccount;
+  documentVersion: string;
+  documentHash: string;
+};
 
 /**
  * The administrator's second factor. Exactly one row, forever.
@@ -2905,9 +3163,21 @@ export const checkoutIntents = pgTable(
     provisionedUserId: text("provisioned_user_id"),
     /** Provisioning refused this intent: /welcome says so instead of waiting. */
     provisionFailedAt: timestamp("provision_failed_at", { withTimezone: true }),
+    /**
+     * Stripe's hosted page for the paid first invoice, where the setup-fee
+     * receipt is, as the invoice.paid relay passed it to provisioning (0056).
+     * The welcome email (B1) links it on every attempt: plan C4, and contracts
+     * §3, under which no separate receipt goes for the welcome's invoice. Null
+     * on a purchase that did not come through Stripe's relay.
+     */
+    firstInvoiceUrl: text("first_invoice_url"),
   },
   (t) => [
     check("checkout_intents_interval_check", sql`${t.billingInterval} in ('month', 'year')`),
+    check(
+      "checkout_intents_first_invoice_url_check",
+      sql`${t.firstInvoiceUrl} is null or (char_length(${t.firstInvoiceUrl}) <= 500 and ${t.firstInvoiceUrl} ~ '^https://invoice\\.stripe\\.com/[!-~]+$')`,
+    ),
     check(
       "checkout_intents_profile_status_check",
       sql`${t.profileStatus} in (${sqlList(CHECKOUT_PROFILE_STATUSES)})`,
@@ -3032,11 +3302,89 @@ export const clinicSettings = pgTable(
      */
     aiPausedUntil: timestamp("ai_paused_until", { withTimezone: true }),
     /**
+     * Who last changed Auto-confirm (autoConfirmBookings, below with the
+     * setup wizard's columns) and when; the two travel together (migration A,
+     * drizzle/0057). The database reads Auto-confirm itself in
+     * app_calendar_write_permitted: it gates only the assistant's own
+     * bookings, never a staff confirmation.
+     */
+    autoConfirmChangedAt: timestamp("auto_confirm_changed_at", { withTimezone: true }),
+    autoConfirmChangedByLabel: text("auto_confirm_changed_by_label"),
+    /**
      * A clinic line that does NOT forward back to us: where every degradation
      * path sends a caller (CLAUDE.md, "Failure"). E.164.
      */
     directLineE164: text("direct_line_e164"),
     directLineSetAt: timestamp("direct_line_set_at", { withTimezone: true }),
+
+    // --- The setup wizard and Settings (0056). Every column carries the
+    // spec's default ("Every switch in the portal"), so a missing row and a
+    // fresh row mean the same thing. lib/setup/settings.ts reads and writes
+    // them; lib/billing/settings.ts keeps the deposit, pause and direct-line
+    // columns above. ---
+    /** How AYA speaks on every channel. */
+    tone: text("tone").$type<AssistantTone>().notNull().default("warm"),
+    /** Said after the locked AI line on a call; null means the default, built from the clinic's name. */
+    phoneGreeting: text("phone_greeting"),
+    /** The first line in chat and DMs after the locked AI line; null means the default. */
+    chatGreeting: text("chat_greeting"),
+    /** The languages AYA answers in. It answers in the caller's language and stays in it. */
+    languages: text("languages")
+      .array()
+      .$type<AssistantLanguage[]>()
+      .notNull()
+      .default(sql`'{en}'::text[]`),
+    /** On lets AYA suggest complementary treatments during a booking (phone and website chat only). */
+    suggestAddOns: boolean("suggest_add_ons").notNull().default(false),
+    /** Whether the promotions box is used in conversation (phone and website chat only). */
+    mentionPromotions: boolean("mention_promotions").notNull().default(true),
+    /**
+     * Auto-confirm (contracts §6): on, a booking AYA takes is booked; off,
+     * every booking is a request staff approve. Provisioning sets it from the
+     * booking system: off where that system does not read Google Calendar.
+     * The calendar backend's `setAutoConfirm` is its writer from Settings,
+     * behind a step-up; the effective mode also needs a healthy calendar,
+     * terms that allow writing and the owner's kill switch.
+     */
+    autoConfirmBookings: boolean("auto_confirm_bookings").notNull().default(true),
+    /** Book into one shared calendar, or against a named provider's own. */
+    bookingDetail: text("booking_detail").$type<BookingDetail>().notNull().default("generic"),
+    /**
+     * "Where do bookings live today?", as the funnel asked it and the wizard
+     * corrects it. What the clinic told us; its calendar terms come from the
+     * signed agreement and its elections, never from here.
+     */
+    bookingSystem: text("booking_system").$type<BookingSystemId>(),
+    /** "Which Google account will bookings go into?", as the funnel asked it. */
+    calendarAccount: text("calendar_account").$type<CalendarAccount>(),
+    /**
+     * "A number patients can call for urgent help": what AYA gives someone
+     * reporting a complication or an urgent symptom, after 911. E.164.
+     */
+    urgentHelpE164: text("urgent_help_e164"),
+    /** A veterinary practice's emergency referral number, which its urgent reply gives. E.164. */
+    vetReferralE164: text("vet_referral_e164"),
+    /** On lets the voice agent transfer a caller to a real number during opening hours. */
+    transferLiveCalls: boolean("transfer_live_calls").notNull().default(false),
+    /** Where a live transfer goes; null means the direct line. E.164. */
+    transferE164: text("transfer_e164"),
+    /** The daily summary email, at the start of each working day. */
+    dailySummary: boolean("daily_summary").notNull().default(true),
+    /**
+     * Which calls reach AYA: the single source (plan Part F2). Seeded from
+     * clinics.call_routing for clinics made before it; while the readers on
+     * call_routing remain, the wizard writes both (lib/setup/settings.ts).
+     */
+    coverageMode: text("coverage_mode")
+      .$type<CoverageModeId>()
+      .notNull()
+      .default("overflow_after_hours"),
+    /** How long transcripts and conversation records are kept: 90 days, or shortened to 30 or 7. */
+    transcriptRetentionDays: integer("transcript_retention_days")
+      .$type<TranscriptRetentionDays>()
+      .notNull()
+      .default(90),
+
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -3051,6 +3399,43 @@ export const clinicSettings = pgTable(
     check(
       "clinic_settings_direct_line_check",
       sql`${t.directLineE164} is null or ${t.directLineE164} ~ '^\\+[1-9][0-9]{6,14}$'`,
+    ),
+    check(
+      "clinic_settings_auto_confirm_stamp_check",
+      sql`(${t.autoConfirmChangedAt} is null) = (${t.autoConfirmChangedByLabel} is null)`,
+    ),
+    check("clinic_settings_tone_check", sql`${t.tone} in (${sqlList(ASSISTANT_TONES)})`),
+    check(
+      "clinic_settings_greetings_check",
+      sql`(${t.phoneGreeting} is null or char_length(${t.phoneGreeting}) between 1 and 300) and (${t.chatGreeting} is null or char_length(${t.chatGreeting}) between 1 and 300)`,
+    ),
+    check(
+      "clinic_settings_languages_check",
+      sql`cardinality(${t.languages}) between 1 and ${sql.raw(String(ASSISTANT_LANGUAGES.length))} and ${t.languages} <@ array[${sqlList(ASSISTANT_LANGUAGES)}]::text[]`,
+    ),
+    check(
+      "clinic_settings_booking_detail_check",
+      sql`${t.bookingDetail} in (${sqlList(BOOKING_DETAILS)})`,
+    ),
+    check(
+      "clinic_settings_booking_system_check",
+      sql`${t.bookingSystem} is null or ${t.bookingSystem} in (${sqlList(BOOKING_SYSTEMS.map((b) => b.id))})`,
+    ),
+    check(
+      "clinic_settings_calendar_account_check",
+      sql`${t.calendarAccount} is null or ${t.calendarAccount} in (${sqlList(CALENDAR_ACCOUNTS)})`,
+    ),
+    check(
+      "clinic_settings_numbers_check",
+      sql`(${t.urgentHelpE164} is null or ${t.urgentHelpE164} ~ '^\\+[1-9][0-9]{6,14}$') and (${t.vetReferralE164} is null or ${t.vetReferralE164} ~ '^\\+[1-9][0-9]{6,14}$') and (${t.transferE164} is null or ${t.transferE164} ~ '^\\+[1-9][0-9]{6,14}$')`,
+    ),
+    check(
+      "clinic_settings_coverage_mode_check",
+      sql`${t.coverageMode} in (${sqlList(COVERAGE_MODES)})`,
+    ),
+    check(
+      "clinic_settings_retention_check",
+      sql`${t.transcriptRetentionDays} in (${sql.raw(TRANSCRIPT_RETENTION_DAYS_OPTIONS.join(", "))})`,
     ),
   ],
 );
@@ -3181,11 +3566,15 @@ export const metaInboundMessages = pgTable(
 );
 
 /**
- * The outbox's kinds: the keys of the registry in lib/email/kinds.ts (Annex
- * X3), which also says how each is sent. F0's name and export are kept, so
- * every reader of this list reads the registry.
+ * The kinds lib/billing/notices.ts enqueues: Package C's and D's, the
+ * registry's kinds whose owner is a package (lib/email/kinds.ts, Annex X3).
+ * F0's name and export are kept, so lib/billing's payload map and its
+ * compile-time check read this list. The plan's own kinds (the setup
+ * reminder, the setup closure, the calendar emails) are enqueued by
+ * lib/notices/plan-notices.ts against their own payload map; the outbox's
+ * CHECK below covers both, from `NOTICE_KINDS`.
  */
-export const BILLING_NOTICE_KINDS = NOTICE_KINDS;
+export const BILLING_NOTICE_KINDS = PACKAGE_NOTICE_KINDS;
 export type BillingNoticeKind = (typeof BILLING_NOTICE_KINDS)[number];
 
 /**
@@ -3202,7 +3591,7 @@ export const billingNotices = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
-    kind: text("kind").$type<BillingNoticeKind>().notNull(),
+    kind: text("kind").$type<NoticeKind>().notNull(),
     dedupeKey: text("dedupe_key").notNull(),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -3219,10 +3608,11 @@ export const billingNotices = pgTable(
       .where(sql`${t.sentAt} is null`),
     check(
       "billing_notices_kind_check",
-      // Built from the list, so a kind added there changes this CHECK and
+      // Built from the registry, so a kind added there changes this CHECK and
       // drizzle-kit generates the migration, instead of the INSERT failing at
-      // runtime inside the Stripe event's transaction.
-      sql`${t.kind} in (${sqlList(BILLING_NOTICE_KINDS)})`,
+      // runtime inside the Stripe event's transaction. Every kind, the plan's
+      // and the packages', since 0056.
+      sql`${t.kind} in (${sqlList(NOTICE_KINDS)})`,
     ),
   ],
 );
@@ -3671,6 +4061,90 @@ export const clinicClosures = pgTable(
 );
 
 // -----------------------------------------------------------------------------
+// The setup wizard (drizzle/0056): where a clinic is in it, and the changes
+// to where calls go that it and Settings record
+// -----------------------------------------------------------------------------
+
+/**
+ * The setup wizard's progress, one row per screen a clinic has left (plan
+ * Part E): answered (`done`) or skipped, when, and from which device. The
+ * wizard resumes on the first screen of the clinic's own list with no row,
+ * so a clinic that stops at step three comes back to step three, whoever
+ * signs in. Setup answers about the practice, no patient data. Tenant plane;
+ * the runtime role may change a row's outcome, never move it, and it goes
+ * with the clinic's data at destruction.
+ */
+export const clinicSetupScreens = pgTable(
+  "clinic_setup_screens",
+  {
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    screen: text("screen").$type<SetupScreenId>().notNull(),
+    outcome: text("outcome").$type<SetupScreenOutcome>().notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    /** The device whose passkey was live, or the sign-in's own label. Never a person's name. */
+    actorLabel: text("actor_label").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.clinicId, t.screen] }),
+    check("clinic_setup_screens_screen_check", sql`${t.screen} in (${sqlList(SETUP_SCREENS)})`),
+    check(
+      "clinic_setup_screens_outcome_check",
+      sql`${t.outcome} in (${sqlList(SETUP_SCREEN_OUTCOMES)})`,
+    ),
+    check(
+      "clinic_setup_screens_actor_check",
+      sql`char_length(${t.actorLabel}) between 1 and 200`,
+    ),
+  ],
+);
+
+export type ClinicSetupScreenRow = typeof clinicSetupScreens.$inferSelect;
+
+/**
+ * Before and after, for every change to a setting that decides where calls
+ * and urgent callers go, how long records are kept, or whether AYA books on
+ * its own (plan Part D4: "record before/after values in
+ * clinic_settings_history"). Append-only: the runtime role may INSERT and
+ * SELECT, nothing else. The values are the clinic's own numbers, a day count
+ * or a flag, never anything about a patient. Kept at destruction with the
+ * audit log, as the record of who sent calls where.
+ */
+export const clinicSettingsHistory = pgTable(
+  "clinic_settings_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    field: text("field").$type<SettingsHistoryField>().notNull(),
+    beforeValue: text("before_value"),
+    afterValue: text("after_value"),
+    /** The device whose passkey was live, or the sign-in's own label, or a service. */
+    actorLabel: text("actor_label").notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("clinic_settings_history_clinic_idx").on(t.clinicId, t.changedAt),
+    check(
+      "clinic_settings_history_field_check",
+      sql`${t.field} in (${sqlList(SETTINGS_HISTORY_FIELDS)})`,
+    ),
+    check(
+      "clinic_settings_history_values_check",
+      sql`(${t.beforeValue} is null or char_length(${t.beforeValue}) <= 64) and (${t.afterValue} is null or char_length(${t.afterValue}) <= 64)`,
+    ),
+    check(
+      "clinic_settings_history_actor_check",
+      sql`char_length(${t.actorLabel}) between 1 and 200`,
+    ),
+  ],
+);
+
+export type ClinicSettingsHistoryRow = typeof clinicSettingsHistory.$inferSelect;
+
+// -----------------------------------------------------------------------------
 // The portal's second factors and step-up (drizzle/0047). Identity plane, like
 // sign_in_links: a factor belongs to the clinic's one sign-in, not to a clinic,
 // and is read before any tenant is known, so no clinic_id and no RLS.
@@ -3917,6 +4391,495 @@ export const factorLockouts = pgTable(
   (t) => [check("factor_lockouts_failures_check", sql`${t.failures} >= 0`)],
 );
 
+// -----------------------------------------------------------------------------
+// Google Calendar (drizzle/0057): calendar terms per location, the OAuth
+// state, slot holds and named providers
+// -----------------------------------------------------------------------------
+
+export const CALENDAR_ELECTION_SOURCES = ["agreement", "calendar_link", "portal"] as const;
+export type CalendarElectionSource = (typeof CALENDAR_ELECTION_SOURCES)[number];
+
+/**
+ * One location's calendar terms, from `electedAt` on: which of the three
+ * calendar clauses governs its Google Calendar (covered, uncovered, or not
+ * used), anchored to the organisation's agreement in effect (plan §2.6,
+ * owner decision 3). The newest row of a location under that agreement
+ * decides; nothing falls back to an older one.
+ *
+ * Contract evidence, not PHI, so no BAA gate. Append-only for every role:
+ * app_calendar_election_guard (drizzle/0057) assigns `sequence`, checks the
+ * row against the agreement, and refuses any UPDATE or DELETE. It also holds
+ * the rules on who may record what: an `agreement` row only for the
+ * location set up at signing; a released document and a booking sync as the
+ * database's own copies of the catalogue say (a draft counts only for a demo
+ * clinic); an unspent, unexpired link of this location, sent to whom the row
+ * says; and an election that widens what reaches Google needs the practice
+ * owner, through an owner-audience link or the owner's own sign-in. Kept
+ * through offboarding and destruction, like the agreement.
+ */
+export const calendarElections = pgTable(
+  "calendar_elections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** RESTRICT: a location's calendar terms outlive nothing that could delete them. */
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "restrict" }),
+    /** The organisation's agreement in effect when the row was recorded. */
+    agreementId: uuid("agreement_id")
+      .notNull()
+      .references(() => baaAcceptances.id, { onDelete: "restrict" }),
+    /**
+     * 1, 2, 3… per location, assigned by the guard trigger from the newest
+     * row; whatever a writer passes is replaced (hence the placeholder
+     * default). Two elections racing for one number meet the unique index,
+     * and the loser retries.
+     */
+    sequence: integer("sequence").notNull().default(0),
+    source: text("source").$type<CalendarElectionSource>().notNull(),
+    termsKind: text("terms_kind").$type<CalendarTermsKind>().notNull(),
+    clauseId: text("clause_id").$type<CalendarClauseId>().notNull(),
+    calendarAccount: text("calendar_account").$type<CalendarAccount>().notNull(),
+    /**
+     * Derived from the booking system (bookingSyncFor), never chosen; for an
+     * election the guard holds it to app_booking_system_live(), and for an
+     * `agreement` row the signed clause fixes it through the kind.
+     */
+    bookingSync: text("booking_sync").$type<BookingSync>().notNull(),
+    /** The booking system the election names (booking-systems.ts), "none" included. */
+    bookingSystem: text("booking_system").$type<BookingSystemId>().notNull(),
+    /** The agreement's version for an `agreement` row; the election document's otherwise. */
+    documentVersion: text("document_version").notNull(),
+    /** SHA-256 hex of that document. For an election, of `renderedText` (the guard checks). */
+    documentHash: text("document_hash").notNull(),
+    /**
+     * Whether that document was released for use when the row was recorded:
+     * for an election, what app_calendar_election_released() says of the
+     * version then, not what the writer says. Never upgraded: a draft row
+     * stays a draft when the catalogue releases the version, and counts only
+     * for a demo clinic.
+     */
+    documentReleased: boolean("document_released").notNull(),
+    /** The practice owner accepted it, through an owner link or the owner's own sign-in. */
+    ownerConfirmed: boolean("owner_confirmed").notNull().default(false),
+    /** The election as accepted, rendered by the server. NULL for an `agreement` row, whose text is the agreement's. */
+    renderedText: text("rendered_text"),
+    /** The name (and title) the person typed, or the signatory's for an `agreement` row. */
+    electedByLabel: text("elected_by_label").notNull(),
+    /** The portal user, for a `portal` row. No foreign key: the record outlives the user. */
+    electedByUserId: text("elected_by_user_id"),
+    /**
+     * The calendar link it was recorded through, for a `calendar_link` row:
+     * one of this location's own. The foreign key is (clinic_id, link_id) to
+     * connection_links (clinic_id, id), written by hand in drizzle/0057,
+     * because drizzle-kit emits a new table's foreign keys before the unique
+     * constraint they need on an existing one.
+     */
+    linkId: uuid("link_id"),
+    /** That link's `sent_to`, copied: who could have held it. */
+    linkSentTo: text("link_sent_to").array(),
+    ipAddress: inet("ip_address"),
+    userAgent: text("user_agent"),
+    electedAt: timestamp("elected_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Unique, and descending because "the newest row" is the only read.
+    uniqueIndex("calendar_elections_clinic_sequence_idx").on(t.clinicId, t.sequence.desc()),
+    check("calendar_elections_sequence_check", sql`${t.sequence} >= 1`),
+    check(
+      "calendar_elections_source_check",
+      sql`${t.source} in ('agreement', 'calendar_link', 'portal')`,
+    ),
+    check(
+      "calendar_elections_terms_kind_check",
+      sql`${t.termsKind} in ('covered', 'uncovered', 'not_used')`,
+    ),
+    check(
+      "calendar_elections_clause_check",
+      sql`${t.clauseId} = 'google-calendar-' || replace(${t.termsKind}, '_', '-')`,
+    ),
+    check(
+      "calendar_elections_account_check",
+      sql`${t.calendarAccount} in ('workspace_baa', 'workspace_no_baa', 'personal')`,
+    ),
+    check("calendar_elections_sync_check", sql`${t.bookingSync} in ('live', 'manual')`),
+    check(
+      "calendar_elections_booking_system_check",
+      sql`${t.bookingSystem} ~ '^[a-z][a-z0-9_]{0,39}$'`,
+    ),
+    check("calendar_elections_version_check", sql`btrim(${t.documentVersion}) <> ''`),
+    check("calendar_elections_hash_check", sql`${t.documentHash} ~ '^[0-9a-f]{64}$'`),
+    check(
+      "calendar_elections_label_check",
+      sql`char_length(btrim(${t.electedByLabel})) between 2 and 200`,
+    ),
+    // The kind follows from the sync and the account, exactly as
+    // calendarTermsKind() derives it: manual is not used; live is covered
+    // only with Google's BAA.
+    check(
+      "calendar_elections_kind_consistent",
+      sql`(${t.bookingSync} = 'manual' and ${t.termsKind} = 'not_used')
+        or (${t.bookingSync} = 'live' and ${t.calendarAccount} = 'workspace_baa' and ${t.termsKind} = 'covered')
+        or (${t.bookingSync} = 'live' and ${t.calendarAccount} <> 'workspace_baa' and ${t.termsKind} = 'uncovered')`,
+    ),
+    check(
+      "calendar_elections_link_shape",
+      sql`(${t.source} = 'calendar_link') = (${t.linkId} is not null)`,
+    ),
+    check(
+      "calendar_elections_portal_shape",
+      sql`(${t.source} = 'portal') = (${t.electedByUserId} is not null)`,
+    ),
+    check(
+      "calendar_elections_rendered_shape",
+      sql`(${t.source} = 'agreement') = (${t.renderedText} is null)`,
+    ),
+    // The signed agreement decides only a location's first calendar terms,
+    // and only for a released, signed document nobody had to confirm.
+    check(
+      "calendar_elections_agreement_shape",
+      sql`${t.source} <> 'agreement' or (${t.sequence} = 1 and ${t.documentReleased} and not ${t.ownerConfirmed})`,
+    ),
+    check(
+      "calendar_elections_sent_to_shape",
+      sql`${t.linkSentTo} is null or ${t.linkId} is not null`,
+    ),
+  ],
+);
+
+export type CalendarElectionRow = typeof calendarElections.$inferSelect;
+
+export const GOOGLE_OAUTH_INITIATED_VIA = ["calendar_link", "portal"] as const;
+export type GoogleOauthInitiatedVia = (typeof GOOGLE_OAUTH_INITIATED_VIA)[number];
+/** Where the callback lands: the link page, the portal's Settings, or the setup wizard. Never a URL. */
+export const GOOGLE_OAUTH_RETURN_TO = ["calendar_link", "portal", "wizard"] as const;
+export type GoogleOauthReturnTo = (typeof GOOGLE_OAUTH_RETURN_TO)[number];
+
+/**
+ * Single-use Google OAuth state (plan §4.3-4.4): one row per sign-in started,
+ * stored as SHA-256 of the state, bound to the browser that started it by
+ * SHA-256 of a cookie, and recording which version of the Google data-use
+ * notice the person accepted, with its hash and when. Consumed once, by a
+ * conditional UPDATE of `used_at`; app_google_oauth_state_no_rewrite freezes
+ * everything else and a consumed row entirely.
+ *
+ * Identity plane, like stripe_connect_states: the callback reads the row
+ * before any tenant is known, so the clinic is `target_clinic_id` and there
+ * is no RLS. Not PHI. Purged after a day.
+ */
+export const googleOauthStates = pgTable(
+  "google_oauth_states",
+  {
+    stateHash: bytea("state_hash").primaryKey(),
+    targetClinicId: uuid("target_clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    initiatedVia: text("initiated_via").$type<GoogleOauthInitiatedVia>().notNull(),
+    /**
+     * The calendar link the sign-in started from, for `calendar_link`: one of
+     * the target clinic's own. The foreign key is (target_clinic_id, link_id)
+     * to connection_links (clinic_id, id), written by hand in drizzle/0057 for
+     * the reason calendar_elections.link_id's is. Foreign keys are checked
+     * past row-level security, which this identity-plane table needs.
+     */
+    linkId: uuid("link_id"),
+    /** The portal user who started it, for `portal`: the callback's actor. */
+    userId: text("user_id"),
+    returnTo: text("return_to").$type<GoogleOauthReturnTo>().notNull(),
+    /** SHA-256 of the cookie set on the browser that started the sign-in. */
+    browserBindingHash: bytea("browser_binding_hash").notNull(),
+    /** The Google data-use notice accepted before the redirect, and its hash. */
+    disclosureVersion: text("disclosure_version").notNull(),
+    disclosureSha256: bytea("disclosure_sha256").notNull(),
+    disclosureAcceptedAt: timestamp("disclosure_accepted_at", { withTimezone: true }).notNull(),
+    /** Leave it to the default: a time in the future is refused (the state's life runs from it). */
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * At most 15 minutes after `created_at`. Write both from one clock (the
+     * database's, `now() + interval`), or skew between two clocks can trip
+     * the CHECK.
+     */
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    consumedIp: inet("consumed_ip"),
+  },
+  (t) => [
+    index("google_oauth_states_created_idx").on(t.createdAt),
+    check("google_oauth_states_hash_length", sql`octet_length(${t.stateHash}) = 32`),
+    check("google_oauth_states_binding_length", sql`octet_length(${t.browserBindingHash}) = 32`),
+    check("google_oauth_states_disclosure_length", sql`octet_length(${t.disclosureSha256}) = 32`),
+    check(
+      "google_oauth_states_expiry_check",
+      sql`${t.expiresAt} > ${t.createdAt} and ${t.expiresAt} <= ${t.createdAt} + interval '15 minutes'`,
+    ),
+    check(
+      "google_oauth_states_initiated_check",
+      sql`${t.initiatedVia} in ('calendar_link', 'portal')`,
+    ),
+    check(
+      "google_oauth_states_return_check",
+      sql`${t.returnTo} in ('calendar_link', 'portal', 'wizard')`,
+    ),
+    // A link's sign-in returns to the link page; the portal's to the portal.
+    check(
+      "google_oauth_states_link_shape",
+      sql`(${t.initiatedVia} = 'calendar_link') = (${t.linkId} is not null)
+        and (${t.initiatedVia} = 'calendar_link') = (${t.returnTo} = 'calendar_link')`,
+    ),
+    check(
+      "google_oauth_states_portal_shape",
+      sql`(${t.initiatedVia} = 'portal') = (${t.userId} is not null)`,
+    ),
+    check(
+      "google_oauth_states_consumed_ip_check",
+      sql`${t.consumedIp} is null or ${t.usedAt} is not null`,
+    ),
+  ],
+);
+
+export const SLOT_HOLD_CHANNELS = ["voice", "web_chat", "meta"] as const;
+export type SlotHoldChannel = (typeof SLOT_HOLD_CHANNELS)[number];
+/**
+ * held → writing | reserved | released | expired; reserved → converted |
+ * released | expired; writing → converted | released | unknown; unknown →
+ * converted | released. converted, released and expired are final
+ * (app_slot_hold_transition, drizzle/0057).
+ */
+export const SLOT_HOLD_STATUSES = [
+  "held",
+  "reserved",
+  "writing",
+  "unknown",
+  "converted",
+  "released",
+  "expired",
+] as const;
+export type SlotHoldStatus = (typeof SLOT_HOLD_STATUSES)[number];
+
+/**
+ * Time the assistant is holding on one clinic's calendar (plan §7): a
+ * 60-second hold while a caller gives their details, a booking being written
+ * to Google, a write whose outcome is not yet known, or a deposit
+ * reservation. Each blocks only while its own clock runs — `expires_at` for a
+ * held row, `blocks_until` for the rest, both read with clock_timestamp() —
+ * so nothing blocks indefinitely, even with the calendar watch off.
+ *
+ * Overlap is the database's to refuse: the guard trigger takes the clinic's
+ * calendar lock and refuses (23P01) a hold that overlaps another holder's
+ * live hold or a live healdesk appointment, and appointments carry the same
+ * guard. The transition trigger keeps the states, the frozen time and the
+ * write-once fields, and refuses a move into `writing` unless the terms, the
+ * connection and Auto-confirm allow the assistant to write.
+ *
+ * PHI-adjacent (a time tied to a call, a contact and a request): tenant RLS
+ * and the BAA gate. No ISO times in audit rows. The foreign keys may be set
+ * to NULL in any state, so erasing a person never fails on a hold. A hold
+ * that still blocks cannot be deleted, by any role: only spent holds are
+ * purged, so a delete never frees time the hold's own clock still claims.
+ */
+export const slotHolds = pgTable(
+  "slot_holds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    channel: text("channel").$type<SlotHoldChannel>().notNull(),
+    /** sha256 hex of the holder key (e.g. "voice:" + the call id). Never the raw key. */
+    holderRef: text("holder_ref").notNull(),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    durationMinutes: smallint("duration_minutes").notNull(),
+    /** starts_at + duration_minutes, stored for the overlap query (a CHECK keeps them equal). */
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    status: text("status").$type<SlotHoldStatus>().notNull().default("held"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    /** The `held` window only: 60 seconds by the database clock, two minutes at most. */
+    expiresAt: timestamp("expires_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp() + interval '60 seconds'`),
+    contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+    bookingRequestId: uuid("booking_request_id").references(() => bookingRequests.id, {
+      onDelete: "set null",
+    }),
+    /** Set once, on a converted hold, to the appointment it became. */
+    appointmentId: uuid("appointment_id").references(() => appointments.id, {
+      onDelete: "set null",
+    }),
+    /** The writer's fencing token; written once. */
+    leaseToken: uuid("lease_token"),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    /** When the one Google insert was attempted; written once. */
+    insertAttemptedAt: timestamp("insert_attempted_at", { withTimezone: true }),
+    /** How long a writing, unknown or reserved hold blocks; written once. */
+    blocksUntil: timestamp("blocks_until", { withTimezone: true }),
+    /** When an `unknown` write is next read back. */
+    nextCheckAt: timestamp("next_check_at", { withTimezone: true }),
+    checkAttempts: smallint("check_attempts").notNull().default(0),
+    /** A short code: superseded, slot_taken, calendar_broken, record_conflict… Never free text. */
+    outcomeReason: text("outcome_reason"),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One live hold, and one write in flight, per holder.
+    uniqueIndex("slot_holds_holder_held_idx")
+      .on(t.clinicId, t.holderRef)
+      .where(sql`${t.status} = 'held'`),
+    uniqueIndex("slot_holds_holder_writing_idx")
+      .on(t.clinicId, t.holderRef)
+      .where(sql`${t.status} in ('writing', 'unknown')`),
+    index("slot_holds_live_idx")
+      .on(t.clinicId, t.startsAt)
+      .where(sql`${t.status} in ('held', 'reserved', 'writing', 'unknown')`),
+    index("slot_holds_unknown_due_idx")
+      .on(t.nextCheckAt)
+      .where(sql`${t.status} = 'unknown'`),
+    index("slot_holds_lease_idx")
+      .on(t.leaseUntil)
+      .where(sql`${t.status} = 'writing'`),
+    index("slot_holds_reserved_idx")
+      .on(t.blocksUntil)
+      .where(sql`${t.status} = 'reserved'`),
+    index("slot_holds_request_idx")
+      .on(t.bookingRequestId)
+      .where(sql`${t.bookingRequestId} is not null`),
+    check("slot_holds_channel_check", sql`${t.channel} in ('voice', 'web_chat', 'meta')`),
+    check("slot_holds_holder_ref_check", sql`${t.holderRef} ~ '^[0-9a-f]{64}$'`),
+    check("slot_holds_duration_check", sql`${t.durationMinutes} between 5 and 480`),
+    check(
+      "slot_holds_ends_check",
+      sql`${t.endsAt} = ${t.startsAt} + make_interval(mins => ${t.durationMinutes})`,
+    ),
+    check(
+      "slot_holds_status_check",
+      sql`${t.status} in ('held', 'reserved', 'writing', 'unknown', 'converted', 'released', 'expired')`,
+    ),
+    check(
+      "slot_holds_expiry_check",
+      sql`${t.expiresAt} > ${t.createdAt} and ${t.expiresAt} <= ${t.createdAt} + interval '2 minutes'`,
+    ),
+    // Nothing blocks for more than a day: the longest deposit reservation
+    // (1,440 minutes) plus slack for the claim.
+    check(
+      "slot_holds_blocks_until_check",
+      sql`${t.blocksUntil} is null or ${t.blocksUntil} <= ${t.createdAt} + interval '1450 minutes'`,
+    ),
+    check("slot_holds_check_attempts_check", sql`${t.checkAttempts} >= 0`),
+    check(
+      "slot_holds_outcome_reason_check",
+      sql`${t.outcomeReason} is null or ${t.outcomeReason} ~ '^[a-z0-9_]{1,40}$'`,
+    ),
+    // State shapes. The nullable foreign keys are left out on purpose, so
+    // erasure can null them in any state.
+    check(
+      "slot_holds_held_shape",
+      sql`${t.status} <> 'held' or (${t.insertAttemptedAt} is null and ${t.blocksUntil} is null
+        and ${t.leaseToken} is null and ${t.leaseUntil} is null and ${t.nextCheckAt} is null)`,
+    ),
+    check(
+      "slot_holds_reserved_shape",
+      sql`${t.status} <> 'reserved' or (${t.blocksUntil} is not null and ${t.insertAttemptedAt} is null)`,
+    ),
+    check(
+      "slot_holds_writing_shape",
+      sql`${t.status} <> 'writing' or (${t.leaseToken} is not null and ${t.leaseUntil} is not null
+        and ${t.insertAttemptedAt} is not null and ${t.blocksUntil} is not null)`,
+    ),
+    check(
+      "slot_holds_unknown_shape",
+      sql`${t.status} <> 'unknown' or (${t.insertAttemptedAt} is not null and ${t.blocksUntil} is not null
+        and ${t.nextCheckAt} is not null)`,
+    ),
+  ],
+);
+
+export type SlotHoldRow = typeof slotHolds.$inferSelect;
+
+/**
+ * A named provider at one location, for the spec's provider-specific
+ * booking ("Booking detail: Named provider"): their display name and the
+ * Google calendar their availability lives in, one calendar per provider,
+ * on the Google account the location connected. Which calendar ids are
+ * acceptable (owned by that account, and for covered terms inside its own
+ * domain) is checked by the library that saves them (C8); the database keeps
+ * one active provider per calendar. Deactivated rather than deleted, so a
+ * hold or a booking that names a provider keeps its row.
+ *
+ * Tenant RLS and the BAA gate (a provider beside a booking says whose
+ * patient someone is). Whether a location books by provider at all is the
+ * funnel's `clinic_settings.booking_detail`.
+ */
+export const clinicProviders = pgTable(
+  "clinic_providers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** As the clinic names them, and as the assistant may say it. */
+    displayName: text("display_name").notNull(),
+    /** A Google calendar id on the location's connected account ("primary" included). */
+    calendarId: text("calendar_id").notNull(),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The target of clinic_provider_services' (clinic_id, provider_id) key,
+    // which is what keeps a mapping inside its own clinic. A table constraint
+    // rather than an index, so it exists when that foreign key is added.
+    unique("clinic_providers_clinic_id_unique").on(t.clinicId, t.id),
+    uniqueIndex("clinic_providers_active_calendar_idx")
+      .on(t.clinicId, t.calendarId)
+      .where(sql`${t.active}`),
+    check(
+      "clinic_providers_display_name_check",
+      sql`char_length(btrim(${t.displayName})) between 1 and 80 and ${t.displayName} !~ '[[:cntrl:]]'`,
+    ),
+    check(
+      "clinic_providers_calendar_id_check",
+      sql`char_length(${t.calendarId}) between 1 and 255 and ${t.calendarId} !~ '[[:space:][:cntrl:]]'`,
+    ),
+  ],
+);
+
+/**
+ * Which services a named provider offers: the spec's service-to-provider
+ * mapping. `service_key` is the service as the clinic's own list names it
+ * (agent_configs.services[].name), trimmed and lower-cased — the
+ * case-insensitive match the booking path uses to find a service's
+ * duration. A mapping is a fact: replaced by deleting and inserting, never
+ * edited. Tenant RLS and the BAA gate, like the provider.
+ */
+export const clinicProviderServices = pgTable(
+  "clinic_provider_services",
+  {
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    providerId: uuid("provider_id").notNull(),
+    serviceKey: text("service_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.providerId, t.serviceKey] }),
+    // Composite, so a mapping cannot point at another clinic's provider.
+    foreignKey({
+      name: "clinic_provider_services_provider_fk",
+      columns: [t.clinicId, t.providerId],
+      foreignColumns: [clinicProviders.clinicId, clinicProviders.id],
+    }).onDelete("cascade"),
+    // "Who offers this service here?" is the booking path's read.
+    index("clinic_provider_services_service_idx").on(t.clinicId, t.serviceKey),
+    check(
+      "clinic_provider_services_key_check",
+      sql`${t.serviceKey} = lower(btrim(${t.serviceKey})) and char_length(${t.serviceKey}) between 1 and 120`,
+    ),
+  ],
+);
+
 /** Tables carrying a clinic_id, and therefore requiring RLS. Asserted by tests. */
 export const TENANT_SCOPED_TABLES = [
   "clinic_memberships",
@@ -3953,4 +4916,10 @@ export const TENANT_SCOPED_TABLES = [
   "channel_events",
   "clinic_closures",
   "billing_requests",
+  "calendar_elections",
+  "slot_holds",
+  "clinic_providers",
+  "clinic_provider_services",
+  "clinic_setup_screens",
+  "clinic_settings_history",
 ] as const;

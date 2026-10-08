@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-import { canWriteBookings, getAdapter } from "@healdesk/connectors";
-import { and, desc, eq, gt, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { canWriteBookings, getAdapter, GOOGLE_CALENDAR_PROVIDER } from "@healdesk/connectors";
+import { and, desc, eq, gt, isNull, ne, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import {
@@ -22,6 +22,7 @@ import {
   listCopyDeliveries,
   type CopyTrigger,
 } from "@/lib/agreements";
+import { agreementInEffectFor } from "@/lib/agreements/in-effect";
 import { agreementTemplateReleased } from "@/lib/agreements/kind";
 import {
   AgreementSearchError,
@@ -31,15 +32,21 @@ import {
 } from "@/lib/agreements/search";
 import {
   BOOKING_FIELDS,
+  cleanProfileText,
+  CLINIC_PROFILE_LIMITS,
   currentDirectBookingAddendum,
   EXCLUDED_FIELDS,
+  findClinicalContent,
   forwardingInstructions,
   getConnectionGuide,
   isCarrier,
   isOnboardingStep,
+  isServicePriceKind,
+  isSpecialtyId,
   ONBOARDING_LABELS,
   ONBOARDING_STEPS,
   resolveBookingRequirements,
+  serviceNameScreen,
   type ForwardingInstruction,
   type OnboardingState,
 } from "@healdesk/catalog";
@@ -85,6 +92,7 @@ import { env } from "@/lib/env";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import { writableConnection, writeToCalendar, type CalendarWriteOutcome } from "@/lib/booking/calendar";
 import { directBookingAllowed } from "@/lib/booking/mode";
+import { isDemoClinic } from "@/lib/booking/terms";
 import { applyBookingRequirementDefaultsFor, setBookingRequirementsWithin } from "@/lib/onboarding/requirements";
 import {
   burnRecoveryCode,
@@ -135,6 +143,9 @@ import { goLive, goLivePreconditions } from "@/lib/onboarding/go-live";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { completeStep, reopenStep } from "@/lib/onboarding/steps";
 import { getJob, listJobs as listJobRecords, PHASE_TWO_JOBS } from "@/lib/scheduler/jobs";
+import { SETUP_CLOSURE_REASON } from "@/lib/setup/closure-email";
+import { moveSetupDeadlineToZone } from "@/lib/setup/practice";
+import { toCents } from "@/lib/setup/prices";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 import { log } from "@/lib/log";
 
@@ -1298,7 +1309,7 @@ async function opIssueConnectLink(
 
   // §B.5: a link to a guide that WRITES into the clinic's calendar is only
   // issued when the agreement in effect says healdesk may. See
-  // agreementCarriesCalendarWrite() for what "says" can mean today.
+  // agreementCarriesVendorCalendarWrite() for what "says" can mean today.
   const writeGuard = await refuseCalendarWriteLinkWithout(clinic.id, actorFor(operator), operator.request);
   if (writeGuard) return ok(writeGuard);
 
@@ -1364,44 +1375,53 @@ async function opIssueConnectLink(
 }
 
 /**
- * Whether a signed, bound, unterminated agreement for this organisation
- * carries the calendar-write clause (design of 23 September 2026, §B.5, §I.2).
- *
- * What "carries" can honestly mean today. `signAgreement` records, on every
- * acceptance row, `variables.appliedClauses` — the clause ids the rendered
- * document actually contained — and `variables.calendarWrite`, the selection
- * that switches the `calendar-write` clause on. So the test is a fact about
- * the document the practice signed, not about which template is current:
- * the row's applied clauses include `calendar-write`, or (belt to those
- * braces, for a row whose clause list was not recorded) the selection is
- * non-null. The 1.0.0 template has no such clause and `calendarWrite` is
- * only set for Cal.com under 1.1.0-draft, which is not offered, so no
- * organisation passes this today — which is the design's stated intent: no
- * Cal.com clinic stores a calendar credential until counsel approves a
- * template with the clause and the practice signs it. A row from before the
- * `appliedClauses` field existed carries neither and is refused.
- *
- * The in-effect agreement is the most recently bound row with no
- * `terminated_at`; an unbound acceptance (signed, never paid) counts for
- * nothing, and a terminated one counts for nothing.
+ * The phase-two vendor clause: healdesk may write appointments into the
+ * booking system it reads (Cal.com, under the 1.1.0 draft). Not v1's Google
+ * Calendar clauses, which are another matter entirely (below).
  */
-export async function agreementCarriesCalendarWrite(organizationId: string): Promise<boolean> {
-  const [row] = await unsafeDb
-    .select({ variables: baaAcceptances.variables })
-    .from(baaAcceptances)
-    .where(
-      and(
-        eq(baaAcceptances.organizationId, organizationId),
-        isNotNull(baaAcceptances.boundAt),
-        isNull(baaAcceptances.terminatedAt),
-      ),
-    )
-    .orderBy(desc(baaAcceptances.boundAt))
-    .limit(1);
-  if (!row) return false;
-  const variables = (row.variables ?? {}) as { appliedClauses?: unknown; calendarWrite?: unknown };
-  const applied = Array.isArray(variables.appliedClauses) ? variables.appliedClauses : [];
-  if (applied.includes("calendar-write")) return true;
+const VENDOR_CALENDAR_WRITE_CLAUSE = "calendar-write";
+
+/**
+ * Whether the organisation's agreement in effect carries the phase-two
+ * VENDOR calendar-write clause (design of 23 September 2026, §B.5, §I.2):
+ * what a read-write connection guide for a booking system needs before its
+ * link is issued (refuseCalendarWriteLinkWithout, below).
+ *
+ * What "carries" can honestly mean. `signAgreement` records, on every
+ * acceptance row, `variables.appliedClauses`, the clause ids the rendered
+ * document actually contained, so the test is a fact about the document the
+ * practice signed, not about which template is current: its applied clauses
+ * include `calendar-write`. A row whose clause list was not recorded (before
+ * `appliedClauses` existed) falls back to the 1.1.0 draft's selection,
+ * `variables.calendarWrite`, being set. Only Cal.com under 1.1.0-draft ever
+ * had either, and it was never offered, so no organisation passes this
+ * today: the design's stated intent, that no clinic stores a vendor
+ * credential that writes until the practice signs a released template with
+ * the clause.
+ *
+ * Never the Google Calendar clauses: 1.2.x's `google-calendar` and 1.3.0's
+ * `google-calendar-covered`, `-uncovered` and `-not-used` govern the
+ * location's own Google Calendar through its calendar terms
+ * (lib/booking/terms.ts), and none of them lets healdesk write into a
+ * booking system it reads. Only a business associate agreement counts: a
+ * data protection agreement's terms are written for a practice outside
+ * HIPAA and carry no vendor write (the funnel's plan of 6 October asks that
+ * this be aware of the agreement kind).
+ *
+ * "The agreement in effect" is app_agreement_in_effect() (drizzle/0048),
+ * through agreementInEffectFor, and never a query of its own here: an
+ * unbound acceptance (signed, never paid) and a terminated one count for
+ * nothing.
+ */
+export async function agreementCarriesVendorCalendarWrite(
+  organizationId: string,
+): Promise<boolean> {
+  const agreement = await agreementInEffectFor(unsafeDb, organizationId);
+  if (!agreement || agreement.agreementKind !== "baa") return false;
+  const variables = agreement.variables as { appliedClauses?: unknown; calendarWrite?: unknown };
+  if (Array.isArray(variables.appliedClauses)) {
+    return variables.appliedClauses.includes(VENDOR_CALENDAR_WRITE_CLAUSE);
+  }
   return typeof variables.calendarWrite === "object" && variables.calendarWrite !== null;
 }
 
@@ -1427,7 +1447,7 @@ async function refuseCalendarWriteLinkWithout(
   if (!clinic?.bookingProvider) return null;
   const guide = getConnectionGuide(clinic.bookingProvider);
   if (!guide || guide.scope !== "read_write") return null;
-  if (await agreementCarriesCalendarWrite(clinic.organizationId)) return null;
+  if (await agreementCarriesVendorCalendarWrite(clinic.organizationId)) return null;
   return {
     status: "error",
     reason: "baa_lacks_calendar_write",
@@ -2705,12 +2725,13 @@ async function readBookingState(
   // The connection healdesk COULD write into once a basis is recorded: the
   // active connection whose registered adapter has the write side. Reported
   // even when not yet writable, so the console can offer the basis select.
-  // No adapter for a real calendar is registered today (only the test
-  // fixture writes): the Cal.com write adapter was removed, v1 writes to
-  // Google Calendar only, and that adapter is launch plan steps 1.5 and 1.7.
-  // So this is null for every real clinic.
+  // Never the Google Calendar connection, although its adapter has the write
+  // side: what may reach it is the location's calendar terms, never a basis
+  // an operator records (setConnectionPhiBasis refuses one), so offering the
+  // select for it would offer a switch that cannot be thrown. Only the test
+  // fixture is left, so this is null for every real clinic.
   const candidates = connections.filter((c) => {
-    if (c.status !== "active") return false;
+    if (c.status !== "active" || c.provider === GOOGLE_CALENDAR_PROVIDER) return false;
     const adapter = getAdapter(c.provider);
     return adapter !== undefined && canWriteBookings(adapter.capabilities);
   });
@@ -2873,24 +2894,48 @@ export type AgentConfigState =
   | { status: "updated"; version: number; approvedAt: string | null; auditRecorded: boolean }
   | { status: "error"; message: string };
 
-function readAgentInput(args: Record<string, unknown>): AgentConfigInput | string {
+function readAgentInput(args: Record<string, unknown>, specialty: string): AgentConfigInput | string {
   const greeting = stringArg(args, "greeting", 600);
   if (!greeting) return "The greeting is required.";
   const rawServices = Array.isArray(args.services) ? args.services : [];
+  // Prices to the cent, as the wizard stores them ("$14.50 per pulse"):
+  // rounding to whole dollars rewrote the clinic's own prices on every save.
+  const dollars = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? toCents(v) : null);
+  const minutes = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v) : null);
   const services = rawServices.map((raw) => {
     const r = (raw ?? {}) as Record<string, unknown>;
-    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v) : null);
     const depositNum = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
     return {
       name: typeof r.name === "string" ? r.name.trim().slice(0, 120) : "",
-      priceFromUsd: num(r.priceFromUsd),
-      priceToUsd: num(r.priceToUsd),
-      durationMinutes: num(r.durationMinutes),
+      priceFromUsd: dollars(r.priceFromUsd),
+      priceToUsd: dollars(r.priceToUsd),
+      durationMinutes: minutes(r.durationMinutes),
+      // What the wizard and Knowledge add to a service (0056), which the
+      // console carries and does not edit. Kept as sent; left out or
+      // malformed, it stays undefined and updateAgentConfig takes the stored
+      // service's own (lib/setup/prices.ts).
+      priceKind: r.priceKind === null ? null : isServicePriceKind(r.priceKind) ? r.priceKind : undefined,
+      unit:
+        r.unit === null
+          ? null
+          : typeof r.unit === "string"
+            ? cleanProfileText(r.unit, CLINIC_PROFILE_LIMITS.unit) || null
+            : undefined,
       // Carried through, or every operator save would wipe the per-service
-      // deposits (BD27); validateAgentConfig checks the range.
+      // deposits (BD27); validateAgentConfig checks the range. Left out, it
+      // stays out, and updateAgentConfig takes the stored service's own.
       ...(r.depositUsd === undefined ? {} : { depositUsd: depositNum(r.depositUsd) }),
     };
   });
+  // A unit is words AYA says ("$14.50 per pulse"), screened as the wizard
+  // screens it: by the specialty's own rule for its menu.
+  const units = findClinicalContent(
+    Object.fromEntries(services.flatMap((s, i) => (s.unit ? [[`services[${i}].unit`, `per ${s.unit}`]] : []))),
+    serviceNameScreen(isSpecialtyId(specialty) ? specialty : null),
+  );
+  if (units.length > 0) {
+    return `A service's unit mentions ${units[0]!.label} ("${units[0]!.excerpt}"). Name it the way the menu does.`;
+  }
   return {
     greeting,
     services,
@@ -2919,7 +2964,7 @@ async function opUpdateAgentConfig(
 ): Promise<OpsOutcome> {
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies AgentConfigState);
-  const input = readAgentInput(args);
+  const input = readAgentInput(args, clinic.specialty);
   if (typeof input === "string") return ok({ status: "error", message: input } satisfies AgentConfigState);
 
   try {
@@ -2993,6 +3038,26 @@ async function opGoLive(
   const clinicId = stringArg(args, "clinicId");
   if (!clinicId || !UUID_SHAPED.test(clinicId)) {
     return ok({ status: "error", message: "That is not a clinic id." } satisfies GoLiveState);
+  }
+  // A demo clinic is healdesk's own fictional practice (scripts/demo-clinic.ts,
+  // owner decision Q6), under an agreement the operator signed for it, on
+  // which draft calendar terms count. It never handles a real patient, so it
+  // never goes live: the flip would put a fictional signature behind a
+  // production clinic. Asked before anything else is touched, and of the
+  // database's own marker (app_clinic_is_demo), which is false for any clinic
+  // with a Stripe id.
+  const demo = await withTenant(
+    { clinicId, actor: actorFor(operator), request: operator.request },
+    (tx) => isDemoClinic(tx),
+  );
+  if (demo) {
+    return ok({
+      status: "refused",
+      message: "This is a demo clinic, and a demo clinic never goes live.",
+      missing: [
+        "A demo clinic is healdesk's own fictional practice and never handles a real patient. Provision the real practice through checkout instead.",
+      ],
+    } satisfies GoLiveState);
   }
   // §H.5, "whichever comes first": a setup link that expired unspent has the
   // specialty defaults stamped now rather than at the next hourly tick, so
@@ -3359,6 +3424,15 @@ async function opStartOffboarding(
   if (clinic.destroyedAt) return care.error("This clinic's data has already been destroyed.");
   const reason = incidentText(stringArg(args, "reason", 300), "reason");
   if (typeof reason !== "string") return care.error(reason.error);
+  // The setup closure's reason belongs to Package C's deletion handler: on it,
+  // startOffboarding queues the clinic's "your account has closed" email
+  // (lib/setup/closure-email.ts), once per clinic. Typed here it would send
+  // that with nothing cancelled, and hold back the real one later.
+  if (reason.toLowerCase() === SETUP_CLOSURE_REASON) {
+    return care.error(
+      `"${SETUP_CLOSURE_REASON}" is kept for the setup window's own closure, which emails the clinic that its account has closed. To close an unfinished setup, use Billing's "Close the unfinished setup". Here, say why the clinic is leaving.`,
+    );
+  }
   await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
     (tx) => startOffboarding(tx, reason),
@@ -3626,7 +3700,11 @@ async function opSetClinicTimezone(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
     async (tx) => {
       const now = new Date();
+      const [before] = await tx.db.select({ timezone: clinics.timezone }).from(clinics).where(eq(clinics.id, tx.clinicId)).limit(1);
       await tx.db.update(clinics).set({ timezone, timezoneConfirmedAt: now, updatedAt: now }).where(eq(clinics.id, tx.clinicId));
+      // The setup window's last day stays the day the emails named, on the
+      // clinic's corrected calendar (lib/setup/practice.ts).
+      if (before) await moveSetupDeadlineToZone(tx, before.timezone, timezone, now);
       tx.audit.record({ action: "update", resourceType: "clinic_timezone", resourceId: tx.clinicId, metadata: { timezone, confirmed: true } });
     },
   );
@@ -3642,6 +3720,13 @@ const PHI_BASES: readonly PhiBasis[] = ["vendor_baa", "practice_account"];
  * account under the practice's own agreement. NULL clears it, and a
  * connection with none is never written to. The note is PHI-scanned like an
  * incident summary: it is prose an operator typed.
+ *
+ * Refused for a Google Calendar connection (plan §4.8). What may reach a
+ * location's Google Calendar is decided by its calendar terms, the signed
+ * agreement and the practice's own elections (lib/booking/terms.ts), which
+ * only the practice can change; a basis an operator typed onto the row
+ * would be a second answer to the same question, and the legacy write path
+ * reads exactly this column.
  */
 async function opSetConnectionPhiBasis(
   args: Record<string, unknown>,
@@ -3662,10 +3747,21 @@ async function opSetConnectionPhiBasis(
   const found = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
     async (tx) => {
+      const where = and(
+        eq(providerConnections.id, connectionId),
+        eq(providerConnections.clinicId, tx.clinicId),
+      );
+      const [current] = await tx.db
+        .select({ provider: providerConnections.provider })
+        .from(providerConnections)
+        .where(where)
+        .limit(1);
+      if (!current) return null;
+      if (current.provider === GOOGLE_CALENDAR_PROVIDER) return "calendar_terms" as const;
       const [row] = await tx.db
         .update(providerConnections)
         .set({ phiBasis: basis, updatedAt: new Date() })
-        .where(and(eq(providerConnections.id, connectionId), eq(providerConnections.clinicId, tx.clinicId)))
+        .where(and(where, ne(providerConnections.provider, GOOGLE_CALENDAR_PROVIDER)))
         .returning({ id: providerConnections.id, provider: providerConnections.provider });
       if (!row) return null;
       tx.audit.record({
@@ -3680,6 +3776,13 @@ async function opSetConnectionPhiBasis(
     },
   );
   if (!found) return ok({ status: "error", message: "No such connection on this clinic." } satisfies SwitchState);
+  if (found === "calendar_terms") {
+    return ok({
+      status: "error",
+      message:
+        "A Google Calendar connection takes no PHI basis: what may reach it is decided by the location's calendar terms (its agreement and the practice's calendar elections). Nothing was changed.",
+    } satisfies SwitchState);
+  }
   const auditRecorded = await audit(operator, "connection_phi_basis_set", { clinicSlug: clinic.slug, provider: found.provider, phiBasis: basis });
   return ok({ status: "updated", auditRecorded } satisfies SwitchState);
 }

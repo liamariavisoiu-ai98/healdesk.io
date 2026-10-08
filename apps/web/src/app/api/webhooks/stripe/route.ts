@@ -20,9 +20,11 @@ import { updateSetupRequest } from "@/lib/setup-requests";
  *   - The FIRST invoice's `invoice.paid` (`billing_reason:
  *     "subscription_create"`) creates the account: it is relayed to
  *     /api/provision as `{ ref, idempotencyKey: <subscription id>, attempt,
- *     plan, billingInterval }`, and apps/app provisions from the checkout
- *     intent it stored when Pay was pressed, if that intent still names the
- *     press and the terms that were paid (plan C1, design D2). Only then is
+ *     plan, billingInterval, hostedInvoiceUrl }`, and apps/app provisions
+ *     from the checkout intent it stored when Pay was pressed, if that intent
+ *     still names the press and the terms that were paid (plan C1, design
+ *     D2); the invoice's hosted page is the setup-fee receipt the welcome
+ *     email links. Only then is
  *     the event itself forwarded, so the clinic it activates exists. The
  *     account is made on the first
  *     paid invoice, as docs/v1-product-spec.md ("Stage 1, payment") says, and
@@ -276,6 +278,8 @@ type FirstInvoice = {
   attempt: number | null;
   plan: string | null;
   billingInterval: string | null;
+  /** Stripe's hosted page for this paid invoice: the setup-fee receipt the welcome email links. */
+  hostedInvoiceUrl: string | null;
 };
 
 /**
@@ -304,6 +308,7 @@ function firstInvoiceOf(event: Stripe.Event): FirstInvoice | null {
     attempt,
     plan: metadata.plan || null,
     billingInterval: metadata.billingInterval || null,
+    hostedInvoiceUrl: typeof invoice.hosted_invoice_url === "string" ? invoice.hosted_invoice_url : null,
   };
 }
 
@@ -328,6 +333,9 @@ async function provisionFromIntent(event: Stripe.Event, first: FirstInvoice, rel
     attempt: first.attempt,
     plan: first.plan,
     billingInterval: first.billingInterval,
+    // The setup-fee receipt: apps/app keeps it with the purchase and the
+    // welcome email links it, so no separate receipt goes for this invoice.
+    hostedInvoiceUrl: first.hostedInvoiceUrl,
   });
   const result = await relayTo("/api/provision", body, relay);
   switch (result.kind) {

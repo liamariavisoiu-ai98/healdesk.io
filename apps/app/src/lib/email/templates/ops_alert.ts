@@ -190,6 +190,21 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "The destruction clock started a week back and no further, so this practice's data is destroyed the days below later than its agreement counts from the end. Find out why the event was late, and tell the owner: only the database owner can bring the destruction forward.",
   },
+  // Raised once per breakage by markCalendarBroken. `code` is Google's
+  // answer as the adapter names it: invalid_grant, admin_policy_enforced and
+  // scope_lost mean the access itself was removed and the stored token has
+  // been erased; access_denied, insufficient_permissions and
+  // calendar_not_found mean the calendar refused it.
+  calendar_broken: {
+    title: "A clinic's Google Calendar stopped working",
+    action:
+      "Google refused healdesk's access to a clinic's calendar, so that location now takes booking requests for its staff to confirm. Ask the clinic whether it removed the access on purpose; if not, it reconnects its calendar. Look the clinic up in the console.",
+  },
+  welcome_email_unsent: {
+    title: "A welcome email has not reached a clinic",
+    action:
+      "A clinic's welcome email, its order confirmation with the receipt and the Continue setup link, is still unsent an hour after its account was made, or setup moved on before it could go. Check Resend, then email the order details to the clinic's address by hand.",
+  },
 };
 
 /**
@@ -213,6 +228,8 @@ const LABELS: Record<string, string> = {
   eventId: "Event id",
   requestId: "Request id",
   jobId: "Job id",
+  connectionId: "Connection id",
+  code: "Code",
   kind: "Email kind",
   status: "Status",
   attempts: "Attempts",

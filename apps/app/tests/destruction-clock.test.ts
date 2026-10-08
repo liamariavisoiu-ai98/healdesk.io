@@ -423,10 +423,15 @@ async function alertsFor(event: string, clinicId: string) {
 
 const notDue = { code: "23514", message: expect.stringMatching(/not due for destruction/) };
 
-/** Each of the three functions that refuse a clinic that is not due, called as the runtime role. */
+/**
+ * Each of the four functions that refuse a clinic that is not due, called as
+ * the runtime role: the three deletes (the calendar's providers since 0057)
+ * and the destroyed stamp.
+ */
 const GUARDED = [
   `select app_destroy_booking_requests($1::uuid)`,
   `select * from app_destroy_contact_evidence($1::uuid)`,
+  `select app_destroy_clinic_providers($1::uuid)`,
   `select app_mark_clinic_destroyed($1::uuid)`,
 ];
 
@@ -440,6 +445,7 @@ const DAY_COUNTING_FUNCTIONS = [
   "app_destruction_due(uuid)",
   "app_destroy_booking_requests(uuid)",
   "app_destroy_contact_evidence(uuid)",
+  "app_destroy_clinic_providers(uuid)",
   "app_mark_clinic_destroyed(uuid)",
   "app_record_days_in_force(integer, integer, timestamptz)",
   "app_record_cutoff()",
@@ -637,7 +643,7 @@ describeDb("the destruction clock in the database", () => {
     expect(mine(errors, "destruction failed")).toEqual([]);
   }, 120_000);
 
-  /** Held, by the job and by the database's floor under all three of its functions. */
+  /** Held, by the job and by the database's floor under all four of its functions. */
   async function expectHeld(clinicId: string, label: string): Promise<void> {
     expect(dueForDestruction(await overviewOf(clinicId), new Date()), label).toBe(false);
     for (const text of GUARDED) {

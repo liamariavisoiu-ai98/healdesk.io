@@ -221,11 +221,20 @@ RDS instance, not after, because the first item cannot be added later.
   (`pg_stat_activity.xact_start`), because one held open is the way left around the
   record clock's day and offboarding's thirty days (see "Retention and offboarding").
 - *KMS:* one customer-managed key; a task-role policy limited to `GenerateDataKey`,
-  `Decrypt` and `Encrypt` on it; `HEALDESK_KMS_PROVIDER=aws-kms` and `HEALDESK_KMS_KEY_ID`
-  in every task definition, the key ID as the key's full ARN
-  (`arn:aws:kms:us-east-1:<account>:key/<key id>`), since an alias, a bare ID, a
-  multi-Region key or another region is refused; `AWS_REGION` unset or `us-east-1`, since
-  the KMS client falls back to us-east-1 and refuses any other region;
+  `Decrypt` and `Encrypt` on it, in the two statements written out in
+  `docs/design/google-calendar-2026-10-05.md` §5: the application's own calls, each only
+  with both lock-label keys and no other in the encryption context and with no
+  `kms:ViaService`; and S3's calls, `GenerateDataKey` and `Decrypt` only, through S3
+  (`kms:ViaService` `s3.us-east-1.amazonaws.com`) and for the transcript bucket alone
+  (`kms:EncryptionContext:aws:s3:arn`), since S3's SSE-KMS calls below carry no label and
+  the first statement alone would refuse every transcript upload and download; a key
+  policy that names the task role in no statement of its own, only the account statement
+  that lets IAM decide, since a key-policy statement naming it without these conditions
+  (the console's default "key users") would let every call through;
+  `HEALDESK_KMS_PROVIDER=aws-kms` and `HEALDESK_KMS_KEY_ID` in every task definition, the
+  key ID as the key's full ARN (`arn:aws:kms:us-east-1:<account>:key/<key id>`), since an
+  alias, a bare ID, a multi-Region key or another region is refused; `AWS_REGION` unset or
+  `us-east-1`, since the KMS client falls back to us-east-1 and refuses any other region;
   `@aws-sdk/client-kms` is a dependency of apps/app and ships in the image (fixed 6 October
   2026); the worker's start-up log line ("credential key self-check passed") to confirm
   the task role reaches the key (the read-only ops operation `getCredentialKeyStatus` asks
@@ -345,7 +354,7 @@ the database accepts up to a week back, so a deletion processed late still start
 clock when the practice left; one processed more than a week late starts it a week back
 and raises the `offboarding_started_late` ops alert. When the data goes is the rule of
 the agreement the service ended under, terminated since or not (`destructionPlan` in
-`apps/app/src/lib/offboarding/offboarding.ts`; `app_destruction_due()` in drizzle/0056 is
+`apps/app/src/lib/offboarding/offboarding.ts`; `app_destruction_due()` in drizzle/0058 is
 the same rule as the database's floor):
 
 - BAA 1.2.1 and earlier, or no agreement on file: day 29, whatever the export, so the data
@@ -466,7 +475,7 @@ task name, a queue name or a resource tag.
   `TimeZone`, and Postgres counts `interval 'N days'` and `make_interval(days => n)` in
   that zone, so one with offsets 334 hours apart once turned the destruction clock's seven
   days into twenty-one. The functions that count days for the destruction clock, its floor
-  and the record clock carry `SET TimeZone = 'UTC'` (drizzle/0056), and the tests call each
+  and the record clock carry `SET TimeZone = 'UTC'` (drizzle/0058), and the tests call each
   under such a zone; a new guard that counts days needs the same.
 
 `apps/app/tests/rls-drift.test.ts` asks the catalog which tables carry a `clinic_id` and

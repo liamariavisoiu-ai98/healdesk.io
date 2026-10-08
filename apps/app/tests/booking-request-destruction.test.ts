@@ -200,10 +200,13 @@ const KEPT_AT_DESTRUCTION: Record<string, string> = {
   billing_notices: "billing evidence: the billing-email outbox, no patient",
   billing_requests: "billing evidence, which the runtime role cannot delete (0050)",
   billing_transitions: "billing evidence: the history of the billing status",
+  calendar_elections: "contract evidence: each is part of the signed agreement; append-only for every role, no patient (0057)",
   channel_events: "billing evidence: the plan start and every step-up were charged from it",
   clinic_channels: "the channels bought; no DELETE for the runtime role, and no patient",
   clinic_memberships: "who could reach the clinic's records: access history",
   clinic_settings: "the portal's switches; no patient",
+  clinic_settings_history:
+    "append-only by grant, like the audit log: which of the clinic's own numbers calls went to, and when; no patient",
   clinic_touches: "our own notes on the account, never a patient",
   connection_links: "append-only by grant: single-use credential links, no patient",
   deposit_payments: "money records, kept without the appointment they were taken for",
@@ -596,7 +599,7 @@ describeDb("booking requests at destruction, erasure and purge", () => {
     // Destruction: never another clinic's from inside this tenant, never a
     // customer's, and never before its agreement's rule allows, by the
     // database's clock. This clinic holds no agreement, so the rule is the
-    // thirty days, due at day 29 (drizzle/0056).
+    // thirty days, due at day 29 (drizzle/0058).
     for (const fn of [
       "app_destroy_booking_requests",
       "app_start_offboarding",
@@ -1039,7 +1042,7 @@ describeDb("booking requests at destruction, erasure and purge", () => {
   // `interval '1 day'` and `make_interval(days => n)` in it. A POSIX zone with
   // offsets 334 hours apart put "a day ago" days ahead of now, so a clock
   // shortened in the transaction that purged bound at once (review of 7
-  // October). The record clock now counts its days in UTC (drizzle/0056).
+  // October). The record clock now counts its days in UTC (drizzle/0058).
   test("a time zone the runtime role sets for itself cannot cut the record clock's day short, or move its cutoff", async () => {
     const c = await seedClinic("purge-zone");
     await seedPerson(c.clinicId, "+15550115101", new Date(Date.now() - 3 * DAY));
@@ -1117,7 +1120,7 @@ describeDb("booking requests at destruction, erasure and purge", () => {
     );
     await backdateOffboarding(c.clinicId, 31);
 
-    // Due, and nothing destroyed: a stamp now would make the daily job pass
+    // Due, and nothing destroyed: a stamp now would make the hourly job pass
     // the clinic over for good while the ops console called it destroyed.
     await expect(
       asApp(c.clinicId, (q) => q.query(`select app_mark_clinic_destroyed($1::uuid)`, [c.clinicId])),
@@ -1319,7 +1322,7 @@ describeDb("booking requests at destruction, erasure and purge", () => {
     }
 
     // Due, and holding nothing but a WhatsApp sender's thread, or a handled
-    // message's reference: no record of destruction yet, or the daily job
+    // message's reference: no record of destruction yet, or the hourly job
     // would pass the clinic over for good with the row still there.
     for (const c of [threadOnly, inboundOnly]) {
       await expect(

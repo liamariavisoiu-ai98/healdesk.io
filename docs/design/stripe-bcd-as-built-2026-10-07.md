@@ -282,7 +282,7 @@ What the fixes left open:
   `canceledPayload` in `events.ts`. The funnel session replaces those two lines
   with its per-agreement function (BAA 1.2.1 and earlier: day 30 flat), keeping
   `exportByOn` and `destroyByOn` and their meanings. Done on 7 October 2026
-  (drizzle/0056): `canceledPayload` reads both from `destructionPlan` in
+  (drizzle/0058): `canceledPayload` reads both from `destructionPlan` in
   `lib/offboarding/offboarding.ts`, the function the destruction job reads,
   meanings kept. BAA 1.2.1 and earlier are destroyed at day 29, inside their
   thirty days; BAA 1.3.0 and the DPA at day 29 once the export is delivered, at

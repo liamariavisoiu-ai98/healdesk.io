@@ -96,6 +96,204 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 }
 `;
 
+exports[`each template's output > calendar_reconnected, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your calendar is connected again</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">AYA can see your calendar again.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">The Google Calendar Radiance Med Spa uses with healdesk is connected again, and AYA reads it again for times that are free.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/setup?s=calendar" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">See your calendar settings</a></p>
+<p style="margin:0 0 16px;">Questions? Reply to this email, or write to hello@healdesk.io.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "AYA can see your calendar again.",
+  "subject": "Your calendar is connected again",
+  "text": "The Google Calendar Radiance Med Spa uses with healdesk is connected again, and AYA reads it again for times that are free.
+
+See your calendar settings: https://app.healdesk.test/c/radiance-med-spa/setup?s=calendar
+
+Questions? Reply to this email, or write to hello@healdesk.io.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > calendar_reconnected, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your calendar is connected again</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">AYA can see your calendar again.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">The Google Calendar Radiance Med Spa uses with healdesk is connected again, and AYA reads it again for times that are free.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/setup?s=calendar" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">See your calendar settings</a></p>
+<p style="margin:0 0 16px;">Questions? Reply to this email, or write to hello@healdesk.io.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "AYA can see your calendar again.",
+  "subject": "Your calendar is connected again",
+  "text": "The Google Calendar Radiance Med Spa uses with healdesk is connected again, and AYA reads it again for times that are free.
+
+See your calendar settings: https://app.healdesk.test/c/radiance-med-spa/setup?s=calendar
+
+Questions? Reply to this email, or write to hello@healdesk.io.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > calendar_stopped, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your calendar connection stopped working</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Bookings arrive as requests until you reconnect it.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">AYA can no longer reach the Google Calendar Radiance Med Spa connected, so bookings arrive as requests your team confirms until you reconnect it. Nothing already in your calendar has changed.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/setup?s=calendar" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Reconnect your calendar</a></p>
+<p style="margin:0 0 16px;">Reconnecting takes one Google sign-in. It usually stops when a Google password changes or someone removes healdesk&#39;s access.</p>
+<p style="margin:0 0 16px;">Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don&#39;t include client details.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Bookings arrive as requests until you reconnect it.",
+  "subject": "Your calendar connection stopped working",
+  "text": "AYA can no longer reach the Google Calendar Radiance Med Spa connected, so bookings arrive as requests your team confirms until you reconnect it. Nothing already in your calendar has changed.
+
+Reconnect your calendar: https://app.healdesk.test/c/radiance-med-spa/setup?s=calendar
+
+Reconnecting takes one Google sign-in. It usually stops when a Google password changes or someone removes healdesk's access.
+
+Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don't include client details.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > calendar_stopped, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your calendar connection stopped working</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Bookings arrive as requests until you reconnect it.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">AYA can no longer reach the Google Calendar Radiance Med Spa connected, so bookings arrive as requests your team confirms until you reconnect it. Nothing already in your calendar has changed.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/setup?s=calendar" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Reconnect your calendar</a></p>
+<p style="margin:0 0 16px;">Reconnecting takes one Google sign-in. It usually stops when a Google password changes or someone removes healdesk&#39;s access.</p>
+<p style="margin:0 0 16px;">Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don&#39;t include patient details.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Bookings arrive as requests until you reconnect it.",
+  "subject": "Your calendar connection stopped working",
+  "text": "AYA can no longer reach the Google Calendar Radiance Med Spa connected, so bookings arrive as requests your team confirms until you reconnect it. Nothing already in your calendar has changed.
+
+Reconnect your calendar: https://app.healdesk.test/c/radiance-med-spa/setup?s=calendar
+
+Reconnecting takes one Google sign-in. It usually stops when a Google password changes or someone removes healdesk's access.
+
+Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don't include patient details.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
 exports[`each template's output > cancel_reversed, for clients: the snapshot 1`] = `
 {
   "html": "<!doctype html>
@@ -2236,6 +2434,232 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 }
 `;
 
+exports[`each template's output > setup_closed, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your healdesk account has closed</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Setup wasn&#39;t finished within 30 days. Nothing more will be charged.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">The 30-day setup window for Radiance Med Spa ended on Friday 6 November with nothing answering clients, so the account has closed.</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Nothing more will be charged. The setup fee is not refunded, as the terms say.</li><li>AYA answers no one for Radiance Med Spa. Calls and messages reach you exactly as they did before.</li><li>We keep the signed agreement and the billing records the law requires us to keep.</li></ul>
+<p style="margin:0 0 16px;">If you&#39;d like to set AYA up after all, reply to this email and we&#39;ll help you start again.</p>
+<p style="margin:0 0 16px;">Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don&#39;t include client details.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Setup wasn't finished within 30 days. Nothing more will be charged.",
+  "subject": "Your healdesk account has closed",
+  "text": "The 30-day setup window for Radiance Med Spa ended on Friday 6 November with nothing answering clients, so the account has closed.
+
+- Nothing more will be charged. The setup fee is not refunded, as the terms say.
+- AYA answers no one for Radiance Med Spa. Calls and messages reach you exactly as they did before.
+- We keep the signed agreement and the billing records the law requires us to keep.
+
+If you'd like to set AYA up after all, reply to this email and we'll help you start again.
+
+Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don't include client details.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > setup_closed, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your healdesk account has closed</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Setup wasn&#39;t finished within 30 days. Nothing more will be charged.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">The 30-day setup window for Radiance Med Spa ended on Friday 6 November with nothing answering patients, so the account has closed.</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Nothing more will be charged. The setup fee is not refunded, as the terms say.</li><li>AYA answers no one for Radiance Med Spa. Calls and messages reach you exactly as they did before.</li><li>We keep the signed agreement and the billing records the law requires us to keep.</li></ul>
+<p style="margin:0 0 16px;">If you&#39;d like to set AYA up after all, reply to this email and we&#39;ll help you start again.</p>
+<p style="margin:0 0 16px;">Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don&#39;t include patient details.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Setup wasn't finished within 30 days. Nothing more will be charged.",
+  "subject": "Your healdesk account has closed",
+  "text": "The 30-day setup window for Radiance Med Spa ended on Friday 6 November with nothing answering patients, so the account has closed.
+
+- Nothing more will be charged. The setup fee is not refunded, as the terms say.
+- AYA answers no one for Radiance Med Spa. Calls and messages reach you exactly as they did before.
+- We keep the signed agreement and the billing records the law requires us to keep.
+
+If you'd like to set AYA up after all, reply to this email and we'll help you start again.
+
+Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don't include patient details.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > setup_reminder, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>AYA isn&#39;t answering clients yet: what&#39;s left</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Setup closes at the end of Friday 6 November if nothing is answering by then.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">AYA isn&#39;t answering clients for Radiance Med Spa yet. Here&#39;s what&#39;s left:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Finish setup: 2 steps left</li></ul>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/setup" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Continue setup</a></p>
+<p style="margin:0 0 16px;">You have until Friday 6 November to finish. If nothing is answering clients by the end of that day, the account closes and the setup fee isn&#39;t refunded.</p>
+<p style="margin:0 0 16px;">Call forwarding is easier with someone on the line. Book a five-minute call and we&#39;ll do it with you.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/help/call" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Book a five-minute call</a></p>
+<p style="margin:0 0 16px;">Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don&#39;t include client details.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Setup closes at the end of Friday 6 November if nothing is answering by then.",
+  "subject": "AYA isn't answering clients yet: what's left",
+  "text": "AYA isn't answering clients for Radiance Med Spa yet. Here's what's left:
+
+- Finish setup: 2 steps left
+
+Continue setup: https://app.healdesk.test/c/radiance-med-spa/setup
+
+You have until Friday 6 November to finish. If nothing is answering clients by the end of that day, the account closes and the setup fee isn't refunded.
+
+Call forwarding is easier with someone on the line. Book a five-minute call and we'll do it with you.
+
+Book a five-minute call: https://app.healdesk.test/help/call
+
+Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don't include client details.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > setup_reminder, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>AYA isn&#39;t answering patients yet: what&#39;s left</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Setup closes at the end of Friday 6 November if nothing is answering by then.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">AYA isn&#39;t answering patients for Radiance Med Spa yet. Here&#39;s what&#39;s left:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Finish setup: 2 steps left</li></ul>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/setup" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Continue setup</a></p>
+<p style="margin:0 0 16px;">You have until Friday 6 November to finish. If nothing is answering patients by the end of that day, the account closes and the setup fee isn&#39;t refunded.</p>
+<p style="margin:0 0 16px;">Call forwarding is easier with someone on the line. Book a five-minute call and we&#39;ll do it with you.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/help/call" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Book a five-minute call</a></p>
+<p style="margin:0 0 16px;">Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don&#39;t include patient details.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Setup closes at the end of Friday 6 November if nothing is answering by then.",
+  "subject": "AYA isn't answering patients yet: what's left",
+  "text": "AYA isn't answering patients for Radiance Med Spa yet. Here's what's left:
+
+- Finish setup: 2 steps left
+
+Continue setup: https://app.healdesk.test/c/radiance-med-spa/setup
+
+You have until Friday 6 November to finish. If nothing is answering patients by the end of that day, the account closes and the setup fee isn't refunded.
+
+Call forwarding is easier with someone on the line. Book a five-minute call and we'll do it with you.
+
+Book a five-minute call: https://app.healdesk.test/help/call
+
+Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don't include patient details.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
 exports[`each template's output > sign_in_link, for clients: the snapshot 1`] = `
 {
   "html": "<!doctype html>
@@ -2540,6 +2964,198 @@ If your clinic's line forwards to AYA, you can undo that while this is sorted ou
 
 - Cancel busy forwarding: *91
 - Cancel no-answer forwarding: *93
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > welcome, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Welcome to healdesk: your order is confirmed</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Continue setup: four short steps, about fifteen minutes.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Thank you for your order. Radiance Med Spa&#39;s AYA is ready for you to set up: four short steps, about fifteen minutes of your time.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/link/kP3vXq9TzR7wYb2NcL5mHs8JdF4gA6eU1oIiQ0yBtVx" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Continue setup</a></p>
+<p style="margin:0 0 16px;">The button works once, for the next 72 hours. After that, sign in at https://app.healdesk.test/sign-in with this address and setup picks up where you left it.</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Your practice: check what we read from your website</li><li>How AYA works: tone, greetings and where urgent calls go</li><li>Calendar: how bookings reach your team</li><li>Your channels: what each one needs from you</li></ul>
+<p style="margin:0 0 16px;">Each step saves as you finish it, so you can stop and come back. You have until Friday 6 November to finish: if nothing is answering clients by the end of that day, the account closes. We&#39;ll remind you before then.</p>
+<p style="margin:0 0 16px;">Your channels:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Website chat: after setup, you paste one line on your website and AYA starts answering there.</li><li>Phone: after setup, we show you exactly what to dial to forward calls from your main line. Don&#39;t change your call forwarding until then.</li></ul>
+<p style="margin:0 0 16px;">Your order:</p>
+<p style="margin:0 0 4px;"><strong>Package:</strong> Web + Voice</p>
+<p style="margin:0 0 4px;"><strong>Channels:</strong> Website chat, Phone</p>
+<p style="margin:0 0 4px;"><strong>Billing:</strong> Monthly</p>
+<p style="margin:0 0 4px;"><strong>Monthly price:</strong> $897</p>
+<p style="margin:0 0 4px;"><strong>Setup fee:</strong> Paid</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_1Pfixture/test_YWNjdF8xUGZpeHR1cmU" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Your setup-fee receipt</a></p>
+<p style="margin:0 0 16px;">Monthly billing ($897) starts the day AYA first answers a client. Until then, nothing more is charged. The setup fee is non-refundable.</p>
+<p style="margin:0 0 16px;">To cancel before your plan starts, reply to this email and we&#39;ll cancel it for you. Nothing more is charged.</p>
+<p style="margin:0 0 16px;">Your order is under healdesk&#39;s Terms of Service, version 2026-10-07.1, at healdesk.io/terms.</p>
+<p style="margin:0 0 16px;">Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don&#39;t include client details.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/help/call" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Book a five-minute call</a></p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Continue setup: four short steps, about fifteen minutes.",
+  "subject": "Welcome to healdesk: your order is confirmed",
+  "text": "Thank you for your order. Radiance Med Spa's AYA is ready for you to set up: four short steps, about fifteen minutes of your time.
+
+Continue setup: https://app.healdesk.test/link/kP3vXq9TzR7wYb2NcL5mHs8JdF4gA6eU1oIiQ0yBtVx
+
+The button works once, for the next 72 hours. After that, sign in at https://app.healdesk.test/sign-in with this address and setup picks up where you left it.
+
+- Your practice: check what we read from your website
+- How AYA works: tone, greetings and where urgent calls go
+- Calendar: how bookings reach your team
+- Your channels: what each one needs from you
+
+Each step saves as you finish it, so you can stop and come back. You have until Friday 6 November to finish: if nothing is answering clients by the end of that day, the account closes. We'll remind you before then.
+
+Your channels:
+
+- Website chat: after setup, you paste one line on your website and AYA starts answering there.
+- Phone: after setup, we show you exactly what to dial to forward calls from your main line. Don't change your call forwarding until then.
+
+Your order:
+
+Package: Web + Voice
+Channels: Website chat, Phone
+Billing: Monthly
+Monthly price: $897
+Setup fee: Paid
+
+Your setup-fee receipt: https://invoice.stripe.com/i/acct_1Pfixture/test_YWNjdF8xUGZpeHR1cmU
+
+Monthly billing ($897) starts the day AYA first answers a client. Until then, nothing more is charged. The setup fee is non-refundable.
+
+To cancel before your plan starts, reply to this email and we'll cancel it for you. Nothing more is charged.
+
+Your order is under healdesk's Terms of Service, version 2026-10-07.1, at healdesk.io/terms.
+
+Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don't include client details.
+
+Book a five-minute call: https://app.healdesk.test/help/call
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > welcome, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Welcome to healdesk: your order is confirmed</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Continue setup: four short steps, about fifteen minutes.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Thank you for your order. Radiance Med Spa&#39;s AYA is ready for you to set up: four short steps, about fifteen minutes of your time.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/link/kP3vXq9TzR7wYb2NcL5mHs8JdF4gA6eU1oIiQ0yBtVx" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Continue setup</a></p>
+<p style="margin:0 0 16px;">The button works once, for the next 72 hours. After that, sign in at https://app.healdesk.test/sign-in with this address and setup picks up where you left it.</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Your practice: check what we read from your website</li><li>How AYA works: tone, greetings and where urgent calls go</li><li>Calendar: how bookings reach your team</li><li>Your channels: what each one needs from you</li></ul>
+<p style="margin:0 0 16px;">Each step saves as you finish it, so you can stop and come back. You have until Friday 6 November to finish: if nothing is answering patients by the end of that day, the account closes. We&#39;ll remind you before then.</p>
+<p style="margin:0 0 16px;">Your channels:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Website chat: after setup, you paste one line on your website and AYA starts answering there.</li><li>Phone: after setup, we show you exactly what to dial to forward calls from your main line. Don&#39;t change your call forwarding until then.</li></ul>
+<p style="margin:0 0 16px;">Your order:</p>
+<p style="margin:0 0 4px;"><strong>Package:</strong> Web + Voice</p>
+<p style="margin:0 0 4px;"><strong>Channels:</strong> Website chat, Phone</p>
+<p style="margin:0 0 4px;"><strong>Billing:</strong> Monthly</p>
+<p style="margin:0 0 4px;"><strong>Monthly price:</strong> $897</p>
+<p style="margin:0 0 4px;"><strong>Setup fee:</strong> Paid</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_1Pfixture/test_YWNjdF8xUGZpeHR1cmU" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Your setup-fee receipt</a></p>
+<p style="margin:0 0 16px;">Monthly billing ($897) starts the day AYA first answers a patient. Until then, nothing more is charged. The setup fee is non-refundable.</p>
+<p style="margin:0 0 16px;">To cancel before your plan starts, reply to this email and we&#39;ll cancel it for you. Nothing more is charged.</p>
+<p style="margin:0 0 16px;">Your order is under healdesk&#39;s Terms of Service, version 2026-10-07.1, at healdesk.io/terms.</p>
+<p style="margin:0 0 16px;">Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don&#39;t include patient details.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/help/call" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Book a five-minute call</a></p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "Continue setup: four short steps, about fifteen minutes.",
+  "subject": "Welcome to healdesk: your order is confirmed",
+  "text": "Thank you for your order. Radiance Med Spa's AYA is ready for you to set up: four short steps, about fifteen minutes of your time.
+
+Continue setup: https://app.healdesk.test/link/kP3vXq9TzR7wYb2NcL5mHs8JdF4gA6eU1oIiQ0yBtVx
+
+The button works once, for the next 72 hours. After that, sign in at https://app.healdesk.test/sign-in with this address and setup picks up where you left it.
+
+- Your practice: check what we read from your website
+- How AYA works: tone, greetings and where urgent calls go
+- Calendar: how bookings reach your team
+- Your channels: what each one needs from you
+
+Each step saves as you finish it, so you can stop and come back. You have until Friday 6 November to finish: if nothing is answering patients by the end of that day, the account closes. We'll remind you before then.
+
+Your channels:
+
+- Website chat: after setup, you paste one line on your website and AYA starts answering there.
+- Phone: after setup, we show you exactly what to dial to forward calls from your main line. Don't change your call forwarding until then.
+
+Your order:
+
+Package: Web + Voice
+Channels: Website chat, Phone
+Billing: Monthly
+Monthly price: $897
+Setup fee: Paid
+
+Your setup-fee receipt: https://invoice.stripe.com/i/acct_1Pfixture/test_YWNjdF8xUGZpeHR1cmU
+
+Monthly billing ($897) starts the day AYA first answers a patient. Until then, nothing more is charged. The setup fee is non-refundable.
+
+To cancel before your plan starts, reply to this email and we'll cancel it for you. Nothing more is charged.
+
+Your order is under healdesk's Terms of Service, version 2026-10-07.1, at healdesk.io/terms.
+
+Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don't include patient details.
+
+Book a five-minute call: https://app.healdesk.test/help/call
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.

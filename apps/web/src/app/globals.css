@@ -956,13 +956,13 @@
    zoomed page, measured; change it with the navbar.
 
    The photo is the hero's background, composed as the owner supplied it:
-   centred, never shifted, covering the hero (as wide as the hero or as tall,
-   whichever is more), and cut at the bottom on a screen wider than it is, so
-   her face is never what is lost. The copy sits at the bottom left, on the
+   as wide as the hero, never shifted, cut at the bottom on a screen wider
+   than it is and fading into the page on one taller, so neither her face nor
+   a logo is ever what is lost. The copy sits at the bottom left, on the
    veil.
 
-   Between 1024px and 1280px the logos at the photo's edges would be cut off
-   by the cover, so the hero keeps the stacked layout below.
+   Between 1024px and 1280px the copy's box would reach the logos on her left,
+   so the hero keeps the stacked layout below.
 
    ## Laid out, below 1280px
 
@@ -1057,14 +1057,23 @@
     overflow: hidden;
   }
 
-  /* Centred by its left edge rather than by a translate: a transform would
-     make the photo its own stacking context, and the logos inside it could
-     not then rise above the veil. */
+  /* Always the hero's full width, never wider: a logo sits as near as 3.7%
+     of the photo to its edge, and a cover crop on a screen taller than the
+     photo (1440×1000, 1280×1024) cut the outer ones off. On a wider screen
+     the photo runs past the hero's foot, where the veil and the copy are; on
+     a taller one it ends above it and fades into the page. No transform: it
+     would make the photo its own stacking context, and the logos inside it
+     could not then rise above the veil. */
   .hero__frame .portrait {
     position: absolute;
     top: 0;
-    left: min(0px, calc((100% - var(--hero-h) * 1672 / 941) / 2));
-    width: max(100%, calc(var(--hero-h) * 1672 / 941));
+    left: 0;
+    width: 100%;
+  }
+
+  .hero__frame .portrait__photo {
+    -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent);
+    mask-image: linear-gradient(to bottom, #000 82%, transparent);
   }
 
   .hero__veil {
@@ -2142,4 +2151,190 @@
   to {
     transform: translateX(320%);
   }
+}
+
+/* =============================================================================
+   What changes in month one: an iOS lock screen (Outcomes.tsx)
+   =============================================================================
+   The owner's pick of 9 October 2026, "Notification wall, but make it look
+   more like iOS". A blurred wallpaper with the date and a large clock, the
+   eight outcomes as notifications in iOS's frosted material, and the
+   flashlight, camera and home bar at the foot. Set in the platform's own
+   face where there is one (San Francisco on Apple devices), because a lock
+   screen in the site's serif reads as a picture of one, not as one. */
+
+.lockscreen {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 34px;
+  padding: clamp(28px, 4vw, 52px) clamp(14px, 3vw, 40px) 22px;
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+  box-shadow: 0 30px 70px -40px rgb(23 42 58 / 0.6);
+}
+
+.lockscreen__wallpaper {
+  position: absolute;
+  inset: -60px;
+  z-index: -1;
+  background:
+    linear-gradient(180deg, rgb(10 18 28 / 0.35), rgb(10 18 28 / 0.1) 40%, rgb(10 18 28 / 0.35)),
+    url("/outcomes/by-morning.webp") center / cover;
+  filter: blur(26px) saturate(1.35) brightness(0.72);
+}
+
+.lockscreen__date {
+  text-align: center;
+  font-size: clamp(17px, 1.6vw, 21px);
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  opacity: 0.92;
+}
+
+.lockscreen__time {
+  margin-top: 2px;
+  text-align: center;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif;
+  font-size: clamp(76px, 9.5vw, 128px);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(180deg, #fff, rgb(255 255 255 / 0.82));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.lockscreen__wall {
+  margin: clamp(24px, 3.4vw, 44px) auto 0;
+  padding: 0;
+  max-width: 1080px;
+  list-style: none;
+  columns: 1;
+  column-gap: 12px;
+}
+
+@media (min-width: 720px) {
+  .lockscreen__wall {
+    columns: 2;
+  }
+}
+
+@media (min-width: 1100px) {
+  .lockscreen__wall {
+    columns: 3;
+  }
+}
+
+.notification {
+  break-inside: avoid;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 44px;
+  align-items: start;
+  gap: 11px;
+  margin-bottom: 12px;
+  padding: 12px 12px 13px;
+  border-radius: 22px;
+  background: rgb(246 246 248 / 0.72);
+  -webkit-backdrop-filter: blur(28px) saturate(1.8);
+  backdrop-filter: blur(28px) saturate(1.8);
+  color: #000;
+  box-shadow: 0 1px 1px rgb(0 0 0 / 0.04);
+}
+
+.notification__icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.08);
+}
+
+.notification__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.notification__title {
+  min-width: 0;
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+.notification__time {
+  flex: none;
+  color: rgb(60 60 67 / 0.6);
+  font-size: 13px;
+}
+
+.notification__body {
+  margin-top: 2px;
+  color: rgb(0 0 0 / 0.88);
+  font-size: 15px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.notification__thumb {
+  width: 44px;
+  height: 44px;
+  margin-top: 1px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+/* The entrance: armed below the fold, then in one after another. */
+.lockscreen[data-state="armed"] .notification {
+  opacity: 0;
+  transform: translateY(-18px) scale(0.96);
+}
+
+.lockscreen[data-state="in"] .notification {
+  animation: notification-in 620ms cubic-bezier(0.2, 0.9, 0.25, 1.15) both;
+  animation-delay: calc(120ms + var(--i) * 110ms);
+}
+
+@keyframes notification-in {
+  from {
+    opacity: 0;
+    transform: translateY(-18px) scale(0.96);
+  }
+}
+
+.lockscreen__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1080px;
+  margin: clamp(18px, 3vw, 36px) auto 0;
+  padding: 0 clamp(4px, 2vw, 24px);
+}
+
+.lockscreen__button {
+  display: grid;
+  place-items: center;
+  width: 50px;
+  height: 50px;
+  border-radius: 9999px;
+  background: rgb(255 255 255 / 0.16);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+
+.lockscreen__button svg {
+  width: 22px;
+  height: 22px;
+}
+
+.lockscreen__home {
+  width: 136px;
+  height: 5px;
+  border-radius: 9999px;
+  background: rgb(255 255 255 / 0.85);
 }

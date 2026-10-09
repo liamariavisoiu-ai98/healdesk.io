@@ -103,9 +103,8 @@ export function HomeExperience() {
       </section>
 
       {/* The eight outcomes, straight after the demos: meet her first, then
-          see what a month of her changes. Its cards scroll back up to the
-          demo, the same hand-off the niche deck makes below. */}
-      <Outcomes onOpen={goToDemo} />
+          see what a month of her changes, as the notifications it brings. */}
+      <Outcomes />
 
       <NicheCarousel specialties={specialties} onSelect={goToDemo} />
     </>

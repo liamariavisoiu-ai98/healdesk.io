@@ -161,7 +161,7 @@ export function CheckoutFlow({
    * else, or nothing, preselects nothing: the buyer chooses.
    */
   initialPlan?: string;
-  /** From the toggle on /pricing, so the buyer lands on the terms they chose. */
+  /** A billing interval chosen before the flow opened (the retired /pricing had a toggle). */
   initialInterval?: BillingInterval;
   /** Prefill from the setup link or the demo. */
   initialState?: CheckoutSeed;

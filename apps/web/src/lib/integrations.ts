@@ -21,6 +21,13 @@
  * rendered from SVG at the canvas size.
  */
 
+/**
+ * What a tool does for the clinic, and so which group its logo sits in
+ * (owner, 9 October 2026): the places a patient writes in, the calendars a
+ * booking lands in or blocks, and the deposit.
+ */
+export type LogoGroup = "messages" | "bookings" | "payments";
+
 export type HeroLogo = {
   /** What the logo stands for, as the label names it. */
   name: string;
@@ -31,6 +38,7 @@ export type HeroLogo = {
    * footer's attribution by leaving it out.
    */
   mark: string | null;
+  group: LogoGroup;
   /**
    * The logo's centre on the hero photo, in percent of its width and height.
    * HeroPortrait.tsx says how these were found; move them with the photo.
@@ -39,60 +47,76 @@ export type HeroLogo = {
 };
 
 /**
- * Top to bottom down AYA's left side, alternately close to her and further
- * out: about 120 and 265 photo pixels from her outline, measured row by row.
+ * All around AYA, on the wall either side of her (owner, 9 October 2026):
+ * the places a patient writes in on her left, in an arc down beside her hair,
+ * and the calendars on her right with Stripe below them. Within each side
+ * they alternate in and out so neighbours clear each other.
  */
 export const HERO_LOGOS: readonly HeroLogo[] = [
   {
     name: "website chat",
     src: "/integrations/website-chat.webp",
     mark: null,
-    at: { x: 59.93, y: 10.2 },
+    group: "messages",
+    at: { x: 15, y: 10 },
   },
   {
     name: "Instagram",
     src: "/integrations/instagram.webp",
     mark: "Instagram",
-    at: { x: 49.88, y: 20.19 },
+    group: "messages",
+    at: { x: 7.8, y: 24.4 },
   },
   // The owner's file is Facebook's "f"; the channel it stands for is Messenger.
   {
     name: "Messenger",
     src: "/integrations/facebook.webp",
     mark: "Facebook",
-    at: { x: 57.95, y: 30.18 },
+    group: "messages",
+    at: { x: 10.8, y: 41 },
   },
   {
     name: "WhatsApp",
     src: "/integrations/whatsapp.webp",
     mark: "WhatsApp",
-    at: { x: 49.46, y: 40.06 },
+    group: "messages",
+    at: { x: 5.7, y: 56.3 },
   },
   {
     name: "Google Calendar",
     src: "/integrations/google-calendar.webp",
     mark: "Google Calendar",
-    at: { x: 61.24, y: 50.05 },
+    group: "bookings",
+    at: { x: 84.9, y: 11.7 },
   },
   {
     name: "Cal.com",
     src: "/integrations/cal-com.webp",
     mark: "Cal.com",
-    at: { x: 47.49, y: 60.04 },
+    group: "bookings",
+    at: { x: 93.3, y: 26 },
   },
   {
     name: "Calendly",
     src: "/integrations/calendly.webp",
     mark: "Calendly",
-    at: { x: 53.83, y: 69.93 },
+    group: "bookings",
+    at: { x: 86.4, y: 42 },
   },
   {
     name: "HighLevel",
     src: "/integrations/highlevel.webp",
     mark: "HighLevel",
-    at: { x: 43.0, y: 79.91 },
+    group: "bookings",
+    at: { x: 94.2, y: 57.4 },
   },
-  { name: "Stripe", src: "/integrations/stripe.webp", mark: "Stripe", at: { x: 52.33, y: 89.9 } },
+  {
+    name: "Stripe",
+    src: "/integrations/stripe.webp",
+    mark: "Stripe",
+    group: "payments",
+    at: { x: 86.7, y: 73.3 },
+  },
 ];
 
 export const LABEL =

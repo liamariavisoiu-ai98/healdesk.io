@@ -58,13 +58,11 @@ export function ContactCard() {
     <div className="border-line rounded-[22px] border bg-white p-7 sm:p-8">
       {/* The mailbox sits above the form on purpose. It is the route that
           always works, including when the transport is misconfigured and the
-          form refuses, see the note in api/contact/route.ts. */}
-      <p className="eyebrow-tag">
-        Talk to a person
-      </p>
+          form refuses, see the note in api/contact/route.ts. It had a "Talk to
+          a person" label over it until 9 October 2026 (owner). */}
       <a
         href={`mailto:${site.email}`}
-        className="font-display text-brand-gradient mt-2 block text-[clamp(26.4px,3.12vw,33.6px)] leading-tight font-semibold tracking-[-0.02em]"
+        className="font-display text-brand-gradient block text-[clamp(26.4px,3.12vw,33.6px)] leading-tight font-semibold tracking-[-0.02em]"
       >
         {site.email}
       </a>

@@ -40,6 +40,13 @@ export type Specialty = {
    * Nothing here may assert a capability the product does not have.
    */
   expertise: string;
+  /**
+   * One short line for the specialty's tile in the mosaic (owner, 9 October
+   * 2026). `expertise` is a paragraph, too long for a tile a quarter of the
+   * section wide; this is its point in a sentence. Same rule: nothing here
+   * may assert a capability the product does not have.
+   */
+  hook: string;
   /** Domain pricing + norms handed to the model as system context. */
   context: string;
   /** Drives the "what a missed call costs you" calculator. */
@@ -57,6 +64,7 @@ export const specialties: readonly Specialty[] = [
   {
     id: "med-spa",
     name: "Med Spas, Dermatology & Aesthetics",
+    hook: "Answers first, while they still have three tabs open.",
     expertise:
       "Your client has three tabs open and is working down the list. " +
       "Whoever answers takes the $350 to $550 booking. Medical and " +
@@ -73,6 +81,7 @@ export const specialties: readonly Specialty[] = [
   {
     id: "plastic-surgery",
     name: "Plastic & Cosmetic Surgery",
+    hook: "The after-hours consult call, answered instead of lost to voicemail.",
     expertise:
       "The $20,000 call comes in just after the phones roll to " +
       "voicemail, while you're still closing. Almost nobody leaves " +
@@ -89,6 +98,7 @@ export const specialties: readonly Specialty[] = [
   {
     id: "fertility",
     name: "Fertility & IVF",
+    hook: "Unhurried with patients who have researched for weeks.",
     expertise:
       "One cycle is $15k to $25k, and most patients need two or " +
       "three. They research for weeks. By the time they dial they " +
@@ -105,6 +115,7 @@ export const specialties: readonly Specialty[] = [
   {
     id: "dental",
     name: "Dental & Orthodontics",
+    hook: "Tells the chipped tooth at 7pm from the implant quote at noon.",
     expertise:
       "A single implant is $3k to $5k and a full arch $20k to $50k. " +
       "The chipped tooth at 7pm and the implant quote at noon are " +
@@ -121,6 +132,7 @@ export const specialties: readonly Specialty[] = [
   {
     id: "glp1",
     name: "Weight Loss & GLP-1",
+    hook: "Books the eligibility visit while the lead is still warm.",
     expertise:
       "Around 40% of GLP-1 patients are new to the practice and " +
       "arrive cold from ads, so speed-to-lead is the entire game. The " +
@@ -138,6 +150,7 @@ export const specialties: readonly Specialty[] = [
   {
     id: "hair-restoration",
     name: "Hair Restoration",
+    hook: "Patient with a caller who has hung up twice before.",
     expertise:
       "This caller has been reading about it for eight months and has " +
       "picked up the phone twice before without dialling. The work is " +
@@ -157,6 +170,7 @@ export const specialties: readonly Specialty[] = [
   {
     id: "veterinary",
     name: "Veterinary & Pet Spas",
+    hook: "Says the pet's name before the owner's.",
     /**
      * The one card on the site that leads with feeling rather than a figure.
      *
@@ -193,6 +207,7 @@ export const specialties: readonly Specialty[] = [
   {
     id: "massage-chiro",
     name: "Massage & Chiropractic",
+    hook: "Answers “can you see me today?” before they call the next clinic.",
     expertise:
       "Someone whose back went out at six this morning asks one " +
       "question, which is whether you can see them today. If nobody picks " +

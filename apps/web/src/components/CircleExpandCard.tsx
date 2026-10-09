@@ -65,6 +65,7 @@ export function CircleExpandCard({
   tabIndex,
   active = true,
   interactive = true,
+  compact = false,
 }: {
   title: string;
   body: string;
@@ -92,6 +93,11 @@ export function CircleExpandCard({
    * below does the same for the hand-written ones in globals.css.
    */
   interactive?: boolean;
+  /**
+   * Smaller type and padding, for a tile in the specialties mosaic, a quarter
+   * of the section wide, rather than a deck's 340px card.
+   */
+  compact?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -134,7 +140,8 @@ export function CircleExpandCard({
       style={{ ["--flood" as string]: FLOOD_SCALE }}
       className={[
         "niche-card absolute inset-0 flex cursor-pointer flex-col justify-end",
-        "isolate overflow-hidden rounded-[24px] p-6 text-left",
+        "isolate overflow-hidden rounded-[24px] text-left",
+        compact ? "p-5" : "p-6",
         interactive ? "niche-card--ready group" : "",
       ].join(" ")}
     >
@@ -175,7 +182,12 @@ export function CircleExpandCard({
 
       <span aria-hidden className="niche-card__mask pointer-events-none absolute inset-0" />
 
-      <span className="font-display relative block text-[31.2px] leading-[1.08] font-medium tracking-[-0.025em] text-white">
+      <span
+        className={[
+          "font-display relative block leading-[1.08] font-medium tracking-[-0.025em] text-white",
+          compact ? "text-[24px]" : "text-[31.2px]",
+        ].join(" ")}
+      >
         {title}
       </span>
 
@@ -193,7 +205,12 @@ export function CircleExpandCard({
         className="relative grid grid-rows-[0fr] transition-[grid-template-rows] duration-[450ms] ease-panel group-hover:grid-rows-[1fr] group-focus-visible:grid-rows-[1fr]"
       >
         <span className="overflow-hidden">
-          <span className="mt-2 block text-[16.2px] leading-[1.45] font-medium text-white/85 opacity-0 transition-opacity duration-300 group-hover:opacity-100 group-focus-visible:opacity-100">
+          <span
+            className={[
+              "mt-2 block leading-[1.45] font-medium text-white/85 opacity-0 transition-opacity duration-300 group-hover:opacity-100 group-focus-visible:opacity-100",
+              compact ? "text-[15.6px]" : "text-[16.2px]",
+            ].join(" ")}
+          >
             {body}
           </span>
         </span>

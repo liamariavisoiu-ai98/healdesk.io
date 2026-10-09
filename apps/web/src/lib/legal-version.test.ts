@@ -9,9 +9,7 @@ import { describe, expect, test } from "vitest";
 
 import DataDeletionPage from "@/app/data-deletion/page";
 import PrivacyPage from "@/app/privacy/page";
-import SubprocessorsPage from "@/app/subprocessors/page";
 import TermsPage from "@/app/terms/page";
-import TrustPage from "@/app/trust/page";
 import { LEGAL_LAST_UPDATED, LEGAL_VERSION } from "@/lib/legal";
 
 /**
@@ -22,6 +20,11 @@ import { LEGAL_LAST_UPDATED, LEGAL_VERSION } from "@/lib/legal";
  * moves whenever the text does, and on 1 October 2026 it did not: a4c8e7e
  * changed terms § 9 and /subprocessors and left the version alone, so two
  * different texts went out under one number.
+ *
+ * /subprocessors and /trust were pinned here too until 9 October 2026, when
+ * the owner retired them: the vendor list is no longer published, and /trust's
+ * content is the terms' closing annex, which this pin covers with the rest of
+ * the terms.
  *
  * So the text of each page is hashed and pinned here beside the version it
  * was published under. Change a page and its hash moves, and this fails until
@@ -38,8 +41,8 @@ import { LEGAL_LAST_UPDATED, LEGAL_VERSION } from "@/lib/legal";
  */
 
 const PINNED = {
-  version: "2026-10-07.3",
-  lastUpdated: "7 October 2026",
+  version: "2026-10-09.1",
+  lastUpdated: "9 October 2026",
   /**
    * The version these pages replace: the last one that went out, which was
    * main's live text when this one was numbered. A note may cite it, an earlier
@@ -48,21 +51,17 @@ const PINNED = {
    * when you renumber a version that never did, because that number was never
    * published.
    */
-  replaces: "2026-10-07.2",
+  replaces: "2026-10-07.3",
   sha256: {
-    "/terms": "1cbfad0d644ad28ce848f71001646daa2489d5d980a688606f6f272cb436a0db",
-    "/privacy": "8387af806847184ae33b3f68b0f2fd585ad3e7bcc5c4b56cc612804a88306905",
-    "/subprocessors": "fd5df59b5d16036300545efd9c648c8eb97e5ab69b8df97636c1535c2bf0c8f6",
-    "/trust": "3afd18cd5d363f861bca400dea22b94b952b069a2459f6cbeb82cfb9f5b52691",
-    "/data-deletion": "c176eca3132e36d15ee7924b829b7d8c70c30e655bb1a068606d10289b1531be",
+    "/terms": "20c3ed7e16d4f08d3d369db738c307850122a57ab0508ce11497a3e0567b3000",
+    "/privacy": "23b5a5cd2b95488a36f98bf404bcc13ed5e31e63ef7c9fa8e0003b5853cdc260",
+    "/data-deletion": "9b1c6df0b56d48387f37e67f3fc86c9a1b77faebdd6d598b76534ef202f65628",
   },
 } as const;
 
 const PAGES = [
   ["/terms", TermsPage],
   ["/privacy", PrivacyPage],
-  ["/subprocessors", SubprocessorsPage],
-  ["/trust", TrustPage],
   ["/data-deletion", DataDeletionPage],
 ] as const;
 

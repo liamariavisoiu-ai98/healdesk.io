@@ -942,26 +942,41 @@
 /* =============================================================================
    The hero portrait
    =============================================================================
-   AYA in profile, with the logos of the tools she works through down her left
-   side. See HeroPortrait.tsx for what is there, where and why.
+   AYA, smiling, in the healdesk headset, with the logos of the tools she works
+   through all around her. See HeroPortrait.tsx for what is there, where and
+   why.
 
-   ## Laid out
+   ## Laid out, from 1280px
 
-   From 1024px the photo is the hero's background: its right edge meets the
-   screen's, so the crop through her hair and blazer is the screen's edge
-   rather than a line in the page, and the copy sits in the site's column on
-   the photo's white ground, which is the page's own #fdfdfd. The hero stops
-   growing at 1600px, the width it has on a 1440px screen with the zoom, so on
-   a wider one she stays beside the copy instead of drifting off to the
-   screen's edge; there the photo's right edge fades out instead.
+   The hero is the screen's height less the navbar's (owner, 9 October 2026:
+   it used to be the photo's height, about 600px, and the next section showed
+   under it). `--hero-h` is that height. Viewport units are divided by the
+   site's 0.9 zoom, which scales them like every other length: 100svh alone
+   would leave the hero a tenth short. `--nav-h` is the navbar's height in the
+   zoomed page, measured; change it with the navbar.
 
-   Below 1024px the copy comes first and the photo follows, cropped to its
-   right 70%: her, and the logos at a size a phone can see, without the empty
-   ground to her left. It stops growing at 860px wide, and at 133svh, so on a
-   tablet, a window or a phone on its side she is not taller than the screen.
+   The photo is the hero's background, composed as the owner supplied it:
+   centred, never shifted, covering the hero (as wide as the hero or as tall,
+   whichever is more), and cut at the bottom on a screen wider than it is, so
+   her face is never what is lost. The copy sits at the bottom left, on the
+   veil.
 
-   The photo stops below her bust, so it fades out over its last fifth rather
-   than cutting her off along a line.
+   Between 1024px and 1280px the logos at the photo's edges would be cut off
+   by the cover, so the hero keeps the stacked layout below.
+
+   ## Laid out, below 1280px
+
+   The copy comes first and the photo follows, whole, at most 860px wide and
+   centred, so every logo round her is on screen. Its sides and bottom fade
+   into the page rather than ending on a line.
+
+   ## The veil
+
+   A white gradient that rises from the bottom of the hero as the page opens
+   (owner, 9 October 2026), solid behind the copy and very soft by the time it
+   reaches her face, which it may cover up to about half way. It is the page's
+   own white, over the photo and under the logos, so they stay at full
+   strength.
 
    ## Shares of the photo, in percentages
 
@@ -972,69 +987,116 @@
 
    ## What moves
 
-   Each logo hops now and then (the bounce), on the compositor. On hover it
-   slides away from her along its own bearing by a quarter of its size. The
-   hover is caught by the node, which does not move and reaches a quarter
-   past the logo on every side, so a logo can slide out from under a pointer
-   resting on its inner edge without losing the hover and sliding straight
-   back. Devices without hover never get it: on a phone a tap would leave the
-   logo stuck out. Scrolled out of reach the logos rest: `data-paused` holds
-   the bounce. Reduced motion: the global rule runs every animation once in
+   As the page opens the veil rises from the bottom, and the copy rises with
+   it, line by line (`hero-rise`). Each logo hops now and then (the bounce),
+   on the compositor. On hover it slides away from her along its own bearing
+   by a quarter of its size. The hover is caught by the node, which does not
+   move and reaches a quarter past the logo on every side, so a logo can slide
+   out from under a pointer resting on its inner edge without losing the
+   hover and sliding straight back. Devices without hover never get it: on a
+   phone a tap would leave the logo stuck out. Scrolled out of reach the logos
+   rest: `data-paused` holds the bounce. Reduced motion: the veil and the copy
+   are simply there, and the global rule runs every other animation once in
    0.01ms, so each logo comes to rest in its place.
    ============================================================================= */
 
 .hero {
+  position: relative;
+  isolation: isolate;
   display: grid;
   width: 100%;
-  max-width: 1600px;
-  margin-inline: auto;
-}
-
-.hero__frame {
   overflow: hidden;
 }
 
-@media (max-width: 1023px) {
-  /* The right 70% of the photo, at most 860px or 133svh wide, and always
-     against the right edge: the margin is whatever the width leaves over,
-     negative while it crops. */
+.hero__veil {
+  display: none;
+}
+
+@media (max-width: 1279px) {
+  /* The whole photo, at most 860px wide, centred. */
   .hero__frame .portrait {
-    width: min(143%, 860px, 133svh);
-    margin-left: calc(100% - min(143%, 860px, 133svh));
+    width: min(100%, 860px);
+    margin-inline: auto;
+  }
+
+  /* Faded along the bottom and at the sides: on a tablet the photo is
+     narrower than the page, and its grey wall would end in straight edges. */
+  .portrait__photo {
+    -webkit-mask-image:
+      linear-gradient(to bottom, #000 80%, transparent),
+      linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+    -webkit-mask-composite: source-in;
+    mask-image:
+      linear-gradient(to bottom, #000 80%, transparent),
+      linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+    mask-composite: intersect;
   }
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 1280px) {
+  .hero {
+    --nav-h: 77px;
+    --hero-h: calc(100svh / 0.9 - var(--nav-h));
+    min-height: var(--hero-h);
+    align-items: end;
+  }
+
   .hero > * {
     grid-area: 1 / 1;
   }
 
   .hero__frame {
-    justify-self: end;
-    width: min(74%, 1180px);
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
+
+  /* Centred by its left edge rather than by a translate: a transform would
+     make the photo its own stacking context, and the logos inside it could
+     not then rise above the veil. */
+  .hero__frame .portrait {
+    position: absolute;
+    top: 0;
+    left: min(0px, calc((100% - var(--hero-h) * 1672 / 941) / 2));
+    width: max(100%, calc(var(--hero-h) * 1672 / 941));
+  }
+
+  .hero__veil {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background: linear-gradient(
+      to top,
+      var(--color-paper) 0%,
+      var(--color-paper) 22%,
+      rgb(253 253 253 / 0.92) 29%,
+      rgb(253 253 253 / 0.76) 35%,
+      rgb(253 253 253 / 0.5) 42%,
+      rgb(253 253 253 / 0.24) 49%,
+      rgb(253 253 253 / 0.07) 55%,
+      transparent 60%
+    );
+    animation: hero-veil 1500ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
   .hero__copy {
     position: relative;
-    align-self: center;
+    z-index: 10;
   }
-}
 
-/* Wider than the hero, so the photo ends inside the page: through her hair
-   and blazer on the right, faded out like its bottom edge. */
-@media (min-width: 1441px) {
-  .hero__frame {
-    -webkit-mask-image: linear-gradient(to left, transparent, #000 12%);
-    mask-image: linear-gradient(to left, transparent, #000 12%);
+  .portrait__logos {
+    z-index: 2;
   }
 }
 
 .portrait {
   position: relative;
   aspect-ratio: 1672 / 941;
-  /* A logo's size, a share of the photo's width. At its 24px floor, on a 320px
-     phone, it is 5.2% of the photo, and the closest two still clear. */
-  --portrait-logo: clamp(24px, 5%, 60px);
+  /* A logo's size, a share of the photo's width. At its 20px floor, on a 320px
+     phone, it is 6.25% of the photo, and the closest two still clear. */
+  --portrait-logo: clamp(20px, 5%, 60px);
   /* How far a hovered logo slides out, as a share of its own size. */
   --portrait-reach: 0.25;
 }
@@ -1043,9 +1105,45 @@
   display: block;
   width: 100%;
   height: 100%;
-  -webkit-mask-image: linear-gradient(to bottom, #000 80%, transparent);
-  mask-image: linear-gradient(to bottom, #000 80%, transparent);
   user-select: none;
+}
+
+/* The veil, rising from below the hero into place. */
+@keyframes hero-veil {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* The copy, rising once as the page opens, with the veil. `both` holds each
+   line hidden through its own delay, so the three arrive in order rather than
+   all showing and then two of them jumping. */
+.hero-rise {
+  animation: hero-rise 1200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--rise-delay, 250ms);
+}
+
+@keyframes hero-rise {
+  from {
+    opacity: 0;
+    transform: translateY(32px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Not just shortened by the global rule: their delays would still hold the
+     lines hidden for up to half a second. */
+  .hero-rise,
+  .hero__veil {
+    animation: none;
+  }
 }
 
 .portrait__logos {
@@ -1103,13 +1201,20 @@
   animation-play-state: paused;
 }
 
+/* On a white tile since 9 October 2026: the logos sit over her hair now, not
+   over the white ground, and the bare marks (Calendly's, HighLevel's, the
+   website glyph) were lost against it. */
 .portrait__logo {
   display: block;
   width: 100%;
   height: 100%;
-  /* It follows the logo's own alpha, which is why the backgrounds were cut
-     out: a logo on a white square casts a square shadow. */
-  filter: drop-shadow(0 6px 9px rgb(23 42 58 / 0.16));
+  padding: 13%;
+  border-radius: 24%;
+  background: #fff;
+  box-shadow:
+    0 1px 2px rgb(23 42 58 / 0.12),
+    0 8px 18px -6px rgb(23 42 58 / 0.32);
+  object-fit: contain;
   user-select: none;
 }
 
@@ -1210,30 +1315,6 @@
 }
 .share-reveal > *:nth-child(6) {
   animation-delay: 390ms;
-}
-
-/* =============================================================================
-   Example call, the line changing
-   =============================================================================
-   One line at a time, each replacing the last. The element is keyed on the
-   line index so React remounts it, which is what replays this: a CSS animation
-   does not restart when its element's text changes, only when the element is
-   new.
-
-   It rises rather than fading in place. A line that appears where the previous
-   one was reads as the same line rewriting itself; one that arrives from
-   slightly below reads as the next thing said.
-   ============================================================================= */
-
-@keyframes call-line-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-}
-
-.call-line {
-  animation: call-line-in 420ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 /* =============================================================================
@@ -1452,18 +1533,20 @@
 /* =============================================================================
    Identity utilities (jasper.ai reference)
    =============================================================================
-   The eyebrow is a small monospaced label on a tinted field rather than the
-   tracked small-caps the sections used to carry: it reads as a tag on the
-   content, not as a heading competing with the one beneath it. The outline
-   button is the secondary action beside a flat solid one; both are
-   rectangles with a small radius, not pills.
+   The eyebrow is a small label on a tinted field rather than the tracked
+   small-caps the sections used to carry: it reads as a tag on the content,
+   not as a heading competing with the one beneath it. Its face is Helvetica
+   Now Display at 600, scalabid.com's section-label face, since 9 October 2026
+   (owner's request; app/layout.tsx says where the file comes from); it was a
+   system monospace before. The outline button is the secondary action beside
+   a flat solid one; both are rectangles with a small radius, not pills.
    ============================================================================= */
 
 @utility eyebrow-tag {
   display: inline-block;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-helvetica-now), "Helvetica Neue", Helvetica, Arial, sans-serif;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: 0.01em;
   line-height: 1;
   padding: 7px 9px;
@@ -1488,6 +1571,32 @@
   &:hover {
     background: var(--color-ink);
     color: #fff;
+  }
+}
+
+/*
+ * The outline button's colours the other way round: filled ink at rest, the
+ * outline on hover. The hero's "Try AYA for free" wears it (owner, 9 October
+ * 2026), so it reads as the second solid action beside the red one rather
+ * than as a quiet link, and still answers the pointer.
+ */
+@utility btn-ink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 6px;
+  border: 1.5px solid var(--color-ink);
+  background: var(--color-ink);
+  color: #fff;
+  font-weight: 600;
+  transition:
+    background-color 200ms var(--ease-panel),
+    color 200ms var(--ease-panel);
+
+  &:hover {
+    background: #fff;
+    color: var(--color-ink);
   }
 }
 

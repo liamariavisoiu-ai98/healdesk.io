@@ -8,9 +8,9 @@ import {
  * The facts the legal pages are built from.
  *
  * Two kinds. The first kind is code: which cookie the demo sets, which
- * vendors receive what, what the packages cost — those are imported from the
- * modules that own them (src/lib/gate.ts, src/lib/subprocessors.ts, the
- * catalog) so the pages cannot quote a stale number. The second kind is
+ * kinds of vendor receive what, what the packages cost — those are imported
+ * from the modules that own them (src/lib/gate.ts, src/lib/subprocessors.ts,
+ * the catalog) so the pages cannot quote a stale number. The second kind is
  * something only the founder knows: the legal entity, its address, the
  * governing law, the liability floor, the refund window, the guarantee
  * thresholds. Those are the fields below. While any of the REQUIRED entity
@@ -27,16 +27,16 @@ import {
  * the bump fails the build.
  */
 
-export const LEGAL_VERSION = "2026-10-07.3";
-export const LEGAL_LAST_UPDATED = "7 October 2026";
+export const LEGAL_VERSION = "2026-10-09.1";
+export const LEGAL_LAST_UPDATED = "9 October 2026";
 
 export const ENTITY = {
   /** Full legal name, e.g. "Healdesk, Inc." Empty until the founder supplies it. */
   legalName: "Viixi FZC",
   /**
    * The entity's form, as it follows the name in the "Operating entity"
-   * clause of each legal page (terms § 20, privacy § 10) and in the site
-   * footer's entity line (`entityLine()` below). Not "trading as healdesk":
+   * clause of each legal page (terms § 20, privacy § 10) and in the entity
+   * line (`entityLine()` below). Not "trading as healdesk":
    * the trade name is the contracting party and the entity is disclosed as
    * its operator — decision of 23 September 2026, docs/handover.md
    * "Decisions log", item 14.
@@ -83,11 +83,17 @@ export const ENTITY = {
    * and Delaware is the neutral US default clinic counsel expects.
    */
   governingLawState: "Delaware",
-  /** Email for legal notices. Exists on the catch-all; see the launch guide. */
-  noticesEmail: "legal@healdesk.io",
-  /** Email for privacy requests (access, deletion, do-not-sell). */
-  privacyEmail: "privacy@healdesk.io",
-  supportEmail: "hello@healdesk.io",
+  /**
+   * The one email address, for everything: legal notices (terms § 18),
+   * privacy and deletion requests, security questions, the guarantee claim,
+   * and support. There is no legal@ or privacy@ mailbox, and no page may name
+   * one (owner, 9 October 2026). Every legal page reads this field rather
+   * than typing the address, `site.email` in src/lib/site.ts and the
+   * catalog's `SENDER_IDENTITY.replyTo` must equal it
+   * (src/lib/sender-identity.test.ts), and src/lib/site-copy.test.ts fails on
+   * any other @healdesk.io address in the site's copy.
+   */
+  email: "hello@healdesk.io",
 } as const;
 
 export const POLICY = {
@@ -162,18 +168,20 @@ export const POLICY = {
    * is kept for that and then purged (api/cron/purge-leads).
    */
   callConsentRetentionYears: 4,
-  /** Days of notice before a new subprocessor that handles patient data goes live. */
-  subprocessorNoticeDays: 15,
 } as const;
 
 /**
  * The first-month guarantee, word for word.
  *
- * The spec ("The guarantee") requires the wording to be identical on the
- * pricing page and in the service agreement, so it lives here once: terms § 5
- * renders it, and /pricing must render this same object rather than restate
- * it. Each paragraph is a bold lead-in and a body so both pages mark it up
- * the same way. The numbers are read from POLICY and the address from ENTITY,
+ * The spec ("The guarantee") requires the wording to be identical wherever
+ * the guarantee is advertised and in the service agreement, so it lives here
+ * once: terms § 5 renders it, and so does checkout's Review and pay step
+ * (components/checkout/ReviewStep.tsx), in full beside the prices, which is
+ * where a buyer meets it now that there is no pricing page (owner, 9 October
+ * 2026). 16 CFR 239.3(b) wants the conditions where the claim is made, and
+ * components/guarantee-copy.test.ts holds the two surfaces to the same words.
+ * Each paragraph is a bold lead-in and a body so both mark it up the same
+ * way. The numbers are read from POLICY and the address from ENTITY,
  * so the text carries no placeholder and cannot drift from them. What the
  * terms add around it — that the refund sits outside the liability section
  * and that force majeure does not excuse a miss — is contract mechanics and
@@ -220,7 +228,7 @@ export const GUARANTEE_TEXT = {
     {
       lead: "How to claim.",
       body:
-        `Within ${POLICY.guaranteeClaimWindowDays} days after your first month ends, the account owner emails ${ENTITY.supportEmail} from the address on your account and asks us to check, giving the date, time and channel of any call or message you believe was missed, if you have one. We check our own records and any record you send us: a call record from your phone carrier, or a screenshot of an unanswered message in your Instagram, Messenger or WhatsApp inbox. Send dates and times, not names: black out every phone number on a carrier record or screenshot except its last four digits, and never send a transcript. A call your carrier's record shows forwarded to your healdesk number, or a message your inbox shows with no reply from us within the time above, counts as missed unless our records show it was answered, or show that it never left your carrier or Meta. We tell you our finding within ${POLICY.guaranteeFindingBusinessDays} business days of your claim. If one call or message was missed, we refund your first month's subscription fee to the payment method you paid with, within ${POLICY.guaranteeRefundWithinDays} days of that finding, and tell you what failed. If our own records show a miss, we tell the account owner by email within ${POLICY.guaranteeMissNoticeDays} days of recording it, whether or not you have claimed.`,
+        `Within ${POLICY.guaranteeClaimWindowDays} days after your first month ends, the account owner emails ${ENTITY.email} from the address on your account and asks us to check, giving the date, time and channel of any call or message you believe was missed, if you have one. We check our own records and any record you send us: a call record from your phone carrier, or a screenshot of an unanswered message in your Instagram, Messenger or WhatsApp inbox. Send dates and times, not names: black out every phone number on a carrier record or screenshot except its last four digits, and never send a transcript. A call your carrier's record shows forwarded to your healdesk number, or a message your inbox shows with no reply from us within the time above, counts as missed unless our records show it was answered, or show that it never left your carrier or Meta. We tell you our finding within ${POLICY.guaranteeFindingBusinessDays} business days of your claim. If one call or message was missed, we refund your first month's subscription fee to the payment method you paid with, within ${POLICY.guaranteeRefundWithinDays} days of that finding, and tell you what failed. If our own records show a miss, we tell the account owner by email within ${POLICY.guaranteeMissNoticeDays} days of recording it, whether or not you have claimed.`,
     },
     {
       lead: "Limits.",
@@ -241,25 +249,28 @@ export function legalFactsComplete(): boolean {
  * The entity as it should read in a contract, or the trading name while draft.
  * Called from the "Operating entity" clauses (terms § 20, privacy § 10).
  * Elsewhere the trade name is the party; the entity is named in those clauses
- * and in the footer's entity line, and nowhere else.
+ * and in `entityLine()` below, and nowhere else.
  */
 export function entityDisplayName(): string {
   return ENTITY.legalName || "healdesk";
 }
 
 /**
- * The entity line the site footer prints on every page, worded as the spec
- * requires it in the footer and on the Terms and Privacy pages: "healdesk is a
- * service of Viixi FZC, a company registered under the Sharjah Publishing City
- * Free Zone, United Arab Emirates".
+ * The entity line, worded as the spec requires it: "healdesk is a service of
+ * Viixi FZC, a company registered under the Sharjah Publishing City Free
+ * Zone, United Arab Emirates". The Terms and Privacy pages name the entity in
+ * their "Operating entity" clauses (terms § 20, privacy § 10); this line is
+ * printed by the personalised demo's notice and the email footers
+ * (lib/email/setup-emails.ts, and apps/app through the catalog's
+ * SENDER_IDENTITY). The site footer carried it until 9 October 2026, when the
+ * owner took it out: the spec asked for it there for Meta's Business
+ * Verification, which cleared on 4 October.
  *
  * The line ends at the formation and never carries `ENTITY.registeredAddress`.
  * The registered address is a legal fact, and it belongs where a reader has
  * the clauses around it to tell it apart from a place of business: terms § 20
- * and privacy § 10 print it, and the footer prints `ENTITY.postalAddress`, the
- * US mailbox the business rents, under its own label. Owner's decision, 3
- * October 2026. What Meta's Business Verification needs from the website is
- * the legal name, which this line carries.
+ * and privacy § 10 print it, beside `ENTITY.postalAddress`, the US mailbox the
+ * business rents, under its own label. Owner's decision, 3 October 2026.
  */
 export function entityLine(): string {
   return `healdesk is a service of ${entityDisplayName()}, ${ENTITY.formation}.`;

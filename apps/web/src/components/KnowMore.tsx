@@ -18,8 +18,8 @@ import { site } from "@/lib/site";
  *   system prompt enforces the same boundary, and nothing stands behind a
  *   bodily-injury claim: healdesk carries no insurance (docs/handover.md,
  *   decisions log, item 10), and no policy would have covered it anyway.
- * - "How do you handle patient data" must never assert that anyone has
- *   certified or audited us. There is no HIPAA certification, and displaying a
+ * - "How do you handle patient data" (the footer's commitments since 9
+ *   October 2026) must never assert that anyone has certified or audited us. There is no HIPAA certification, and displaying a
  *   compliance seal was charged as a standalone deception count in *In re
  *   SkyMed International* (2021). Say what we do; say that nobody has audited
  *   it. See the note in Footer.tsx. It also claims only what is decided: no
@@ -37,6 +37,9 @@ import { site } from "@/lib/site";
  * the promise the spec forbids, because voice waits on the clinic's call
  * forwarding and WhatsApp on its own Meta billing.
  */
+/** A question, its answer, and, for an answer that is a set of commitments, the list before it. */
+type Faq = { q: string; a: string; list?: readonly string[] };
+
 const FAQS = [
   {
     q: `What does ${site.agent} actually do?`,
@@ -104,19 +107,25 @@ const FAQS = [
       "receptionist would write on a callback slip.",
   },
   {
+    // The footer's "How we handle patient data" strip, moved here as its own
+    // answer on 9 October 2026 (owner). The bookings line says "the Calendar
+    // you connect", as the owner asked; v1 writes to Google Calendar only.
     q: "How do you handle patient data?",
+    list: [
+      "We sign a business associate agreement and handle patient data under it.",
+      "We never use patient data to train models.",
+      "We write bookings only to the Calendar you connect.",
+      "Encrypted at rest, and in transit wherever we control both ends.",
+      "Patient data is deleted on your instruction, and transcripts automatically " +
+        "after 90 days, or sooner if you choose. Our AI model provider keeps " +
+        "conversation inputs for 30 days, or up to two years where its safety " +
+        "systems flag them or the law requires it to keep them.",
+    ],
     a:
-      "We sign a business associate agreement and handle patient data under " +
-      "it. It is encrypted at rest, and in transit " +
-      "wherever we control both ends, and never used to train models. The " +
-      "only system we write to is the Google Calendar you connect. Our AI " +
-      "model provider keeps conversation inputs for 30 days, and up to two " +
-      "years for anything its safety systems flag or the law requires it to " +
-      "keep; everything else is deleted on your instruction. Meta signs no " +
-      "BAA, so she keeps Instagram, Messenger and WhatsApp conversations " +
-      "non-clinical. No third party has audited us, those are our own " +
-      "commitments, and we will walk you through the architecture behind any " +
-      "of them.",
+      "Meta signs no BAA, so she keeps Instagram, Messenger and WhatsApp " +
+      "conversations non-clinical. No third party has audited us: these are " +
+      "our own commitments, and we will walk you through the architecture " +
+      "behind any of them.",
   },
   {
     q: "How would we know it's working?",
@@ -136,7 +145,7 @@ const FAQS = [
       "call is the only call she ever places: for your clinic she answers, " +
       "and never dials out.",
   },
-] as const;
+] as const satisfies readonly Faq[];
 
 export function KnowMore() {
   return (
@@ -146,7 +155,7 @@ export function KnowMore() {
           Want to know more?
         </p>
         <h2 className="font-display mt-3 text-[clamp(36px,5.28vw,62.4px)] leading-[1.04] font-medium tracking-[-0.026em]">
-          Ask us anything you&apos;d ask a supplier.
+          Ask us anything.
         </h2>
       </div>
 
@@ -173,6 +182,18 @@ export function KnowMore() {
                   +
                 </span>
               </summary>
+              {"list" in faq ? (
+                <ul className="mt-3 max-w-[62ch] space-y-2">
+                  {faq.list.map((item) => (
+                    <li key={item} className="text-muted flex gap-2.5 text-[18px] leading-[1.55] font-medium">
+                      <span aria-hidden className="text-red-deep shrink-0">
+                        ✓
+                      </span>
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               <p className="text-muted mt-3 max-w-[62ch] text-[18px] leading-[1.55] font-medium">
                 {faq.a}
               </p>

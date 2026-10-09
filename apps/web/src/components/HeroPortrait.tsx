@@ -5,50 +5,40 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { HERO_LOGOS, LABEL, type HeroLogo } from "@/lib/integrations";
 
 /**
- * The hero's picture: AYA in profile, wearing the healdesk headset with the
- * soul glowing in her chest, and the logos of the tools she works through
- * floating down her left side. The logos, their label and their trademark
- * line are in lib/integrations.ts; the sizes and the motion are in
- * globals.css under "The hero portrait".
+ * The hero's picture: AYA, smiling, in the healdesk headset, and the logos of
+ * the tools she works through all around her. The logos, their label and
+ * their trademark line are in lib/integrations.ts; the sizes and the motion
+ * are in globals.css under "The hero portrait", and the white veil that
+ * rises over the photo is HeroStage's.
  *
- * ## The photo replaced the soul
+ * ## The photo
  *
- * On 7 October 2026 the owner swapped the animated soul, with the logos on a
- * ring round it, for this photo, the logos moved to her left side, "not all
- * at the same distance from her, but alternating distances". The hairlines
- * that tied each logo to the soul went with the ring: drawn to the soul in
- * her chest now, the upper ones would cross her face.
+ * The owner's of 9 October 2026, which replaced the profile photo of 7
+ * October (that one had replaced the animated soul with the logos on a ring
+ * round it). It is the same 1672×941, so the places below are still shares of
+ * the same box, and it is shown as composed: her face is a little right of
+ * centre, about 35% to 65% across, the headset 64% to 69%, and her hair runs
+ * from about 15% to 80%, with wall either side.
  *
  * ## Where the logos sit
  *
- * Her outline was measured on the photo row by row: the first pixel from the
- * left that is not the white ground. Each logo is set at an even step down
- * the photo, from her crown to below her shoulder, and a fixed distance left
- * of the furthest-left point of her outline within 60 pixels above or below,
- * so a stray curl never ends up under a logo: about 120 photo pixels for one
- * logo, about 265 for the next, and so on alternately (the wisps of hair
- * round her face make the exact figure depend on where the ground is taken
- * to end). The places are in lib/integrations.ts as percentages of the
- * photo, so the composition holds at every size, and a test keeps them on
- * the photo, clear of her and of each other, and alternating.
- *
- * ## In an order
- *
- * The four places a patient writes in come first, beside her headset
- * (website chat, Instagram, Messenger, WhatsApp), then the calendars, then
- * Stripe. No two blues sit together.
+ * All around her, on the wall either side, grouped by what each does for the
+ * clinic (owner, 9 October 2026): the four places a patient writes in on her
+ * left, in an arc down beside her hair; the four calendars on her right, and
+ * Stripe below them. Within each side they alternate in and out, so
+ * neighbours clear each other with room to slide on hover. Her outline was
+ * measured on the photo band by band, and a test keeps every logo on the
+ * photo, on the wall clear of her, clear of its neighbours, and in its group.
+ * Each sits on a white tile.
  *
  * Cal.com, Calendly and HighLevel are there as calendars that read Google's,
  * never as ones she writes into: v1 writes bookings to the clinic's Google
  * Calendar and nothing else, and a clinic on one of them links the two in
  * that system's own settings, which the spec calls "a setting in their
  * system, not a Healdesk integration" (docs/v1-product-spec.md, "Where
- * bookings are written"). The spec's table ("What the hub model does and
- * does not guarantee") has all three reading Google's calendar for
- * conflicts, HighLevel through a "conflict calendar" that blocks any slot
- * holding an event marked busy, as hers are. The label says they work
- * through that calendar. Stripe is the gateway a clinic connects to take
- * deposits in chat, and deposits stay off until it does.
+ * bookings are written"). The label says they work through that calendar.
+ * Stripe is the gateway a clinic connects to take deposits in chat, and
+ * deposits stay off until it does.
  *
  * ## Motion
  *
@@ -151,12 +141,12 @@ function drift(i: number) {
 }
 
 /**
- * The photo, in pixels, and the point each logo slides away from: on her
- * throat, under her chin, so the upper logos slide up and out and the lower
+ * The photo, in pixels, and the point each logo slides away from: between
+ * her eyes and her mouth, so the upper logos slide up and out and the lower
  * ones down and out.
  */
 const PHOTO = { width: 1672, height: 941 };
-const HER = { x: 1276, y: 470 };
+const HER = { x: 840, y: 470 };
 
 /** The direction from her to a logo, the way it slides on hover. */
 function bearing(at: HeroLogo["at"]) {

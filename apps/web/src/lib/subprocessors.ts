@@ -1,14 +1,26 @@
 /**
- * The subprocessor register.
+ * The subprocessor register: internal, not published.
  *
- * The BAA every clinic signs promises "a current list of these subcontractors
- * at healdesk.io/subprocessors" and notice before a new one handles patient
- * information. This module is that list; app/subprocessors/page.tsx renders
- * it. It is also the honest version of the vendor table in
- * docs/hipaa-compliance.md, corrected against what has actually been signed
- * and against docs/v1-product-spec.md ("Vendor position, vendor by vendor").
+ * Every company that processes data for healdesk, what it receives, and the
+ * state of its agreement with us. It is the honest version of the vendor
+ * table in docs/hipaa-compliance.md, corrected against what has actually been
+ * signed and against docs/v1-product-spec.md ("Vendor position, vendor by
+ * vendor").
  *
- * Three kinds of row, and the page says which is which:
+ * Until 9 October 2026 app/subprocessors/page.tsx published it at
+ * healdesk.io/subprocessors, and /trust counted its rows. The owner decided
+ * that day that no vendor is named publicly: the list of the subcontractors
+ * that handle patient information is given to signed clinics on request,
+ * under the business associate agreement, and the public pages describe
+ * vendors by category only. So nothing renders a row's `name`, `purpose` or
+ * `data` any more. What reaches a page is `category`, through
+ * `WEBSITE_PROCESSING` below (privacy § 5), and whether any agreement in the
+ * patient-information path is still unsigned (the terms' "How we protect
+ * data" annex). The names stay here because the register is still the record
+ * the operator answers a clinic's request from, and the Google Calendar
+ * disclosure is tied to it (src/lib/google-disclosure.test.ts).
+ *
+ * Three kinds of row:
  *
  *   1. `handlesPhi: true`: receives patient information and works under a
  *      Business Associate Agreement with us. `baa` says whether it is signed.
@@ -23,16 +35,14 @@
  *
  * Two things in the patient's path have no row, because they are the
  * clinic's own vendors, not ours: its Google Calendar, and the payment
- * processor account a deposit is taken through. The page says so above the
- * register.
+ * processor account a deposit is taken through.
  *
  * `baa` is a fact about paper, not a hope. "pending" means the agreement has
  * not yet been requested; "requested" means it has, with the date; "signed"
  * means a countersigned document exists and its date is written here. The
  * state moves forward only when the paper does.
  *
- * `region` is empty where it has not been confirmed. The page prints that
- * plainly rather than a guess.
+ * `region` is empty where it has not been confirmed, never a guess.
  *
  * Changes of 30 September 2026, to match the v1 spec:
  *   - Retell is the product's voice vendor. Its BAA is self-serve and not yet
@@ -52,8 +62,7 @@
  *   - Cal.com is gone: v1 writes bookings only to the clinic's own Google
  *     Calendar, and nothing into Cal.com.
  *   - Google Calendar is not a row. The calendar is the clinic's own, under
- *     the clinic's own agreement with Google, not a vendor of ours; the page
- *     says so above the register.
+ *     the clinic's own agreement with Google, not a vendor of ours.
  *   - The database provider is not chosen yet (Neon on its Scale plan, or AWS
  *     RDS under the AWS BAA already held). Add a row for Neon, with its
  *     agreement, if that is the choice.
@@ -89,8 +98,30 @@ export type BaaStatus =
   /** In the patient's path with no agreement possible; kept non-clinical. */
   | { state: "none-by-design"; because: string };
 
+/**
+ * What a vendor does, which is all a public page may say about it. The label
+ * is how privacy § 5 and the terms' annex name the kind of vendor.
+ */
+export const PROCESSOR_CATEGORIES = {
+  "cloud-hosting": "Cloud hosting",
+  voice: "Voice provider",
+  "ai-model": "AI model provider",
+  "messaging-platform": "Messaging platform",
+  payments: "Payment processor",
+  scheduling: "Scheduling",
+  email: "Email delivery",
+  "website-hosting": "Website hosting",
+  "lead-records": "Cloud spreadsheet",
+  analytics: "Analytics",
+  "web-research": "Web research",
+} as const;
+
+export type ProcessorCategory = keyof typeof PROCESSOR_CATEGORIES;
+
 export type Subprocessor = {
   name: string;
+  /** What it does, for the public pages, which never print `name`. */
+  category: ProcessorCategory;
   purpose: string;
   /** What, concretely, the vendor receives. */
   data: string;
@@ -105,6 +136,7 @@ export type Subprocessor = {
 export const SUBPROCESSORS: readonly Subprocessor[] = [
   {
     name: "Amazon Web Services",
+    category: "cloud-hosting",
     purpose: "Hosting the product and its storage, in the AWS account designated under our AWS agreement",
     data: "Patient information the product holds: contacts, conversations, appointments, transcripts (no call audio is kept)",
     region: "United States (single region)",
@@ -119,6 +151,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   },
   {
     name: "Retell",
+    category: "voice",
     purpose: "The voice agent's telephony and speech: answers the calls a clinic forwards to it, and transcribes them",
     data: "Caller audio and caller number during the call, and the call transcript. Call recording is kept off",
     // Not confirmed. Fill in once the agreement and the account settings are.
@@ -132,6 +165,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   },
   {
     name: "Anthropic (the product)",
+    category: "ai-model",
     purpose: "The language model behind every channel of the product, in a HIPAA-ready Anthropic organisation used only for the product",
     data: "Conversation text and the clinic's public service information. Under the BAA Anthropic keeps inputs for 30 days, which its covered models require, except content its trust-and-safety systems flag or the law requires it to keep, which it may hold for up to two years. No training on any of it",
     region: "United States",
@@ -141,6 +175,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   },
   {
     name: "Anthropic (this website)",
+    category: "ai-model",
     purpose: "The language model behind the chat demo on this website, and behind reading a clinic's public website at checkout so setup starts pre-filled, in a separate Anthropic organisation from the product's",
     data: "What you type into the demo, and the public service information of the specialty being demonstrated; at checkout, the text of up to eight public pages of the website you give us. No training on any of it",
     region: "United States",
@@ -153,6 +188,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   },
   {
     name: "Meta (Instagram, Messenger, WhatsApp)",
+    category: "messaging-platform",
     purpose: "Carries the messages patients send to a clinic's Instagram account, Facebook Page and WhatsApp number, and the assistant's replies",
     data: "The patient's own messages and the identifiers Meta attaches to them (on WhatsApp, their phone number). Clinical content is caught when it arrives and not stored, and replies carry no treatment names",
     region: "Meta's own infrastructure; not region-pinned",
@@ -166,6 +202,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   },
   {
     name: "Stripe",
+    category: "payments",
     purpose: "Billing the clinic for its healdesk subscription",
     data: "Clinic name, billing contact, card details (held by Stripe, never by healdesk)",
     region: "United States",
@@ -179,6 +216,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   },
   {
     name: "Retell (the website demo call)",
+    category: "voice",
     purpose: "Places the one demo call a visitor asks for on this website and answers the demo line on it, on separate agents from the product's, and runs the conversation on Anthropic's Claude model",
     data: "For a call you asked for: the number you typed, the first name you gave and the specialty you were viewing. For a call to the demo line: your number. Either way, the call's audio and words while it is live. Retell keeps no recording or transcript of either call, only its basic record (time, length, how it ended), for 30 days",
     // Not confirmed in writing, as for the product's row above.
@@ -192,6 +230,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   },
   {
     name: "Calendly",
+    category: "scheduling",
     purpose: "Books the call a visitor asks for through \"Get in touch\" on this website, in Calendly's scheduler shown on our page",
     data: "The name and email you give when booking, anything you add in its form, and the time you pick; Calendly also records your visit to its scheduling page",
     region: "United States",
@@ -201,6 +240,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   },
   {
     name: "Resend",
+    category: "email",
     purpose: "Transactional email: invitations, agreement copies, account and billing notices",
     data: "Recipient address and non-patient content only",
     region: "United States",
@@ -210,6 +250,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   },
   {
     name: "Vercel",
+    category: "website-hosting",
     purpose: "Hosting this marketing website",
     data: "Page requests, the demo gate email, contact-form submissions",
     region: "United States",
@@ -219,6 +260,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   },
   {
     name: "Google (Google Sheets / Drive)",
+    category: "lead-records",
     purpose: "The marketing site's lead register: demo leads, funnel events, the demo-call consent record and setup requests, in a Google Sheet",
     data: "Work email, business or personal domain, specialty demoed, referrer host, campaign code, the marketing-consent record; for a setup request, the requester's name, the clinic's name, website and email, the channels wanted, and the IP address it came from",
     region: "United States (Google Cloud; not region-pinned for a Google account)",
@@ -228,6 +270,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   },
   {
     name: "PostHog (US cloud)",
+    category: "analytics",
     purpose: "Funnel analytics on this website, after consent",
     data: "Page views and named funnel steps; no form contents, no email, no chat text",
     region: "United States",
@@ -237,6 +280,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   },
   {
     name: "Apify",
+    category: "web-research",
     purpose: "Reading a practice's public website when we research it before a first email",
     data: "Publicly published pages of the practice's own website",
     region: "United States",
@@ -252,3 +296,82 @@ export const PHI_SUBPROCESSORS = SUBPROCESSORS.filter((s) => s.handlesPhi);
 export const SCOPED_SUBPROCESSORS = SUBPROCESSORS.filter(
   (s) => s.baa.state === "none-by-design",
 );
+
+/** True while any vendor in the patient-information path has not countersigned its BAA. */
+export function phiAgreementsOutstanding(): boolean {
+  return PHI_SUBPROCESSORS.some((s) => s.baa.state !== "signed");
+}
+
+export type WebsiteProcessing = {
+  category: ProcessorCategory;
+  /** What the kind of vendor does for this website, in words that name no vendor. */
+  purpose: string;
+  /** What it receives from a visitor or a buyer. */
+  receives: string;
+};
+
+/**
+ * Privacy § 5: who processes visitor data for this website, by category.
+ *
+ * One entry per category among the register's rows that serve this website
+ * (`scope` other than "product"), in the order a visitor meets them, and each
+ * entry says no more than those rows' `purpose` and `data` do, without naming
+ * the vendor. src/app/privacy/privacy-copy.test.ts fails if a category is
+ * added to the register's website rows without an entry here, or if an entry
+ * outlives its last row, and src/lib/site-copy.test.ts fails if a legal page
+ * names a vendor of ours.
+ */
+export const WEBSITE_PROCESSING: readonly WebsiteProcessing[] = [
+  {
+    category: "website-hosting",
+    purpose: "Hosts this website and runs its server code",
+    receives: "Page requests, the email you unlock the demo with, and contact-form submissions",
+  },
+  {
+    category: "ai-model",
+    purpose:
+      "Writes the chat demo's replies, and reads a clinic's public website at checkout so setup starts pre-filled. This website uses a separate account from the product's",
+    receives:
+      "What you type into the demo, and the public service information of the specialty being demonstrated; at checkout, the text of up to eight public pages of the website you give us. It trains on none of it",
+  },
+  {
+    category: "voice",
+    purpose:
+      "Places the demo call you ask for and answers the demo line, on agents separate from the product's",
+    receives:
+      "For a call you asked for: the number you typed, the first name you gave and the specialty you were viewing. For a call to the demo line: your number. Either way, the call's audio and words while it is live. It keeps no recording or transcript of either call, only its basic record (time, length, how it ended), for 30 days",
+  },
+  {
+    category: "scheduling",
+    purpose: "Books the call you ask for through \"Get in touch\", in its scheduler shown on our page",
+    receives:
+      "The name and email you give when booking, anything you add in its form and the time you pick; it also records your visit to its scheduling page",
+  },
+  {
+    category: "email",
+    purpose: "Sends our email: replies, setup links, agreement copies, account and billing notices",
+    receives: "The recipient's address, and content that carries no patient information",
+  },
+  {
+    category: "payments",
+    purpose: "Bills a clinic for its healdesk subscription",
+    receives: "The clinic's name, its billing contact and its card details, which the processor holds and we never see",
+  },
+  {
+    category: "lead-records",
+    purpose:
+      "Holds this website's lead register: demo leads, funnel events, the demo-call consent record and setup requests",
+    receives:
+      "Work email, whether it is a business or personal domain, the specialty demoed, the referring site, the campaign code and the marketing-consent record; for a setup request, the requester's name, the clinic's name, website and email, the channels wanted and the IP address it came from",
+  },
+  {
+    category: "analytics",
+    purpose: "Measures visits to this website, only after you accept the cookie notice",
+    receives: "Page views and named funnel steps; no form contents, no email, no chat text",
+  },
+  {
+    category: "web-research",
+    purpose: "Reads a practice's public website when we research it before a first email",
+    receives: "Publicly published pages of the practice's own website",
+  },
+];

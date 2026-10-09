@@ -50,9 +50,12 @@
  *     nothing; what Calendly's page loads inside the frame is under its own
  *     policy, not this one. The origin must match site.meeting.url, and a test
  *     holds the two together.
- *   - The voice demo: scripted playback plus a POST to /api/callback that has
- *     AYA ring the visitor. It never opens the microphone, which is why
- *     Permissions-Policy says `microphone=()` rather than `(self)`.
+ *   - The voice demo: a browser call to AYA, and a POST to /api/callback
+ *     that has her ring the visitor. The browser call is the one thing that
+ *     opens a microphone, so only the homepage and the personalised demo
+ *     pages, which carry it, get `microphone=(self)` and Retell's call
+ *     origins (RETELL_CALL_ORIGINS below); every other page keeps
+ *     `microphone=()`.
  *   - Server-side fetches (Resend, Retell, GitHub, Anthropic) happen in
  *     route handlers and are invisible to a browser CSP. Do not add them.
  *
@@ -62,7 +65,7 @@
  * Next 16 supports it, but only through a proxy.ts that mints a nonce per
  * request, and the guide is explicit that every page must then be DYNAMICALLY
  * rendered: static generation, ISR and CDN caching are all off, and PPR is
- * incompatible. Every marketing page here (/, /pricing, /get-started,
+ * incompatible. Every marketing page here (/, /why-wait, /get-started,
  * /contact) is static today and that is worth keeping for a site whose job is
  * to load fast on a clinic manager's phone. Hashes are not an alternative:
  * Next's inline scripts carry the per-page RSC payload, so their hashes change
@@ -163,12 +166,13 @@ export const CALENDLY_ORIGIN = "https://calendly.com";
 export const STRIPE_CHECKOUT_ORIGIN = "https://checkout.stripe.com";
 
 /**
- * The personalised demo's browser call (src/app/demo, retell-client-js-sdk 3).
+ * The browser call to an assistant (retell-client-js-sdk 3): the personalised
+ * demo's (src/app/demo) and, since 9 October 2026, the homepage's.
  * The SDK's WebRTC signalling goes to api.retellai.com (`/webrtc-proxy/…`)
  * with the call's short-lived access token, and its LiveKit transport, the
  * fallback when Retell answers with `transport: "livekit"`, opens a websocket
  * to a *.livekit.cloud room. The audio itself is WebRTC, which CSP does not
- * govern. next.config.ts applies these to `/demo/:path*` only.
+ * govern. next.config.ts applies these to `/demo/:path*` and `/` only.
  */
 export const RETELL_CALL_ORIGINS = ["https://api.retellai.com", "wss://*.livekit.cloud", "https://*.livekit.cloud"] as const;
 
@@ -321,13 +325,11 @@ export function isReportOnly(env: SecurityHeadersEnv): boolean {
 export const STRICT_TRANSPORT_SECURITY = "max-age=63072000; includeSubDomains; preload";
 
 /**
- * Nothing on the site needs any of these. The voice demo is scripted playback
- * and the live call is placed by Retell to the visitor's PHONE, so the
- * browser never opens a microphone. The one exception is opt-in per route:
- * a personalised demo page (/demo/…) lets its visitor talk to the clinic's
- * assistant from the browser, so that route family alone gets
- * `microphone=(self)` (`permissionsPolicy({ microphone: true })`). Payment is Stripe-hosted, so the Payment
- * Request API is never used here either.
+ * Nothing on the site needs any of these, with one exception, opt-in per
+ * route: the homepage and a personalised demo page (/demo/…) let a visitor
+ * talk to the assistant from the browser, so those two alone get
+ * `microphone=(self)` (`permissionsPolicy({ microphone: true })`). Payment is
+ * Stripe-hosted, so the Payment Request API is never used here either.
  *
  * `interest-cohort=()` (FLoC opt-out) is deliberately not included: Chrome
  * removed the feature and now logs "Unrecognized feature" for it, which is

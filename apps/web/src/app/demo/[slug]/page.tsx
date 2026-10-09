@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { AgentMark, AgentPanel } from "@/components/agent-panel/AgentPanel";
+import { VoicePanel } from "@/components/agent-panel/VoicePanel";
 import { ClinicChatPanel } from "@/components/demo/ClinicChatPanel";
-import { ClinicVoicePanel } from "@/components/demo/ClinicVoicePanel";
 import { DemoCountdown, RefreshWhileBuilding } from "@/components/demo/DemoTimers";
 import { chatGreeting, demoModeLine } from "@/lib/demo/clinic-prompts";
 import type { ClinicProfile } from "@/lib/demo/profile";
@@ -104,24 +105,11 @@ function Shell({
   );
 }
 
-function ClinicMark({ name, logoUrl, size = 40 }: { name: string; logoUrl: string | null; size?: number }) {
-  return logoUrl ? (
-    // A third-party image by design: the clinic's own logo, from its own site.
-    <img
-      src={logoUrl}
-      alt={`${name} logo`}
-      referrerPolicy="no-referrer"
-      className="shrink-0 rounded-lg bg-white object-contain"
-      style={{ height: size, maxWidth: size * 3.5 }}
-    />
-  ) : (
-    <span
-      className="font-display grid shrink-0 place-items-center rounded-lg font-semibold"
-      style={{ width: size, height: size, background: "var(--clinic)", color: "var(--clinic-ink)", fontSize: size * 0.45 }}
-      aria-hidden
-    >
-      {name.slice(0, 1).toUpperCase()}
-    </span>
+function ArchivedOverlay() {
+  return (
+    <div className="bg-paper/80 absolute inset-0 grid place-items-center backdrop-blur-[2px]">
+      <p className="bg-ink rounded-full px-4 py-2 text-[14.4px] font-semibold text-white">Archived</p>
+    </div>
   );
 }
 
@@ -178,7 +166,7 @@ export default async function DemoPage({ params }: Props) {
 
       <header className="border-line/60 border-b">
         <div className="mx-auto flex max-w-[1240px] items-center gap-3 px-5 py-4 sm:px-8 lg:px-14">
-          <ClinicMark name={name} logoUrl={session.logoUrl} />
+          <AgentMark name={name} logoUrl={session.logoUrl} />
           <span className="font-display min-w-0 truncate text-[21px] font-semibold tracking-[-0.01em]">{name}</span>
           <a
             href={`/demo/${slug}/onboard`}
@@ -202,49 +190,42 @@ export default async function DemoPage({ params }: Props) {
           </p>
         </div>
 
+        {/* The two cards, drawn by the same components as the homepage's
+            (components/agent-panel), so the two pages cannot drift apart. */}
         <div className="mt-8 grid gap-5 lg:grid-cols-2">
-          {[
-            {
-              label: "AI voice agent",
-              title: "Your phone line",
-              body: (
-                <ClinicVoicePanel slug={slug} clinicName={name} prefillPhone={session.phoneE164} locked={expired} />
-              ),
-            },
-            {
-              label: "Website chat",
-              title: "The chat on your website",
-              body: (
-                <ClinicChatPanel
-                  slug={slug}
-                  clinicName={name}
-                  logoUrl={session.logoUrl}
-                  greeting={chatGreeting(name)}
-                  chips={chipsFor(profile)}
-                  locked={expired}
-                />
-              ),
-            },
-          ].map((panel) => (
-            <section
-              key={panel.label}
-              className="border-line relative flex flex-col overflow-hidden rounded-3xl border bg-white shadow-[0_1px_2px_rgb(23_42_58/0.06),0_12px_40px_-12px_rgb(23_42_58/0.18)]"
-            >
-              <div className="border-line flex items-center gap-3 border-b px-5 py-3.5">
-                <ClinicMark name={name} logoUrl={session.logoUrl} size={28} />
-                <div className="min-w-0">
-                  <p className="text-muted text-[12px] font-bold tracking-[0.1em] uppercase">{panel.label}</p>
-                  <p className="truncate text-[15.6px] font-semibold">{panel.title}</p>
-                </div>
-              </div>
-              {panel.body}
-              {expired ? (
-                <div className="bg-paper/80 absolute inset-0 grid place-items-center backdrop-blur-[2px]">
-                  <p className="bg-ink rounded-full px-4 py-2 text-[14.4px] font-semibold text-white">Archived</p>
-                </div>
-              ) : null}
-            </section>
-          ))}
+          <AgentPanel
+            label="AI voice agent"
+            title="Your phone line"
+            name={name}
+            logoUrl={session.logoUrl}
+            overlay={expired ? <ArchivedOverlay /> : null}
+          >
+            <VoicePanel
+              name={name}
+              callRoute={`/api/demo/${slug}/retell`}
+              intro="Talk to the clinic's AI assistant from your browser. It answers the way it would answer your phone."
+              ringNote="One demo call, because you asked. Live, it only answers: it never dials a patient."
+              callbackExtra={{ demoSlug: slug }}
+              prefillPhone={session.phoneE164}
+              locked={expired}
+            />
+          </AgentPanel>
+          <AgentPanel
+            label="Website chat"
+            title="The chat on your website"
+            name={name}
+            logoUrl={session.logoUrl}
+            overlay={expired ? <ArchivedOverlay /> : null}
+          >
+            <ClinicChatPanel
+              slug={slug}
+              clinicName={name}
+              logoUrl={session.logoUrl}
+              greeting={chatGreeting(name)}
+              chips={chipsFor(profile)}
+              locked={expired}
+            />
+          </AgentPanel>
         </div>
 
         {/* The training disclaimer, in the brief's words: what demo mode cannot do yet. */}

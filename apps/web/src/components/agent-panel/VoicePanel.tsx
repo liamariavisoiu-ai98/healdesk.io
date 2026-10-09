@@ -1,31 +1,40 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { WebCallSession } from "retell-client-js-sdk";
 
 import { CALL_CONSENT } from "@/lib/consent";
 
 /**
- * The personalised demo's voice half: talk to the clinic's AI assistant from
- * the browser, or have it ring your phone.
+ * The voice card: talk to the assistant from the browser, or have it ring
+ * your phone.
+ *
+ * Written for the personalised demo, where it answers as the clinic, and
+ * shared with the homepage since 9 October 2026, where it answers as AYA:
+ * the owner asked for the homepage's cards to look exactly like the demo
+ * page's (AgentPanel.tsx). The two differ only in what the props say: whose
+ * voice it is, which route starts the browser call, and what the call-me
+ * request carries.
  *
  * ## Talk now
  *
  * The Retell browser SDK is loaded only when the button is pressed (it pulls
  * in WebRTC code nobody needs until then) and is pointed at our own route for
  * its single control request (`fetch` override): the route builds the call
- * from the stored demo and holds the key, so nothing secret or steerable is
- * in this bundle. The microphone prompt happens on that click, as browsers
- * require. No transcript stream: that would need a key in the browser.
+ * and holds the key, so nothing secret or steerable is in this bundle. The
+ * microphone prompt happens on that click, as browsers require. No transcript
+ * stream: that would need a key in the browser.
  *
  * ## Call me
  *
- * The same consent shape as the homepage's voice demo, because it is the same
- * legal act: an AI voice ringing a number somebody typed. Unticked by
- * default, a sibling of the button, the exact words of CALL_CONSENT, and the
- * server refuses without them (api/callback). The phone field may be
- * prefilled from the operator's request; the tick never is.
+ * The same consent shape everywhere, because it is the same legal act: an AI
+ * voice ringing a number somebody typed. Unticked by default, a sibling of the
+ * button, the exact words of CALL_CONSENT, and the server refuses without them
+ * (api/callback). The phone field may be prefilled from the operator's
+ * request; the tick never is. Do not make the box default-checked, do not
+ * fold the agreement into the button, and do not shorten the label without
+ * bumping its version (lib/consent.ts has the reasoning).
  */
 
 type CallState = "idle" | "connecting" | "live" | "ended" | "error";
@@ -42,16 +51,33 @@ function formatElapsed(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export function ClinicVoicePanel({
-  slug,
-  clinicName,
-  prefillPhone,
-  locked,
+export function VoicePanel({
+  name,
+  callRoute,
+  intro,
+  ringHeading = "Or have it ring your phone.",
+  ringNote,
+  callbackExtra,
+  prefillPhone = null,
+  locked = false,
 }: {
-  slug: string;
-  clinicName: string;
-  prefillPhone: string | null;
-  locked: boolean;
+  /** Whose voice answers: the clinic's name, or AYA. */
+  name: string;
+  /**
+   * The route the SDK's control request goes to, before the path the SDK
+   * would have used on Retell ("/v3/create-web-call").
+   */
+  callRoute: string;
+  /** Under the button before a call: what talking to it is. */
+  intro: ReactNode;
+  /** Over the call-me form: "Or have it ring your phone." */
+  ringHeading?: string;
+  /** Under that: why it is calling, and that it never dials a patient. */
+  ringNote: string;
+  /** Anything else the call-me request carries, e.g. the demo's slug. */
+  callbackExtra?: Record<string, string>;
+  prefillPhone?: string | null;
+  locked?: boolean;
 }) {
   const [state, setState] = useState<CallState>("idle");
   const [callError, setCallError] = useState<string | null>(null);
@@ -92,7 +118,7 @@ export function ClinicVoicePanel({
       const client = new RetellClient({
         // Never sent to Retell: our route sets the real Authorization header.
         key: "proxied",
-        fetch: (url, init) => fetch(`/api/demo/${slug}/retell${new URL(String(url)).pathname}`, init),
+        fetch: (url, init) => fetch(`${callRoute}${new URL(String(url)).pathname}`, init),
       });
       const session = client.createWebCall({
         // Ignored by our route, which picks the agent server-side.
@@ -132,7 +158,7 @@ export function ClinicVoicePanel({
       setCallError("The call couldn't start in this browser. Try Chrome, Safari or Edge.");
       setState("error");
     }
-  }, [locked, slug, state]);
+  }, [callRoute, locked, state]);
 
   const endCall = useCallback(async () => {
     await sessionRef.current?.end().catch(() => {});
@@ -168,7 +194,7 @@ export function ClinicVoicePanel({
             name: firstName || undefined,
             consent: true,
             consentVersion: CALL_CONSENT.version,
-            demoSlug: slug,
+            ...callbackExtra,
           }),
         });
         const data = (await response.json().catch(() => null)) as { error?: string; last4?: string } | null;
@@ -183,7 +209,7 @@ export function ClinicVoicePanel({
         setSubmitting(false);
       }
     },
-    [consent, firstName, locked, phone, slug, submitting],
+    [callbackExtra, consent, firstName, locked, phone, submitting],
   );
 
   const live = state === "live";
@@ -212,12 +238,12 @@ export function ClinicVoicePanel({
         </div>
 
         <p className="font-display text-ink mt-5 text-[23px] leading-tight font-medium tracking-[-0.02em]">
-          {live ? `On the line with ${clinicName}` : state === "connecting" ? "Connecting…" : `Call ${clinicName}`}
+          {live ? `On the line with ${name}` : state === "connecting" ? "Connecting…" : `Call ${name}`}
         </p>
         <p className="text-muted mt-1.5 max-w-[34ch] text-[15px] font-medium">
           {live
             ? `${formatElapsed(elapsed)} · Ask what a patient would ask.`
-            : "Talk to the clinic's AI assistant from your browser. It answers the way it would answer your phone."}
+            : intro}
         </p>
 
         <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
@@ -279,9 +305,9 @@ export function ClinicVoicePanel({
         </div>
       ) : (
         <form onSubmit={requestCall} className="border-line border-t px-5 py-4">
-          <p className="text-[16px] font-semibold">Or have it ring your phone.</p>
+          <p className="text-[16px] font-semibold">{ringHeading}</p>
           <p className="text-muted mt-0.5 text-[14px] font-medium">
-            One demo call, because you asked. Live, it only answers: it never dials a patient.
+            {ringNote}
           </p>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">
             <input

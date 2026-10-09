@@ -9,11 +9,10 @@ import { describe, expect, test } from "vitest";
 
 import DataDeletionPage from "@/app/data-deletion/page";
 import PrivacyPage from "@/app/privacy/page";
-import SubprocessorsPage from "@/app/subprocessors/page";
 import TermsPage from "@/app/terms/page";
-import TrustPage from "@/app/trust/page";
 import { Footer } from "@/components/Footer";
 import { KnowMore } from "@/components/KnowMore";
+import { SUBPROCESSORS } from "@/lib/subprocessors";
 
 /**
  * What the site may never say, wherever its copy lives.
@@ -48,6 +47,9 @@ import { KnowMore } from "@/components/KnowMore";
  *   own access"). v1 has one shared sign-in per clinic, at the clinic's one
  *   email address, and each phone or computer adds its own passkey; the
  *   spec's three roles are deferred past v1.
+ * - Any @healdesk.io address but hello@. It is the only one, for legal
+ *   notices, privacy requests and everything else (owner, 9 October 2026):
+ *   the legal pages named legal@ and privacy@, mailboxes nobody reads.
  *
  * Copy is every string, template and piece of JSX text under src/, outside
  * the tests, read with the TypeScript parser so that comments, which often
@@ -94,6 +96,10 @@ const BANNED: readonly { pattern: RegExp; label: string }[] = [
     // Our timing, not a patient's: "same-day intent" is what a caller wants.
     pattern: /\b(?:live|answer\w*|ready|forwarding is set)\b[^.]{0,60}\bsame[\s\u2010\u2011-]day\b/i,
     label: "'live the same day': no timing before purchase",
+  },
+  {
+    pattern: /\b(?!hello@)[\w.+-]+@healdesk\.io\b/i,
+    label: "an address other than hello@healdesk.io: it is the only one",
   },
 ];
 
@@ -229,7 +235,7 @@ describe("the site makes none of the claims it may not make", () => {
     // must be found, or the extraction has broken.
     const all = [...COPY.values()].flat();
     expect(COPY.size).toBeGreaterThan(50);
-    expect(all.some((piece) => piece.includes("Ask us anything you'd ask a supplier."))).toBe(true);
+    expect(all.some((piece) => piece.includes("Ask us anything."))).toBe(true);
     expect(all.some((piece) => piece.includes("We sign a business associate agreement and handle patient data under it."))).toBe(true);
     expect(all.some((piece) => piece.includes("picks up when your desk can't. This page, she can't find."))).toBe(true);
   });
@@ -267,8 +273,6 @@ describe("the model provider's 30 days always travel with the two-year exception
     footer: h(Footer),
     "the homepage FAQ": h(KnowMore),
     "/terms": h(TermsPage),
-    "/trust": h(TrustPage),
-    "/subprocessors": h(SubprocessorsPage),
     "/data-deletion": h(DataDeletionPage),
     "/privacy": h(PrivacyPage),
   } as const;
@@ -290,9 +294,56 @@ describe("the model provider's 30 days always travel with the two-year exception
   });
 
   test("and the surfaces that state it still do", () => {
-    // So the check above cannot pass by the sentence going missing.
-    for (const element of [h(Footer), h(KnowMore), h(TermsPage), h(TrustPage), h(DataDeletionPage)]) {
+    // So the check above cannot pass by the sentence going missing. The
+    // footer stated it until 9 October 2026, when its patient-data strip
+    // became the homepage FAQ's answer.
+    for (const element of [h(KnowMore), h(TermsPage), h(DataDeletionPage)]) {
       expect(blocks(renderToStaticMarkup(element)).some((block) => /\b30 days\b/.test(block) && /two years/.test(block))).toBe(true);
     }
+  });
+});
+
+/**
+ * No vendor of ours is named on a legal page (owner, 9 October 2026).
+ *
+ * The list of the subcontractors that handle patient information is given to
+ * signed clinics on request, under the business associate agreement, and the
+ * pages describe every vendor by what it does: privacy § 5 by category, the
+ * prose as "our AI model provider" and the like. The names come from the
+ * internal register, so a vendor added there is covered here the day it is
+ * added. Google and Meta are left out on purpose: they are the platforms a
+ * clinic connects, which the pages must name to say what happens to the data
+ * from them, and Google's and Meta's app reviews read those sections.
+ */
+describe("the legal pages name no vendor of ours", () => {
+  const PLATFORMS = /^(?:Google|Meta)\b/;
+  const names = [
+    ...new Set(
+      SUBPROCESSORS.filter((vendor) => !PLATFORMS.test(vendor.name)).map(
+        (vendor) => vendor.name.split(/[\s(]/)[0]!,
+      ),
+    ),
+    // What the register's names stand for, or what they make.
+    "AWS",
+    "Claude",
+    "Synthflow",
+  ];
+
+  test("the register still has the names to look for", () => {
+    expect(names).toEqual(expect.arrayContaining(["Amazon", "Anthropic", "Retell", "Stripe"]));
+  });
+
+  test.each([
+    ["/terms", h(TermsPage)],
+    ["/privacy", h(PrivacyPage)],
+    ["/data-deletion", h(DataDeletionPage)],
+  ] as const)("%s", (_path, element) => {
+    // The page's own text: the navbar and the footer have owners of their own.
+    const markup = renderToStaticMarkup(element);
+    const main = markup.slice(markup.indexOf("<main"), markup.indexOf("</main>"));
+    expect(main.length).toBeGreaterThan(1_000);
+    const words = normalise(main.replace(/<[^>]+>/g, " "));
+    const named = names.filter((name) => new RegExp(`\\b${name}\\b`).test(words));
+    expect(named).toEqual([]);
   });
 });

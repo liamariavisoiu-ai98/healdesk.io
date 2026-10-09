@@ -200,8 +200,8 @@ export function IntervalToggle({
 /**
  * One pricing card, as one answer of the package radio group. A twin card
  * shows its web package's figures, which its Meta twin shares (the catalog
- * test holds them to it). The price is always per month, as /pricing quotes
- * it; the annual total is in the review, where it is what the plan bills.
+ * test holds them to it). The price is always per month, as the old
+ * /pricing quoted it; the annual total is in the review, where it is what the plan bills.
  */
 function PackageCard({
   card,
@@ -270,7 +270,7 @@ function PackageCard({
       </span>
 
       {/* Both allowance rows, an em dash for a zero: the same rows and the
-          same policy as /pricing, from the same helper. */}
+          same policy everywhere a package is priced, from the same helper. */}
       <span className="text-muted mt-3 flex flex-col gap-0.5 text-sm">
         {allowanceRows(plan).map((row) => (
           <span key={row.label}>

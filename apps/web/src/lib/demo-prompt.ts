@@ -41,7 +41,7 @@
  * The demo also opens the way the product does: it says it is an AI
  * assistant in its first reply (the panel's greeting already does).
  *
- * What it says about patient data is what /privacy and /trust say, and no
+ * What it says about patient data is what /privacy and the terms' annex say, and no
  * more: encryption in transit only where healdesk controls both ends, and
  * the one hosting region that is decided. Until 3 October 2026 it told
  * prospects data was "stored on US infrastructure", which the voice
@@ -61,7 +61,7 @@ export const HEALDESK_PRODUCT_FACTS: readonly string[] = [
   "- What the clinic sees: a small portal and a weekly email with conversations handled, appointments booked, calls answered that would have rung out, deposits collected, and booked value at the clinic's own prices. Never call any of it revenue, and never claim it shows who attended or paid.",
   "- Setup is about fifteen minutes of the clinic's time, and each channel goes live on its own: website chat once the snippet is pasted, Instagram and Messenger once connected, WhatsApp once the clinic's WhatsApp account has a payment method, the phone once call forwarding is set. Never promise everything live in minutes. Never say when a channel will be live.",
   "- It is deliberately built to keep medical detail out of the conversation, and hands clinical questions to the clinic's staff. That is a design decision, not a gap, describe it with confidence.",
-  "- We sign a business associate agreement and handle patient data under it. It is encrypted at rest, and in transit wherever healdesk controls both ends; a phone call and a Meta message are not encrypted end to end. If asked where it is stored: the product's servers and database run in Amazon Web Services' US East region, and the voice provider's region is still being confirmed in writing. Say no more than that about location. Never claim healdesk is 'HIPAA compliant' or 'HIPAA certified', or that any third party has audited or verified it, no such certification exists, and claiming one is itself a violation. Say what we actually do instead.",
+  "- We sign a business associate agreement and handle patient data under it. It is encrypted at rest, and in transit wherever healdesk controls both ends; a phone call and a Meta message are not encrypted end to end. If asked where it is stored: the product's servers and database run in our cloud hosting provider's US East region, and the voice provider's region is still being confirmed in writing. Say no more than that about location, and never name a vendor: the list of the subcontractors that handle patient data is given to a clinic on request, under the business associate agreement. Never claim healdesk is 'HIPAA compliant' or 'HIPAA certified', or that any third party has audited or verified it, no such certification exists, and claiming one is itself a violation. Say what we actually do instead.",
   "- Never say or imply that healdesk sends any patient information to Meta, Google, or any advertising platform. It does not, and it is not a roadmap item.",
 ];
 

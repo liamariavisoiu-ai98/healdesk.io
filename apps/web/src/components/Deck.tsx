@@ -16,10 +16,10 @@ import { CircleExpandCard } from "@/components/CircleExpandCard";
  * which exists here.
  *
  * It was the specialties deck (NicheStack) until 29 September 2026, when the
- * outcomes section needed the same object with different cards. The deck
- * takes items now and NicheStack maps specialties onto it, so the two
- * sections share one motion vocabulary by construction: the same spring, the
- * same ladder, the same dots and arrowheads, the same flood on the front card.
+ * outcomes section needed the same object with different cards, and took
+ * items from then on. The specialties left it for a mosaic on 9 October 2026
+ * (NicheMosaic.tsx), so the outcomes section is its one user, until the owner
+ * picks that section's new design too.
  *
  * ## Two deliberate departures from the original
  *

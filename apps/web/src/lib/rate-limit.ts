@@ -69,12 +69,16 @@ export type RateLimitResult = {
  * 2026) caps the personalised demo's browser calls (api/demo/[slug]/retell),
  * which spend the same voice minutes a dialled call does, under their own
  * ceiling so a busy demo week cannot use up the homepage's "call me".
+ * `voice-demo-webcall:global:day` (9 October 2026) caps the homepage's own
+ * browser calls to AYA (api/voice-demo/retell), under a third ceiling for
+ * the same reason.
  */
 export const GLOBAL_CAP_KEYS: ReadonlySet<string> = new Set([
   "chat:global:day",
   "callback:global:day",
   "site-read:global:day",
   "webcall:global:day",
+  "voice-demo-webcall:global:day",
 ]);
 
 export function isGlobalCapKey(key: string): boolean {

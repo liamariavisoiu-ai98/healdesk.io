@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ChatComposer, ChatThread, type ChatMessage } from "@/components/agent-panel/ChatView";
+import { ChatSkins, type SkinMessage } from "@/components/agent-panel/ChatSkins";
 import { track } from "@/lib/analytics";
 import { campaignCode } from "@/lib/attribution";
 import {
@@ -14,7 +14,7 @@ import {
 import { DEMO_AGENT } from "@/lib/demo-agent";
 import { site } from "@/lib/site";
 
-type Message = ChatMessage;
+type Message = SkinMessage;
 
 /** AYA's avatar in the thread: the healdesk "h". */
 const AVATAR = "/icon.png";
@@ -24,11 +24,13 @@ const AVATAR = "/icon.png";
  *
  * ## Drawn like the personalised demo's
  *
- * Since 9 October 2026 the card is the shared ChatView inside the shared
+ * Since 9 October 2026 the card is the shared ChatSkins inside the shared
  * AgentPanel (components/agent-panel), so it looks exactly like the chat on a
- * clinic's personalised demo, in healdesk's colour (owner's request). What is
- * this card's own is the conversation: the email gate below, the route's
- * pause, and the analytics.
+ * clinic's personalised demo, the Website, WhatsApp, Instagram and Messenger
+ * boxes included, in healdesk's colour (owner's request). What is this card's
+ * own is the conversation: the email gate below, the route's pause, and the
+ * analytics. The boxes only dress the thread; /api/chat never hears which one
+ * is showing.
  *
  * ## One agent, no picker
  *
@@ -76,14 +78,8 @@ export function ChatDemo() {
   const [gateError, setGateError] = useState<string | null>(null);
   const [unlocking, setUnlocking] = useState(false);
 
-  const threadRef = useRef<HTMLDivElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-
-  useEffect(() => {
-    const thread = threadRef.current;
-    if (thread) thread.scrollTop = thread.scrollHeight;
-  }, [messages, streaming, needsEmail]);
 
   // The composer is replaced by the email field, so move the caret with it.
   useEffect(() => {
@@ -101,7 +97,7 @@ export function ChatDemo() {
    */
   const runTurn = useCallback(async (next: Message[]) => {
     setError(null);
-    setMessages([...next, { role: "assistant", content: "" }]);
+    setMessages([...next, { role: "assistant", content: "", at: Date.now() }]);
     setStreaming(true);
 
     const controller = new AbortController();
@@ -114,7 +110,7 @@ export function ChatDemo() {
         // No specialtyId: one agent, every specialty. It works out which one it
         // is talking to from the conversation, which is also why every visitor
         // here shares one cached system prompt.
-        body: JSON.stringify({ messages: next }),
+        body: JSON.stringify({ messages: next.map(({ role, content }) => ({ role, content })) }),
         signal: controller.signal,
       });
 
@@ -164,10 +160,7 @@ export function ChatDemo() {
               const updated = [...current];
               const last = updated[updated.length - 1];
               if (last?.role === "assistant") {
-                updated[updated.length - 1] = {
-                  role: "assistant",
-                  content: last.content + chunk,
-                };
+                updated[updated.length - 1] = { ...last, content: last.content + chunk };
               }
               return updated;
             });
@@ -198,7 +191,7 @@ export function ChatDemo() {
       const trimmed = text.trim();
       if (!trimmed || streaming || needsEmail) return;
       setInput("");
-      void runTurn([...messages, { role: "user", content: trimmed }]);
+      void runTurn([...messages, { role: "user", content: trimmed, at: Date.now() }]);
     },
     [messages, needsEmail, runTurn, streaming],
   );
@@ -241,101 +234,95 @@ export function ChatDemo() {
     [email, marketingConsent, messages, runTurn],
   );
 
-  const showChips = messages.length === 0;
+  const emailAsk = needsEmail ? (
+    <form onSubmit={unlock} className="border-line border-t px-4 py-4">
+      <p className="text-[16.2px] font-semibold">
+        Where should {site.agent} send her answer?
+      </p>
+      <p className="text-muted mt-1 text-[15px] font-medium">
+        Drop your email and she&apos;ll reply right here.
+      </p>
+
+      <div className="mt-3 flex items-center gap-2">
+        <input
+          ref={emailRef}
+          type="email"
+          required
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          placeholder="you@yourclinic.com"
+          aria-label="Work email"
+          autoComplete="email"
+          className="border-line text-ink placeholder:text-muted min-w-0 flex-1 rounded-full border px-4 py-2.5 text-[16px] outline-none transition-colors focus:border-[var(--clinic)]"
+        />
+        <button
+          type="submit"
+          disabled={unlocking}
+          className="shrink-0 rounded-full px-5 py-2.5 text-[15.6px] font-bold transition-opacity disabled:opacity-45"
+          style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
+        >
+          {unlocking ? "…" : "Send"}
+        </button>
+      </div>
+
+      {gateError ? (
+        <p className="text-red-deep mt-2 text-[15.6px] font-semibold" role="alert">
+          {gateError}
+        </p>
+      ) : (
+        <p className="text-muted mt-2 text-[13.2px] leading-relaxed">
+          {CHAT_EMAIL_NOTE}
+        </p>
+      )}
+
+      {/* Collection notice and the SEPARATE marketing opt-in. The box is
+          unticked by default and is never required: unlocking the demo is
+          the service asked for, not consent to be marketed to. The label
+          is rendered verbatim from the constant the server stores. */}
+      <p className="text-muted mt-3 text-[12.6px] leading-relaxed">
+        {GATE_NOTICE}{" "}
+        <a href="/privacy" className="text-red-deep underline underline-offset-2">
+          Privacy policy
+        </a>
+      </p>
+      <label className="mt-2 flex cursor-pointer items-start gap-2 text-[13.2px] leading-relaxed">
+        <input
+          type="checkbox"
+          checked={marketingConsent}
+          onChange={(event) => setMarketingConsent(event.target.checked)}
+          className="accent-red-deep mt-[3px] h-4 w-4 shrink-0"
+        />
+        <span className="text-ink">{MARKETING_CONSENT_LABEL}</span>
+      </label>
+    </form>
+  ) : null;
 
   return (
-    <div className="flex h-[520px] flex-1 flex-col sm:h-[560px]">
-      {/* The greeting is the thread's first line on screen; it is never sent
-          to the model. */}
-      <ChatThread
-        name={site.agent}
-        logoUrl={AVATAR}
-        messages={[{ role: "assistant", content: DEMO_AGENT.greeting }, ...messages]}
-        chips={showChips && !paused ? DEMO_AGENT.chips : []}
-        onChip={send}
-        threadRef={threadRef}
-        error={error}
-      />
-
-      {needsEmail ? (
-        <form onSubmit={unlock} className="border-line border-t px-4 py-4">
-          <p className="text-[16.2px] font-semibold">
-            Where should {site.agent} send her answer?
-          </p>
-          <p className="text-muted mt-1 text-[15px] font-medium">
-            Drop your email and she&apos;ll reply right here.
-          </p>
-
-          <div className="mt-3 flex items-center gap-2">
-            <input
-              ref={emailRef}
-              type="email"
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="you@yourclinic.com"
-              aria-label="Work email"
-              autoComplete="email"
-              className="border-line text-ink placeholder:text-muted min-w-0 flex-1 rounded-full border px-4 py-2.5 text-[16px] outline-none transition-colors focus:border-[var(--clinic)]"
-            />
-            <button
-              type="submit"
-              disabled={unlocking}
-              className="shrink-0 rounded-full px-5 py-2.5 text-[15.6px] font-bold transition-opacity disabled:opacity-45"
-              style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
-            >
-              {unlocking ? "…" : "Send"}
-            </button>
-          </div>
-
-          {gateError ? (
-            <p className="text-red-deep mt-2 text-[15.6px] font-semibold" role="alert">
-              {gateError}
-            </p>
-          ) : (
-            <p className="text-muted mt-2 text-[13.2px] leading-relaxed">
-              {CHAT_EMAIL_NOTE}
-            </p>
-          )}
-
-          {/* Collection notice and the SEPARATE marketing opt-in. The box is
-              unticked by default and is never required: unlocking the demo is
-              the service asked for, not consent to be marketed to. The label
-              is rendered verbatim from the constant the server stores. */}
-          <p className="text-muted mt-3 text-[12.6px] leading-relaxed">
-            {GATE_NOTICE}{" "}
-            <a href="/privacy" className="text-red-deep underline underline-offset-2">
-              Privacy policy
-            </a>
-          </p>
-          <label className="mt-2 flex cursor-pointer items-start gap-2 text-[13.2px] leading-relaxed">
-            <input
-              type="checkbox"
-              checked={marketingConsent}
-              onChange={(event) => setMarketingConsent(event.target.checked)}
-              className="accent-red-deep mt-[3px] h-4 w-4 shrink-0"
-            />
-            <span className="text-ink">{MARKETING_CONSENT_LABEL}</span>
-          </label>
-        </form>
-      ) : (
-        <ChatComposer
-          name={site.agent}
-          value={input}
-          onChange={setInput}
-          onSubmit={() => send(input)}
-          disabled={paused}
-          sending={streaming}
-          placeholder={paused ? "The demo is paused" : "Ask about treatments, pricing, or healdesk…"}
-        >
-          {/* Permanent, under the input. This site holds no patient
-              information and the demo is for clinic staff, so the panel says
-              so where the typing happens (privacy § 2 says the same). */}
-          <p className="text-muted mt-2 px-1 text-xs font-medium">
-            A demo for clinic staff. Please don&apos;t type patient information.
-          </p>
-        </ChatComposer>
-      )}
-    </div>
+    <ChatSkins
+      name={site.agent}
+      logoUrl={AVATAR}
+      // The greeting is the thread's first line on screen; it is never sent
+      // to the model.
+      messages={[{ role: "assistant", content: DEMO_AGENT.greeting }, ...messages]}
+      chips={paused ? [] : DEMO_AGENT.chips}
+      onSend={send}
+      input={input}
+      onInput={setInput}
+      streaming={streaming}
+      disabled={paused}
+      disabledPlaceholder="The demo is paused"
+      placeholder="Ask about treatments, pricing, or healdesk…"
+      aiNotice={`Messages are answered by ${site.agent}, an AI assistant.`}
+      error={error}
+      composer={emailAsk}
+      footnote={
+        // Permanent, under the input. This site holds no patient information
+        // and the demo is for clinic staff, so the card says so where the
+        // typing happens (privacy § 2 says the same).
+        <p className="text-muted border-line border-t bg-white px-4 py-2 text-xs font-medium">
+          A demo for clinic staff. Please don&apos;t type patient information.
+        </p>
+      }
+    />
   );
 }

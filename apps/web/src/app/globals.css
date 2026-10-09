@@ -1621,3 +1621,205 @@
     radial-gradient(80% 60% at 50% 105%, rgb(135 214 141 / 0.28) 0%, transparent 70%),
     var(--color-panel);
 }
+
+/* =============================================================================
+   The assistant cards' motion (components/agent-panel)
+   =============================================================================
+   Two of the owner's picks of 9 October 2026, on top of the personalised
+   demo's cards: M2, the call told on AYA's face (AyaPortrait), and M6, the
+   typing dots that grow into the answer (ChatSkins). The global
+   reduced-motion rule above stills all of it; the states still change. */
+
+/* --- M2: the call on her face ------------------------------------------- */
+
+.aya-breathe {
+  animation: aya-breathe 4.6s ease-in-out infinite;
+}
+
+@keyframes aya-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.012) translateY(-0.5px);
+  }
+}
+
+.aya-halo {
+  background: var(--clinic);
+  opacity: 0.1;
+}
+
+.aya-portrait[data-state="connecting"] .aya-halo {
+  animation: aya-wait 1.6s ease-in-out infinite;
+}
+
+.aya-portrait[data-state="speaking"] .aya-halo {
+  opacity: 0.24;
+}
+
+/* The caller's turn: cool, and quiet, so it reads as listening, not off. */
+.aya-portrait[data-state="listening"] .aya-halo {
+  background: #7fb2ff;
+  opacity: 0.2;
+}
+
+@keyframes aya-wait {
+  0%,
+  100% {
+    opacity: 0.08;
+    transform: scale(0.97);
+  }
+  50% {
+    opacity: 0.2;
+    transform: scale(1.03);
+  }
+}
+
+.aya-ripple {
+  border: 2px solid #7fb2ff;
+  opacity: 0;
+}
+
+.aya-portrait[data-state="listening"] .aya-ripple {
+  animation: aya-ripple 2.2s ease-out infinite;
+}
+
+.aya-portrait[data-state="listening"] .aya-ripple--late {
+  animation-delay: 1.1s;
+}
+
+@keyframes aya-ripple {
+  0% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.32);
+  }
+}
+
+.aya-cool {
+  background: radial-gradient(60% 60% at 30% 26%, rgb(255 255 255 / 0.35), transparent 70%),
+    linear-gradient(140deg, rgb(127 178 255 / 0.32), rgb(86 120 255 / 0.18));
+  opacity: 0;
+  transition: opacity 500ms ease;
+}
+
+.aya-portrait[data-state="listening"] .aya-cool {
+  opacity: 1;
+}
+
+.aya-sweep {
+  overflow: hidden;
+  border-radius: 9999px;
+}
+
+.aya-sweep::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -60%;
+  width: 45%;
+  background: linear-gradient(100deg, transparent, rgb(255 255 255 / 0.7), transparent);
+  opacity: 0;
+}
+
+.aya-portrait[data-state="connecting"] .aya-sweep::after {
+  opacity: 1;
+  animation: aya-sweep 1.15s ease-in-out infinite;
+}
+
+@keyframes aya-sweep {
+  to {
+    left: 120%;
+  }
+}
+
+/* The state, in words, beside her. */
+.call-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.call-state::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: currentColor;
+}
+
+.call-state[data-state="listening"] {
+  color: #3d6fd6;
+}
+
+.call-state[data-state="speaking"] {
+  color: var(--clinic);
+}
+
+.call-state[data-state="speaking"]::before,
+.call-state[data-state="connecting"]::before {
+  animation: call-dot 900ms ease-in-out infinite;
+}
+
+@keyframes call-dot {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* --- M6: the dots become the answer ------------------------------------- */
+
+.typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 1.2em;
+  padding: 0 2px;
+}
+
+.typing-dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0.45;
+  animation: typing-dot 1.2s ease-in-out infinite;
+}
+
+.typing-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes typing-dot {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 0.9;
+  }
+}
+
+/* The first words of an answer arrive as the bubble opens round them. */
+.morph-text {
+  animation: morph-text 320ms 90ms ease both;
+}
+
+@keyframes morph-text {
+  from {
+    opacity: 0;
+  }
+}

@@ -6,10 +6,11 @@ import type { ReactNode } from "react";
  *
  * It was the personalised demo's (app/demo/[slug]/page.tsx) until 9 October
  * 2026, when the owner asked for the homepage's two cards to look exactly
- * like that page's. Both now draw this, with VoicePanel and ChatView inside
- * it, so the two cannot drift apart: the demo page in the clinic's colour and
- * logo, the homepage in healdesk's. The colour arrives as `--clinic` (and
- * `--clinic-ink`, the text on it) from whatever wraps the cards.
+ * like that page's ("Peachy"). Both now draw this, with VoiceCard and
+ * ChatSkins inside it, so the two cannot drift apart: the demo page in the
+ * clinic's colour and logo, the homepage in healdesk's. The colour arrives as
+ * `--clinic` (and `--clinic-ink`, the text on it) from whatever wraps the
+ * cards.
  */
 
 export function AgentMark({

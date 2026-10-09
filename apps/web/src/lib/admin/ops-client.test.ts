@@ -421,7 +421,7 @@ describe("the billing panel's readers are strict", () => {
     expect(view.deposits.defaultAmountUsd).toBe(50.5);
     expect(view.flags.pendingLocation).toEqual({ locationNumber: 2, chargedOn: "2026-10-08" });
     expect(view.flags.pendingPlanChange).toEqual({
-      plan: { id: "web-voice", name: "Web + Voice" },
+      plan: { id: "web-voice", name: "AYA Web Chat + Voice" },
       interval: "year",
     });
   });

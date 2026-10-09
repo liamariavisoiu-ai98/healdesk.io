@@ -148,7 +148,7 @@ export const renderPlanChanged: EmailTemplate<PlanChangedPayload> = (payload, ct
 export const PLAN_CHANGED_ENTRY: TemplateEntry<PlanChangedPayload> = {
   render: renderPlanChanged,
   fixture: {
-    planName: "Web + Voice",
+    planName: "AYA Web Chat + Voice",
     interval: "month",
     locations: 1,
     setupFeeDeltaCents: 50_000,

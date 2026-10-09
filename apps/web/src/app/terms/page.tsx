@@ -101,7 +101,10 @@ function blockPrice(plan: Plan, meter: MeterId): string {
  * in no case later than 60 calendar days after discovery) in place of /trust's five
  * days, and names no vendor and counts none. It does not name the entity
  * either, for the reason above: section 20 is the one place on this page that
- * does.
+ * does. The same version carries the package names the personalised demo's
+ * branch gave them on 7 October (AYA Web Chat, AYA Meta Chat, AYA Voice, AYA
+ * Complete Frontdesk), which section 3's table reads from the catalog: that
+ * branch numbered them 2026-10-07.3 on its own line, which never went out.
  */
 export default function TermsPage() {
   const packages = packagesForTerms();

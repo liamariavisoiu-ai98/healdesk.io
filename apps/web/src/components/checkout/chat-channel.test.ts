@@ -41,7 +41,7 @@ function inputFor(html: string, label: string): string {
   return match[1]!;
 }
 
-describe("the Web OR Meta Chatbot card, with Meta sold alone", () => {
+describe("the AYA Web or Meta Chat card, with Meta sold alone", () => {
   test("the flag this is written against", () => {
     expect(META_SOLD_ALONE).toBe(true);
   });

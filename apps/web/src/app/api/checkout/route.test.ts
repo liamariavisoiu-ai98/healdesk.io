@@ -177,9 +177,9 @@ describe("POST /api/checkout validates the billing terms", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("both Meta packages are on sale, Meta Chatbot included", async () => {
+  test("both Meta packages are on sale, AYA Meta Chat included", async () => {
     // The catalog flag, opened by the owner on 5 October 2026. Closed again,
-    // Meta Chatbot becomes a 422 with field "plan" before Stripe hears of it.
+    // AYA Meta Chat becomes a 422 with field "plan" before Stripe hears of it.
     expect(META_SOLD_ALONE).toBe(true);
 
     const alone = await post({ ...VALID, plan: "chat-meta" });

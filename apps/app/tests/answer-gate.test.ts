@@ -604,7 +604,7 @@ describeDb("assistantMayAnswer, reading the facts (R1)", () => {
 
   test("a channel bought but not yet billed is measured against the bought allowance, so the cap never refuses its first call (BD5)", async () => {
     const c = await seedClinic("gate-bd5");
-    // Bought Web + Voice, billed as Web Chatbot: 0 voice minutes billed.
+    // Bought Web + Voice, billed as AYA Web Chat: 0 voice minutes billed.
     await seedEntitled(c.clinicId, {
       planId: "chat-web",
       boughtPlanId: "web-voice",

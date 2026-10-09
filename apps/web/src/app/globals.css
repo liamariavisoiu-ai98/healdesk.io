@@ -970,13 +970,29 @@
    centred, so every logo round her is on screen. Its sides and bottom fade
    into the page rather than ending on a line.
 
-   ## The veil
+   ## The veil and the copy, on the cursor (owner, 9 October 2026)
 
-   A white gradient that rises from the bottom of the hero as the page opens
-   (owner, 9 October 2026), solid behind the copy and very soft by the time it
-   reaches her face, which it may cover up to about half way. It is the page's
-   own white, over the photo and under the logos, so they stay at full
-   strength.
+   On a desktop with a mouse the hero opens on the photo and the logos alone.
+   The white veil, solid behind the copy and very soft by the time it reaches
+   her face, rises from the bottom with the copy on it when the cursor comes
+   into the bottom third of the hero, and slides away when it leaves, while
+   the page is at the top. Scrolling down locks them up; back at the top they
+   follow the cursor again. HeroStage holds the state in `data-reveal`
+   (hidden, shown or locked); this file only draws each. Without a fine
+   pointer that hovers, a touch laptop for one, there is no cursor to follow,
+   so they are simply there, as they are below 1280px.
+
+   ## The orbits, the chips and the cards
+
+   Three concentric orbits, each drawn only along its group's stretch, fading
+   toward its tail, under the logos. As the page opens each group's logos fan
+   out of its chip along the orbit (`portrait-fan`), then drift a few degrees
+   either way along it (`portrait-orbit`). A chip rested on or focused sets
+   `data-group` on the portrait: its orbit and logos come forward, spread a
+   little, and the others dim. A logo's card shows beside it, on the side away
+   from the photo's edge, its lines one after another. Below 1280px the
+   orbits and the chips on the photo are gone, and the chips are a legend
+   under it.
 
    ## Shares of the photo, in percentages
 
@@ -985,19 +1001,9 @@
    Percentages, not container units, which Safari would scale twice under the
    site's 0.9 zoom.
 
-   ## What moves
-
-   As the page opens the veil rises from the bottom, and the copy rises with
-   it, line by line (`hero-rise`). Each logo hops now and then (the bounce),
-   on the compositor. On hover it slides away from her along its own bearing
-   by a quarter of its size. The hover is caught by the node, which does not
-   move and reaches a quarter past the logo on every side, so a logo can slide
-   out from under a pointer resting on its inner edge without losing the
-   hover and sliding straight back. Devices without hover never get it: on a
-   phone a tap would leave the logo stuck out. Scrolled out of reach the logos
-   rest: `data-paused` holds the bounce. Reduced motion: the veil and the copy
-   are simply there, and the global rule runs every other animation once in
-   0.01ms, so each logo comes to rest in its place.
+   Scrolled out of reach the logos rest: `data-paused` holds the drift.
+   Reduced motion: everything is simply in place, and the veil and the copy
+   switch without sliding.
    ============================================================================= */
 
 .hero {
@@ -1078,7 +1084,7 @@
       rgb(253 253 253 / 0.07) 55%,
       transparent 60%
     );
-    animation: hero-veil 1500ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    transition: transform 800ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .hero__copy {
@@ -1086,8 +1092,34 @@
     z-index: 10;
   }
 
+  /* Above the chips, so a card is never under one. */
   .portrait__logos {
-    z-index: 2;
+    z-index: 4;
+  }
+}
+
+/* Following the cursor: only where there is one that hovers. */
+@media (min-width: 1280px) and (hover: hover) and (pointer: fine) {
+  .hero[data-reveal="hidden"] .hero__veil {
+    transform: translateY(100%);
+  }
+
+  .hero-line {
+    transition:
+      opacity 600ms ease,
+      transform 800ms cubic-bezier(0.22, 1, 0.36, 1);
+    transition-delay: var(--line-delay, 0ms);
+  }
+
+  /* Going, all at once; coming, line by line. */
+  .hero[data-reveal="hidden"] .hero-line {
+    opacity: 0;
+    transform: translateY(40px);
+    transition-delay: 0ms;
+  }
+
+  .hero[data-reveal="hidden"] .hero__copy > div {
+    pointer-events: none;
   }
 }
 
@@ -1108,44 +1140,6 @@
   user-select: none;
 }
 
-/* The veil, rising from below the hero into place. */
-@keyframes hero-veil {
-  from {
-    transform: translateY(100%);
-  }
-  to {
-    transform: none;
-  }
-}
-
-/* The copy, rising once as the page opens, with the veil. `both` holds each
-   line hidden through its own delay, so the three arrive in order rather than
-   all showing and then two of them jumping. */
-.hero-rise {
-  animation: hero-rise 1200ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: var(--rise-delay, 250ms);
-}
-
-@keyframes hero-rise {
-  from {
-    opacity: 0;
-    transform: translateY(32px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  /* Not just shortened by the global rule: their delays would still hold the
-     lines hidden for up to half a second. */
-  .hero-rise,
-  .hero__veil {
-    animation: none;
-  }
-}
-
 .portrait__logos {
   position: absolute;
   inset: 0;
@@ -1155,7 +1149,7 @@
   pointer-events: none;
 }
 
-/* Where the logo sits, and the hover target. It never moves. */
+/* Where the logo sits. It never moves; what is inside it does. */
 .portrait__node {
   position: absolute;
   left: var(--x);
@@ -1166,44 +1160,75 @@
   pointer-events: auto;
 }
 
-/* The target reaches past the logo by as far as the logo slides. */
-.portrait__node::before {
-  content: "";
-  position: absolute;
-  inset: calc(var(--portrait-reach) * -100%);
+.portrait__node[data-shown] {
+  z-index: 5;
 }
 
-.portrait__reach {
+.portrait__fan,
+.portrait__spread,
+.portrait__drift {
   display: block;
   width: 100%;
   height: 100%;
-  transition: transform 550ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-@media (hover: hover) {
-  /* Away from her along the bearing. The percentages are of the logo's own size. */
-  .portrait__node:hover .portrait__reach {
-    transform: translate(
-      calc(var(--dx) * var(--portrait-reach) * 100%),
-      calc(var(--dy) * var(--portrait-reach) * 100%)
-    );
+/* Out of its chip and along its orbit, as the page opens, one after another.
+   Translations are shares of the logo's own size. */
+.portrait__fan {
+  animation: portrait-fan 950ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(250ms + var(--i) * 80ms);
+}
+
+@keyframes portrait-fan {
+  from {
+    opacity: 0;
+    transform: translate(calc(var(--fx) * 100%), calc(var(--fy) * 100%)) scale(0.35);
   }
 }
 
-.portrait__bounce {
-  display: block;
-  width: 100%;
-  height: 100%;
-  animation: portrait-bounce var(--bounce-time) linear var(--drift-delay) infinite;
+.portrait__spread {
+  position: relative;
+  transition:
+    transform 500ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 400ms ease;
 }
 
-.portrait[data-paused] .portrait__bounce {
+/* A few degrees along the orbit and back, each logo at its own point in it. */
+.portrait__drift {
+  animation: portrait-orbit var(--orbit-time) ease-in-out calc(var(--i) * -1.7s) infinite alternate;
+}
+
+@keyframes portrait-orbit {
+  from {
+    transform: translate(calc(var(--tx) * -100%), calc(var(--ty) * -100%));
+  }
+  to {
+    transform: translate(calc(var(--tx) * 100%), calc(var(--ty) * 100%));
+  }
+}
+
+.portrait[data-paused] .portrait__drift {
   animation-play-state: paused;
 }
 
-/* On a white tile since 9 October 2026: the logos sit over her hair now, not
-   over the white ground, and the bare marks (Calendly's, HighLevel's, the
-   website glyph) were lost against it. */
+.portrait__tile {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 24%;
+  background: none;
+  cursor: pointer;
+}
+
+.portrait__tile:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 3px;
+}
+
+/* On a white tile: the logos sit over her hair as well as the wall, and the
+   bare marks (Calendly's, HighLevel's, the website glyph) were lost on it. */
 .portrait__logo {
   display: block;
   width: 100%;
@@ -1216,37 +1241,313 @@
     0 8px 18px -6px rgb(23 42 58 / 0.32);
   object-fit: contain;
   user-select: none;
+  transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/*
- * A hop, a smaller one, and a long rest: alive, not busy.
- *
- * Each step carries its own easing, slowing into the top of a hop and
- * speeding into the landing, which is what makes it read as a bounce rather
- * than a float. Heights are shares of the logo's own, so a phone's smaller
- * logos hop less.
- */
-@keyframes portrait-bounce {
-  0% {
-    transform: translateY(0);
-    animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
+.portrait__node[data-shown] .portrait__logo {
+  transform: scale(1.08);
+}
+
+/* A chip's group comes forward: its logos spread out a little from the
+   orbits' centre, and the other groups step back. */
+.portrait[data-group="messages"] .portrait__node[data-group="messages"] .portrait__spread,
+.portrait[data-group="bookings"] .portrait__node[data-group="bookings"] .portrait__spread,
+.portrait[data-group="payments"] .portrait__node[data-group="payments"] .portrait__spread {
+  transform: translate(calc(var(--ux) * 22%), calc(var(--uy) * 22%));
+}
+
+.portrait[data-group="messages"] .portrait__node:not([data-group="messages"]) .portrait__spread,
+.portrait[data-group="bookings"] .portrait__node:not([data-group="bookings"]) .portrait__spread,
+.portrait[data-group="payments"] .portrait__node:not([data-group="payments"]) .portrait__spread,
+.portrait[data-group="messages"] .portrait__orbit:not([data-group="messages"]),
+.portrait[data-group="bookings"] .portrait__orbit:not([data-group="bookings"]),
+.portrait[data-group="payments"] .portrait__orbit:not([data-group="payments"]) {
+  opacity: 0.35;
+}
+
+/* --- The orbits --------------------------------------------------------- */
+
+.portrait__orbits {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.portrait__orbit {
+  transition: opacity 400ms ease;
+}
+
+.portrait__orbit path {
+  fill: none;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: portrait-orbit-draw 1400ms cubic-bezier(0.22, 1, 0.36, 1) 150ms forwards;
+}
+
+.portrait__orbit-shade {
+  stroke: rgb(23 42 58 / 0.16);
+  stroke-width: 3.5;
+}
+
+.portrait__orbit-line {
+  stroke-width: 1.6;
+  transition: stroke-width 300ms ease;
+}
+
+.portrait[data-group="messages"] .portrait__orbit[data-group="messages"] .portrait__orbit-line,
+.portrait[data-group="bookings"] .portrait__orbit[data-group="bookings"] .portrait__orbit-line,
+.portrait[data-group="payments"] .portrait__orbit[data-group="payments"] .portrait__orbit-line {
+  stroke-width: 2.6;
+}
+
+@keyframes portrait-orbit-draw {
+  to {
+    stroke-dashoffset: 0;
   }
-  10% {
-    transform: translateY(-12%);
-    animation-timing-function: cubic-bezier(0.32, 0, 0.67, 0);
+}
+
+/* --- The chips ---------------------------------------------------------- */
+
+.portrait__chips {
+  display: none;
+}
+
+.portrait__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 7px 0 5px;
+  border: 1px solid rgb(255 255 255 / 0.85);
+  border-radius: 9999px;
+  background: rgb(255 255 255 / 0.8);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  backdrop-filter: blur(14px) saturate(1.4);
+  box-shadow:
+    0 1px 2px rgb(23 42 58 / 0.1),
+    0 10px 24px -12px rgb(23 42 58 / 0.45);
+  color: var(--color-ink);
+  font-size: 12.5px;
+  font-weight: 650;
+  white-space: nowrap;
+  transition:
+    background-color 300ms ease,
+    opacity 300ms ease,
+    transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.portrait__chips .portrait__chip {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  z-index: 3;
+  translate: -50% -50%;
+  cursor: pointer;
+  animation: portrait-chip 600ms cubic-bezier(0.22, 1, 0.36, 1) 100ms both;
+}
+
+.portrait__chips .portrait__chip:hover,
+.portrait__chip[aria-pressed="true"] {
+  background: #fff;
+  transform: translateY(-1px);
+}
+
+.portrait__chip:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+.portrait[data-group] .portrait__chips .portrait__chip:not([aria-pressed="true"]) {
+  opacity: 0.55;
+}
+
+@keyframes portrait-chip {
+  from {
+    opacity: 0;
+    scale: 0.9;
   }
-  20% {
-    transform: translateY(0);
-    animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+.portrait__chip-count {
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 9999px;
+  background: var(--color-ink);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.portrait__minis {
+  display: inline-flex;
+}
+
+.portrait__minis img {
+  width: 24px;
+  height: 24px;
+  padding: 3px;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow:
+    0 0 0 1.5px #fff,
+    0 1px 3px rgb(23 42 58 / 0.25);
+  object-fit: contain;
+}
+
+.portrait__minis img + img {
+  margin-left: -8px;
+}
+
+/* Below 1280px: the chips as a legend under the photo. */
+.portrait__legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0 16px;
+  list-style: none;
+}
+
+.portrait__legend .portrait__chip {
+  padding-right: 12px;
+}
+
+/* From 1280px the orbits and the chips are on the photo, and the legend goes. */
+@media (min-width: 1280px) {
+  .portrait__orbits,
+  .portrait__chips {
+    display: block;
   }
-  25% {
-    transform: translateY(-3.5%);
-    animation-timing-function: cubic-bezier(0.32, 0, 0.67, 0);
+
+  .portrait__legend {
+    display: none;
   }
-  30%,
-  100% {
-    transform: translateY(0);
-  }
+}
+
+/* --- The cards ---------------------------------------------------------- */
+
+.portrait__card {
+  position: absolute;
+  top: 50%;
+  z-index: 5;
+  display: grid;
+  gap: 4px;
+  padding: 9px 12px 10px;
+  border-radius: 14px;
+  background: rgb(255 255 255 / 0.95);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  box-shadow:
+    0 1px 2px rgb(23 42 58 / 0.1),
+    0 14px 32px -12px rgb(23 42 58 / 0.45);
+  color: var(--color-ink);
+  font-size: 13px;
+  line-height: 1.25;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(var(--card-from), -50%) scale(0.96);
+  transition:
+    opacity 220ms ease,
+    transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.portrait__card[data-side="right"] {
+  left: calc(100% + 12px);
+  --card-from: -6px;
+  transform-origin: left center;
+}
+
+.portrait__card[data-side="left"] {
+  right: calc(100% + 12px);
+  --card-from: 6px;
+  transform-origin: right center;
+}
+
+/* The top logos' cards open under them, clear of their chip. */
+.portrait__card[data-side="below"] {
+  top: calc(100% + 10px);
+  left: 50%;
+  transform: translate(-50%, -6px) scale(0.96);
+  transform-origin: top center;
+}
+
+.portrait__node[data-shown] .portrait__card {
+  opacity: 1;
+  transform: translate(0, -50%);
+}
+
+.portrait__node[data-shown] .portrait__card[data-side="below"] {
+  transform: translate(-50%, 0);
+}
+
+.portrait__card-name {
+  color: var(--color-muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.portrait__card-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    opacity 250ms ease,
+    transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* One line after another: received, then replied. */
+.portrait__node[data-shown] .portrait__card-line {
+  opacity: 1;
+  transform: none;
+  transition-delay: calc(80ms + var(--n) * 420ms);
+}
+
+.portrait__tick {
+  flex: none;
+  width: 16px;
+  height: 12px;
+  fill: none;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.portrait__tick--grey {
+  stroke: #8696a0;
+}
+
+.portrait__tick--blue {
+  width: 19px;
+  stroke: #53bdeb;
+}
+
+.portrait__tick--paid {
+  width: 16px;
+  height: 16px;
+}
+
+.portrait__tick--paid circle {
+  fill: #1f9d55;
+  stroke: none;
+}
+
+.portrait__tick--paid path {
+  stroke: #fff;
 }
 
 /* =============================================================================

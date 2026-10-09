@@ -1823,3 +1823,22 @@
     opacity: 0;
   }
 }
+
+/* =============================================================================
+   See it in your own branding (OwnBranding.tsx)
+   =============================================================================
+   Safari's loading line under the address field, running while the demo is
+   built. Indeterminate, as Safari's own is until the page answers. */
+
+.safari-progress > span {
+  animation: safari-progress 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes safari-progress {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(320%);
+  }
+}

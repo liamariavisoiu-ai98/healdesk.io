@@ -12,7 +12,7 @@ import { getSpecialty } from "@/lib/specialties";
 import type { DemoCheckout } from "@/components/checkout/DemoPackageExtras";
 import { checkoutStart } from "@/lib/pricing";
 import { replyByDate } from "@/lib/reply-by";
-import { gateState } from "@/lib/setup-gate";
+import { gateState, invitesToBuy } from "@/lib/setup-gate";
 import { SETUP_COOKIE } from "@/lib/setup-link";
 
 /** Every link state a visitor can be told about, from the cookie or from /start's redirect. */
@@ -45,7 +45,8 @@ async function demoFromCookie(): Promise<DemoSession | null> {
   const slug = (await cookies()).get(DEMO_COOKIE)?.value;
   if (!isDemoSlug(slug)) return null;
   const session = await getDemoSession(slug);
-  // The same test as the routes' (lib/setup-gate.ts demoInvitation).
+  // Built and not yet bought. Whether it also lets them past the pilot gate
+  // is the routes' test, invitesToBuy (lib/setup-gate.ts), applied below.
   return session && session.status === "ready" && !session.claimed ? session : null;
 }
 
@@ -116,7 +117,7 @@ export default async function GetStartedPage({
       </header>
 
       <main className="px-5 py-12 sm:px-8 sm:py-16">
-        {gate.mode === "pilot" && !invited && !demo ? (
+        {gate.mode === "pilot" && !invited && !(demo && invitesToBuy(demo)) ? (
           <SetupRequestForm replyBy={replyByDate()} notice={notice} />
         ) : (
           <CheckoutFlow
@@ -129,7 +130,10 @@ export default async function GetStartedPage({
             }
             lockedEmail={invited?.email}
             returnedFromPayment={cancelled === "1"}
-            demo={demo && !invited ? demoCheckout(demo) : undefined}
+            // With or without a setup link: the checkout route takes the
+            // demo's setup credit off whenever the demo is inside its week,
+            // so the page shows it whenever that is true.
+            demo={demo ? demoCheckout(demo) : undefined}
             // Stripe Tax is the server's setting; the page only says so.
             salesTax={process.env.STRIPE_AUTOMATIC_TAX === "true"}
           />

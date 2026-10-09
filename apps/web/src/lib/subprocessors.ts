@@ -176,8 +176,8 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   {
     name: "Anthropic (this website)",
     category: "ai-model",
-    purpose: "The language model behind the chat demo on this website, and behind reading a clinic's public website at checkout so setup starts pre-filled, in a separate Anthropic organisation from the product's",
-    data: "What you type into the demo, and the public service information of the specialty being demonstrated; at checkout, the text of up to eight public pages of the website you give us. No training on any of it",
+    purpose: "The language model behind the chat demo on this website, behind reading a clinic's public website at checkout so setup starts pre-filled, and behind building a clinic's personalised demo from its public website, in a separate Anthropic organisation from the product's",
+    data: "What you type into the demo, and the public service information of the specialty being demonstrated; at checkout or for a personalised demo, the text of public pages of the website you give us. No training on any of it",
     region: "United States",
     handlesPhi: false,
     baa: {
@@ -261,8 +261,8 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   {
     name: "Google (Google Sheets / Drive)",
     category: "lead-records",
-    purpose: "The marketing site's lead register: demo leads, funnel events, the demo-call consent record and setup requests, in a Google Sheet",
-    data: "Work email, business or personal domain, specialty demoed, referrer host, campaign code, the marketing-consent record; for a setup request, the requester's name, the clinic's name, website and email, the channels wanted, and the IP address it came from",
+    purpose: "The marketing site's lead register: demo leads, funnel events, the demo-call consent record, setup requests and personalised demos, in a Google Sheet",
+    data: "Work email, business or personal domain, specialty demoed, referrer host, campaign code, the marketing-consent record; for a setup request, the requester's name, the clinic's name, website and email, the channels wanted, and the IP address it came from; for a personalised demo, the website, the requester's email, what was read from the site, and a number given for the demo line",
     region: "United States (Google Cloud; not region-pinned for a Google account)",
     handlesPhi: false,
     baa: { state: "not-needed", because: "Business contact data only; a separate store from the product's; no patient information ever reaches it." },
@@ -281,8 +281,8 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
   {
     name: "Apify",
     category: "web-research",
-    purpose: "Reading a practice's public website when we research it before a first email",
-    data: "Publicly published pages of the practice's own website",
+    purpose: "Reading a practice's public website, and its public business listing's opening hours, when we research it before a first email or build its personalised demo",
+    data: "Publicly published pages of the practice's own website, and its public business listing",
     region: "United States",
     handlesPhi: false,
     baa: { state: "not-needed", because: "Public web pages only." },

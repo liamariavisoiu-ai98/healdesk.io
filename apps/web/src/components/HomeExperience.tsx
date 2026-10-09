@@ -6,6 +6,7 @@ import { AgentPanel } from "@/components/agent-panel/AgentPanel";
 import { ChatDemo } from "@/components/ChatDemo";
 import { NicheCarousel } from "@/components/NicheCarousel";
 import { Outcomes } from "@/components/Outcomes";
+import { OwnBranding } from "@/components/OwnBranding";
 import { VoiceDemo } from "@/components/VoiceDemo";
 import { site } from "@/lib/site";
 import { specialties } from "@/lib/specialties";
@@ -95,6 +96,10 @@ export function HomeExperience() {
             <ChatDemo />
           </AgentPanel>
         </div>
+
+        {/* Under the cards, her in theirs: their own demo, built from their
+            site and emailed to them (owner, 9 October 2026). */}
+        <OwnBranding />
       </section>
 
       {/* The eight outcomes, straight after the demos: meet her first, then

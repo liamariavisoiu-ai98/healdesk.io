@@ -4,10 +4,14 @@ import type { Metadata } from "next";
 import { LegalPage, Section } from "@/components/LegalPage";
 import { CookieChoice } from "@/components/analytics/CookieChoice";
 import { CALL_CONSENT, CONSENT_NOTICE_VERSION, MARKETING_CONSENT_LABEL, DEMO_ACCESS_DAYS } from "@/lib/consent";
+import { DEMO_LIFETIME_MS, DEMO_RETENTION_AFTER_EXPIRY_DAYS } from "@/lib/demo/sessions";
 import { GATE_COOKIE } from "@/lib/gate";
 import { ENTITY, POLICY, entityDisplayName } from "@/lib/legal";
 import { site } from "@/lib/site";
 import { PROCESSOR_CATEGORIES, WEBSITE_PROCESSING } from "@/lib/subprocessors";
+
+/** A personalised demo's week, in days, as lib/demo/sessions.ts counts it. */
+const DEMO_LIFETIME_DAYS = DEMO_LIFETIME_MS / (24 * 60 * 60 * 1000);
 
 export const metadata: Metadata = {
   alternates: { canonical: "/privacy" },
@@ -57,7 +61,10 @@ export const metadata: Metadata = {
  * sections 11 to 13. hello@healdesk.io is the one address. Section 9's breach
  * clock is the spec's (without unreasonable delay and in no case later than
  * 60 calendar days after discovery), and sections 6 and 12 say that transcripts are
- * deleted automatically after 90 days, or sooner if the clinic chooses.
+ * deleted automatically after 90 days, or sooner if the clinic chooses. The
+ * same version adds section 2's "If you ask for your own demo", for the
+ * homepage's "See it in your own branding" (api/own-demo), and the number a
+ * personalised demo's "Call us" keeps, which shipped without a line here.
  */
 export default function PrivacyPage() {
   return (
@@ -159,6 +166,24 @@ export default function PrivacyPage() {
             information about a business, not about a person; it is never patient information;
             and every email we send this way says who we are and carries a working unsubscribe.
           </li>
+          <li id="own-demo">
+            {/* Added 9 Oct 2026 (LEGAL_VERSION 2026-10-09.1) with the
+                homepage's "See it in your own branding", and the personalised
+                demo's "Call us", which keeps the number you will call from. */}
+            <strong>If you ask for your own demo.</strong> &ldquo;See it in your own branding&rdquo;
+            on the homepage asks for your clinic&apos;s website and your email. We read the
+            website&apos;s public pages, and the practice&apos;s public business listing for its
+            opening hours, and our AI model provider turns what we read into the demo: a private
+            page with your clinic&apos;s name, logo, colours, services and prices on it. We keep the
+            website, your email and what was read with the demo, and email you its link once, when
+            it is ready. A copy of your request, the website and your email, goes to our team, who
+            may reply to you about it; it is not added to a marketing list. Your IP address is used
+            only to limit how many demos can be asked for (Technical data, below). If, on the demo&apos;s page,
+            you tell us the number you will call the demo line from, we keep it with the demo so
+            the line answers as your clinic when you call; we never call it unless you ask us to
+            and tick the box above. A demo is live for {DEMO_LIFETIME_DAYS} days; section 6 says
+            when it is deleted, with everything kept with it.
+          </li>
           <li>
             <strong>Contact form submissions</strong> — your name, your clinic's name if you give
             it, your email and your message. They are delivered to our inbox by email and kept as
@@ -222,7 +247,8 @@ export default function PrivacyPage() {
           <li>
             <strong>Technical data.</strong> Your IP address and the page requested, used to
             rate-limit the demo and stop abuse. Rate-limit counters expire with their window: an
-            hour for most, a day for the demo-call limit on a given number. Request logs are kept
+            hour for most, a day for the demo-call limit on a given number and for the number of
+            demos asked for with one email address or for one website. Request logs are kept
             briefly by our hosting provider and never longer than {POLICY.logRetentionDays} days.
           </li>
           <li>
@@ -333,6 +359,7 @@ export default function PrivacyPage() {
           <li>Server logs: {POLICY.logRetentionDays} days.</li>
           <li>Demo-call consent records: {POLICY.callConsentRetentionYears} years, then deleted.</li>
           <li>Demo conversations: not stored by us at all; our AI model provider's own retention applies to its processing.</li>
+          <li>A personalised demo, and what was read to build it: live for {DEMO_LIFETIME_DAYS} days, then deleted {DEMO_RETENTION_AFTER_EXPIRY_DAYS} days later, unless your clinic buys from it, when it is kept with your purchase.</li>
           <li>Your website's pages, read at checkout: not stored by us at all; our AI model provider's own retention applies to its processing. What was read from them, once you press Pay: kept with your purchase, and deleted 14 days after you last pressed Pay if the purchase is not completed, otherwise 90 days after your account is created.</li>
           <li>The demo call itself: no recording or transcript is kept by us or by our voice provider, which keeps the call&apos;s basic record (time, length, how it ended) for 30 days. We hold the number only in the consent record above.</li>
           <li>A follow-up you asked for on the demo call: as ordinary email correspondence, until the request is answered and closed.</li>

@@ -98,7 +98,7 @@ function blockPrice(plan: Plan, meter: MeterId): string {
  * this agreement, because the Business Associate Agreement incorporates this
  * page by its address and must not pick up promises it does not itself make.
  * The annex follows the spec's breach clock (without unreasonable delay and
- * in no case later than 60 days after discovery) in place of /trust's five
+ * in no case later than 60 calendar days after discovery) in place of /trust's five
  * days, and names no vendor and counts none. It does not name the entity
  * either, for the reason above: section 20 is the one place on this page that
  * does.
@@ -757,7 +757,7 @@ export default function TermsPage() {
         <p>
           We tell the clinic of a breach of unsecured patient information, and of any other
           security incident whether or not it turns out to be a breach, without unreasonable delay
-          and in no case later than 60 days after discovery. Who pays for what follows is in the
+          and in no case later than 60 calendar days after discovery. Who pays for what follows is in the
           agreements, not in small print: the cost of notifying patients and regulators sits with
           the clinic (section 14), and we carry no liability insurance (section 13). We say both
           plainly so a clinic can size its own cover.

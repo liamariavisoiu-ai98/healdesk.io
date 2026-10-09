@@ -118,6 +118,11 @@ describe("the subcontractors note", () => {
     expect(clauseExplainer("1.2.1", "subcontractors")!.plain).toContain(
       "You get fifteen days' notice before a new vendor handles patient information",
     );
+    // 1.2.2 keeps the fifteen days and changes only where the list is kept,
+    // which the note does not mention, so it shows the same note.
+    expect(period("1.2.2")).toBe("fifteen days");
+    expect(clauseExplainer("1.2.2", "subcontractors")).toBe(BAA_CLAUSE_EXPLAINERS.subcontractors);
+    expect(clauseExplainer("1.2.2", "subcontractors")!.plain).not.toMatch(/healdesk\.io|subprocessors/);
     expect(period("1.3.0")).toBe(`${SUBPROCESSOR_NOTICE_HOURS} hours`);
     const note130 = clauseExplainer("1.3.0", "subcontractors")!.plain;
     expect(note130).toContain(
@@ -137,7 +142,8 @@ describe("the subcontractors note", () => {
   });
 
   test("is what the offered checkout has always shown, so drafting 1.3.0 changes nothing it shows", () => {
-    // The signing screen shows 1.2.1's note, through clauseExplainer.
+    // The signing screen shows 1.2.1's note, through clauseExplainer, for
+    // 1.2.2 as it did for 1.2.1.
     expect(BAA_CLAUSE_EXPLAINERS.subcontractors).toEqual({
       plain:
         "Every vendor that handles patient information signs the same obligations with " +
@@ -185,8 +191,9 @@ describe("the bullets above the agreement", () => {
   const citing = (terms: readonly BaaExplainerTerm[], citation: string) =>
     terms.find((t) => t.citation === citation)!.plain;
 
-  test("1.2.1 keeps its bullets word for word, because its clause still says use and materially breaches", () => {
+  test("1.2.1 and 1.2.2 keep their bullets word for word, because their clause still says use and materially breaches", () => {
     expect(baaExplainerTerms("1.2.1")).toBe(BAA_EXPLAINER.terms);
+    expect(baaExplainerTerms("1.2.2")).toBe(BAA_EXPLAINER.terms);
     expect(baaExplainerTerms(currentBaaTemplate().version)).toBe(BAA_EXPLAINER.terms);
     expect(citing(BAA_EXPLAINER.terms, "164.504(e)(2)(ii)(J)")).toBe(
       "At the end of the agreement, return or destroy the patient data we hold and keep no copies " +
@@ -234,7 +241,8 @@ describe("the bullets above the agreement", () => {
 });
 
 describe("the explainer for one version (gate 11)", () => {
-  test("1.2.1, the signed version, gets BAA_EXPLAINER itself, so its screen does not move a byte", () => {
+  test("1.2.2, the signed version, and 1.2.1 get BAA_EXPLAINER itself, so the screen does not move a byte", () => {
+    expect(baaExplainerFor("1.2.2")).toBe(BAA_EXPLAINER);
     expect(baaExplainerFor("1.2.1")).toBe(BAA_EXPLAINER);
     expect(baaExplainerFor("1.2.1").terms).toBe(BAA_EXPLAINER.terms);
     expect(baaExplainerFor(currentBaaTemplate().version)).toBe(BAA_EXPLAINER);

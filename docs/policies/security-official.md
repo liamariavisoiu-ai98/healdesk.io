@@ -24,10 +24,14 @@ Responsibilities, in order of importance:
 1. Keep the [risk analysis](../hipaa-risk-analysis.md) true, and re-date it on review.
 2. Hold the executed vendor BAAs (Retell, Anthropic and the database provider
    once signed; AWS per the [AWS HIPAA Account record](./aws-hipaa-account.md))
-   in the compliance file, and keep `apps/web/src/lib/subprocessors.ts` and the
-   table in [hipaa-compliance.md](../hipaa-compliance.md) matching them. Make
-   sure every vendor's notice address reaches you (incident-response.md,
-   "Notices from our vendors").
+   in the compliance file, and keep the subprocessor table in
+   [hipaa-compliance.md](../hipaa-compliance.md), which is the internal
+   register, matching them. There is no public subprocessor page: answer a
+   signed clinic's written request for the current list from that table, and
+   send each clinic its notice before a new subcontractor handles PHI (fifteen
+   days under BAA 1.2.2). Make sure every vendor's notice address reaches you
+   (incident-response.md, "Notices from our vendors"), and that
+   hello@healdesk.io, the only address the agreements name, does too.
 3. Run the breach and incident procedure when it is needed, on the BAA's clock.
 4. Grant and revoke production access under [access-control.md](./access-control.md),
    and apply [sanctions.md](./sanctions.md) — to themselves as to anyone.

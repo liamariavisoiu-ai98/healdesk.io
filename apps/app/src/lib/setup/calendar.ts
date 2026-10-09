@@ -9,8 +9,8 @@
  * exactly `/c/<slug>/setup` with `?calendar=<outcome>`, and for named
  * providers `listProviderCalendars`, `saveProviders` and
  * `setProviderServices`. None of it is in this build, and before its C19 no
- * real clinic could connect anyway (a 1.2.1 clinic resolves to
- * `needs_election`). So step 3 ships the funnel plan's line, "Bookings arrive
+ * real clinic could connect anyway (a clinic on 1.2.2, or any version before
+ * 1.3.0, resolves to `needs_election`). So step 3 ships the funnel plan's line, "Bookings arrive
  * as requests your team confirms.", with no button: a button that goes
  * nowhere would break the rule that every link works the day it ships.
  *

@@ -357,7 +357,7 @@ the agreement the service ended under, terminated since or not (`destructionPlan
 `apps/app/src/lib/offboarding/offboarding.ts`; `app_destruction_due()` in drizzle/0058 is
 the same rule as the database's floor):
 
-- BAA 1.2.1 and earlier, or no agreement on file: day 29, whatever the export, so the data
+- BAA 1.2.2 and earlier, or no agreement on file: day 29, whatever the export, so the data
   is gone before the thirty days the agreement gives. Every leaving practice is owed its
   export whether or not it asks (Terms §7; the canceled email tells it one is coming,
   though these agreements give it only "on request"), so deliver it and record the

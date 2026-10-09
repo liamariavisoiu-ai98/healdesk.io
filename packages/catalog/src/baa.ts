@@ -74,12 +74,13 @@ import { wrap } from "./wrap";
  * server-side, and the client sends back a hash of what it displayed so a
  * mismatch is refused rather than recorded.
  *
- * ⚖️ Version 1.2.1 is the current template and is what clinics now sign. It
- * was released on 2026-10-01 by the owner, on the owner's own review and
- * without external counsel, replacing 1.2.0 the same day; the doc comment on
- * `approvedByCounsel` records exactly what that flag now means. 1.3.0, the
- * calendar-dependent version, is drafted at BAA_TEMPLATES[1] and not offered
- * until it is released. 1.2.0, 1.0.0, which counsel approved in September
+ * ⚖️ Version 1.2.2 is the current template and is what clinics now sign. It
+ * was released on 2026-10-09 by the owner, on the owner's own review and
+ * without external counsel, replacing 1.2.1, which no clinic had signed; the
+ * doc comment on `approvedByCounsel` records exactly what that flag now
+ * means. 1.3.0, the calendar-dependent version, is drafted at
+ * BAA_TEMPLATES[1] and not offered until it is released. 1.2.1 and 1.2.0,
+ * each released on 2026-10-01, 1.0.0, which counsel approved in September
  * 2026, 1.1.0-draft, which was never offered, and 0.1.0-draft are retained
  * below them and never offered again: accounts created against 1.0.0 and
  * 0.1.0-draft signed that exact text, and their stored hash has to keep
@@ -228,10 +229,11 @@ export type BaaTemplate = {
    * screen flags one as a draft.
    *
    * The name predates the decision it now records. 1.0.0 was approved by
-   * counsel; version 1.2.0 was released on 2026-10-01 on the owner's own
-   * review without external counsel, and this flag is what records that
-   * release. Not renamed, because provisioning, agreements, AgreementStep and
-   * the tests all read it by this name.
+   * counsel; versions 1.2.0 and 1.2.1 were released on 2026-10-01, and 1.2.2
+   * on 2026-10-09, each on the owner's own review without external counsel,
+   * and this flag is what records each release. Not renamed, because
+   * provisioning, agreements, AgreementStep and the tests all read it by this
+   * name.
    */
   approvedByCounsel: boolean;
   preamble: (v: BaaVariables) => string;
@@ -839,7 +841,15 @@ const ENTITY_FORM = "a company registered under the Sharjah Publishing City Free
 // plainly — a BAA needs an identifiable party — and carries no
 // "correspondence only" disclaimer; counsel should confirm a mailbox is
 // adequate as a notice address (docs/handover.md "Decisions log", item 14).
+//
+// NOTICE_ADDRESS is frozen with the texts that print it, 1.1.0-draft to 1.2.1:
+// someone may have signed one, and its hash has to keep reproducing.
+// NOTICE_ADDRESS_1_2_2 is the same mailbox with hello@healdesk.io, from 1.2.2
+// on: hello@ is healdesk's only email address, for notices as for everything
+// else, and legal@ is no longer used (owner, 9 October 2026).
 const NOTICE_ADDRESS = "800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States, and by email to legal@healdesk.io";
+const NOTICE_ADDRESS_1_2_2 =
+  "800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States, and by email to hello@healdesk.io";
 const GOVERNING_STATE = "Delaware";
 // No floor, by decision of 21 September 2026, and since 22 September 2026 the
 // cap is only the fallback: healdesk's liability is excluded outright where the
@@ -849,15 +859,19 @@ const GOVERNING_STATE = "Delaware";
 
 /**
  * The contracting party, its notice address and the governing law, exactly as
- * every BAA version from 1.1.0 on prints them, exported once so that the data
- * protection agreement (dpa.ts) names the same party at the same address under
- * the same law. Kind-neutral, and read-only: changing any of these would move
- * every BAA golden hash, so they are as frozen as the versions that print them.
+ * BAA 1.2.2 prints them, exported once so that the data protection agreement
+ * (dpa.ts) names the same party at the same address under the same law.
+ * Kind-neutral and read-only. The BAA templates read the constants above
+ * directly, never this object, so it moves no BAA hash; but once the DPA is
+ * released it is frozen with the DPA's golden hashes, and a new address is a
+ * new constant beside these, never an edit to them. 1.1.0-draft to 1.2.1
+ * print NOTICE_ADDRESS, with legal@; 1.2.2 and this object print
+ * NOTICE_ADDRESS_1_2_2, with hello@ (owner, 9 October 2026).
  */
 export const AGREEMENT_PARTY = {
   entity: ENTITY,
   entityForm: ENTITY_FORM,
-  noticeAddress: NOTICE_ADDRESS,
+  noticeAddress: NOTICE_ADDRESS_1_2_2,
   governingState: GOVERNING_STATE,
 } as const;
 
@@ -1930,7 +1944,8 @@ function preamble(v: BaaVariables): string {
 }
 
 // -----------------------------------------------------------------------------
-// Version 1.2.1 — the offered version. Five accuracy fixes to 1.2.0.
+// Version 1.2.1 — five accuracy fixes to 1.2.0. Released 2026-10-01; replaced
+// by 1.2.2 on 2026-10-09 before any clinic signed it.
 // -----------------------------------------------------------------------------
 
 /**
@@ -2182,6 +2197,222 @@ function preamble121(v: BaaVariables): string {
 }
 
 // -----------------------------------------------------------------------------
+// Version 1.2.2 — the offered version. Three changes to 1.2.1, 9 October 2026.
+// -----------------------------------------------------------------------------
+
+/**
+ * 1.2.2 is 1.2.1 with the three changes the owner decided on 9 October 2026,
+ * and released that day on the owner's own review, without external counsel.
+ * No clinic had signed 1.2.1, so the floor moves straight to 1.2.2
+ * (MIN_ACCEPTABLE_BAA_VERSION) with no overlap window; 1.2.1 stays registered
+ * and frozen below all the same, as every superseded version does.
+ *
+ *   B1  subcontractors    The public list at healdesk.io/subprocessors is
+ *                         gone: subcontractor details go to a signed client
+ *                         on request, not at a URL. healdesk gives Practice
+ *                         its current list on Practice's written request to
+ *                         healdesk's email address in the Notices clause. The
+ *                         fifteen days' notice by email and the objection
+ *                         right are 1.2.1's, word for word, as are the
+ *                         clause's first two paragraphs.
+ *   B2  notice address    hello@healdesk.io is healdesk's only email address,
+ *                         for notices as for everything else; there is no
+ *                         legal@ mailbox. The preamble's party line and the
+ *                         Notices clause print NOTICE_ADDRESS_1_2_2. Every
+ *                         earlier text keeps NOTICE_ADDRESS, so its hash keeps
+ *                         reproducing.
+ *   B3  reporting         The product spec's wording (docs/v1-product-spec.md,
+ *                         "Breach notification runs to the clinic without
+ *                         unreasonable delay and inside 60 days"): without
+ *                         unreasonable delay and in no case later than 60
+ *                         calendar days, for a breach after its discovery,
+ *                         and for an improper use or disclosure and a
+ *                         security incident after healdesk becomes aware of
+ *                         it. One deadline for all three, so a breach never
+ *                         gets a looser one than a lesser incident. 1.2.1 said
+ *                         five calendar days for a breach and five business
+ *                         days for the other two; the sentence explaining why
+ *                         five days sat inside sixty goes with them. The
+ *                         discovery rule, the carve-out for routine
+ *                         unsuccessful attempts and the 164.410(c) contents
+ *                         are 1.2.1's. healdesk's 24-hour target
+ *                         (apps/app lib/incidents, docs/incident-response.md)
+ *                         is an internal practice, not a promise in the text.
+ *
+ * Everything else is 1.2.1's, by lookup: the same clause objects, in the same
+ * order.
+ */
+function byId121(id: string): BaaClause {
+  const clause = CLAUSES_1_2_1.find((c) => c.id === id);
+  if (!clause) throw new Error(`No 1.2.1 clause ${id}`);
+  return clause;
+}
+
+const CLAUSES_1_2_2: readonly BaaClause[] = [
+  byId121("definitions"),
+  byId121("practice-status"),
+  byId121("permitted-uses"),
+  byId121("data-sources-verified"),
+  byId121("data-sources-none"),
+  byId121("google-calendar"),
+  byId121("own-use"),
+  byId121("practice-duties"),
+  byId121("safeguards"),
+  byId121("minimum-necessary"),
+
+  // B3: the spec's deadline for all three; everything else is 1.2.1's.
+  {
+    id: "reporting",
+    heading: "Reporting breaches and security incidents",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(`healdesk will report to Practice, in writing to the address in the Notices clause:`) +
+      "\n\n" +
+      wrap(
+        `a. any use or disclosure of PHI not permitted by this agreement, without unreasonable ` +
+          `delay and in no case later than 60 calendar days after healdesk becomes aware of it;`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `b. any breach of unsecured PHI, without unreasonable delay and in no case later ` +
+          `than 60 calendar days after discovery. A breach is treated as discovered on ` +
+          `the first day it is known, or by exercising reasonable diligence would have ` +
+          `been known, to healdesk or to any person other than the one committing it who ` +
+          `is healdesk's workforce member or agent, as 45 CFR 164.410(a)(2) provides;`,
+        "    ",
+        "       ",
+      ) +
+      "\n" +
+      wrap(
+        `c. any security incident, without unreasonable delay and in no case later than 60 ` +
+          `calendar days after healdesk becomes aware of it — except routine unsuccessful ` +
+          `attempts that compromised nothing, such as blocked sign-ins, port scans and ` +
+          `filtered traffic, which the parties agree this clause reports once, here, and ` +
+          `which healdesk will summarise on request.`,
+        "    ",
+        "       ",
+      ) +
+      "\n\n" +
+      wrap(
+        `A breach report will include, to the extent known and supplemented as learned: ` +
+          `the identification of each individual whose unsecured PHI was or is reasonably ` +
+          `believed to have been accessed, acquired, used or disclosed; a description of ` +
+          `what happened, including the dates of the breach and of its discovery; the ` +
+          `types of PHI involved; what healdesk is doing to investigate, mitigate and ` +
+          `prevent recurrence; and a contact. 45 CFR 164.410(c). Who bears the cost of ` +
+          `notifying patients, regulators and anyone else about a breach is allocated by ` +
+          `the Liability clause.`,
+      ),
+  },
+
+  // B1: the first two paragraphs are 1.2.1's, word for word; the list is
+  // given on request rather than published.
+  {
+    id: "subcontractors",
+    heading: "Subcontractors",
+    appliesWhen: ALWAYS,
+    body: () =>
+      wrap(
+        `healdesk uses subcontractors to deliver the Services — telephony, speech ` +
+          `recognition, language models, hosting and email among them. healdesk will ` +
+          `ensure that any subcontractor that creates, receives, maintains or transmits ` +
+          `PHI on healdesk's behalf agrees in writing, before it does so, to the same ` +
+          `restrictions and conditions this agreement places on healdesk, and to comply ` +
+          `with the HIPAA Security Rule, under a contract meeting 45 CFR 164.314(a) and ` +
+          `164.504(e)(5). healdesk remains answerable to Practice for its ` +
+          `subcontractors' acts and omissions with that PHI.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `Language models are used to understand a patient and answer them during a ` +
+          `conversation. healdesk's language-model provider is Anthropic, which receives ` +
+          `the content of each conversation to generate the assistant's replies, under a ` +
+          `business associate agreement with healdesk. Under that agreement Anthropic ` +
+          `retains conversation content for 30 days, for abuse detection and security, ` +
+          `and then deletes it, except content its automated trust-and-safety systems ` +
+          `flag or the law requires it to keep, which it may retain for up to two years; ` +
+          `its covered service cannot run with shorter retention. Anthropic never trains ` +
+          `on that content, and healdesk may not use PHI to train, fine-tune or evaluate ` +
+          `any model, its own or a third party's.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `healdesk will give Practice its current list of these subcontractors on ` +
+          `Practice's written request to healdesk's email address in the Notices clause, ` +
+          `and will give Practice at least fifteen days' notice by email before adding one ` +
+          `that will handle PHI. If Practice objects on reasonable grounds before the ` +
+          `change takes effect, Practice may terminate under the Term clause without ` +
+          `penalty.`,
+      ),
+  },
+
+  byId121("patient-rights"),
+  byId121("acting-in-your-place"),
+  byId121("prohibited"),
+  byId121("term"),
+  byId121("liability"),
+  byId121("records-to-hhs"),
+
+  // B2: 1.2.1's boilerplate, word for word, with hello@ in healdesk's address.
+  {
+    id: "notices-and-law",
+    heading: "Notices, governing law, and interpretation",
+    appliesWhen: ALWAYS,
+    body: (v) =>
+      wrap(
+        `Notices under this agreement are in writing. To healdesk: ${NOTICE_ADDRESS_1_2_2}. ` +
+          `To Practice: the email address of the signatory above, and any notice address ` +
+          `Practice later gives healdesk in writing. Breach reports may additionally be ` +
+          `given by telephone to Practice, but the written notice is the notice.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `This agreement is governed by the laws of the State of ${GOVERNING_STATE} and by ` +
+          `HIPAA, without regard to conflict-of-laws rules, and the parties submit to the ` +
+          `courts of that State. Any ambiguity is resolved in favour of a meaning that ` +
+          `permits compliance with HIPAA. A reference to a section of HIPAA or of a ` +
+          `regulation means that section as amended, and if a change in law requires a ` +
+          `change to this agreement, the parties will agree it in good faith within ` +
+          `thirty days of either asking, failing which either may terminate under the ` +
+          `Term clause. If any provision is unenforceable the rest stands.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `This agreement, the Terms and the order Practice placed are the entire ` +
+          `agreement between ${v.clinicLegalName} and ${ENTITY} about PHI, and replace ` +
+          `any earlier version of this agreement between them from the effective date ` +
+          `forward; PHI already held is governed by this version from that date.`,
+      ),
+  },
+];
+
+/** The 1.2.2 preamble: 1.2.1's, with the version line and hello@ in healdesk's address. */
+function preamble122(v: BaaVariables): string {
+  const title = v.signatoryTitle?.trim() ? `, ${v.signatoryTitle.trim()}` : "";
+  return [
+    `HEALDESK BUSINESS ASSOCIATE AGREEMENT`,
+    `Version 1.2.2 — executed electronically`,
+    ``,
+    `This Agreement is entered into under 45 CFR 164.502(e) and 164.504(e) and`,
+    `takes effect on the date below. It governs Protected Health Information`,
+    `that healdesk creates, receives, maintains or transmits for Practice in the`,
+    `course of the Services defined in the Terms.`,
+    ``,
+    `BETWEEN`,
+    wrap(`${v.clinicLegalName} ("Practice"), a ${v.specialty.toLowerCase()} practice`),
+    wrap(`${ENTITY}, ${ENTITY_FORM} ("healdesk"), of ${NOTICE_ADDRESS_1_2_2}`),
+    ``,
+    `SIGNED FOR PRACTICE BY`,
+    `  ${v.signatoryName}${title}`,
+    `  ${v.signatoryEmail}`,
+    ``,
+    `EFFECTIVE ${formatDate(v.effectiveDate)}`,
+  ].join("\n");
+}
+
+// -----------------------------------------------------------------------------
 // Version 1.3.0 — DRAFT. The calendar-dependent agreement. Not offered.
 // -----------------------------------------------------------------------------
 
@@ -2216,18 +2447,21 @@ export const BACKUP_RETENTION_DAYS = 35;
 
 /**
  * healdesk's registered address, its US mailing address and its notices
- * email, as 1.3.0 states them. They mirror apps/web/src/lib/legal.ts
+ * email, as 1.3.0 states them. The addresses mirror apps/web/src/lib/legal.ts
  * (`ENTITY.registeredAddress`, exactly as the trade licence gives it, supplied
- * by the owner on 3 October 2026; `ENTITY.postalAddress`; `ENTITY.noticesEmail`)
- * as literals, not imports, so a released text cannot move when legal.ts does.
+ * by the owner on 3 October 2026; `ENTITY.postalAddress`) as literals, not
+ * imports, so a released text cannot move when legal.ts does. The email is
+ * hello@healdesk.io, healdesk's only email address (owner, 9 October 2026),
+ * changed in place from legal@ because 1.3.0 is unreleased.
  * The mailbox is for correspondence only: never a place of business, a
  * registered office or an address for service of process, which the Notices
- * clause says. NOTICE_ADDRESS, above, stays for the 1.1.0–1.2.1 texts.
+ * clause says. NOTICE_ADDRESS and NOTICE_ADDRESS_1_2_2, above, stay for the
+ * 1.1.0–1.2.2 texts.
  */
 const REGISTERED_ADDRESS =
   "Business Center, Sharjah Publishing City Free Zone, Sharjah, United Arab Emirates";
 const US_MAILING_ADDRESS = "800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States";
-const NOTICES_EMAIL = "legal@healdesk.io";
+const NOTICES_EMAIL = "hello@healdesk.io";
 
 /**
  * 1.3.0's headings, wherever another clause names one. A clause names another
@@ -2616,8 +2850,8 @@ function calendarClause(kind: CalendarTermsKind): BaaClause {
 }
 
 /**
- * ⚖️ 1.2.1 has one Google Calendar clause, unconditional, which tells every
- * practice that healdesk adds appointments to its calendar. That is untrue
+ * ⚖️ 1.2.1 and 1.2.2 have one Google Calendar clause, unconditional, which
+ * tells every practice that healdesk adds appointments to its calendar. That is untrue
  * for a practice whose booking system does not read Google Calendar (it runs
  * manual booking, and healdesk connects to nothing), and it says nothing
  * about who answers for a calendar Google's business associate agreement
@@ -2683,12 +2917,16 @@ function calendarClause(kind: CalendarTermsKind): BaaClause {
  *   minimum          NEW object: what the booking-field catalogue asks, no
  *                    email, "the person booking", and each record's retention
  *                    as the purge runs it; backups within 35 days.
- *   reporting        NEW object: one rule for every practice, immediately
- *                    and within 24 hours; 164.412's delay; the notice is
- *                    itself the written report, with the contents 164.410(c)
- *                    and 164.404(c) require, added to promptly.
- *   subcontractors   Anthropic in covenant form; the notice goes to the
- *                    notice address and names the subcontractor
+ *   reporting        NEW object: one rule for every practice and one
+ *                    deadline for all three reports, without unreasonable
+ *                    delay and in no case later than 60 calendar days after
+ *                    discovery (the spec's wording, as 1.2.2 has it; owner,
+ *                    9 October 2026); 164.412's delay; the notice is itself
+ *                    the written report, with the contents 164.410(c) and
+ *                    164.404(c) require, added to promptly.
+ *   subcontractors   Anthropic in covenant form; the list on Practice's
+ *                    written request, as 1.2.2 gives it; the notice goes to
+ *                    the notice address and names the subcontractor
  *                    (subprocessor-notice.ts).
  *   patient rights   NEW object: "Practice"; an amendment appended and linked
  *                    where a record must stay as it was made; a request made
@@ -2709,12 +2947,16 @@ function calendarClause(kind: CalendarTermsKind): BaaClause {
  *                    indemnitees, triggers and defence paragraph; the Term
  *                    clause's refund outside the exclusion and the indemnity.
  *   records          NEW object: "PHI".
- *   notices          NEW object: email to healdesk is enough; Practice's one
- *                    notice address; the Delaware courts' exclusive
- *                    jurisdiction; clause names resolved by heading; a
- *                    change-in-law termination ends the Services.
+ *   notices          NEW object: email to healdesk, at hello@healdesk.io, is
+ *                    enough; Practice's one notice address; the Delaware
+ *                    courts' exclusive jurisdiction; clause names resolved by
+ *                    heading; a change-in-law termination ends the Services.
  *
- * No 1.2.1 or older object changes: every clause above is a new object or
+ * Against 1.2.2, the version it now follows, the list is the same except that
+ * 1.2.2 already gives the subcontractor list on request, names hello@ and
+ * carries the 60-day wording, so those three are no longer differences.
+ *
+ * No 1.2.2 or older object changes: every clause above is a new object or
  * 1.3.0's own. 22 clauses are registered and 20 render: one calendar clause
  * of three.
  *
@@ -3099,17 +3341,25 @@ const CLAUSES_1_3: readonly BaaClause[] = [
   },
 
   /**
-   * One rule for every practice, whatever its status (owner, 6 October 2026;
-   * HRC-05, HRC-06, HRC-12, PT-16): notice immediately following discovery
-   * and within 24 hours, which also meets Cal. Civ. Code 1798.82(b); 164.412's
-   * law-enforcement delay. The notice is itself the written report, as
-   * complete as healdesk can then make it, so what 164.410(c) and 164.404(c)
-   * require (the identification of each individual included) is due within
-   * the same 24 hours to the extent it is known, and is added to promptly as
+   * One rule for every practice, whatever its status (HRC-05, HRC-06,
+   * HRC-12, PT-16), and one deadline for all three kinds of report, so a
+   * breach never gets a looser one than a lesser incident: without
+   * unreasonable delay and in no case later than 60 calendar days after
+   * discovery, the product spec's wording (owner, 9 October 2026, replacing
+   * the 24 hours decided on 6 October); 164.412's law-enforcement delay. The
+   * 24 hours stays healdesk's internal target (apps/app lib/incidents,
+   * docs/incident-response.md), unpublished. The notice is itself the written
+   * report, as complete as healdesk can then make it, so what 164.410(c) and
+   * 164.404(c) require (the identification of each individual included) is
+   * due with it to the extent it is known, and is added to promptly as
    * information arrives: 164.410(c)(1) puts the identification in the
    * notification itself, and (c)(2) the rest "at the time of the notification
    * ... or promptly thereafter" (verification of the redraft, 7 October 2026).
-   * The incident console's deadline follows as a release gate (PT-14).
+   * ⚖️ For a practice that is not a covered entity the 60 days no longer
+   * meets, on its own, the "immediately following discovery" that Cal. Civ.
+   * Code 1798.82(b) asks of a business holding data it does not own; that
+   * statute binds healdesk directly whatever the text says, and the internal
+   * 24 hours meets it (agreement-changes.md §13).
    */
   {
     id: "reporting",
@@ -3118,8 +3368,8 @@ const CLAUSES_1_3: readonly BaaClause[] = [
     body: () =>
       wrap(
         `healdesk will notify Practice, by email to Practice's address in the Notices clause, ` +
-          `immediately following discovery of any of the following, and in any case within 24 ` +
-          `hours of discovery:`,
+          `of any of the following without unreasonable delay and in no case later than 60 ` +
+          `calendar days after discovery:`,
       ) +
       "\n\n" +
       [
@@ -3147,12 +3397,10 @@ const CLAUSES_1_3: readonly BaaClause[] = [
       ) +
       "\n\n" +
       wrap(
-        `For a breach, twenty-four hours is deliberately far inside the sixty days that 45 CFR ` +
-          `164.410(b) allows, because Practice's own clock to notify patients may run from ` +
-          `healdesk's discovery rather than from its notice. healdesk delays a notice only where a ` +
-          `law enforcement official states that the notice would impede a criminal investigation ` +
-          `or damage national security. It then delays it only for as long as 45 CFR 164.412, or ` +
-          `the state law that applies, provides, and gives it as soon as that delay ends.`,
+        `healdesk delays a notice only where a law enforcement official states that the notice ` +
+          `would impede a criminal investigation or damage national security. It then delays it ` +
+          `only for as long as 45 CFR 164.412, or the state law that applies, provides, and gives ` +
+          `it as soon as that delay ends.`,
       ) +
       "\n\n" +
       wrap(
@@ -3192,7 +3440,7 @@ const CLAUSES_1_3: readonly BaaClause[] = [
   // 1.2.1's flow-down paragraph, word for word; Anthropic in covenant form
   // (HRC-11, ICD-12, PT-09, SUB-04: its business associate agreement with
   // healdesk is still pending on the register); the notice is the shared
-  // 24-hour sentence.
+  // sentence: the list on request, and 24 hours' notice of a new one.
   {
     id: "subcontractors",
     heading: HEADINGS_1_3.subcontractors,
@@ -3634,22 +3882,23 @@ export const BAA_TEMPLATES: readonly BaaTemplate[] = [
   // read [0], so a version stays at [0] until its successor is approved for
   // release too.
   {
-    version: "1.2.1",
-    publishedOn: "2026-10-01",
-    // Approved for release by the owner on 2026-10-01, on the owner's own
-    // review and without external counsel, after the adversarial review of
-    // 1.2.0 the same day. The field's doc comment on BaaTemplate says what
-    // the flag means; this is the entry it describes.
+    version: "1.2.2",
+    publishedOn: "2026-10-09",
+    // Approved for release by the OWNER on 2026-10-09, on the owner's own
+    // review and without external counsel: as the field's doc comment on
+    // BaaTemplate defines it, the flag records the owner's release, not a
+    // lawyer's approval. The three changes it carries are the owner's
+    // decisions of that day (B1–B3 above CLAUSES_1_2_2).
     approvedByCounsel: true,
-    preamble: preamble121,
-    clauses: CLAUSES_1_2_1,
+    preamble: preamble122,
+    clauses: CLAUSES_1_2_2,
   },
   // ⚖️ Drafted on 2026-10-06; not released, so not at [0], and signing
   // refuses it, taking only [0] or a released version inside its
   // overlap. Provisioning refuses a row signed under it too (plan C15: its
   // approval gate reads the bound acceptance's own version) until the
   // release. Released by the owner after an audit of the full text (plan
-  // C19): it then moves to [0] with a release date, and 1.2.1 stays signable
+  // C19): it then moves to [0] with a release date, and 1.2.2 stays signable
   // until the deadline in BAA_RELEASE_OVERLAP, unless the release raises
   // MIN_ACCEPTABLE_BAA_VERSION past it.
   {
@@ -3659,6 +3908,20 @@ export const BAA_TEMPLATES: readonly BaaTemplate[] = [
     preamble: preamble130,
     clauses: CLAUSES_1_3,
     validate: validate130,
+  },
+  // Released on 2026-10-01 and offered until 1.2.2 replaced it on
+  // 2026-10-09 for the three changes listed above CLAUSES_1_2_2. No clinic
+  // signed it; retained and frozen all the same, as every released version
+  // is. Below MIN_ACCEPTABLE_BAA_VERSION, so go-live refuses it.
+  {
+    version: "1.2.1",
+    publishedOn: "2026-10-01",
+    // Approved for release by the owner on 2026-10-01, on the owner's own
+    // review and without external counsel, after the adversarial review of
+    // 1.2.0 the same day.
+    approvedByCounsel: true,
+    preamble: preamble121,
+    clauses: CLAUSES_1_2_1,
   },
   // Offered for part of 1 October 2026, then replaced by 1.2.1 for the five
   // accuracy fixes listed above it. Retained and frozen: anything signed
@@ -3717,24 +3980,30 @@ export const CURRENT_BAA_VERSION = BAA_TEMPLATES[0]!.version;
  * judgement made at each release, and a floor makes it a constant raised on
  * purpose rather than a side effect of publishing.
  *
- * 1.2.1, the version being signed, while 1.3.0 is a draft. It refuses 1.0.0,
- * 1.2.0 and every unreleased draft. Whether releasing 1.3.0 raises it is part
- * of that release (plan C19): 1.3.0 is the first version with the Payments
- * clause and the clause for a practice that is not a covered entity.
+ * 1.2.2, the version being signed, while 1.3.0 is a draft. Raised from 1.2.1
+ * with the 1.2.2 release on 2026-10-09: no clinic had signed 1.2.1, so
+ * nobody has to re-accept, and a 1.2.1 document would point clinics at a
+ * subcontractor page that no longer exists, give a notice address that is
+ * no longer used and promise breach deadlines the owner has replaced. It
+ * refuses 1.0.0, 1.2.0, 1.2.1 and every unreleased draft. Whether releasing
+ * 1.3.0 raises it is part of that release (plan C19): 1.3.0 is the first
+ * version with the Payments clause and the clause for a practice that is not
+ * a covered entity.
  *
  * At each release: decide whether the new version raises the floor, and add
  * every acceptable version to app_baa_version_acceptable() in a migration.
  * Go-live refuses any version that SQL list leaves out, and the parity test
  * in apps/app/tests/database-audit.test.ts fails until the two agree.
  */
-export const MIN_ACCEPTABLE_BAA_VERSION = "1.2.1";
+export const MIN_ACCEPTABLE_BAA_VERSION = "1.2.2";
 
 /**
  * Whether a clinic may go live under an agreement of this version: the
  * template is registered, approved for release, and no older than
  * MIN_ACCEPTABLE_BAA_VERSION. "Older" is position in BAA_TEMPLATES, which is
  * ordered newest released first, with a draft after the release it follows;
- * publishedOn cannot decide it, because 1.2.0 and 1.2.1 share a date. A draft
+ * publishedOn cannot decide it, because 1.2.0 and 1.2.1 share a date, and a
+ * draft can be published before the release it follows (1.3.0, 1.2.2). A draft
  * is never acceptable, wherever it sits: it is not approved for release.
  */
 export function isBaaVersionAcceptable(version: string): boolean {
@@ -3772,12 +4041,14 @@ export function templateReadsCalendarAccount(template: BaaTemplate): boolean {
  * Versions that stay signable for a short while after their successor is
  * released, mapped to the ISO time they stop. A release reaches apps/app and
  * apps/web in two deploys, and a buyer who loaded the agreement before the
- * second one would otherwise be refused mid-checkout. Empty until 1.3.0 is
- * released: the release (plan C19) sets 1.2.1 to the release time plus 72
- * hours, unless it raises MIN_ACCEPTABLE_BAA_VERSION past 1.2.1. Then 1.2.1
+ * second one would otherwise be refused mid-checkout. The 1.2.2 release
+ * lists nothing: it raised MIN_ACCEPTABLE_BAA_VERSION past 1.2.1, so 1.2.1
  * is not listed, because a buyer could sign it and then be refused at
  * go-live, and the go-live floor test in apps/app/tests/agreements.test.ts
- * fails while any version listed here is below the floor. Plan C20 empties
+ * fails while any version listed here is below the floor. Empty until 1.3.0
+ * is released: that release (plan C19) sets 1.2.2 to the release time plus
+ * 72 hours, unless it raises MIN_ACCEPTABLE_BAA_VERSION past 1.2.2, in which
+ * case 1.2.2 is not listed either, for the same reason. Plan C20 empties
  * it once both production deployments are verified. apps/app's signing
  * reads it (signableTemplate in apps/app/src/lib/agreements.ts): a version
  * listed here signs only if it was released, and only before its deadline,

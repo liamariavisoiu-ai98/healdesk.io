@@ -56,7 +56,7 @@ export const metadata: Metadata = {
  * named, as the platforms a clinic connects and whose app reviews read
  * sections 11 to 13. hello@healdesk.io is the one address. Section 9's breach
  * clock is the spec's (without unreasonable delay and in no case later than
- * 60 days after discovery), and sections 6 and 12 say that transcripts are
+ * 60 calendar days after discovery), and sections 6 and 12 say that transcripts are
  * deleted automatically after 90 days, or sooner if the clinic chooses.
  */
 export default function PrivacyPage() {
@@ -405,7 +405,7 @@ export default function PrivacyPage() {
           Meta&apos;s systems, which we do not control. Email that would carry patient information
           goes only over an encrypted connection, and is not sent if the receiving server cannot
           accept one. A breach of unsecured patient information, or any other security incident,
-          is reported to the clinic without unreasonable delay and in no case later than 60 days
+          is reported to the clinic without unreasonable delay and in no case later than 60 calendar days
           after discovery.
         </p>
         <p>

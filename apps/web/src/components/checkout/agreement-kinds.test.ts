@@ -267,10 +267,10 @@ describe("AGREEMENT_COPY", () => {
     expect(AGREEMENT_COPY.baa.fileStem).toBe("healdesk-baa");
   });
 
-  test("1.2.1, the version signed until the release, shows exactly BAA_EXPLAINER's bullets", () => {
-    expect(AGREEMENT_COPY.baa.version).toBe("1.2.1");
+  test("1.2.2, the version signed until the release, shows exactly BAA_EXPLAINER's bullets", () => {
+    expect(AGREEMENT_COPY.baa.version).toBe("1.2.2");
     expect(AGREEMENT_COPY.baa.explainer.terms).toBe(BAA_EXPLAINER.terms);
-    expect(baaAgreementCopy(getBaaTemplate("1.2.1")!).explainer).toBe(BAA_EXPLAINER);
+    expect(baaAgreementCopy(getBaaTemplate("1.2.2")!).explainer).toBe(BAA_EXPLAINER);
   });
 
   test("an entry reads everything off its template: 1.3.0 shows 1.3.0's bullets, notes and text (gate 11)", () => {

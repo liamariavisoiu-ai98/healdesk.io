@@ -53,8 +53,8 @@ const PINNED = {
    */
   replaces: "2026-10-07.3",
   sha256: {
-    "/terms": "20c3ed7e16d4f08d3d369db738c307850122a57ab0508ce11497a3e0567b3000",
-    "/privacy": "23b5a5cd2b95488a36f98bf404bcc13ed5e31e63ef7c9fa8e0003b5853cdc260",
+    "/terms": "8628584b43858ccc1600794ceb607e2288de9c041018a7b71fe57f5bc06d44d5",
+    "/privacy": "77db81af080c8a453ce3d2b4cd45f31a995c385c8003bf3f26a71f3e2c491e8b",
     "/data-deletion": "9b1c6df0b56d48387f37e67f3fc86c9a1b77faebdd6d598b76534ef202f65628",
   },
 } as const;

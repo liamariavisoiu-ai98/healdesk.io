@@ -1452,11 +1452,13 @@ export const incidents = pgTable(
     discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull(),
     /**
      * From the class: discovery plus 24 hours for a breach, a security
-     * incident and an improper use or disclosure, at every clinic (BAA
-     * 1.3.0's reporting clause, which 1.2.1's five days are met by too), or
-     * the state-law clause's "immediately following discovery" for a breach
-     * at a clinic that is not a covered entity, if that is ever earlier; two
-     * business days to a first reply for a service complaint. Set when the
+     * incident and an improper use or disclosure, at every clinic, or the
+     * state-law "immediately following discovery" for a breach at a clinic
+     * that is not a covered entity, if that is ever earlier; two business
+     * days to a first reply for a service complaint. The 24 hours is
+     * healdesk's internal target, unpublished: it meets every agreement's
+     * deadline (60 calendar days at most in BAA 1.2.2 and the 1.3.0 and DPA
+     * drafts since 9 October 2026; five days in 1.2.1 and before). Set when the
      * incident is opened: rows opened before 7 October 2026 keep the five-day
      * clocks they were opened with (lib/incidents/incidents.ts).
      */

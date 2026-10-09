@@ -167,7 +167,7 @@ export type ResolvedLink = {
   clinicName: string;
   /**
    * Needed for `connectEmailFor()` — the wizard's copyable steps ask them to
-   * add `connect+<slug>@healdesk.io` as a read-only user, so the slug is part
+   * add `hello+<slug>@healdesk.io` as a read-only user, so the slug is part
    * of "enough to render the wizard". It discloses nothing the clinic name has
    * not already, to the one visitor who is by definition that clinic.
    */

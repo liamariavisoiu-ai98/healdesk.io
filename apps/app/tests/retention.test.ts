@@ -115,7 +115,7 @@ describeDb("retention purge", () => {
   });
 
   test("both clocks default to the 90 days the agreement states", async () => {
-    // BAA 1.2.1 and 1.3.0: "healdesk keeps transcripts and conversation
+    // BAA 1.2.1, 1.2.2 and 1.3.0: "healdesk keeps transcripts and conversation
     // records for 90 days". The record clock defaulted to 730 until 0048, so
     // a clinic that never changed it kept its records eight times as long.
     const c = await seedClinic("purgeDefaults");

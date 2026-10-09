@@ -91,7 +91,7 @@ describe("the product's commitments the policy repeats", () => {
 
   test("the breach clock is the spec's, not five days", () => {
     expect(text).toContain(
-      "is reported to the clinic without unreasonable delay and in no case later than 60 days after discovery",
+      "is reported to the clinic without unreasonable delay and in no case later than 60 calendar days after discovery",
     );
     expect(text).not.toMatch(/five (?:calendar|business) days/);
   });

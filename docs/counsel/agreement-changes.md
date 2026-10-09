@@ -10,6 +10,9 @@
 > regulation it claims to satisfy, and lists what the next version (1.2.1)
 > must fix. Where a document disagrees with `docs/v1-product-spec.md` about
 > what the product does, the spec wins.
+>
+> **Since 9 October 2026 the version offered is BAA 1.2.2** (§ 13,
+> `docs/baa-v1.2.2.txt`), released by the owner without external counsel.
 
 ## Contents
 
@@ -25,7 +28,8 @@
 10. [Existing signers and subprocessor notice](#10-existing-signers-and-subprocessor-notice)
 11. [How a change ships (for the engineer)](#11-how-a-change-ships-for-the-engineer)
 12. [BAA 1.3.0 (draft): calendar terms, the Q8 clauses and 24 hours' notice](#12-baa-130-draft-calendar-terms-the-q8-clauses-and-24-hours-notice)
-13. [Review log](#review-log-2026-10-01)
+13. [BAA 1.2.2: the list on request, one email address, the spec's breach wording](#13-baa-122-the-list-on-request-one-email-address-the-specs-breach-wording)
+14. [Review log](#review-log-2026-10-01)
 
 ---
 
@@ -682,6 +686,11 @@ documents that carry it, the BAA and the funnel's DPA:
 > protects. If Practice objects on reasonable grounds before the change
 > takes effect, Practice may terminate this agreement without penalty."
 
+(As drafted on 6 October. On 9 October the first sentence changed in place,
+both documents being unreleased: healdesk gives Practice its current list on
+Practice's written request to healdesk's email address in the Notices
+clause, and the public page is gone; § 13.)
+
 1.2.1 keeps its fifteen days for anyone who signs it. The Term clause's "the
 subcontractor-objection right above" still points at clause 13 (since
 § 12.14 it says "under the Subcontractors clause", and the notice also says
@@ -898,16 +907,16 @@ release they never move.
 
 | Document and variant | SHA-256 |
 | --- | --- |
-| 1.3.0 covered_estimated (the sample) | `164d09a2028f07d2e2f087c337a691695cb055bd631a4b030fb4f6331c99d864` |
-| 1.3.0 notcovered_estimated | `f43583194de3443924c0e525539f85b41e9115e08765594518cf157c12f480ea` |
-| 1.3.0 unknown_estimated | `2ae84761f4106c131ee9de924762e69ad0f701de339220b4ffe7ba3358a70e15` |
-| 1.3.0 uncovered_nobaa | `d9bb7699e4506df09541d473701895a23832cbe05834210bacedf64245c6f609` |
-| 1.3.0 uncovered_personal | `719c8126abeea98d1e999febf5d77d1dda491c91704947ceee56560b68e37eea` |
-| 1.3.0 notused_mindbody | `a01db77812b991902fd533d8ab93ce37f96817f9a2175b4e1b8e5d7433303fad` |
-| 1.3.0 notused_other | `4ffe6be3c70b944d4ab4f8bcb868878578e2b94a4eee510d51268b4eb6eb75a0` |
-| 1.3.0 live_calcom | `5a29d3f54a92785736688838cad2c531a00d359f0c372eb6cb2b1c663e3caee9` |
-| 1.3.0 live_highlevel_personal | `97b86592872412de46a24b0390cbccfb7b07a76666bfd485c0491c7da5e2ff9a` |
-| 1.3.0 live_calendly_nobaa | `4eb97ecf0252020cb102b6b7525464512f7db7429ce676076bd20c6b95ce4199` |
+| 1.3.0 covered_estimated (the sample) | `ba71a44659a5b376fb89c22640fc61eb0c6b2e073162156b9bca1a45d9d8ed86` |
+| 1.3.0 notcovered_estimated | `eeb9ab085099815f5c459bd4335db190465d1938544f4829a3c7aa980dda19d0` |
+| 1.3.0 unknown_estimated | `5d5265c06476360d96258b58ee470db91b5ce8eb7c16f3e864a77ce87e31245b` |
+| 1.3.0 uncovered_nobaa | `bd9690ff4b07f22f958486a2ae7e78c29dca7123a1a589a29230592a025ec219` |
+| 1.3.0 uncovered_personal | `069d81f7c99825af6612ebfc4eb5bc77678c107df6fab64980cb3e809eab866b` |
+| 1.3.0 notused_mindbody | `cba26412fd781fc212c131f41d98dcfbb339c1965f43249429c33767acba32e4` |
+| 1.3.0 notused_other | `522c0c46522e42c0e2b1501ac6df60b9a94d3eda07b2f15f3603063716dde7c0` |
+| 1.3.0 live_calcom | `6d3866b6637f9b4d08c24d9b0994f25edce61b5ffe6dbe8c948910edc3cc2d81` |
+| 1.3.0 live_highlevel_personal | `99d22fef502da4a091db9a64f29e74cff7b9aa920c9e13205af32715f9e6be55` |
+| 1.3.0 live_calendly_nobaa | `24bb5910b4c9a32e06d7a7a36b00980d1c868fda404d11c47e2db03aae0c3f08` |
 | calendar-election/1.0.0 sample | `63586893a436803155ee71811ea17a8d71800a0d90ce41e1b3d9c596650a02aa` |
 | google-calendar-disclosure/1 | `5b3fa42bf21ce7ab880bb869f16f19d6953f87b576f67b0c431eb8eb273387d5` |
 
@@ -930,7 +939,10 @@ sentence. 1.3.0 /
 covered_verified_boulevard is gone: 1.3.0 refuses verified reporting
 (HRC-17), and the golden test asserts the refusal instead. The 1.3.0
 covered_outbound hash equals covered_estimated, as in every version since
-1.2.0.
+1.2.0. The owner's decisions of 9 October 2026 moved the ten 1.3.0 hashes
+again (§ 13): the shared subcontractor sentence gives the list on request,
+the Notices clause names hello@healdesk.io, and the reporting clause carries
+the spec's 60-day wording. The election's and the disclosure's did not move.
 
 ### 12.13 The owner's choices between two 1.3.0 texts (6 October 2026)
 
@@ -1619,6 +1631,147 @@ October (clauses 1, 6's location paragraph, 12, 17 and 18); §12.12 lists
 them. The election and the disclosure did not move in that round. The DPA's
 golden hashes (`packages/catalog/src/dpa.test.ts`) and `docs/dpa-v1.0.0.txt`
 moved with the shared clauses.
+
+---
+
+## 13. BAA 1.2.2: the list on request, one email address, the spec's breach wording
+
+### 13.1 What the owner decided (9 October 2026)
+
+Final, and in code the same day:
+
+1. **No public subprocessor page.** `/subprocessors` is deleted. A signed
+   clinic gets the current list of subcontractors on its written request,
+   never at a URL.
+2. **hello@healdesk.io is the only email address,** for notices as for
+   everything else. There is no legal@ or privacy@ mailbox, and no
+   client-facing copy names any other address.
+3. **Breach notification follows the product spec** (`docs/v1-product-spec.md`,
+   "Breach notification runs to the clinic without unreasonable delay and
+   inside 60 days", and "The agreement commits Healdesk to notifying the
+   clinic without unreasonable delay and inside 60 days"): "without
+   unreasonable delay and in no case later than 60 calendar days after
+   discovery". A security incident and an improper use or disclosure get the
+   same wording, so a breach never has a looser deadline than a lesser
+   incident. The 24-hour target in the incident console
+   (`apps/app/src/lib/incidents/incidents.ts`) and in
+   `docs/incident-response.md` stays, as an internal practice that no
+   agreement publishes.
+4. **No clinic has signed any BAA yet,** so 1.2.1 can be replaced with no
+   re-acceptance and no overlap window.
+
+### 13.2 What shipped
+
+| Change | Where |
+| --- | --- |
+| BAA 1.2.2 released: `BAA_TEMPLATES[0]`, `publishedOn` 2026-10-09, `approvedByCounsel: true`, which records the owner's release on the owner's own review, without external counsel (the flag's doc comment) | `packages/catalog/src/baa.ts`; `docs/baa-v1.2.2.txt` |
+| B1, clause 11 (Subcontractors): the list on request; the fifteen days' notice, the objection right and the first two paragraphs are 1.2.1's | `CLAUSES_1_2_2` |
+| B2, the preamble's party line and clause 18 (Notices): hello@healdesk.io in `NOTICE_ADDRESS_1_2_2`. `NOTICE_ADDRESS`, with legal@, stays frozen with 1.1.0-draft to 1.2.1. `AGREEMENT_PARTY`, which only the DPA reads, now carries the 1.2.2 address | `packages/catalog/src/baa.ts` |
+| B3, clause 10 (Reporting): the spec's wording for (a), (b) and (c); the sentence explaining why five days sat inside sixty is gone; the discovery rule, the routine-attempts carve-out and the 164.410(c) contents are 1.2.1's | `CLAUSES_1_2_2` |
+| Every other clause is 1.2.1's own object, by lookup, in the same order; the golden test holds 1.2.2 to exactly these three changes | `apps/app/tests/baa-golden.test.ts` ("1.2.2 against 1.2.1") |
+| The go-live floor, `MIN_ACCEPTABLE_BAA_VERSION`, is 1.2.2: 1.2.1 is below it. `BAA_RELEASE_OVERLAP` stays empty | `packages/catalog/src/baa.ts` |
+| `app_baa_version_acceptable()` accepts 1.2.2 and nothing else; the console's wording of the destruction job and two comments say "1.2.2 and earlier" | `apps/app/drizzle/0059_baa_floor_1_2_2.sql`; parity test in `apps/app/tests/database-audit.test.ts` |
+| 1.2.2 destroys on the thirty days, as 1.2.1 does (its Term clause is 1.2.1's) | `DESTRUCTION_RULES` in `apps/app/src/lib/offboarding/offboarding.ts` |
+| The unreleased drafts, edited in place: BAA 1.3.0 and DPA 1.0.0 give the list on request (the shared sentence in `subprocessor-notice.ts`), name hello@healdesk.io, and report all three without unreasonable delay and in no case later than 60 calendar days after discovery; the 24-hour rationale sentence is gone from both | `packages/catalog/src/baa.ts`, `dpa.ts`, `subprocessor-notice.ts`, `dpa-explainer.ts`; `docs/baa-v1.3.0-draft-calendar-clauses.txt`; `docs/dpa-v1.0.0.txt` |
+| The phase-two read-only user's address is `hello+{slug}@healdesk.io` (was `connect+…`) | `CONNECT_EMAIL_TEMPLATE` in `packages/catalog/src/connection-steps.ts` |
+
+1.2.1 stays registered, released and frozen (its hash still reproduces), as
+every superseded version does; the signing screen's notes for 1.2.2 are
+1.2.1's, which say nothing about where the list is kept.
+
+### 13.3 The text, against 1.2.1
+
+Clause 10, items (a) to (c), now read:
+
+> a. any use or disclosure of PHI not permitted by this agreement, without
+> unreasonable delay and in no case later than 60 calendar days after
+> healdesk becomes aware of it;
+>
+> b. any breach of unsecured PHI, without unreasonable delay and in no case
+> later than 60 calendar days after discovery. A breach is treated as
+> discovered on the first day it is known, or by exercising reasonable
+> diligence would have been known, to healdesk or to any person other than
+> the one committing it who is healdesk's workforce member or agent, as 45
+> CFR 164.410(a)(2) provides;
+>
+> c. any security incident, without unreasonable delay and in no case later
+> than 60 calendar days after healdesk becomes aware of it — except routine
+> unsuccessful attempts that compromised nothing, such as blocked sign-ins,
+> port scans and filtered traffic, which the parties agree this clause
+> reports once, here, and which healdesk will summarise on request.
+
+Clause 11's third paragraph:
+
+> healdesk will give Practice its current list of these subcontractors on
+> Practice's written request to healdesk's email address in the Notices
+> clause, and will give Practice at least fifteen days' notice by email
+> before adding one that will handle PHI. If Practice objects on reasonable
+> grounds before the change takes effect, Practice may terminate under the
+> Term clause without penalty.
+
+The preamble and clause 18 give healdesk's address as "800 N King Street,
+Suite 304-1426, Wilmington, DE 19801, United States, and by email to
+hello@healdesk.io".
+
+The shared sentence BAA 1.3.0 and the DPA carry now opens: "healdesk will
+give Practice its current list of its subcontractors on Practice's written
+request to healdesk's email address in the Notices clause, and will give
+Practice at least 24 hours' notice by email before adding one that will
+handle the information this agreement protects." The rest is unchanged.
+
+### 13.4 Golden hashes
+
+| Document and variant | SHA-256 |
+| --- | --- |
+| 1.2.2 covered_estimated (the sample, and covered_outbound) | `e6cfb7356be47a223bf8802f8d762f78844e0106af29fe772ca03eab85621893` |
+| 1.2.2 notcovered_estimated | `07551348644ed59f47dd0a8ae5ff66ccb6297334d9360a25a6ec70bb247f4127` |
+| 1.2.2 unknown_estimated | `ecdd2ce97442408babcf39326aae73442540474b60113234e5b23df3b56456bf` |
+| 1.2.2 covered_verified_boulevard | `d75c7113583d6b13ff11efc02e459e30671f074024f12ce5b09396be6756f06a` |
+| DPA 1.0.0 sample | `10b6feef5a2218d8c3fe625b9f3cb5bff3b2f40744a5ce03179d7c5ce79662de` |
+
+The ten 1.3.0 hashes moved, as § 12.12 lists, and so did the DPA's eight
+(`packages/catalog/src/dpa.test.ts`). No hash of a released version moved:
+1.2.1 / covered_estimated is still
+`618ac4a585a42f23d70865042c5a02e0b4765c07b6e65ba8ecf586e8f386cfd3`, and
+1.2.0, 1.0.0, 1.1.0-draft and 0.1.0-draft reproduce as before.
+
+### 13.5 What the change costs, for the owner
+
+- **Sixty days is the regulation's outer limit, not a target.** 45 CFR
+  164.410(b) allows a business associate sixty days. A covered practice's own
+  sixty days to notify patients under 164.404 may run from healdesk's
+  discovery where healdesk acts as its agent (164.404(a)(2)), so a report
+  near the limit could leave the practice none of its own. 1.2.1's five
+  calendar days were written for that reason. "Without unreasonable delay" is
+  the binding standard before the limit, and the internal 24 hours is how
+  healdesk meets it. Recorded as risk 14 in `brief.md`.
+- **California, for a practice outside HIPAA.** Cal. Civ. Code 1798.82(b)
+  asks a business that maintains data it does not own to notify the owner
+  "immediately following discovery". The DPA and 1.3.0's text met that until
+  now; the text alone no longer does, though the statute binds healdesk
+  directly and the internal 24 hours meets it. The release audits of 1.3.0
+  and the DPA should decide whether either adds "or sooner where a law that
+  applies requires it". Open.
+- **Vendor notices.** AWS's BAA gives AWS sixty days from its own discovery
+  (§ 3.4.3), so a vendor report at the end of its window would leave
+  healdesk's sixty days nothing; the runbook acts on a vendor notice the day
+  it arrives (`docs/policies/aws-hipaa-account.md`).
+- **The list on request.** 45 CFR 164.504(e) asks for no published list; the
+  notice before a new subcontractor and the objection right are unchanged.
+  A clinic now has to ask, by email, to see the list, and an operator answers
+  from the internal register (`docs/hipaa-compliance.md`).
+- **One address.** Clause 18 makes hello@healdesk.io the notice address, so
+  the Security Official must see what arrives there
+  (`docs/policies/security-official.md`).
+
+### 13.6 Outside this change
+
+The deletion of `/subprocessors` and of every legal@ and privacy@ mention on
+the website (`apps/web/src/lib/legal.ts` and the pages that read it) is
+apps/web's. The apps/web tests that pin 1.2.1 as the version offered move to
+1.2.2 with it. `docs/incident-response.md` keeps its 24-hour clocks as the
+internal practice; its sentences that attribute them to BAA 1.3.0 need the
+same correction as `docs/hipaa-risk-analysis.md` T12 received.
 
 ---
 

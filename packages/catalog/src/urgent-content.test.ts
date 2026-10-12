@@ -124,4 +124,16 @@ describe("findUrgentContent", () => {
     expect(findUrgentContent(text)).not.toBeNull();
     expect(findClinicalContent({ message: text })).not.toEqual([]);
   });
+
+  test("an everyday condition is clinical on a Meta channel and never urgent: the hand-off line, not 911", () => {
+    for (const text of [
+      "415-555-0134 — it's for my acne",
+      "Mornings are best, or Thursday after 4 — oh and my rosacea is flaring",
+      "I have terrible acne, can you fix it?",
+    ]) {
+      expect(findUrgentContent(text), text).toBeNull();
+      expect(findClinicalContent({ message: text }, { conditions: true }), text).not.toEqual([]);
+      expect(findClinicalContent({ message: text }), text).toEqual([]);
+    }
+  });
 });

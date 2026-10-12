@@ -93,6 +93,30 @@ describe("the screen, before any model", () => {
     expect(screenInbound(FRONT_DOOR_PROBES.find((p) => p.id === "request")!.text)).toBeNull();
   });
 
+  test("an everyday skin or hair condition is clinical here, never urgent; a front desk's question still passes", () => {
+    // Owner, 7 October 2026: the check recognises everyday skin conditions,
+    // and on a Meta channel, which signs no BAA, a condition named is clinical.
+    for (const text of [
+      "I have bad acne, can you help?",
+      "do you treat rosacea?",
+      "my hair is falling out, do you do PRP?",
+      "Any openings this week? My eczema is flaring up",
+      FRONT_DOOR_PROBES.find((p) => p.id === "condition")!.text,
+      FRONT_DOOR_PROBES.find((p) => p.id === "alts")!.text,
+    ]) {
+      expect(screenInbound(text), text).toBe("clinical");
+    }
+    for (const text of [
+      "How much is laser hair removal?",
+      "Do you do IPL for sun spots?",
+      "Can I book with Dr Whitehead?",
+      "Any spots left on Saturday?",
+      "How much are lip fillers?",
+    ]) {
+      expect(screenInbound(text), text).toBeNull();
+    }
+  });
+
   test("the urgent line says it is an AI assistant, sends an emergency to 911 and gives the clinic's direct line, else its published one", () => {
     const direct = urgentLine({ clinicName: "Radiance", phone: PUBLISHED, urgentPhone: DIRECT });
     expect(direct).toBe(
@@ -378,6 +402,138 @@ describeDb("the screen and the greeting, end to end", () => {
     expect(audit).toEqual([
       { platform: "messenger", source: "handoff", screened: "clinical", greeted: true },
       { platform: "messenger", source: "handoff", screened: "clinical" },
+    ]);
+  }, 60_000);
+
+  test("a message naming an everyday skin condition never reaches the model on Instagram, Messenger or WhatsApp, gets the hand-off line, and leaves nothing in any table", async () => {
+    const channels: { platform: MetaPlatform; externalId: string }[] = [
+      { platform: "instagram", externalId: "17841400000000008" },
+      { platform: "messenger", externalId: "910000000000008" },
+      { platform: "whatsapp", externalId: "555000908" },
+    ];
+    const c = await doorOpen("screen-conditions", channels);
+    // Had the model been asked, it would have taken a booking out of the second message.
+    const responder = vi.fn<FrontDoorResponder>(async () =>
+      modelJson("The practice can help with that — they'll call you.", {
+        wants: true,
+        first_name: "Persephone",
+        phone: "+14155550148",
+        window: "Friday morning",
+      }),
+    );
+    __setMetaRuntimeForTests(responder, sender, transport);
+    const handoff = handoffLine({ clinicName: c.clinicName, phone: PUBLISHED });
+
+    for (const { platform, externalId } of channels) {
+      const person = platform === "whatsapp" ? "15550100908" : `person-908-${platform}`;
+      sent.length = 0;
+      await post(eventOn(platform, "I have bad acne, can you help?", person, externalId));
+      await post(
+        eventOn(
+          platform,
+          "do you treat rosacea? I'm Persephone, +1 415 555 0148, Friday morning",
+          person,
+          externalId,
+        ),
+      );
+      // The thread's first reply opens with the greeting; both are the fixed line.
+      expect(
+        sent.map((s) => s.text),
+        platform,
+      ).toEqual([`${greetingFor(c.clinicName, platform)} ${handoff}`, handoff]);
+      expect(sent.every((s) => s.platform === platform && s.recipientId === person)).toBe(true);
+    }
+    expect(responder).not.toHaveBeenCalled();
+
+    expect(
+      await rowsContaining(c.clinicId, [
+        "acne",
+        "rosacea",
+        "Persephone",
+        "4155550148",
+        "555 0148",
+        "Friday morning",
+        "person-908",
+        "15550100908",
+      ]),
+    ).toEqual([]);
+    const stored = await inTenant(c.clinicId, async (client) => ({
+      requests: (await client.query(`select 1 from booking_requests`)).rows.length,
+      drafts: (await client.query(`select 1 from meta_booking_drafts`)).rows.length,
+      contacts: (await client.query(`select 1 from contacts`)).rows.length,
+      conversations: (await client.query(`select 1 from conversations`)).rows.length,
+    }));
+    expect(stored).toEqual({ requests: 0, drafts: 0, contacts: 0, conversations: 0 });
+    // The audit row says the screen answered, never what it caught.
+    expect(await frontDoorAudit(c.clinicId)).toEqual(
+      channels.flatMap(({ platform }) => [
+        { platform, source: "handoff", screened: "clinical", greeted: true },
+        { platform, source: "handoff", screened: "clinical" },
+      ]),
+    );
+  }, 60_000);
+
+  test("a condition named halfway through a booking request adds nothing to it, and the request carries on", async () => {
+    const pageId = "910000000000009";
+    const c = await doorOpen("screen-condition-draft", [
+      { platform: "messenger", externalId: pageId },
+    ]);
+    const responder = vi.fn<FrontDoorResponder>(async () =>
+      modelJson("Happy to pass a request on — what's the best number to call you on?", {
+        wants: true,
+        first_name: "Odalys",
+      }),
+    );
+    __setMetaRuntimeForTests(responder, sender, transport);
+    await post(messengerEvent("Hi, I'd like to book something. I'm Odalys.", "user-d1", pageId));
+    const draft = () =>
+      inTenant(c.clinicId, (client) =>
+        client.query(
+          `select first_name, phone, preferred_window, alternative_windows from meta_booking_drafts`,
+        ),
+      );
+    const before = (await draft()).rows;
+    expect(before).toEqual([
+      { first_name: "Odalys", phone: null, preferred_window: null, alternative_windows: [] },
+    ]);
+
+    // The number and a window arrive with a condition: the screen hands off,
+    // the model is not called, and the draft is exactly as it was.
+    await post(
+      messengerEvent(
+        "It's 415 555 0149, Saturday afternoon — it's for my melasma",
+        "user-d1",
+        pageId,
+      ),
+    );
+    expect(responder).toHaveBeenCalledTimes(1);
+    expect(sent.at(-1)!.text).toBe(handoffLine({ clinicName: c.clinicName, phone: PUBLISHED }));
+    expect((await draft()).rows).toEqual(before);
+    expect(
+      await rowsContaining(c.clinicId, ["melasma", "4155550149", "555 0149", "Saturday afternoon"]),
+    ).toEqual([]);
+    expect(
+      (await inTenant(c.clinicId, (client) => client.query(`select 1 from booking_requests`))).rows,
+    ).toHaveLength(0);
+
+    // Sent again without it, the number and the window complete the request.
+    responder.mockImplementation(async () =>
+      modelJson("Thanks!", { wants: true, phone: "+14155550149", window: "Saturday afternoon" }),
+    );
+    await post(messengerEvent("415 555 0149, Saturday afternoon", "user-d1", pageId));
+    expect(responder).toHaveBeenCalledTimes(2);
+    expect(
+      (
+        await inTenant(c.clinicId, (client) =>
+          client.query(`select preferred_window from booking_requests`),
+        )
+      ).rows,
+    ).toEqual([{ preferred_window: "Saturday afternoon" }]);
+    expect(await rowsContaining(c.clinicId, ["melasma"])).toEqual([]);
+    expect(await frontDoorAudit(c.clinicId)).toEqual([
+      { platform: "messenger", source: "model", greeted: true, booking: "collecting" },
+      { platform: "messenger", source: "handoff", screened: "clinical" },
+      { platform: "messenger", source: "booking", booking: "requested" },
     ]);
   }, 60_000);
 

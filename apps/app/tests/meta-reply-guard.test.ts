@@ -155,10 +155,83 @@ describe("the reply guard: appointment details", () => {
       ok: false,
       reason: "an appointment time",
     });
-    expect(guardReply("The front desk is in from 9.", CLINIC)).toEqual({
+    // "from" and "until" make a sentence about the hours, as "open" does.
+    expect(guardReply("The front desk is in from 9.", CLINIC)).toEqual({ ok: true });
+    expect(guardReply("The front desk is in from 3.", CLINIC)).toEqual({
       ok: false,
       reason: "an appointment time",
     });
+  });
+
+  // The verification of 3a6de11: phrasings the sentence rules let through.
+  // The rule now is not a list of phrasings: a day, a date or a time appears
+  // only in a sentence about the opening hours, and only with no booking word
+  // anywhere in the reply.
+  test.each([
+    "Tuesday afternoon it is.",
+    "All sorted for Tuesday afternoon.",
+    "We look forward to seeing you on Tuesday afternoon.",
+    "Your visit is Tuesday afternoon.",
+    "Booked! Tuesday afternoon.",
+    "Confirmed. Tuesday afternoon.",
+    "Confirmed for\nTuesday afternoon.",
+    "Tuesday afternoon it is!\nSee you then.",
+    "See you at two.",
+    "We'll expect you at two-thirty.",
+    "See you at 1430h.",
+    "Tuesday 1430.",
+    "Tuesday at fourteen hundred.",
+    "Tuesday afternoon has been held for you.",
+    "We've got Tuesday afternoon sorted.",
+    "The team will meet you Tuesday afternoon.",
+    "Tuesday afternoon's in the calendar.",
+    "Your appointment is set.\nTuesday, 2pm.",
+    "Lovely. Tuesday afternoon, see you then.",
+    "Thursday, ten to four.",
+    "See you at 0930.",
+    // A day, a date or a time on offer is not the clinic's hours.
+    "Tuesday is open from 9am.",
+    "The 22nd is open until 5pm.",
+    "9am is still free, we open then.",
+    // An hours sentence in a reply that also books is no hours answer.
+    "We're open Tuesday from 9am. See you then!",
+    "We open at 9am tomorrow, and your appointment is then.",
+  ])("refuses, from the verification: %j", (reply) => {
+    const verdict = guardReply(reply, CLINIC);
+    expect(verdict.ok, reply).toBe(false);
+    expect(verdict.ok ? null : verdict.reason).toMatch(
+      /^(an appointment (time|date|day)|a booking confirmation)$/,
+    );
+  });
+
+  test.each([
+    "We're open Monday to Friday, 9am to 5pm.",
+    "Our opening hours are 9 to 5, and 10 to 2 on Saturdays.",
+    "We're open late on Thursdays until 7:30pm.",
+    "We have a late opening on Thursdays until 7:30pm.",
+    "We're closed on Sundays.",
+    "We're closed today.",
+    "We open at 9 tomorrow.",
+    "We're open until 5 today.",
+    "Saturday hours are 10am to 2pm.",
+    "We're open weekdays 9:00-17:00 and Saturdays 10:00-14:00.",
+    "Our hours change on public holidays, so please call the practice.",
+    "Opening times are 9-5 weekdays, call the practice to book.",
+    "Hours: Mon-Fri 9-5, Sat 10-2.",
+    "We open at nine on weekdays.",
+    "We're open weekdays 9 to 5.\nCall the practice to book.",
+    "We're open 9 to 5; the practice will call you to confirm.",
+    "The practice is open from 9am on Tuesdays.",
+    "Reception's open until 5pm today.",
+  ])("passes, an hours answer: %j", (reply) => {
+    expect(guardReply(reply, CLINIC)).toEqual({ ok: true });
+  });
+
+  test("a day or a time outside a sentence about the hours gives the hand-off, even an honest one", () => {
+    // The cost of not chasing phrasings: the front door states the hours,
+    // and anything else timed goes to the practice.
+    expect(guardReply("Parking is free after 6pm.", CLINIC)).toMatchObject({ ok: false });
+    expect(guardReply("Street parking is free on Sundays.", CLINIC)).toMatchObject({ ok: false });
   });
 
   test("with no hours on file, no clock time passes", () => {

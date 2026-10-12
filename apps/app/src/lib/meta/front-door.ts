@@ -347,7 +347,11 @@ function withoutOwnWords(reply: string, context: GuardContext): string {
 export function guardReply(reply: string, context: GuardContext = {}): GuardVerdict {
   if (!reply.trim()) return { ok: false, reason: "empty" };
   if (reply.length > 700) return { ok: false, reason: "too long" };
-  const hit = REFUSED.find((r) => r.pattern.test(reply));
+  // Line breaks read as spaces: a confirmation split across lines ("Confirmed
+  // for\nTuesday afternoon") is the same confirmation, and the patterns
+  // below match across what was a line break.
+  const flat = reply.replace(/\s*[\r\n]+\s*/g, " ");
+  const hit = REFUSED.find((r) => r.pattern.test(flat));
   if (hit) return { ok: false, reason: hit.label };
   // A condition named in a reply is refused even where no acknowledgement
   // above catches it ("Yes, we treat rosacea"), as the screen refuses it inbound.
@@ -357,19 +361,47 @@ export function guardReply(reply: string, context: GuardContext = {}): GuardVerd
   // The catalogue's treatment vocabulary, for every clinic, with or without
   // a menu: "Botox" where the menu says "Neurotoxin" (BAA 1.3.0 clause 16).
   if (namesMetaTreatment(withoutOwnWords(reply, context))) return { ok: false, reason: "a treatment name" };
-  // No appointment details: a calendar date never, and a day or a clock
-  // time only as the clinic's own opening hours (appointmentIn).
-  if (DATE_IN_REPLY.some((pattern) => pattern.test(reply))) return { ok: false, reason: "an appointment date" };
-  for (const sentence of sentencesOf(reply)) {
-    const reason = appointmentIn(sentence, context.publishedTimes ?? []);
-    if (reason) return { ok: false, reason };
-  }
-  return { ok: true };
+  // No appointment details (appointmentDetail).
+  const reason = appointmentDetail(flat, context.publishedTimes ?? []);
+  return reason ? { ok: false, reason } : { ok: true };
 }
 
-/** A reply's sentences: split after . ! ? or ; and at line breaks. "9.30", "$4.50" and "21.10" stay whole. */
+/**
+ * The front door never books, so a reply names a day, a date or a time only
+ * to say when the clinic is open (the verification of 3a6de11): a weekday,
+ * a day named from today, a calendar date or a clock time may appear only in
+ * a sentence about the opening hours ("open", "close", "hours", "opening",
+ * "until", "from"), only when no booking word appears anywhere in the reply,
+ * and a clock time only when it is one of the clinic's own opening or
+ * closing times. Anything else is the fixed hand-off. This does not chase
+ * phrasings: "Tuesday afternoon it is", "We look forward to seeing you on
+ * Tuesday afternoon" and "Your visit is Tuesday afternoon" name a day outside
+ * any sentence about the hours, which is all it takes. "Call the practice to
+ * book" and "to confirm", the hand-off itself, are not booking words.
+ */
+function appointmentDetail(reply: string, published: readonly number[]): string | null {
+  const booking = BOOKING_CUE.test(reply.replace(TO_BOOK, " "));
+  const allowed = new Set(published);
+  for (const sentence of sentencesOf(reply)) {
+    const date = DATE_IN_REPLY.some((pattern) => pattern.test(sentence));
+    const day = WEEKDAY.test(sentence) || RELATIVE_DAY.test(sentence);
+    const times = clockTimes(sentence);
+    if (!date && !day && times.length === 0) continue;
+    const named = date ? "an appointment date" : day ? "an appointment day" : "an appointment time";
+    if (booking || !HOURS_CUE.test(sentence)) return named;
+    // "The 22nd is open", "Tuesday is free": a day or a time on offer, not
+    // the clinic's hours, unless the clinic is what is open.
+    if (AVAILABLE.test(sentence) && !CLINIC_IS_OPEN.test(sentence)) return named;
+    if (!times.every((candidates) => candidates.some((minutes) => allowed.has(minutes)))) {
+      return "an appointment time";
+    }
+  }
+  return null;
+}
+
+/** A reply's sentences, split after . ! ? or ;. "9.30", "$4.50" and "21.10" stay whole. */
 function sentencesOf(reply: string): string[] {
-  return reply.split(/(?<=[.!?;])\s+|\n+/).filter((sentence) => sentence.trim() !== "");
+  return reply.split(/(?<=[.!?;])\s+/).filter((sentence) => sentence.trim() !== "");
 }
 
 /** A day of the week, by name or a long abbreviation. "Sat", "Sun" and "Wed" are words too often to count. */
@@ -380,11 +412,13 @@ const RELATIVE_DAY =
   /\b(today|tonight|tomorrow|tmrw|(this|next) (week|weekend|month)|this (morning|afternoon|evening)|later today)\b/i;
 
 /**
- * Words that make a sentence about an appointment: the booking verbs, and
- * "an opening" (but not "opening hours"), "see you", "fit you in".
+ * Words that make a reply about an appointment: the booking verbs, "an
+ * opening" (but not "opening hours" or "a late opening"), "see you", "expect
+ * you", "fit you in". One anywhere in a reply and no sentence of it may name
+ * a day or a time.
  */
 const BOOKING_CUE =
-  /\b(book|books|booked|booking|confirm|confirms|confirmed|confirmation|reserve|reserves|reserved|reservation|pencil|pencils|pencil(l)?ed|down for|see you|schedule|scheduled|slots?|openings?(?! (hours|times))|appointments?|fit you in|squeeze you in|come in|pop in|for you)\b/i;
+  /\b(book|books|booked|booking|confirm|confirms|confirmed|confirmation|reserve|reserves|reserved|reservation|pencil|pencils|pencil(l)?ed|down for|see you|seeing you|expect you|expecting you|schedule|scheduled|slots?|an opening|openings|appointments?|fit you in|squeeze you in|come in|come by|pop in)\b/i;
 
 /**
  * "Call the practice to book", "to make an appointment": the hand-off every
@@ -392,40 +426,17 @@ const BOOKING_CUE =
  * word ("We're open weekdays 9 to 5, call the practice to book").
  */
 const TO_BOOK =
-  /\bto (book|schedule|make (an |a )?(appointment|booking)s?|arrange (an |a )?(appointment|booking)s?)\b|\bbook(ing)? (by phone|online|on the website)\b/gi;
+  /\bto (book|confirm|schedule|make (an |a )?(appointment|booking)s?|arrange (an |a )?(appointment|booking)s?)\b|\bbook(ing)? (by phone|online|on the website)\b/gi;
 
-/** Words that make a sentence about the clinic's opening hours. */
-const HOURS_CUE = /\b(open|opens|opened|opening (hours|times)|close|closes|closed|closing|hours)\b/i;
+/** Something is open, free or available: the clinic, or a time on offer. */
+const AVAILABLE = /\b(is|are|'s|'re)\s+(still\s+|now\s+|also\s+)?(open|free|available)\b/i;
 
-/**
- * Why one sentence names an appointment, or null when it doesn't:
- *
- *   - a day (a weekday or a day named from today) beside a booking word
- *     ("your appointment on Tuesday is confirmed", "we have an opening
- *     tomorrow");
- *   - a clock time beside a booking word, or beside a day outside a
- *     sentence about opening hours ("Great, Tuesday at 9am it is");
- *   - any clock time outside a sentence about opening hours, and in one,
- *     any time that is not one of the clinic's own opening or closing times.
- *
- * A sentence about opening hours has "open", "close" or "hours" in it and no
- * booking word ("call the practice to book" is the hand-off, not one). "We're
- * open Monday to Friday, 9am to 5pm" passes when 9am and 5pm are the
- * clinic's own; "we have an opening tomorrow at 9" does not.
- */
-function appointmentIn(sentence: string, published: readonly number[]): string | null {
-  const day = WEEKDAY.test(sentence) || RELATIVE_DAY.test(sentence);
-  const booking = BOOKING_CUE.test(sentence.replace(TO_BOOK, " "));
-  const times = clockTimes(sentence);
-  if (booking && day) return "an appointment day";
-  if (times.length === 0) return null;
-  if (booking) return "an appointment time";
-  if (!HOURS_CUE.test(sentence)) return day ? "an appointment day" : "an appointment time";
-  const allowed = new Set(published);
-  return times.every((candidates) => candidates.some((minutes) => allowed.has(minutes)))
-    ? null
-    : "an appointment time";
-}
+/** The clinic is what is open: "the practice is open", "reception's open", "we're open". */
+const CLINIC_IS_OPEN =
+  /\b(we|it|reception|(the|our)\s+(practice|clinic|office|surgery|studio|spa|front desk|reception|doors?))\s*(is|are|'s|'re)\s+(still\s+|now\s+|also\s+)?(open|available)\b/i;
+
+/** Words that make a sentence about the clinic's opening hours ("a late opening on Thursdays until 8pm"). */
+const HOURS_CUE = /\b(open|opens|opened|opening|close|closes|closed|closing|hours|until|till|from)\b/i;
 
 const MONTH =
   "(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\\.?(?![a-z])";
@@ -476,6 +487,21 @@ function readings(hour: number, minute: number, meridiem: string | undefined): n
 }
 
 const CLOCK_HOUR_WORD = "(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)";
+/** An hour of the 24-hour clock in words, before "hundred": "fourteen", "oh nine", "twenty-one". */
+const TWENTY_FOUR_HOUR_WORD =
+  "(?:oh|zero)[\\s-]?(?:one|two|three|four|five|six|seven|eight|nine)|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty(?:[\\s-](?:one|two|three))?";
+
+const DAY_HOURS: Readonly<Record<string, number>> = {
+  thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
+};
+
+/** "fourteen" as 14, "oh nine" as 9, "twenty-one" as 21. */
+function hourOfDayWord(words: string): number | null {
+  const parts = words.split(/[\s-]+/);
+  if (parts[0] === "oh" || parts[0] === "zero") return parts[1] ? (UNITS[parts[1]] ?? null) : null;
+  if (parts[0] === "twenty" && parts[1]) return 20 + (UNITS[parts[1]] ?? 0);
+  return HOUR_WORDS[parts[0]!] ?? DAY_HOURS[parts[0]!] ?? null;
+}
 const CLOCK_HOUR = "(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\\d{1,2})";
 
 const MINUTE_WORDS: Readonly<Record<string, number>> = {
@@ -541,6 +567,21 @@ function clockTimes(reply: string): number[][] {
   for (const m of text.matchAll(/(?<![$£€\d.,:])([01]?\d|2[0-3])h([0-5]\d)?\b/g)) {
     found.push([Number(m[1]) * 60 + Number(m[2] ?? 0)]);
   }
+  // "1430h", "0930hrs": four digits marked as a time.
+  for (const m of text.matchAll(/(?<![$£€\d.,:])([01]\d|2[0-3])([0-5]\d)\s?h(?:rs?|ours)?\b/g)) {
+    found.push([Number(m[1]) * 60 + Number(m[2])]);
+  }
+  // "fourteen hundred", "oh nine hundred".
+  for (const m of text.matchAll(new RegExp(`\\b(${TWENTY_FOUR_HOUR_WORD})[\\s-]+hundred\\b`, "g"))) {
+    const hour = hourOfDayWord(m[1]!);
+    if (hour !== null) found.push([hour * 60]);
+  }
+  // "at two", "at eleven": an hour in words after "at", unless it counts
+  // something ("at one of our clinics").
+  for (const m of text.matchAll(new RegExp(`\\bat\\s+${CLOCK_HOUR_WORD}\\b(?![\\s-]+(?:of|hundred|oh|ten|fifteen|twenty|thirty|forty|fifty|o'?clock)\\b)`, "g"))) {
+    if (NOT_AN_HOUR.test(text.slice(m.index! + m[0].length))) continue;
+    found.push(readings(HOUR_WORDS[m[1]!]!, 0, undefined));
+  }
   for (const m of text.matchAll(/\b(?:at|from|until|till|til|to|by|after|before|around)\s+([01]\d|2[0-3])([0-5]\d)\b/g)) {
     const after = text.slice(m.index! + m[0].length);
     if (NOT_AN_HOUR.test(after) || STREET_AFTER.test(after)) continue;
@@ -561,7 +602,7 @@ function clockTimes(reply: string): number[][] {
   for (const m of text.matchAll(new RegExp(`\\bhalf\\s+${CLOCK_HOUR_WORD}\\b`, "g"))) {
     found.push(readings(HOUR_WORDS[m[1]!]!, 30, undefined));
   }
-  for (const m of text.matchAll(new RegExp(`\\b${CLOCK_HOUR_WORD}\\s+(oh[- ]?${UNIT_WORD}|ten|fifteen|twenty(?:[- ]${UNIT_WORD})?|thirty(?:[- ]${UNIT_WORD})?|forty(?:[- ]${UNIT_WORD})?|fifty(?:[- ]${UNIT_WORD})?)\\b`, "g"))) {
+  for (const m of text.matchAll(new RegExp(`\\b${CLOCK_HOUR_WORD}[\\s-]+(oh[- ]?${UNIT_WORD}|ten|fifteen|twenty(?:[- ]${UNIT_WORD})?|thirty(?:[- ]${UNIT_WORD})?|forty(?:[- ]${UNIT_WORD})?|fifty(?:[- ]${UNIT_WORD})?)\\b`, "g"))) {
     const minutes = minutesOf(m[2]!);
     if (minutes !== null) found.push(readings(HOUR_WORDS[m[1]!]!, minutes, undefined));
   }

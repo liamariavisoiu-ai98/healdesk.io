@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import {
   AGREEMENT_PARTY,
+  BACKUP_RETENTION_DAYS,
   PAYMENTS_CLAUSE_BODY,
   PAYMENTS_CLAUSE_HEADING,
   STATE_LAW_CLAUSE_HEADING,
@@ -744,15 +745,21 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * no-rewrite trigger in drizzle/0039 refuses a new `treatment` or
    * `preferred_window`), and the record of a conversation is kept as it was
    * made. "Correct that information as Practice directs" alone promised a
-   * change the database forbids. Nothing appends a correction yet, and
-   * `amendContact` has no operator path: the amendment record is the BAA's
-   * release gate 8, and the DPA's too (dpa.md, gap 22).
+   * change the database forbids. The amendment record (BAA 1.3.0 release
+   * gate 8, apps/app drizzle/0060 and lib/patient-rights/amendments.ts) is
+   * what appends and links one, and both exports and the desk's view of a
+   * request carry it; `amendContact` corrects a contact in place, and both
+   * have the operator's path through the ops envelope (dpa.md, gap 22).
    *
-   * The telephone-number sentence is left as it stands, for gates 6 and 7 to
-   * change (§12.14): what a deletion leaves today is what `eraseContact`
-   * (apps/app lib/retention/purge.ts) leaves, the number on the suppression
-   * list. Where it and item c differ, item c governs, by the shared clause's
-   * own precedence sentence.
+   * The last sentence says what a deletion keeps (gate 6, 12 October 2026;
+   * dpa.md, gap 15). Until then it said the client's telephone number was kept
+   * as the record of the request, as `eraseContact` kept it in
+   * `suppressions`. The record is now `erasure_requests` (apps/app
+   * lib/patient-rights/erasure.ts): who asked, the dates, the counts and the
+   * subcontractor stamps, with no number, address or name, and keyed
+   * references (one-way HMACs, never the details) emptied BACKUP_RETENTION_DAYS
+   * after the deletion, used only by `reapplyErasures` after a restore. It
+   * says the same as item c of the shared clause, more particularly.
    */
   {
     id: "requests",
@@ -767,8 +774,12 @@ const CLAUSES_1_0: readonly DpaClause[] = [
           `changed, healdesk corrects its own copy. Where a record must stay as it was made, such ` +
           `as a booking request or the record of a conversation, healdesk appends the correction ` +
           `to it and links the two. Every later use and export of that record then carries the ` +
-          `correction. The telephone number of a client whose information is deleted is kept ` +
-          `only as the record that the deletion was asked for.`,
+          `correction. When a client's information is deleted, healdesk keeps a record of the ` +
+          `request that holds no telephone number, email address or name. For the ` +
+          `${BACKUP_RETENTION_DAYS} days in which a backup could still bring the information ` +
+          `back, the record also holds one-way keyed references to the client's numbers, ` +
+          `addresses and messaging accounts, used only to delete the information again if a ` +
+          `backup is restored; then they are removed.`,
       ) +
       "\n\n" +
       wrap(
@@ -887,7 +898,11 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * Liability clause does not limit and Practice's indemnity does not reach.
    * 1.3.0 also refunds a termination for healdesk's violation; this clause's
    * termination for a material breach is left as it was, and is flagged for
-   * the owner. The telephone-number sentence is left for gates 6 and 7.
+   * the owner. After destruction nothing of a client is left: since gates 6
+   * and 7 a deletion keeps no telephone number, and destruction deletes the
+   * suppressions and the records of deletion requests with the rest
+   * (destroyClinicData, apps/app drizzle/0058 and 0059), so the exception for
+   * a deleted client's number is gone (dpa.md, gap 15).
    */
   {
     id: "term",
@@ -928,9 +943,8 @@ const CLAUSES_1_0: readonly DpaClause[] = [
       wrap(
         `Destruction deletes the conversations, bookings, booking requests and contact details ` +
           `healdesk holds for Practice, and the credentials Practice connected through healdesk. ` +
-          `After it, healdesk holds no Client Information for Practice except the telephone ` +
-          `number of any client who asked to have their information deleted, kept only as the ` +
-          `record of that request. Copies in encrypted database backups are deleted as those ` +
+          `After it, healdesk holds no Client Information for Practice. Copies in encrypted ` +
+          `database backups are deleted as those ` +
           `backups expire. healdesk will also have its subcontractors delete what they hold for ` +
           `Practice, except what the Subcontractors clause says Anthropic may keep. What is in ` +
           `systems Practice controls, such as its calendar, is Practice's own.`,

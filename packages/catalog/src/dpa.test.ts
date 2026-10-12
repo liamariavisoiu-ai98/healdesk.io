@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 
 import {
+  BACKUP_RETENTION_DAYS,
   getBaaTemplate,
   PAYMENTS_CLAUSE_BODY,
   PAYMENTS_CLAUSE_HEADING,
@@ -97,14 +98,14 @@ const VARIANTS: Record<string, Partial<DpaVariables>> = {
 
 /** variant → sha256 of the assembled text. Frozen from the draft; see the header. */
 const GOLDEN: Record<string, string> = {
-  sample: "bbbf78a01e8ab87a1002efb13731114c78516e7cef3c58dedeef884e060eb897",
-  notcovered_live_covered: "52120750cce9007c4d6eada1a8fbb023f023d18639cb209dee479de5e5a86c84",
-  notcovered_live_uncovered: "097d35333212acadcd8ebf75307c533fbdb08a7c56de97aa670a9c4d3fcebd17",
-  notcovered_live_personal: "f5c6cb05cf2ec4f8bc52762f2a65142abd533e7ba9aaa6d9a44bf4e706cb34ff",
-  notcovered_notused_other: "38c44a9f8ae0466e31108f36c08d312538b4fa5348a94354403c342720dbda74",
-  vet_live_covered: "4ceb26f8428abde32e2aa4d5b302bc9f911e827639b634449e21ccb529d39c3c",
-  vet_live_personal: "2fcec88b63e130c00c3f6af60a93fcb69e07c57a2f96af5965a2336c8e352923",
-  vet_notused_mindbody: "efde0436f457d7868b9c5907b6db2f03d9a7c46f742694fe3594ad22590f7ce2",
+  sample: "b8bc4c48de681707f2f2911d06f20f776bb8b922e8f3461265f4c39ca9089725",
+  notcovered_live_covered: "bed2485e35fc239d562aa1e5da9d41aef295c23d26c7b83cc5ff9e0d4f850910",
+  notcovered_live_uncovered: "f8f5b0a31eef09f5fd078079a77ec6c55c473830b8d56e91333d30584af56ba3",
+  notcovered_live_personal: "00919393357a8d3e5b2df88d9ff80ffe16335fe1289a94b86fffcec7593a1f80",
+  notcovered_notused_other: "04edff3786b0e86dd3024c72a14b002ef185e56667cfaeeb2e4225f6e884b94a",
+  vet_live_covered: "048049fc04d7824d45ec47f1378dbdeeaec240c0b48d43519c4ee69065e98caf",
+  vet_live_personal: "b1796c2c9bc2a0b2abc17f702e25dfc09199f4eb3a1b60961d723fe599d7b870",
+  vet_notused_mindbody: "0f9dd216921f84eb29b398a6508898e62a94a0c800f58a40a7b71917ab784ed2",
 };
 
 const template = () => currentDpaTemplate();
@@ -545,9 +546,12 @@ describe("what the DPA says", () => {
     expect(term).toContain(
       "at the first run once thirty days have passed since the Services ended, if the export has been delivered by then; otherwise at the first run after the export is delivered; and in any case at the first run once ninety days have passed since the Services ended, whether or not the export has been delivered.",
     );
+    // Nothing of a client outlives destruction: since gates 6 and 7 a
+    // deletion keeps no number, and destruction takes the rest.
     expect(term).toContain(
-      "healdesk holds no Client Information for Practice except the telephone number of any client who asked to have their information deleted",
+      "After it, healdesk holds no Client Information for Practice. Copies in encrypted database backups are deleted as those backups expire.",
     );
+    expect(term).not.toMatch(/telephone number/);
     expect(term).toContain("nothing is destroyed because of the replacement");
     // Not the BAA's "within thirty days" destruction, which the code keeps only with the export delivered.
     expect(term).not.toMatch(/within thirty days of termination healdesk will return or destroy/i);
@@ -776,13 +780,18 @@ describe("the DPA's pre-release text", () => {
     }
   });
 
-  test("the telephone-number sentences are left as they were, for gates 6 and 7", () => {
+  test("a deletion keeps a record of the request without the client's number, and its keyed references only for the backup window", () => {
+    // Gates 6 and 7 (12 October 2026): the number no longer stays in
+    // suppressions, and destruction takes everything, so neither clause
+    // keeps a deleted client's number any more.
     const text = render({}).text;
-    expect(unwrap(section(text, "Clients' requests"))).toContain(
-      "The telephone number of a client whose information is deleted is kept only as the record that the deletion was asked for.",
+    const requests = unwrap(section(text, "Clients' requests"));
+    expect(requests).toContain(
+      `When a client's information is deleted, healdesk keeps a record of the request that holds no telephone number, email address or name. For the ${BACKUP_RETENTION_DAYS} days in which a backup could still bring the information back, the record also holds one-way keyed references to the client's numbers, addresses and messaging accounts, used only to delete the information again if a backup is restored; then they are removed.`,
     );
-    expect(unwrap(section(text, "Term, termination, and what happens to the information"))).toContain(
-      "After it, healdesk holds no Client Information for Practice except the telephone number of any client who asked to have their information deleted, kept only as the record of that request.",
+    expect(requests).not.toMatch(/telephone number of a client whose information is deleted is kept/);
+    expect(unwrap(section(text, "Term, termination, and what happens to the information"))).not.toMatch(
+      /except the telephone number/,
     );
   });
 });

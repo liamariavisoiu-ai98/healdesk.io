@@ -22,7 +22,7 @@ Mindbody, which does not read Google Calendar, so the calendar clause is the
 one under which healdesk connects nothing; and a personal Google account,
 which that clause does not depend on. From the title line on, the sample is
 exactly what packages/catalog/src/dpa.test.ts freezes as dpa/1.0.0 / sample
-(SHA-256 bbbf78a01e8ab87a1002efb13731114c78516e7cef3c58dedeef884e060eb897).
+(SHA-256 b8bc4c48de681707f2f2911d06f20f776bb8b922e8f3461265f4c39ca9089725).
 The clauses that render only for some practices follow in Appendix A, numbered
 as they render; nothing else in the text varies. Appendix B is the calendar
 election that names this agreement, which its Definitions clause and its
@@ -475,9 +475,12 @@ EFFECTIVE 6 October 2026
   corrects its own copy. Where a record must stay as it was made, such as a
   booking request or the record of a conversation, healdesk appends the
   correction to it and links the two. Every later use and export of that
-  record then carries the correction. The telephone number of a client whose
-  information is deleted is kept only as the record that the deletion was
-  asked for.
+  record then carries the correction. When a client's information is deleted,
+  healdesk keeps a record of the request that holds no telephone number, email
+  address or name. For the 35 days in which a backup could still bring the
+  information back, the record also holds one-way keyed references to the
+  client's numbers, addresses and messaging accounts, used only to delete the
+  information again if a backup is restored; then they are removed.
 
   If a client makes such a request, or any other request about their
   information, to healdesk itself rather than to Practice, healdesk will not
@@ -550,12 +553,11 @@ EFFECTIVE 6 October 2026
   Destruction deletes the conversations, bookings, booking requests and
   contact details healdesk holds for Practice, and the credentials Practice
   connected through healdesk. After it, healdesk holds no Client Information
-  for Practice except the telephone number of any client who asked to have
-  their information deleted, kept only as the record of that request. Copies
-  in encrypted database backups are deleted as those backups expire. healdesk
-  will also have its subcontractors delete what they hold for Practice, except
-  what the Subcontractors clause says Anthropic may keep. What is in systems
-  Practice controls, such as its calendar, is Practice's own.
+  for Practice. Copies in encrypted database backups are deleted as those
+  backups expire. healdesk will also have its subcontractors delete what they
+  hold for Practice, except what the Subcontractors clause says Anthropic may
+  keep. What is in systems Practice controls, such as its calendar, is
+  Practice's own.
 
   Where destroying any Client Information is not feasible, healdesk will say
   why in writing, keep protecting it under this agreement for as long as it

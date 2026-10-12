@@ -23,9 +23,11 @@
 > drafted; the 24-hour incident and breach rule; "without penalty" given its
 > effect; the instructions, requests and assistance clauses reconciled with
 > the shared clause; and a correction the record cannot take appended and
-> linked, as BAA 1.3.0's is (PT-17). Counsel's approval covered the clauses
-> as they stood on 6 October, not these edits, which the owner reads in
-> `docs/dpa-v1.0.0.txt` before the release.
+> linked, as BAA 1.3.0's is (PT-17). On 12 October 2026 the two sentences
+> that kept a deleted client's telephone number changed with the code (BAA
+> 1.3.0 release gates 6 and 7; gap 15). Counsel's approval covered the
+> clauses as they stood on 6 October, not these edits, which the owner reads
+> in `docs/dpa-v1.0.0.txt` before the release.
 
 ## 1. What it is, and who signs it
 
@@ -143,7 +145,7 @@ Read in the code on 6 October 2026, at origin/main d652a0b.
 | "Within thirty days … deliver … an export … in a usable electronic form" (17) | Terms § 7 promises it; `exportClinic` (`npm run patient-export -- --all`) produces it and stamps nothing; the operator's record of the handover (ops `markExportDelivered`, refused until a bundle has been produced since offboarding started) stamps `export_delivered_at` through `app_mark_export_delivered()`, the column's only writer | `apps/web/src/app/terms/page.tsx`; `apps/app/src/lib/patient-rights/export.ts`; `apps/app/scripts/patient-export.ts`; `apps/app/src/lib/ops/api.ts`; drizzle/0058 |
 | Calls pass through to the direct line "for as long as the Terms provide" (17) | Terms § 7, `POLICY.forwardingPassThroughDays = 30` | `apps/web/src/lib/legal.ts` |
 | Destruction "deletes the conversations, bookings, booking requests and contact details … and the credentials" (17) | `destroyClinicData` deletes reconciliation exceptions, transactions, booking requests (first, through `app_destroy_booking_requests()`, drizzle/0054, once the clinic is due by its agreement's rule and the database's clock, `app_destruction_due()`, drizzle/0058), appointments, conversations, the keyed hashes of who messaged the practice and of the messages handled (`chat_threads`, `meta_inbound_messages`), Meta booking drafts, contacts, webhook payloads, provider connections and closures, and, since 7 October 2026, suppressions, consent records and contact attempts (`app_destroy_contact_evidence()`), and `app_mark_clinic_destroyed()` refuses to record the destruction while any of them is left | `offboarding.ts`; drizzle/0054, drizzle/0058 |
-| "no Client Information … except the telephone number of any client who asked to have their information deleted" (17), and the same in (13) | `eraseContact` leaves a `suppressions` row, which destruction deletes as well from 7 October 2026 (drizzle/0058), so the exception allows a retention the code no longer makes. Nothing else that survives destruction holds client data today: `suppress`/`recordAttempt` have no callers, and `consent_records`, `contact_attempts`, `usage_events` and `deposit_payments` have no writer yet (`chat_threads` and `meta_inbound_messages` do not survive it) | `apps/app/src/lib/retention/purge.ts`; `apps/app/src/lib/compliance/contact-policy.ts` |
+| "After it, healdesk holds no Client Information for Practice" (17); a deletion keeps "a record of the request that holds no telephone number, email address or name", and its keyed references only for the backup window (13) | Since 12 October 2026 `eraseContact` writes no `suppressions` row, and the operator's erase path (`erasePerson`) deletes the client's own suppressions, consent records and contact attempts with the rest; the request is recorded in `erasure_requests` with no number, address or name, and its `restore_refs` (keyed HMACs of the numbers, addresses and messaging threads the deletion found, never the details) are emptied 35 days after the deletion (`BACKUP_RETENTION_DAYS`) by the hourly `erasure-expiry` sweep and read only by `reapplyErasures` after a restore. Destruction deletes suppressions, consent records and contact attempts (drizzle/0058), the deletion records (0059) and the amendments (0060) with the rest. Nothing else that survives destruction holds client data: `usage_events` keep keyed references to calls that no longer exist, and `deposit_payments` keep no payer details | `apps/app/src/lib/patient-rights/erasure.ts`, `apps/app/src/lib/retention/purge.ts`, `apps/app/src/lib/offboarding/offboarding.ts`; drizzle/0058, 0059, 0060; pinned by `apps/app/tests/person-erasure.test.ts` and `tests/booking-request-destruction.test.ts` |
 | "The signed copy … kept for at least six years after it ends" (17) | `retention_eligible_at` is a floor; healdesk_app has no DELETE on `baa_acceptances`; nothing deletes one | `drizzle/0025_baa_retention.sql`; `apps/app/src/lib/agreements/retention.ts` |
 | What the assistant asks for (10) | `BOOKING_FIELDS`: the locked four and the five a practice may switch on; `EXCLUDED_FIELDS` has no email | `packages/catalog/src/booking-requirements.ts` |
 | The opening line says AI, and on a call that it is transcribed (10) | The fixed disclosure lines | `apps/app/src/lib/compliance/disclosure.ts` |
@@ -161,8 +163,8 @@ Added on 7 October 2026, read at origin/main c926414:
 | Notice "immediately following discovery … and in any case within 24 hours", for a use or disclosure not permitted, a breach and a security incident (12) | The runbook works to 24 hours for all three, for every clinic. The console's `notifyDeadline` gives a not-covered clinic's breach a day ("immediately"), but improper use or disclosure and a security incident five business days, for every clinic; gate 5 (another branch) makes it 24 hours for every class and clinic, after which the text and the code agree. Until then the text is the stricter, and the runbook keeps it | `docs/incident-response.md`; `apps/app/src/lib/incidents/incidents.ts` |
 | The notice goes "by email to Practice's address in the Notices clause" (12) | The practice's one address: the signer's, which the checkout intent requires to be the buying address and provisioning makes the account's sign-in | as clause 19, above |
 | "in its reply to the client, tell them that healdesk cannot act on it" (13) | v1 is inbound only: no code path contacts a person after a conversation ends (CLAUDE.md, "Product rules"), so the reply is the one moment to say it; passing the request on is an operator's step | the product rules in the root CLAUDE.md |
-| "delete it as the clause headed … provides" (13); ten business days, raw copies, backups within 35 days (5, item c) | `eraseContact` deletes the person's contacts and conversations, but not their `webhook_events`, Meta drafts, matched booking requests or `chat_threads`, and keeps the number in `suppressions`; nothing reachable runs it. Gate 6 builds the erase path the shared clause promises | `apps/app/src/lib/retention/purge.ts`; agreement-changes.md § 12.14, gate 6 |
-| "It will correct that information as Practice directs"; "Where the record can be changed, healdesk corrects its own copy"; where it "must stay as it was made, such as a booking request or the record of a conversation, healdesk appends the correction to it and links the two"; "Every later use and export of that record then carries the correction" (13) | Only the in-place half has code, and nothing reaches it: `amendContact` corrects a contact's name, telephone number or email and records which fields changed, and only its test calls it, no script or ops operation. A booking request must stay as it was made: 0039's trigger refuses a new `treatment` or `preferred_window`, or any other fact of the request, even for the table owner. A conversation's transcript is written once, at ingestion, and only the purge clears it. Nothing appends a correction or links one to its record, and no export carries one: that is gate 8 (gap 22) | `apps/app/src/lib/patient-rights/export.ts`; `apps/app/drizzle/0039_booking_requests_every_channel.sql`, pinned by `apps/app/tests/booking-transitions.test.ts`; `apps/app/src/lib/voice/ingest.ts`, `apps/app/src/lib/retention/purge.ts`; agreement-changes.md § 12.14, gate 8 |
+| "delete it as the clause headed … provides" (13); ten business days, raw copies, backups within 35 days (5, item c) | The care page's "Delete a person" (ops `erasePerson`, through the signed envelope) runs `eraseContact` and also deletes the client's raw payloads (`webhook_events`), the Meta requests they sent naming another number, their drafts and `chat_threads`, and their suppressions, consent records and contact attempts, in one transaction; it records the request with its ten-business-day deadline and shows each subcontractor step (Retell's, done in its console) outstanding until the operator records it. Backups age out at the host's 35 days (gate 18) | `apps/app/src/lib/patient-rights/erasure.ts`; `apps/app/src/lib/ops/api.ts`; agreement-changes.md § 12.14, gate 6 |
+| "It will correct that information as Practice directs"; "Where the record can be changed, healdesk corrects its own copy"; where it "must stay as it was made, such as a booking request or the record of a conversation, healdesk appends the correction to it and links the two"; "Every later use and export of that record then carries the correction" (13) | Since 12 October 2026: the care page's "Amendments" corrects a contact in place (ops `amendContact`, recording which fields changed) and appends a correction to a booking request or a conversation (ops `amendRecord`) in `record_amendments`, append-only, linked by a foreign key that keeps it on a record of the same clinic, and removed only with that record (erasure, the purge, destruction). `exportPatient` and `exportClinic` carry each beside its record, and the desk's view of a booking request lists them. A booking request still never changes in place (0039's trigger) | `apps/app/src/lib/patient-rights/amendments.ts`, `apps/app/src/lib/patient-rights/export.ts`; `apps/app/drizzle/0060_record_amendments.sql`, pinned by `apps/app/tests/record-amendments.test.ts`; agreement-changes.md § 12.14, gate 8 |
 | Terminating under the Subcontractors clause: "the Services end on the same day, no Fees accrue … and healdesk refunds" (17) | Nothing automates it: Package C's refund actions answer "not_available" on main, so an operator refunds through Stripe and cancels the subscription the same day, which starts offboarding (`customer.subscription.deleted`) | `apps/app/src/lib/billing/stripe-actions.ts`; `apps/app/src/lib/billing/events.ts` |
 | "Calendar election" and the form that names this agreement (1, 8, 19) | `calendar-election-dpa/1.0.0` exists as text, unreleased. Nothing can record an election of either kind: the election rows and their writer are plan C6 and C7, not on main | `packages/catalog/src/dpa-calendar-election.ts`; docs/design/google-calendar-2026-10-05.md |
 
@@ -237,7 +239,8 @@ Added on 7 October 2026, read at origin/main c926414:
       The shared clause sends "a request made to healdesk directly" here,
       but clause 13 covered only "such a request": it now covers any
       request about a client's information. The telephone-number sentence
-      is left for gates 6 and 7 (§ 6, gap 15).
+      was left for gates 6 and 7 (§ 6, gap 15), and changed with them on
+      12 October 2026.
     - *Assistance (16).* "The reasonable help it needs … under the laws
       that apply" restated, more loosely, what items b and d and the
       assessment paragraph say for the state privacy laws (by appropriate
@@ -287,8 +290,8 @@ Added on 7 October 2026, read at origin/main c926414:
     to the record and linked to it, every later use and export then carrying
     the correction. It says "correction" where 1.3.0 says "amendment",
     because a client asks to correct, and cites no 45 CFR. The reconciled
-    sentence before it and the telephone-number sentence after it are
-    unchanged. 1.3.0 rests the appending on 45 CFR 164.526(c)(1), which is
+    sentence before it is unchanged; the telephone-number sentence after it
+    changed with gates 6 and 7 (§ 6, gap 15). 1.3.0 rests the appending on 45 CFR 164.526(c)(1), which is
     HIPAA's; whether an appended correction meets a state privacy law's right
     to correct, where one applies, is a question for counsel (gap 22).
 
@@ -303,7 +306,10 @@ Added on 7 October 2026, read at origin/main c926414:
    before the first clinic's offboarding. (7 October 2026: drizzle/0058 keeps
    each agreement's own rule, so a clinic on BAA 1.2.1 or earlier is destroyed
    before its thirty days are up whatever the export, and 1.3.0 takes this
-   document's rule. The job must still be switched on.)
+   document's rule. The job must still be switched on.) The purge is no
+   longer behind its switch for a DPA practice: since 12 October 2026 a
+   clinic on the DPA or BAA 1.3.0 or later is purged every night whatever
+   the `retention-purge` switch says (gate 9).
 2. **Retention during the term.** BAA 1.2.1 (A5) says healdesk "keeps
    transcripts and conversation records for 90 days, which Practice may
    shorten in its portal". Since main's 0048 the code agrees on the number:
@@ -311,18 +317,22 @@ Added on 7 October 2026, read at origin/main c926414:
    the old 730 was moved to 90. What is still untrue: nothing in the
    application can shorten either setting (no portal control, no ops
    operation), and the `retention-purge` job is seeded off, so nothing is
-   deleted at 90 days either. The DPA states no period during the term, only
+   deleted at 90 days either. (12 October 2026: a DPA practice is purged every
+   night whatever the switch says, gate 9, so the 90 days are kept for it;
+   the portal control is still missing.) The DPA states no period during the term, only
    "no call audio is kept at all", although the spec wants a stated period
    for data handled as PHI. Before the release the owner decides: state "90
    days" once the purge runs for live clinics (and "which Practice may
    shorten" only once the portal control exists), regenerating the hashes,
    or release without a period.
-3. **Deletion on request has no operator path.** `eraseContact` exists and is
-   tested, and takes a client's half-finished Meta booking draft
-   (`meta_booking_drafts`) with the rest, found by the number, but no script
-   or ops operation runs it. The DPA's clause 13 and the state-law clause
-   promise deletion within ten business days; before release, give the
-   operator a script like `patient-export`.
+3. **Deletion on request: resolved** (12 October 2026, BAA 1.3.0 release gate
+   6). `eraseContact` had no caller. The care page's "Delete a person" (ops
+   `erasePerson`) now runs it and deletes what it did not reach: the
+   client's raw payloads, the Meta requests they sent, their drafts and
+   messaging threads, and their suppressions, consent records and contact
+   attempts. It records the request without the client and shows each
+   subcontractor step outstanding until recorded, with the ten-business-day
+   deadline; docs/handover.md has the runbook.
 4. **BAA 1.2.1's minimum-necessary list is narrower than the booking
    catalogue** (§ 5, item 4).
 5. **`chat_threads` at destruction: resolved.** Package B (the Stripe build,
@@ -401,13 +411,16 @@ Added on 7 October 2026, read at origin/main c926414:
 14. **The public notice period.** `/subprocessors` and `/trust` promise every
     customer fifteen days (`POLICY.subprocessorNoticeDays`); the DPA gives
     24 hours, as BAA 1.3.0 does (agreement-changes.md § 12.11, item 10).
-15. **The telephone number kept after a deletion** (13, 17), left as it
-    stands. Both sentences say the number of a client whose information was
-    deleted is kept as the record of the request, as `eraseContact` keeps it
-    in `suppressions` today. The shared clause's item c allows only a record
-    kept no longer than needed, and governs meanwhile by its precedence
-    sentence. Gates 6 and 7 (another branch) remove the number; the two
-    sentences change with them, regenerating the hashes.
+15. **The telephone number kept after a deletion** (13, 17): resolved on
+    12 October 2026. Both sentences said the number of a client whose
+    information was deleted is kept as the record of the request, as
+    `eraseContact` kept it in `suppressions`. Gate 6 records the request in
+    `erasure_requests` with no number, address or name, and keyed references
+    for the 35-day backup window only; gate 7 has destruction take
+    everything else. Clause 13 now says what a deletion keeps, in those
+    terms, and clause 17 that after destruction healdesk holds no Client
+    Information, with no exception. `docs/dpa-v1.0.0.txt` and the golden
+    hashes were regenerated with them; no BAA hash moved.
 16. **Overlaps not reconciled.** Permitted uses (4), confidentiality (14) and
     the subcontractor flow-down (11) also overlap the shared clause (its
     purposes, its item a, its subcontractor paragraph). § 12.14 named only
@@ -438,7 +451,16 @@ Added on 7 October 2026, read at origin/main c926414:
     incident and an improper use or disclosure five business days. Gate 5
     (another branch) brings it to 24 hours for every class; the DPA should
     not be released before it lands.
-22. **Correction on request has no code behind it** (13). The clause promises
+22. **Correction on request: the code is built** (13; 12 October 2026, BAA
+    1.3.0 release gate 8). The care page's "Amendments" appends a
+    correction to a booking request or a conversation (`record_amendments`,
+    append-only, on a record of the same clinic, removed only with that
+    record) and gives `amendContact` its operator path; both exports carry
+    each correction beside its record, and the desk's view of a booking
+    request lists them. Still open: wherever the portal (M5) shows or exports
+    a request or a conversation, the correction must show with it, and
+    counsel's view of an appended correction under a state privacy law's
+    right to correct. What the gap said before: the clause promises
     a correction as Practice directs: in healdesk's copy where the record can
     be changed, and otherwise appended and linked. `amendContact` corrects a
     contact in place and is tested, but no script or ops operation runs it,
@@ -518,15 +540,18 @@ its trigger.
 - [ ] The calendar election able to amend a DPA (gap 6): the form is
       drafted (`calendar-election-dpa/1.0.0`); its release, and election
       rows that take it through `calendarElectionFor`, remain.
-- [ ] Gaps 2 and 3 resolved, or the text changed to match. (Gap 5 is
+- [ ] Gap 2 resolved, or the text changed to match. (Gaps 3 and 5 are
       resolved.)
-- [ ] Corrections have code behind them (gap 22): gate 8's amendment record,
+- [x] Corrections have code behind them (gap 22): gate 8's amendment record,
       appended to and linked with the booking request or conversation it
-      corrects and carried by every later use and export; an operator path
-      for `amendContact`; and counsel's view of an appended correction under
-      the state privacy laws.
-- [ ] `offboarding-destroy` and `retention-purge` switched on for live
-      clinics (gap 1).
+      corrects and carried by both exports and the desk's view; an operator
+      path for `amendContact` (12 October 2026).
+- [ ] The portal (M5) shows each correction beside every request or
+      conversation it shows or exports, and counsel gives a view of an
+      appended correction under the state privacy laws (gap 22).
+- [ ] `offboarding-destroy` switched on for live clinics (gap 1);
+      `retention-purge` runs for a DPA practice whatever its switch (gate 9),
+      and is switched on at the release for every other clinic.
 - [ ] Go-live admits a released DPA (gap 11): the migration, the TypeScript
       checks and the tests that take a vet and a "No" practice live.
 - [ ] The covered-entity notice has code behind it. Clause 2 promises that
@@ -556,8 +581,9 @@ its trigger.
       "without penalty" given its effect, the instructions, requests and
       assistance clauses reconciled, and a correction the record cannot take
       appended and linked (§ 5, items 10 to 15).
-- [ ] Gates 6 and 7 land, and the telephone-number sentences in clauses 13
-      and 17 change with them (gap 15); gate 5 lands (gap 21).
+- [x] Gates 6 and 7 land, and the telephone-number sentences in clauses 13
+      and 17 change with them (gap 15, 12 October 2026).
+- [ ] Gate 5 lands (gap 21).
 - [ ] The owner decides the refund on a termination for healdesk's breach,
       and the definitions of "Services" and "Fees" (gaps 17, 18).
 - [ ] The Terms read for a DPA practice (A6, "Data Agreement"): §§ 1, 7, 9,

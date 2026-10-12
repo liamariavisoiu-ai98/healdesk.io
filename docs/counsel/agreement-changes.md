@@ -1648,11 +1648,15 @@ golden hashes and `docs/dpa-v1.0.0.txt` regenerated, no BAA hash moved):
   record can change, otherwise appended and linked. That rests on gate 8,
   so gate 8 holds the DPA's release too (`dpa.md`, gap 22).
 - Done: `docs/counsel/dpa.md` brought up to date.
-- Still to do: the "Clients' requests" and Term clauses say the telephone
-  number of a client whose information was deleted is kept as the record of
-  the request; gates 6 and 7 remove that number, and both sentences change
-  with them. Item c of the shared clause, which allows only a record kept no
-  longer than needed, governs meanwhile.
+- Done on 12 October 2026, with gates 6 and 7: the "Clients' requests"
+  clause no longer says a deleted client's telephone number is kept as the
+  record of the request. It says the record holds no telephone number,
+  email address or name, and, for the 35 days a backup could bring the
+  information back, one-way keyed references used only to delete it again
+  after a restore. The Term clause says that after destruction healdesk
+  holds no Client Information, with no exception for that number.
+  `docs/dpa-v1.0.0.txt` and the DPA's golden hashes were regenerated; no
+  BAA hash moved (`dpa.md`, gap 15).
 
 #### Flagged for the owner
 

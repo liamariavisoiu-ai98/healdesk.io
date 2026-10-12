@@ -20,9 +20,11 @@ import { wrap } from "./wrap";
  *
  *   - The setup page renders the Direct booking section only while
  *     `currentDirectBookingAddendum().approvedByCounsel` is true. Until then
- *     the section is absent, the console's `setBookingMode { mode: "direct" }`
- *     refuses with `addendum_not_approved`, and the runtime kill switch is
- *     unset — three independent gates, none of which is this file.
+ *     the section is absent. The console's switch that read this flag,
+ *     `setBookingMode`, was removed in C17: the booking mode is derived
+ *     (apps/app/src/lib/booking/mode.ts) from the location's calendar terms,
+ *     its Google Calendar, Auto-confirm and the owner's kill switch, and
+ *     reads neither this flag nor the election.
  *   - On acceptance the server renders the text again with the name and
  *     title the person typed, and stores `direct_booking_clause_version =
  *     addendum.version` and `direct_booking_clause_hash = sha256(text)`.
@@ -39,9 +41,9 @@ import { wrap } from "./wrap";
  * Google Calendar on every channel, with "Auto-confirm bookings" on by
  * default, and says nothing of an addendum. The Cal.com write this text was
  * drafted around was removed. Whether the Google Calendar path needs this
- * election at all is a question for counsel; until it is answered the gate
- * stays where it is (apps/app/src/lib/booking/mode.ts, launch plan steps 1.5
- * and 1.7). The text below is unchanged.
+ * election at all is a question for counsel. The booking mode does not ask
+ * for it: the location's calendar terms decide
+ * (apps/app/src/lib/booking/mode.ts). The text below is unchanged.
  */
 
 export type DirectBookingAddendum = {
@@ -51,7 +53,8 @@ export type DirectBookingAddendum = {
   publishedOn: string;
   /**
    * True once counsel has approved this text. The setup page hides the
-   * section, and the booking-mode switch refuses, while it is false.
+   * section, and refuses an acceptance, while it is false. The booking mode
+   * never reads it (apps/app/src/lib/booking/mode.ts).
    */
   approvedByCounsel: boolean;
   heading: string;

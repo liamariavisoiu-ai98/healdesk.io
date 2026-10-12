@@ -409,11 +409,23 @@ describeDb("ops: booking hand-off and direct booking", () => {
     expect(json).not.toMatch(/"phone":/);
     expect(json).not.toMatch(/"fullName":/);
     // The new fields are present with their resting values.
-    expect(view.bookingMode).toBe("desk_confirms");
     expect(view.timezoneConfirmedAt).toBeNull();
-    expect(view.calendarConnection).toBeNull();
-    // The call-back switch, its queue count and the WhatsApp template are gone.
-    for (const key of ["outboundCallbacksEnabled", "pendingCallbacks", "whatsappTemplateName", "whatsappTemplatesFlag"]) {
+    expect(view.booking).toMatchObject({ mode: "manual", canOfferTimes: false, calendar: null });
+    // The call-back switch, its queue count and the WhatsApp template are gone;
+    // so are the direct-booking addendum's switch and gates and the vendor
+    // connection's PHI basis (plan C17): the booking mode is derived, and
+    // `booking` is the console's only account of it.
+    for (const key of [
+      "outboundCallbacksEnabled",
+      "pendingCallbacks",
+      "whatsappTemplateName",
+      "whatsappTemplatesFlag",
+      "bookingMode",
+      "directBookingElectedAt",
+      "directBookingWithdrawnAt",
+      "directBooking",
+      "calendarConnection",
+    ]) {
       expect(view, key).not.toHaveProperty(key);
     }
     expect(view.calendarWrites).toEqual([]);
@@ -421,10 +433,6 @@ describeDb("ops: booking hand-off and direct booking", () => {
     expect(requirements.fields.slice(0, 4)).toEqual(["first_name", "phone", "preferred_window", "alternative_windows"]);
     expect(requirements.source).toBeNull();
     expect(requirements.neverAsked.length).toBeGreaterThan(0);
-    const direct = view.directBooking as { gates: { id: string; ok: boolean }[]; missing: string[]; addendumApproved: boolean };
-    expect(direct.gates.map((g) => g.id)).toEqual(["env", "addendum", "election", "calendar", "production", "agent"]);
-    expect(direct.gates.every((g) => g.ok === false)).toBe(true);
-    expect(direct.missing.length).toBeGreaterThan(0);
 
     const writes = await run("listCalendarWrites", { clinicId });
     expect(JSON.stringify(writes)).not.toMatch(/"(firstName|phone|fullName)":/);
@@ -532,24 +540,21 @@ describeDb("ops: booking hand-off and direct booking", () => {
     expect(await signed("1.1.0-draft", { calendarWrite: { platform: "Cal.com" } })).toBe(true);
   });
 
-  test("setBookingMode direct refuses listing the missing gates; desk_confirms stamps the withdrawal", async () => {
+  test("setBookingMode is gone, and the addendum's election on the row changes nothing the console shows", async () => {
+    // The console switches Auto-confirm (setAutoConfirm); nothing sets a mode.
+    expect(isOpName("setBookingMode")).toBe(false);
     const { clinicId } = await seedClinic("ops-mode");
-    // The addendum is unapproved in the catalogue, so this is the first gate.
-    const refused = await run("setBookingMode", { clinicId, mode: "direct" });
-    expect(refused).toMatchObject({ status: "refused", reason: "addendum_not_approved" });
-    expect((refused.missing as string[]).length).toBeGreaterThan(0);
-    expect((await listClinics()).find((c) => c.id === clinicId)!.bookingMode).toBe("desk_confirms");
-
-    // An election recorded directly, then withdrawn by the console.
+    const before = (await run("getOnboarding", { clinicId })).booking as { mode: string; reasons: { code: string }[] };
+    expect(before.mode).toBe("manual");
+    // A row the old switch could have left: elected and `direct`. The mode is
+    // derived from the terms, the calendar, Auto-confirm and the kill switch,
+    // and never reads the addendum's columns, so the console's whole account
+    // of booking is what it was before them, reasons and all.
     await getMigratorPool().query(
-      `update clinics set direct_booking_elected_at = now(), direct_booking_elected_by_label = 'Dr Chen', direct_booking_clause_version = 'direct-booking-addendum/1.0.0', direct_booking_clause_hash = decode(repeat('c', 64), 'hex') where id = $1`,
+      `update clinics set direct_booking_elected_at = now(), direct_booking_elected_by_label = 'Dr Chen', direct_booking_clause_version = 'direct-booking-addendum/1.0.0', direct_booking_clause_hash = decode(repeat('c', 64), 'hex'), booking_mode = 'direct' where id = $1`,
       [clinicId],
     );
-    const back = await run("setBookingMode", { clinicId, mode: "desk_confirms" });
-    expect(back).toMatchObject({ status: "updated", mode: "desk_confirms" });
-    const after = (await listClinics()).find((c) => c.id === clinicId)!;
-    expect(after.directBookingWithdrawnAt).not.toBeNull();
-    expect(after.bookingMode).toBe("desk_confirms");
+    expect((await run("getOnboarding", { clinicId })).booking).toEqual(before);
   });
 
   test("setBookingRequirements keeps the locked four, refuses unknown ids, and records the operator", async () => {
@@ -635,10 +640,11 @@ describeDb("ops: the Google Calendar connection and the demo clinic", () => {
           [connectionId],
         ),
       );
+      // Nothing offers it a basis: the console shows it as `booking.calendar`,
+      // and the mode is derived without one.
       const view = await run("getOnboarding", { clinicId });
-      expect(view.calendarConnection).toBeNull();
-      const direct = view.directBooking as { gates: { id: string; ok: boolean }[] };
-      expect(direct.gates.find((g) => g.id === "calendar")).toEqual({ id: "calendar", ok: false });
+      expect(view).not.toHaveProperty("calendarConnection");
+      expect(view.booking).toMatchObject({ mode: "manual", calendar: { connectionId } });
       const { writableConnection } = await import("@/lib/booking/calendar");
       const { withTenant } = await import("@/lib/tenant");
       expect(

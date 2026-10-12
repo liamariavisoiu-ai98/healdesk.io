@@ -29,11 +29,11 @@ the code on 8 October 2026. The plan's commit names, C0 to C20, are kept.
 | C9      | Booking mode and Auto-confirm (§2)                                                                 | Built                                          |
 | C10     | The five-minute calendar watch                                                                     | Built, ships off; one email deferred (below)   |
 | C11     | Privacy §11 and `/data-deletion` say what the code does                                            | To build                                       |
-| C12     | Availability, the desk path, migration B, the harness parked; HRC-04 at each desk write (§4)       | Built                                          |
+| C12     | Availability, the desk path, migration B, the harness parked; HRC-04 at each desk write (§4)       | Built (568a56d)                                |
 | C13     | The booking engine (§6); HRC-04 at each write (§4)                                                 | Built; its alerts are §6's                     |
 | C14     | The harness wired to the engine, and the fixed lines                                               | To build                                       |
 | C15     | Provisioning reads the signed acceptance                                                           | Built                                          |
-| C17     | The console's cards; `setBookingMode` and `directBookingAllowed` removed                           | To build                                       |
+| C17     | The console's cards; `setBookingMode` and `directBookingAllowed` removed                           | Built                                          |
 | C18     | Elections and account changes from the portal (§2)                                                 | Built                                          |
 | C19     | Release 1.3.0 and `calendar-election/1.0.0`                                                        | When Claude's own audit finds no blocker       |
 | C20     | Empty `BAA_RELEASE_OVERLAP`                                                                        | Once C19 is deployed                           |

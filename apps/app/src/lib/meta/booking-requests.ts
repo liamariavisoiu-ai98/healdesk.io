@@ -602,6 +602,8 @@ export type ResolvedBookingRequest = {
   id: string;
   clinicId: string;
   clinicName: string;
+  /** The practice's IANA zone: every time on the desk page is said on the practice's clock, not the server's. */
+  timeZone: string;
   channel: BookingChannel;
   platform: MetaPlatform | null;
   firstName: string | null;
@@ -674,6 +676,7 @@ export async function resolveBookingRequest(token: string, request?: RequestCont
         lastInboundAt: bookingRequests.lastInboundAt,
         expired: sql<boolean>`${bookingRequests.expiresAt} <= now()`,
         clinicName: clinics.name,
+        timeZone: clinics.timezone,
         firstName: contacts.fullName,
         phone: contacts.phone,
         calendarWriteStatus: appointments.calendarWriteStatus,
@@ -704,6 +707,7 @@ export async function resolveBookingRequest(token: string, request?: RequestCont
       id: row.id,
       clinicId,
       clinicName: row.clinicName,
+      timeZone: row.timeZone,
       channel: row.channel,
       platform: row.platform,
       firstName: row.firstName,

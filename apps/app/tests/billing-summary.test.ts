@@ -113,7 +113,7 @@ describeDb("billing summary and previews", () => {
         {
           meter: "voice_minutes",
           used: 0,
-          // Billed as Web Chatbot, bought with voice: the bought package's
+          // Billed as AYA Web Chat, bought with voice: the bought package's
           // minutes, pooled over both locations (BD5).
           included: 2_000,
           overUnits: 0,
@@ -177,7 +177,7 @@ describeDb("billing summary and previews", () => {
         included: 1_000,
         overUnits: 101,
         // Two blocks at Web + Voice's $30, the package bought, not the $40 of
-        // the Web Chatbot it is billed as.
+        // the AYA Web Chat it is billed as.
         overageCents: 6_000,
         ...window,
       },

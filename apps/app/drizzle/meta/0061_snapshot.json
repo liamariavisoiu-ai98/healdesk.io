@@ -1,5 +1,5 @@
 {
-  "id": "215d776a-7327-468c-92f8-317910b06c94",
+  "id": "8de5dd03-79c7-4867-91ce-0738c93fcc15",
   "prevId": "8eb69e65-65f3-4e90-8be4-460e8736811e",
   "version": "7",
   "dialect": "postgresql",
@@ -919,12 +919,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "termination_reason": {
-          "name": "termination_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "copy_sent_at": {
           "name": "copy_sent_at",
           "type": "timestamp with time zone",
@@ -1053,10 +1047,6 @@
         "baa_acceptances_terminated_after_accepted": {
           "name": "baa_acceptances_terminated_after_accepted",
           "value": "\"baa_acceptances\".\"terminated_at\" is null or \"baa_acceptances\".\"terminated_at\" >= \"baa_acceptances\".\"accepted_at\""
-        },
-        "baa_acceptances_termination_reason_check": {
-          "name": "baa_acceptances_termination_reason_check",
-          "value": "\"baa_acceptances\".\"termination_reason\" is null or (\"baa_acceptances\".\"terminated_at\" is not null and \"baa_acceptances\".\"termination_reason\" in ('practice_healdesk_breach', 'practice_subcontractor_objection', 'healdesk_practice_breach', 'change_in_law', 'services_ended'))"
         },
         "baa_acceptances_copy_evidence_complete": {
           "name": "baa_acceptances_copy_evidence_complete",
@@ -3425,6 +3415,27 @@
           "primaryKey": false,
           "notNull": true,
           "default": 90
+        },
+        "instagram_enabled": {
+          "name": "instagram_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "messenger_enabled": {
+          "name": "messenger_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "whatsapp_enabled": {
+          "name": "whatsapp_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
         },
         "updated_at": {
           "name": "updated_at",

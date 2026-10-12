@@ -1,6 +1,6 @@
 "use client";
 
-import type { BillingInterval, ChatChannel, CoveredAnswer } from "@healdesk/catalog";
+import { type BillingInterval, type ChatChannel, type CoveredAnswer, demoSetupCreditUsd } from "@healdesk/catalog";
 import { type MouseEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { track } from "@/lib/analytics";
@@ -47,6 +47,7 @@ import { AgreementCopyLink, filenameFrom } from "./AgreementCopy";
 import { agreementCopyFor } from "./agreement-kinds";
 import { type AgreementResult, AgreementStep } from "./AgreementStep";
 import { ClinicStep } from "./ClinicStep";
+import type { DemoCheckout } from "./DemoPackageExtras";
 import { PackageStep } from "./PackageStep";
 import { ReviewStep } from "./ReviewStep";
 
@@ -152,6 +153,7 @@ export function CheckoutFlow({
   lockedEmail,
   returnedFromPayment = false,
   salesTax = false,
+  demo,
   onClose,
   onProgress,
   downloadHost,
@@ -175,6 +177,14 @@ export function CheckoutFlow({
   returnedFromPayment?: boolean;
   /** STRIPE_AUTOMATIC_TAX, read on the server: "Plus sales tax where it applies". */
   salesTax?: boolean;
+  /**
+   * The buyer came from their personalised demo (components/checkout/
+   * DemoPackageExtras.tsx): grouped packages with estimates, the offer and its
+   * clock, and the clinic step shows what the demo already knows instead of
+   * asking again. The offer's price is `offerEndsAt` being set: it is the
+   * server's decision (api/checkout), shown here, never made here.
+   */
+  demo?: DemoCheckout;
   /** Present only when hosted in something dismissable. */
   onClose?: () => void;
   onProgress?: (progress: CheckoutProgress) => void;
@@ -506,6 +516,8 @@ export function CheckoutFlow({
         onClose={onClose}
         headingRef={headingRef}
         error={error?.step === 1 ? error.message : null}
+        demo={demo}
+        onPlan={(planId) => setState((s) => choosePlan(s, planId))}
       />
     );
   }
@@ -518,6 +530,7 @@ export function CheckoutFlow({
         onPlan={(planId) => setState((s) => choosePlan(s, planId))}
         onBack={() => go(1)}
         onContinue={continueFromClinic}
+        fromDemo={Boolean(demo)}
         onClose={onClose}
         headingRef={headingRef}
         error={error?.step === 2 && error.field ? { field: error.field, message: error.message } : null}
@@ -587,6 +600,7 @@ export function CheckoutFlow({
         onBack={() => go(3)}
         onClose={onClose}
         headingRef={headingRef}
+        setupCreditUsd={demo?.offerEndsAt ? demoSetupCreditUsd(plan) : 0}
       />
     );
   }

@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 
 import { agentConfigs, clinicChannels, clinics, clinicSettings } from "@/db/schema";
 import { getClinicSettings } from "@/lib/billing/settings";
+import { metaPlatformOn } from "@/lib/channels/meta-platforms";
 import { META_CHANNEL_PROHIBITIONS, metaChannelGreeting, type Channel } from "@/lib/compliance/disclosure";
 import { describeError, log } from "@/lib/log";
 import { parseOpeningHours, type OpeningHours } from "@/lib/clinic/opening-hours";
@@ -629,6 +630,9 @@ export async function answerFrontDoor(
 ): Promise<FrontDoorAnswer | null> {
   const facts = await frontDoorFacts(tx);
   if (!facts) return null;
+  // The clinic's switch for this platform (Settings). The webhook skips such
+  // a message before it gets here; this holds for any other caller.
+  if (!(await metaPlatformOn(tx, input.platform))) return null;
   const fallback = handoffLine(facts);
   const now = input.now ?? new Date();
   const thread: ThreadInput | null = input.thread ? { platform: input.platform, externalId: input.thread.externalId, senderId: input.thread.senderId, connectionId: input.thread.connectionId } : null;

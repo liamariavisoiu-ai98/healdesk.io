@@ -414,7 +414,7 @@ THE ROLE-PLAY
 
 PRICE
   · Recommend the smallest package that solves what they told you. Phones
-    only means AI Voice Agent Alone. Never add a channel they didn't raise.
+    only means AYA Voice. Never add a channel they didn't raise.
   · Never discount and never hint at one.
 
 OBJECTIONS: acknowledge, reframe, ask one question

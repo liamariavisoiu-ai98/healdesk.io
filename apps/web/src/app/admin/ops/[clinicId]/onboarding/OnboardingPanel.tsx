@@ -44,6 +44,7 @@ type Actions = {
   startForwardingTest: () => Promise<OpsResult<ForwardingTestOutcome>>;
   attachMeta: (input: { platform: MetaPlatform; externalId: string; accessToken: string; label?: string }) => Promise<OpsResult<SimpleOutcome>>;
   setMeta: (enabled: boolean) => Promise<OpsResult<SimpleOutcome>>;
+  setMetaPlatform: (platform: MetaPlatform, enabled: boolean) => Promise<OpsResult<SimpleOutcome>>;
   // Booking hand-off (design of 23 September 2026).
   saveRequirements: (fields: string[]) => Promise<OpsResult<SimpleOutcome>>;
   resendSetupLink: (to: string | null) => Promise<OpsResult<IssueLinkOutcome>>;
@@ -162,7 +163,7 @@ export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingV
       </Section>
 
       <Section title={`Meta front door — ${v.meta.enabled ? "on" : "off"}`}>
-        <MetaFrontDoor view={v} onAttach={actions.attachMeta} onSwitch={actions.setMeta} />
+        <MetaFrontDoor view={v} onAttach={actions.attachMeta} onSwitch={actions.setMeta} onPlatform={actions.setMetaPlatform} />
       </Section>
 
       <Section title="Booking request fields">
@@ -558,7 +559,19 @@ function ForwardingTest({ view, onStart }: { view: OnboardingView; onStart: Acti
   );
 }
 
-function MetaFrontDoor({ view, onAttach, onSwitch }: { view: OnboardingView; onAttach: Actions["attachMeta"]; onSwitch: Actions["setMeta"] }) {
+const PLATFORM_NAMES: Record<MetaPlatform, string> = { instagram: "Instagram", messenger: "Messenger", whatsapp: "WhatsApp" };
+
+function MetaFrontDoor({
+  view,
+  onAttach,
+  onSwitch,
+  onPlatform,
+}: {
+  view: OnboardingView;
+  onAttach: Actions["attachMeta"];
+  onSwitch: Actions["setMeta"];
+  onPlatform: Actions["setMetaPlatform"];
+}) {
   const [pending, start] = useTransition();
   const [problem, setProblem] = useState<string | null>(null);
   const m = view.meta;
@@ -647,6 +660,39 @@ function MetaFrontDoor({ view, onAttach, onSwitch }: { view: OnboardingView; onA
         </button>
         <span className="text-muted text-xs">Webhook: <code>/api/webhooks/meta</code> on the product host, subscribed in the Meta app to messages for each product.</span>
       </div>
+      {m.platforms ? (
+        <div className="mt-4">
+          <p className="text-muted">
+            The clinic&rsquo;s own switches, in its Settings, beneath the front door: a message is answered only when the
+            front door and its platform are both on. Switching one here is recorded as &ldquo;healdesk support&rdquo; on the
+            clinic&rsquo;s side.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {(["instagram", "messenger", "whatsapp"] as const).map((platform) => {
+              const on = m.platforms![platform];
+              return (
+                <button
+                  key={platform}
+                  type="button"
+                  disabled={pending}
+                  aria-pressed={on}
+                  onClick={() =>
+                    start(async () =>
+                      setProblem(
+                        describe(await onPlatform(platform, !on)) ??
+                          `${PLATFORM_NAMES[platform]} switched ${on ? "off" : "on"}.`,
+                      ),
+                    )
+                  }
+                  className={`rounded-full px-4 py-2 text-xs font-bold ${on ? "bg-black text-white" : "border-line-strong border"}`}
+                >
+                  {PLATFORM_NAMES[platform]}: {on ? "on" : "off"}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
       {problem ? <p className="mt-2 text-xs">{problem}</p> : null}
     </div>
   );

@@ -4,11 +4,13 @@ import { unsafeDb } from "@/db";
 import { bookingRequests, clinics } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { assistantMayAnswer } from "@/lib/billing/answering";
+import { metaPlatformOn, syncMetaChannelSwitch } from "@/lib/channels/meta-platforms";
 import { saveConnection, withCredentials } from "@/lib/connections/store";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import type { MetaPlatform } from "./front-door";
 import { GRAPH_VERSION } from "./graph";
+import { META_PROVIDERS } from "./providers";
 
 /**
  * A clinic's Meta channels: one sealed access token per platform, on the
@@ -32,18 +34,14 @@ import { GRAPH_VERSION } from "./graph";
  *
  * The second rule is the practice's switches (BAA 1.3.0 clause 16: Practice
  * "may switch them off at any time"). A reply that answers the message just
- * received is sent only after the webhook has found the front door on and
- * the answer gate open. A reply sent later, on the desk's decision (the
- * follow-up and the reschedule line), takes an owner resolved by
- * `resolveFollowUpOwner` just before it, through the same two checks, and an
- * owner they refused is never sent for: `sendMetaReply` drops it and records
- * why, as it records a send outside the window.
+ * received is sent only after the webhook has found the front door and the
+ * platform's switch on and the answer gate open. A reply sent later, on the
+ * desk's decision (the follow-up and the reschedule line), takes an owner
+ * resolved by `resolveFollowUpOwner` just before it, through the same three
+ * checks, and an owner they refused is never sent for: `sendMetaReply` drops
+ * it and records why, as it records a send outside the window.
  */
-export const META_PROVIDERS: Record<MetaPlatform, string> = {
-  messenger: "meta-messenger",
-  instagram: "meta-instagram",
-  whatsapp: "meta-whatsapp",
-};
+export { META_PROVIDERS };
 
 /** Meta's customer-service window: 24 hours from the person's last message. */
 export const META_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -61,6 +59,11 @@ export function isMetaPlatform(value: unknown): value is MetaPlatform {
  * `details` are non-secret ids kept in metadata, such as the WhatsApp Business
  * account a number belongs to. `via` says how the token arrived, so the audit
  * trail separates a clinic's own login from an operator pasting one.
+ *
+ * A newly connected platform answers by default (its Settings switch is On
+ * unless someone turned it Off), so the Meta channel's own switch is brought
+ * back in step with the connected platforms' switches in the same
+ * transaction (lib/channels/meta-platforms.ts).
  */
 export async function attachMetaChannel(
   tx: TenantTx,
@@ -86,21 +89,37 @@ export async function attachMetaChannel(
     resourceId: id,
     metadata: { provider: META_PROVIDERS[input.platform], via: input.via ?? "operator" },
   });
+  await syncMetaChannelSwitch(tx, CONNECTED_BY[input.via ?? "operator"]);
   return id;
 }
+
+/** Who a channel switch that follows a new connection is recorded as having changed it. */
+const CONNECTED_BY: Record<"operator" | "facebook_login" | "embedded_signup", string> = {
+  operator: "healdesk support",
+  facebook_login: "Facebook login",
+  embedded_signup: "WhatsApp signup",
+};
 
 export async function setMetaFrontDoor(tx: TenantTx, enabled: boolean): Promise<void> {
   await tx.db.update(clinics).set({ metaFrontDoorEnabled: enabled, updatedAt: new Date() }).where(eq(clinics.id, tx.clinicId));
   tx.audit.record({ action: "update", resourceType: "clinic_meta_front_door", resourceId: tx.clinicId, metadata: { enabled } });
 }
 
+/**
+ * Who owns a Meta page, account or number, and whether it may be answered:
+ * `enabled` is the operator's front door for the whole clinic, and
+ * `platformEnabled` the clinic's own switch for this platform (Settings,
+ * lib/channels/meta-platforms.ts). The webhook answers only when both are on.
+ */
 export type MetaChannelOwner = {
   clinicId: string;
   connectionId: string;
   platform: MetaPlatform;
-  /** The front door is on (and, for a follow-up, the answer gate is open): replies may go. */
+  /** The operator's front door is on (and, for a follow-up, the answer gate is open). */
   enabled: boolean;
-  /** Why a follow-up owner is refused: `front_door_off`, or the answer gate's reason. */
+  /** The clinic's own switch for this platform is on. */
+  platformEnabled: boolean;
+  /** Why a follow-up owner is refused: `front_door_off`, `platform_off`, or the answer gate's reason. */
   withheld?: string;
 };
 
@@ -109,12 +128,14 @@ export type MetaChannelOwner = {
  * desk's follow-up and the reschedule line. Resolved outside any transaction,
  * because the answer gate opens its own (lib/billing/answering.ts, R1), just
  * before the decision's transaction that sends it. Enabled only while the
- * practice's Meta front door is on (`clinics.meta_front_door_enabled`, the
- * switch the webhook obeys) and the answer gate would answer on Meta now: no
- * pause, the channel bought, on and live, billing in good standing (not
- * suspended or cancelled), and an agreement in effect. The follow-up belongs
- * to a conversation already had, so it is not a new one for the allowance
- * cap, and asking raises no allowance notice.
+ * operator's Meta front door is on (`clinics.meta_front_door_enabled`), the
+ * clinic's own switch for the platform the request came in on is on
+ * (lib/channels/meta-platforms.ts), both of which the webhook obeys, and the
+ * answer gate would answer on Meta now: no pause, the channel bought, on and
+ * live, billing in good standing (not suspended or cancelled), and an
+ * agreement in effect. The follow-up belongs to a conversation already had,
+ * so it is not a new one for the allowance cap, and asking raises no
+ * allowance notice.
  */
 export async function resolveFollowUpOwner(input: {
   clinicId: string;
@@ -124,15 +145,18 @@ export async function resolveFollowUpOwner(input: {
   now?: Date;
 }): Promise<MetaChannelOwner> {
   const base = { clinicId: input.clinicId, connectionId: input.connectionId, platform: input.platform };
-  const frontDoorOn = await withTenant({ clinicId: input.clinicId, actor: input.actor }, async (tx) => {
+  const switches = await withTenant({ clinicId: input.clinicId, actor: input.actor }, async (tx) => {
     const [row] = await tx.db
       .select({ enabled: clinics.metaFrontDoorEnabled })
       .from(clinics)
       .where(eq(clinics.id, tx.clinicId))
       .limit(1);
-    return row?.enabled === true;
+    return { frontDoor: row?.enabled === true, platform: await metaPlatformOn(tx, input.platform) };
   });
-  if (!frontDoorOn) return { ...base, enabled: false, withheld: "front_door_off" };
+  if (!switches.frontDoor) {
+    return { ...base, enabled: false, platformEnabled: switches.platform, withheld: "front_door_off" };
+  }
+  if (!switches.platform) return { ...base, enabled: true, platformEnabled: false, withheld: "platform_off" };
   const decision = await assistantMayAnswer({
     clinicId: input.clinicId,
     channel: "meta",
@@ -140,26 +164,39 @@ export async function resolveFollowUpOwner(input: {
     now: input.now,
     actor: input.actor,
   });
-  if (decision.decision === "pass_through") return { ...base, enabled: false, withheld: decision.reason };
-  return { ...base, enabled: true };
+  if (decision.decision === "pass_through") {
+    return { ...base, enabled: false, platformEnabled: true, withheld: decision.reason };
+  }
+  return { ...base, enabled: true, platformEnabled: true };
 }
 
-/** Which clinic owns this page / account / number. Ids only; see 0036. */
+/** Which clinic owns this page / account / number. Ids and the two switches only; see 0036 and 0061. */
 export async function resolveMetaChannel(externalId: string): Promise<MetaChannelOwner | null> {
-  const result = await unsafeDb.execute<{ clinic_id: string; connection_id: string; provider: string; enabled: boolean }>(
-    sql`select clinic_id, connection_id, provider, enabled from app_meta_channel(${externalId})`,
-  );
+  const result = await unsafeDb.execute<{
+    clinic_id: string;
+    connection_id: string;
+    provider: string;
+    enabled: boolean;
+    platform_enabled: boolean;
+  }>(sql`select clinic_id, connection_id, provider, enabled, platform_enabled from app_meta_channel(${externalId})`);
   const rows = ((result as unknown as { rows?: unknown[] }).rows ?? result) as {
     clinic_id: string;
     connection_id: string;
     provider: string;
     enabled: boolean;
+    platform_enabled: boolean;
   }[];
   const row = rows[0];
   if (!row) return null;
   const platform = (Object.keys(META_PROVIDERS) as MetaPlatform[]).find((p) => META_PROVIDERS[p] === row.provider);
   if (!platform) return null;
-  return { clinicId: row.clinic_id, connectionId: row.connection_id, platform, enabled: Boolean(row.enabled) };
+  return {
+    clinicId: row.clinic_id,
+    connectionId: row.connection_id,
+    platform,
+    enabled: Boolean(row.enabled),
+    platformEnabled: row.platform_enabled === true,
+  };
 }
 
 /**
@@ -216,7 +253,7 @@ export async function graphSend(input: Parameters<MetaSender>[0]): Promise<void>
 export type MetaSendOutcome =
   | { status: "sent" }
   | { status: "outside_window" }
-  /** The owner was refused: the front door is off, or the answer gate would not answer. */
+  /** The owner was refused: the front door or the platform's switch is off, or the answer gate would not answer. */
   | { status: "withheld"; reason: string };
 
 /**
@@ -242,8 +279,8 @@ export async function sendMetaReply(
   const now = opts.now ?? new Date();
   // The practice's switches first: an owner refused is never sent for,
   // whatever the caller asked (see the header).
-  if (!owner.enabled) {
-    const reason = owner.withheld ?? "front_door_off";
+  if (!owner.enabled || !owner.platformEnabled) {
+    const reason = owner.withheld ?? (owner.enabled ? "platform_off" : "front_door_off");
     tx.audit.record({ action: "create", resourceType: "meta_front_door_reply", resourceId: tx.clinicId, metadata: { platform: owner.platform, outcome: "withheld", reason } });
     return { status: "withheld", reason };
   }

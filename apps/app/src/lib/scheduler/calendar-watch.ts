@@ -12,6 +12,7 @@ import { unsafeDb } from "@/db";
 import { clinics, googleOauthStates, providerConnections } from "@/db/schema";
 import { recordSecurityEvent, type ActorContext } from "@/lib/audit";
 import { sweepDeskWrites, type DeskSweepResult } from "@/lib/booking/calendar";
+import { sweepHolds, type HoldSweepResult } from "@/lib/booking/writer";
 import {
   calendarBreakOf,
   claimBreakageAlertWithin,
@@ -57,10 +58,16 @@ import { JOB_CALENDAR_WATCH, runJob, type JobOutcome } from "./jobs";
  *      about.
  *   4. The alert pass: a breakage the clinic has not been told about is
  *      claimed and told, once (claimBreakageAlertWithin).
- *   5. The desk sweep (sweepDeskWrites, lib/booking/calendar.ts): staff
- *      confirmations whose Google write never settled are tried again,
- *      reading Google back first. It never throws; a location it could not
- *      read counts as a failure of the run, so ops hears of it.
+ *   5. The sweeps. The desk sweep (sweepDeskWrites, lib/booking/calendar.ts):
+ *      staff confirmations whose Google write never settled are tried again,
+ *      reading Google back first. The hold sweep (sweepHolds,
+ *      lib/booking/writer.ts): the assistant's own writes nobody saw finish
+ *      are read back and recorded or let go, and holds past their window
+ *      expire. Neither throws; a location one could not read counts as a
+ *      failure of the run, so ops hears of it. There is no sweep for desk
+ *      notices: the booking engine raises each alert inside the transaction
+ *      that commits what it reports, so a process that dies leaves no
+ *      committed request untold.
  *   6. Google OAuth states older than a day are purged.
  *
  * What an answer does to the connection. Its health is stored and the
@@ -121,9 +128,6 @@ import { JOB_CALENDAR_WATCH, runJob, type JobOutcome } from "./jobs";
  * launched after four minutes, so a run ends inside its five and well
  * inside the ten-minute lock. A run that leaves connections unprobed counts
  * them, tells ops, and probes them first next time (`launchOrder`).
- *
- * C13 adds its sweeps beside the desk sweep (holds, owed desk notices; plan
- * §9.2 step 5).
  *
  * Deferred, not built: plan §9.2 step 5's one-off "reconnect to accept the
  * updated notice" email to a clinic whose connection was accepted under a
@@ -189,6 +193,8 @@ export type CalendarWatchSummary = {
   alerted: number;
   /** The desk sweep's own counts; its `errors` are also counted in `failed`. */
   desk: DeskSweepResult;
+  /** The hold sweep's own counts; its `errors` are also counted in `failed`. */
+  holds: HoldSweepResult;
   oauthStatesPurged: number;
 };
 
@@ -231,6 +237,7 @@ export async function watchCalendars(
     failed: 0,
     alerted: 0,
     desk: { attempted: 0, written: 0, failed: 0, unknown: 0, errors: 0 },
+    holds: { lapsed: 0, checked: 0, confirmed: 0, released: 0, expired: 0, errors: 0 },
     oauthStatesPurged: 0,
   };
   const changes: Changes = {
@@ -265,6 +272,10 @@ export async function watchCalendars(
     // broken is already marked, and its desk writes fail rather than retry.
     summary.desk = await sweepDeskWrites({ now });
     summary.failed += summary.desk.errors;
+    // The assistant's own writes nobody saw finish, after the desk's: a
+    // location the probe just found broken has already let its holds go.
+    summary.holds = await sweepHolds({ now });
+    summary.failed += summary.holds.errors;
 
     summary.oauthStatesPurged = await purgeOAuthStates(now);
   } catch (error) {
@@ -757,7 +768,7 @@ async function report(summary: CalendarWatchSummary, changes: Changes): Promise<
     events.push({ event: "calendar_watch_incomplete", metadata: { skipped: summary.skipped } });
   }
   // Every run, changed or not (see the module comment).
-  const { sweep, desk, runId: jobId, ...counts } = summary;
+  const { sweep, desk, holds, runId: jobId, ...counts } = summary;
   events.push({
     event: "calendar_watch",
     metadata: {
@@ -768,6 +779,11 @@ async function report(summary: CalendarWatchSummary, changes: Changes): Promise<
       deskWritten: desk.written,
       deskFailed: desk.failed,
       deskUnknown: desk.unknown,
+      holdsLapsed: holds.lapsed,
+      holdsChecked: holds.checked,
+      holdsConfirmed: holds.confirmed,
+      holdsReleased: holds.released,
+      holdsExpired: holds.expired,
       jobId,
     },
   });
@@ -805,6 +821,13 @@ function noteOf(s: CalendarWatchSummary): string {
       `desk writes swept ${s.desk.attempted}: ${s.desk.written} written, ` +
         `${s.desk.unknown} still unknown, ${s.desk.failed} failed` +
         (s.desk.errors ? `, ${s.desk.errors} location(s) unreadable` : ""),
+    );
+  }
+  if (s.holds.lapsed || s.holds.checked || s.holds.expired || s.holds.errors) {
+    parts.push(
+      `assistant holds: ${s.holds.lapsed} lapsed, ${s.holds.checked} read back ` +
+        `(${s.holds.confirmed} confirmed, ${s.holds.released} let go), ${s.holds.expired} expired` +
+        (s.holds.errors ? `, ${s.holds.errors} error(s)` : ""),
     );
   }
   parts.push(`${s.oauthStatesPurged} OAuth state(s) purged`);

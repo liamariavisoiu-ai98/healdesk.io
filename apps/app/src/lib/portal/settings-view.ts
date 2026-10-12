@@ -21,8 +21,15 @@ import type { ActorContext } from "@/lib/audit";
 import { connectConfigured } from "@/lib/billing/connect";
 import { getDepositSettings } from "@/lib/billing/deposits";
 import { GRACE_DAYS } from "@/lib/billing/events";
+import {
+  connectedMetaPlatforms,
+  DEFAULT_META_PLATFORM_SWITCHES,
+  META_PLATFORM_NAMES,
+  readMetaPlatformSwitches,
+} from "@/lib/channels/meta-platforms";
 import { getBillingSummary } from "@/lib/billing/summary";
 import { disclosureFor } from "@/lib/compliance/disclosure";
+import type { MetaPlatform } from "@/lib/meta/front-door";
 import { channelNextStep, channelStatusWord, setupSentence } from "@/lib/setup/channels";
 import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
 import { formatPhone } from "@/lib/setup/help";
@@ -48,13 +55,28 @@ export type SettingsView = {
   audience: "patients" | "clients";
   channels: {
     channel: Channel;
-    key: SettingKey;
+    /** The channel's own switch; null for the Meta channel, whose switches are its platforms'. */
+    key: SettingKey | null;
     name: string;
     on: boolean;
     statusWord: string;
     line: string;
     switchLine: string;
     applies: string | null;
+    /**
+     * The Meta channel's Instagram, Messenger and WhatsApp switches (spec,
+     * "Every switch in the portal"), one for each platform the clinic has
+     * connected; empty for every other channel, and for Meta until a
+     * platform is connected.
+     */
+    platforms: {
+      platform: MetaPlatform;
+      key: SettingKey;
+      name: string;
+      on: boolean;
+      statusWord: string;
+      switchLine: string;
+    }[];
   }[];
   bought: { web: boolean; meta: boolean; voice: boolean };
   /** Each setting's "Applies when …" line, or null once its channels answer. */
@@ -132,7 +154,18 @@ export async function readSettingsView(input: {
       .from(clinics)
       .where(eq(clinics.id, tx.clinicId))
       .limit(1);
-    return { deposits, carrier: phone?.carrier ?? null, phoneSystem: phone?.phoneSystem ?? null };
+    const meta = bought.meta
+      ? {
+          switches: await readMetaPlatformSwitches(tx.db, tx.clinicId),
+          connected: await connectedMetaPlatforms(tx.db, tx.clinicId),
+        }
+      : { switches: { ...DEFAULT_META_PLATFORM_SWITCHES }, connected: [] as MetaPlatform[] };
+    return {
+      deposits,
+      carrier: phone?.carrier ?? null,
+      phoneSystem: phone?.phoneSystem ?? null,
+      meta,
+    };
   });
   const summary = await getBillingSummary(state.clinic.id, { now });
   const finished = wizardFinished(state.screens, state.progress);
@@ -171,16 +204,42 @@ export async function readSettingsView(input: {
     bought,
     applies,
     channels: state.channels.map((c) => {
+      const statusWord = channelStatusWord(c.status);
+      if (c.channel === "meta") {
+        return {
+          channel: c.channel,
+          key: null,
+          name: CHANNEL_NAMES[c.channel],
+          on: c.enabled,
+          statusWord,
+          line: setupSentence(c.channel, channelNextStep(c, finished)),
+          switchLine: SWITCH_LINES[c.channel],
+          applies: applies.channel_instagram ?? null,
+          platforms: tenant.meta.connected.map((platform) => {
+            const on = tenant.meta.switches[platform];
+            return {
+              platform,
+              key: `channel_${platform}` as SettingKey,
+              name: META_PLATFORM_NAMES[platform],
+              on,
+              // Off is the platform's own; otherwise it stands where the Meta channel does.
+              statusWord: on ? statusWord : channelStatusWord("off"),
+              switchLine: `Off leaves ${META_PLATFORM_NAMES[platform]} messages for your team to answer in ${META_PLATFORM_NAMES[platform]}.`,
+            };
+          }),
+        };
+      }
       const key = `channel_${c.channel}` as SettingKey;
       return {
         channel: c.channel,
         key,
         name: CHANNEL_NAMES[c.channel],
         on: c.enabled,
-        statusWord: channelStatusWord(c.status),
+        statusWord,
         line: setupSentence(c.channel, channelNextStep(c, finished)),
         switchLine: SWITCH_LINES[c.channel],
         applies: applies[key] ?? null,
+        platforms: [],
       };
     }),
     coverage: {

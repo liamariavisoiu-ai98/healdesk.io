@@ -88,7 +88,7 @@ describe("what the agent is told", () => {
       email: "Sam@Clinic.com",
       topic: "sales_session",
       preferred_time: "Thursday morning",
-      recommended_package: "Web + Voice",
+      recommended_package: "AYA Web Chat + Voice",
       summary: "Two-chair med spa, Saturdays go to voicemail.",
     });
     expect(response.status).toBe(200);
@@ -97,7 +97,7 @@ describe("what the agent is told", () => {
     expect(sent[0]!.body).toMatchObject({ to: ["hello@healdesk.io"], reply_to: "sam@clinic.com" });
     expect(String(sent[0]!.body.subject)).toContain("session with the team");
     expect(String(sent[0]!.body.text)).toContain("Thursday morning");
-    expect(String(sent[0]!.body.text)).toContain("Web + Voice");
+    expect(String(sent[0]!.body.text)).toContain("AYA Web Chat + Voice");
     expect(String(sent[0]!.body.text)).toContain("Saturdays go to voicemail");
   });
 
@@ -125,11 +125,11 @@ describe("what the agent is told", () => {
       name: "Sam Rivera",
       clinic: "Radiance",
       email: "sam@radiance.com",
-      recommended_package: "Web + Voice",
+      recommended_package: "AYA Web Chat + Voice",
       summary: "After six the phone rings out.",
     });
     expect(response.status).toBe(200);
-    expect((await response.json()).message).toContain("Web + Voice is in their inbox");
+    expect((await response.json()).message).toContain("AYA Web Chat + Voice is in their inbox");
     expect(sent).toHaveLength(2);
     // Theirs first: it is the promise AYA makes.
     expect(sent[0]!.body).toMatchObject({ to: ["sam@radiance.com"], reply_to: "hello@healdesk.io" });
@@ -150,7 +150,7 @@ describe("what the agent is told", () => {
       "fetch",
       vi.fn(async () => new Response("down", { status: 500 })),
     );
-    const response = await post({ topic: "start", email: "sam@radiance.com", recommended_package: "Web + Voice" });
+    const response = await post({ topic: "start", email: "sam@radiance.com", recommended_package: "AYA Web Chat + Voice" });
     expect(response.status).toBe(502);
     expect((await response.json()).message).toContain("hello@healdesk.io");
   });

@@ -7,6 +7,8 @@ import { assistantMayAnswer } from "@/lib/billing/answering";
 import { depositDecision, readClinicDepositFacts } from "@/lib/billing/deposits";
 import { assertPayloadAllowed } from "@/lib/email/lint";
 import { optionalEmailAllowed } from "@/lib/email/stop";
+import { attachMetaChannel } from "@/lib/meta/channels";
+import type { MetaPlatform } from "@/lib/meta/front-door";
 import { hashSessionToken } from "@/lib/factors/step-ups";
 import { unsubscribeToken } from "@/lib/email/unsubscribe";
 import { NOT_A_DEVICE_LABEL } from "@/lib/notices/setting-changed";
@@ -107,6 +109,18 @@ async function gate(channel: "voice" | "web" | "meta") {
   return assistantMayAnswer({ clinicId: portal.clinicId, channel, actor: ACTOR });
 }
 
+/** Connect one Meta platform, as a Facebook login or WhatsApp signup leaves it. */
+async function connect(platform: MetaPlatform) {
+  await withTenant({ clinicId: portal.clinicId, actor: ACTOR }, (tx) =>
+    attachMetaChannel(tx, {
+      platform,
+      externalId: `${platform === "whatsapp" ? 1 : platform === "instagram" ? 2 : 3}${Date.now()}`,
+      accessToken: `EAAB-${platform}-token-0123456789`,
+      via: platform === "whatsapp" ? "embedded_signup" : "facebook_login",
+    }),
+  );
+}
+
 async function sql<T extends Record<string, unknown>>(text: string, values: unknown[] = []) {
   return (await getMigratorPool().query<T>(text, values)).rows;
 }
@@ -204,17 +218,63 @@ describeDb("Settings", () => {
     await setLive(false);
   });
 
-  test("website chat Off shows the contact form; the Meta channels leave messages for the team", async () => {
+  test("website chat Off shows the contact form; Instagram, Messenger and WhatsApp switch on their own, and the Meta channel stops only once every connected one is Off", async () => {
     await setLive(true);
     expect(await save("channel_web", false)).toEqual({
       ok: true,
       toast: "Website chat is off. Your website shows a contact form instead.",
     });
     expect(await gate("web")).toMatchObject({ reason: "channel_off", fallback: "contact_form" });
-    expect(await save("channel_meta", false)).toMatchObject({ ok: true });
+
+    // The Meta channel has no switch of its own any more, and a platform has
+    // one only once it is connected.
+    expect(await save("channel_meta", false)).toMatchObject({
+      ok: false,
+      message: "That isn't one of your settings.",
+    });
+    expect(await save("channel_instagram", false)).toEqual({
+      ok: false,
+      message: "Instagram isn't connected yet. Its switch appears here once it is.",
+    });
+
+    await connect("instagram");
+    await connect("whatsapp");
+    expect(await save("channel_instagram", false)).toEqual({
+      ok: true,
+      toast: "Instagram is off. Messages there wait for your team in Instagram.",
+    });
+    // WhatsApp is still On, so the channel still answers there.
+    expect(await gate("meta")).toEqual({ decision: "answer" });
+    expect(await save("channel_whatsapp", false)).toMatchObject({ ok: true });
+    // Every connected platform Off: the channel is Off, whatever the
+    // unconnected Messenger switch says, and messages wait for the team.
     expect(await gate("meta")).toMatchObject({ reason: "channel_off", fallback: "no_reply" });
+    expect(await save("channel_instagram", true)).toEqual({
+      ok: true,
+      toast: "Instagram is on. AYA answers messages there.",
+    });
+    expect(await gate("meta")).toEqual({ decision: "answer" });
+
+    const events = await inTenant(
+      portal.clinicId,
+      async (c) =>
+        (
+          await c.query<{ kind: string; platform: string | null; actor: string }>(
+            `select kind, detail->>'platform' as platform, actor from channel_events
+              where channel = 'meta' order by occurred_at, (detail ? 'platform') desc`,
+          )
+        ).rows,
+    );
+    expect(events).toEqual([
+      { kind: "turned_off", platform: "instagram", actor: "the clinic's sign-in" },
+      { kind: "turned_off", platform: "whatsapp", actor: "the clinic's sign-in" },
+      { kind: "turned_off", platform: null, actor: "the clinic's sign-in" },
+      { kind: "turned_on", platform: "instagram", actor: "the clinic's sign-in" },
+      { kind: "turned_on", platform: null, actor: "the clinic's sign-in" },
+    ]);
+
     await save("channel_web", true);
-    await save("channel_meta", true);
+    await save("channel_whatsapp", true);
     await setLive(false);
   });
 
@@ -571,10 +631,17 @@ describeDb("Settings", () => {
     }
     expect(html).toContain('role="status"');
     expect(brokenLinks(html, portal.clinicSlug)).toEqual([]);
+    // A switch for each connected Meta platform (Instagram and WhatsApp,
+    // connected above), none for Messenger, and none for the channel itself.
+    expect(html).toMatch(/class="font-semibold">Instagram<\/p>/);
+    expect(html).toMatch(/class="font-semibold">WhatsApp<\/p>/);
+    expect(html).not.toMatch(/class="font-semibold">Messenger<\/p>/);
+    expect(html).not.toMatch(/class="font-semibold">Instagram, Messenger &amp; WhatsApp<\/p>/);
 
     use(chatOnly);
     const chat = await render();
     expect(chat).toContain("Website chat");
+    expect(chat).not.toMatch(/class="font-semibold">(Instagram|Messenger|WhatsApp)<\/p>/);
     expect(chat).not.toContain("Direct line");
     expect(chat).not.toContain("Which calls reach AYA");
     expect(chat).not.toContain("Transfer live calls");

@@ -4,6 +4,7 @@ import { CURRENT_BAA_VERSION, metaEligible, resolveBookingRequirements } from "@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 
 import { __setMetaRuntimeForTests, GET, POST } from "@/app/api/webhooks/meta/route";
+import { setMetaPlatformEnabled } from "@/lib/channels/meta-platforms";
 import { META_CHANNEL_PROHIBITIONS, metaChannelGreeting } from "@/lib/compliance/disclosure";
 import { attachMetaChannel, resolveMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta/channels";
 import {
@@ -312,7 +313,7 @@ describeDb("the front door, end to end", () => {
     });
 
     const owner = await resolveMetaChannel(PAGE_ID);
-    expect(owner).toMatchObject({ clinicId: c.clinicId, platform: "messenger", enabled: false });
+    expect(owner).toMatchObject({ clinicId: c.clinicId, platform: "messenger", enabled: false, platformEnabled: true });
     expect(await resolveMetaChannel("000")).toBeNull();
 
     // Off: nothing is answered.
@@ -367,6 +368,70 @@ describeDb("the front door, end to end", () => {
     expect(stored.audit.map((a) => a.metadata.source)).toEqual(["model", "handoff", "handoff"]);
     expect(stored.audit[1]!.metadata.guarded).toBe("an acknowledgement");
     expect(JSON.stringify(stored.audit)).not.toMatch(/acne|awful|hours\?/);
+  });
+
+  test("each platform answers on its own switch, beneath the front door: a platform switched Off is skipped before anything is claimed, counted or answered", async () => {
+    const IG = "17841400000000001";
+    const PAGE = "523456789012345";
+    const WA = "106540352242922";
+    const c = await seedClinic("meta-platforms");
+    await getMigratorPool().query(`update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`, [c.clinicId]);
+    await seedEntitled(c.clinicId, { channelRows: [{ channel: "meta", liveAt: new Date() }] });
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      await setPhoneSettings(tx, { publishedPhoneE164: "+14155550197" });
+      await attachMetaChannel(tx, { platform: "messenger", externalId: PAGE, accessToken: "EAAB-page-token-1111111111" });
+      await attachMetaChannel(tx, { platform: "instagram", externalId: IG, accessToken: "EAAB-ig-token-22222222222" });
+      await attachMetaChannel(tx, { platform: "whatsapp", externalId: WA, accessToken: "EAAB-wa-token-33333333333" });
+      await setMetaFrontDoor(tx, true);
+    });
+    const instagram = (text: string) => ({
+      object: "instagram",
+      entry: [{ id: IG, messaging: [{ sender: { id: "ig-user-7" }, recipient: { id: IG }, message: { mid: `m-${randomUUID()}`, text } }] }],
+    });
+    const whatsapp = (text: string) => ({
+      object: "whatsapp_business_account",
+      entry: [{ id: "waba-1", changes: [{ value: { metadata: { phone_number_id: WA }, messages: [{ type: "text", from: "14155550111", id: `wamid-${randomUUID()}`, text: { body: text } }] } }] }],
+    });
+    const handled = async () =>
+      inTenant(c.clinicId, async (client) => (await client.query<{ n: number }>(`select count(*)::int as n from meta_inbound_messages`)).rows[0]!.n);
+    const switchTo = (platform: "instagram" | "messenger" | "whatsapp", on: boolean) =>
+      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => setMetaPlatformEnabled(tx, platform, on, "Front desk Mac"));
+    __setMetaRuntimeForTests(async () => "We're open weekdays 9 to 5; call the practice to book.", sender);
+
+    // All three On, the default: each platform is answered.
+    for (const body of [inbound("hours?", PAGE), instagram("hours?"), whatsapp("hours?")]) {
+      expect(await (await post(body)).json()).toEqual({ received: true, answered: 1, skipped: 0 });
+    }
+    expect(sent.map((m) => m.platform)).toEqual(["messenger", "instagram", "whatsapp"]);
+    expect(await handled()).toBe(3);
+
+    // Instagram Off: its message is skipped before it is claimed, so nothing
+    // of it is kept; Messenger and WhatsApp still answer.
+    await switchTo("instagram", false);
+    expect(await resolveMetaChannel(IG)).toMatchObject({ platform: "instagram", enabled: true, platformEnabled: false });
+    expect(await resolveMetaChannel(PAGE)).toMatchObject({ platform: "messenger", enabled: true, platformEnabled: true });
+    expect(await (await post(instagram("hours?"))).json()).toEqual({ received: true, answered: 0, skipped: 1 });
+    expect(await handled()).toBe(3);
+    expect(await (await post(inbound("hours?", PAGE))).json()).toEqual({ received: true, answered: 1, skipped: 0 });
+    expect(await (await post(whatsapp("hours?"))).json()).toEqual({ received: true, answered: 1, skipped: 0 });
+    expect(sent.map((m) => m.platform)).toEqual(["messenger", "instagram", "whatsapp", "messenger", "whatsapp"]);
+
+    // answerFrontDoor holds the switch for any caller, not only the webhook.
+    const direct = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => ({
+      instagram: await answerFrontDoor(tx, { platform: "instagram", text: "hi", responder: async () => "Call the practice to book." }),
+      whatsapp: await answerFrontDoor(tx, { platform: "whatsapp", text: "hi", responder: async () => "Call the practice to book." }),
+    }));
+    expect(direct.instagram).toBeNull();
+    expect(direct.whatsapp).not.toBeNull();
+
+    // Instagram back On, but the operator's front door shut: every platform
+    // is skipped. The clinic's switches never open what the door has shut.
+    await switchTo("instagram", true);
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => setMetaFrontDoor(tx, false));
+    for (const body of [inbound("hours?", PAGE), instagram("hours?"), whatsapp("hours?")]) {
+      expect(await (await post(body)).json()).toEqual({ received: true, answered: 0, skipped: 1 });
+    }
+    expect(sent).toHaveLength(5);
   });
 
   test("a reply naming one of the clinic's services is replaced by the hand-off line, approved or not; the price without the name goes out", async () => {

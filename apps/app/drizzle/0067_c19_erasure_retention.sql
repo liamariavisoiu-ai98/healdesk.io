@@ -13,7 +13,9 @@
 --     app_erase_contacts now deletes the deposits of the people's
 --     appointments, and the Connect webhook rows that last touched them
 --     (deposit_payments.last_event_id = stripe_connect_events.stripe_event_id,
---     the only link the ledger has), before the appointments go. There is
+--     the only link the ledger has, and only an event resolved to the
+--     clinic: last_event_id is the runtime role's to write), before the
+--     appointments go. There is
 --     no money record the law needs kept here: the deposit is the clinic's
 --     charge in its own Connect account, which stays the record, and the
 --     row is a copy (healdesk-io-58, who owns deposits).
@@ -22,7 +24,8 @@
 --     an event id, its type, the account, timestamps and the outcome, with
 --     no session id and no amount. They go at the clinic's destruction
 --     (app_destroy_deposit_payments, 0065), with every other row resolved to
---     the clinic.
+--     the clinic. Nor an event never resolved to any clinic: it names none,
+--     so neither this nor destruction can tell it is this clinic's.
 --   * A household thread kept the person's own identifier. When a thread
 --     also booked for someone else, the requests and the draft it sent for
 --     them stay as theirs; on WhatsApp the thread's sender id is the erased
@@ -162,14 +165,17 @@ BEGIN
   -- Their deposits, while the appointments still lead to them (the foreign
   -- key sets appointment_id to NULL when an appointment goes), and first the
   -- Connect events that last touched them: the ledger's only link to a
-  -- deposit is last_event_id. One resolved to another clinic is never taken.
+  -- deposit is last_event_id. Only an event resolved to this clinic is
+  -- taken: last_event_id is the runtime role's to write, so it could name
+  -- another clinic's event, or one never resolved to any (third review of
+  -- 0067, 12 October 2026). An unresolved event stays: it names no clinic.
   DELETE FROM stripe_connect_events e
    WHERE e.stripe_event_id IN (SELECT dp.last_event_id
                                  FROM deposit_payments dp
                                 WHERE dp.clinic_id = tenant
                                   AND dp.appointment_id = ANY (bookings)
                                   AND dp.last_event_id IS NOT NULL)
-     AND (e.resolved_clinic_id IS NULL OR e.resolved_clinic_id = tenant);
+     AND e.resolved_clinic_id = tenant;
   GET DIAGNOSTICS connect_events_deleted = ROW_COUNT;
 
   DELETE FROM deposit_payments dp
@@ -205,8 +211,12 @@ GRANT EXECUTE ON FUNCTION app_erase_contacts(uuid[]) TO healdesk_app;--> stateme
 -- A household thread: the kept requests lose the person's identifier
 -- -----------------------------------------------------------------------------
 -- A Meta request may now carry no thread, but only both columns together.
--- Only app_unthread_requests() writes that shape: the runtime role has no
--- UPDATE on either column, and every request it inserts has its thread.
+-- The runtime role cannot give an existing request that shape (it has no
+-- UPDATE on either column; app_unthread_requests() does it, under a
+-- deletion's record), but its INSERT can write a Meta request without a
+-- thread, which the constraint no longer refuses. The application never
+-- does (lib/meta/booking-requests.ts writes both from the thread it answers
+-- on), and such a request only means the desk calls the number on it.
 ALTER TABLE booking_requests DROP CONSTRAINT booking_requests_channel_shape;--> statement-breakpoint
 ALTER TABLE booking_requests
   ADD CONSTRAINT booking_requests_channel_shape CHECK (
@@ -299,6 +309,17 @@ BEGIN
    WHERE v.clinic_id = tenant
      AND v.id = ANY (doomed);
   GET DIAGNOSTICS conversations_deleted = ROW_COUNT;
+
+  -- The bound against the runtime role, as for the other steps: the record
+  -- of the request, and the counts. Never a call id or anything of a call.
+  IF conversations_deleted + amendments_deleted > 0 THEN
+    INSERT INTO audit_log (clinic_id, actor_type, actor_label, action, resource_type, resource_id, result_count, metadata)
+    VALUES (tenant, 'system', 'app_erase_unmatched_calls', 'delete', 'person_erasure_unmatched_calls', erasure::text,
+            conversations_deleted + amendments_deleted,
+            jsonb_build_object('erasureId', erasure,
+                               'conversations', conversations_deleted,
+                               'amendments', amendments_deleted));
+  END IF;
 END
 $$;--> statement-breakpoint
 REVOKE ALL ON FUNCTION app_erase_unmatched_calls(uuid, text[]) FROM PUBLIC;--> statement-breakpoint
@@ -351,8 +372,10 @@ $$;--> statement-breakpoint
 -- app_purge_amended_appointments use), so it is deleted while the
 -- appointment still leads to it. A deposit whose appointment is already gone
 -- (its link set to NULL) goes once it is older than the cutoff. With each,
--- the Connect event that last touched it. The runtime role has no DELETE on
--- deposit_payments (0043), so this does it, no later than app_record_cutoff().
+-- the Connect event that last touched it, when that event was resolved to
+-- this clinic (one never resolved names no clinic, and stays). The runtime
+-- role has no DELETE on deposit_payments (0043), so this does it, no later
+-- than app_record_cutoff().
 CREATE OR REPLACE FUNCTION app_purge_deposit_payments(
   record_before timestamptz,
   OUT deposits_deleted integer,
@@ -400,7 +423,7 @@ BEGIN
                                 WHERE dp.clinic_id = tenant
                                   AND dp.id = ANY (doomed)
                                   AND dp.last_event_id IS NOT NULL)
-     AND (e.resolved_clinic_id IS NULL OR e.resolved_clinic_id = tenant);
+     AND e.resolved_clinic_id = tenant;
   GET DIAGNOSTICS connect_events_deleted = ROW_COUNT;
 
   DELETE FROM deposit_payments dp
@@ -418,15 +441,15 @@ GRANT EXECUTE ON FUNCTION app_purge_deposit_payments(timestamptz) TO healdesk_ap
 COMMENT ON FUNCTION app_erasure_record_bound(uuid) IS
   'The erased_at of the named deletion request, which must have been written in this transaction or still hold its restore references; refuses otherwise. The bound the erasure steps of 0067 run under. Advisory against the runtime role, which can write such a record; their audit rows are the bound.';--> statement-breakpoint
 COMMENT ON FUNCTION app_erase_contacts(uuid[]) IS
-  'Deletes the tenant''s given contacts with their own booking requests, their appointments, the deposits of those appointments and the Connect events that last touched them, their conversations and the ones that produced their appointments, and the amendments of all of these. All or nothing: anything else that still refers to them fails the call. For eraseContact in lib/retention/purge.ts; the runtime role has no DELETE on booking requests or deposits.';--> statement-breakpoint
+  'Deletes the tenant''s given contacts with their own booking requests, their appointments, the deposits of those appointments and the Connect events resolved to the clinic that last touched them, their conversations and the ones that produced their appointments, and the amendments of all of these. All or nothing: anything else that still refers to them fails the call. For eraseContact in lib/retention/purge.ts; the runtime role has no DELETE on booking requests or deposits.';--> statement-breakpoint
 COMMENT ON FUNCTION app_unthread_requests(uuid, text[]) IS
   'Sets sender_id and external_id to NULL on the tenant''s Meta requests sent from the given threads, recorded no later than the named deletion request (app_erasure_record_bound). For a household thread whose identifier is the erased person''s own: the requests it sent for others stay, without it. Writes an audit row (booking_request_unthreaded) when it changes any.';--> statement-breakpoint
 COMMENT ON FUNCTION app_erase_unmatched_calls(uuid, text[]) IS
-  'Deletes the tenant''s conversations of the given calls that no contact is on, no appointment or booking request refers to, and that started no later than the named deletion request, with their amendments: a call with no caller ID whose raw payload named the person.';--> statement-breakpoint
+  'Deletes the tenant''s conversations of the given calls that no contact is on, no appointment or booking request refers to, and that started no later than the named deletion request, with their amendments: a call with no caller ID whose raw payload named the person. Writes an audit row (person_erasure_unmatched_calls: the request''s id and the counts) when it deletes any.';--> statement-breakpoint
 COMMENT ON FUNCTION app_record_cutoff() IS
   'now() less the tenant''s record clock in force (app_record_days_in_force), a day early (0067): the latest cutoff the purge''s definers accept, so a row is gone before its period ends whichever run takes it. Refuses without a tenant.';--> statement-breakpoint
 COMMENT ON FUNCTION app_purge_deposit_payments(timestamptz) IS
-  'Deletes the tenant''s deposits whose appointment is past the cutoff and held by no booking request, and those whose appointment is gone and that are older than it, with the Connect events that last touched them. Refuses a cutoff later than app_record_cutoff(). Returns the two counts.';--> statement-breakpoint
+  'Deletes the tenant''s deposits whose appointment is past the cutoff and held by no booking request, and those whose appointment is gone and that are older than it, with the Connect events resolved to the clinic that last touched them. Refuses a cutoff later than app_record_cutoff(). Returns the two counts.';--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
 -- The posture, re-asserted: a later widening fails here, not in production.

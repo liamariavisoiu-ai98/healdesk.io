@@ -506,7 +506,7 @@ describeDb("retention purge", () => {
             last_event_id, created_at)
          values ($1, $2, 'web', 5000, 'acct_purge', 'paid', 'cs_purge_old', 'evt_purge_old', $4),
                 ($1, $3, 'web', 5000, 'acct_purge', 'paid', 'cs_purge_ahead', 'evt_purge_ahead', $5),
-                ($1, null, 'web', 5000, 'acct_purge', 'expired', 'cs_purge_orphan', null, $4),
+                ($1, null, 'web', 5000, 'acct_purge', 'expired', 'cs_purge_orphan', 'evt_purge_unresolved', $4),
                 ($1, null, 'web', 5000, 'acct_purge', 'expired', 'cs_purge_orphan_new', null, $5)`,
         [
           c.clinicId,
@@ -520,7 +520,8 @@ describeDb("retention purge", () => {
     await getMigratorPool().query(
       `insert into stripe_connect_events (stripe_event_id, type, account, resolved_clinic_id)
        values ('evt_purge_old', 'checkout.session.completed', 'acct_purge', $1),
-              ('evt_purge_ahead', 'checkout.session.completed', 'acct_purge', $1)`,
+              ('evt_purge_ahead', 'checkout.session.completed', 'acct_purge', $1),
+              ('evt_purge_unresolved', 'checkout.session.expired', 'acct_purge', null)`,
       [c.clinicId],
     );
 
@@ -538,7 +539,9 @@ describeDb("retention purge", () => {
         `select stripe_event_id as id from stripe_connect_events where stripe_event_id like 'evt_purge_%' order by 1`,
       )
     ).rows.map((r) => r.id);
-    expect(events).toEqual(["evt_purge_ahead"]);
+    // An event never resolved to a clinic stays, though a deposit named it
+    // (third review of 0067: last_event_id is the runtime role's to write).
+    expect(events).toEqual(["evt_purge_ahead", "evt_purge_unresolved"]);
 
     // Never ahead of the database's own clock, and only through it: the
     // runtime role has no DELETE on deposits.

@@ -649,6 +649,48 @@ describeDb("deletion on request", () => {
     expect(event.rows).toEqual([{ deposits: 1 }]);
   });
 
+  test("a Connect event not resolved to this clinic stays, even when one of the person's deposits names it", async () => {
+    // Third review of 0067: last_event_id is the runtime role's to write, and
+    // the erasure took any event a deposit named that was resolved to this
+    // clinic or to none, so a deposit could be pointed at an event never
+    // resolved and take it. Only an event resolved to this clinic goes now.
+    const c = await seedClinic("erase-deposit-events");
+    const elsewhere = await seedClinic("erase-deposit-events-other");
+    const at = new Date(Date.now() - 2 * DAY);
+    const person = await seedContact(c.clinicId, "+15550136401");
+    const first = await seedConversation(c.clinicId, { startedAt: at, booked: true, contactId: person });
+    const second = await seedConversation(c.clinicId, { startedAt: at, booked: true, contactId: person });
+    const third = await seedConversation(c.clinicId, { startedAt: at, booked: true, contactId: person });
+    await inTenant(c.clinicId, async (client) => {
+      await client.query(`update contacts set created_at = $1`, [at]);
+      await client.query(
+        `insert into deposit_payments
+           (clinic_id, appointment_id, channel, amount_cents, stripe_account_id, status, last_event_id)
+         values ($1, $2, 'web', 5000, 'acct_events', 'paid', 'evt_events_ours'),
+                ($1, $3, 'web', 5000, 'acct_events', 'paid', 'evt_events_unresolved'),
+                ($1, $4, 'web', 5000, 'acct_events', 'paid', 'evt_events_elsewhere')`,
+        [c.clinicId, first.appointmentId, second.appointmentId, third.appointmentId],
+      );
+    });
+    await getMigratorPool().query(
+      `insert into stripe_connect_events (stripe_event_id, type, account, resolved_clinic_id)
+       values ('evt_events_ours', 'checkout.session.completed', 'acct_events', $1),
+              ('evt_events_unresolved', 'checkout.session.completed', 'acct_other', null),
+              ('evt_events_elsewhere', 'checkout.session.completed', 'acct_other', $2)`,
+      [c.clinicId, elsewhere.clinicId],
+    );
+
+    const outcome = await erase({ clinicId: c.clinicId, contactId: person, requestedBy: "practice" });
+    if (outcome.status !== "erased") throw new Error(JSON.stringify(outcome));
+    expect(outcome.deleted.deposits).toBe(3);
+    const events = (
+      await getMigratorPool().query<{ id: string }>(
+        `select stripe_event_id as id from stripe_connect_events where stripe_event_id like 'evt_events_%' order by 1`,
+      )
+    ).rows.map((r) => r.id);
+    expect(events).toEqual(["evt_events_elsewhere", "evt_events_unresolved"]);
+  });
+
   test("a WhatsApp thread on the person's own number keeps what it sent for others, without the number, and loses its draft and its row", async () => {
     // The calendar session's re-audit (C19): a household thread that also
     // booked for someone else kept its requests and draft for them, each
@@ -726,6 +768,26 @@ describeDb("deletion on request", () => {
         q.query(`update booking_requests set sender_id = null, external_id = null where id = $1`, [ids.forChild]),
       ),
     ).rejects.toMatchObject({ code: "42501" });
+    // It can insert a Meta request without a thread, as 0067's comment says:
+    // the constraint takes both columns empty, and no grant forbids it. Never
+    // one of the two alone.
+    const inserted = await asApp(c.clinicId, (q) =>
+      q.query(
+        `insert into booking_requests (clinic_id, contact_id, channel, platform, external_id, sender_id, preferred_window, token_hash, expires_at)
+         values ($1, $2, 'meta', 'whatsapp', null, null, 'Monday', $3, now() + interval '7 days')`,
+        [c.clinicId, child, randomBytes(32)],
+      ),
+    );
+    expect(inserted.rowCount).toBe(1);
+    await expect(
+      asApp(c.clinicId, (q) =>
+        q.query(
+          `insert into booking_requests (clinic_id, contact_id, channel, platform, external_id, sender_id, preferred_window, token_hash, expires_at)
+           values ($1, $2, 'meta', 'whatsapp', 'page_1', null, 'Monday', $3, now() + interval '7 days')`,
+          [c.clinicId, child, randomBytes(32)],
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "23514", constraint: "booking_requests_channel_shape" });
   });
 
   test("a call with no caller ID goes with the payload that named the person: its conversation and amendments, but not another's", async () => {
@@ -774,6 +836,19 @@ describeDb("deletion on request", () => {
       (await client.query<{ id: string }>(`select id from conversations order by id`)).rows.map((r) => r.id),
     );
     expect(left).toEqual([ids.otherUnmatched, ids.onSomeone].sort());
+    // The database said so, with the request's id and the counts only.
+    const audit = await inTenant(c.clinicId, async (client) =>
+      (
+        await client.query<{ n: number; metadata: Record<string, unknown> }>(
+          `select result_count as n, metadata from audit_log
+            where resource_type = 'person_erasure_unmatched_calls' and resource_id = $1`,
+          [outcome.erasureId],
+        )
+      ).rows,
+    );
+    expect(audit).toEqual([
+      { n: 2, metadata: { erasureId: outcome.erasureId, conversations: 1, amendments: 1 } },
+    ]);
   });
 
   test("the person's slot holds go before their contacts do, live ones let go, and are counted", async () => {

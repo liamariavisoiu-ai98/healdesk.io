@@ -1374,9 +1374,13 @@ these is closed, by code, a page, a signed paper or a host setting, and
      envelope; the care page keeps the records, the subcontractor steps (a
      closed outcome each, never typed) and counts. No log line or audit row
      carries the person's details, and the script prints the request's id,
-     its deadline and counts. On the AWS host the route to an interactive
-     shell is an open item for the infra owner (docs/handover.md, "Reaching
-     the app's shell").
+     its deadline and counts. On the AWS host it runs by contact id, through
+     run-task.sh only (HEALDESK_ERASURE_*: no interactive shell exists
+     there, and overrides are recorded by CloudTrail); the typed prompt is
+     for a development database. Amendment words and corrected details
+     cannot run there and wait for the M5 portal; getting a contact's id
+     without the person's details crossing a channel is an open item until
+     M5 (docs/handover.md, "Reaching the app's shell").
    - One transaction runs `eraseContact` for each number and address, then
      deletes what it does not reach: the person's raw payloads
      (`webhook_events`: every voice payload of their calls, and any payload

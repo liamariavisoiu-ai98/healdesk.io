@@ -733,6 +733,14 @@ export type ErasePersonInput = {
   phone?: string;
   /** Lower-cased. */
   email?: string;
+  /**
+   * Or a contact's id, in place of a typed number or address: the person is
+   * whoever that contact's number and address lead to, by the same one-step
+   * rule, read here inside the transaction. How a deletion runs on the AWS
+   * host, where no patient's details may be typed or passed in (run-task's
+   * overrides are recorded by CloudTrail).
+   */
+  contactId?: string;
   /** Who asked: one of the closed set, never typed. */
   requestedBy: PatientRequester;
   /**
@@ -742,6 +750,14 @@ export type ErasePersonInput = {
    */
   receivedAt?: Date;
 };
+
+/** The contact id given matches no contact of this clinic. */
+export class ErasureContactNotFound extends Error {
+  constructor() {
+    super("No such contact at this clinic.");
+    this.name = "ErasureContactNotFound";
+  }
+}
 
 export type ErasePersonResult = {
   erasureId: string;
@@ -772,8 +788,22 @@ export async function erasePerson(
   tx: TenantTx,
   input: ErasePersonInput,
 ): Promise<ErasePersonResult> {
-  const phone = input.phone?.trim() || undefined;
-  const email = input.email?.trim().toLowerCase() || undefined;
+  let phone = input.phone?.trim() || undefined;
+  let email = input.email?.trim().toLowerCase() || undefined;
+  if (input.contactId) {
+    if (phone || email) throw new Error("Name the person by a contact's id, or by their details, not both.");
+    const [contact] = await tx.db
+      .select({ phone: contacts.phone, email: contacts.email })
+      .from(contacts)
+      .where(and(eq(contacts.clinicId, tx.clinicId), eq(contacts.id, input.contactId)))
+      .limit(1);
+    if (!contact) throw new ErasureContactNotFound();
+    phone = contact.phone ?? undefined;
+    email = contact.email?.toLowerCase() ?? undefined;
+    if (!phone && !email) {
+      throw new Error("That contact has no telephone number or email address to find the person by.");
+    }
+  }
   if (!phone && !email)
     throw new Error("A deletion request needs a telephone number or an email address.");
 

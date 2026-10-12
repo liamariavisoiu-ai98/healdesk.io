@@ -161,8 +161,9 @@ function DeletionRequests({ view, actions }: { view: CareView; actions: Actions 
     <div className="text-sm">
       <p className="text-muted">
         When the practice asks us to delete a person, delete them within ten business days of the request reaching us,
-        then do each subcontractor step in the vendor&rsquo;s own console and record it below. The deletion is run in the
-        app&rsquo;s own shell, never on this page: <code>{PATIENT_ENTRY_SCRIPTS.erase} -- --clinic {view.clinic.id}</code>{" "}
+        then do each subcontractor step in the vendor&rsquo;s own console and record it below. The deletion runs in
+        apps/app, never on this page: <code>{PATIENT_ENTRY_SCRIPTS.erase}</code>, on the AWS host by contact id, through
+        run-task.sh only, with this clinic&rsquo;s id ({view.clinic.id}) in <code>HEALDESK_ERASURE_CLINIC_ID</code>{" "}
         (<a className="underline" href={`${HANDOVER_URL}#deletion-requests`}>handover, &ldquo;Deletion requests&rdquo;</a>).
       </p>
       {view.deletionRequests.length ? (
@@ -232,10 +233,11 @@ function Amendments({ view }: { view: CareView }) {
         {view.patientRights.corrections} contact correction{view.patientRights.corrections === 1 ? "" : "s"}
       </p>
       <p className="text-muted mt-2">
-        When the practice directs an amendment, record it within ten business days in the app&rsquo;s own shell, never on
-        this page: <code>{PATIENT_ENTRY_SCRIPTS.amendRecord}</code> for a booking request, a conversation or an
-        appointment, and <code>{PATIENT_ENTRY_SCRIPTS.amendContact}</code> to correct or clear a contact&rsquo;s name,
-        number or address (<a className="underline" href={`${HANDOVER_URL}#amendments`}>handover, &ldquo;Amendments&rdquo;</a>).
+        When the practice directs an amendment, record it within ten business days in apps/app, never on this page:{" "}
+        <code>{PATIENT_ENTRY_SCRIPTS.amendRecord}</code> for a booking request, a conversation or an appointment, and{" "}
+        <code>{PATIENT_ENTRY_SCRIPTS.amendContact}</code> to correct or clear a contact&rsquo;s name, number or address.
+        On the AWS host only clearing a field runs, by contact id, through run-task.sh; an amendment&rsquo;s words and
+        corrected details wait for the portal (<a className="underline" href={`${HANDOVER_URL}#amendments`}>handover, &ldquo;Amendments&rdquo;</a>).
       </p>
     </div>
   );

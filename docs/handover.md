@@ -481,27 +481,28 @@ record of the request, no longer than we need it.
    acting on a request from anywhere else. The request names the person by the
    telephone number and/or email address they gave the practice's assistant. Never ask
    for, or write down, their name.
-3. **Run it, in the app's own shell, never on the care page.** The person's number
-   and address must not cross apps/web, which runs on a host with no business
-   associate agreement, so the deletion is a script on the app host ("Reaching the
-   app's shell", below):
+3. **Run it, never on the care page.** The person's number and address must not cross
+   apps/web, which runs on a host with no business associate agreement, so the deletion
+   is a script in apps/app (`npm run ops:erase-person -w @healdesk/app`;
+   `erasePersonFromShell` in `apps/app/src/lib/ops/patient-entry.ts`):
+   - **on the AWS host: by contact id, through run-task.sh only.** It runs as a one-off
+     task of the app's image with only ids and closed choices in its environment:
+     `HEALDESK_ERASURE_CLINIC_ID`, `HEALDESK_ERASURE_CONTACT_ID`,
+     `HEALDESK_ERASURE_REQUESTED_BY` (`practice`, `person_via_practice` or
+     `representative_via_practice`), optionally `HEALDESK_ERASURE_RECEIVED_AT` (ISO),
+     and `HEALDESK_OPS_OPERATOR` (your healdesk address). The person is whoever that
+     contact's number and address lead to, read inside the transaction. Nothing about
+     the person is typed or passed: there is no interactive shell there, and run-task's
+     overrides are recorded by CloudTrail ("Reaching the app's shell", below);
+   - **on a development machine, against a development database:** the same as
+     arguments (`--clinic`, `--contact`, `--requested-by`, `--received-at`,
+     `--operator`), or, without `--contact`, the number and the address typed at the
+     prompt, one per line, never on the command line (the script refuses a number or an
+     address in any argument, and refuses the prompt where `NODE_ENV` is production).
 
-   ```bash
-   npm run ops:erase-person -w @healdesk/app -- --clinic <clinic id> \
-     --operator <your healdesk address> \
-     --requested-by practice|person_via_practice|representative_via_practice \
-     [--received-at <when the request reached us, ISO>]
-   ```
-
-   It then asks for the telephone number and the email address (either may be
-   blank), one per line. Type them at the prompt: never put them on the command
-   line, where they would stay in the shell's history and show in the process list
-   (the script refuses a number or an address in any argument). Who asked is one of
-   three, chosen, never typed; the deadline runs from `--received-at`, or now. One
-   transaction (`erasePersonFromShell` in `apps/app/src/lib/ops/patient-entry.ts`,
-   `apps/app/src/lib/patient-rights/erasure.ts`), with the same log line and
-   security event the console's form wrote, and it prints the request's id, the
-   deadline and counts. Who the person is:
+   Who asked is one of three, chosen, never typed; the deadline runs from the received
+   time, or now. One transaction, with the same log line and security event the
+   console's form wrote, and it prints the request's id, the deadline and counts. Who the person is:
    the number and address the practice gave, plus every number and address on a
    contact either one matches (one step, never a chain); every contact carrying any of
    those is theirs, and goes whole, so a second contact that shares their number goes
@@ -584,44 +585,35 @@ over the calendar's.
    the id of the contact, booking request, appointment or conversation the practice
    means. Ask the
    practice, never the patient, when it is not clear which.
-3. **Record it, in the app's own shell, never on the care page** ("Reaching the app's
-   shell", below). The practice's words and a contact's details must not cross
-   apps/web:
-   - to correct a contact's name, number or address, or clear one:
-
-     ```bash
-     npm run ops:amend-contact -w @healdesk/app -- --clinic <clinic id> \
-       --operator <your healdesk address> --contact <contact id> \
-       --requested-by practice|person_via_practice|representative_via_practice \
-       [--clear fullName,phone,email]
-     ```
-
-     It asks for the corrected name, number and address, one per line; a blank line
-     leaves that field as it is, and a field is cleared only when `--clear` names it.
-     It changes the contact row in place (`amendContact`), and the audit row says which
-     fields changed and who asked, not what they said;
-   - to append an amendment to a booking request, a conversation or an appointment:
-
-     ```bash
-     npm run ops:amend-record -w @healdesk/app -- --clinic <clinic id> \
-       --operator <your healdesk address> \
-       --kind booking_request|conversation|appointment --record <its id> \
-       --requested-by practice|person_via_practice|representative_via_practice \
-       [--requested-at <when the practice asked, ISO>]
-     ```
-
-     It asks for the practice's words, one line. Who asked is one of three, chosen,
-     never typed, for a deletion, an amendment and a correction alike. The words never
-     carry a telephone number or an email address (the script and the database refuse
-     them): an amendment can sit on someone else's record, where deleting that person
-     would never find it; a number or an address is a contact's, corrected with
-     `ops:amend-contact`. It is written to `record_amendments`
+3. **Record it, never on the care page.** The practice's words and a contact's details
+   must not cross apps/web. Two scripts in apps/app (`lib/ops/patient-entry.ts`):
+   - `npm run ops:amend-record -w @healdesk/app` appends an amendment to a booking
+     request, a conversation or an appointment: `--clinic`, `--operator`, `--kind`
+     (`booking_request`, `conversation` or `appointment`), `--record` (its id),
+     `--requested-by` and optionally `--requested-at`, then the practice's words, one
+     line, at the prompt. It is written to `record_amendments`
      (`apps/app/src/lib/patient-rights/amendments.ts`) and never changed afterwards; a
-     later correction is another amendment beside it.
-   Each script refuses a number or an address on its command line, prints ids only,
-   and writes the same audit row, log line and security event the console's forms
-   did. The care page shows how many amendments and corrections the clinic has, and
-   nothing they say.
+     later correction is another amendment beside it. The words never carry a telephone
+     number or an email address (the script and the database refuse them): an amendment
+     can sit on someone else's record, where deleting that person would never find it;
+   - `npm run ops:amend-contact -w @healdesk/app` corrects a contact's name, number or
+     address in place, or clears one: `--clinic`, `--operator`, `--contact`,
+     `--requested-by` and optionally `--clear fullName,phone,email`, then the corrected
+     name, number and address at the prompt, one per line (a blank line leaves that
+     field as it is; a field is cleared only when `--clear` names it). The audit row says
+     which fields changed and who asked, not what they said.
+
+   Who asked is one of three, chosen, never typed. Each script refuses a number or an
+   address on its command line, prints ids only, and writes the same audit row, log
+   line and security event the console's forms did. **On the AWS host:** an amendment's
+   words and a contact's corrected details are themselves patient data, so they can be
+   neither typed there nor passed in a run-task override; they wait for the M5 portal,
+   which takes them from the practice behind step-up. The one correction that runs
+   there is clearing fields, by contact id, through run-task.sh only, with
+   `HEALDESK_AMEND_CLINIC_ID`, `HEALDESK_AMEND_CONTACT_ID`, `HEALDESK_AMEND_CLEAR`,
+   `HEALDESK_AMEND_REQUESTED_BY` and `HEALDESK_OPS_OPERATOR` in the task's environment.
+   Typed entry is for a development machine and its database only. The care page shows
+   how many amendments and corrections the clinic has, and nothing they say.
 4. **The deadline.** Ten business days from the practice's request.
 5. **The reply.** On the practice's own thread: the date it was done, and that every
    export of the record now carries the amendment. A fresh export shows it under
@@ -634,24 +626,33 @@ shows or exports.
 
 ### Reaching the app's shell
 
-The deletion, amendment and correction scripts (`ops:erase-person`,
-`ops:amend-record`, `ops:amend-contact`) run where `apps/app` runs: its image, its
-`DATABASE_URL` (the runtime role) and its `HEALDESK_IDENTIFIER_REF_KEY`, with an
-interactive terminal for the prompt. Locally, and on any host where an operator has a
-shell with that environment, run them from the repository root as above.
+There is no interactive shell on the AWS host, by design: ECS Exec is off
+(`enable_execute_command` is false; infra/aws/README.md lists it as deliberately not
+built, since "it would put a root shell on a container holding PHI"), a Fargate one-off
+task started by `infra/aws/scripts/run-task.sh` has no stdin, and RDS is private with no
+bastion, so no laptop reaches it. And run-task's command and environment overrides are
+recorded by CloudTrail. So on the AWS host: by contact id, through run-task.sh only.
 
-**On the AWS host there is no such route yet. This is an open item for the infra
-owner.** `infra/aws` turns ECS Exec off on purpose ("it would put a root shell on a
-container holding PHI", README, `ecs.tf`), and its one-off tasks
-(`infra/aws/scripts/run-task.sh`) run a task definition's own command with no
-overrides and no stdin, because run-task arguments are recorded by CloudTrail; a
-script that reads a patient's number from a prompt can run in neither. The owner
-chooses one route, for example a dedicated `ops-shell` task definition (the worker's
-image, environment and task role) reached through ECS Exec on that task family alone,
-with the session logged under the product key, or an SSM session on a bastion in the
-private subnets with the image's scripts and the runtime role's `DATABASE_URL`. Until
-then a deletion, an amendment or a correction for a production clinic waits for that
-route: never type the person's details into apps/web or a run-task override instead.
+- `ops:erase-person` runs as a one-off task with `HEALDESK_ERASURE_CLINIC_ID`,
+  `HEALDESK_ERASURE_CONTACT_ID`, `HEALDESK_ERASURE_REQUESTED_BY`, optionally
+  `HEALDESK_ERASURE_RECEIVED_AT`, and `HEALDESK_OPS_OPERATOR`.
+- `ops:amend-contact` runs as one only to clear fields, with `HEALDESK_AMEND_CLINIC_ID`,
+  `HEALDESK_AMEND_CONTACT_ID`, `HEALDESK_AMEND_CLEAR`, `HEALDESK_AMEND_REQUESTED_BY` and
+  `HEALDESK_OPS_OPERATOR`.
+- `ops:amend-record`, and a correction with new values, do not run on AWS: the words
+  and the details are patient data. They wait for the M5 portal, which takes them from
+  the practice behind step-up.
+
+**Open items.** The task families for these scripts (the task definitions, roles, log
+groups, the deploy workflow and run-task.sh's list) are the infra owner's to add once
+the scripts are on main; nothing in infra/ runs them yet. And the operator needs a
+contact's id without the person's details crossing any channel: the clean route is a
+deletion request the practice files in its portal behind step-up (M5), which yields the
+request's or the contact's id for the task's environment. Until M5 there is no such
+route on AWS: finding a contact's id from a number would mean typing the number there.
+No real patient data exists before BAA coverage, so this blocks nothing yet, but it
+must close before the first live clinic. On a development machine the scripts run as
+above, with the prompt, against a development database.
 
 ### Restoring
 

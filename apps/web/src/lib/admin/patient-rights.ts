@@ -4,9 +4,10 @@
  * server-only; see incident-classes.ts).
  *
  * Nothing in apps/web takes a patient's identifier or words: a deletion, an
- * amendment and a correction are entered in apps/app's own shell (npm run
- * ops:erase-person, ops:amend-record, ops:amend-contact; docs/handover.md),
- * never through a Vercel server action (review of 12 October 2026). What the
+ * amendment and a correction run in apps/app (npm run ops:erase-person,
+ * ops:amend-record, ops:amend-contact; on the AWS host by contact id, through
+ * run-task.sh only; docs/handover.md), never through a Vercel server action
+ * (review of 12 October 2026). What the
  * page reads back is ids, dates, counts and these labels, and its reader
  * refuses anything else, so free text could not reach the screen even if
  * apps/app sent it.

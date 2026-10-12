@@ -14,6 +14,7 @@ import {
   appendAmendment,
 } from "@/lib/patient-rights/amendments";
 import {
+  ErasureContactNotFound,
   erasePerson,
   totalErased,
   type ErasureCounts,
@@ -43,12 +44,30 @@ import { withTenant } from "@/lib/tenant";
  * keeps only what carries no patient data: the deletion records, their
  * subcontractor steps and deadlines, and counts.
  *
- * Each script takes the clinic and the non-patient choices as arguments and
- * reads the patient data from a prompt (or piped stdin), never from argv, so
- * none of it lands in a shell's history or a process listing. The functions
- * here are what the scripts call, with the same library functions, inside
- * the same tenant transactions, writing the same audit rows, log lines and
- * security events the ops envelope wrote, and returning ids and counts only.
+ * Two ways in, and neither puts patient data where it is kept:
+ *
+ *   - on the AWS host: by contact id, through run-task.sh only. There is no
+ *     interactive shell there (no ECS Exec, by design; a Fargate one-off task
+ *     has no stdin; RDS is private, with no bastion), and run-task's command
+ *     and environment overrides are recorded by CloudTrail, so a script runs
+ *     as a one-off task with ids and closed choices in its environment
+ *     (HEALDESK_ERASURE_*, HEALDESK_AMEND_*; `optionsFrom` below) and never a
+ *     number, an address or words. A deletion names the person by a
+ *     contact's id, and the one-step rule runs from that contact's details,
+ *     read inside the transaction. A correction there can clear fields, and
+ *     nothing more: an amendment's words and a contact's corrected details
+ *     are themselves patient data, and wait for the M5 portal, which takes
+ *     them from the practice behind step-up;
+ *   - on a development machine, against a development database: the same
+ *     options as arguments, and the patient data typed at a prompt (or piped
+ *     to stdin), never in argv, so none of it lands in a shell's history or a
+ *     process listing. The prompt is refused where NODE_ENV is production,
+ *     as it is in the image (`typedEntryAllowed`).
+ *
+ * The functions here are what the scripts call, with the same library
+ * functions, inside the same tenant transactions, writing the same audit
+ * rows, log lines and security events the ops envelope wrote, and returning
+ * ids and counts only.
  */
 
 /** Who is at the shell: their healdesk work address, the label every row they write carries. */
@@ -142,6 +161,8 @@ export type ShellEraseOutcome =
  */
 export async function erasePersonFromShell(input: {
   clinicId: string;
+  /** A contact's id: the way in on the AWS host, in place of a typed number and address. */
+  contactId?: string;
   phone?: string;
   email?: string;
   requestedBy: string | undefined;
@@ -154,8 +175,13 @@ export async function erasePersonFromShell(input: {
   if (clinic.destroyedAt) {
     return error("This clinic's data has already been destroyed; there is no one left to delete.");
   }
+  const contactId = input.contactId?.trim() || undefined;
+  if (contactId && !UUID_SHAPED.test(contactId)) return error("A contact's id is a uuid.");
   const rawPhone = input.phone?.trim() || undefined;
   const rawEmail = input.email?.trim() || undefined;
+  if (contactId && (rawPhone || rawEmail)) {
+    return error("Name the person by a contact's id, or by their number and address, not both.");
+  }
   const phone = rawPhone ? toE164(rawPhone) : undefined;
   if (rawPhone && !phone) {
     return error(
@@ -166,16 +192,25 @@ export async function erasePersonFromShell(input: {
   if (email && (email.length > MAX_EMAIL_LENGTH || !EMAIL_SHAPED.test(email))) {
     return error("That is not an email address.");
   }
-  if (!phone && !email)
-    return error("Give the person's telephone number, their email address, or both.");
+  if (!contactId && !phone && !email) {
+    return error(
+      "Give a contact's id, or the person's telephone number, their email address, or both.",
+    );
+  }
   const requestedBy = requester(input.requestedBy);
   if (typeof requestedBy !== "string") return error(requestedBy.error);
   const receivedAt = pastMoment(input.receivedAt, "When did the request reach us?");
   if (receivedAt && !(receivedAt instanceof Date)) return error(receivedAt.error);
 
-  const result = await withTenant({ clinicId: clinic.id, actor: actor(input.operator) }, (tx) =>
-    erasePerson(tx, { phone, email, requestedBy, receivedAt }),
-  );
+  let result: Awaited<ReturnType<typeof erasePerson>>;
+  try {
+    result = await withTenant({ clinicId: clinic.id, actor: actor(input.operator) }, (tx) =>
+      erasePerson(tx, { contactId, phone, email, requestedBy, receivedAt }),
+    );
+  } catch (thrown) {
+    if (thrown instanceof ErasureContactNotFound) return error(thrown.message);
+    throw thrown;
+  }
   const rows = totalErased(result.deleted);
   log.info("person data erased", { clinicId: clinic.id, erasureId: result.erasureId, count: rows });
   await securityEvent(input.operator, "person_erased", {
@@ -358,6 +393,38 @@ export async function amendContactFromShell(input: {
 // The shell: arguments without patient data, and the prompt
 // -----------------------------------------------------------------------------
 
+/**
+ * Whether patient data may be typed at a prompt here: on a development
+ * machine only. The image runs with NODE_ENV=production, and on the AWS host
+ * nothing is typed: by contact id, through run-task.sh only.
+ */
+export function typedEntryAllowed(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return env.NODE_ENV !== "production";
+}
+
+/**
+ * The script's options: each `--name value` argument and, for a one-off
+ * task on the AWS host, the same option from the environment variable
+ * `envKeys` names for it (HEALDESK_ERASURE_CONTACT_ID for `--contact`, say).
+ * An argument wins over the environment. Only ids and closed choices are
+ * read this way, and refusePatientDataInArgs checks every one.
+ */
+export function optionsFrom(
+  argv: readonly string[],
+  env: Readonly<Record<string, string | undefined>>,
+  envKeys: Readonly<Record<string, string>>,
+): Map<string, string | true> {
+  const args = parseArgs(argv);
+  for (const [name, key] of Object.entries(envKeys)) {
+    if (args.has(name)) continue;
+    const value = env[key]?.trim();
+    if (value) args.set(name, value);
+  }
+  return args;
+}
+
 /** `--name value` pairs and bare `--flag`s, and nothing positional. */
 export function parseArgs(argv: readonly string[]): Map<string, string | true> {
   const out = new Map<string, string | true>();
@@ -376,6 +443,9 @@ export function parseArgs(argv: readonly string[]): Map<string, string | true> {
   return out;
 }
 
+const TIME_OPTIONS = new Set(["received-at", "requested-at"]);
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+
 /**
  * Refuse patient data on the command line: anything shaped like a telephone
  * number or an email address, in any argument but the operator's own
@@ -386,6 +456,9 @@ export function parseArgs(argv: readonly string[]): Map<string, string | true> {
 export function refusePatientDataInArgs(args: Map<string, string | true>): void {
   for (const [name, value] of args) {
     if (name === "operator" || value === true) continue;
+    // A time is a time: an ISO date is digit-heavy enough to look like a
+    // number, so it is checked for its own shape instead.
+    if (TIME_OPTIONS.has(name) && ISO_TIME.test(value)) continue;
     try {
       assertNoPhi(value, `--${name}`);
     } catch (error) {

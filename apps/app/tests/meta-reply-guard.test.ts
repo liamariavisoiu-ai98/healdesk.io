@@ -191,6 +191,37 @@ describe("the reply guard: treatment names off the menu", () => {
     }
   });
 
+  test("a place named after a treatment word passes, the clinic's own address passes, and accents hide nothing", () => {
+    // The branch review's R8: honest answers about where the clinic is.
+    for (const reply of [
+      "We're at 1200 Peel Street, Suite 4.",
+      "Free parking is behind the building on Laser Lane.",
+      "We're on Rue Peel, by the metro.",
+      "Turn left onto Potenza Ave.",
+      "Our team is laser-focused on getting you an answer.",
+    ]) {
+      expect(guardReply(reply, CLINIC), reply).toEqual({ ok: true });
+    }
+    // An address with no road word in it passes only as the clinic's own.
+    const address = "Unit 4, The Peel Centre, Leeds";
+    expect(guardReply("We're in the Peel Centre, in Leeds.", CLINIC)).toEqual({
+      ok: false,
+      reason: "a treatment name",
+    });
+    expect(guardReply("We're in The Peel Centre, in Leeds.", { ...CLINIC, address })).toEqual({
+      ok: true,
+    });
+    // It exempts the address, not the word: a peel is still a treatment there.
+    expect(guardReply("Our peels start from $120.", { ...CLINIC, address })).toEqual({
+      ok: false,
+      reason: "a treatment name",
+    });
+    expect(guardReply("Your Juvéderm appointment is set.", CLINIC)).toEqual({
+      ok: false,
+      reason: "a treatment name",
+    });
+  });
+
   test("whole words only, and the clinic's own name may carry one", () => {
     expect(guardReply("We'd appeal to you to call the practice to book.", CLINIC)).toEqual({
       ok: true,

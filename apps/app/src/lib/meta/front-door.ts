@@ -138,6 +138,8 @@ export type FrontDoorFacts = {
   requirements: BookingField[];
   /** The rest of the set — asked by the practice on the phone, never here. */
   deferredRequirements: BookingField[];
+  /** The location's street address, as the clinic wrote it: the guard lets its words through. */
+  address?: string | null;
   /**
    * The clinic's own opening and closing times, minutes after local
    * midnight, from its weekly hours: the only clock times a reply may name
@@ -307,14 +309,37 @@ export type GuardContext = {
   clinicName?: string;
   /** The clinic's opening and closing times, minutes after midnight: the only clock times a reply may name. */
   publishedTimes?: readonly number[];
+  /** The clinic's own street address: public, and allowed to contain a treatment word ("Peel Street"). */
+  address?: string | null;
 };
 
-export function guardContextFor(facts: Pick<FrontDoorFacts, "clinicName" | "services" | "serviceNames" | "publishedTimes">): GuardContext {
+export function guardContextFor(facts: Pick<FrontDoorFacts, "clinicName" | "services" | "serviceNames" | "publishedTimes" | "address">): GuardContext {
   return {
     clinicName: facts.clinicName,
     serviceNames: facts.serviceNames ?? facts.services.map((s) => s.name),
     publishedTimes: facts.publishedTimes ?? [],
+    ...(facts.address ? { address: facts.address } : {}),
   };
+}
+
+/**
+ * The reply with the clinic's own words taken out: its name, and each part
+ * of its address (split at commas and line breaks), with the street also
+ * without its number ("Peel Street" for "1200 Peel Street"). Both are
+ * public, the person wrote to the clinic, and "Botox Bar" on "Laser Lane"
+ * must still be able to say who and where it is.
+ */
+function withoutOwnWords(reply: string, context: GuardContext): string {
+  const phrases: string[] = [];
+  if (context.clinicName) phrases.push(context.clinicName);
+  for (const part of (context.address ?? "").split(/[,\n]+/)) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    phrases.push(trimmed);
+    const street = trimmed.replace(/^\d+[a-z]?\s+/i, "");
+    if (street !== trimmed) phrases.push(street);
+  }
+  return phrases.reduce((text, phrase) => withoutPhrase(text, phrase), reply);
 }
 
 /** Deterministic: a reply that trips any line is not sent. */
@@ -330,8 +355,7 @@ export function guardReply(reply: string, context: GuardContext = {}): GuardVerd
   if (namesATreatment(reply, context)) return { ok: false, reason: "a treatment name" };
   // The catalogue's treatment vocabulary, for every clinic, with or without
   // a menu: "Botox" where the menu says "Neurotoxin" (BAA 1.3.0 clause 16).
-  const own = context.clinicName ? withoutPhrase(reply, context.clinicName) : reply;
-  if (namesMetaTreatment(own)) return { ok: false, reason: "a treatment name" };
+  if (namesMetaTreatment(withoutOwnWords(reply, context))) return { ok: false, reason: "a treatment name" };
   // No appointment details: a calendar date never, and a day or a clock
   // time only as the clinic's own opening hours (appointmentIn).
   if (DATE_IN_REPLY.some((pattern) => pattern.test(reply))) return { ok: false, reason: "an appointment date" };
@@ -590,7 +614,7 @@ export function publishedTimesOf(hours: unknown): number[] {
 function namesATreatment(reply: string, context: GuardContext): boolean {
   const names = context.serviceNames ?? [];
   if (names.length === 0) return false;
-  const text = context.clinicName ? withoutPhrase(reply, context.clinicName) : reply;
+  const text = withoutOwnWords(reply, context);
   try {
     assertNoTreatmentName(text, names);
     return false;
@@ -688,6 +712,7 @@ export async function frontDoorFacts(tx: TenantTx): Promise<FrontDoorFacts | nul
       specialty: clinics.specialty,
       bookingRequirements: clinics.bookingRequirements,
       openingHours: clinics.openingHours,
+      address: clinics.address,
     })
     .from(clinics)
     .where(eq(clinics.id, tx.clinicId))
@@ -727,6 +752,7 @@ export async function frontDoorFacts(tx: TenantTx): Promise<FrontDoorFacts | nul
     requirements: metaEligible(resolved),
     deferredRequirements: resolved.filter((f) => !f.metaEligible),
     publishedTimes: publishedTimesOf(clinic.openingHours),
+    address: clinic.address,
   };
 }
 

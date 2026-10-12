@@ -156,13 +156,36 @@ export const META_TREATMENT_VOCABULARY: readonly string[] = [
   "deep tissue massage",
 ];
 
-/** Lower case, every run of anything but a letter or a digit one space. */
+/**
+ * Lower case, accents taken off ("Juvéderm" is "juvederm"), every run of
+ * anything but a letter or a digit one space.
+ */
 function wordsOf(text: string): string {
   return text
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 }
+
+/**
+ * Where a vocabulary word is a place's name or an idiom, not a treatment:
+ * a street, road or region named after it ("1200 Peel Street", "Laser
+ * Lane", "Potenza Ave", "Peel Region", "Rue Peel"), and "laser-focused".
+ * Taken out before the vocabulary is matched, so an honest answer about
+ * where the clinic is still goes. Kept to words that name a road or an area
+ * and nothing a clinic sells ("centre", "studio" and "bar" are left out:
+ * "our laser centre" is a treatment).
+ */
+const NOT_A_TREATMENT = new RegExp(
+  [
+    "(?:^| )(?:rue|calle|chemin|avenue|boulevard) [\\p{L}\\p{N}]+(?= |$)",
+    "(?:^| )[\\p{L}\\p{N}]+ (?:street|st|road|rd|avenue|ave|lane|ln|drive|dr|boulevard|blvd|crescent|terrace|parkway|pkwy|highway|hwy|region|county)(?= |$)",
+    "(?:^| )laser (?:focused|focus|like|sharp|precision|pointer|printer|tag)(?= |$)",
+  ].join("|"),
+  "gu",
+);
 
 function escape(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -181,5 +204,5 @@ const VOCABULARY_PATTERN = new RegExp(
  * an audit row.
  */
 export function namesMetaTreatment(text: string): boolean {
-  return VOCABULARY_PATTERN.test(wordsOf(text));
+  return VOCABULARY_PATTERN.test(wordsOf(text).replace(NOT_A_TREATMENT, " "));
 }

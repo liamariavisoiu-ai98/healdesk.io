@@ -21,6 +21,13 @@ describe("the Meta treatment vocabulary", () => {
     "Hair restoration with PRP.",
     "Lip filler, cheek filler.",
     "Dysport or Xeomin.",
+    // Accents don't hide a brand.
+    "Your Juvéderm appointment is set.",
+    "JUVÉDERM is available.",
+    // A treatment word beside a road word that isn't a road's name is still one.
+    "Our laser centre is downstairs.",
+    "Laser treatment is available.",
+    "We treat via laser.",
   ])("%s names a treatment", (text) => {
     expect(namesMetaTreatment(text)).toBe(true);
   });
@@ -35,6 +42,13 @@ describe("the Meta treatment vocabulary", () => {
     "Prices start from $450.",
     "Parking is available nearby.",
     "Our front desk can answer that.",
+    // A place named after a treatment word, and an idiom (the branch review's R8).
+    "We're at 1200 Peel Street, Suite 4.",
+    "We're on Rue Peel, by the metro.",
+    "We serve the whole of Peel Region.",
+    "Free parking is behind the building on Laser Lane.",
+    "Turn left onto Potenza Ave.",
+    "Our team is laser-focused on getting you an answer.",
   ])("%s names none", (text) => {
     expect(namesMetaTreatment(text)).toBe(false);
   });

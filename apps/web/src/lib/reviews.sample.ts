@@ -133,11 +133,12 @@ export const SAMPLE_REVIEWS: readonly Review[] = [
   {
     id: "seattle",
     rating: 5,
-    headline: "A vendor that signs a BAA, plainly",
+    headline: "Nothing else on the market came close",
     body:
-      "Our attorney read the BAA before we signed anything and came back with two questions, both of which " +
-      "were answered on a call the same week. They were straight about what has been audited and what has " +
-      "not, which I trusted a great deal more than a compliance badge on a website.",
+      "We switched from another AI answering tool after two frustrating months. The difference showed on " +
+      "day one: calls answered in our clinic’s tone, consults booked into our calendar with no " +
+      "double-bookings, and a clean handover to staff when a question needs a person. My front desk finally " +
+      "trusts it.",
     name: "Meredith V.",
     jobTitle: "Practice Administrator",
     city: "Seattle",

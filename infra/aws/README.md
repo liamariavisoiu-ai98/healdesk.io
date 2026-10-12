@@ -167,7 +167,7 @@ would land in the state at the next plan.) The real values are written inside AW
 | `app/HEALDESK_PROVISION_SECRET` | The owner; byte-identical to Vercel's | web, worker |
 | `app/STRIPE_SECRET_KEY` | The owner; the same Stripe account and mode as Vercel's | web, worker |
 | `app/RESEND_API_KEY` | The owner; `apps/app`'s own sending-only key | web, worker |
-| `app/GOOGLE_OAUTH_CLIENT_ID`, `app/GOOGLE_OAUTH_CLIENT_SECRET` | The owner, from the Google OAuth client whose redirect URI is `https://app.healdesk.io/api/calendar/google/callback` (the calendar's Google connection, on main since its C8) | web, worker |
+| `app/GOOGLE_OAUTH_CLIENT_ID`, `app/GOOGLE_OAUTH_CLIENT_SECRET` | The owner, from the Google OAuth client whose redirect URI is `https://app.healdesk.io/api/calendar/google/callback` (the calendar's Google connection, on main since its C8). Until both are set, apps/app sends no clinic to Google: the connect page says calendar connection is not available yet | web, worker |
 | `app/STRIPE_CONNECT_WEBHOOK_SECRET` | The owner, from doorbell B (Stripe's Connect endpoint at `https://app.healdesk.io/api/webhooks/stripe-connect`) | web |
 | `app/META_APP_SECRET`, `app/META_VERIFY_TOKEN`, `app/ANTHROPIC_API_KEY` | The owner, only once the BAA chain allows ("What still blocks real patient data") | web |
 | `app/HEALDESK_VOICE_WEBHOOK_SECRET`, `app/HEALDESK_VOICE_TOOLS_SECRET` | Leave `__unset__`: these are the Synthflow routes, which must never carry a real call | web |

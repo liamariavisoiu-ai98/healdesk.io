@@ -136,7 +136,7 @@ describe("the template registry", () => {
     }
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds, then B1, O7, the setup closure and O13", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds, then B1, O7, the setup closure and O13, and the calendar's two", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -168,6 +168,8 @@ describe("the template registry", () => {
       "setup_closed",
       "calendar_stopped",
       "calendar_reconnected",
+      "calendar_link",
+      "calendar_election_recorded",
     ]);
   });
 
@@ -287,6 +289,59 @@ describe("ops alerts beyond the fixture", () => {
     expect(
       renderOpsAlert(
         { event: "dmarc_review_due", windowStart: "2026-10-06" },
+        contextFor("ops_alert"),
+      ),
+    ).toMatchSnapshot();
+  });
+
+  // The destruction clock (lib/offboarding): a practice on the thirty days
+  // with no export delivered, from day 21, and a subscription's end the
+  // database could start only a week back. Ids, instants and a count.
+  test("a leaving practice with no export delivered: the snapshot", () => {
+    expect(
+      renderOpsAlert(
+        {
+          event: "export_undelivered_before_destruction",
+          clinicId: CLINIC_ID,
+          destroyAt: "2026-11-30T10:00:00.000Z",
+        },
+        contextFor("ops_alert"),
+      ),
+    ).toMatchSnapshot();
+  });
+
+  // BAA 1.2.1 gives the export "on request", but Terms §7 promises every
+  // leaving practice one within thirty days of the end and the canceled email
+  // tells it one is coming, so it has no reason to ask. The data goes at day
+  // 29 whatever the export, so an alert telling ops to deliver only "any export
+  // the practice asked for" let a practice that was told to expect one lose its
+  // records for good.
+  test("a leaving practice with no export delivered: ops is told to deliver it, asked for or not", () => {
+    const { text, preheader } = renderOpsAlert(
+      {
+        event: "export_undelivered_before_destruction",
+        clinicId: CLINIC_ID,
+        destroyAt: "2026-11-30T10:00:00.000Z",
+      },
+      contextFor("ops_alert"),
+    );
+    for (const body of [text, preheader]) {
+      expect(body).toContain("Deliver this practice's export");
+      expect(body).toContain("whether or not it asks");
+      expect(body).toContain("Terms §7");
+      expect(body).not.toMatch(/asked for/);
+    }
+  });
+
+  test("a subscription's end processed over a week late: the snapshot", () => {
+    expect(
+      renderOpsAlert(
+        {
+          event: "offboarding_started_late",
+          clinicId: CLINIC_ID,
+          serviceEndedAt: "2026-10-27T10:00:00.000Z",
+          lateDays: 3,
+        },
         contextFor("ops_alert"),
       ),
     ).toMatchSnapshot();
@@ -574,6 +629,12 @@ describe("the kind rules", () => {
     );
     for (const kind of NOTICE_KINDS) expect(isLinkEmail(kind), kind).toBe(false);
     expect(isLinkEmail("sign_in_link")).toBe(true);
+    // The calendar link carries a token; the election's copy never does.
+    expect(isLinkEmail("calendar_link")).toBe(true);
+    expect(isLinkEmail("calendar_election_recorded")).toBe(false);
+    expect(linkProblem(`${ORIGIN}/calendar/${TOKEN}`, "calendar_election_recorded")).toMatch(
+      /not a link email/,
+    );
   });
 
   test("a bounce on a sign-in kind locks a clinic out; one on an ops alert does not", () => {

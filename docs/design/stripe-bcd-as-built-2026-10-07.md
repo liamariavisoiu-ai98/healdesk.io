@@ -281,6 +281,12 @@ What the fixes left open:
 - The data-destruction dates in the `canceled` email come from
   `canceledPayload` in `events.ts`. The funnel session replaces those two lines
   with its per-agreement function (BAA 1.2.1 and earlier: day 30 flat), keeping
-  `exportByOn` and `destroyByOn` and their meanings.
+  `exportByOn` and `destroyByOn` and their meanings. Done on 7 October 2026
+  (drizzle/0058): `canceledPayload` reads both from `destructionPlan` in
+  `lib/offboarding/offboarding.ts`, the function the destruction job reads,
+  meanings kept. BAA 1.2.1 and earlier are destroyed at day 29, inside their
+  thirty days; BAA 1.3.0 and the DPA at day 29 once the export is delivered, at
+  its delivery when later, and at day 89 at the latest, inside their thirty
+  and ninety days.
 - The plan's Part J test (every `clinic_id` table is in the destroy list and
   the purge, or in a reasoned keep-list) is M5 work.

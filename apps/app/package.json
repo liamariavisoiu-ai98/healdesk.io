@@ -18,6 +18,7 @@
     "email:seed": "tsx --env-file-if-exists=.env.local scripts/email-seed.ts",
     "worker": "tsx --env-file-if-exists=.env.local src/workers/index.ts",
     "patient-export": "tsx --env-file-if-exists=.env.local scripts/patient-export.ts",
+    "destroy-due": "tsx --env-file-if-exists=.env.local scripts/destroy-due.ts",
     "qa:meta": "tsx --env-file-if-exists=.env.local scripts/meta-qa-gate.ts",
     "channels-link": "tsx --env-file-if-exists=.env.local scripts/channels-link.ts",
     "demo-clinic": "tsx --env-file-if-exists=.env.local scripts/demo-clinic.ts",

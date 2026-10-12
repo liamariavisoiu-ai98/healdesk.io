@@ -1759,8 +1759,9 @@ describeDb("signing", () => {
     // Before plan C3 signAgreement rendered the current template whatever the
     // request said. Now that it renders the version the request names, it has
     // to refuse what validation refuses, or a caller that skips validation (an
-    // operator script, a future portal action) could write a draft's row,
-    // which provisioning would bind to a live account until plan C15.
+    // operator script, a future portal action) could write a draft's row: a
+    // signature to a text nobody may sign, which provisioning has refused to
+    // bind since plan C15.
     const request = (templateVersion: string) =>
       validSignRequest({
         clinicLegalName: "Draft Clinic",

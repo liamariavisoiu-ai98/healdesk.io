@@ -422,9 +422,11 @@ export const clinics = pgTable(
      *             wrong for every clinic that keeps it.
      *
      * Consent records, suppressions and contact attempts are NOT on either
-     * clock: they are the evidence that a call was lawful and that an
-     * opt-out was honoured, and deleting evidence is not a privacy control.
-     * The purge job (lib/retention/purge.ts) is the only reader.
+     * clock: a suppression is a "stop", or the record of an erasure, and
+     * has to outlast the rows it stopped. They go with the rest of the
+     * clinic's data when it is destroyed at offboarding (lib/offboarding,
+     * drizzle/0058). The purge job (lib/retention/purge.ts) is the only
+     * reader of the two clocks.
      *
      * The record clock is never below a day (a CHECK below), and the
      * practice may shorten it, but app_purge_booking_requests runs on the
@@ -526,20 +528,23 @@ export const clinics = pgTable(
     /** When app_mark_clinic_production() ran. */
     wentLiveAt: timestamp("went_live_at", { withTimezone: true }),
 
-    // --- Offboarding: the BAA's return-or-destroy clause, as dates. ---
-    // offboarding_started_at, destroy_after and destroyed_at are the
-    // database's: the runtime role has no UPDATE on them, a new clinic cannot
-    // carry them (the clinics_insert_guard trigger), and only
-    // app_start_offboarding() and app_mark_clinic_destroyed() write them, from
-    // the database's clock, because app_destroy_booking_requests() reads them
-    // as its floor (booking_request_destruction migration).
+    // --- Offboarding: each agreement's return-or-destroy clause, as dates. ---
+    // offboarding_started_at, destroy_after, export_delivered_at and
+    // destroyed_at are the database's: the runtime role has no UPDATE on
+    // them, a new clinic cannot carry them (the clinics_insert_guard
+    // trigger), and only app_start_offboarding(), app_mark_export_delivered()
+    // and app_mark_clinic_destroyed() write them, from the database's clock,
+    // because app_destruction_due() reads them as the floor under the
+    // deletes (booking_request_destruction and destruction_clock
+    // migrations). Which day the data goes is the rule of the agreement the
+    // service ended under (destructionPlan in lib/offboarding).
     // app_mark_clinic_destroyed() also waits for the rows destruction deletes
     // to be gone, so destroyed_at is never a destruction that did not run.
-    /** The clinic left (subscription deleted, or an operator ended it). */
+    /** The service ended: Stripe's end of the subscription (clamped to the week before it was processed), or when an operator ended it. */
     offboardingStartedAt: timestamp("offboarding_started_at", { withTimezone: true }),
-    /** The export was produced and handed over; destruction may proceed after destroy_after. */
+    /** The export reached the practice: the operator's record of the handover, never its production. */
     exportDeliveredAt: timestamp("export_delivered_at", { withTimezone: true }),
-    /** Hard-delete of every PHI row is allowed from this instant, thirty days after the start. */
+    /** Thirty days after the start, the thirty days every agreement counts; destructionPlan says what is due when. */
     destroyAfter: timestamp("destroy_after", { withTimezone: true }),
     /** The destruction ran. The clinic row and its audit trail remain; nothing else does. */
     destroyedAt: timestamp("destroyed_at", { withTimezone: true }),
@@ -2268,8 +2273,10 @@ export const consentRecords = pgTable(
  *
  *   - `channel` is NULLABLE, and null means EVERY channel. Someone who says
  *     "stop calling me" has not invited a text instead.
- *   - Nothing here is ever deleted. Re-consent creates a new consent record; it
- *     does not erase the record of them having asked us to stop.
+ *   - Nothing here is deleted while the clinic is a customer. Re-consent
+ *     creates a new consent record; it does not erase the record of them
+ *     having asked us to stop. Destruction at offboarding takes the clinic's
+ *     suppressions with the rest of its data (lib/offboarding).
  */
 export const suppressions = pgTable(
   "suppressions",

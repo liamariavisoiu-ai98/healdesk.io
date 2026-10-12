@@ -1,8 +1,14 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
-import { CURRENT_BAA_VERSION, hashBaaText } from "@healdesk/catalog";
+import {
+  CURRENT_BAA_VERSION,
+  getBaaTemplate,
+  hashBaaText,
+  type BookingSystemId,
+  type CalendarAccount,
+} from "@healdesk/catalog";
 import { BAA_ASSENT_LABEL } from "@healdesk/catalog";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { signAgreement } from "@/lib/agreements";
 import {
@@ -27,6 +33,51 @@ import {
  * software, connecting nothing. If that path ever requires an integration
  * step, integration has crept back onto the critical path to revenue.
  */
+
+/**
+ * Standing in for the release of BAA 1.3.0 (plan C19), which adds it to the
+ * versions an account may be put under. Until then provisioning refuses a
+ * 1.3.0 signature like any draft's, so a test that provisions one sets
+ * `release.baa130`, and only isBaaVersionAcceptable's answer for 1.3.0
+ * changes: the template itself stays a draft.
+ *
+ * And for a booking system the catalogue reclassifies after a practice has
+ * signed, as a vendor's written confirmation would (plan Q4): a system in
+ * `catalogue.readsGoogle` is "yes" to whatever in apps/app asks the
+ * catalogue (bookingSyncFor, selectCalendarClause). Signing has already
+ * chosen its clause by then, inside the catalogue, where this reaches
+ * nothing.
+ */
+const release = vi.hoisted(() => ({ baa130: false }));
+const catalogue = vi.hoisted(() => ({ readsGoogle: [] as string[] }));
+vi.mock("@healdesk/catalog", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@healdesk/catalog")>();
+  const reclassified = (id: unknown) =>
+    typeof id === "string" && catalogue.readsGoogle.includes(id);
+  return {
+    ...actual,
+    isBaaVersionAcceptable: (version: string) =>
+      actual.isBaaVersionAcceptable(version) || (release.baa130 && version === "1.3.0"),
+    bookingSyncFor: (id: unknown) => (reclassified(id) ? "live" : actual.bookingSyncFor(id)),
+    selectCalendarClause: (input: Parameters<typeof actual.selectCalendarClause>[0]) => {
+      if (!reclassified(input.bookingSystem)) return actual.selectCalendarClause(input);
+      const kind = actual.calendarTermsKind("live", input.calendarAccount);
+      return {
+        kind,
+        clauseId: actual.CALENDAR_CLAUSE_IDS[kind],
+        // The 1.3.0 redraft's calendarClauseBody refuses a kind its booking
+        // system's real sync contradicts, which a reclassification is, so the
+        // body is rendered for a system that reads Google; the tests read the
+        // clause id and kind, not the body's wording.
+        body: actual.calendarClauseBody({
+          kind,
+          account: input.calendarAccount,
+          bookingSystem: "google_calendar",
+        }),
+      };
+    },
+  };
+});
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 
@@ -72,6 +123,47 @@ async function signFor(
     assentLabel: BAA_ASSENT_LABEL,
     templateVersion: CURRENT_BAA_VERSION,
   });
+  return signed.agreementId;
+}
+
+type SignedAnswers = {
+  /**
+   * A version other than the current one, signed as if it were current: how
+   * the release will sign 1.3.0 (agreements.test.ts, RELEASED_1_3), or how
+   * 1.2.0 was signed before 1.2.1 replaced it.
+   */
+  version?: string;
+  platform?: string;
+  bookingSystem?: BookingSystemId;
+  calendarAccount?: CalendarAccount;
+};
+
+/** Sign through signAgreement with the answers that say where the practice's bookings live. */
+async function signWith(
+  clinicName: string,
+  email: string,
+  answers: SignedAnswers,
+): Promise<string> {
+  const template = answers.version ? getBaaTemplate(answers.version) : undefined;
+  if (answers.version && !template) throw new Error(`No template ${answers.version}`);
+  const signed = await signAgreement(
+    {
+      clinicLegalName: clinicName,
+      specialty: "med-spa",
+      signatoryName: "Alex Chen",
+      signatoryTitle: "Owner",
+      signatoryEmail: email,
+      isCoveredEntity: false,
+      attributionMode: "estimated",
+      platform: answers.platform,
+      bookingSystem: answers.bookingSystem,
+      calendarAccount: answers.calendarAccount,
+      assentLabel: BAA_ASSENT_LABEL,
+      templateVersion: template?.version ?? CURRENT_BAA_VERSION,
+    },
+    {},
+    template ? { current: template } : {},
+  );
   return signed.agreementId;
 }
 
@@ -170,6 +262,11 @@ describeDb("provisioning", () => {
 
   afterAll(async () => {
     await closePools();
+  });
+
+  afterEach(() => {
+    release.baa130 = false;
+    catalogue.readsGoogle = [];
   });
 
   /**
@@ -633,7 +730,438 @@ describeDb("provisioning", () => {
       ),
     ).rejects.toMatchObject({ cause: { code: "23505" } });
   });
+
+  /* ------------------------------------ what the signed acceptance decides (plan C15) */
+
+  test("the approval gate reads the signed agreement's own version: a draft or a superseded one provisions nothing", async () => {
+    // Until plan C15 the gate asked whether the CURRENT template was
+    // approved, so while 1.2.1 was current a row signed under any other
+    // version went through. The row's own version decides now, as it does
+    // at go-live (isBaaVersionAcceptable).
+    const draftEmail = "draft@gate.test";
+    const draft = validRequest({
+      clinicName: "Draft Gate Clinic",
+      contactEmail: draftEmail,
+      // 1.3.0, signed as its release will sign it, before that release.
+      agreementId: await signWith("Draft Gate Clinic", draftEmail, {
+        version: "1.3.0",
+        bookingSystem: "google_calendar",
+        calendarAccount: "workspace_baa",
+      }),
+    });
+    const supersededEmail = "superseded@gate.test";
+    const superseded = validRequest({
+      clinicName: "Superseded Gate Clinic",
+      contactEmail: supersededEmail,
+      // 1.2.0, released on 1 October and replaced by 1.2.1 that day: below the floor.
+      agreementId: await signWith("Superseded Gate Clinic", supersededEmail, {
+        version: "1.2.0",
+        platform: "none",
+      }),
+    });
+
+    for (const [request, version] of [
+      [draft, "1.3.0"],
+      [superseded, "1.2.0"],
+    ] as const) {
+      // A refusal, not a 500: the row never changes, so a retry would only
+      // meet it again, and a paid purchase belongs with ops.
+      await expect(provisionClinic(request), version).rejects.toMatchObject({
+        name: "ProvisioningError",
+        field: "agreementId",
+        message: expect.stringContaining(
+          `Version ${version} of the business associate agreement can't be used`,
+        ),
+      });
+      // Nothing written: no clinic, no claim on the key, the signature unbound.
+      expect(await written(request), version).toEqual({ clinics: 0, claims: 0, bound: false });
+    }
+
+    // The version's own standing is all the gate asks: released, the same
+    // 1.3.0 row provisions.
+    release.baa130 = true;
+    const first = await provisionClinic(draft);
+    expect(first.replayed).toBe(false);
+    expect(await written(draft)).toEqual({ clinics: 1, claims: 1, bound: true });
+    expect(await electionRowsOf(first.clinicId)).toHaveLength(1);
+
+    // The gate judges an account about to be made, never one that exists.
+    // Once the version falls below the floor again (a later release raising
+    // MIN_ACCEPTABLE_BAA_VERSION, or a rollback), Stripe's redelivery of the
+    // same purchase still replays, rather than meeting a 422 and a
+    // provisioning_rejected alert for a clinic that is already there.
+    release.baa130 = false;
+    expect(await provisionClinic(draft)).toEqual({
+      organizationId: first.organizationId,
+      clinicId: first.clinicId,
+      clinicSlug: first.clinicSlug,
+      replayed: true,
+    });
+    expect(await written(draft)).toEqual({ clinics: 1, claims: 1, bound: true });
+    expect(await electionRowsOf(first.clinicId)).toHaveLength(1);
+  });
+
+  test("where bookings live is the signed agreement's: a purchase naming another platform is provisioned as signed, and recorded", async () => {
+    // Signed naming Mindbody, bought naming no booking software. Not refused,
+    // because a refusal here comes after payment: the clinic is what was
+    // signed, and the difference is a security event, with nothing about
+    // anyone in it.
+    // Each signature here is 1.2.1's by name, not whatever is current, so the
+    // cases keep testing a document before 1.3.0 after the release moves
+    // 1.3.0 to BAA_TEMPLATES[0].
+    const email = "mismatch@platform.test";
+    const agreementId = await signWith("Mismatch Clinic", email, {
+      version: "1.2.1",
+      platform: "mindbody",
+    });
+    const mismatched = await provisionClinic(
+      validRequest({
+        clinicName: "Mismatch Clinic",
+        contactEmail: email,
+        agreementId,
+        platform: "none",
+      }),
+      { ipAddress: "203.0.113.9", userAgent: "synthetic-relay" },
+    );
+    expect(await bookingProviderOf(mismatched.clinicId)).toBe("mindbody");
+    expect(await mismatchEventsOf(mismatched.organizationId)).toEqual([
+      {
+        actor_label: "provisioning",
+        ip_address: "203.0.113.9",
+        metadata: {
+          clinicId: mismatched.clinicId,
+          clinicSlug: mismatched.clinicSlug,
+          agreementId,
+          purchasePlatform: "none",
+          signedPlatform: "mindbody",
+          bookingProvider: "mindbody",
+        },
+      },
+    ]);
+
+    // The booking system the funnel signs with beside the platform is the
+    // finer answer (Google Calendar alone names no platform), and a purchase
+    // that matches records nothing. 1.2.1 reads neither calendar answer, so
+    // it gives the location no calendar terms either: it waits for an
+    // election (plan §2.8).
+    const funnelEmail = "funnel@platform.test";
+    const funnel = await provisionClinic(
+      validRequest({
+        clinicName: "Funnel Clinic",
+        contactEmail: funnelEmail,
+        agreementId: await signWith("Funnel Clinic", funnelEmail, {
+          version: "1.2.1",
+          platform: "none",
+          bookingSystem: "google_calendar",
+          calendarAccount: "workspace_baa",
+        }),
+      }),
+    );
+    expect(await bookingProviderOf(funnel.clinicId)).toBe("google_calendar");
+    expect(await mismatchEventsOf(funnel.organizationId)).toEqual([]);
+    expect(await electionRowsOf(funnel.clinicId)).toEqual([]);
+
+    // Kept beside a platform that is not its own, the answer gives way to
+    // the document, which names the platform.
+    const splitEmail = "split@platform.test";
+    const split = await provisionClinic(
+      validRequest({
+        clinicName: "Split Clinic",
+        contactEmail: splitEmail,
+        platform: "mindbody",
+        agreementId: await signWith("Split Clinic", splitEmail, {
+          version: "1.2.1",
+          platform: "mindbody",
+          bookingSystem: "calcom",
+        }),
+      }),
+    );
+    expect(await bookingProviderOf(split.clinicId)).toBe("mindbody");
+    expect(await mismatchEventsOf(split.organizationId)).toEqual([]);
+  });
+
+  test("a 1.3.0 signature gives the location it sets up its first calendar terms: the agreement row, sequence 1, as signed", async () => {
+    release.baa130 = true;
+    const email = "terms@calendar.test";
+    const agreementId = await signWith("Covered Terms Clinic", email, {
+      version: "1.3.0",
+      bookingSystem: "calcom",
+      calendarAccount: "workspace_baa",
+    });
+    const request = validRequest({
+      clinicName: "Covered Terms Clinic",
+      contactEmail: email,
+      agreementId,
+      platform: "calcom",
+    });
+    const result = await provisionClinic(request);
+
+    const { rows: acceptance } = await getMigratorPool().query<{ document_hash: string }>(
+      `select document_hash from baa_acceptances where id = $1`,
+      [agreementId],
+    );
+    expect(await electionRowsOf(result.clinicId)).toEqual([
+      {
+        sequence: 1,
+        source: "agreement",
+        agreement_id: agreementId,
+        terms_kind: "covered",
+        clause_id: "google-calendar-covered",
+        calendar_account: "workspace_baa",
+        booking_sync: "live",
+        booking_system: "calcom",
+        document_version: "1.3.0",
+        document_hash: acceptance[0]!.document_hash,
+        document_released: true,
+        owner_confirmed: false,
+        rendered_text: null,
+        elected_by_label: "Alex Chen, Owner",
+        link_id: null,
+        elected_by_user_id: null,
+      },
+    ]);
+    expect(await bookingProviderOf(result.clinicId)).toBe("calcom");
+    expect(await mismatchEventsOf(result.organizationId)).toEqual([]);
+    // Audited in provisioning's own transaction, as provisioning.
+    const audited = await inClinicTenant(result.clinicId, (client) =>
+      client.query<{ actor_service_name: string; metadata: Record<string, unknown> }>(
+        `select actor_service_name, metadata from audit_log
+          where clinic_id = $1 and resource_type = 'calendar_election'`,
+        [result.clinicId],
+      ),
+    );
+    expect(audited.rows).toEqual([
+      {
+        actor_service_name: "provisioning",
+        metadata: { sequence: 1, source: "agreement", termsKind: "covered" },
+      },
+    ]);
+    // A redelivery replays and records nothing more.
+    expect((await provisionClinic(request)).replayed).toBe(true);
+    expect(await electionRowsOf(result.clinicId)).toHaveLength(1);
+
+    // Signed for a one-way system, bought naming no booking software: the
+    // clinic is provisioned as signed, so its terms are the not-used clause
+    // and its bookings requests, and the difference is recorded.
+    const oneWayEmail = "oneway@calendar.test";
+    const oneWay = await provisionClinic(
+      validRequest({
+        clinicName: "One Way Clinic",
+        contactEmail: oneWayEmail,
+        platform: "none",
+        agreementId: await signWith("One Way Clinic", oneWayEmail, {
+          version: "1.3.0",
+          bookingSystem: "mindbody",
+          calendarAccount: "workspace_no_baa",
+        }),
+      }),
+    );
+    expect(await electionRowsOf(oneWay.clinicId)).toMatchObject([
+      {
+        sequence: 1,
+        source: "agreement",
+        terms_kind: "not_used",
+        clause_id: "google-calendar-not-used",
+        booking_sync: "manual",
+        booking_system: "mindbody",
+      },
+    ]);
+    expect(await bookingProviderOf(oneWay.clinicId)).toBe("mindbody");
+    expect(await mismatchEventsOf(oneWay.organizationId)).toMatchObject([
+      {
+        metadata: {
+          purchasePlatform: "none",
+          signedPlatform: "mindbody",
+          bookingProvider: "mindbody",
+        },
+      },
+    ]);
+  });
+
+  test("a 1.3.0 row that does not hold the calendar terms it was signed with is refused before anything is written", async () => {
+    // Not a row signing writes: its render guard needs both answers, and it
+    // records the one clause they select, which is always a clause for the
+    // account kind signed. Refused here rather than failing inside the
+    // transaction, so a paid purchase reaches ops at once.
+    release.baa130 = true;
+    const malformed: Record<string, unknown>[] = [
+      // Covered is for a Workspace account with Google's BAA, never a personal one.
+      {
+        bookingSystem: "calcom",
+        calendarAccount: "personal",
+        appliedClauses: ["parties", "google-calendar-covered"],
+      },
+      // Uncovered is for any account but that one.
+      {
+        bookingSystem: "calcom",
+        calendarAccount: "workspace_baa",
+        appliedClauses: ["parties", "google-calendar-uncovered"],
+      },
+      // No account kind for the clause to be for.
+      { bookingSystem: "calcom", appliedClauses: ["parties", "google-calendar-covered"] },
+      // A booking system the v1 list does not hold.
+      {
+        bookingSystem: "zenoti",
+        calendarAccount: "workspace_baa",
+        appliedClauses: ["parties", "google-calendar-covered"],
+      },
+      // Two calendar clauses for one location.
+      {
+        bookingSystem: "calcom",
+        calendarAccount: "workspace_baa",
+        appliedClauses: ["google-calendar-covered", "google-calendar-not-used"],
+      },
+      // A sync stored beside the clause that the clause contradicts.
+      {
+        bookingSystem: "calcom",
+        calendarAccount: "workspace_baa",
+        bookingSync: "manual",
+        appliedClauses: ["parties", "google-calendar-covered"],
+      },
+      // No calendar clause at all, which every 1.3.0 document applies.
+      { bookingSystem: "calcom", calendarAccount: "workspace_baa", appliedClauses: ["parties"] },
+    ];
+    for (const variables of malformed) {
+      const request = validRequest({
+        clinicName: "Malformed Terms Clinic",
+        contactEmail: "malformed@calendar.test",
+        platform: "calcom",
+        agreementId: await seedUnboundAcceptance("1.3.0", {
+          clinicLegalName: "Malformed Terms Clinic",
+          isCoveredEntity: false,
+          ...variables,
+        }),
+      });
+      await expect(provisionClinic(request), JSON.stringify(variables)).rejects.toMatchObject({
+        name: "ProvisioningError",
+        field: "agreementId",
+        message: expect.stringMatching(/does not record the calendar terms/),
+      });
+      expect(await written(request)).toEqual({ clinics: 0, claims: 0, bound: false });
+    }
+  });
+
+  test("a booking system the catalogue reclassifies after signing leaves the location under the clause it signed", async () => {
+    // Signed while Boulevard is unverified, so under the not-used clause, and
+    // paid for after a vendor's confirmation moved it to "yes" (plan Q4).
+    // The signed clause is what the location is under, and refusing it now
+    // would leave a paid purchase with no account: it is recorded as signed,
+    // manual and all, and the difference logged. Live booking takes an
+    // election, which widens and so needs the owner.
+    release.baa130 = true;
+    const email = "reclassified@calendar.test";
+    const agreementId = await signWith("Reclassified Clinic", email, {
+      version: "1.3.0",
+      bookingSystem: "boulevard",
+      calendarAccount: "workspace_baa",
+    });
+    catalogue.readsGoogle = ["boulevard"];
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const result = await provisionClinic(
+        validRequest({
+          clinicName: "Reclassified Clinic",
+          contactEmail: email,
+          agreementId,
+          platform: "boulevard",
+        }),
+      );
+      expect(await electionRowsOf(result.clinicId)).toMatchObject([
+        {
+          sequence: 1,
+          source: "agreement",
+          terms_kind: "not_used",
+          clause_id: "google-calendar-not-used",
+          calendar_account: "workspace_baa",
+          booking_sync: "manual",
+          booking_system: "boulevard",
+          document_version: "1.3.0",
+        },
+      ]);
+      expect(await bookingProviderOf(result.clinicId)).toBe("boulevard");
+      expect(await mismatchEventsOf(result.organizationId)).toEqual([]);
+      const logged = warn.mock.calls
+        .map(([line]) => String(line))
+        .filter((line) => line.includes("calendar terms recorded as signed"));
+      expect(logged).toHaveLength(1);
+      expect(logged[0]).toContain(`"agreementId":"${agreementId}"`);
+      expect(logged[0]).toContain(`"kind":"not_used"`);
+      expect(logged[0]).toContain("the catalogue now selects covered");
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });
+
+type Written = { clinics: number; claims: number; bound: boolean };
+
+/** What a refused provision left: clinics of its name, claims on its key, and whether its agreement is bound. */
+async function written(request: ProvisionRequest): Promise<Written> {
+  const { rows } = await getMigratorPool().query<Written>(
+    `select (select count(*) from clinics where name = $1)::int as clinics,
+            (select count(*) from provisioning_attempts where idempotency_key = $2)::int as claims,
+            (select organization_id is not null from baa_acceptances where id = $3) as bound`,
+    [request.clinicName, request.idempotencyKey, request.agreementId],
+  );
+  return rows[0]!;
+}
+
+/** An unbound acceptance written as the migrator: for a row no signing path writes. */
+async function seedUnboundAcceptance(
+  version: string,
+  variables: Record<string, unknown>,
+): Promise<string> {
+  const id = randomUUID();
+  await getMigratorPool().query(
+    `insert into baa_acceptances
+       (id, document_version, document_hash, rendered_text, variables, assent_label,
+        accepted_by_name, accepted_by_email, accepted_at)
+     values ($1, $2, $3, 'BAA (synthetic)', $4::jsonb, 'I agree', 'Alex Chen',
+             'malformed@calendar.test', now())`,
+    [id, version, randomBytes(32).toString("hex"), JSON.stringify(variables)],
+  );
+  return id;
+}
+
+/** clinics.booking_provider; clinics is not FORCEd, so the migrator reads it directly. */
+async function bookingProviderOf(clinicId: string): Promise<string | null> {
+  const { rows } = await getMigratorPool().query<{ booking_provider: string | null }>(
+    `select booking_provider from clinics where id = $1`,
+    [clinicId],
+  );
+  return rows[0]!.booking_provider;
+}
+
+type SecurityEvent = {
+  actor_label: string;
+  ip_address: string | null;
+  metadata: Record<string, unknown>;
+};
+
+/** The provision_platform_mismatch events recorded against an organisation. */
+async function mismatchEventsOf(organizationId: string): Promise<SecurityEvent[]> {
+  const { rows } = await getMigratorPool().query<SecurityEvent>(
+    `select actor_label, ip_address, metadata from security_events
+      where organization_id = $1 and event = 'provision_platform_mismatch'
+      order by occurred_at`,
+    [organizationId],
+  );
+  return rows;
+}
+
+/** The location's calendar elections. calendar_elections is FORCEd, so read inside its tenant. */
+async function electionRowsOf(clinicId: string): Promise<Record<string, unknown>[]> {
+  const result = await inClinicTenant(clinicId, (client) =>
+    client.query(
+      `select sequence, source, agreement_id, terms_kind, clause_id, calendar_account, booking_sync,
+              booking_system, document_version, document_hash, document_released, owner_confirmed,
+              rendered_text, elected_by_label, link_id, elected_by_user_id
+         from calendar_elections where clinic_id = $1 order by sequence`,
+      [clinicId],
+    ),
+  );
+  return result.rows;
+}
 
 /** entitlements is FORCEd, so even the migrator reads it inside a tenant. */
 async function readEntitlements(clinicId: string): Promise<{

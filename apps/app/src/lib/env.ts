@@ -241,6 +241,21 @@ export const env = {
 
   kmsKeyId: () => optional("HEALDESK_KMS_KEY_ID"),
 
+  /**
+   * healdesk's Google OAuth client for the Calendar connection (plan §12):
+   * one Web client per Google Cloud project, with
+   * `<BETTER_AUTH_URL>/api/calendar/google/callback` as its redirect. Set
+   * only in the AWS BAA host's secret store for apps/app, never on apps/web
+   * or any Vercel project: the secret exchanges every clinic's sign-in for a
+   * refresh token. Unset means nobody is sent to Google: the connect page
+   * says calendar connection isn't available yet, no calendar link is minted,
+   * and the adapter answers `misconfigured`/`oauth_client` without a request.
+   */
+  googleOAuthClientId: () => optional("GOOGLE_OAUTH_CLIENT_ID"),
+  googleOAuthClientSecret: () => optional("GOOGLE_OAUTH_CLIENT_SECRET"),
+  googleCalendarConfigured: (): boolean =>
+    Boolean(optional("GOOGLE_OAUTH_CLIENT_ID") && optional("GOOGLE_OAUTH_CLIENT_SECRET")),
+
   /** Base64, 32 bytes. Development only. */
   localKek: () => optional("HEALDESK_LOCAL_KEK"),
 
@@ -272,11 +287,13 @@ export const env = {
   },
 
   /**
-   * The direct-booking kill switch (design of 23 September 2026, §E.1). One
-   * of the gates in lib/booking/mode.ts, and the only one an operator can
-   * flip without a database write; it is read on every tool call and never
-   * cached, so unsetting it in an environment stops the assistant booking on
-   * the next call. Anything but the literal string "true" is off.
+   * The live-booking kill switch (owner decision 4, 5 October 2026): anything
+   * but the literal "true" means the assistant never books and every booking
+   * is a request. Only the owner sets it: no commit, script, CI file,
+   * Dockerfile, .env.example value or deploy step does. It gates the
+   * assistant's own bookings only, never a staff confirmation's write, and
+   * it is read on every call and never cached, so unsetting it stops the
+   * assistant booking on the next one.
    */
   directBookingEnabled: (): boolean => process.env.HEALDESK_DIRECT_BOOKING_ENABLED === "true",
 

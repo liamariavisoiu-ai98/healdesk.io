@@ -6,6 +6,7 @@ import { and, desc, eq, gt, isNull, ne, sql } from "drizzle-orm";
 import { unsafeDb } from "@/db";
 import {
   appointments,
+  auditLog,
   baaAcceptances,
   bookingRequests,
   clinics,
@@ -66,7 +67,23 @@ import {
 } from "@/lib/incidents/incidents";
 import { applyEmailEvent, isDeliveryStatus } from "@/lib/email/events";
 import { KIND_SHAPE } from "@/lib/email/kind-rules";
-import { markExportDelivered, startOffboarding } from "@/lib/offboarding/offboarding";
+import {
+  destructionPlan,
+  markExportDelivered,
+  recordVoiceVendorDeletion,
+  startOffboarding,
+  voiceVendorDeletionOf,
+  type DestructionBasis,
+  type DestructionRule,
+} from "@/lib/offboarding/offboarding";
+import { sweepCalendarTerms } from "@/lib/connections/google-calendar";
+import {
+  opDisconnectCalendar,
+  opIssueCalendarLink,
+  opSetAutoConfirm,
+  readBookingProjection,
+  type BookingProjection,
+} from "@/lib/ops/calendar-ops";
 import { startForwardingTest } from "@/lib/onboarding/forwarding-test";
 import { listConnections } from "@/lib/connections/store";
 import { selfCheckCredentialKey, type CredentialKeySelfCheck } from "@/lib/crypto/envelope";
@@ -282,6 +299,7 @@ const OPERATIONS = [
   "resolveIncident",
   "startOffboarding",
   "markExportDelivered",
+  "markVoiceVendorDataDeleted",
   // The billing panel (lib/ops/billing.ts; build spec §7 E, R35): one clinic's
   // subscription, usage, switches and the billing engine's ledgers, and the
   // support actions on them. Ids, counts, cents and codes; never a payload.
@@ -292,6 +310,10 @@ const OPERATIONS = [
   "replayBillingEvent",
   "commitRefund",
   "setClinicSettings",
+  // Auto-confirm, the clinic's own booking switch, beside its other switches
+  // (lib/ops/calendar-ops.ts, plan §10). The owner's kill switch is an
+  // environment variable, and no operation sets it.
+  "setAutoConfirm",
   "setDepositSettings",
   "disconnectStripeConnect",
   "issueStripeConnectLink",
@@ -321,6 +343,12 @@ const OPERATIONS = [
   "issueSetupLink",
   "retryCalendarWrite",
   "listCalendarWrites",
+  // The Google Calendar connection (plan §10): mail the location's calendar
+  // link to the practice's own address (never to one the console names),
+  // and disconnect its calendar. Neither returns a link, but for the demo
+  // clinic's.
+  "issueCalendarLink",
+  "disconnectCalendar",
   // The email platform (Annex X3): a Resend webhook event for mail this app
   // sent, relayed by apps/web's one webhook. Machine to machine: the relay's
   // caller verified Resend's signature, and the event carries ids, a status and
@@ -363,6 +391,7 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "resolveIncident",
   "startOffboarding",
   "markExportDelivered",
+  "markVoiceVendorDataDeleted",
   // The billing panel's writes. getClinicBilling and previewRefund are reads:
   // the preview asks Stripe and writes nothing but its audit row.
   "setOverageMode",
@@ -370,6 +399,7 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "replayBillingEvent",
   "commitRefund",
   "setClinicSettings",
+  "setAutoConfirm",
   "setDepositSettings",
   "disconnectStripeConnect",
   "issueStripeConnectLink",
@@ -393,6 +423,10 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   // Mutating because it moves the appointment's calendar columns and may
   // create a booking in the clinic's calendar.
   "retryCalendarWrite",
+  // Mutating: a link minted and mailed, or a calendar disconnected and its
+  // grant revoked at Google.
+  "issueCalendarLink",
+  "disconnectCalendar",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -859,6 +893,8 @@ export async function runOperation(
       return opStartOffboarding(args, operator);
     case "markExportDelivered":
       return opMarkExportDelivered(args, operator);
+    case "markVoiceVendorDataDeleted":
+      return opMarkVoiceVendorDataDeleted(args, operator);
     case "getClinicBilling":
       return opGetClinicBilling(args, operator);
     case "previewRefund":
@@ -873,6 +909,8 @@ export async function runOperation(
       return opCommitRefund(args, operator);
     case "setClinicSettings":
       return opSetClinicSettings(args, operator);
+    case "setAutoConfirm":
+      return opSetAutoConfirm(args, operator);
     case "setDepositSettings":
       return opSetDepositSettings(args, operator);
     case "disconnectStripeConnect":
@@ -919,6 +957,10 @@ export async function runOperation(
       return opRetryCalendarWrite(args, operator);
     case "listCalendarWrites":
       return opListCalendarWrites(args, operator);
+    case "issueCalendarLink":
+      return opIssueCalendarLink(args, operator);
+    case "disconnectCalendar":
+      return opDisconnectCalendar(args, operator);
     case "emailEvent":
       return opEmailEvent(args);
     case "getCredentialKeyStatus":
@@ -1713,6 +1755,15 @@ async function opMarkAgreementTerminated(
     // the connect link records hours rather than a timestamp.
     terminatedAtEpochMs: terminatedAt.getTime(),
   });
+
+  // A terminated agreement voids every location's calendar terms (plan
+  // §2.7): each of the organisation's locations loses its Google Calendar
+  // now, rather than at the watch's next run, and its grant is revoked when
+  // unused. Every live calendar is swept, since a location's organisation is
+  // its own tenant's to read; the sweep reads each location's terms afresh,
+  // so every other location, and one still under an agreement in effect,
+  // keeps its calendar. Never throws.
+  await sweepCalendarTerms(undefined, { actor: actorFor(operator) });
 
   return ok({
     status: "recorded",
@@ -2552,6 +2603,13 @@ export type OnboardingView = {
   calendarConnection: { connectionId: string; platform: string; phiBasis: PhiBasis | null; writable: boolean } | null;
   /** §B.4: every appointment with a calendar write attempted. No name, phone or service. */
   calendarWrites: CalendarWriteRow[];
+  /**
+   * Plan §10: the booking mode and every reason for it, Auto-confirm, the
+   * kill switch, the calendar terms and the Google Calendar connection. The
+   * older keys above (`bookingMode`, `directBooking*`, `calendarConnection`)
+   * stay until the console's cards move onto this one (plan C17).
+   */
+  booking: BookingProjection;
 };
 
 export type DirectBookingGate = "env" | "addendum" | "election" | "calendar" | "production" | "agent";
@@ -2586,7 +2644,7 @@ async function opGetOnboarding(
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return opsProblem("No such clinic.", 404, "invalid_args");
 
-  const { agent, metaChannels, bookingRequests, booking } = await withTenant(
+  const { agent, metaChannels, bookingRequests, booking, bookingView } = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
     async (tx) => {
       tx.audit.record({ action: "read", resourceType: "agent_config", resourceId: tx.clinicId });
@@ -2595,6 +2653,7 @@ async function opGetOnboarding(
         agent: await getAgentConfig(tx),
         bookingRequests: await bookingRequestCounts(tx),
         booking: await readBookingState(tx, clinic, connections),
+        bookingView: await readBookingProjection(tx, clinic.timezone),
         metaChannels: connections
           .filter((c) => c.provider.startsWith("meta-"))
           .map((c) => {
@@ -2689,6 +2748,7 @@ async function opGetOnboarding(
     timezone: clinic.timezone,
     calendarConnection: booking.calendarConnection,
     calendarWrites: booking.calendarWrites,
+    booking: bookingView,
   };
   return ok(view);
 }
@@ -3098,6 +3158,30 @@ export type CareView = {
     exportDeliveredAt: string | null;
     destroyAfter: string | null;
     destroyedAt: string | null;
+    /**
+     * The destruction plan by the agreement the service ended under
+     * (destructionPlan in lib/offboarding), or null while the clinic is not
+     * offboarding. ISO instants, and the rule's name; contract metadata.
+     */
+    destruction: {
+      rule: DestructionRule;
+      basis: DestructionBasis;
+      agreementVersion: string | null;
+      exportDueBy: string;
+      destroyDueAt: string;
+      latestDestroyAt: string;
+    } | null;
+    /**
+     * The operator step at the voice vendor: the clinic's calls and agent
+     * deleted at Retell by the time its data is destroyed here (destroyDueAt),
+     * outstanding until recorded. Null while the clinic is not offboarding.
+     */
+    voiceVendorDeletion: {
+      deadline: string;
+      recordedAt: string | null;
+      recordedBy: string | null;
+      how: string | null;
+    } | null;
   };
   recipients: { email: string; label: string | null; addedBy: string; addedAt: string }[];
   deliveries: {
@@ -3132,6 +3216,8 @@ async function opGetClinicCare(
 ): Promise<OpsOutcome> {
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return opsProblem("No such clinic.", 404, "invalid_args");
+  const plan = destructionPlan(clinic);
+  const vendorDeletion = plan ? await voiceVendorDeletionOf(clinic.id) : null;
 
   const view = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
@@ -3157,6 +3243,24 @@ async function opGetClinicCare(
           exportDeliveredAt: clinic.exportDeliveredAt?.toISOString() ?? null,
           destroyAfter: clinic.destroyAfter?.toISOString() ?? null,
           destroyedAt: clinic.destroyedAt?.toISOString() ?? null,
+          destruction: plan
+            ? {
+                rule: plan.rule,
+                basis: plan.basis,
+                agreementVersion: plan.agreementVersion,
+                exportDueBy: plan.exportDueBy.toISOString(),
+                destroyDueAt: plan.destroyDueAt.toISOString(),
+                latestDestroyAt: plan.latestDestroyAt.toISOString(),
+              }
+            : null,
+          voiceVendorDeletion: plan
+            ? {
+                deadline: plan.destroyDueAt.toISOString(),
+                recordedAt: vendorDeletion?.recordedAt.toISOString() ?? null,
+                recordedBy: vendorDeletion?.recordedBy ?? null,
+                how: vendorDeletion?.how ?? null,
+              }
+            : null,
         },
         recipients: recipients.map((r) => ({
           email: r.email,
@@ -3381,24 +3485,88 @@ async function opStartOffboarding(
     (tx) => startOffboarding(tx, reason),
   );
   await audit(operator, "offboarding_started", { clinicSlug: clinic.slug });
+  // Google access ends when offboarding starts, not at destruction (owner,
+  // Q7): the calendar is disconnected and its grant revoked when unused.
+  await sweepCalendarTerms([clinic.id], { actor: actorFor(operator) });
   return care.updated();
 }
 
+/**
+ * The operator's record that the export reached the practice: what
+ * "delivered" means on this path. It refuses until a whole-clinic bundle has
+ * been produced since offboarding started (exportClinic writes the audit row
+ * it looks for), so a delivery cannot be recorded for an export nobody made,
+ * and producing one records nothing: the operator hands it over, then
+ * records how. The stamp is the database's, at this moment
+ * (app_mark_export_delivered).
+ */
 async function opMarkExportDelivered(
   args: Record<string, unknown>,
   operator: Operator,
 ): Promise<OpsOutcome> {
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return care.error("No such clinic.");
-  if (!clinic.offboardingStartedAt) return care.error("Start offboarding first; the export is part of leaving.");
+  const startedAt = clinic.offboardingStartedAt;
+  if (!startedAt) return care.error("Start offboarding first; the export is part of leaving.");
   if (clinic.destroyedAt) return care.error("This clinic's data has already been destroyed.");
+  if (clinic.exportDeliveredAt) return care.error(`The export was recorded as delivered on ${asDate(clinic.exportDeliveredAt)}.`);
   const how = incidentText(stringArg(args, "how", 200), "how");
   if (typeof how !== "string") return care.error(how.error);
-  await withTenant(
+  const delivered = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
-    (tx) => markExportDelivered(tx, how),
+    async (tx) => {
+      const [produced] = await tx.db
+        .select({ id: auditLog.id })
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.clinicId, tx.clinicId),
+            eq(auditLog.action, "export"),
+            eq(auditLog.resourceType, "clinic_bundle"),
+            gt(auditLog.occurredAt, startedAt),
+          ),
+        )
+        .limit(1);
+      if (!produced) return false;
+      await markExportDelivered(tx, how);
+      return true;
+    },
   );
+  if (!delivered) {
+    return care.error(
+      "No return bundle has been produced since offboarding started. Produce it on the app host (npm run patient-export -w @healdesk/app -- --clinic <id> --all), hand it over, then record the handover here.",
+    );
+  }
   await audit(operator, "offboarding_export_delivered", { clinicSlug: clinic.slug });
+  return care.updated();
+}
+
+/**
+ * The operator's record that the clinic's calls and agent were deleted at the
+ * voice vendor (Retell), in the vendor's console: nothing in apps/app talks
+ * to the vendor yet. The care view shows the step outstanding, with its
+ * deadline, until this is recorded; it is recorded once, as a security event
+ * naming the operator (recordVoiceVendorDeletion in lib/offboarding).
+ */
+async function opMarkVoiceVendorDataDeleted(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return care.error("No such clinic.");
+  if (!clinic.offboardingStartedAt) return care.error("Start offboarding first; the vendor's copy goes on the way out.");
+  const earlier = await voiceVendorDeletionOf(clinic.id);
+  if (earlier) return care.error(`Already recorded on ${asDate(earlier.recordedAt)} by ${earlier.recordedBy}.`);
+  const how = incidentText(stringArg(args, "how", 200), "how");
+  if (typeof how !== "string") return care.error(how.error);
+  await recordVoiceVendorDeletion({
+    clinicId: clinic.id,
+    clinicSlug: clinic.slug,
+    how,
+    actorLabel: operator.email,
+    ipAddress: operator.request.ipAddress ?? null,
+    userAgent: operator.request.userAgent ?? null,
+  });
   return care.updated();
 }
 

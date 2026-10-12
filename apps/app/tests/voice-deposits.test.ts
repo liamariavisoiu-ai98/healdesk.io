@@ -287,6 +287,51 @@ describeDb("deposits on the phone", DB_TEST_OPTIONS, () => {
     ).toMatchObject({ deposit_line: expect.stringMatching(/^A deposit of 75 dollars/) });
   });
 
+  test("a med spa's own service named for a condition is the one the caller books: its name kept, its own deposit found", async () => {
+    // The everyday skin and hair conditions are the Meta channels' rule. On a
+    // call the BAA covers, "Acne Facial" is a service like any other: were its
+    // name dropped, the booking would carry no treatment and the clinic
+    // default of 100 dollars.
+    const acneFacial: AgentService = {
+      name: "Acne Facial",
+      priceFromUsd: 150,
+      priceToUsd: 150,
+      durationMinutes: 60,
+      depositUsd: 40,
+    };
+    const c = await clinic("vd-acne", { services: [acneFacial, consult], policy });
+    const chosen = await slot(c.clinicId, "call_acne_1");
+    const booked = await post("book", c.clinicId, {
+      call_id: "call_acne_1",
+      first_name: "Riya",
+      at: chosen.at,
+      service: "Acne Facial",
+    });
+    expect(booked.status).toBe(200);
+    expect(await booked.json()).toMatchObject({
+      booked: true,
+      deposit_line: expect.stringMatching(/^A deposit of 40 dollars/),
+    });
+    const stored = await inTenant(c.clinicId, async (client) => ({
+      requests: (
+        await client.query<{ treatment: string | null }>(`select treatment from booking_requests`)
+      ).rows,
+      appointments: (
+        await client.query<{ treatment: string | null; deposit_usd: string | null }>(
+          `select treatment, deposit_usd from appointments`,
+        )
+      ).rows,
+      services: (
+        await client.query<{ services: AgentService[] }>(`select services from agent_configs`)
+      ).rows[0]!.services.map((s) => s.name),
+    }));
+    expect(stored).toEqual({
+      requests: [{ treatment: "Acne Facial" }],
+      appointments: [{ treatment: "Acne Facial", deposit_usd: "40.00" }],
+      services: ["Acne Facial", "Consultation"],
+    });
+  });
+
   test("Off: books nothing; the request goes to the desk with the alert, and a retry gets the same answer", async () => {
     const c = await clinic("vd-off", { bookVoiceWithoutDeposit: false, policy });
     const context = await (await post("context", c.clinicId, { call_id: "call_off_ctx" })).json();

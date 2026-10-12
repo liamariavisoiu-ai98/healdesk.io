@@ -1,3 +1,4 @@
+import { GOOGLE_CALENDAR_PROVIDER } from "@healdesk/connectors";
 import { sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
@@ -23,6 +24,10 @@ import { JOB_CONNECTION_HEALTH, runJob } from "./jobs";
  * One digest email to ops per run when anything is wrong, never one message
  * per condition per clinic; and a security event per run so the console can
  * show the last finding without reading mail.
+ *
+ * Google Calendar connections are left out. They never sync, so every one
+ * would read as stale, and their health is the calendar watch's, which
+ * alerts the clinic and ops once per breakage (plan §9.3).
  */
 export type HealthFinding = {
   clinicId: string;
@@ -48,6 +53,7 @@ export async function findUnhealthyConnections(now: Date = new Date()): Promise<
 
   const findings: HealthFinding[] = [];
   for (const row of rows) {
+    if (row.provider === GOOGLE_CALENDAR_PROVIDER) continue;
     const base = { clinicId: row.clinic_id, connectionId: row.connection_id, provider: row.provider };
     if (row.status === "revoked" || row.status === "error") {
       findings.push({ ...base, condition: "revoked", detail: `status ${row.status}` });

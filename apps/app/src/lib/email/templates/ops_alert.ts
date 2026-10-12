@@ -299,7 +299,7 @@ const WORDING: Record<OpsEvent, Wording> = {
   agreement_refund_due: {
     title: "A terminated practice is owed a refund",
     action:
-      "The practice ended its agreement for a reason the agreement refunds: the fees it paid for any time after the termination day. On the clinic's Billing page, preview the termination refund, check it, and confirm it. The subscription is already being cancelled.",
+      "The practice ended its agreement for a reason the agreement refunds: the fees it paid for any time after the termination day. On the clinic's Billing page, preview the termination refund, check it, and confirm it. Confirm it before the practice's data is destroyed (at the earliest 29 days after the termination): destruction removes the billing records the console refunds from, and after it the refund has to be made by hand in the Stripe Dashboard. The subscription is already being cancelled.",
   },
 };
 

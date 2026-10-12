@@ -51,6 +51,15 @@ describe("the ops alert's wording", () => {
     expect(subjects.size).toBe(OPS_EVENTS.length);
   });
 
+  test("the termination refund alert says to confirm it before destruction, or settle it in Stripe after", () => {
+    const rendered = renderOpsAlert(
+      { event: "agreement_refund_due", clinicId: "0c1d2e3f-0000-4000-8000-000000000000" },
+      CTX,
+    );
+    expect(rendered.text).toMatch(/Confirm it before the practice's data is destroyed/);
+    expect(rendered.text).toMatch(/by hand in the Stripe Dashboard/);
+  });
+
   test("the Stripe build's events are on the list", () => {
     for (const event of [
       "billing_request_dead_lettered",

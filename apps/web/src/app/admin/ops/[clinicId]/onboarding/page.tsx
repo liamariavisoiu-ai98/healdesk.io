@@ -7,6 +7,7 @@ import {
   approveAgentConfig as approveUpstream,
   attachMetaChannel as metaChannelUpstream,
   setMetaFrontDoor as metaSwitchUpstream,
+  setMetaPlatform as metaPlatformUpstream,
   completeOnboardingStep as completeUpstream,
   disconnectCalendar as disconnectCalendarUpstream,
   fetchOnboarding,
@@ -120,6 +121,12 @@ export default async function OnboardingPage({
     revalidatePath(path);
     return result;
   }
+  async function setMetaPlatform(platform: MetaPlatform, enabled: boolean) {
+    "use server";
+    const result = await metaPlatformUpstream(clinicId, platform, enabled);
+    revalidatePath(path);
+    return result;
+  }
   // Booking hand-off (design of 23 September 2026).
   async function saveRequirements(fields: string[]) {
     "use server";
@@ -171,7 +178,7 @@ export default async function OnboardingPage({
     <OnboardingPanel
       view={view}
       actions={{
-        completeStep, reopenStep, savePhone, saveAgent, approveAgent, goLive, startForwardingTest, attachMeta, setMeta,
+        completeStep, reopenStep, savePhone, saveAgent, approveAgent, goLive, startForwardingTest, attachMeta, setMeta, setMetaPlatform,
         saveRequirements, resendSetupLink, confirmTimezone, retryCalendarWrite, setAutoConfirm, sendCalendarLink,
         disconnectCalendar,
       }}

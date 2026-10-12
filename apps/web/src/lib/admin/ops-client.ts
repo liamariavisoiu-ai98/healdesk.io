@@ -198,6 +198,7 @@ type OperatorOp =
   | "recordClinicTouch"
   | "attachMetaChannel"
   | "setMetaFrontDoor"
+  | "setMetaPlatform"
   | "setBookingRequirements"
   | "setClinicTimezone"
   | "setConnectionPhiBasis"
@@ -1900,6 +1901,12 @@ export type OnboardingView = {
   stripeConnect: { accountId: string | null; connectedAt: string | null; authorizeUrl: string | null };
   meta: {
     enabled: boolean;
+    /**
+     * The clinic's own Instagram, Messenger and WhatsApp switches (Settings),
+     * beneath the front door: both must be on for a message to be answered.
+     * Null from an apps/app that predates them.
+     */
+    platforms: Record<MetaPlatform, boolean> | null;
     channels: { platform: MetaPlatform; externalId: string; label: string | null; status: string }[];
     /** Booking requests handed to the desk in the last 30 days. Counts only; the requests live behind the desk's link. */
     bookingRequests: { waiting: number; accepted: number; confirmed: number; declined: number };
@@ -2080,8 +2087,20 @@ function readOnboardingView(value: unknown): OnboardingView {
       const m = object(data.meta ?? {}, "getOnboarding.meta");
       const br = object(m.bookingRequests ?? {}, "meta.bookingRequests");
       const count = (v: unknown): number => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : 0);
+      const platforms =
+        m.platforms === undefined || m.platforms === null
+          ? null
+          : (() => {
+              const p = object(m.platforms, "meta.platforms");
+              return {
+                instagram: bool(p.instagram, "meta.platforms.instagram"),
+                messenger: bool(p.messenger, "meta.platforms.messenger"),
+                whatsapp: bool(p.whatsapp, "meta.platforms.whatsapp"),
+              };
+            })();
       return {
         enabled: m.enabled === true,
+        platforms,
         bookingRequests: { waiting: count(br.waiting), accepted: count(br.accepted), confirmed: count(br.confirmed), declined: count(br.declined) },
         channels: list(m.channels ?? [], "meta.channels").map((entry) => {
           const ch = object(entry, "meta.channel");
@@ -3563,6 +3582,11 @@ export function attachMetaChannel(
 
 export function setMetaFrontDoor(clinicId: string, enabled: boolean) {
   return careWrite("setMetaFrontDoor", { clinicId, enabled });
+}
+
+/** One of the clinic's own platform switches, beneath the front door. */
+export function setMetaPlatform(clinicId: string, platform: MetaPlatform, enabled: boolean) {
+  return careWrite("setMetaPlatform", { clinicId, platform, enabled });
 }
 
 

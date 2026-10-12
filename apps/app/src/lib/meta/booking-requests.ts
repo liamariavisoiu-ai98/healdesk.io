@@ -35,6 +35,7 @@ import { getTransport, type EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { META_WINDOW_MS, sendMetaReply, type MetaChannelOwner, type MetaSender } from "./channels";
+import { isTimeWindow } from "./time-window";
 import type { MetaPlatform } from "./front-door";
 
 /**
@@ -129,6 +130,12 @@ export const EMPTY_BOOKING_FIELDS: BookingFields = { firstName: null, phone: nul
 const META_SCREEN = { conditions: true } as const;
 
 /**
+ * A Meta window's screen: META_SCREEN, and the closed time grammar
+ * (lib/meta/time-window.ts), so a window keeps nothing but a time.
+ */
+const META_WINDOW = { ...META_SCREEN, timeGrammar: true } as const;
+
+/**
  * What the model extracted, made safe to keep.
  *
  * A first name is letters only and short; a phone must normalise to E.164
@@ -149,8 +156,8 @@ export function cleanBookingFields(
   const phoneRaw = cleanText(raw?.phone, 32);
   const phone = phoneRaw ? (toE164(phoneRaw) ?? null) : null;
   const window = cleanText(raw?.window, 120);
-  const preferredWindow = window && windowIsClean(window, META_SCREEN) ? window : null;
-  const alternativeWindows = cleanAlternatives(raw?.alternatives ?? raw?.alt_windows, preferredWindow ? [preferredWindow] : [], META_SCREEN);
+  const preferredWindow = window && windowIsClean(window, META_WINDOW) ? window : null;
+  const alternativeWindows = cleanAlternatives(raw?.alternatives ?? raw?.alt_windows, preferredWindow ? [preferredWindow] : [], META_WINDOW);
   return { firstName, phone, preferredWindow, alternativeWindows };
 }
 
@@ -159,7 +166,7 @@ function cleanText(v: unknown, max: number): string | null {
 }
 
 /** Cleaned, deduplicated against `taken` and each other, capped at two. `options` as windowIsClean's. */
-export function cleanAlternatives(raw: unknown, taken: readonly string[], options: { conditions?: boolean } = {}): string[] {
+export function cleanAlternatives(raw: unknown, taken: readonly string[], options: WindowScreen = {}): string[] {
   if (!Array.isArray(raw)) return [];
   const seen = new Set(taken.map(normaliseWindow));
   const out: string[] = [];
@@ -179,17 +186,23 @@ function normaliseWindow(w: string): string {
   return w.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
 
+/** How a window is screened: Meta's conditions, and Meta's closed time grammar. */
+export type WindowScreen = { conditions?: boolean; timeGrammar?: boolean };
+
 /**
  * A preferred window is a day or a time, not a reason. True when nothing clinical slipped in.
  *
  * `conditions` is a Meta request's rule (META_SCREEN): the catalog's
  * everyday skin and hair conditions are refused as well, because Meta signs
- * no BAA and its channels carry nothing clinical. A voice request's
- * alternatives, which come from a call the BAA covers, are screened without
- * them.
+ * no BAA and its channels carry nothing clinical. `timeGrammar` is Meta's
+ * too (META_WINDOW, BAA 1.3.0 clause 11): the window must fit the closed time
+ * grammar (isTimeWindow), every word of it a word for a time, because no list
+ * of refused words is ever complete. A voice request's alternatives, which
+ * come from a call the BAA covers, are screened without either.
  */
-export function windowIsClean(window: string, options: { conditions?: boolean } = {}): boolean {
-  return findClinicalContent({ window }, options).length === 0 && !WINDOW_REFUSED.test(window) && !/\d{7,}/.test(window);
+export function windowIsClean(window: string, options: WindowScreen = {}): boolean {
+  if (options.timeGrammar && !isTimeWindow(window)) return false;
+  return findClinicalContent({ window }, { conditions: options.conditions }).length === 0 && !WINDOW_REFUSED.test(window) && !/\d{7,}/.test(window);
 }
 
 /**
@@ -246,13 +259,16 @@ export async function readMetaDraft(tx: TenantTx, thread: BookingThread): Promis
 /** Merge what this message added into the thread's draft and return the whole. */
 export async function mergeDraft(tx: TenantTx, thread: BookingThread, fields: BookingFields): Promise<BookingFields> {
   const existing = await readMetaDraft(tx, thread);
-  const preferredWindow = fields.preferredWindow ?? existing?.preferredWindow ?? null;
+  // A draft's window is screened again, so one kept before the closed time
+  // grammar (a draft lives a day) is dropped and asked for, never sent on.
+  const kept = existing?.preferredWindow ?? null;
+  const preferredWindow = fields.preferredWindow ?? (kept && windowIsClean(kept, META_WINDOW) ? kept : null);
   const merged: BookingFields = {
     firstName: fields.firstName ?? existing?.firstName ?? null,
     phone: fields.phone ?? existing?.phone ?? null,
     preferredWindow,
     // Existing first, then this message's, deduplicated against the primary and capped.
-    alternativeWindows: cleanAlternatives([...(existing?.alternativeWindows ?? []), ...fields.alternativeWindows], preferredWindow ? [preferredWindow] : [], META_SCREEN),
+    alternativeWindows: cleanAlternatives([...(existing?.alternativeWindows ?? []), ...fields.alternativeWindows], preferredWindow ? [preferredWindow] : [], META_WINDOW),
   };
   await tx.db
     .insert(metaBookingDrafts)
@@ -384,7 +400,7 @@ export async function createBookingRequest(tx: TenantTx, input: CreateBookingReq
   }
   const alternativeWindows =
     input.channel === "meta"
-      ? cleanAlternatives(input.fields.alternativeWindows, [input.fields.preferredWindow], META_SCREEN)
+      ? cleanAlternatives(input.fields.alternativeWindows, [input.fields.preferredWindow], META_WINDOW)
       : cleanAlternatives(input.alternativeWindows ?? [], [input.preferredWindow]);
 
   const raw = randomBytes(TOKEN_BYTES);

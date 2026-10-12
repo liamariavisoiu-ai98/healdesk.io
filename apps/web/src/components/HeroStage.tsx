@@ -94,7 +94,7 @@ function useReveal(
   copy: React.RefObject<HTMLElement | null>,
 ): { reveal: Reveal; seen: boolean } {
   const [reveal, setReveal] = useState<Reveal>("hidden");
-  /** The copy has come up at least once this visit: the cue has done its job. */
+  /** The copy has come up at least once this visit: the cue no longer waits for the entrance. */
   const [seen, setSeen] = useState(false);
 
   useEffect(() => {
@@ -226,10 +226,11 @@ export function HeroStage() {
         <HeroPortrait autoplay={reveal === "hidden"} />
       </div>
 
-      {/* Says what moving the cursor down does, until it has done it. Not for
-          a screen reader (the copy is in the page throughout) and not for a
-          touch screen (CSS shows it only with a pointer that hovers). */}
-      <span aria-hidden className="hero__cue" data-show={(reveal === "hidden" && !seen) || undefined}>
+      {/* Says what moving the cursor down does, whenever the copy is down:
+          after the first time it comes back sooner than the entrance has it.
+          Not for a screen reader (the copy is in the page throughout) and not
+          for a touch screen (CSS shows it only with a pointer that hovers). */}
+      <span aria-hidden className="hero__cue" data-show={reveal === "hidden" || undefined} data-again={seen || undefined}>
         {/* Two strokes from the tip, so it draws outwards from its point. */}
         <svg viewBox="0 0 36 20" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
           <path d="M18 16 4 4" pathLength={1} />
@@ -237,7 +238,7 @@ export function HeroStage() {
         </svg>
       </span>
 
-      {/* The white the copy sits on, rising from the bottom with it: over
+      {/* The white the copy sits on, rising and fading in with it: over
           the photo, under the logos and the copy. */}
       <div aria-hidden className="hero__veil" />
     </section>

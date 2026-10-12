@@ -1139,12 +1139,11 @@
    would leave the hero a tenth short. `--nav-h` is the navbar's height in the
    zoomed page, measured; change it with the navbar.
 
-   The photo is composed as the owner supplied it, never cropped, so neither
-   her face nor a logo is ever what is lost. Since 12 October 2026 it is no
-   wider than keeps every logo inside the content column, centred, with the
-   copy under it rather than over her ("Inside the column, from 1280px"),
-   its sides and its foot fading into the page. The copy sits at the bottom
-   left, on the veil.
+   The photo is the hero's background, composed as the owner supplied it:
+   as wide as the hero, never shifted, cut at the bottom on a screen wider
+   than it is and fading into the page on one taller, so neither her face nor
+   a logo is ever what is lost. The copy sits at the bottom left, on the
+   veil.
 
    Between 1024px and 1280px the copy's box would reach the logos on her left,
    so the hero keeps the stacked layout below.
@@ -1159,8 +1158,8 @@
 
    On a desktop with a mouse the hero opens on the photo and the logos alone.
    The white veil, solid behind the copy and very soft by the time it reaches
-   her face, rises from the bottom with the copy on it when the cursor comes
-   into the bottom third of the hero, and slides away when it leaves, while
+   her face, rises a little and fades in with the copy on it when the cursor
+   comes into the bottom third of the hero, and goes when it leaves, while
    the page is at the top. Scrolling down locks them up; back at the top they
    follow the cursor again. HeroStage holds the state in `data-reveal`
    (hidden, shown or locked); this file only draws each. Without a fine
@@ -1255,12 +1254,13 @@
     overflow: hidden;
   }
 
-  /* Never a cover crop: a logo sits as near as 3.7% of the photo to its
-     edge, and a crop on a screen taller than the photo (1440×1000,
-     1280×1024) cut the outer ones off. Its width and its place are set in
-     "Inside the column, from 1280px" below. No transform: it would make the
-     photo its own stacking context, and the logos inside it could not then
-     rise above the veil. */
+  /* Always the hero's full width, never wider: a logo sits as near as 3.7%
+     of the photo to its edge, and a cover crop on a screen taller than the
+     photo (1440×1000, 1280×1024) cut the outer ones off. On a wider screen
+     the photo runs past the hero's foot, where the veil and the copy are; on
+     a taller one it ends above it and fades into the page. No transform: it
+     would make the photo its own stacking context, and the logos inside it
+     could not then rise above the veil. */
   .hero__frame .portrait {
     position: absolute;
     top: 0;
@@ -1268,11 +1268,32 @@
     width: 100%;
   }
 
-  .hero__frame .portrait__photo {
-    -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent);
-    mask-image: linear-gradient(to bottom, #000 82%, transparent);
+  /* The photo's foot fades into the page along an eased curve (a
+     smoothstep from 74%), not a straight ramp, which ended in a visible band
+     across the hero. */
+  .hero__frame {
+    --hero-foot: linear-gradient(
+      to bottom,
+      #000 74%,
+      rgb(0 0 0 / 0.96) 77.25%,
+      rgb(0 0 0 / 0.84) 80.5%,
+      rgb(0 0 0 / 0.68) 83.75%,
+      rgb(0 0 0 / 0.5) 87%,
+      rgb(0 0 0 / 0.32) 90.25%,
+      rgb(0 0 0 / 0.16) 93.5%,
+      rgb(0 0 0 / 0.04) 96.75%,
+      transparent
+    );
   }
 
+  .hero__frame .portrait__photo {
+    -webkit-mask-image: var(--hero-foot);
+    mask-image: var(--hero-foot);
+  }
+
+  /* The white the copy sits on: solid only under the buttons, then thinning
+     along a long eased curve, so it reads as light rather than a sheet. It
+     rises a little and fades in at once (see "Following the cursor"). */
   .hero__veil {
     display: block;
     position: absolute;
@@ -1282,15 +1303,21 @@
     background: linear-gradient(
       to top,
       var(--color-paper) 0%,
-      var(--color-paper) 22%,
-      rgb(253 253 253 / 0.92) 29%,
-      rgb(253 253 253 / 0.76) 35%,
-      rgb(253 253 253 / 0.5) 42%,
-      rgb(253 253 253 / 0.24) 49%,
-      rgb(253 253 253 / 0.07) 55%,
-      transparent 60%
+      var(--color-paper) 14%,
+      rgb(253 253 253 / 0.97) 20%,
+      rgb(253 253 253 / 0.9) 26%,
+      rgb(253 253 253 / 0.79) 32%,
+      rgb(253 253 253 / 0.65) 38%,
+      rgb(253 253 253 / 0.5) 44%,
+      rgb(253 253 253 / 0.35) 50%,
+      rgb(253 253 253 / 0.21) 56%,
+      rgb(253 253 253 / 0.1) 62%,
+      rgb(253 253 253 / 0.03) 68%,
+      transparent 74%
     );
-    transition: transform var(--duration-slower) var(--ease-out);
+    transition:
+      opacity var(--duration-slower) var(--ease-standard),
+      transform var(--duration-slower) var(--ease-out);
   }
 
   .hero__copy {
@@ -1308,7 +1335,7 @@
 
 /* The cue: the copy is down until the cursor comes to the bottom third, and
    nothing else on the hero says so. An arrowhead at the foot, pointing down,
-   until the first time it comes up. */
+   whenever the copy is down. */
 .hero__cue {
   display: none;
 }
@@ -1316,7 +1343,8 @@
 /* Following the cursor: only where there is one that hovers. */
 @media (min-width: 1280px) and (hover: hover) and (pointer: fine) {
   .hero[data-reveal="hidden"] .hero__veil {
-    transform: translateY(100%);
+    opacity: 0;
+    transform: translateY(24%);
   }
 
   /*
@@ -1392,7 +1420,15 @@
     pointer-events: none;
     translate: -50% 0;
     opacity: 0;
-    transition: opacity var(--duration-slow) var(--ease-standard);
+    /* Going, as the copy comes up: at once. */
+    transition: opacity var(--duration-base) var(--ease-standard);
+    /* When it draws in: the entrance's last beat the first time; after
+       that, once the copy has had time to go back down. */
+    --cue-at: var(--entrance-cue);
+  }
+
+  .hero__cue[data-again] {
+    --cue-at: 520ms;
   }
 
   .hero__cue svg {
@@ -1411,17 +1447,20 @@
   /* The last beat of the entrance (see "The entrance" above): once the logos
      have fanned out the arrowhead draws outwards from its point, then jumps,
      slowly: down, a small settle, back up, and a long rest at the top. It
-     stays until the copy first comes up, then fades. */
+     goes whenever the copy comes up, and whenever the copy goes back down it
+     comes back (owner, 12 October 2026), slowly: a beat later it fades in as
+     it draws again, and only then starts jumping. */
   .hero__cue[data-show] {
     opacity: 1;
+    transition: opacity var(--duration-slower) var(--ease-standard) var(--cue-at);
   }
 
   .hero__cue[data-show] path {
-    animation: hero-cue-draw var(--duration-slower) var(--ease-out) var(--entrance-cue) both;
+    animation: hero-cue-draw var(--duration-slower) var(--ease-out) var(--cue-at) both;
   }
 
   .hero__cue[data-show] svg {
-    animation: hero-cue-jump 2.6s var(--ease-in-out) calc(var(--entrance-cue) + 900ms) infinite;
+    animation: hero-cue-jump 2.6s var(--ease-in-out) calc(var(--cue-at) + 900ms) infinite;
   }
 }
 
@@ -1800,58 +1839,21 @@
   }
 }
 
-/* --- Inside the column, from 1280px ---------------------------------------
-   The owner's, 12 October 2026, after trying it as `?orbits=contained`. On a
-   screen wider than the 1240px column the logos ran out to the screen's
-   edges while the navbar and the copy stayed inside it. Now the photo, and
-   the orbits on it, is no wider than keeps every logo and chip inside the
-   column, centred, its sides fading into the page, and no taller than leaves
-   room under it for the copy on one screen: the hero is the photo and the
-   copy, at most the screen, and the copy sits under her rather than over her.
-   Drawing the orbits in towards her instead put the logos on her face: they
-   are placed against the photo (integrations.test.ts), so the photo comes
-   with them.
-
-   It is all here, so it is right on the first paint (the preview measured it
-   after the page's script ran, and the hero jumped):
-   - 1166px is the widest photo whose outermost logo and chip stay inside
-     the column's 1128px, its 1240 less 56px of padding a side, as measured;
-   - `--copy-h` is the copy's box under it, the announcement, two lines of
-     headline and the buttons: 354 to 365px from 1280 to 2560px wide. It
-     comes up over the photo's last 18%, the foot that fades into the page,
-     where no logo on her left is: on a laptop's short screen that is a fifth
-     more photo, and the chips, which do not shrink with it, stay clear of
-     the logos;
-   - 640px is the least it narrows to, on a screen too short for both.
-
+/* --- The drift, from 1280px -----------------------------------------------
    Each layer drifts after the cursor by its own few pixels, and the photo a
    little the other way (`--mx`, `--my`, from -1 to 1, set by HeroPortrait),
-   so the hero has depth rather than pop-ups. Centred by `left`, not a
-   transform: a transform on .portrait would trap the logos under the veil
-   (see "Laid out, from 1280px"). */
-@media (min-width: 1280px) {
-  .hero {
-    --copy-h: 365px;
-    --portrait-w: clamp(640px, (var(--hero-h) - var(--copy-h)) * 1672 / 941 / 0.82, 1166px);
-    min-height: min(var(--hero-h), var(--portrait-w) * 941 / 1672 * 0.82 + var(--copy-h));
-  }
+   so the hero has depth rather than pop-ups. The photo is a hundredth larger
+   than its box, so its drift never shows the page at the screen's edge.
 
+   From 12 October 2026 the photo and its orbits sat inside the content
+   column for an afternoon, centred, with its sides and its foot fading into
+   the page. Its grey wall ended in a soft box there, and the owner took the
+   photo back to the full screen the same day: the logos are placed against
+   the photo (integrations.test.ts), so they come with it. */
+@media (min-width: 1280px) {
   .hero__frame .portrait {
     --mx: 0;
     --my: 0;
-    left: calc((100% - var(--portrait-w)) / 2);
-    width: var(--portrait-w);
-  }
-
-  .hero__frame .portrait__photo {
-    -webkit-mask-image:
-      linear-gradient(to bottom, #000 82%, transparent),
-      linear-gradient(to right, transparent, #000 7%, #000 93%, transparent);
-    -webkit-mask-composite: source-in;
-    mask-image:
-      linear-gradient(to bottom, #000 82%, transparent),
-      linear-gradient(to right, transparent, #000 7%, #000 93%, transparent);
-    mask-composite: intersect;
   }
 
   .portrait__logos,
@@ -1885,6 +1887,7 @@
   }
 
   .portrait__photo {
+    scale: 1.01;
     translate: calc(var(--mx) * -4px) calc(var(--my) * -3px);
   }
 

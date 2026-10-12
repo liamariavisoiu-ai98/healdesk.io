@@ -34,7 +34,7 @@ the code on 7 October 2026. The plan's commit names, C0 to C20, are kept.
 | C14     | The harness wired to the engine, and the fixed lines                                               | To build                                       |
 | C15     | Provisioning reads the signed acceptance                                                           | Built                                          |
 | C17     | The console's cards; `setBookingMode` and `directBookingAllowed` removed                           | To build                                       |
-| C18     | Elections and account changes from the portal                                                      | To build; `requirePortal` is on main           |
+| C18     | Elections and account changes from the portal (§2)                                                 | Built                                          |
 | C19     | Release 1.3.0 and `calendar-election/1.0.0`                                                        | When Claude's own audit finds no blocker       |
 | C20     | Empty `BAA_RELEASE_OVERLAP`                                                                        | Once C19 is deployed                           |
 
@@ -81,7 +81,7 @@ app.healdesk.io; apps/web never does.
   redirect; and, so that nobody is sent to Google for a grant that could not be stored, an
   unconfigured Google client, a deployment that cannot seal (`credentialSealingProblem()`, §5) or a
   missing public origin. It also refuses a location whose terms do not allow writing: `none` and
-  `not_used` end `terms`, and `needs_election` needs an election first (C18 in the portal). The
+  `not_used` end `terms`, and `needs_election` needs an election first (`recordPortalElection`). The
   callback returns to `returnTo` with `?calendar=<outcome>`: `connected`, `declined`,
   `admin_blocked`, `failed`, `scopes`, `no_refresh`, `probe`, `mismatch`, `different_account`,
   `election_needed`, `account_in_use`, `already_connected`, `terms`, `disclosure` or
@@ -104,8 +104,64 @@ app.healdesk.io; apps/web never does.
   `getCalendarConnection`, `listCalendars`, `chooseCalendar` and the provider functions take an
   optional `{ actor, request }`, as `setAutoConfirm` takes its actor; `startGoogleConnect` takes an
   optional `userId`, and without one asks `requirePortal(slug)` itself; and the OAuth state row
-  carries the user to the callback, which acts as them. Without an actor, a call is recorded as
-  the calendar service (§9, item 8).
+  carries the user to the callback, which acts as them, only in their own session (C18, below).
+  The portal's audit rows label the user as every portal change does (`portalActor`: the device
+  whose passkey is live on the session, or the clinic's sign-in). Without an actor, a call is
+  recorded as the calendar service (§9, item 8).
+- **The start route's portal form (C18).** `POST /api/calendar/google/start` also takes the
+  portal's own form: `clinic` (the slug), `from` (`setup` or `settings`), `disclosure=accepted` and
+  `disclosureVersion`. It is `startGoogleConnect` behind the same checks (`beginPortalSignIn`), for
+  a page that posts a plain form rather than calling a server action, and asks no step-up. With no
+  session it answers a 303 to `/sign-in?next=/c/<slug>/<from>`, the same for any slug; a session
+  without a grant on the clinic gets `requirePortal`'s 404. A refusal goes back to the page with
+  `?calendar=` from `connectOutcomeOf(code)`: `disclosure`, `terms`, `unavailable`,
+  `election_needed`, or `failed` for a page or sign-in that is not the clinic's. Both of the
+  route's forms pass when `Origin` is the public origin, or is `null` or absent with
+  `Sec-Fetch-Site: same-origin`: apps/app serves every page with `Referrer-Policy: no-referrer`,
+  under which Chrome and Firefox post a form with `Origin: null`.
+- **The callback is the starting user's (C18).** A sign-in the portal started completes only in
+  the session of the user its state row names, still holding a grant on the clinic, checked before
+  the code is exchanged. Another member's session, another clinic's, or none spends the state, asks
+  Google nothing, is recorded (`calendar_connect_refused`, reason `not_its_session`, as the
+  callback's own service, with a security event naming the state's user) and goes back to
+  `/c/<slug>/<page>?calendar=failed`, whose own `requirePortal` signs the browser in or answers
+  with a 404. A user whose membership ends during the round trip completes nothing (`failed`), and
+  the unused grant is revoked.
+- **Changing the Google account (C18)** is the owner's, with a passkey step-up live on the session
+  that comes back from Google (the portal plan's "step-up to change"). Only the callback knows
+  which account came back, and Reconnect reaches it through Google's account chooser, so the rule
+  is kept there: without a step-up another account ends `different_account`, and the page asks for
+  the passkey. A first connect and a reconnect of the same account need none. An account of
+  another kind or Workspace domain needs the owner's election first (`election_needed`); once it is
+  recorded, the same sign-in goes through.
+- **Elections from Settings → Calendar (C18)**, in `lib/booking/elections.ts`, are the owner's,
+  narrowing ones included. Each takes the portal user as its actor (`requirePortal` and
+  `portalActor`):
+  - `getCalendarTerms(clinicId, { actor?, request? })`: the terms in effect (`none`;
+    `needs_election` with its reason; or the kind, with the booking system and the kind of Google
+    account the card pre-fills, the source and when) and whether an election can be recorded now
+    (`ready`, or `unavailable` with `no_agreement` or `draft_terms`). It reads only.
+  - `previewCalendarElection(clinicId, answers, options)`, with the card's two answers
+    `{ bookingSystem, calendarAccount }` and `{ actor?, request?, now? }`: `ready` with the kind,
+    the previous kind, whether it widens, whether it takes the connected calendar away, the
+    document with the signature still to come, and its fingerprint (`documentVersion`,
+    `documentHash`); otherwise `invalid` (field and message) or `unavailable`. It reads only.
+  - `recordPortalElection(clinicId, submission, { actor, request?, now? })`, the submission being
+    the two answers, the preview's `documentVersion` and `documentHash`, `name`, `title?` and
+    `accepted`, records with source `portal` and `elected_by_user_id` set, the owner's acceptance
+    being the confirmation a widening election needs (the database's guard checks the `owner`
+    membership again). The fingerprint is
+    the preview's: if the document no longer renders the same (the agreement, the location's name
+    or the form changed), or none is sent, the answer is `changed` and the card previews again.
+    Its other answers are `recorded` (the kind, whether it widened, whether the connection was
+    taken away), `owner_only`, `not_member`, `invalid` and `unavailable`. After commit it revokes
+    an erased grant unless another location uses the account, and mails the practice its copy. A
+    change of the kind of account alone is this call with the same booking system, and it is how
+    the owner answers `?calendar=election_needed`.
+  - The form is the agreement's own (`calendarElectionFor`): the DPA's `calendar-election-dpa/…`
+    for a `dpa/…` agreement. It counts once released, or on a demo clinic, so until the DPA's form
+    is released a DPA practice records no election and no calendar link offers or mails it one,
+    whatever the BAA's form says.
 - **`listCalendars(clinicId)`** (C8): the calendars on which the connected account has Google's
   owner role, which a calendar shared in from another account or domain can have too (§4), hidden
   ones left out, primary first; 100 or more is refused (`too_many_calendars`) rather than shown
@@ -585,7 +641,7 @@ stood on 6 and 7 October. Each is to be settled with the other session before th
    this plan adds `auto_confirm_bookings`, with who changed it and when, in migration A. Which
    migration adds it is to be agreed. Here, neither answer decides a location's calendar terms,
    which come only from the signed acceptance and the location's elections; changing either answer
-   in Settings records an election (C18).
+   in Settings records an election (`recordPortalElection`, §2).
 2. **A changed agreement (C6 and C7, with the funnel).** The funnel's `0051_agreement_kinds`, still
    on its branch, adds DPA acceptances, which carry the same calendar clause ids, and
    `app_supersede_agreement()`, which replaces a clinic's agreement with a later one. The plan
@@ -614,9 +670,10 @@ stood on 6 and 7 October. Each is to be settled with the other session before th
 7. **A covered clinic's picker (C8, with the funnel).** Settled (§4): a covered location's calendar
    list is asked for its own organisation's calendars only, so the picker and setup step 3.2 offer
    nothing else.
-8. **Who acted (C8, with the funnel).** C8's functions take an optional `{ actor, request }`, and
-   `startGoogleConnect` an optional `userId` (without one it asks `requirePortal`); the state row
-   carries the user to the callback, which acts as them. The funnel is to pass its portal user.
+8. **Who acted (C8, with the funnel).** Settled in C18. C8's functions take an optional
+   `{ actor, request }`, and `startGoogleConnect` an optional `userId` (without one it asks
+   `requirePortal`); the state row carries the user to the callback, which acts as them only in
+   that user's own session, labelled by `portalActor` (§2). The funnel passes its portal user.
 9. **Google's 100-user cap (C8, with the funnel).** The funnel's /admin is to show the count from
    the calendar backend. No planned commit records it, and destroying a clinic's data deletes the
    connection rows it could be counted from.

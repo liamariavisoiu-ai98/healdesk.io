@@ -15,8 +15,8 @@ import {
   type HeroLogo,
   type LogoGroup,
   type Orbit,
-  type ShowcaseLine,
 } from "@/lib/integrations";
+import { HeroScene } from "@/components/HeroScenes";
 import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
 
 /**
@@ -147,10 +147,14 @@ const LOGO_PX = 0.05 * PHOTO.width;
 const ORBIT_TIME: Record<LogoGroup, number> = { messages: 12, bookings: 16, synced: 16, payments: 20 };
 /** How far each way along its orbit a logo drifts, in degrees. */
 const DRIFT_DEGREES = 3;
-/** How long each card shows while a chip plays its group's in turn. */
-const CARD_MS = 1600;
+/**
+ * How long each card shows while a chip plays its group's in turn: long
+ * enough for its scene (HeroScenes.tsx) to play through, about two seconds,
+ * and be read. They were 1.6s and 2.6s while a card was two lines of text.
+ */
+const CARD_MS = 3200;
 /** Between the cards the hero plays on its own, once the logos have fanned out. */
-const AUTOPLAY_MS = 2600;
+const AUTOPLAY_MS = 3600;
 const FIRST_CARD_MS = 2400;
 /** How long after a visitor lets go of a logo or a chip the cards stay theirs. */
 const RESUME_MS = 4000;
@@ -194,32 +198,6 @@ function arcPath(orbit: Orbit) {
   return { from, to, d: `M ${from.x.toFixed(1)} ${from.y.toFixed(1)} A ${orbit.r} ${orbit.r} 0 ${large} ${sweep} ${to.x.toFixed(1)} ${to.y.toFixed(1)}` };
 }
 
-function Mark({ mark }: { mark: ShowcaseLine["mark"] }) {
-  if (mark === "received") {
-    return (
-      <svg viewBox="0 0 16 12" className="portrait__tick portrait__tick--grey" aria-hidden>
-        <path d="M2 6.4l3.3 3.3L13.6 2" />
-      </svg>
-    );
-  }
-  if (mark === "replied") {
-    return (
-      <svg viewBox="0 0 20 12" className="portrait__tick portrait__tick--blue" aria-hidden>
-        <path d="M1.5 6.4l3.3 3.3L13 1.6M8.6 9.4l.3.3L17.2 1.6" />
-      </svg>
-    );
-  }
-  if (mark === "paid") {
-    return (
-      <svg viewBox="0 0 20 20" className="portrait__tick portrait__tick--paid" aria-hidden>
-        <circle cx="10" cy="10" r="8.5" />
-        <path d="M6 10.4l2.6 2.6L14.2 7.4" />
-      </svg>
-    );
-  }
-  return null;
-}
-
 const capital = (name: string) => name.charAt(0).toUpperCase() + name.slice(1);
 
 export function HeroPortrait({ autoplay = false }: { autoplay?: boolean }) {
@@ -235,6 +213,14 @@ export function HeroPortrait({ autoplay = false }: { autoplay?: boolean }) {
   /** The card the hero is playing on its own. */
   const [auto, setAuto] = useState<string | null>(null);
   const busy = useRef(false);
+  /**
+   * Whether the logo pressed was already showing its card when the press
+   * began. A tap focuses the button before its click arrives, and focus opens
+   * the card, so a click that toggled on what it found would close the card
+   * the same tap had just opened: on Android nothing ever showed. Read at
+   * pointer-down, before focus moves.
+   */
+  const wasShown = useRef(false);
   const holdUntil = useRef(0);
 
   useEffect(() => {
@@ -363,7 +349,19 @@ export function HeroPortrait({ autoplay = false }: { autoplay?: boolean }) {
             const orbit = ORBITS.find((o) => o.group === logo.group)!;
             const isShown = shown === logo.name;
             return (
-              <li key={logo.name} className="portrait__node" data-group={logo.group} data-shown={isShown || undefined} style={motion(logo, orbit, i)}>
+              <li
+                key={logo.name}
+                className="portrait__node"
+                data-group={logo.group}
+                data-shown={isShown || undefined}
+                // Where its card opens: above, for the logo nearest the
+                // photo's right edge; and below 1280px, inwards for every
+                // logo on her right, where a card opening outwards would
+                // leave the screen.
+                data-card={logo.card}
+                data-side={logo.at.x > 50 ? "right" : "left"}
+                style={motion(logo, orbit, i)}
+              >
                 <span className="portrait__fan">
                   <span className="portrait__spread">
                     <span className="portrait__drift">
@@ -373,22 +371,24 @@ export function HeroPortrait({ autoplay = false }: { autoplay?: boolean }) {
                         aria-label={showcaseText(logo)}
                         onPointerEnter={(event) => hover(event, logo.name)}
                         onPointerLeave={(event) => hover(event, null)}
+                        onPointerDown={() => {
+                          wasShown.current = shown === logo.name;
+                        }}
                         onFocus={() => setShown(logo.name)}
                         onBlur={() => setShown((current) => (current === logo.name ? null : current))}
-                        onClick={() => setShown((current) => (current === logo.name ? null : logo.name))}
+                        onClick={(event) => {
+                          // A keyboard's Enter has no pointer-down: it toggles.
+                          const was = event.detail === 0 ? shown === logo.name : wasShown.current;
+                          setShown(was ? null : logo.name);
+                        }}
                       >
                         <img src={logo.src} alt="" width={192} height={192} decoding="async" draggable={false} className="portrait__logo" />
                       </button>
                     </span>
                     {/* Said by the button's own name; drawn here for the eye. */}
-                    <span className="portrait__card" aria-hidden>
+                    <span className="portrait__card" data-scene={logo.scene} aria-hidden>
                       <span className="portrait__card-name">{capital(logo.name)}</span>
-                      {logo.showcase.map((line, n) => (
-                        <span key={line.text} className="portrait__card-line" style={{ ["--n" as string]: n }}>
-                          {line.text}
-                          <Mark mark={line.mark} />
-                        </span>
-                      ))}
+                      <HeroScene logo={logo} />
                     </span>
                   </span>
                 </span>

@@ -1809,27 +1809,27 @@
   top: 50%;
   z-index: 5;
   display: grid;
-  gap: 4px;
-  padding: 9px 12px 10px;
+  width: 228px;
+  gap: 8px;
+  padding: 10px 12px 12px;
   border-radius: var(--radius-md);
-  background: rgb(255 255 255 / 0.95);
+  background: rgb(255 255 255 / 0.96);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   box-shadow: var(--shadow-md);
   color: var(--color-ink);
-  font-size: 13px;
-  line-height: 1.25;
-  white-space: nowrap;
+  font-size: 12.5px;
+  line-height: 1.3;
   opacity: 0;
   pointer-events: none;
   transform: translate(var(--card-from), -50%) scale(0.96);
   transition:
-    opacity var(--duration-fast) var(--ease-standard),
-    transform var(--duration-base) var(--ease-out);
+    opacity var(--duration-base) var(--ease-standard),
+    transform var(--duration-slow) var(--ease-out);
 }
 
-/* Always out to the right: the logos on her left open over her hair, the ones
-   on her right over the wall beyond them, and none over her face. */
+/* Out to the right: the logos on her left open over her hair, the ones on her
+   right over the wall beyond them, and none over her face. */
 .portrait__card {
   left: calc(100% + 12px);
   --card-from: -6px;
@@ -1841,6 +1841,37 @@
   transform: translate(0, -50%);
 }
 
+/* Stripe's sits too near the photo's right edge for a card beside it, so its
+   card opens above it, over the wall. */
+@media (min-width: 1280px) {
+  .portrait__node[data-card="above"] .portrait__card {
+    top: auto;
+    bottom: calc(100% + 12px);
+    left: 50%;
+    transform: translate(-50%, 6px) scale(0.96);
+    transform-origin: 50% 100%;
+  }
+
+  .portrait__node[data-card="above"][data-shown] .portrait__card {
+    transform: translate(-50%, 0);
+  }
+}
+
+/* Below 1280px the photo is the screen's width, so a card opening outwards
+   from a logo on her right would leave it: those open inwards, and smaller. */
+@media (max-width: 1279px) {
+  .portrait__card {
+    width: 196px;
+    font-size: 11.5px;
+  }
+
+  .portrait__node[data-side="right"] .portrait__card {
+    left: auto;
+    right: calc(100% + 8px);
+    --card-from: 6px;
+    transform-origin: right center;
+  }
+}
 
 .portrait__card-name {
   color: var(--color-muted);
@@ -1850,56 +1881,774 @@
   text-transform: uppercase;
 }
 
-.portrait__card-line {
+/* --- The cards' scenes (HeroScenes.tsx) ----------------------------------
+   One example per channel and per tool, each in that channel's or tool's own
+   look (owner, 12 October 2026). Every movement here is keyed to the card
+   being shown, so a scene plays from its start each time its card opens and
+   rests, unseen, when it closes. About two seconds each; the hero gives a
+   card 3.6s (HeroPortrait.tsx). Reduced motion: each simply shows its last
+   frame. */
+
+.sc {
+  display: grid;
+  gap: 7px;
+}
+
+.sc-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+}
+
+.sc-strong {
   font-weight: 600;
-  opacity: 0;
-  transform: translateY(4px);
-  transition:
-    opacity var(--duration-base) var(--ease-standard),
-    transform var(--duration-base) var(--ease-out);
 }
 
-/* One line after another: received, then replied. */
-.portrait__node[data-shown] .portrait__card-line {
-  opacity: 1;
-  transform: none;
-  transition-delay: calc(80ms + var(--n) * 420ms);
+/* Text that types itself in: a mask running left to right. */
+.sc-type {
+  min-width: 0;
 }
 
-.portrait__tick {
-  flex: none;
-  width: 16px;
-  height: 12px;
+.sc-dots {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.sc-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0.4;
+}
+
+.sc-check {
+  width: 13px;
+  height: 13px;
   fill: none;
-  stroke-width: 1.9;
+  stroke: currentColor;
+  stroke-width: 2.2;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-.portrait__tick--grey {
-  stroke: #8696a0;
+.sc-sync {
+  display: block;
+  margin-top: 1px;
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 500;
 }
 
-.portrait__tick--blue {
-  width: 19px;
-  stroke: #53bdeb;
+/* Website chat */
+.sc-web__icon {
+  display: grid;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 9999px;
+  background: var(--color-paper-2);
+  color: var(--color-muted);
 }
 
-.portrait__tick--paid {
-  width: 16px;
+.sc-web__icon--booked {
+  background: #e6f4ea;
+  color: #1e8e3e;
+}
+
+/* Instagram */
+.sc-ig {
+  gap: 6px;
+}
+
+.sc-ig__divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8e8e8e;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.sc-ig__divider::before,
+.sc-ig__divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #dbdbdb;
+}
+
+.sc-ig__divider::before {
+  transform-origin: right center;
+}
+
+.sc-ig__divider::after {
+  transform-origin: left center;
+}
+
+.sc-ig__them {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.sc-ig__avatar {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #f9ce34, #ee2a7b 55%, #6228d7);
+}
+
+.sc-ig__bubble,
+.sc-ig__me {
+  padding: 7px 11px;
+  border-radius: var(--radius-md);
+}
+
+.sc-ig__bubble {
+  background: #efefef;
+  color: #000;
+}
+
+.sc-ig__me {
+  justify-self: end;
+  background: linear-gradient(120deg, #3797f0, #8b3dff);
+  color: #fff;
+  font-weight: 600;
+  transform-origin: 100% 100%;
+}
+
+/* Messenger */
+.sc-ms {
+  gap: 4px;
+}
+
+.sc-ms__q,
+.sc-ms__a {
+  max-width: 180px;
+  padding: 7px 11px;
+  border-radius: var(--radius-md);
+}
+
+.sc-ms__q {
+  justify-self: end;
+  background: linear-gradient(135deg, #0099ff, #a033ff 60%, #ff5280);
+  color: #fff;
+}
+
+.sc-ms__seen {
+  display: flex;
+  align-items: center;
+  justify-self: end;
+  gap: 4px;
+  color: #65676b;
+  font-size: 10px;
+}
+
+.sc-ms__avatar {
+  display: grid;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+  border-radius: 9999px;
+  background: var(--color-red);
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.sc-ms__a {
+  justify-self: start;
+  margin-top: 3px;
+  background: #f0f0f0;
+  color: #050505;
+  font-weight: 600;
+  transform-origin: 0 100%;
+}
+
+/* WhatsApp */
+.sc-wa {
+  gap: 6px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  background: #efeae2;
+}
+
+.sc-wa__bubble {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 0.5px rgb(11 20 26 / 0.12);
+  color: #111b21;
+}
+
+.sc-wa__bubble--in {
+  justify-self: start;
+  background: #fff;
+}
+
+.sc-wa__bubble--out {
+  justify-self: end;
+  background: #d9fdd3;
+}
+
+.sc-wa__ticks {
+  display: inline-flex;
+  color: #8696a0;
+}
+
+/* Read: WhatsApp's blue. It rests blue and comes from grey as it plays. */
+.sc-wa__ticks--blue {
+  color: #53bdeb;
+}
+
+.sc-ticks {
+  width: 17px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The phone line: a live call */
+.sc-call__live {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 11px;
+  border-radius: 9999px;
+  background: var(--color-ink);
+  color: #fff;
+}
+
+.sc-call__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: #34c759;
+}
+
+/* The timer counts on its own: an integer property animated, printed by a
+   counter, so nothing re-renders to tick it. It rests at 0:42. */
+@property --sc-sec {
+  syntax: "<integer>";
+  inherits: false;
+  initial-value: 42;
+}
+
+.sc-call__timer {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  counter-reset: sc-sec var(--sc-sec);
+}
+
+.sc-call__timer::after {
+  content: "0:" counter(sc-sec);
+}
+
+.sc-call__wave {
+  display: flex;
+  flex: 1;
   height: 16px;
+  align-items: center;
+  gap: 2px;
 }
 
-.portrait__tick--paid circle {
-  fill: #1f9d55;
-  stroke: none;
+.sc-call__wave i {
+  flex: 1;
+  height: 100%;
+  border-radius: 9999px;
+  background: rgb(255 255 255 / 0.85);
+  scale: 1 0.3;
 }
 
-.portrait__tick--paid path {
-  stroke: #fff;
+/* The calendars: a day, its hours, and a block arriving at 3 PM */
+.sc-cal__day {
+  margin-bottom: -2px;
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sc-cal__grid {
+  position: relative;
+  display: grid;
+}
+
+.sc-cal__hour {
+  height: 27px;
+  padding-top: 2px;
+  border-top: 1px solid rgb(23 42 58 / 0.1);
+  color: var(--color-muted);
+  font-size: 9.5px;
+}
+
+.sc-gcal__block,
+.sc-calcom__block,
+.sc-hl__block {
+  position: absolute;
+  top: 29px;
+  right: 0;
+  left: 36px;
+  padding: 4px 8px 5px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.sc-gcal__block {
+  border: 1.5px dashed #1a73e8;
+  background: #e8f0fe;
+  color: #174ea6;
+}
+
+.sc-gcal__time {
+  display: block;
+  font-size: 9.5px;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.sc-calcom__block {
+  border-left: 3px solid #111827;
+  background: repeating-linear-gradient(135deg, #f3f4f6 0 6px, #e5e7eb 6px 12px);
+  color: #111827;
+  transform-origin: 50% 0;
+}
+
+.sc-hl__block {
+  border-left: 3px solid #188bf6;
+  background: rgb(24 139 246 / 0.12);
+  color: #0b4f8a;
+}
+
+.sc-calendly {
+  gap: 5px;
+}
+
+.sc-calendly__day {
+  color: #1a1a1a;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.sc-calendly__slot {
+  padding: 5px 0;
+  border: 1px solid rgb(0 105 255 / 0.5);
+  border-radius: var(--radius-sm);
+  color: #0069ff;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* Taken off by the synced booking. It rests taken, and plays from free. */
+.sc-calendly__slot--taken {
+  border-color: rgb(23 42 58 / 0.12);
+  background: rgb(23 42 58 / 0.03);
+  color: #a6a6a6;
+  text-decoration: line-through;
+}
+
+/* Stripe */
+.sc-stripe__head {
+  display: flex;
+  justify-content: space-between;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.sc-stripe__amount {
+  color: var(--color-ink);
+}
+
+.sc-stripe__bar {
+  display: block;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: #e3e8ee;
+}
+
+.sc-stripe__bar i {
+  display: block;
+  height: 100%;
+  background: #1f9d55;
+  transform-origin: left center;
+}
+
+.sc-stripe__done {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sc-stripe__tick {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 9999px;
+  background: #1f9d55;
+  color: #fff;
+}
+
+/* --- The scenes, playing --------------------------------------------------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  .portrait__node[data-shown] .sc-row--1 {
+    animation: sc-in var(--duration-base) var(--ease-out) 80ms both;
+  }
+
+  .portrait__node[data-shown] .sc-row--2 {
+    animation: sc-in var(--duration-slow) var(--ease-spring) 1100ms both;
+  }
+
+  .portrait__node[data-shown] .sc-row--1 .sc-type {
+    animation: sc-type var(--duration-slow) var(--ease-out) 560ms both;
+  }
+
+  .portrait__node[data-shown] .sc-row--2 .sc-type {
+    animation: sc-type var(--duration-slow) var(--ease-out) 1250ms both;
+  }
+
+  .portrait__node[data-shown] .sc-row--2 .sc-check path {
+    stroke-dasharray: 1;
+    animation: sc-draw var(--duration-slow) var(--ease-out) 1250ms both;
+  }
+
+  /* Website chat: typing, then the question. */
+  .portrait__node[data-shown] .sc-web .sc-row--1 .sc-dots i {
+    animation: sc-bounce var(--duration-slow) var(--ease-in-out) 2 both;
+  }
+
+  .portrait__node[data-shown] .sc-web .sc-row--1 .sc-dots i:nth-child(2) {
+    animation-delay: 90ms;
+  }
+
+  .portrait__node[data-shown] .sc-web .sc-row--1 .sc-dots i:nth-child(3) {
+    animation-delay: 180ms;
+  }
+
+  /* Instagram: the divider opens from its middle, the question slides in,
+     the reply pops up from its corner. */
+  .portrait__node[data-shown] .sc-ig__divider::before,
+  .portrait__node[data-shown] .sc-ig__divider::after {
+    animation: sc-rule var(--duration-slow) var(--ease-out) 60ms both;
+  }
+
+  .portrait__node[data-shown] .sc-ig__divider span {
+    animation: sc-fade var(--duration-base) var(--ease-standard) 120ms both;
+  }
+
+  .portrait__node[data-shown] .sc-ig__them {
+    animation: sc-from-left var(--duration-slow) var(--ease-out) 420ms both;
+  }
+
+  .portrait__node[data-shown] .sc-ig__me {
+    animation: sc-pop var(--duration-slow) var(--ease-spring) 1200ms both;
+  }
+
+  /* Messenger: the question, the avatar dropping under it, the answer. */
+  .portrait__node[data-shown] .sc-ms__q {
+    animation: sc-from-right var(--duration-slow) var(--ease-out) 80ms both;
+  }
+
+  .portrait__node[data-shown] .sc-ms__seen {
+    animation: sc-drop-in var(--duration-slow) var(--ease-spring) 700ms both;
+  }
+
+  .portrait__node[data-shown] .sc-ms__a {
+    animation: sc-pop var(--duration-slow) var(--ease-spring) 1250ms both;
+  }
+
+  /* WhatsApp: received, its two ticks drawing; replied, its ticks drawing
+     grey and then turning blue as it is read. */
+  .portrait__node[data-shown] .sc-wa__bubble--in {
+    animation: sc-from-left var(--duration-slow) var(--ease-out) 80ms both;
+  }
+
+  .portrait__node[data-shown] .sc-wa__bubble--out {
+    animation: sc-from-right var(--duration-slow) var(--ease-out) 900ms both;
+  }
+
+  .portrait__node[data-shown] .sc-ticks path {
+    stroke-dasharray: 1;
+    animation: sc-draw var(--duration-base) var(--ease-out) both;
+  }
+
+  .portrait__node[data-shown] .sc-wa__ticks--grey .sc-ticks path:first-child { animation-delay: 380ms; }
+  .portrait__node[data-shown] .sc-wa__ticks--grey .sc-ticks path:last-child { animation-delay: 520ms; }
+  .portrait__node[data-shown] .sc-wa__ticks--blue .sc-ticks path:first-child { animation-delay: 1200ms; }
+  .portrait__node[data-shown] .sc-wa__ticks--blue .sc-ticks path:last-child { animation-delay: 1340ms; }
+
+  .portrait__node[data-shown] .sc-wa__ticks--blue {
+    animation: sc-read var(--duration-base) var(--ease-standard) 1750ms both;
+  }
+
+  /* The phone line: the call live, its timer running up to 0:42 and its
+     voice moving, then the booking under it. */
+  .portrait__node[data-shown] .sc-call__live {
+    animation: sc-in var(--duration-base) var(--ease-out) 60ms both;
+  }
+
+  .portrait__node[data-shown] .sc-call__dot {
+    animation: sc-pulse 1.2s var(--ease-in-out) infinite;
+  }
+
+  .portrait__node[data-shown] .sc-call__timer {
+    animation: sc-tick calc(var(--duration-slower) * 1.6) steps(4, end) 100ms both;
+  }
+
+  .portrait__node[data-shown] .sc-call__wave i {
+    animation: sc-wave 520ms var(--ease-in-out) calc(var(--b) * -73ms) infinite alternate;
+  }
+
+  .portrait__node[data-shown] .sc-call__wave i:nth-child(3n) {
+    animation-duration: 410ms;
+  }
+
+  .portrait__node[data-shown] .sc-call__wave i:nth-child(4n + 1) {
+    animation-duration: 640ms;
+  }
+
+  .portrait__node[data-shown] .sc-call__done {
+    animation-delay: 1500ms;
+  }
+
+  .portrait__node[data-shown] .sc-call__done .sc-type,
+  .portrait__node[data-shown] .sc-call__done .sc-check path {
+    animation-delay: 1650ms;
+  }
+
+  /* Google Calendar: the request drops into 3 PM on the spring. */
+  .portrait__node[data-shown] .sc-cal__hour {
+    animation: sc-fade var(--duration-base) var(--ease-standard) both;
+  }
+
+  .portrait__node[data-shown] .sc-cal__hour:nth-child(2) { animation-delay: 60ms; }
+  .portrait__node[data-shown] .sc-cal__hour:nth-child(3) { animation-delay: 120ms; }
+
+  .portrait__node[data-shown] .sc-gcal__block {
+    animation: sc-drop var(--duration-slow) var(--ease-spring) 600ms both;
+  }
+
+  /* Cal.com: the busy block grows down from 3 PM. */
+  .portrait__node[data-shown] .sc-calcom__block {
+    animation: sc-grow var(--duration-slow) var(--ease-out) 650ms both;
+  }
+
+  /* HighLevel: the blocked slot slides in from its edge. */
+  .portrait__node[data-shown] .sc-hl__block {
+    animation: sc-from-left var(--duration-slow) var(--ease-out) 650ms both;
+  }
+
+  .portrait__node[data-shown] .sc-calcom__block .sc-sync,
+  .portrait__node[data-shown] .sc-hl__block .sc-sync {
+    animation: sc-fade var(--duration-base) var(--ease-standard) 1150ms both;
+  }
+
+  /* Calendly: the times arrive, then 3:00pm is taken off. */
+  .portrait__node[data-shown] .sc-calendly__slot {
+    animation: sc-in var(--duration-base) var(--ease-out) both;
+  }
+
+  /* The taken slot (the third) sets both its delays in its own rule below. */
+  .portrait__node[data-shown] .sc-calendly__slot:nth-of-type(4) { animation-delay: 140ms; }
+
+  .portrait__node[data-shown] .sc-calendly__slot--taken {
+    animation:
+      sc-in var(--duration-base) var(--ease-out) 70ms both,
+      sc-taken var(--duration-slow) var(--ease-standard) 900ms both;
+  }
+
+  .portrait__node[data-shown] .sc-calendly .sc-sync {
+    animation: sc-fade var(--duration-base) var(--ease-standard) 1250ms both;
+  }
+
+  /* Stripe: the bar fills in Stripe's violet, turns green as it completes,
+     the tick pops, and the slot is confirmed. */
+  .portrait__node[data-shown] .sc-stripe__bar i {
+    animation:
+      sc-fill calc(var(--duration-slower) * 1.25) var(--ease-in-out) 150ms both,
+      sc-paid var(--duration-base) var(--ease-standard) 1150ms both;
+  }
+
+  .portrait__node[data-shown] .sc-stripe__tick {
+    animation: sc-pop var(--duration-slow) var(--ease-spring) 1250ms both;
+  }
+
+  .portrait__node[data-shown] .sc-stripe__tick .sc-check path {
+    stroke-dasharray: 1;
+    animation: sc-draw var(--duration-slow) var(--ease-out) 1400ms both;
+  }
+
+  .portrait__node[data-shown] .sc-stripe__done .sc-type {
+    animation: sc-type var(--duration-slow) var(--ease-out) 1450ms both;
+  }
+}
+
+@keyframes sc-in {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+    scale: 0.97;
+  }
+}
+
+@keyframes sc-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes sc-type {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes sc-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes sc-bounce {
+  0%,
+  100% {
+    opacity: 0.35;
+    translate: 0 0;
+  }
+  50% {
+    opacity: 0.9;
+    translate: 0 -2px;
+  }
+}
+
+@keyframes sc-rule {
+  from {
+    scale: 0 1;
+  }
+}
+
+@keyframes sc-from-left {
+  from {
+    opacity: 0;
+    translate: -10px 0;
+  }
+}
+
+@keyframes sc-from-right {
+  from {
+    opacity: 0;
+    translate: 10px 0;
+  }
+}
+
+@keyframes sc-pop {
+  from {
+    opacity: 0;
+    scale: 0.8;
+  }
+}
+
+@keyframes sc-drop-in {
+  from {
+    opacity: 0;
+    translate: 0 -8px;
+  }
+}
+
+@keyframes sc-read {
+  from {
+    color: #8696a0;
+  }
+}
+
+@keyframes sc-pulse {
+  50% {
+    opacity: 0.35;
+    scale: 0.8;
+  }
+}
+
+@keyframes sc-tick {
+  from {
+    --sc-sec: 38;
+  }
+  to {
+    --sc-sec: 42;
+  }
+}
+
+@keyframes sc-wave {
+  from {
+    scale: 1 0.22;
+  }
+  to {
+    scale: 1 1;
+  }
+}
+
+@keyframes sc-drop {
+  from {
+    opacity: 0;
+    translate: 0 -24px;
+    scale: 0.96;
+  }
+}
+
+@keyframes sc-grow {
+  from {
+    opacity: 0;
+    scale: 1 0;
+  }
+}
+
+@keyframes sc-taken {
+  from {
+    border-color: rgb(0 105 255 / 0.5);
+    background: transparent;
+    color: #0069ff;
+    text-decoration: none;
+  }
+}
+
+@keyframes sc-fill {
+  from {
+    scale: 0 1;
+    background: #635bff;
+  }
+  to {
+    background: #635bff;
+  }
+}
+
+@keyframes sc-paid {
+  from {
+    background: #635bff;
+  }
+  to {
+    background: #1f9d55;
+  }
 }
 
 /* =============================================================================

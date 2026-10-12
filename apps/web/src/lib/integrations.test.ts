@@ -123,9 +123,30 @@ describe("the hero's logos", () => {
 
   test.each(HERO_LOGOS.map((logo) => [logo.name, logo] as const))("%s: has a showcase", (_name, logo) => {
     expect(logo.showcase.length).toBeGreaterThan(0);
-    if (logo.group === "messages" && logo.name !== "phone line") {
-      expect(logo.showcase.map((line) => line.mark)).toEqual(["received", "replied"]);
+  });
+
+  test("one scene per channel: no two message channels play the same card", () => {
+    // Until 12 October 2026 every message channel shared one card with
+    // WhatsApp's ticks; the owner asked for one example per channel.
+    const messages = HERO_LOGOS.filter((logo) => logo.group === "messages");
+    expect(new Set(messages.map((logo) => logo.scene)).size).toBe(messages.length);
+    expect(new Set(messages.map((logo) => logo.showcase.map((line) => line.text).join("|"))).size).toBe(messages.length);
+  });
+
+  test("no showcase names a treatment, least of all on a Meta channel", () => {
+    // CLAUDE.md, "No treatment name in a payment description, a Meta message
+    // or the support chat": the Instagram question stops at "with…".
+    const treatments = /botox|filler|lip|laser|ivf|egg|implant|veneer|semaglutide|glp|hair|facial|peel|liposuction|rhinoplasty/i;
+    for (const logo of HERO_LOGOS) {
+      for (const line of logo.showcase) expect(line.text, logo.name).not.toMatch(treatments);
     }
+  });
+
+  test("a call books and flags the deposit; only chat and Stripe take one", () => {
+    // Voice cannot collect (CLAUDE.md, "Card numbers are never taken").
+    const call = HERO_LOGOS.find((logo) => logo.scene === "call")!;
+    expect(call.showcase.map((line) => line.text).join(" ")).toMatch(/deposit flagged/);
+    expect(call.showcase.map((line) => line.text).join(" ")).not.toMatch(/paid/i);
   });
 
   test("on their circles, all around her: Messages & Calls on her left, Bookings, the synced calendars and Payments on her right", () => {

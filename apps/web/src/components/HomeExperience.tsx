@@ -57,7 +57,7 @@ export function HomeExperience() {
   return (
     <>
       {/* The navbar's secondary CTA points here. */}
-      <section id="aya" className="scroll-mt-24 pt-16 sm:pt-24">
+      <section id="aya" className="page-section scroll-mt-24">
         {/* Centred, and the copy the owner asked for on 9 October 2026: 24/7,
             every channel by name, bookings and payment links. Payment links
             are claimed for chat only, because voice cannot send one in v1;

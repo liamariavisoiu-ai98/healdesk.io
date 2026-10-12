@@ -374,7 +374,7 @@ export function Outcomes() {
   const timeOf = (o: Outcome) => clock?.notes[o.id] ?? o.time;
 
   return (
-    <section id="outcomes" aria-labelledby="outcomes-heading" className="scroll-mt-24 pt-16 sm:pt-24">
+    <section id="outcomes" aria-labelledby="outcomes-heading" className="page-section page-section--band scroll-mt-24">
       {/* Centred header, the specialties section's own. */}
       <div data-reveal="stagger" className="mx-auto text-center">
         <p className="eyebrow-tag">What changes in month one</p>

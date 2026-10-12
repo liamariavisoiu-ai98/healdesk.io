@@ -70,6 +70,14 @@
    */
   --color-paper-2: #f1f1f1;
 
+  /*
+   * The homepage's tonal bands (owner, 12 October 2026): the ground a shade
+   * warmer, under every other section ("Sections" below). Warm rather than
+   * paper-2's neutral grey, which beside the page white reads as a panel,
+   * not a change of light.
+   */
+  --color-paper-warm: #f9f6f2;
+
   /* Deep Space Blue, lightened to 5.2:1 on Snow, readable as body text. */
   --color-muted: #5c6e7e;
 
@@ -2830,6 +2838,152 @@
 
 .review-nudge--back {
   animation: review-nudge-back 2.2s var(--ease-in-out) infinite;
+}
+
+/* =============================================================================
+   Sections: one rhythm, and tonal bands (owner, 12 October 2026)
+   =============================================================================
+   Every section of the homepage carries `page-section`, so each is padded the
+   same above and below and the gap between any two is twice that: 96px on a
+   phone, 120px from 640px and 144px from 1024px (before the site's 0.9 zoom).
+   Until then each section set its own padding, and the gaps ran from 96px to
+   192px, which read as accident rather than structure.
+
+   From 640px, month one and the reviews sit on a band of warm paper, as wide
+   as the screen, so the sections alternate white, warm, white, warm, white
+   before the closing band. The band starts 60px above its section and ends
+   60px below, fading in and out over 120px across the gap, so there is never
+   a line where it meets the white. It is drawn as a border image pushed out
+   past the box, which paints across the screen without widening the page:
+   what a border image paints outside its box is never scrolled to.
+
+   A phone has no bands: there the navbar says which section is on screen
+   instead (Nav.tsx, "Wayfinding").
+   ============================================================================= */
+
+.page-section {
+  --section-pad: 48px;
+  padding-block: var(--section-pad);
+}
+
+@media (min-width: 640px) {
+  .page-section {
+    --section-pad: 60px;
+  }
+
+  .page-section--band {
+    --band-fade: 120px;
+    border-image: linear-gradient(
+        to bottom,
+        transparent,
+        var(--color-paper-warm) var(--band-fade),
+        var(--color-paper-warm) calc(100% - var(--band-fade)),
+        transparent
+      )
+      0 fill / / calc(var(--band-fade) / 2) 100vmax;
+  }
+}
+
+@media (min-width: 1024px) {
+  .page-section {
+    --section-pad: 72px;
+  }
+}
+
+/* The navbar's wayfinding, on a phone (Nav.tsx, useWayfinding): past the
+   hero, the wordmark gives way to the mark and the section's title, which
+   rises in afresh at each new section, and the reading hairline shows. One
+   grid cell, so the swap moves nothing else in the bar. */
+.nav-brand {
+  display: grid;
+  align-items: center;
+}
+
+.nav-brand > * {
+  grid-area: 1 / 1;
+  transition:
+    opacity var(--duration-base) var(--ease-standard),
+    transform var(--duration-slow) var(--ease-out);
+}
+
+.nav-brand__logo {
+  display: block;
+}
+
+.nav-brand__way {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+}
+
+.nav[data-way] .nav-brand__logo {
+  opacity: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
+}
+
+.nav[data-way] .nav-brand__way {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.nav-brand__mark {
+  display: block;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 1px var(--color-line);
+}
+
+.nav-brand__title {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  color: var(--color-red-deep);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.005em;
+  animation: nav-title-in var(--duration-slow) var(--ease-out) both;
+}
+
+@keyframes nav-title-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* How far through the page past the hero (`--read`, 0 to 1). */
+.nav-progress {
+  position: absolute;
+  inset-inline: 0;
+  bottom: -1px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--color-red), var(--color-orange));
+  transform: scaleX(var(--read, 0));
+  transform-origin: 0 50%;
+  opacity: 0;
+  transition: opacity var(--duration-base) var(--ease-standard);
+}
+
+.nav[data-way] .nav-progress {
+  opacity: 1;
+}
+
+@media (min-width: 640px) {
+  .nav-brand__way,
+  .nav-progress {
+    display: none;
+  }
 }
 
 /* =============================================================================

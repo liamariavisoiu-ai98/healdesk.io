@@ -26,7 +26,7 @@ export function NicheCarousel({
   onSelect: () => void;
 }) {
   return (
-    <section id="specialties" className="scroll-mt-24 py-20 sm:py-24">
+    <section id="specialties" className="page-section scroll-mt-24">
       {/* Centred to sit over the deck, which is centred too. */}
       <div data-reveal="stagger" className="mx-auto text-center">
         <p className="eyebrow-tag">

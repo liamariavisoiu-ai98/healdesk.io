@@ -796,8 +796,11 @@ export const providerConnections = pgTable(
     // its connection is not revoked (drizzle/0063): with two, the webhook
     // routed every message to the older clinic, whose staff and records
     // then held another practice's patients. A revoked row frees the asset.
+    // On the asset's id alone, across the three Meta providers: the router
+    // (app_meta_channel) matches an id under any meta-% provider, so the
+    // same id under two providers would route as ambiguously as under one.
     uniqueIndex("provider_connections_meta_asset_live_idx")
-      .on(t.provider, sql`(${t.metadata} ->> 'externalId')`)
+      .on(sql`(${t.metadata} ->> 'externalId')`)
       .where(sql`${t.provider} like 'meta-%' and ${t.status} <> 'revoked'`),
     check(
       "provider_connections_account_ref_check",

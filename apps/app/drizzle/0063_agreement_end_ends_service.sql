@@ -1,5 +1,5 @@
 ALTER TABLE "baa_acceptances" ADD COLUMN "termination_reason" text;--> statement-breakpoint
-CREATE UNIQUE INDEX "provider_connections_meta_asset_live_idx" ON "provider_connections" USING btree ("provider",("metadata" ->> 'externalId')) WHERE "provider_connections"."provider" like 'meta-%' and "provider_connections"."status" <> 'revoked';--> statement-breakpoint
+CREATE UNIQUE INDEX "provider_connections_meta_asset_live_idx" ON "provider_connections" USING btree (("metadata" ->> 'externalId')) WHERE "provider_connections"."provider" like 'meta-%' and "provider_connections"."status" <> 'revoked';--> statement-breakpoint
 ALTER TABLE "baa_acceptances" ADD CONSTRAINT "baa_acceptances_termination_reason_check" CHECK ("baa_acceptances"."termination_reason" is null or ("baa_acceptances"."terminated_at" is not null and "baa_acceptances"."termination_reason" in ('practice_healdesk_breach', 'practice_subcontractor_objection', 'healdesk_practice_breach', 'change_in_law', 'services_ended')));--> statement-breakpoint
 
 -- =============================================================================
@@ -54,7 +54,8 @@ ALTER TABLE "baa_acceptances" ADD CONSTRAINT "baa_acceptances_termination_reason
 --     Meta Page, Instagram account or WhatsApp number on one clinic while its
 --     connection is not revoked. With two, app_meta_channel (0036, 0061)
 --     routed every message to the older clinic: another practice's patients
---     in its records. apps/app has held no real patient data, so no
+--     in its records. It is on the id alone, across the three Meta
+--     providers, because the router matches an id under any of them. apps/app has held no real patient data, so no
 --     duplicate can stand in the way of the index; attachMetaChannel turns
 --     the refusal into words for the person connecting.
 --   * the incident-deadlines job's row, seeded on (at the foot).

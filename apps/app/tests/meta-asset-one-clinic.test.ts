@@ -119,4 +119,17 @@ describeDb("one Meta asset, one clinic", () => {
     await attach(second.clinicId, "whatsapp", "410000000000003");
     expect((await resolveMetaChannel("410000000000003"))?.clinicId).toBe(second.clinicId);
   });
+
+  test("an id one clinic holds under one Meta platform is refused under another, as the router matches it under any", async () => {
+    // app_meta_channel resolves an id under every meta-% provider, so the
+    // index is on the id alone: a second clinic can't hold it as Instagram
+    // while the first holds it as Messenger.
+    const first = await seedClinic("asset-cross-first");
+    const second = await seedClinic("asset-cross-second");
+    await attach(first.clinicId, "messenger", "420000000000001");
+    await expect(attach(second.clinicId, "instagram", "420000000000001")).rejects.toBeInstanceOf(
+      MetaAssetTakenError,
+    );
+    expect((await resolveMetaChannel("420000000000001"))?.clinicId).toBe(first.clinicId);
+  });
 });

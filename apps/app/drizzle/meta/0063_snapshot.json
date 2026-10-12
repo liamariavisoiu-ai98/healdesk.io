@@ -1,5 +1,5 @@
 {
-  "id": "a8a08506-be45-48c9-97c4-1dc53816e4b9",
+  "id": "865cf2fc-c9e0-43d6-a023-b235ce72d888",
   "prevId": "59b9e2a9-5867-4b18-a562-7611a18424bb",
   "version": "7",
   "dialect": "postgresql",
@@ -6692,12 +6692,6 @@
         "provider_connections_meta_asset_live_idx": {
           "name": "provider_connections_meta_asset_live_idx",
           "columns": [
-            {
-              "expression": "provider",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
             {
               "expression": "(\"metadata\" ->> 'externalId')",
               "asc": true,

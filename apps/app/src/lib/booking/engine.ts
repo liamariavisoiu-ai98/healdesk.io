@@ -24,7 +24,9 @@ import { bookingModeFor } from "./mode";
  *   placeHold           60 seconds on one start, before the details are
  *                       taken, while the location books live;
  *   bookConversation    hold, re-check, claim, write, record (book.ts);
- *   logRequest          a request in the caller's words (book.ts).
+ *   logRequest          a request in the caller's words (book.ts);
+ *   keyReusedFor        what `key_reused` would say for a booking key that
+ *                       already has a booking or a request (book.ts).
  *
  * The clinic is told through booking alerts (lib/notices/booking-alerts.ts),
  * each raised inside the transaction that commits what it reports, so a
@@ -44,7 +46,7 @@ import { bookingModeFor } from "./mode";
  * nothing, calls offerTimes only.
  */
 
-export { bookConversation, logRequest } from "./book";
+export { bookConversation, keyReusedFor, logRequest } from "./book";
 export type {
   BookConversationInput,
   BookConversationResult,

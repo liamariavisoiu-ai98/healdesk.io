@@ -31,15 +31,15 @@ export function Brand({ className = "", height }: { className?: string; height?:
   );
 }
 
-/** Where the navbar says which section is on screen: a phone, where the homepage has no tonal bands. */
+/** Where the navbar says which section is on screen: a phone. */
 const PHONE = "(max-width: 639px)";
 
 /**
  * Wayfinding, on a phone (owner, 12 October 2026).
  *
- * From 640px the homepage's sections are told apart by the warm bands under
- * every other one (globals.css, "Sections"); on a phone they are told apart
- * from the navbar. Once the hero has scrolled away, the wordmark gives way to
+ * The homepage's sections are told apart by the warm bands under every other
+ * one (globals.css, "Sections"), and on a phone from the navbar as well, where
+ * a section can fill the screen. Once the hero has scrolled away, the wordmark gives way to
  * the healdesk mark and the title of the section on screen, the same words as
  * its highlighted title, and a hairline in the logo's red to orange fills
  * along the navbar's foot as the page is read. Back over the hero the

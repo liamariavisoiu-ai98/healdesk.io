@@ -20,13 +20,16 @@
  * expires, and a prompt fix reaches every live demo at once instead of only
  * the ones built after it.
  *
- * ## Same decisions as AYA's demo agent (scripts/retell-demo-agent.ts)
+ * ## Sloane, as AYA is
  *
- *   - data_storage_setting `basic_attributes_only`: Retell keeps neither audio
- *     nor transcript, so "this call is transcribed" stays the whole truth.
- *   - voicemail: hang up. DNC detection on, paired with `honor_internal_dnc`
- *     on the one call /api/callback places.
- *   - Retell's call-centre personality and filler words off.
+ * The voice, the model, the delivery and the phone style are AYA's, from
+ * src/lib/demo/sloane-voice.ts: the owner's pick by ear, so a prospect hears
+ * the same voice on the healdesk demo line and on their own clinic's demo.
+ * Only the clinic's knowledge is added on top, per call. Retell keeps neither
+ * audio nor transcript (`basic_attributes_only`), so "this call is
+ * transcribed" stays the whole truth. An outbound call hangs up on voicemail
+ * and honours "stop calling me" (DNC detection, with `honor_internal_dnc` on
+ * the one call /api/callback places).
  *
  * Both demo agents talk to clinic owners, never patients. The product's voice
  * agent is a different Retell agent pointed at our own Claude endpoint in
@@ -34,23 +37,20 @@
  */
 
 import { CLINIC_VOICE_DEFAULTS, CLINIC_VOICE_GENERAL_PROMPT } from "../src/lib/demo/clinic-prompts";
+import { SLOANE_AGENT, SLOANE_LLM, SLOANE_SMILE } from "../src/lib/demo/sloane-voice";
 
 const API = "https://api.retellai.com";
-const AGENT_NAME = "healdesk personalised clinic demo";
-
-/** As AYA's agent: Sonnet, because a phone turn has to start within about a second. */
-const MODEL = "claude-5.5-sonnet";
-const VOICE_ID = "11labs-Grace";
-const FALLBACK_VOICE_IDS = ["cartesia-Grace"];
+const AGENT_NAME = "healdesk personalised clinic demo (Sloane)";
 
 const dryRun = process.argv.includes("--dry-run");
 
 const llmConfig = {
-  model: MODEL,
-  model_temperature: 0.2,
+  ...SLOANE_LLM,
   start_speaker: "agent",
-  // Per call: the browser call and the call to the owner's phone open differently.
-  begin_message: "{{opening_line}}",
+  // Per call: the browser call, the dialled-in call and the call to the
+  // owner's phone each open differently. Spoken with Sloane's smile.
+  begin_message: `${SLOANE_SMILE}{{opening_line}}`,
+  // One prompt, no states: a state change costs a second model call.
   general_prompt: CLINIC_VOICE_GENERAL_PROMPT,
   general_tools: [
     {
@@ -59,47 +59,23 @@ const llmConfig = {
       description: "Hang up. Call it straight after your goodbye line.",
     },
   ],
+  states: [],
+  starting_state: null,
   default_dynamic_variables: CLINIC_VOICE_DEFAULTS,
 };
 
 function agentConfig(llmId: string) {
   return {
+    ...SLOANE_AGENT,
     agent_name: AGENT_NAME,
     response_engine: { type: "retell-llm", llm_id: llmId },
-    voice_id: VOICE_ID,
-    fallback_voice_ids: FALLBACK_VOICE_IDS,
-    language: "en-US",
-    voice_speed: 1,
-    volume: 0.9,
-    voice_temperature: 0.6,
-    responsiveness: 0.9,
-    interruption_sensitivity: 0.8,
-    enable_backchannel: true,
-    backchannel_frequency: 0.3,
+    // One agent answers the browser call, the dialled-in call and the call we
+    // place, so it waits a beat in case the callee is lifting the phone.
     begin_message_delay_ms: 600,
-    reminder_trigger_ms: 8_000,
-    reminder_max_count: 1,
-    end_call_after_silence_ms: 20_000,
     // A backstop behind the prompt's eight-minute wrap-up.
     max_call_duration_ms: 10 * 60_000,
     voicemail_option: { action: { type: "hangup" } },
     enable_dnc_detection: true,
-    data_storage_setting: "basic_attributes_only",
-    data_storage_retention_days: 30,
-    opt_in_signed_url: true,
-    boosted_keywords: ["healdesk", "Botox", "filler", "consultation", "Invisalign", "Mindbody", "Boulevard"],
-    handbook_config: {
-      default_personality: false,
-      conversational_personality: false,
-      natural_filler_words: false,
-      high_empathy: false,
-      echo_verification: false,
-      nato_phonetic_alphabet: false,
-      speech_normalization: true,
-      smart_matching: true,
-      ai_disclosure: true,
-      scope_boundaries: true,
-    },
   };
 }
 

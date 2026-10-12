@@ -106,7 +106,7 @@ export async function offerTimes(clinicId: string, input: OfferTimesInput): Prom
     ...(input.day ? { days: 1 } : {}),
     service: input.service ?? null,
     providerId: input.providerId ?? null,
-    holderRef: holderRefOf(input.holderKey),
+    holderRef: holderRefOf(clinicId, input.holderKey),
     now: input.now,
     actor,
   });
@@ -170,7 +170,7 @@ export async function placeHold(clinicId: string, input: PlaceHoldInput): Promis
   if (!(input.startsAt instanceof Date) || !Number.isFinite(input.startsAt.getTime())) {
     return { kind: "unavailable" };
   }
-  const holderRef = holderRefOf(input.holderKey);
+  const holderRef = holderRefOf(clinicId, input.holderKey);
   const state = await withTenant({ clinicId, actor }, async (tx) => ({
     mode: await bookingModeFor(tx),
     gate: await depositGateFor(tx, {

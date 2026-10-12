@@ -12,7 +12,7 @@ import {
   type PricingCard,
   pricingCards,
 } from "@healdesk/catalog";
-import { type Ref, useId } from "react";
+import { type Ref, useId, useState } from "react";
 
 import {
   allowanceRows,
@@ -30,8 +30,11 @@ import {
   sellableTo,
 } from "@/lib/checkout/funnel";
 import { locationsLine } from "@/lib/checkout/review";
+import { ASSUMED_SHOW_RATE, DEFAULT_MISSED_CALLS_PER_WEEK, DEFAULT_MISSED_MESSAGES_PER_WEEK, type RoiInputs } from "@/lib/demo/roi";
 import { site } from "@/lib/site";
 
+import { DemoPlanPicker } from "./DemoPlanPicker";
+import { type DemoCheckout, DemoOfferBanner, RoiPanel } from "./DemoPackageExtras";
 import { FIELD_LABEL, PrimaryButton, RadioGroup, Reassurance, StepShell } from "./StepShell";
 
 /**
@@ -53,8 +56,14 @@ export function PackageStep({
   onClose,
   headingRef,
   error,
+  demo,
+  onPlan,
 }: {
   state: FunnelState;
+  /** A buyer from a personalised demo: grouped packages with estimates and the demo offer. */
+  demo?: DemoCheckout;
+  /** Choose a package by its id; the demo's rows each name one. */
+  onPlan?: (planId: string) => void;
   onCard: (cardId: string) => void;
   onChat: (chat: ChatChannel) => void;
   onInterval: (interval: BillingInterval) => void;
@@ -67,6 +76,16 @@ export function PackageStep({
   const card = chosenCard(state);
   const plan = chosenPlan(state);
   const groupLabel = useId();
+  const [roiInputs, setRoiInputs] = useState<RoiInputs | null>(() =>
+    demo
+      ? {
+          ...demo.roi,
+          missedCallsPerWeek: DEFAULT_MISSED_CALLS_PER_WEEK,
+          missedMessagesPerWeek: DEFAULT_MISSED_MESSAGES_PER_WEEK,
+          showRate: ASSUMED_SHOW_RATE,
+        }
+      : null,
+  );
 
   return (
     <StepShell
@@ -90,8 +109,23 @@ export function PackageStep({
       {/* Monthly or annual, before the cards, because it changes every price
           on them. Pressed buttons rather than radios: two native buttons with
           aria-pressed say exactly what they are. */}
+      {demo?.offerEndsAt ? <DemoOfferBanner endsAt={demo.offerEndsAt} /> : null}
+
       <IntervalToggle value={state.interval} onChange={onInterval} />
 
+      {demo && roiInputs && onPlan ? (
+        <>
+          <RoiPanel clinicName={demo.clinicName} inputs={roiInputs} onChange={setRoiInputs} />
+          <DemoPlanPicker
+            interval={state.interval}
+            selectedPlanId={plan?.id ?? ""}
+            onSelect={(chosen) => onPlan(chosen.id)}
+            roi={roiInputs}
+            setupWaived={Boolean(demo.offerEndsAt)}
+            includes="+ 24/7 support included · unlimited modifications · no hidden costs"
+          />
+        </>
+      ) : (
       <div role="radiogroup" aria-labelledby={groupLabel} className="mt-5">
         <p id={groupLabel} className="sr-only">
           Package
@@ -109,10 +143,11 @@ export function PackageStep({
           ))}
         </div>
       </div>
+      )}
 
       {/* Only a "Web OR Meta" card asks: the others include both chat
           channels or neither, and a question with one answer is noise. */}
-      {card && plan && offersChatChoice(card) ? (
+      {!demo && card && plan && offersChatChoice(card) ? (
         <ChatChannelField
           card={card}
           // The package's own channel, so a choice the step overrides (Meta
@@ -121,6 +156,19 @@ export function PackageStep({
           onChange={onChat}
           noWebsite={state.noWebsite}
         />
+      ) : null}
+
+      {/* Every package covers one location; more is quoted by the team. */}
+      {demo ? (
+        <div className="border-line mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-white px-5 py-4">
+          <span className="text-sm font-semibold">More than one location?</span>
+          <a
+            href="/contact"
+            className="border-line hover:border-line-strong rounded-full border px-4 py-2 text-sm font-bold transition-colors"
+          >
+            Get a quote from sales
+          </a>
+        </div>
       ) : null}
 
       {/* One region, always in the page, so a change of package is heard. */}
@@ -200,8 +248,8 @@ export function IntervalToggle({
 /**
  * One pricing card, as one answer of the package radio group. A twin card
  * shows its web package's figures, which its Meta twin shares (the catalog
- * test holds them to it). The price is always per month, as /pricing quotes
- * it; the annual total is in the review, where it is what the plan bills.
+ * test holds them to it). The price is always per month, as the old
+ * /pricing quoted it; the annual total is in the review, where it is what the plan bills.
  */
 function PackageCard({
   card,
@@ -270,7 +318,7 @@ function PackageCard({
       </span>
 
       {/* Both allowance rows, an em dash for a zero: the same rows and the
-          same policy as /pricing, from the same helper. */}
+          same policy everywhere a package is priced, from the same helper. */}
       <span className="text-muted mt-3 flex flex-col gap-0.5 text-sm">
         {allowanceRows(plan).map((row) => (
           <span key={row.label}>

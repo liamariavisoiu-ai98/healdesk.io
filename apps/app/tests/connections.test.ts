@@ -163,7 +163,8 @@ describe("connection guides", () => {
     const guide = personaliseGuide(getConnectionGuide("acuity")!, "radiance-spa");
     const copyables = guide.steps.map((s) => s.copyable).filter(Boolean);
 
-    expect(copyables).toContain("connect+radiance-spa@healdesk.io");
+    expect(copyables).toContain("hello+radiance-spa@healdesk.io");
+    expect(JSON.stringify(guide)).not.toContain("connect+");
     expect(JSON.stringify(guide)).not.toContain("{connectEmail}");
   });
 

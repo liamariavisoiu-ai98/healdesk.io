@@ -99,7 +99,7 @@ describeDb("the Meta webhook and the answer gate", () => {
     await closePools();
   });
 
-  /** A live production clinic on Meta Chatbot, its plan started on 1 October, the Meta channel live. */
+  /** A live production clinic on AYA Meta Chat, its plan started on 1 October, the Meta channel live. */
   async function liveClinic(label: string, pageId: string) {
     const c = await seedClinic(label);
     await getMigratorPool().query(

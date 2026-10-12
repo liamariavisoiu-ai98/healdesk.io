@@ -130,9 +130,9 @@ export function WhyWaitExperience() {
               >
                 {site.cta.secondary.label}
               </a>
-              <a href="/pricing" className="btn-outline px-6 py-3.5 text-base">
-                See pricing
-              </a>
+              {/* Was "See pricing" until the owner disabled /pricing on 9 October
+                  2026: the buy flow is where packages and prices are shown. */}
+              <BuyButton variant="quiet" size="px-6 py-3.5 text-base" />
             </div>
 
             <div className="border-line mt-10 border-t pt-6">
@@ -178,8 +178,8 @@ export function WhyWaitExperience() {
 
               <div className="border-line mt-7 flex flex-wrap items-center justify-between gap-4 border-t pt-6">
                 <p className="text-muted max-w-[34ch] text-[14.5px] leading-snug font-medium">
-                  Packages from {site.name}&apos;s pricing page, monthly or annual, cancel at the
-                  end of any period.
+                  Choose your package and see its price before you pay, monthly or annual; cancel
+                  at the end of any period.
                 </p>
                 <BuyButton className="px-6 py-3.5 text-base" />
               </div>

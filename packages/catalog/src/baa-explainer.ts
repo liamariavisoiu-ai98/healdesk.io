@@ -136,9 +136,10 @@ export const BAA_EXPLAINER = {
  * keyed by the subparagraph they cite. 1.3.0's Term clause limits further
  * uses AND disclosures of what cannot be returned or destroyed (HRC-03), and
  * lets Practice terminate when Practice determines healdesk has violated a
- * material term (HRC-07), as 164.504(e)(2)(ii)(J) and (e)(2)(iii) say. 1.2.1's
- * clause still says "use" and "materially breaches", so BAA_EXPLAINER.terms
- * keeps its bullets word for word: a summary narrower than the clause beside
+ * material term (HRC-07), as 164.504(e)(2)(ii)(J) and (e)(2)(iii) say. The
+ * Term clause of 1.2.1 and 1.2.2 (the same object) still says "use" and
+ * "materially breaches", so BAA_EXPLAINER.terms keeps its bullets word for
+ * word: a summary narrower than the clause beside
  * it, or than the regulation it cites, is the mis-citation the comment on
  * `terms` warns against (verification of the redraft, 7 October 2026).
  */
@@ -172,8 +173,8 @@ export const BAA_EXPLAINER_TERMS_BY_VERSION: Readonly<Record<string, readonly Ba
  * The bullets to show above one version of the agreement. The signing screen
  * is to read them through this, with the version it renders, as it reads the
  * clause notes through `clauseExplainer`: BAA_EXPLAINER.terms is right only
- * while it renders 1.2.1 (docs/counsel/agreement-changes.md §12.14, release
- * gate 11).
+ * while it renders 1.2.2 or 1.2.1 (docs/counsel/agreement-changes.md §12.14,
+ * release gate 11).
  */
 export function baaExplainerTerms(templateVersion: string): readonly BaaExplainerTerm[] {
   // Own keys only: "toString" is no version.
@@ -201,8 +202,9 @@ const BAA_EXPLAINERS_BY_VERSION: Readonly<Record<string, BaaExplainer>> = Object
 
 /**
  * The whole of "Why you're signing this" for one version of the agreement,
- * its bullets from `baaExplainerTerms`: BAA_EXPLAINER itself for 1.2.1, the
- * signed version, and for any version that words no bullet differently, so
+ * its bullets from `baaExplainerTerms`: BAA_EXPLAINER itself for 1.2.2, the
+ * signed version, for 1.2.1 before it, and for any version that words no
+ * bullet differently, so
  * what that screen shows stays byte for byte what it shows today; for 1.3.0,
  * the same heading, lead, objection and disclaimer above 1.3.0's bullets.
  * The signing screen takes the explainer from here with the version it
@@ -238,14 +240,19 @@ export type ExplainedClauseId =
  *
  * ⚖️ Every note here must stay true to the clause it explains, in every
  * version that renders that clause id. The signing screen renders only the
- * current template (1.2.1 today, 1.3.0 once released), and three ids carry a
+ * current template (1.2.2 today, 1.3.0 once released), and three ids carry a
  * different body in each: data-sources-none, minimum-necessary and
  * subcontractors. The pre-release audit of 6 October 2026 changed what each
  * of them says in 1.3.0 (the sources of patient information, the booking
  * fields and retention, Anthropic in covenant form and where a notice goes),
  * so this map keeps 1.2.1's notes, word for word what the live checkout
  * shows, and 1.3.0's are in BAA_CLAUSE_EXPLAINERS_BY_VERSION;
- * `clauseExplainer` picks between them. The three calendar ids exist only in
+ * `clauseExplainer` picks between them. 1.2.2 shows the same notes as 1.2.1:
+ * its clauses are 1.2.1's objects except reporting, subcontractors and
+ * notices, and what the subcontractors note says (fifteen days' notice, the
+ * objection, Anthropic's retention) is true of both; it says nothing of where
+ * the list is kept, which is the only thing 1.2.2 changed in that clause.
+ * The three calendar ids exist only in
  * 1.3.0, so their notes here are 1.3.0's. The golden test in apps/app freezes
  * every version's bytes, and the clause body is the thing to read if a note
  * and a clause ever seem to disagree.
@@ -335,8 +342,8 @@ export const BAA_CLAUSE_EXPLAINERS: Readonly<Record<ExplainedClauseId, BaaExplai
  * 2026: the data-sources clause names every source of patient information,
  * the payment processor's notice included; the minimum-necessary clause lists
  * the booking fields the catalogue can ask, and never an email address; and
- * the subcontractors clause gives 24 hours' notice where 1.2.1's gives fifteen
- * days, with an objection that has to come before the change takes effect,
+ * the subcontractors clause gives 24 hours' notice where 1.2.1's and 1.2.2's
+ * give fifteen days, with an objection that has to come before the change takes effect,
  * which in a day is the part that matters, and states Anthropic's agreement
  * as a promise about when it is signed.
  */

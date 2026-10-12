@@ -1,9 +1,17 @@
 import { createHash } from "node:crypto";
 
-import { and, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, eq, inArray, lt, or, sql } from "drizzle-orm";
 
-import { bookingRequests, slotHolds, type SlotHoldChannel, type SlotHoldStatus } from "@/db/schema";
+import {
+  appointments,
+  bookingRequests,
+  contacts,
+  slotHolds,
+  type SlotHoldChannel,
+  type SlotHoldStatus,
+} from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
+import { IDENTIFIER_REF_PREFIX, identifierRef } from "@/lib/identifier-ref";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
@@ -45,9 +53,28 @@ export async function lockClinicCalendar(tx: TenantTx): Promise<void> {
   );
 }
 
-/** sha256 hex of a holder key ("voice:" + the call id, …): what slot_holds keeps. Never the key. */
-export function holderRefOf(holderKey: string): string {
-  return createHash("sha256").update(holderKey, "utf8").digest("hex");
+/**
+ * What slot_holds keeps for a holder key ("retell:" + the call id, …; the
+ * table is in engine.ts): identifierRef's keyed HMAC (lib/identifier-ref.ts),
+ * as kind `slot_holder` at the clinic, never the key. It was a plain sha256
+ * until the erasure work of 12 October 2026, and a plain hash of anything
+ * built from a phone number or a WhatsApp sender id is read back by hashing
+ * every number; it also outlived an erasure (clearHoldsForErasure, below).
+ *
+ * The "v1:" prefix is left off because the column's CHECK (drizzle/0057)
+ * takes 64 hex characters. There is no re-key plan to keep: a hold is
+ * working state, deleted a day after it finishes by the hold paths
+ * (spentHolds) and after a week by the retention purge, so a change of key
+ * only makes a holder a stranger to a hold it placed under the old key, and
+ * an erasure misses such a hold until it is deleted.
+ */
+export function holderRefOf(clinicId: string, holderKey: string): string {
+  return identifierRef("slot_holder", clinicId, holderKey).slice(IDENTIFIER_REF_PREFIX.length);
+}
+
+/** The plain sha256 holderRefOf made before it was keyed; only an erasure still looks for it. */
+function legacyHolderRefOf(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
 export type HoldInput = {
@@ -58,7 +85,7 @@ export type HoldInput = {
   startsAt: Date;
   minutes: number;
   contactId?: string | null;
-  /** sha256 of the call or session, for the audit row; never a raw vendor id. */
+  /** The holder's reference (holderRefOf), for the audit row; never a raw vendor id. */
   callRef?: string;
 };
 
@@ -85,7 +112,7 @@ export async function holdSpanWithin(tx: TenantTx, input: HoldInput): Promise<Ho
   if (!Number.isInteger(input.minutes) || input.minutes < 5 || input.minutes > 480) {
     throw new Error("A hold lasts 5 to 480 minutes.");
   }
-  const holderRef = holderRefOf(input.holderKey);
+  const holderRef = holderRefOf(tx.clinicId, input.holderKey);
   await lockClinicCalendar(tx);
   await tx.db
     .update(slotHolds)
@@ -303,4 +330,123 @@ export async function releaseLiveHolds(tx: TenantTx, reason: string): Promise<nu
     }
   }
   return released.length;
+}
+
+/** outcome_reason on a hold an erasure lets go, for the moment before it is deleted. */
+const ERASED = "erased";
+
+/**
+ * Delete every slot hold of one person at the tenant's location, for an
+ * erasure (the funnel's erasePerson), and return how many went. `phones` are
+ * E.164 numbers, after the erasure's own identifier closure; `threadRefs`
+ * are the person's Meta and WhatsApp thread references (identifierRef, kind
+ * `chat_party`).
+ *
+ * A hold is theirs when its holder reference is the keyed reference of one
+ * of those (holderRefOf) or the plain sha256 a hold placed before refs were
+ * keyed carries, or when it is linked to one of their contacts (the
+ * location's contacts with one of the numbers): as its own contact, through
+ * its request, or through the appointment it became. The engine's holder
+ * keys today are a call, a web session or a Meta conversation (engine.ts),
+ * never a number or a thread reference, so its holds are found by their
+ * links, and the caller must clear holds BEFORE it erases the contacts
+ * (app_erase_contacts): deleting a contact, a request or an appointment sets
+ * the hold's link to null, and nothing would find the hold afterwards.
+ *
+ * A hold that still blocks cannot be deleted, by any role (drizzle/0057's
+ * delete guard), so each unfinished one is first let go as releaseLiveHolds
+ * lets one go (`erased`) and then deleted with the rest. A write in flight
+ * that is let go records nothing when its writer returns (writer.ts, the
+ * lease); an event it put in Google is the clinic's own calendar's. No
+ * `calendar_check` alert is raised: the request it would point at is erased
+ * in the same transaction. Releasing only frees time, so no calendar lock;
+ * the rows are locked, so a claim or a writer settling one finishes first.
+ *
+ * Runs in the caller's transaction, as the runtime role, and never opens
+ * its own: it commits or rolls back with the erasure. Returns 0 when there
+ * is nothing to clear, and writes no audit row of its own: the erasure
+ * records itself and reports this count.
+ */
+export async function clearHoldsForErasure(
+  tx: TenantTx,
+  person: { phones: string[]; threadRefs: string[] },
+): Promise<number> {
+  const present = (values: string[]) =>
+    values.filter((v): v is string => typeof v === "string" && v.length > 0);
+  const phones = [...new Set(present(person.phones))];
+  const identifiers = [...new Set([...phones, ...present(person.threadRefs)])];
+  if (identifiers.length === 0) return 0;
+  const refs = identifiers.flatMap((value) => [
+    holderRefOf(tx.clinicId, value),
+    legacyHolderRefOf(value),
+  ]);
+  const people =
+    phones.length === 0
+      ? []
+      : (
+          await tx.db
+            .select({ id: contacts.id })
+            .from(contacts)
+            .where(and(eq(contacts.clinicId, tx.clinicId), inArray(contacts.phone, phones)))
+        ).map((c) => c.id);
+  const linked =
+    people.length === 0
+      ? []
+      : [
+          inArray(slotHolds.contactId, people),
+          inArray(
+            slotHolds.bookingRequestId,
+            tx.db
+              .select({ id: bookingRequests.id })
+              .from(bookingRequests)
+              .where(
+                and(
+                  eq(bookingRequests.clinicId, tx.clinicId),
+                  inArray(bookingRequests.contactId, people),
+                ),
+              ),
+          ),
+          inArray(
+            slotHolds.appointmentId,
+            tx.db
+              .select({ id: appointments.id })
+              .from(appointments)
+              .where(
+                and(
+                  eq(appointments.clinicId, tx.clinicId),
+                  inArray(appointments.contactId, people),
+                ),
+              ),
+          ),
+        ];
+  const theirs = await tx.db
+    .select({ id: slotHolds.id })
+    .from(slotHolds)
+    .where(
+      and(eq(slotHolds.clinicId, tx.clinicId), or(inArray(slotHolds.holderRef, refs), ...linked)),
+    )
+    .for("update");
+  if (theirs.length === 0) return 0;
+  const ids = theirs.map((h) => h.id);
+  await tx.db
+    .update(slotHolds)
+    .set({
+      status: sql`case when ${slotHolds.status} = 'held' and ${slotHolds.expiresAt} <= clock_timestamp()
+                       then 'expired' else 'released' end`,
+      outcomeReason: ERASED,
+      releasedAt: sql`clock_timestamp()`,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(slotHolds.clinicId, tx.clinicId),
+        inArray(slotHolds.id, ids),
+        inArray(slotHolds.status, UNFINISHED),
+      ),
+    );
+  const deleted = await tx.db
+    .delete(slotHolds)
+    .where(and(eq(slotHolds.clinicId, tx.clinicId), inArray(slotHolds.id, ids)))
+    .returning({ id: slotHolds.id });
+  return deleted.length;
 }

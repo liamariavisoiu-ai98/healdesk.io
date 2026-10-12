@@ -130,7 +130,7 @@ type SignedAnswers = {
   /**
    * A version other than the current one, signed as if it were current: how
    * the release will sign 1.3.0 (agreements.test.ts, RELEASED_1_3), or how
-   * 1.2.0 was signed before 1.2.1 replaced it.
+   * 1.2.0 was signed before 1.2.1 replaced it, and 1.2.1 before 1.2.2.
    */
   version?: string;
   platform?: string;
@@ -759,10 +759,22 @@ describeDb("provisioning", () => {
         platform: "none",
       }),
     });
+    const replacedEmail = "replaced@gate.test";
+    const replaced = validRequest({
+      clinicName: "Replaced Gate Clinic",
+      contactEmail: replacedEmail,
+      // 1.2.1, released on 1 October and replaced by 1.2.2 on 9 October before
+      // any clinic signed it: below the floor 1.2.2 raised.
+      agreementId: await signWith("Replaced Gate Clinic", replacedEmail, {
+        version: "1.2.1",
+        platform: "none",
+      }),
+    });
 
     for (const [request, version] of [
       [draft, "1.3.0"],
       [superseded, "1.2.0"],
+      [replaced, "1.2.1"],
     ] as const) {
       // A refusal, not a 500: the row never changes, so a retry would only
       // meet it again, and a paid purchase belongs with ops.
@@ -806,12 +818,12 @@ describeDb("provisioning", () => {
     // because a refusal here comes after payment: the clinic is what was
     // signed, and the difference is a security event, with nothing about
     // anyone in it.
-    // Each signature here is 1.2.1's by name, not whatever is current, so the
+    // Each signature here is 1.2.2's by name, not whatever is current, so the
     // cases keep testing a document before 1.3.0 after the release moves
     // 1.3.0 to BAA_TEMPLATES[0].
     const email = "mismatch@platform.test";
     const agreementId = await signWith("Mismatch Clinic", email, {
-      version: "1.2.1",
+      version: "1.2.2",
       platform: "mindbody",
     });
     const mismatched = await provisionClinic(
@@ -841,7 +853,7 @@ describeDb("provisioning", () => {
 
     // The booking system the funnel signs with beside the platform is the
     // finer answer (Google Calendar alone names no platform), and a purchase
-    // that matches records nothing. 1.2.1 reads neither calendar answer, so
+    // that matches records nothing. 1.2.2 reads neither calendar answer, so
     // it gives the location no calendar terms either: it waits for an
     // election (plan §2.8).
     const funnelEmail = "funnel@platform.test";
@@ -850,7 +862,7 @@ describeDb("provisioning", () => {
         clinicName: "Funnel Clinic",
         contactEmail: funnelEmail,
         agreementId: await signWith("Funnel Clinic", funnelEmail, {
-          version: "1.2.1",
+          version: "1.2.2",
           platform: "none",
           bookingSystem: "google_calendar",
           calendarAccount: "workspace_baa",
@@ -870,7 +882,7 @@ describeDb("provisioning", () => {
         contactEmail: splitEmail,
         platform: "mindbody",
         agreementId: await signWith("Split Clinic", splitEmail, {
-          version: "1.2.1",
+          version: "1.2.2",
           platform: "mindbody",
           bookingSystem: "calcom",
         }),

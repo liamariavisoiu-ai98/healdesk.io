@@ -1465,11 +1465,13 @@ export const incidents = pgTable(
     discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull(),
     /**
      * From the class: discovery plus 24 hours for a breach, a security
-     * incident and an improper use or disclosure, at every clinic (BAA
-     * 1.3.0's reporting clause, which 1.2.1's five days are met by too), or
-     * the state-law clause's "immediately following discovery" for a breach
-     * at a clinic that is not a covered entity, if that is ever earlier; two
-     * business days to a first reply for a service complaint. Set when the
+     * incident and an improper use or disclosure, at every clinic, or the
+     * state-law "immediately following discovery" for a breach at a clinic
+     * that is not a covered entity, if that is ever earlier; two business
+     * days to a first reply for a service complaint. The 24 hours is
+     * healdesk's internal target, unpublished: it meets every agreement's
+     * deadline (60 calendar days at most in BAA 1.2.2 and the 1.3.0 and DPA
+     * drafts since 9 October 2026; five days in 1.2.1 and before). Set when the
      * incident is opened: rows opened before 7 October 2026 keep the five-day
      * clocks they were opened with (lib/incidents/incidents.ts).
      */
@@ -3398,6 +3400,21 @@ export const clinicSettings = pgTable(
       .notNull()
       .default(90),
 
+    /**
+     * Settings → Channels: Instagram, Messenger and WhatsApp, each On or Off
+     * on its own (spec, "Every switch in the portal"; 0061). On by default,
+     * so a platform answers once it is connected. The webhook skips a
+     * message on a platform switched Off (app_meta_channel), and the Meta
+     * channel's own clinic_channels.enabled is kept On while any connected
+     * platform's switch is On, and Off once none is, by their one writer,
+     * lib/channels/meta-platforms.ts.
+     * Beneath the operator's front door (clinics.meta_front_door_enabled),
+     * never instead of it.
+     */
+    instagramEnabled: boolean("instagram_enabled").notNull().default(true),
+    messengerEnabled: boolean("messenger_enabled").notNull().default(true),
+    whatsappEnabled: boolean("whatsapp_enabled").notNull().default(true),
+
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -4688,7 +4705,9 @@ export type SlotHoldStatus = (typeof SLOT_HOLD_STATUSES)[number];
  * and the BAA gate. No ISO times in audit rows. The foreign keys may be set
  * to NULL in any state, so erasing a person never fails on a hold. A hold
  * that still blocks cannot be deleted, by any role: only spent holds are
- * purged, so a delete never frees time the hold's own clock still claims.
+ * purged, so a delete never frees time the hold's own clock still claims. An
+ * erasure lets the person's holds go first and then deletes them
+ * (clearHoldsForErasure, lib/booking/holds.ts).
  */
 export const slotHolds = pgTable(
   "slot_holds",
@@ -4698,7 +4717,11 @@ export const slotHolds = pgTable(
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
     channel: text("channel").$type<SlotHoldChannel>().notNull(),
-    /** sha256 hex of the holder key (e.g. "voice:" + the call id). Never the raw key. */
+    /**
+     * holderRefOf (lib/booking/holds.ts): a keyed HMAC of the holder key (e.g.
+     * "retell:" + the call id), 64 hex. Rows placed before 12 October 2026
+     * carry its plain sha256. Never the raw key.
+     */
     holderRef: text("holder_ref").notNull(),
     startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
     durationMinutes: smallint("duration_minutes").notNull(),

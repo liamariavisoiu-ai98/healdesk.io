@@ -12,7 +12,7 @@ import {
   specialties,
   specialtyOffered,
 } from "@healdesk/catalog";
-import { type Ref } from "react";
+import { type Ref, useState } from "react";
 
 import {
   bookingConsequence,
@@ -73,7 +73,15 @@ export function ClinicStep({
   onClose,
   headingRef,
   error,
+  fromDemo = false,
 }: {
+  /**
+   * The buyer came from their personalised demo, which already has the
+   * clinic's name and website: they are shown as one confirmed line, not
+   * asked again. "Edit" opens the fields, because the agreement names the
+   * practice's legal name, which may not be the name on its door.
+   */
+  fromDemo?: boolean;
   state: FunnelState;
   update: (patch: Partial<FunnelState>) => void;
   onPlan: (planId: string) => void;
@@ -89,6 +97,9 @@ export function ClinicStep({
   const conflict = websiteConflict(state);
   const consequence = state.bookingSystem ? bookingConsequence(state.bookingSystem) : null;
   const invalid = (field: string) => error?.field === field;
+  const [editing, setEditing] = useState(false);
+  const confirmed =
+    fromDemo && !editing && state.clinicName.trim().length > 0 && state.website.trim().length > 0 && !error?.field?.match(/^(clinicName|website)$/);
 
   return (
     <StepShell
@@ -111,6 +122,23 @@ export function ClinicStep({
       ) : null}
 
       <div className="grid gap-8">
+        {confirmed ? (
+          <div className="border-line flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-white px-5 py-4">
+            <span>
+              <span className="block text-[15.6px] font-bold">{state.clinicName}</span>
+              <span className="text-muted block text-sm">{state.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}</span>
+              <span className="text-muted block text-xs">From your demo. This is the name on your agreement.</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="border-line hover:border-line-strong rounded-full border px-4 py-2 text-sm font-bold transition-colors"
+            >
+              Edit
+            </button>
+          </div>
+        ) : (
+        <>
         <TextField
           label="Practice legal name"
           value={state.clinicName}
@@ -170,6 +198,8 @@ export function ClinicStep({
             </div>
           ) : null}
         </div>
+        </>
+        )}
 
         <RadioGroup<SpecialtyId>
           name="specialty"

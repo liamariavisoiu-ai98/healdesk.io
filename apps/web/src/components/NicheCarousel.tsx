@@ -1,20 +1,21 @@
 "use client";
 
-import { NicheStack } from "@/components/NicheStack";
+import { NicheMosaic } from "@/components/NicheMosaic";
 import type { Specialty } from "@/lib/specialties";
 
 /**
- * The specialties section. Two lines of heading and the deck, nothing else.
+ * The specialties section. Two lines of heading and the mosaic, nothing else.
  *
- * It replaced a marquee, and the shape change is the argument. A reel implies
- * a list you are meant to scan. A deck implies one thing at a time, which is
- * what this section actually claims: not "here are seven products" but "here
- * is the one agent, and here is a phone she knows, and another".
+ * It replaced a marquee, and then a deck, and each change of shape was the
+ * argument. A reel implies a list you are meant to scan; a deck, one thing at
+ * a time. Since 9 October 2026 it is a 4×2 mosaic (NicheMosaic.tsx), at the
+ * owner's request: all eight on screen at once, because the claim is "here is
+ * the one agent, and here are the phones she already knows". The name of the
+ * file is the old one, kept so the history follows it.
  *
- * The pricing disclaimer that used to sit under the deck has gone. The cards
- * still quote figures, so the claim has to live somewhere: it is in the
- * footer, on every page, as "Pricing figures shown in demos are approximate
- * industry ranges, not quotes." Do not remove that one too.
+ * The pricing disclaimer that used to sit under the deck moved to the footer,
+ * and left it on 12 October 2026, at the owner's request. The demos still
+ * quote figures; the contact page says they are ranges, not quotes.
  */
 export function NicheCarousel({
   specialties,
@@ -45,7 +46,7 @@ export function NicheCarousel({
       </div>
 
       <div className="mt-12">
-        <NicheStack specialties={specialties} onOpen={onSelect} />
+        <NicheMosaic specialties={specialties} onOpen={onSelect} />
       </div>
     </section>
   );

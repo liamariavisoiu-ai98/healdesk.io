@@ -86,7 +86,7 @@ import type { AgentService, DepositPolicy } from "@/db/schema";
 import { slotLabel } from "@/lib/booking/calendar";
 import { bookConversation, logRequest, offerTimes, placeHold } from "@/lib/booking/engine";
 import type { BookConversationInput } from "@/lib/booking/engine";
-import { releaseLiveHolds } from "@/lib/booking/holds";
+import { holderRefOf, releaseLiveHolds } from "@/lib/booking/holds";
 import { bookingModeFor } from "@/lib/booking/mode";
 import { sweepHolds, writeHeldBooking } from "@/lib/booking/writer";
 import {
@@ -597,10 +597,10 @@ describeDb("the booking engine (C13)", () => {
           client.query(
             `insert into slot_holds (clinic_id, channel, holder_ref, calendar_id, starts_at, duration_minutes, ends_at,
                                      created_at, expires_at)
-             values ($1, 'voice', encode(sha256(convert_to($2, 'UTF8')), 'hex'), 'primary', $3::timestamptz, 30,
+             values ($1, 'voice', $2, 'primary', $3::timestamptz, 30,
                      $3::timestamptz + interval '30 minutes', clock_timestamp() - interval '90 seconds',
                      clock_timestamp() - interval '30 seconds')`,
-            [f.clinicId, holder, at],
+            [f.clinicId, holderRefOf(f.clinicId, holder), at],
           ),
         );
       const free = deskTime(5, 10);

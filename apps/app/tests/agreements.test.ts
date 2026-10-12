@@ -101,9 +101,10 @@ const DATE = "2026-10-06";
  * The variables signAgreement built before plan C3, line for line: the
  * picker's platform named by its catalogue name and "none" by nothing, the
  * specialty's display name, and the fixed values v1 never asks about. Main's
- * checkout still builds its preview this way and hashes it, so a 1.2.1
- * signature has to come out of the server byte for byte as it did then, or
- * the displayed-hash check refuses the buyer at the last step.
+ * checkout still builds its preview this way and hashes it, so a signature
+ * on a version before 1.3.0 (1.2.2 today) has to come out of the server byte
+ * for byte as the preview built it, or the displayed-hash check refuses the
+ * buyer at the last step.
  */
 function legacyVariables(request: SignAgreementRequest, effectiveDate: string): BaaVariables {
   return {
@@ -259,15 +260,15 @@ describe("rendering", () => {
   });
 
   test("the offered template is released, says so, and carries no draft wording", () => {
-    // 1.2.1 was released on 2026-10-01 on the owner's own review, without
+    // 1.2.2 was released on 2026-10-09 on the owner's own review, without
     // external counsel (the doc comment on approvedByCounsel in
     // packages/catalog/src/baa.ts records that). The document itself must
     // read as executable: a DRAFT line, or the 1.1.0 acceptance placeholder,
     // in an offered agreement is the draft preamble leaking into production.
-    expect(CURRENT_BAA_VERSION).toBe("1.2.1");
+    expect(CURRENT_BAA_VERSION).toBe("1.2.2");
     expect(currentBaaTemplate().approvedByCounsel).toBe(true);
     const text = renderBaa(currentBaaTemplate(), VARS);
-    expect(text).toContain("Version 1.2.1 — executed electronically");
+    expect(text).toContain("Version 1.2.2 — executed electronically");
     expect(text).not.toMatch(/DRAFT|NOT FOR EXECUTION|\[NAME, TITLE\]/);
     // The party is the legal entity, not the trade name alone.
     expect(unwrap(text)).toContain('Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates ("healdesk")');
@@ -697,7 +698,9 @@ describe("the go-live floor", () => {
     // 1.3.0 is a draft until the owner releases it (agreement-changes.md
     // §12), and the other drafts were never executable. Releasing 1.3.0
     // changes this list along with the floor, on purpose.
-    for (const version of ["1.3.0", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft", "1.3", "9.9.9", ""]) {
+    // 1.2.1 was released, but no clinic signed it and 1.2.2 raised the floor
+    // past it (9 October 2026).
+    for (const version of ["1.3.0", "1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft", "1.3", "9.9.9", ""]) {
       expect(isBaaVersionAcceptable(version), version).toBe(false);
     }
   });
@@ -901,12 +904,12 @@ describe("which agreement a request signs", () => {
  * replaced, until the deadline in BAA_RELEASE_OVERLAP, because a release
  * reaches the two apps in two deploys (plan §2.2). The map is empty and 1.3.0
  * a draft until that release, so these tests stand in for it as plan C19 is
- * to make it: 1.3.0 current, and 1.2.1 in the overlap.
+ * to make it: 1.3.0 current, and 1.2.2 in the overlap.
  */
 describe("which versions can be signed", () => {
   const release = (now: string, deadline = "2026-10-09T12:00:00Z"): SignableOptions => ({
     ...RELEASED_1_3,
-    releaseOverlap: { "1.2.1": deadline },
+    releaseOverlap: { "1.2.2": deadline },
     now: new Date(now),
   });
 
@@ -915,7 +918,7 @@ describe("which versions can be signed", () => {
     // production deployments are verified (plan C20).
     expect(BAA_RELEASE_OVERLAP).toEqual({});
     expect(signableTemplate(CURRENT_BAA_VERSION)).toBe(currentBaaTemplate());
-    for (const version of ["1.3.0", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"]) {
+    for (const version of ["1.3.0", "1.2.1", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"]) {
       expect(
         refusal(() => signableTemplate(version)),
         version,
@@ -927,17 +930,19 @@ describe("which versions can be signed", () => {
   });
 
   test("after a release, the version it replaced signs until its deadline, and not from that instant", () => {
-    expect(signableTemplate("1.2.1", release("2026-10-09T11:59:59.999Z")).version).toBe("1.2.1");
-    expect(() => signableTemplate("1.2.1", release("2026-10-09T12:00:00.000Z"))).toThrow(
+    expect(signableTemplate("1.2.2", release("2026-10-09T11:59:59.999Z")).version).toBe("1.2.2");
+    expect(() => signableTemplate("1.2.2", release("2026-10-09T12:00:00.000Z"))).toThrow(
       /has been updated/,
     );
-    expect(() => signableTemplate("1.2.1", release("2026-10-10T00:00:00Z"))).toThrow(
+    expect(() => signableTemplate("1.2.2", release("2026-10-10T00:00:00Z"))).toThrow(
       /has been updated/,
     );
     // The overlap names one version; an older one stays refused inside it.
-    expect(() => signableTemplate("1.2.0", release("2026-10-08T00:00:00Z"))).toThrow(
-      /has been updated/,
-    );
+    for (const older of ["1.2.1", "1.2.0"]) {
+      expect(() => signableTemplate(older, release("2026-10-08T00:00:00Z")), older).toThrow(
+        /has been updated/,
+      );
+    }
     // And the released version signs whatever the clock says.
     expect(signableTemplate("1.3.0", release("2099-01-01T00:00:00Z")).version).toBe("1.3.0");
   });
@@ -977,7 +982,7 @@ describe("which versions can be signed", () => {
       "2026-02-30T12:00:00Z",
       "2026-10-12T24:00:00Z",
     ]) {
-      expect(() => signableTemplate("1.2.1", release(before, deadline)), deadline).toThrow(
+      expect(() => signableTemplate("1.2.2", release(before, deadline)), deadline).toThrow(
         /has been updated/,
       );
     }
@@ -988,7 +993,7 @@ describe("which versions can be signed", () => {
       "2026-10-12T16:00:00+04:00",
       "2026-10-12T07:00:00-05:00",
     ]) {
-      expect(signableTemplate("1.2.1", release(before, deadline)).version, deadline).toBe("1.2.1");
+      expect(signableTemplate("1.2.2", release(before, deadline)).version, deadline).toBe("1.2.2");
     }
     // The offset is read as written, whatever the server's zone: one instant
     // written three ways closes at the same moment.
@@ -998,11 +1003,11 @@ describe("which versions can be signed", () => {
       "2026-10-12T07:00:00-05:00",
     ]) {
       expect(
-        signableTemplate("1.2.1", release("2026-10-12T11:59:59.999Z", deadline)).version,
+        signableTemplate("1.2.2", release("2026-10-12T11:59:59.999Z", deadline)).version,
         deadline,
-      ).toBe("1.2.1");
+      ).toBe("1.2.2");
       expect(
-        () => signableTemplate("1.2.1", release("2026-10-12T12:00:00Z", deadline)),
+        () => signableTemplate("1.2.2", release("2026-10-12T12:00:00Z", deadline)),
         deadline,
       ).toThrow(/has been updated/);
     }
@@ -1018,7 +1023,7 @@ describe("which versions can be signed", () => {
   });
 
   test("validation reads the release, overlap and clock it is given, and the real ones otherwise", () => {
-    const replaced = validSignRequest({ templateVersion: "1.2.1" });
+    const replaced = validSignRequest({ templateVersion: "1.2.2" });
     expect(() => validateSignRequest(replaced, release("2026-10-09T11:00:00Z"))).not.toThrow();
     expect(() => validateSignRequest(replaced, release("2026-10-09T13:00:00Z"))).toThrow(
       /has been updated/,
@@ -1029,16 +1034,18 @@ describe("which versions can be signed", () => {
       ["2000-01-01T00:00:00Z", false],
     ] as const) {
       const run = () =>
-        validateSignRequest(replaced, { ...RELEASED_1_3, releaseOverlap: { "1.2.1": deadline } });
+        validateSignRequest(replaced, { ...RELEASED_1_3, releaseOverlap: { "1.2.2": deadline } });
       if (signs) expect(run, deadline).not.toThrow();
       else expect(run, deadline).toThrow(/has been updated/);
     }
-    // The real release and overlap, when none is given: 1.2.1 is current,
-    // and nothing older is listed.
+    // The real release and overlap, when none is given: 1.2.2 is current,
+    // and nothing older is listed, 1.2.1 included (no clinic signed it).
     expect(() => validateSignRequest(replaced)).not.toThrow();
-    expect(() => validateSignRequest(validSignRequest({ templateVersion: "1.2.0" }))).toThrow(
-      /has been updated/,
-    );
+    for (const templateVersion of ["1.2.1", "1.2.0"]) {
+      expect(() => validateSignRequest(validSignRequest({ templateVersion })), templateVersion).toThrow(
+        /has been updated/,
+      );
+    }
   });
 });
 
@@ -1177,7 +1184,7 @@ describe("the answers that choose the document", () => {
     }
     // A version before 1.3.0 names the picker's platform and takes both as
     // sent, as the addendum agreed with the funnel: a Zenoti clinic answers
-    // "Something else", and its 1.2.1 document names Zenoti.
+    // "Something else", and its 1.2.2 document names Zenoti.
     expect(() =>
       validateSignRequest(validSignRequest({ platform: "zenoti", bookingSystem: "other" })),
     ).not.toThrow();
@@ -1240,20 +1247,20 @@ describe("the answers that choose the document", () => {
  * below prove that against a written row.
  */
 describe("the server's render", () => {
-  const v121 = getBaaTemplate("1.2.1")!;
+  const v122 = getBaaTemplate("1.2.2")!;
 
-  test("1.2.1 is byte for byte what signing rendered before, for every platform the picker offers", () => {
+  test("1.2.2 renders byte for byte as signing rendered before plan C3, for every platform the picker offers", () => {
     for (const platform of platforms) {
       for (const attributionMode of ["estimated", "verified"] as const) {
         if (attributionMode === "verified" && !supportsVerifiedAttribution(platform)) continue;
         const request = validSignRequest({
-          templateVersion: "1.2.1",
+          templateVersion: "1.2.2",
           platform: platform.id,
           attributionMode,
         });
         const { variables, prepared } = prepareAgreement(request, DATE);
         expect(prepared.hash, `${platform.id}/${attributionMode}`).toBe(
-          prepareBaa(v121, legacyVariables(request, DATE)).hash,
+          prepareBaa(v122, legacyVariables(request, DATE)).hash,
         );
         expect(variables.connectedPlatform).toBe(
           platform.id === NO_PLATFORM_ID ? null : platform.name,
@@ -1265,33 +1272,33 @@ describe("the server's render", () => {
   test("a booking system alone names its phase-two platform, as the picker would have", () => {
     for (const system of BOOKING_SYSTEMS) {
       const request = validSignRequest({
-        templateVersion: "1.2.1",
+        templateVersion: "1.2.2",
         platform: undefined,
         bookingSystem: system.id,
       });
       const picked = validSignRequest({
-        templateVersion: "1.2.1",
+        templateVersion: "1.2.2",
         platform: system.phaseTwoPlatformId ?? NO_PLATFORM_ID,
       });
       expect(prepareAgreement(request, DATE).prepared.hash, system.id).toBe(
-        prepareBaa(v121, legacyVariables(picked, DATE)).hash,
+        prepareBaa(v122, legacyVariables(picked, DATE)).hash,
       );
     }
   });
 
-  test("when both come, the picker's platform names a 1.2.1 document, and the answers change nothing", () => {
-    // A Zenoti clinic answers the v1 question "Something else", and its 1.2.1
+  test("when both come, the picker's platform names a 1.2.2 document, and the answers change nothing", () => {
+    // A Zenoti clinic answers the v1 question "Something else", and its 1.2.2
     // document names Zenoti, as the preview on its screen does.
     const both = validSignRequest({
-      templateVersion: "1.2.1",
+      templateVersion: "1.2.2",
       platform: "zenoti",
       bookingSystem: "other",
       calendarAccount: "personal",
     });
     const { variables, prepared } = prepareAgreement(both, DATE);
     expect(variables.connectedPlatform).toBe("Zenoti");
-    expect(prepared.hash).toBe(prepareBaa(v121, legacyVariables(both, DATE)).hash);
-    // 1.2.1 reads neither answer, so neither reaches what it renders from.
+    expect(prepared.hash).toBe(prepareBaa(v122, legacyVariables(both, DATE)).hash);
+    // 1.2.2 reads neither answer, so neither reaches what it renders from.
     expect(variables).not.toHaveProperty("bookingSystem");
     expect(variables).not.toHaveProperty("calendarAccount");
   });
@@ -1338,15 +1345,15 @@ describe("the server's render", () => {
   });
 
   test("renders the version the request names when it may be signed, not whichever is current", () => {
-    // Inside the overlap after a release, a buyer who loaded 1.2.1 signs 1.2.1.
-    const release = { ...RELEASED_1_3, releaseOverlap: { "1.2.1": "2999-01-01T00:00:00Z" } };
+    // Inside the overlap after a release, a buyer who loaded 1.2.2 signs 1.2.2.
+    const release = { ...RELEASED_1_3, releaseOverlap: { "1.2.2": "2999-01-01T00:00:00Z" } };
     expect(
-      prepareAgreement(validSignRequest({ templateVersion: "1.2.1" }), DATE, release).prepared
+      prepareAgreement(validSignRequest({ templateVersion: "1.2.2" }), DATE, release).prepared
         .version,
-    ).toBe("1.2.1");
+    ).toBe("1.2.2");
     // What the endpoint refuses is refused here too, so a direct caller cannot
     // render a draft or a superseded version for a row either.
-    for (const templateVersion of ["1.3.0", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"]) {
+    for (const templateVersion of ["1.3.0", "1.2.1", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"]) {
       const request = validSignRequest({
         templateVersion,
         platform: undefined,
@@ -1674,10 +1681,10 @@ describeDb("signing", () => {
     // is known without stalling the pg driver's own timers.
     const request = validSignRequest({
       clinicLegalName: "Preview Clinic",
-      templateVersion: "1.2.1",
+      templateVersion: "1.2.2",
       platform: "mindbody",
     });
-    const displayedHash = prepareBaa(getBaaTemplate("1.2.1")!, legacyVariables(request, DATE)).hash;
+    const displayedHash = prepareBaa(getBaaTemplate("1.2.2")!, legacyVariables(request, DATE)).hash;
 
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(`${DATE}T15:00:00.000Z`));
@@ -1703,7 +1710,7 @@ describeDb("signing", () => {
   test("stores the answers as sent, beside the variant and outside the hash", async () => {
     const request = validSignRequest({
       clinicLegalName: "Answers Clinic",
-      templateVersion: "1.2.1",
+      templateVersion: "1.2.2",
       platform: "boulevard",
       bookingSystem: "boulevard",
       calendarAccount: "workspace_no_baa",
@@ -1721,11 +1728,11 @@ describeDb("signing", () => {
     // The row holds exactly what prepareAgreement renders for the request...
     const effectiveDate = String(variables.effectiveDate);
     expect(signed.hash).toBe(prepareAgreement(request, effectiveDate).prepared.hash);
-    // ...and 1.2.1 renders neither calendar answer: the same document, by
+    // ...and 1.2.2 renders neither calendar answer: the same document, by
     // hash, as the request that sent only the platform.
     const platformOnly = validSignRequest({
       clinicLegalName: "Answers Clinic",
-      templateVersion: "1.2.1",
+      templateVersion: "1.2.2",
       platform: "boulevard",
     });
     expect(signed.hash).toBe(prepareAgreement(platformOnly, effectiveDate).prepared.hash);
@@ -1735,7 +1742,7 @@ describeDb("signing", () => {
     const signed = await signAgreement(
       validSignRequest({
         clinicLegalName: "System Clinic",
-        templateVersion: "1.2.1",
+        templateVersion: "1.2.2",
         platform: undefined,
         bookingSystem: "gohighlevel",
       }),
@@ -1744,7 +1751,7 @@ describeDb("signing", () => {
     expect(variables).not.toHaveProperty("platformId");
     expect(variables).not.toHaveProperty("calendarAccount");
     expect(variables.bookingSystem).toBe("gohighlevel");
-    // A 1.2.1 document names HighLevel by its phase-two name, as the picker did.
+    // A 1.2.2 document names HighLevel by its phase-two name, as the picker did.
     expect(variables.connectedPlatform).toBe("GoHighLevel");
   });
 
@@ -1771,7 +1778,7 @@ describeDb("signing", () => {
         calendarAccount: "workspace_baa",
       });
     const before = await acceptanceCount();
-    for (const templateVersion of ["1.3.0", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"]) {
+    for (const templateVersion of ["1.3.0", "1.2.1", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"]) {
       await expect(signAgreement(request(templateVersion)), templateVersion).rejects.toMatchObject({
         field: "templateVersion",
       });
@@ -1824,13 +1831,13 @@ describeDb("signing", () => {
   test("inside the overlap after a release, the version it replaced signs as itself, and not after", async () => {
     const request = validSignRequest({
       clinicLegalName: "Overlap Clinic",
-      templateVersion: "1.2.1",
+      templateVersion: "1.2.2",
       platform: "calcom",
     });
-    const open = { ...RELEASED_1_3, releaseOverlap: { "1.2.1": "2999-01-01T00:00:00Z" } };
+    const open = { ...RELEASED_1_3, releaseOverlap: { "1.2.2": "2999-01-01T00:00:00Z" } };
     const signed = await signAgreement(request, {}, open);
-    expect(signed.version).toBe("1.2.1");
-    expect(signed.text).toContain("Version 1.2.1");
+    expect(signed.version).toBe("1.2.2");
+    expect(signed.text).toContain("Version 1.2.2");
 
     const before = await acceptanceCount();
     await expect(

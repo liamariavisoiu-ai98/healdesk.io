@@ -170,7 +170,7 @@ const WORDING: Record<OpsEvent, Wording> = {
       "Resend has been sending as healdesk.io since the day below, 14 or more days ago. Read healdesk.io's DMARC aggregate reports from that day on: if the only senders they show are Resend and the owner's own mail, change healdesk.io's DMARC record from p=none to p=quarantine. If anything else sends as healdesk.io, find out what it is first.",
   },
   // Raised once per clinic by the destruction job (lib/offboarding) from day
-  // 21 after a clinic on the thirty days (BAA 1.2.1 or earlier, or no
+  // 21 after a clinic on the thirty days (BAA 1.2.2 or earlier, or no
   // agreement) left with no export recorded as delivered. Its one fact is
   // when the data goes (destroyAt). The export is owed whether or not the
   // practice asks: those agreements give it "on request", but Terms §7

@@ -15,7 +15,7 @@ import { agreementMismatch } from "@/lib/checkout/intents";
 
 const nameOf = (id: string) => specialties.find((s) => s.id === id)!.name;
 
-/** A 1.2.1 Business Associate Agreement's variables, as signAgreement stores them. */
+/** A 1.2.2 Business Associate Agreement's variables, as signAgreement stores them. */
 const BAA = {
   clinicLegalName: "Glow Med Spa LLC",
   signatoryName: "Laura Owner",
@@ -44,7 +44,7 @@ const PURCHASE = {
 
 describe("a Business Associate Agreement", () => {
   test("the document as signed, under the version being signed, passes", () => {
-    expect(CURRENT_BAA_VERSION).toBe("1.2.1");
+    expect(CURRENT_BAA_VERSION).toBe("1.2.2");
     expect(agreementMismatch(CURRENT_BAA_VERSION, BAA, PURCHASE)).toBeNull();
     // The name as signed: trimmed on both sides.
     expect(

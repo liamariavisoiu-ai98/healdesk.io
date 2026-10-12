@@ -23,8 +23,8 @@ import {
 /**
  * How a package is described wherever a price is shown.
  *
- * /pricing, the checkout's package cards and the closing CTA all render the
- * same five cards, and before this file each of them did its own arithmetic
+ * The checkout's package cards render the five packages (until 9 October
+ * 2026 /pricing and its closing CTA did too), and before this file each of them did its own arithmetic
  * and its own labelling. That is how a site ends up saying "$317/mo" on one
  * page and "$3,800 a year" on the next for the same package: the numbers are
  * both true and they still do not agree. So the arithmetic is delegated to the
@@ -97,8 +97,7 @@ export function channelChips(card: PricingCard): string[] {
 export type AllowanceRow = { label: string; value: string };
 
 /**
- * The two allowance rows every package card shows, on /pricing and in the
- * checkout's package cards alike.
+ * The two allowance rows every package card in the checkout shows.
  *
  * Both rows, always, with an em dash for a zero. A voice-only package has no
  * chat allowance and a chat-only package has no voice minutes, and a card

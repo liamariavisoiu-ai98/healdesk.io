@@ -973,7 +973,7 @@ Plan mode can't publish anything, which is why the page is the first step after 
 | **Product** | `healdesk <hello@healdesk.io>` | hello@healdesk.io | apps/app | Everything to a clinic: welcome, sign-in links, setup, go-live, alerts, booking requests, summaries, billing, receipts, Terms and agreement notices, product updates. Also P6 and our own ops alerts |
 | **Marketing** | `healdesk <noreply@healdesk.io>` | hello@healdesk.io, because nurture invites replies | apps/web | Nurture, and every other email before purchase |
 
-- **hello@ stays the one inbox.** legal@ and privacy@ stay as published, because the Terms and the signed BAA name them, and they already forward to the same inbox.
+- **hello@ stays the one inbox.** legal@ and privacy@ stay as published, because the Terms and the signed BAA name them, and they already forward to the same inbox. *(Superseded by the owner on 9 October 2026: hello@healdesk.io is the only address, and no client-facing copy names legal@ or privacy@. BAA 1.2.2 names hello@ as its notice address; docs/counsel/agreement-changes.md § 13.)*
 - **Free plan to start.** It allows 3,000 emails a month and **100 a day**. Past the daily cap, every email fails until midnight UTC (8 pm Eastern), sign-in links and urgent alerts included.
   - The count comes from Resend's `x-resend-daily-quota` response header, which covers both apps. The ops digest shows it, and `notifyOps` fires at 70.
   - A `daily_quota_exceeded` 429 waits until 00:05 UTC without spending a retry.

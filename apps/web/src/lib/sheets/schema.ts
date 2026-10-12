@@ -240,7 +240,21 @@ export const COUNTERS: Tab = {
  * `slug` is the capability: knowing it is what lets a browser use the demo,
  * so it carries a random suffix and is never listed anywhere public.
  */
-export type DemoSessionStatus = "building" | "ready" | "failed";
+/**
+ * `building` → `auditing` → `ready` | `held`, or `failed` at any point.
+ * `auditing` and `held` exist for the handoff audit (src/lib/demo/audit.ts):
+ * a demo reaches `ready`, the only status the page and the APIs serve, once
+ * the audit has passed it or an operator has released it.
+ */
+export type DemoSessionStatus = "building" | "auditing" | "ready" | "held" | "failed";
+
+/**
+ * What the handoff audit decided. `pass` and `flagged` ship on their own
+ * (`flagged` with an alert to the team); `held` waits for an operator;
+ * `unavailable` means the audit could not run, which holds the demo too;
+ * `released` is an operator shipping a held demo by hand.
+ */
+export type DemoAuditVerdict = "pass" | "flagged" | "held" | "unavailable" | "released";
 
 export type DemoSession = {
   id: string;
@@ -271,6 +285,18 @@ export type DemoSession = {
   claimedAt: Date | null;
   claimedPlan: string | null;
   emailSentAt: Date | null;
+  /** When the current build (first or retry) started; how the console tells a stalled build from a slow one. */
+  buildStartedAt: Date | null;
+  /** The request asked for the link to be emailed; the audit's pass sends it, whenever that comes. */
+  emailRequested: boolean;
+  auditVerdict: DemoAuditVerdict | null;
+  /** The weighted 0–100 score. */
+  auditScore: number | null;
+  /** The full audit (lib/demo/audit.ts `AuditReport`), as JSON. Operator-facing. */
+  auditReport: Record<string, unknown> | null;
+  auditedAt: Date | null;
+  /** Fingerprint of the profile the verdict was given for; a changed profile is unaudited. */
+  auditHash: string | null;
 };
 
 export const DEMO_SESSIONS: Tab = {
@@ -299,6 +325,15 @@ export const DEMO_SESSIONS: Tab = {
     col("claimed_at", "claimedAt", "timestamp"),
     col("claimed_plan", "claimedPlan", "text"),
     col("email_sent_at", "emailSentAt", "timestamp"),
+    // Appended, never inserted: an existing tab's header row is extended in
+    // place only while the old one is a prefix of this one (provision below).
+    col("build_started_at", "buildStartedAt", "timestamp"),
+    col("email_requested", "emailRequested", "bool"),
+    col("audit_verdict", "auditVerdict", "text"),
+    col("audit_score", "auditScore", "int"),
+    col("audit_report", "auditReport", "json"),
+    col("audited_at", "auditedAt", "timestamp"),
+    col("audit_hash", "auditHash", "text"),
   ],
 };
 

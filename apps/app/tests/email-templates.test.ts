@@ -333,7 +333,7 @@ describe("ops alerts beyond the fixture", () => {
     ).toMatchSnapshot();
   });
 
-  // BAA 1.2.1 gives the export "on request", but Terms §7 promises every
+  // BAA 1.2.2 and 1.2.1 give the export "on request", but Terms §7 promises every
   // leaving practice one within thirty days of the end and the canceled email
   // tells it one is coming, so it has no reason to ask. The data goes at day
   // 29 whatever the export, so an alert telling ops to deliver only "any export
@@ -444,9 +444,9 @@ describe("the payload allowlist", () => {
       ],
       [
         "renewal_upcoming",
-        { renewsOn: "2026-11-05", amountCents: 1_200_00, planName: "Complete FrontDesk AI" },
+        { renewsOn: "2026-11-05", amountCents: 1_200_00, planName: "AYA Complete Frontdesk" },
       ],
-      ["plan_changed", { planName: "Web + Voice", interval: "month" }],
+      ["plan_changed", { planName: "AYA Web Chat + Voice", interval: "month" }],
       ["location_added", { locations: 2 }],
       ["canceled", { passThroughDays: 30 }],
       ["cancel_scheduled", { endsAt: "2026-11-05T00:00:00.000Z" }],

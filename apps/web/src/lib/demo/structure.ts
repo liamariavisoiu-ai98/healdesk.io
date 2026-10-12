@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 
+import { finalText } from "./chat-model";
 import { normalizeProfile, PROFILE_SCHEMA, type ClinicProfile } from "./profile";
 import type { ScrapedPage } from "./scrape";
 
@@ -60,7 +61,16 @@ function pagesBlock(pages: ScrapedPage[]): string {
 
 export async function structureProfile(
   pages: ScrapedPage[],
-  hints: { clinicName: string; niche: string | null },
+  hints: {
+    clinicName: string;
+    niche: string | null;
+    /**
+     * What the handoff audit found wrong with the last extraction
+     * (lib/demo/audit.ts), for its one repair round. Reviewer notes, not
+     * website text: they say where to look again, never what to write.
+     */
+    feedback?: readonly string[];
+  },
 ): Promise<ClinicProfile> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new StructureError("ANTHROPIC_API_KEY is not set.");
@@ -87,7 +97,12 @@ export async function structureProfile(
           `The operator says the clinic is called "${hints.clinicName}"` +
           (hints.niche ? ` and works in "${hints.niche}"` : "") +
           ". Prefer the name the website itself uses if it differs.\n\n" +
-          `<website>\n${pagesBlock(pages)}\n</website>`,
+          `<website>\n${pagesBlock(pages)}\n</website>` +
+          (hints.feedback?.length
+            ? "\n\nA reviewer checked an earlier extraction from these same pages against the website and found the problems below. " +
+              "Fix each one using only what the pages say; where the pages do not support something, leave it out.\n" +
+              `<review>\n${hints.feedback.map((f) => `- ${f}`).join("\n")}\n</review>`
+            : ""),
       },
     ],
   });
@@ -99,10 +114,9 @@ export async function structureProfile(
     throw new StructureError("The profile was too long to finish; the site may need a manual profile.");
   }
 
-  const text = response.content
-    .filter((block): block is Anthropic.Beta.BetaTextBlock => block.type === "text")
-    .map((block) => block.text)
-    .join("");
+  // Only the model that finished counts: after a fallback, the blocks before
+  // the switch are the declined model's unfinished JSON.
+  const text = finalText(response.content);
 
   let parsed: unknown;
   try {

@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 /**
  * GET /api/checkout/mode: what the purchase modal should show.
  *
- * The homepage and pricing pages are static, so they cannot read the
+ * The homepage and the other marketing pages are static, so they cannot read the
  * environment or the setup cookie at request time. The modal asks here
  * instead, uncached, each time it opens:
  * - `public`: the purchase flow;

@@ -41,24 +41,49 @@ export function Card(props: { id: string; title: string; intro?: ReactNode; chil
 export function ChannelsCard({ view }: { view: SettingsView }) {
   return (
     <Card id="channels" title="Channels" intro="Each channel you bought, on or off on its own.">
-      {view.channels.map((c) => (
-        <div key={c.channel}>
-          <SwitchSetting
-            slug={view.slug}
-            settingKey={c.key}
-            label={c.name}
-            line={c.switchLine}
-            applies={c.applies}
-            initial={c.on}
-          />
-          <p className="text-muted -mt-1 pb-3 text-sm">
-            <span className="bg-paper-2 text-ink mr-2 inline-block rounded-full px-2 py-0.5 text-xs font-semibold">
-              {c.statusWord}
-            </span>
-            {c.line}
-          </p>
-        </div>
-      ))}
+      {view.channels.map((c) =>
+        c.key ? (
+          <div key={c.channel}>
+            <SwitchSetting
+              slug={view.slug}
+              settingKey={c.key}
+              label={c.name}
+              line={c.switchLine}
+              applies={c.applies}
+              initial={c.on}
+            />
+            <StatusLine word={c.statusWord} line={c.line} />
+          </div>
+        ) : (
+          // The Meta channel: a switch for each platform the clinic has
+          // connected (spec: Instagram, Messenger and WhatsApp, each on its
+          // own), then where the channel stands. Before any is connected,
+          // only where it stands.
+          <div key={c.channel}>
+            {c.platforms.map((p) => (
+              <div key={p.platform}>
+                <SwitchSetting
+                  slug={view.slug}
+                  settingKey={p.key}
+                  label={p.name}
+                  line={p.switchLine}
+                  applies={c.applies}
+                  initial={p.on}
+                />
+                <StatusLine word={p.statusWord} />
+              </div>
+            ))}
+            {c.platforms.length === 0 ? (
+              <>
+                <p className="pt-3 font-semibold">{c.name}</p>
+                <StatusLine word={c.statusWord} line={c.line} />
+              </>
+            ) : (
+              <StatusLine line={c.line} />
+            )}
+          </div>
+        ),
+      )}
       {view.bought.voice ? (
         <ChoiceSetting
           slug={view.slug}
@@ -84,6 +109,20 @@ export function ChannelsCard({ view }: { view: SettingsView }) {
         </p>
       ) : null}
     </Card>
+  );
+}
+
+/** A channel's status word, and the one line on what happens next. */
+function StatusLine({ word, line }: { word?: string; line?: string }) {
+  return (
+    <p className="text-muted -mt-1 pb-3 text-sm">
+      {word ? (
+        <span className="bg-paper-2 text-ink mr-2 inline-block rounded-full px-2 py-0.5 text-xs font-semibold">
+          {word}
+        </span>
+      ) : null}
+      {line}
+    </p>
   );
 }
 

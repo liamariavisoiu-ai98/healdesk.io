@@ -32,14 +32,6 @@ export function NicheCarousel({
         <p className="eyebrow-tag">
           Where you can trust us
         </p>
-        {/* Hairline divider. Solid at the middle, gone at both ends, so it
-            reads as a mark under the eyebrow rather than a rule boxing the
-            heading in. Decorative, so it is hidden from assistive tech. */}
-        <span
-          aria-hidden
-          className="bg-gradient-to-r from-transparent via-orange to-transparent mx-auto mt-5 block h-px w-full max-w-[200px]"
-        />
-
         <h2 className="heading-section mx-auto mt-5">
           Explore the specialties we cover
         </h2>

@@ -117,14 +117,14 @@ export function CircleExpandCard({
   /**
    * Open without a pointer on it: the description showing, the footage
    * playing, the title at its large size. The bento keeps one card open at a
-   * time (the first by default, the one a visitor is on otherwise); the
+   * time (the one a visitor is on, and none until they are on one); the
    * colour flood and the turned arrow stay the pointer's own.
    */
   expanded?: boolean;
   /**
    * Whether an open card may fetch and play its footage: false until the
-   * bento is near the screen, so a card that is open by default costs nothing
-   * to a visitor who never scrolls to it.
+   * bento is near the screen, so a card opened by focus while it is still
+   * off screen fetches nothing.
    */
   live?: boolean;
 }) {

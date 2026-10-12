@@ -1373,15 +1373,26 @@ these is closed, by code, a page, a signed paper or a host setting, and
    - One transaction runs `eraseContact` for each number and address, then
      deletes what it does not reach: the person's raw payloads
      (`webhook_events`: every voice payload of their calls, and any payload
-     carrying their number or address), the Meta requests they sent naming
-     another number (`app_erase_thread_requests`, by the platform and sender
-     id fixed when the request was written; the person named stays), their
-     drafts and their `chat_threads`, matched by the keyed references the
-     tables already hold, and their suppressions, consent records and
+     carrying their number or address), the drafts and `chat_threads` of
+     their own messaging threads, matched by the keyed references the tables
+     already hold, and their suppressions, consent records and
      contact attempts (`app_erase_contact_evidence`, since the runtime role
      has no DELETE on the three). No telephone number of theirs is left, in
      any table (the test reads every table with a `clinic_id`, and the
      security events, for it).
+   - A booking request goes only with the person it names
+     (`app_erase_contacts`, 0054), and a messaging thread is the person's own
+     only when everything it sent named them. The first version deleted
+     every request a thread the person had touched ever sent
+     (`app_erase_thread_requests`), so erasing a child deleted the requests
+     their parent had made for themselves and for a sibling, and the
+     parent's thread; the review of 12 October 2026 proved it, and the
+     function is gone. A thread that also booked for someone else keeps what
+     it sent for others, with its drafts and its `chat_threads` row, and the
+     reply counts what was kept (`kept`), never naming anyone. One case
+     stays: a request the person sent from their own WhatsApp for someone
+     else carries their WhatsApp id, which is their number, as its sender,
+     and stays as the other person's record.
    - `eraseContact` no longer writes `suppressions`, and its comment says
      why. The request is recorded in `erasure_requests` without the number:
      who asked by role or ticket, when it arrived, the ten-business-day
@@ -1512,8 +1523,7 @@ these is closed, by code, a page, a signed paper or a host setting, and
    - Removal: an amendment goes with its record and at no other time, inside
      the function that deletes that record: erasure (`app_erase_contacts`,
      redefined on 0054's body, still taking only the people's own requests
-     and failing with nothing removed if anything else refers to them; and
-     `app_erase_thread_requests`), the purge (`app_purge_booking_requests`,
+     and failing with nothing removed if anything else refers to them), the purge (`app_purge_booking_requests`,
      redefined with 0058's UTC pin, and the new
      `app_purge_conversation_amendments`, under the same record-clock floor),
      and destruction (the new `app_destroy_record_amendments`, on

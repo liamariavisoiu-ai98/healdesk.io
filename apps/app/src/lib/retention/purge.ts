@@ -515,10 +515,10 @@ export type ErasureResult = {
  * longer than it is needed, and v1 contacts no one first, so there is no
  * do-not-contact list for the number to stay on. The operator's erase path
  * (erasePerson in lib/patient-rights/erasure.ts) runs this, deletes what this
- * does not reach (the person's raw call payloads, the Meta requests they
- * sent naming another number, their messaging thread, and their own
- * suppressions, consent records and contact attempts), and records the
- * request in erasure_requests, without the number.
+ * does not reach (the person's raw call payloads, their own messaging
+ * threads with their drafts, and their own suppressions, consent records and
+ * contact attempts), and records the request in erasure_requests, without
+ * the number.
  */
 export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promise<ErasureResult> {
   if (!request.phone && !request.email) {

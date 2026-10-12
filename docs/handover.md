@@ -425,12 +425,17 @@ record of the request, no longer than we need it.
    1182"; a name or a number there is refused), and when the request reached us (the
    deadline runs from it). One transaction, through the signed ops envelope
    (`erasePerson`, `apps/app/src/lib/patient-rights/erasure.ts`): the person's
-   contacts, calls, appointments, payments matched to them, every booking request they
-   made or that names them, the Meta booking requests they sent naming someone else's
-   number, their half-collected Meta drafts, their messaging threads, the raw payloads
-   the voice vendor or another service sent about them, and their suppressions, consent
-   records and contact attempts. apps/web keeps nothing it was typed; the reply is a
-   count and the deadline, and nothing on the page names the person afterwards.
+   contacts, calls, appointments, payments matched to them, every booking request that
+   names them, their half-collected Meta drafts, their own messaging threads, the raw
+   payloads the voice vendor or another service sent about them, and their
+   suppressions, consent records and contact attempts. A booking request that names
+   someone else stays, even one the person sent: a messaging thread is theirs only when
+   everything it sent named them, and a thread that also booked for others (a parent
+   booking for a child and for themselves) keeps what it sent for them, with its draft
+   and its thread. The reply counts what was kept that way, never who; tell the
+   practice those requests stay as the other people's records. apps/web keeps nothing
+   it was typed; the reply is counts and the deadline, and nothing on the page names
+   the person afterwards.
 4. **The subcontractor steps.** The care page lists each one outstanding, with the
    deadline, until it is recorded. Retell: in Retell's console, find and delete the
    person's calls and transcripts by their number, then "Record it". Anthropic is not

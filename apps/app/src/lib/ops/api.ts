@@ -94,6 +94,7 @@ import {
   stampErasureVendorStep,
   totalErased,
   type ErasureCounts,
+  type ErasureKept,
   type ErasureVendorStepId,
 } from "@/lib/patient-rights/erasure";
 import { AMENDMENT_MAX_LENGTH, appendAmendment } from "@/lib/patient-rights/amendments";
@@ -3647,7 +3648,15 @@ async function opMarkVoiceVendorDataDeleted(
 // -----------------------------------------------------------------------------
 
 export type ErasePersonOutcome =
-  | { status: "erased"; erasureId: string; dueBy: string; rows: number; deleted: ErasureCounts }
+  | {
+      status: "erased";
+      erasureId: string;
+      dueBy: string;
+      rows: number;
+      deleted: ErasureCounts;
+      /** What stayed because a thread the person was on also booked for someone else: counts only. */
+      kept: ErasureKept;
+    }
   | { status: "error"; message: string };
 
 const erase = {
@@ -3719,6 +3728,7 @@ async function opErasePerson(args: Record<string, unknown>, operator: Operator):
     dueBy: result.dueBy.toISOString(),
     rows,
     deleted: result.deleted,
+    kept: result.kept,
   } satisfies ErasePersonOutcome);
 }
 

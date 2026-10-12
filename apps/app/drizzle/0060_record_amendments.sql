@@ -61,8 +61,7 @@ CREATE INDEX "record_amendments_conversation_idx" ON "record_amendments" USING b
 --     that deletes that record, so it is never left pointing at nothing and
 --     never deleted on its own:
 --       - erasure: app_erase_contacts() takes the amendments of the people's
---         own requests and conversations before them, and
---         app_erase_thread_requests() those of the requests it deletes;
+--         own requests and conversations before them;
 --       - the purge: app_purge_booking_requests() takes those of the requests
 --         it deletes, and app_purge_conversation_amendments() those of the
 --         conversations past the record clock, before purgeClinic deletes
@@ -80,7 +79,6 @@ CREATE INDEX "record_amendments_conversation_idx" ON "record_amendments" USING b
 -- takes only the people's own requests and fails with nothing removed if
 -- anything else still refers to them; it now also returns the amendments it
 -- deleted, which changes its result, so it is dropped and recreated with its
--- grant. app_erase_thread_requests() (0059) likewise now returns two counts.
 -- app_purge_booking_requests() keeps its result, its floor and the UTC pin
 -- 0058 gave it. app_mark_clinic_destroyed() is 0059's definition with the
 -- table added, keeping every table it checked, its UTC pin and its pinned
@@ -91,7 +89,7 @@ CREATE INDEX "record_amendments_conversation_idx" ON "record_amendments" USING b
 -- find no key to reference.
 --
 -- Safe to apply in place: a new table, two unique keys on columns that are
--- already unique (each table's id), two new functions and four
+-- already unique (each table's id), two new functions and three
 -- redefinitions. apps/app has only ever held synthetic and seed data
 -- (CLAUDE.md, "Until BAA coverage is in place").
 -- =============================================================================
@@ -219,56 +217,6 @@ END
 $$;--> statement-breakpoint
 REVOKE ALL ON FUNCTION app_erase_contacts(uuid[]) FROM PUBLIC;--> statement-breakpoint
 GRANT EXECUTE ON FUNCTION app_erase_contacts(uuid[]) TO healdesk_app;--> statement-breakpoint
-
--- 0059's definition, with the amendments of the requests it deletes deleted
--- first. The requests are read once, so the two deletes take the same ones.
-DROP FUNCTION app_erase_thread_requests(text[], timestamptz);--> statement-breakpoint
-CREATE FUNCTION app_erase_thread_requests(
-  target_threads text[],
-  made_before timestamptz,
-  OUT requests_deleted integer,
-  OUT amendments_deleted integer
-)
-LANGUAGE plpgsql
-VOLATILE
-SECURITY DEFINER
-SET search_path = public, pg_temp
-AS $$
-DECLARE
-  tenant uuid := app_current_clinic_id();
-  doomed uuid[];
-BEGIN
-  IF tenant IS NULL THEN
-    RAISE EXCEPTION 'app_erase_thread_requests: no tenant; an erasure runs inside the clinic''s own transaction'
-      USING ERRCODE = '42501';
-  END IF;
-  IF made_before IS NULL OR made_before > clock_timestamp() THEN
-    RAISE EXCEPTION 'app_erase_thread_requests: % is in the future; an erasure reaches only what exists when it runs', made_before
-      USING ERRCODE = 'check_violation';
-  END IF;
-
-  SELECT coalesce(array_agg(r.id), '{}')
-    INTO doomed
-    FROM booking_requests r
-   WHERE r.clinic_id = tenant
-     AND r.platform IS NOT NULL
-     AND r.sender_id IS NOT NULL
-     AND (r.platform || ':' || r.sender_id) = ANY (coalesce(target_threads, '{}'))
-     AND r.created_at <= made_before;
-
-  DELETE FROM record_amendments ra
-   WHERE ra.clinic_id = tenant
-     AND ra.booking_request_id = ANY (doomed);
-  GET DIAGNOSTICS amendments_deleted = ROW_COUNT;
-
-  DELETE FROM booking_requests r
-   WHERE r.clinic_id = tenant
-     AND r.id = ANY (doomed);
-  GET DIAGNOSTICS requests_deleted = ROW_COUNT;
-END
-$$;--> statement-breakpoint
-REVOKE ALL ON FUNCTION app_erase_thread_requests(text[], timestamptz) FROM PUBLIC;--> statement-breakpoint
-GRANT EXECUTE ON FUNCTION app_erase_thread_requests(text[], timestamptz) TO healdesk_app;--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
 -- The purge: an amendment goes the night its record does
@@ -478,11 +426,9 @@ $$;--> statement-breakpoint
 -- Comments
 -- -----------------------------------------------------------------------------
 COMMENT ON TABLE record_amendments IS
-  'An amendment Practice directed to a record that must stay as it was made (BAA 1.3.0 clause 14(b)): a booking request or a conversation, by target_kind and exactly one foreign key, which carries clinic_id so the record is the same clinic''s. Practice''s words (PHI), who asked by role or ticket, when Practice directed it, who appended it, and recorded_at by the database''s clock. Append-only: the runtime role may INSERT and SELECT; no role may UPDATE. Leaves only with the record it amends, through app_erase_contacts, app_erase_thread_requests, app_purge_booking_requests, app_purge_conversation_amendments and app_destroy_record_amendments. Every export carries it beside the record.';--> statement-breakpoint
+  'An amendment Practice directed to a record that must stay as it was made (BAA 1.3.0 clause 14(b)): a booking request or a conversation, by target_kind and exactly one foreign key, which carries clinic_id so the record is the same clinic''s. Practice''s words (PHI), who asked by role or ticket, when Practice directed it, who appended it, and recorded_at by the database''s clock. Append-only: the runtime role may INSERT and SELECT; no role may UPDATE. Leaves only with the record it amends, through app_erase_contacts, app_purge_booking_requests, app_purge_conversation_amendments and app_destroy_record_amendments. Every export carries it beside the record.';--> statement-breakpoint
 COMMENT ON FUNCTION app_erase_contacts(uuid[]) IS
   'Erases people inside the tenant (app.clinic_id), for eraseContact: the amendments of their own booking requests and of the conversations it deletes, their own booking requests, their appointments, their conversations and the ones that produced their appointments, then the contact rows, in one call, so a request leaves only with the person it names. Fails with nothing removed if anything else still refers to them, another person''s request on one of their appointments included; their transactions go first. Returns the five counts; contacts outside the tenant match nothing.';--> statement-breakpoint
-COMMENT ON FUNCTION app_erase_thread_requests(text[], timestamptz) IS
-  'Deletes the tenant''s booking requests sent from the given messaging threads ("<platform>:<sender id>"), whichever person each names, written no later than made_before (never later than the call), with their amendments. For the erase path in lib/patient-rights/erasure.ts. Returns the two counts.';--> statement-breakpoint
 COMMENT ON FUNCTION app_purge_booking_requests(timestamptz) IS
   'Deletes the tenant''s booking requests every date of which is before record_before: created_at, confirmed_for, and its appointment''s scheduled_for when it produced one, with their amendments. Refuses a cutoff later than app_record_cutoff(), the record clock in force by the database''s clock, with no grace. For purgeClinic, before the appointments past the same cutoff go. Returns the count of requests.';--> statement-breakpoint
 COMMENT ON FUNCTION app_purge_conversation_amendments(timestamptz) IS
@@ -535,7 +481,6 @@ BEGIN
   SELECT string_agg(p.proname, ', ') INTO offending
     FROM pg_proc p
    WHERE p.oid IN ('app_erase_contacts(uuid[])'::regprocedure,
-                   'app_erase_thread_requests(text[], timestamptz)'::regprocedure,
                    'app_purge_booking_requests(timestamptz)'::regprocedure,
                    'app_purge_conversation_amendments(timestamptz)'::regprocedure,
                    'app_destroy_record_amendments(uuid)'::regprocedure,
@@ -549,7 +494,6 @@ BEGIN
   SELECT string_agg(p.proname, ', ') INTO offending
     FROM pg_proc p
    WHERE p.oid IN ('app_erase_contacts(uuid[])'::regprocedure,
-                   'app_erase_thread_requests(text[], timestamptz)'::regprocedure,
                    'app_purge_booking_requests(timestamptz)'::regprocedure,
                    'app_purge_conversation_amendments(timestamptz)'::regprocedure,
                    'app_destroy_record_amendments(uuid)'::regprocedure,

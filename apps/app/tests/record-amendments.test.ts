@@ -492,8 +492,10 @@ describeDb("the amendment record", () => {
     });
     await amendOp(c.clinicId, "booking_request", own, "a");
     await amendOp(c.clinicId, "conversation", call.conversationId, "b");
-    await amendOp(c.clinicId, "booking_request", forSpouse, "c");
+    // The spouse's request is the spouse's record, whoever sent it: it stays,
+    // and its amendment with it.
     const kept = [
+      await amendOp(c.clinicId, "booking_request", forSpouse, "c"),
       await amendOp(c.clinicId, "booking_request", neighbours, "d"),
       await amendOp(c.clinicId, "conversation", neighbourCall.conversationId, "e"),
     ].sort();
@@ -507,7 +509,8 @@ describeDb("the amendment record", () => {
     );
     expect(outcome.status).toBe("erased");
     if (outcome.status !== "erased") return;
-    expect(outcome.deleted).toMatchObject({ amendments: 3, threadRequests: 1, bookingRequests: 2 });
+    expect(outcome.deleted).toMatchObject({ amendments: 2, bookingRequests: 2 });
+    expect(outcome.kept).toMatchObject({ sharedThreads: 1, requests: 1 });
     expect(await amendmentIds(c.clinicId)).toEqual(kept);
   });
 

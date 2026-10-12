@@ -2453,7 +2453,19 @@ export function markVoiceVendorDataDeleted(clinicId: string, how: string) {
 }
 
 export type ErasePersonOutcome =
-  | { status: "erased"; erasureId: string; dueBy: string; rows: number }
+  | {
+      status: "erased";
+      erasureId: string;
+      dueBy: string;
+      rows: number;
+      /**
+       * What stayed because a messaging thread the person was on also booked
+       * for someone else (a parent booking for a child and for themselves):
+       * the threads, and the requests and drafts on them that name another
+       * person. Counts only, never who.
+       */
+      kept: { sharedThreads: number; requests: number; drafts: number };
+    }
   | { status: "refused"; message: string };
 
 /**
@@ -2474,8 +2486,19 @@ export function erasePerson(
       erasureId: id(data.erasureId, "erasePerson.erasureId"),
       dueBy: instant(data.dueBy, "erasePerson.dueBy").at,
       rows: count(data.rows, "erasePerson.rows"),
+      kept: readKept(data.kept),
     };
   });
+}
+
+function readKept(value: unknown): Extract<ErasePersonOutcome, { status: "erased" }>["kept"] {
+  if (value === null || value === undefined) return { sharedThreads: 0, requests: 0, drafts: 0 };
+  const k = object(value, "erasePerson.kept");
+  return {
+    sharedThreads: count(k.sharedThreads, "erasePerson.kept.sharedThreads"),
+    requests: count(k.requests, "erasePerson.kept.requests"),
+    drafts: count(k.drafts, "erasePerson.kept.drafts"),
+  };
 }
 
 export function markErasureVendorDeleted(clinicId: string, erasureId: string, step: string, how: string) {

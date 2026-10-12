@@ -42,10 +42,17 @@ import { readSynthflowPayload } from "@/lib/voice/synthflow-payload";
  *
  *   - their contacts, by number or address, and every number and address on
  *     those contacts;
- *   - their messaging threads ("<platform>:<sender id>"): the WhatsApp id each
- *     number is (the number without its plus), the thread each of their own
- *     Meta booking requests came from, and the thread of each half-collected
- *     Meta draft carrying one of their numbers;
+ *   - the messaging threads ("<platform>:<sender id>") that may be theirs:
+ *     the WhatsApp id each number is (the number without its plus), the
+ *     thread each of their own Meta booking requests came from, and the
+ *     thread of each half-collected Meta draft carrying one of their numbers.
+ *     Whoever wrote on such a thread may not be the person: a parent books
+ *     for a child from the parent's own Instagram. So a thread is the
+ *     person's own only when everything it sent names them (each request
+ *     their contact, each draft their number or none). A thread that also
+ *     booked for someone else is not theirs to delete: what it sent for
+ *     others stays, with its drafts and its chat_threads row, and the result
+ *     counts what was kept (`kept`), never naming anyone;
  *   - the vendor call id of each of their calls, and of each call that
  *     produced one of their appointments.
  *
@@ -62,13 +69,12 @@ import { readSynthflowPayload } from "@/lib/voice/synthflow-payload";
  * decided, their appointments, their calls and the calls that produced their
  * appointments, payments matched to them, the drafts carrying their
  * number, and every amendment of the requests and calls it deletes
- * (record_amendments, lib/patient-rights/amendments.ts). Then what it does
- * not reach:
+ * (record_amendments, lib/patient-rights/amendments.ts). A booking request
+ * goes only with the person it names (app_erase_contacts, drizzle/0054): a
+ * request the person sent for someone else is that person's record, and
+ * stays. Then what it does not reach:
  *
- *   - the Meta booking requests they sent naming someone else's number, with
- *     their amendments (app_erase_thread_requests; the person the request
- *     names stays, and goes with the purge once nothing of theirs is left);
- *   - their drafts on those threads, and the threads themselves (chat_threads);
+ *   - the drafts on their own threads, and those threads (chat_threads);
  *   - the raw payloads other services sent about them (webhook_events): every
  *     voice payload of their calls, and any payload carrying their number or
  *     address;
@@ -145,8 +151,6 @@ export type ErasureCounts = {
   contacts: number;
   /** The people's own requests, whatever the desk decided. */
   bookingRequests: number;
-  /** Requests sent from the people's messaging threads naming another number. */
-  threadRequests: number;
   appointments: number;
   conversations: number;
   transactions: number;
@@ -164,7 +168,6 @@ function noCounts(): ErasureCounts {
   return {
     contacts: 0,
     bookingRequests: 0,
-    threadRequests: 0,
     appointments: 0,
     conversations: 0,
     transactions: 0,
@@ -182,6 +185,16 @@ export function totalErased(counts: ErasureCounts): number {
   return Object.values(counts).reduce((a, b) => a + b, 0);
 }
 
+/**
+ * What a deletion left because it belongs to someone else, by count only:
+ * the messaging threads that sent something for the person and something for
+ * another (a parent booking for a child and for themselves), and, on those
+ * threads, the booking requests and drafts that name another person. Each
+ * stays as that person's record, with the thread's chat_threads row; the
+ * operator tells the practice so, without naming anyone.
+ */
+export type ErasureKept = { sharedThreads: number; requests: number; drafts: number };
+
 /** The identifiers a deletion is asked about. */
 type Asked = { phones: string[]; emails: string[]; threads: string[] };
 
@@ -190,7 +203,9 @@ type Survey = {
   contactIds: string[];
   phones: string[];
   emails: string[];
+  /** The person's own threads: everything each sent names them. */
   threads: string[];
+  kept: ErasureKept;
   callIds: string[];
 };
 
@@ -246,6 +261,8 @@ async function survey(tx: TenantTx, asked: Asked, before: Date): Promise<Survey>
   }
   const contactIds = people.map((p) => p.id);
 
+  // The threads that may be theirs: their numbers' WhatsApp ids, and the
+  // threads their own requests and drafts came from.
   for (const phone of phones) {
     const thread = whatsappThread(phone);
     if (thread) threads.add(thread);
@@ -260,6 +277,7 @@ async function survey(tx: TenantTx, asked: Asked, before: Date): Promise<Survey>
           inArray(bookingRequests.contactId, contactIds),
           isNotNull(bookingRequests.platform),
           isNotNull(bookingRequests.senderId),
+          lte(bookingRequests.createdAt, before),
         ),
       );
     for (const r of sent) threads.add(`${r.platform}:${r.senderId}`);
@@ -277,6 +295,7 @@ async function survey(tx: TenantTx, asked: Asked, before: Date): Promise<Survey>
       );
     for (const d of drafts) threads.add(`${d.platform}:${d.senderId}`);
   }
+  const { own, kept } = await ownThreads(tx, [...threads], new Set(contactIds), phones, before);
 
   // Their calls, and the calls that produced their appointments: the two
   // kinds app_erase_contacts deletes, read first so their raw payloads can go
@@ -313,7 +332,76 @@ async function survey(tx: TenantTx, asked: Asked, before: Date): Promise<Survey>
         .filter((id): id is string => Boolean(id))
     : [];
 
-  return { contactIds, phones: [...phones], emails: [...emails], threads: [...threads], callIds };
+  return { contactIds, phones: [...phones], emails: [...emails], threads: own, kept, callIds };
+}
+
+/**
+ * Which of the candidate threads are the person's own: those every request
+ * of which names one of their contacts, and whose draft, if any, carries one
+ * of their numbers or none. The rest sent something for someone else, so
+ * they are kept, and counted with what they sent for others.
+ */
+async function ownThreads(
+  tx: TenantTx,
+  candidates: readonly string[],
+  contactIds: ReadonlySet<string>,
+  phones: ReadonlySet<string>,
+  before: Date,
+): Promise<{ own: string[]; kept: ErasureKept }> {
+  const kept: ErasureKept = { sharedThreads: 0, requests: 0, drafts: 0 };
+  if (candidates.length === 0) return { own: [], kept };
+  const forOthers = new Map<string, { requests: number; drafts: number }>();
+  const tally = (thread: string) => {
+    const entry = forOthers.get(thread) ?? { requests: 0, drafts: 0 };
+    forOthers.set(thread, entry);
+    return entry;
+  };
+  const sent = await tx.db
+    .select({
+      platform: bookingRequests.platform,
+      senderId: bookingRequests.senderId,
+      contactId: bookingRequests.contactId,
+    })
+    .from(bookingRequests)
+    .where(
+      and(
+        eq(bookingRequests.clinicId, tx.clinicId),
+        sql`(${bookingRequests.platform} || ':' || ${bookingRequests.senderId}) = any(${textArray(candidates)})`,
+        lte(bookingRequests.createdAt, before),
+      ),
+    );
+  for (const r of sent) {
+    if (!contactIds.has(r.contactId)) tally(`${r.platform}:${r.senderId}`).requests += 1;
+  }
+  const drafts = await tx.db
+    .select({
+      platform: metaBookingDrafts.platform,
+      senderId: metaBookingDrafts.senderId,
+      phone: metaBookingDrafts.phone,
+    })
+    .from(metaBookingDrafts)
+    .where(
+      and(
+        eq(metaBookingDrafts.clinicId, tx.clinicId),
+        sql`(${metaBookingDrafts.platform} || ':' || ${metaBookingDrafts.senderId}) = any(${textArray(candidates)})`,
+        lte(metaBookingDrafts.updatedAt, before),
+      ),
+    );
+  for (const d of drafts) {
+    if (d.phone && !phones.has(d.phone)) tally(`${d.platform}:${d.senderId}`);
+  }
+  // A shared thread keeps its draft unless the draft carries the person's
+  // number (eraseContact takes that one wherever it is).
+  for (const d of drafts) {
+    const entry = forOthers.get(`${d.platform}:${d.senderId}`);
+    if (entry && !(d.phone && phones.has(d.phone))) entry.drafts += 1;
+  }
+  for (const entry of forOthers.values()) {
+    kept.sharedThreads += 1;
+    kept.requests += entry.requests;
+    kept.drafts += entry.drafts;
+  }
+  return { own: candidates.filter((t) => !forOthers.has(t)), kept };
 }
 
 /** The ids of the raw payloads about them: their calls' voice payloads, and any payload naming their number or address. */
@@ -428,17 +516,9 @@ async function eraseSurveyed(
   for (const email of asked.emails)
     add(counts, await eraseContact(tx, { email, requestedBy, before }));
 
-  // The Meta requests they sent naming someone else's number, with any
-  // amendment of them.
-  if (s.threads.length) {
-    const result = await tx.db.execute<{ requests_deleted: number; amendments_deleted: number }>(
-      sql`select * from app_erase_thread_requests(${textArray(s.threads)}, ${before.toISOString()}::timestamptz)`,
-    );
-    counts.threadRequests = result.rows[0]?.requests_deleted ?? 0;
-    counts.amendments += result.rows[0]?.amendments_deleted ?? 0;
-  }
-
-  // Their drafts on their threads (eraseContact took the ones carrying their number).
+  // The drafts on their own threads (eraseContact took the ones carrying
+  // their number, wherever they are). A thread that also booked for someone
+  // else is not among them, and keeps its draft.
   if (s.threads.length) {
     const drafts = await tx.db
       .delete(metaBookingDrafts)
@@ -453,7 +533,7 @@ async function eraseSurveyed(
     counts.drafts += drafts.length;
   }
 
-  // Their threads, by the keyed reference the table holds.
+  // Their own threads, by the keyed reference the table holds.
   const refs = [...new Set([...partyRefs(tx.clinicId, s.threads), ...extraPartyRefs])];
   if (refs.length) {
     const threads = await tx.db
@@ -520,6 +600,7 @@ export type ErasePersonResult = {
   erasedAt: Date;
   dueBy: Date;
   deleted: ErasureCounts;
+  kept: ErasureKept;
 };
 
 /**
@@ -572,9 +653,15 @@ export async function erasePerson(
     resourceType: "person_erasure",
     resourceId: row.id,
     resultCount: totalErased(deleted),
-    metadata: { requestedBy: input.requestedBy, ...deleted },
+    metadata: {
+      requestedBy: input.requestedBy,
+      ...deleted,
+      keptSharedThreads: s.kept.sharedThreads,
+      keptRequests: s.kept.requests,
+      keptDrafts: s.kept.drafts,
+    },
   });
-  return { erasureId: row.id, erasedAt: row.erasedAt, dueBy, deleted };
+  return { erasureId: row.id, erasedAt: row.erasedAt, dueBy, deleted, kept: s.kept };
 }
 
 // -----------------------------------------------------------------------------

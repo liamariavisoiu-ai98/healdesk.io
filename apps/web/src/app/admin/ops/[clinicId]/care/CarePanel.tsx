@@ -190,10 +190,11 @@ function DeletionRequests({ view, actions }: { view: CareView; actions: Actions 
       <p className="text-muted">
         When the practice asks us to delete a person, delete them here within ten business days of the request reaching
         us, then do each subcontractor step in the vendor&rsquo;s own console and record it. This deletes their contact,
-        calls, appointments, booking requests (those they sent naming someone else&rsquo;s number included), drafts,
-        messaging threads, raw payloads and any stop, consent or contact-attempt record, and keeps a record of the request
-        without their number. Only the practice can ask: a request from the person goes to the practice
-        (docs/handover.md, &ldquo;Deletion requests&rdquo;).
+        calls, appointments, booking requests, drafts, messaging threads, raw payloads and any stop, consent or
+        contact-attempt record, and keeps a record of the request without their number. A booking request that names
+        someone else stays, even when the person sent it: a messaging account that also booked for others keeps what it
+        sent for them, and the reply counts it. Only the practice can ask: a request from the person goes to the
+        practice (docs/handover.md, &ldquo;Deletion requests&rdquo;).
       </p>
       {view.deletionRequests.length ? (
         <ul className="mt-3 grid gap-3">
@@ -264,7 +265,13 @@ function DeletionRequests({ view, actions }: { view: CareView; actions: Actions 
             setProblem(message);
             if (!message && result.ok && result.data.status === "erased") {
               form.reset();
-              setDone(`Deleted ${result.data.rows} rows. Record each subcontractor step below by ${result.data.dueBy}.`);
+              const kept = result.data.kept;
+              setDone(
+                `Deleted ${result.data.rows} rows. Record each subcontractor step below by ${result.data.dueBy}.` +
+                  (kept.sharedThreads
+                    ? ` Kept ${kept.requests} booking request(s) and ${kept.drafts} draft(s) for someone else, sent from ${kept.sharedThreads} messaging account(s) this person also used: tell the practice they stay as those people's records.`
+                    : ""),
+              );
             }
           });
         }}

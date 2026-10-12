@@ -32,9 +32,8 @@ CREATE INDEX "erasure_requests_clinic_idx" ON "erasure_requests" USING btree ("c
 -- information stays deleted". Nothing an operator could reach deleted
 -- anyone: eraseContact had no caller but its tests. It deleted the person's
 -- contacts, calls, appointments and own booking requests, but not their raw
--- call payloads (webhook_events), the Meta requests they sent naming
--- another number, or the keyed reference to their messaging thread
--- (chat_threads). And it wrote their telephone number into suppressions "so
+-- call payloads (webhook_events) or the keyed reference to their messaging
+-- thread (chat_threads). And it wrote their telephone number into suppressions "so
 -- the request itself is honoured forever": a copy of the number, kept with
 -- no end, as the record of a request whose whole point was that nothing of
 -- them be kept.
@@ -55,28 +54,30 @@ CREATE INDEX "erasure_requests_clinic_idx" ON "erasure_requests" USING btree ("c
 --     suppressions, consent records and contact attempts go with them,
 --     through app_erase_contact_evidence(), since the runtime role has no
 --     DELETE on the three (0010), and is given none.
---   * The Meta booking requests a person sent go with them, whichever
---     number the request named, through app_erase_thread_requests(): the
---     runtime role has no DELETE on booking_requests (0037), and
---     app_erase_contacts() takes only the requests that name the people it
---     erases.
+--   * A booking request goes only with the person it names, through
+--     app_erase_contacts() (0054), as before. A messaging thread is the
+--     person's own, and goes with its drafts and its chat_threads row, only
+--     when everything it sent named them; a thread that also booked for
+--     someone else (a parent booking for a child, and for themselves) keeps
+--     what it sent for others, and the erasure says so by count
+--     (lib/patient-rights/erasure.ts). The first version of this migration
+--     had app_erase_thread_requests(), which deleted every request a thread
+--     the person had touched ever sent, whoever each named: erasing a child
+--     deleted the parent's own requests and the sibling's. It is gone, and
+--     the only definers that delete a booking request are 0054's three again.
 --   * app_mark_clinic_destroyed() requires erasure_requests empty too, since
 --     destruction deletes them with the rest (the references in them are
 --     derived from the clinic's patients).
 --
--- What the runtime role can do with the two new functions, said plainly. With
--- app_erase_thread_requests() it can delete every Meta booking request one
--- messaging thread sent, up to now, as app_erase_contacts() lets it delete a
--- person whole; the requests' ids and token hashes stay in
--- booking_request_keys (0054), so none can come back with another decision.
--- With app_erase_contact_evidence() it can delete a number's suppressions,
+-- What the runtime role can do with the new function, said plainly. With
+-- app_erase_contact_evidence() it can delete a number's suppressions,
 -- consent records and contact attempts. 0058 kept that from it because a
 -- "stop" it could delete would be one it could quietly undo; v1 contacts no
 -- one first, and canContact() refuses every request before it reads a row,
 -- so nothing that runs reads a "stop" to undo. Were outbound contact ever to
 -- return, this function needs the person's erasure as its floor first.
 --
--- Safe to apply in place: a new table and two new functions; the one
+-- Safe to apply in place: a new table and one new function; the one
 -- redefinition adds a table to a list. apps/app has only ever held synthetic
 -- and seed data (CLAUDE.md, "Until BAA coverage is in place").
 -- =============================================================================
@@ -139,61 +140,15 @@ CREATE TRIGGER erasure_requests_guard
   FOR EACH ROW EXECUTE FUNCTION app_erasure_request_guard();--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
--- The Meta requests a person sent, whatever number they named
--- -----------------------------------------------------------------------------
--- A thread is "<platform>:<sender id>", the platform's opaque id for the
--- person (a WhatsApp id is their number without the plus). The runtime role
--- cannot change a request's platform or sender (0040's column grant), so the
--- thread a request came from is fixed when it is written. made_before bounds
--- the delete to what existed when the request to delete was acted on: the
--- moment of the call for a deletion, the deletion's own time when it is
--- applied again after a restore (lib/patient-rights/erasure.ts), so a
--- request the person made after asking for deletion is never taken with the
--- old ones. A bound later than the call is refused. A slot hold that names a
--- deleted request loses it by its own foreign key (SET NULL). The tenant
--- is app.clinic_id, and FORCE ROW LEVEL SECURITY binds this definer to it as
--- it binds everyone.
-CREATE OR REPLACE FUNCTION app_erase_thread_requests(target_threads text[], made_before timestamptz)
-RETURNS integer
-LANGUAGE plpgsql
-VOLATILE
-SECURITY DEFINER
-SET search_path = public, pg_temp
-AS $$
-DECLARE
-  tenant uuid := app_current_clinic_id();
-  gone integer;
-BEGIN
-  IF tenant IS NULL THEN
-    RAISE EXCEPTION 'app_erase_thread_requests: no tenant; an erasure runs inside the clinic''s own transaction'
-      USING ERRCODE = '42501';
-  END IF;
-  IF made_before IS NULL OR made_before > clock_timestamp() THEN
-    RAISE EXCEPTION 'app_erase_thread_requests: % is in the future; an erasure reaches only what exists when it runs', made_before
-      USING ERRCODE = 'check_violation';
-  END IF;
-
-  DELETE FROM booking_requests r
-   WHERE r.clinic_id = tenant
-     AND r.platform IS NOT NULL
-     AND r.sender_id IS NOT NULL
-     AND (r.platform || ':' || r.sender_id) = ANY (coalesce(target_threads, '{}'))
-     AND r.created_at <= made_before;
-  GET DIAGNOSTICS gone = ROW_COUNT;
-  RETURN gone;
-END
-$$;--> statement-breakpoint
-REVOKE ALL ON FUNCTION app_erase_thread_requests(text[], timestamptz) FROM PUBLIC;--> statement-breakpoint
-GRANT EXECUTE ON FUNCTION app_erase_thread_requests(text[], timestamptz) TO healdesk_app;--> statement-breakpoint
-
--- -----------------------------------------------------------------------------
 -- A person's suppressions, consent records and contact attempts
 -- -----------------------------------------------------------------------------
 -- The three carry nothing but a telephone number and what was done about it,
 -- and the runtime role has no DELETE on them (0010), so an erasure deletes the
--- person's here, recorded no later than recorded_before (the same bound as
--- above, for the same reason). See the header for what this gives the runtime
--- role.
+-- person's here, recorded no later than recorded_before: the moment of the
+-- call for a deletion, the deletion's own time when it is applied again after
+-- a restore (lib/patient-rights/erasure.ts), so nothing the person gave after
+-- asking for deletion is taken with the old. A bound later than the call is
+-- refused. See the header for what this gives the runtime role.
 CREATE OR REPLACE FUNCTION app_erase_contact_evidence(
   target_phones text[],
   recorded_before timestamptz,
@@ -304,8 +259,6 @@ COMMENT ON TABLE erasure_requests IS
   'One person''s deletion request, recorded without the person: who asked (a role or ticket), when it arrived, the ten-business-day deadline, when the deletion ran, the counts, and the operator''s stamp for each subcontractor step. restore_refs are keyed references to what the deletion found, used only to delete the person again after a restore and emptied 35 days (BACKUP_RETENTION_DAYS) after the deletion, when the row goes too unless a subcontractor step is still outstanding. Never read for a contact decision. erased_at is stamped by the database at the insert.';--> statement-breakpoint
 COMMENT ON COLUMN erasure_requests.restore_refs IS
   'identifierRef values (erasure kind for "phone:"/"email:" values, chat_party for messaging threads) naming what the deletion found, so reapplyErasures can find the person again in a database restored to a point before it. Only ever emptied: by the hourly expiry, BACKUP_RETENTION_DAYS after erased_at.';--> statement-breakpoint
-COMMENT ON FUNCTION app_erase_thread_requests(text[], timestamptz) IS
-  'Deletes the tenant''s booking requests sent from the given messaging threads ("<platform>:<sender id>"), whichever person each names, written no later than made_before (never later than the call). For the erase path in lib/patient-rights/erasure.ts. Returns the count.';--> statement-breakpoint
 COMMENT ON FUNCTION app_erase_contact_evidence(text[], timestamptz) IS
   'Deletes the tenant''s suppressions, consent records and contact attempts for the given numbers, recorded no later than recorded_before (never later than the call). For the erase path in lib/patient-rights/erasure.ts; the runtime role has no DELETE on the three. Returns the three counts.';--> statement-breakpoint
 COMMENT ON FUNCTION app_mark_clinic_destroyed(uuid) IS
@@ -349,16 +302,14 @@ BEGIN
     RAISE EXCEPTION 'erasure_requests_guard is missing or disabled.';
   END IF;
 
-  IF has_function_privilege('public', 'app_erase_thread_requests(text[], timestamptz)', 'EXECUTE')
-     OR has_function_privilege('public', 'app_erase_contact_evidence(text[], timestamptz)', 'EXECUTE')
+  IF has_function_privilege('public', 'app_erase_contact_evidence(text[], timestamptz)', 'EXECUTE')
      OR has_function_privilege('public', 'app_mark_clinic_destroyed(uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'A SECURITY DEFINER function of this migration is executable by PUBLIC.';
   END IF;
 
   SELECT string_agg(p.proname, ', ') INTO offending
     FROM pg_proc p
-   WHERE p.oid IN ('app_erase_thread_requests(text[], timestamptz)'::regprocedure,
-                   'app_erase_contact_evidence(text[], timestamptz)'::regprocedure,
+   WHERE p.oid IN ('app_erase_contact_evidence(text[], timestamptz)'::regprocedure,
                    'app_mark_clinic_destroyed(uuid)'::regprocedure,
                    'app_erasure_request_guard()'::regprocedure)
      AND NOT EXISTS (SELECT 1 FROM unnest(coalesce(p.proconfig, ARRAY[]::text[])) c WHERE c LIKE 'search_path=%');

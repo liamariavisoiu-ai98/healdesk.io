@@ -289,7 +289,7 @@ export function OwnBranding() {
   return (
     <div data-reveal className="own-stage relative mt-16 overflow-hidden rounded-lg border border-black/[0.06] px-5 pt-12 sm:mt-24 sm:px-10 sm:pt-16">
       <div className="mx-auto max-w-[760px] text-center">
-        <h3 className="heading-section text-ink mx-auto">
+        <h3 className="heading-sub text-ink mx-auto">
           See it in your own branding
         </h3>
         <p className="text-muted mx-auto mt-3 max-w-[54ch] text-[clamp(16px,1.15vw,18px)] leading-[1.55] font-medium text-balance">

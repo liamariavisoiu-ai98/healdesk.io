@@ -3016,7 +3016,12 @@
    little, with slanted ends; streaks along it where the felt ran lighter
    (stretched noise); edges that wander (a displacement); and the ink a shade
    deeper where the tip landed and lifted. It stretches to the words, so the
-   streaks run longer under a longer title, as they would. */
+   streaks run longer under a longer title, as they would.
+
+   The words are in the logo's red (owner, 12 October 2026), its text shade,
+   which is the one small red type may use (see --color-red-deep). "Already a
+   customer?" on the review wall is set in the same face and size
+   (LeaveReview.tsx), so change the two together. */
 @utility eyebrow-tag {
   display: inline-block;
   font-family: var(--font-sans);
@@ -3025,7 +3030,7 @@
   letter-spacing: 0.005em;
   line-height: 1;
   padding: 8px 14px;
-  color: var(--color-ink);
+  color: var(--color-red-deep);
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 44' preserveAspectRatio='none'%3E%3Cfilter id='h' x='-4%25' y='-30%25' width='108%25' height='160%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.004 .3' numOctaves='3' seed='4' result='s'/%3E%3CfeColorMatrix in='s' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 .38' result='m'/%3E%3CfeComposite in='SourceGraphic' in2='m' operator='in' result='t'/%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.018 .06' numOctaves='2' seed='9' result='e'/%3E%3CfeDisplacementMap in='t' in2='e' scale='3.2' xChannelSelector='R' yChannelSelector='G'/%3E%3C/filter%3E%3ClinearGradient id='a' gradientUnits='userSpaceOnUse' x1='4' x2='52'%3E%3Cstop offset='0' stop-color='%23ff9a4a' stop-opacity='.3'/%3E%3Cstop offset='1' stop-color='%23ff9a4a' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='b' gradientUnits='userSpaceOnUse' x1='295' x2='250'%3E%3Cstop offset='0' stop-color='%23ff9a4a' stop-opacity='.26'/%3E%3Cstop offset='1' stop-color='%23ff9a4a' stop-opacity='0'/%3E%3C/linearGradient%3E%3Cg filter='url(%23h)'%3E%3Cpath fill='%23ff9a4a' fill-opacity='.5' d='M10 13C70 10.5 190 9.5 290 7.5L295 34C200 36 95 37.6 4 38.6Z'/%3E%3Cpath fill='url(%23a)' d='M10 13C70 10.5 190 9.5 290 7.5L295 34C200 36 95 37.6 4 38.6Z'/%3E%3Cpath fill='url(%23b)' d='M10 13C70 10.5 190 9.5 290 7.5L295 34C200 36 95 37.6 4 38.6Z'/%3E%3C/g%3E%3C/svg%3E") center / 100% 100% no-repeat;
 }
 

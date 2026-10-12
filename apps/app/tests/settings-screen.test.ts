@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vit
 
 import { assistantMayAnswer } from "@/lib/billing/answering";
 import { depositDecision, readClinicDepositFacts } from "@/lib/billing/deposits";
+import { assertPayloadAllowed } from "@/lib/email/lint";
 import { optionalEmailAllowed } from "@/lib/email/stop";
 import { unsubscribeToken } from "@/lib/email/unsubscribe";
 import { NOT_A_DEVICE_LABEL } from "@/lib/notices/setting-changed";
@@ -35,6 +36,7 @@ import { brokenLinks } from "./setup/portal-links";
 const portal = { userId: "", clinicId: "", clinicSlug: "" };
 const grants: { clinicId: string; slug: string; name: string }[] = [];
 let steppedUp = false;
+let deviceLabel = "Front desk Mac";
 const touched = vi.fn();
 
 vi.mock("@/lib/portal/access", () => ({
@@ -46,7 +48,7 @@ vi.mock("@/lib/portal/actor", () => ({
   SIGN_IN_ACTOR_LABEL: "the clinic's sign-in",
   portalActor: async () =>
     steppedUp
-      ? { label: "Front desk Mac", steppedUp: true }
+      ? { label: deviceLabel, steppedUp: true }
       : { label: "the clinic's sign-in", steppedUp: false },
 }));
 vi.mock("@/lib/portal/step-up", () => ({
@@ -130,6 +132,7 @@ describeDb("Settings", () => {
   beforeEach(() => {
     use(complete);
     steppedUp = false;
+    deviceLabel = "Front desk Mac";
     touched.mockClear();
   });
 
@@ -558,5 +561,29 @@ describeDb("Settings", () => {
     expect(chat).not.toContain("Transfer live calls");
     expect(chat).not.toContain("When AYA answers a call");
     expect(brokenLinks(chat, portal.clinicSlug)).toEqual([]);
+  });
+
+  test("O4 leaves out a device name the email may not carry, rather than have the sender refuse it for good", async () => {
+    steppedUp = true;
+    deviceLabel = "maria@frontdesk";
+    expect(await save("direct_line", "(512) 555-0166")).toMatchObject({ ok: true });
+    const [notice] = await inTenant(
+      portal.clinicId,
+      async (c) =>
+        (
+          await c.query<{ payload: Record<string, unknown> }>(
+            `select payload from billing_notices
+              where kind = 'setting_changed' and payload->>'afterMasked' = '(•••) •••-0166'`,
+          )
+        ).rows,
+    );
+    expect(notice!.payload).toMatchObject({
+      field: "direct_line_e164",
+      beforeMasked: "(•••) •••-0188",
+      afterMasked: "(•••) •••-0166",
+    });
+    expect(notice!.payload).not.toHaveProperty("deviceName");
+    // What the sender checks before it renders: it passes, so the email goes.
+    expect(() => assertPayloadAllowed(notice!.payload, "setting_changed")).not.toThrow();
   });
 });

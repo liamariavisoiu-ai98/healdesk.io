@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 
 import { clinics } from "@/db/schema";
+import { isAllowedDeviceName } from "@/lib/email/lint";
 import type { SettingChangedField } from "@/lib/email/templates/setting_changed";
 import { describeError, log } from "@/lib/log";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
@@ -61,7 +62,13 @@ export async function notifySettingChanged(
         .limit(1);
       if (!clinic) return;
       const card = change.field === "transfer_e164" ? "alerts" : "safety-net";
-      const device = change.actorLabel.trim();
+      // The device's name, unless it is the sign-in rather than a device, or
+      // a name the payload allowlist would refuse ("maria@frontdesk", a long
+      // run of digits): the sender treats a refused payload as final, so the
+      // email goes without the name rather than not at all.
+      const device = change.actorLabel.trim().slice(0, 60);
+      const deviceName =
+        device !== NOT_A_DEVICE_LABEL && isAllowedDeviceName(device) ? device : null;
       await enqueuePlanNotice(
         savepoint,
         tx.clinicId,
@@ -72,7 +79,7 @@ export async function notifySettingChanged(
           beforeMasked: maskPhone(change.before),
           afterMasked: maskPhone(change.after),
           changedAt: change.at.toISOString(),
-          ...(device && device !== NOT_A_DEVICE_LABEL ? { deviceName: device.slice(0, 60) } : {}),
+          ...(deviceName ? { deviceName } : {}),
           settingsUrl: publicUrl(`/c/${clinic.slug}/settings#${card}`),
         },
       );

@@ -15,6 +15,7 @@ import {
   webhookEvents,
   type ErasureVendorStamp,
 } from "@/db/schema";
+import { clearHoldsForErasure } from "@/lib/booking/holds";
 import { identifierRef } from "@/lib/identifier-ref";
 import { addBusinessDays } from "@/lib/incidents/incidents";
 import { describeError, log } from "@/lib/log";
@@ -86,15 +87,16 @@ import { REQUESTER_LABELS, type PatientRequester } from "./requesters";
  *   - their suppressions, consent records and contact attempts
  *     (app_erase_contact_evidence), so no telephone number of theirs is left.
  *
- * Slot holds that named them keep only the time, with the contact, request
- * and appointment gone from them (their foreign keys), and go with the
- * nightly purge once they have stopped blocking and are a week old, or
- * sooner on a shorter record clock (SLOT_HOLD_RETENTION_DAYS, the calendar
- * session's C12, lib/retention/purge.ts). Until then a spent hold keeps its
- * holder_ref, a plain sha256 of the call it was made on, not a keyed
- * reference: the calendar session's to change. usage_events keep the keyed
- * reference of each call and conversation, as the billing record, with
- * nothing that leads to the person.
+ * Their slot holds go first, while the holds' links still lead to them:
+ * those linked to their contacts (by number), their requests or their
+ * appointments, or held under a reference to one of their numbers or own
+ * threads, are let go if still live and deleted (clearHoldsForErasure, the
+ * calendar session's, lib/booking/holds.ts), and counted as `holds`. A hold
+ * linked only to a contact matched by address alone is not found by it (it
+ * finds contacts by number) and keeps only the time once the contact goes,
+ * until the nightly purge takes it (SLOT_HOLD_RETENTION_DAYS). usage_events
+ * keep the keyed reference of each call and conversation, as the billing
+ * record, with nothing that leads to the person.
  *
  * ## The record, and how long it lasts
  *
@@ -188,6 +190,8 @@ export type ErasureCounts = {
   contactAttempts: number;
   /** Amendments of the requests and conversations deleted (record_amendments, drizzle/0063). */
   amendments: number;
+  /** Their slot holds, let go and deleted (clearHoldsForErasure, lib/booking/holds.ts). */
+  holds: number;
 };
 
 function noCounts(): ErasureCounts {
@@ -204,6 +208,7 @@ function noCounts(): ErasureCounts {
     consentRecords: 0,
     contactAttempts: 0,
     amendments: 0,
+    holds: 0,
   };
 }
 
@@ -633,6 +638,15 @@ async function eraseSurveyed(
 
   // The raw payloads first, found while the calls they belong to still exist.
   const payloads = await payloadsAbout(tx, s, before);
+
+  // Their slot holds first, while the holds' links to their contacts,
+  // requests and appointments still lead to them: deleting those sets each
+  // link to null, and nothing would find the hold afterwards. Live ones are
+  // let go before they go (clearHoldsForErasure, the calendar session's).
+  counts.holds = await clearHoldsForErasure(tx, {
+    phones: s.phones,
+    threadRefs: partyRefs(tx.clinicId, s.threads),
+  });
 
   // The people, by every number and address the survey made theirs (not
   // only the ones asked), with their own requests whatever thread they came

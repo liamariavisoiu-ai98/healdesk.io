@@ -22,6 +22,7 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
+import { asApp as committedAsApp, insertHold } from "./setup/calendar-db";
 import { inTenant, seedClinic, seedContact, seedConversation } from "./setup/factories";
 
 /**
@@ -584,6 +585,27 @@ describeDb("deletion on request", () => {
     });
     expect((await reapplyErasures()).failures).toBe(0);
     expect(await left()).toEqual(expected);
+  });
+
+  test("the person's slot holds go before their contacts do, live ones let go, and are counted", async () => {
+    // A hold is found by its link to the person's contact; deleting the
+    // contact first would null the link and leave the hold, a time tied to
+    // nobody, past the deletion. So the erase path clears holds first
+    // (clearHoldsForErasure, lib/booking/holds.ts).
+    const c = await seedClinic("erase-holds");
+    const person = await seedContact(c.clinicId, "+15550136301");
+    const neighbour = await seedContact(c.clinicId, "+15550136302");
+    const later = (days: number) => new Date(Date.now() + days * DAY);
+    const holds = await committedAsApp(c.clinicId, async (client) => ({
+      live: await insertHold(client, c.clinicId, { holder: "voice:call_p1", startsAt: later(3), contactId: person }),
+      theirs: await insertHold(client, c.clinicId, { holder: "voice:call_n1", startsAt: later(4), contactId: neighbour }),
+    }));
+    const outcome = await erase({ clinicId: c.clinicId, phone: "+15550136301", requestedBy: "practice" });
+    if (outcome.status !== "erased") throw new Error("not erased");
+    expect(outcome.deleted.holds).toBe(1);
+    const left = await inTenant(c.clinicId, (client) => client.query<{ id: string }>(`select id from slot_holds`));
+    expect(left.rows.map((r) => r.id)).toEqual([holds.theirs]);
+    expect(holds.live).toBeTruthy();
   });
 
   test("a thread holding a draft that names no one yet is not the person's alone, and stays", async () => {

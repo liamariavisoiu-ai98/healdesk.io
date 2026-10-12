@@ -12,6 +12,8 @@ import { isTimeWindow } from "@/lib/meta/time-window";
  */
 
 const META = { conditions: true, timeGrammar: true } as const;
+/** Next year, so a full date in these cases is never a past one, whenever the suite runs. */
+const NEXT_YEAR = new Date().getUTCFullYear() + 1;
 
 describe("the closed time grammar", () => {
   test.each([
@@ -40,8 +42,8 @@ describe("the closed time grammar", () => {
     "end of the month",
     "the 3rd at 2",
     "12/10",
-    "10/21/2026",
-    "2026-10-21",
+    `10/21/${NEXT_YEAR}`,
+    `${NEXT_YEAR}-10-21`,
     "Friday 3ish",
     "Thursday evening, or Friday morning",
     "mornings before 11",
@@ -59,6 +61,14 @@ describe("the closed time grammar", () => {
     "Tuesday a.m.",
     "after 6 p.m. please",
     "Thurs 1030",
+    // A small closed set of filler around a time (the branch review's R10).
+    "in 3 months",
+    "a year from now",
+    "anytime this week is fine",
+    "I'm free Tuesday",
+    "Saturday morning works",
+    "after 5 if that's ok",
+    "the day after tomorrow",
   ])("%s is a time", (window) => {
     expect(isTimeWindow(window)).toBe(true);
     expect(windowIsClean(window, META)).toBe(true);
@@ -90,6 +100,17 @@ describe("the closed time grammar", () => {
     // Out-of-range numbers are not times or dates.
     "99",
     "45:00",
+    // Every word a time word, and still something about the person (R10):
+    // a cycle day, a past full date shaped like a date of birth, an "after"
+    // with no time after it, and a number no clock shows.
+    "day 3 or day 21",
+    "day three",
+    "10/21/1985",
+    "1985-10-21",
+    "the morning after",
+    "2 weeks after",
+    "4 weeks after the last time",
+    "after 250",
   ])("%s is refused", (window) => {
     expect(isTimeWindow(window)).toBe(false);
     expect(windowIsClean(window, META)).toBe(false);

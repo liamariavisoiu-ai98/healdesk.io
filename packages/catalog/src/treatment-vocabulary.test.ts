@@ -24,6 +24,30 @@ describe("the Meta treatment vocabulary", () => {
     // Accents don't hide a brand.
     "Your Juvéderm appointment is set.",
     "JUVÉDERM is available.",
+    // The C19 re-audit's misses (B2).
+    "We offer microblading from $450.",
+    "We offer tattoo removal.",
+    "We do electrolysis and waxing.",
+    "We offer sclerotherapy for veins.",
+    "We offer Emsella and Emface.",
+    "We offer Profhilo and Skinvive.",
+    "We offer massage and acupuncture.",
+    "We offer RHA.",
+    "We do Morpheus.",
+    "We do CO2 resurfacing.",
+    "We do Accutane consults.",
+    "We offer dental cleanings and crowns.",
+    "We do braces.",
+    "We offer vasectomy.",
+    "We offer an IV.",
+    "B12 shots are popular.",
+    "We offer HRT.",
+    "HIFU and radiofrequency.",
+    "PRF and exosomes.",
+    "Lash lift and brow lamination.",
+    "Whitening is $300.",
+    "We give vaccines.",
+    "We offer neutering.",
     // A treatment word beside a road word that isn't a road's name is still one.
     "Our laser centre is downstairs.",
     "Laser treatment is available.",
@@ -49,6 +73,11 @@ describe("the Meta treatment vocabulary", () => {
     "Free parking is behind the building on Laser Lane.",
     "Turn left onto Potenza Ave.",
     "Our team is laser-focused on getting you an answer.",
+    // Whole words only, and places: no false positives from B2's additions.
+    "We're in the Crown Heights neighbourhood.",
+    "We're on Massage Street.",
+    "Come to Suite 4, past the ivory door.",
+    "The Crown and Anchor is next door.",
   ])("%s names none", (text) => {
     expect(namesMetaTreatment(text)).toBe(false);
   });

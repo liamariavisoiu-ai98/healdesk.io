@@ -108,7 +108,7 @@ reaches `apps/app` until every link is done.
 | Clinic to Healdesk | Built: accepted inline at checkout |
 | Healdesk to Retell | Not done. Self-sign the BAA and DPA in Retell's click-agreements portal, confirm the executed text names the services in use, then set per-agent retention and PII controls |
 | Healdesk to Anthropic | Not done. The primary owner signs and activates. Patient traffic needs its **own** organisation: the HIPAA setting is organisation-wide and one-way, so enabling it on the marketing org would bind the demo's key too. The marketing key in `apps/web/.env.local` is already from a separate, non-PHI organisation. Covered models require 30-day retention; do not also request zero data retention |
-| Healdesk to the database provider | Not chosen: AWS RDS under the agreement above, or Neon on its Scale plan under its own |
+| Healdesk to the database provider | AWS RDS under the agreement above, the owner's choice of 7 October 2026 over Neon; defined in `infra/aws`, not yet applied |
 | Healdesk to AWS | Done (above) |
 | Clinic to Google | The calendar is the clinic's own, under its agreement with Google. Confirm per clinic |
 
@@ -211,66 +211,114 @@ The HIPAA Account build list, from the AWS addendum (§4.2–4.3) and the servic
 [policies/aws-hipaa-account.md](./policies/aws-hipaa-account.md). Build it with the first
 RDS instance, not after, because the first item cannot be added later.
 
-**Status, 7 October 2026.** The list is now code: Terraform in `infra/aws`, applied by
-`.github/workflows/infra.yml`, and `.github/workflows/deploy-app.yml` to build, migrate and
-roll, with [`infra/aws/README.md`](../infra/aws/README.md) as the runbook. *Done in
-`infra/aws`* below means defined there and checked locally (validate, checkov, the images
-built and run against a local Postgres shaped like RDS). **Nothing is applied**, so every
-item stays unproven until the owner's first `infra.yml` apply and first deploy.
+**Status, 12 October 2026.** The list is code: Terraform in `infra/aws`, applied by
+`.github/workflows/infra.yml`, with `.github/workflows/deploy-app.yml` to build, migrate and
+roll, a CloudFormation bootstrap stack, and [`infra/aws/README.md`](../infra/aws/README.md) as
+the runbook. *Done in `infra/aws`* below means defined there and checked locally (`terraform
+validate`, `terraform test` against mocked providers, tflint, checkov, cfn-lint, actionlint;
+the images built and run against a local Postgres shaped like RDS). **Nothing is applied**, so
+every item stays unproven until the owner's first `infra.yml` apply and first deploy.
 
 - *Decide the database first:* **done.** RDS under this agreement, the owner's choice of
   7 October 2026 (`infra/aws/rds.tf`).
 - *RDS:* **done in `infra/aws`:** storage encryption with our KMS key at creation;
   `rds.force_ssl=1`, with TLS 1.2 as the minimum; the `healdesk_app` (NOBYPASSRLS) and
   `healdesk_migrator` roles, created by the one-off db-bootstrap task with the RDS-safe
-  `provision-roles.sql`; 35-day automated backups and no final snapshot; the RDS CA trusted
-  in the container (the us-east-1 bundle in the image, `sslmode=verify-full` in both URLs,
-  and production refuses a `DATABASE_URL` without it); Config rule `rds-storage-encrypted`.
-  **Open:** the restore drill. The procedure is in the runbook; it has not been run.
+  `provision-roles.sql`, from passwords it generates inside AWS and sends to the server only as
+  SCRAM verifiers; 35-day automated backups and no final snapshot; the RDS CA trusted in the
+  container (the us-east-1 bundle in the image, `sslmode=verify-full` in both URLs, and production
+  refuses a `DATABASE_URL` without it); the engine log terse, with no statement logged as it runs
+  and no failing statement's text (`log_min_error_statement=panic`); Config rule
+  `rds-storage-encrypted`. **Open:** the restore drill, by the steps in "Restoring" below and the
+  runbook's "Restore drill" (a point-in-time restore to a new instance, checked by running
+  db-bootstrap against it); it has not been run. **Built:** the after-restore destruction check
+  (step 3 of "Restoring") as the one-off `destroy-due` task, the worker's container running
+  `scripts/destroy-due.ts` (`infra/aws/scripts/run-task.sh destroy-due`). **Open:** putting a
+  restored copy in production's place (the runbook's "Restoring production" gives the order and
+  what is known, not a rehearsed procedure); step 2's dates go back through the CloudShell VPC
+  environment as the migrator; and offboarding's return bundle has nowhere to be written on this
+  host, since a task's disk goes with the task, so it needs a design before the first clinic
+  leaves. **Half built:** the alarm on any transaction open
+  longer than five minutes, because one held open is the way left around the record clock's day
+  and offboarding's thirty days (see "Retention and offboarding"). The alarm
+  `healdesk-production-rds-idle-in-transaction` fires when a session has sat idle inside a
+  transaction for more than five minutes (Performance Insights'
+  `db.state.idle_in_transaction_max_time`, read by CloudWatch). It cannot see a transaction kept
+  open by one statement running longer than five minutes: Performance Insights has no counter for
+  an active transaction's age, so that half needs a check run inside the database
+  (`pg_stat_activity.xact_start`) and is **open**. No timeout setting stands in for it, because
+  one would kill the runtime role's transactions.
 - *KMS:* **done in `infra/aws`:** one customer-managed key, `alias/healdesk-production`; a
-  task-role policy limited to `GenerateDataKey`, `Decrypt` and `Encrypt` on it, with no
-  encryption context; `HEALDESK_KMS_PROVIDER=aws-kms` and `HEALDESK_KMS_KEY_ID`, the key's full
-  ARN (`arn:aws:kms:us-east-1:<account>:key/<key id>`), on the web and worker task definitions
-  (the migrate task needs neither), since an alias, a bare ID, a multi-Region key or another
-  region is refused; `AWS_REGION=us-east-1`, since the KMS client refuses any other region;
-  `@aws-sdk/client-kms` ships in the image (fixed 6 October 2026). **Open:** reading the
-  worker's start-up line ("credential key self-check passed") after the first deploy, to
-  confirm the task role reaches the key (the read-only ops operation `getCredentialKeyStatus`
-  asks the web tier the same, but nothing in `/admin` calls it yet); the rotation runbook,
-  drafted in the runbook's "Rotating secrets" and not yet adopted or exercised.
-- *S3:* **open, deliberately not built:** no code uses S3 yet. When it is: a bucket in the
-  designated region; SSE-KMS with our key; a policy denying non-TLS requests; Block Public
-  Access; versioning, with superseded versions gone within 35 days; lifecycle expiry matched
-  to `clinics.retention_media_days`; no patient identifier in any key. Config rule
-  `s3-bucket-ssl-requests-only` is defined already and checks every bucket in the account.
+  task-role policy limited to `GenerateDataKey`, `Decrypt` and `Encrypt` on it, in the two
+  statements written out in `docs/design/google-calendar-2026-10-05.md` §5: the application's
+  own calls, each only with both lock-label keys and no other in the encryption context and with
+  no `kms:ViaService` (`kms_require_lock_labels`, true, Terraform-only: no app setting reads it);
+  and S3's calls, `GenerateDataKey` and `Decrypt` only, through S3 (`kms:ViaService`
+  `s3.us-east-1.amazonaws.com`) and for the transcript bucket alone
+  (`kms:EncryptionContext:aws:s3:arn`, the bucket's ARN, since the bucket uses S3 Bucket Keys),
+  present only while the bucket is switched on; a key policy that names the task role in no
+  statement of its own, only the account statement that lets IAM decide;
+  `HEALDESK_KMS_PROVIDER=aws-kms` and `HEALDESK_KMS_KEY_ID`, the key's full ARN
+  (`arn:aws:kms:us-east-1:<account>:key/<key id>`), on the web and worker task definitions (the
+  migrate task needs neither; db-bootstrap gets the ARN only to write its parameters), since an
+  alias, a bare ID, a multi-Region key or another region is refused; `AWS_REGION=us-east-1`,
+  since the KMS client refuses any other region; `@aws-sdk/client-kms` ships in the image (fixed
+  6 October 2026). **Open:** reading the worker's start-up line ("credential key self-check
+  passed") after the first deploy, to confirm the task role reaches the key with the lock labels
+  required (the read-only ops operation `getCredentialKeyStatus` asks the web tier the same, but
+  nothing in `/admin` calls it yet); the rotation runbook, drafted in the runbook's "Rotating
+  secrets" (the key and `HEALDESK_IDENTIFIER_REF_KEY` never rotate) and not yet adopted or
+  exercised.
+- *S3:* **built in `infra/aws`, switched off** (`enable_transcript_bucket = false`), because no
+  code uses S3 yet: a bucket in the designated region; SSE-KMS with our key and bucket keys; a
+  policy denying non-TLS requests and uploads under any other encryption; Block Public Access;
+  versioning, with superseded versions gone within 7 days, inside the 35 the agreement allows;
+  current objects expiring at `transcript_retention_days` (90, the longest a clinic can keep
+  them; the app deletes shorter ones itself from `clinics.retention_media_days`); CloudTrail data
+  events on every object; no patient identifier in any key. Config rule
+  `s3-bucket-ssl-requests-only` is on already and checks every bucket in the account. **Open:**
+  the code that writes transcripts there, and switching the bucket on with it.
 - *ECS on Fargate:* **done in `infra/aws`:** the web tier and the worker as services from one
   image, plus one-off task definitions for the migrations (as `healdesk_migrator`, before every
-  rollout) and the role creation; a task role carrying only the KMS permissions (SES and S3
-  join when they exist); secrets from SSM Parameter Store, never the image; ECR; no PHI in
-  names or tags; the worker's `stopTimeout` at 60 s, above pg-boss's 30 s graceful stop.
-  **Open:** the Retell voice endpoint (a long-lived WebSocket process; `infra/aws/ecs.tf` ends
-  with a disabled placeholder listing what it needs). pg-boss stops with its 30 s default
-  because `lib/queue/boss.ts` passes no `timeout`; a two-minute drain still needs
-  `timeout: 120_000` there and a `stopTimeout` above it, and Fargate's maximum is 120 s.
-- *Load balancer:* **done in `infra/aws`:** an HTTPS listener with an ACM certificate, HTTP
-  redirected, the health check on `GET /api/health?probe=liveness` (200 whenever the process
-  is up; the plain path answers 503 while a critical email is late, which is the uptime
-  check's alarm, not a reason to replace a task), rate limiting on the host (a WAF rate rule
-  that answers 429), and the hop to the task re-encrypted by a TLS sidecar. **Open:**
+  rollout) and the role creation; a task role carrying only the KMS permissions (SES and S3 join
+  when switched on); secrets from SSM Parameter Store, never the image, and none in Terraform's
+  state (every parameter is created holding `__unset__`, which the image's entrypoint treats as
+  unset; db-bootstrap generates the internal values, the owner pastes the vendor keys with
+  `infra/aws/scripts/put-external-secrets.sh`); ECR; no PHI in names or tags; the worker run as
+  one node process with `stopTimeout` at 60 s, above pg-boss's 30 s graceful stop. **Open:** the
+  Retell voice endpoint (a long-lived WebSocket process; `infra/aws/ecs.tf` ends with a disabled
+  placeholder listing what it needs). pg-boss stops with its 30 s default because
+  `lib/queue/boss.ts` passes no `timeout`; a two-minute drain still needs `timeout: 120_000`
+  there and a `stopTimeout` above it, and Fargate's maximum is 120 s.
+- *Load balancer:* **done in `infra/aws`:** an HTTPS listener with one ACM certificate for
+  `app.healdesk.io` and `app-internal.healdesk.io`, HTTP redirected, the health check on
+  `GET /api/health?probe=liveness` (200 whenever the process is up; the plain path answers 503
+  while a critical email is late, which is the uptime check's alarm, not a reason to replace a
+  task), rate limiting on the host (a WAF rate rule that answers 429, never 403, because the
+  Stripe relay drops any other 4xx), and the hop to the task re-encrypted by a TLS sidecar. The
+  signed server-to-server routes are served only on the internal name, which is
+  `HEALDESK_APP_URL` on Vercel and on the tasks, and refused on the public one. **Open:**
   WebSocket upgrades already pass through the load balancer and the sidecar, but the voice
-  endpoint's own target group and listener rule wait for the voice process; the external
-  uptime check (`docs/on-call.md`) is not set up.
+  endpoint's own target group and listener rule wait for the voice process; the external uptime
+  check (`docs/on-call.md`) is not set up.
 - *CloudTrail:* **done in `infra/aws`:** on and kept (one multi-region trail, management reads
   and writes, KMS events included), encrypted with our key, log-file validation, Config rule
-  `cloud-trail-encryption-enabled`. **Open:** S3 data events, which arrive with the PHI
-  bucket.
-- *CloudWatch Logs:* **done in `infra/aws`:** every log group created before anything writes
-  to it, encrypted with our key and set to "Never expire" (§4.2(c)), the RDS engine log
-  included; Config rule `cloudwatch-log-group-encrypted`.
-- **SES sending. Open, deliberately not built:** no v1 message is classed `may-carry-phi`.
-  `SesTransport` throws with instructions. Needs a verified domain, DKIM, and a configuration
-  set with `TlsPolicy: Require`. Wire bounces and complaints to the clinic contact they belong
-  to, never to patient suppression tables.
+  `cloud-trail-encryption-enabled`; S3 data events on the transcript bucket whenever it is
+  switched on.
+- *CloudWatch Logs:* **done in `infra/aws`:** every log group created before anything writes to
+  it, encrypted with our key and set to "Never expire" (§4.2(c)), the RDS engine log included;
+  Config rule `cloudwatch-log-group-encrypted`.
+- **SES sending. Built in `infra/aws`, switched off** (`enable_ses = false`): no v1 message is
+  classed `may-carry-phi`. When switched on it creates the configuration set
+  `healdesk-production-phi` with `TlsPolicy: Require`, the verified domain with its DKIM records
+  at Cloudflare, `HEALDESK_SES_CONFIGURATION_SET` on the tasks and the task role's
+  `ses:SendEmail` and `ses:GetConfigurationSet`. **Open:** `SesTransport` still throws with
+  instructions; production access out of the SES sandbox; bounces and complaints wired to the
+  clinic contact they belong to, never to patient suppression tables.
+- **Not on the addendum's list, but needed before the first apply:** the owner's part of the
+  first run in the runbook (the bootstrap stack, the Cloudflare token in Parameter Store, the
+  GitHub variables, `infra.yml`, the vendor keys, the first deploy with `bootstrap_db`, Vercel's
+  `HEALDESK_APP_URL` and `HEALDESK_PROVISION_SECRET`).
 - **A2P 10DLC — dropped.** No SMS in v1. SMS is a phase-two paid add-on with per-clinic
   carrier registration of one to four weeks.
 - **The monthly report job stays off.** It is the phase-two revenue report.
@@ -337,22 +385,64 @@ a Next route. Every job ships switched off and is enabled from the ops console; 
 ### Retention and offboarding
 
 Two clocks per clinic, on the `clinics` row: `retention_media_days` (90) clears
-transcript references; `retention_record_days` (730) deletes conversation, appointment
-and transaction rows and then contacts nothing refers to. `retention-purge` runs both nightly and writes
-one audit row per clinic with counts. `baa_acceptances` has its own six-year floor.
+transcript references; `retention_record_days` (90, never below a day) deletes
+conversation, appointment, booking request and transaction rows and then contacts nothing
+refers to. A booking request goes once every date on it is past the clock (when it was
+made, the slot it was confirmed for, its appointment's time), and a shortened clock
+reaches booking requests a day after it is set. Every request's id and token hash stay
+in `booking_request_keys` after it is deleted, and are never written again. The day, and
+offboarding's thirty, run from when the change is written (`clock_timestamp()`, not the
+start of its transaction), and saving the clock's current value again restarts nothing.
+What SQL cannot see is when a transaction commits: one that shortens the clock or starts
+offboarding and then stays open for the day (or the thirty) commits a change whose wait
+has already run, holding the clinic's row locked all that time. The long-transaction
+alarm in the AWS list is what catches it, and only half of it is built (see there).
+`retention-purge` runs both nightly and writes one audit row per clinic with counts.
+`baa_acceptances` has its own six-year floor.
 Vendor-side retention (Retell's per-agent setting) is a setting, not a delete we run:
 set it to the minimum and screenshot it. Single-patient erasure is `eraseContact()` in
 `apps/app/src/lib/retention/purge.ts`. Set the host's snapshot retention to 35 days.
 
 When Stripe sends `customer.subscription.deleted` (or an operator starts it), the clinic
-gets `offboarding_started_at` and a `destroy_after` thirty days out. In between: switch
-the clinic's voice agent off at the vendor and send it the forwarding-removal codes, so
-its calls fall through to its own line; produce the return bundle with
+gets `offboarding_started_at` and a `destroy_after` thirty days out, both stamped by the
+database (`app_start_offboarding()`); the runtime role cannot write either. In between:
+switch the clinic's voice agent off at the vendor and send it the forwarding-removal
+codes, so its calls fall through to its own line; produce the return bundle with
 `npm run patient-export -w @healdesk/app -- --clinic <id> --all --requested-by "…"`, hand
 it over, and record it on the care page. `offboarding-destroy` deletes every patient row
 once `destroy_after` has passed and the export is recorded (or 90 days after the start),
 revokes the connections, and writes one security event. Export first, then destroy; the
 BAA obligations persist until it is done.
+
+### Restoring
+
+Restore from the host's physical snapshot or point-in-time recovery, or from a full
+`pg_dump` of schema and data, in which the triggers are created after the data. A
+data-only load into a migrated schema (`pg_restore --data-only`, or a `\copy` of one
+table) fires two BEFORE INSERT triggers from 0054 that refuse it: `clinics_insert_guard`
+refuses every offboarded or destroyed clinic, and `booking_requests_keys_once` refuses
+every booking request whose key is already there, which is all of them, since
+`booking_request_keys` sorts ahead of `booking_requests` in a dump. For such a load the
+owner disables both by name, loads every table, `booking_request_keys` included, and
+enables both again, in one transaction:
+
+```sql
+BEGIN;
+ALTER TABLE clinics DISABLE TRIGGER clinics_insert_guard;
+ALTER TABLE booking_requests DISABLE TRIGGER booking_requests_keys_once;
+-- the data-only load
+ALTER TABLE clinics ENABLE TRIGGER clinics_insert_guard;
+ALTER TABLE booking_requests ENABLE TRIGGER booking_requests_keys_once;
+COMMIT;
+```
+
+(`pg_restore --data-only --disable-triggers` does the same for every table, foreign keys
+included, but only as a superuser, which RDS does not give.) Then check that both
+triggers and `clinics_record_clock` read `tgenabled = 'O'` in `pg_trigger`, the check
+0054 ends with, and that every booking request has its key, counting clinic by clinic
+inside each clinic's tenant as 0054's backfill does (`booking_requests` is FORCEd): a
+request loaded without its key could be deleted and written again with another decision.
+`tests/booking-request-destruction.test.ts` runs these steps.
 
 ### Logs
 
@@ -376,6 +466,17 @@ task name, a queue name or a resource tag.
   `tests/database-audit.test.ts` fails until the grant is added.
 - **Nothing writes the two gate columns except `app_mark_clinic_production()`**, and
   nothing binds an agreement except `app_bind_agreement()`. Both are `SECURITY DEFINER`.
+  Likewise only `app_start_offboarding()` and `app_mark_clinic_destroyed()` write
+  `offboarding_started_at`, `destroy_after` and `destroyed_at`, from the database's clock,
+  because `app_destroy_booking_requests()` reads them as its floor. A guard in a
+  `SECURITY DEFINER` function binds nothing if it reads a column the runtime role can write,
+  and that includes a column on another table and one it can set on INSERT: a new clinic
+  is refused the three dates (`clinics_insert_guard`), and `app_purge_booking_requests()`
+  reads a request's own frozen dates and the record clock in force, not an appointment's
+  time or the setting alone. Where the runtime role can make a delete happen at all, make
+  sure it cannot put the row back: `booking_request_keys` refuses a deleted request's id
+  or token hash, and it is written at insert, so a re-insert racing the delete is refused
+  too.
 
 `apps/app/tests/rls-drift.test.ts` asks the catalog which tables carry a `clinic_id` and
 demands each one have row-level security enabled **and forced**. If it goes red, someone

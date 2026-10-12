@@ -435,7 +435,7 @@ describeDb("deletion on request", () => {
     });
     // The household thread booked for the spouse too: it stays, with what it
     // sent for them, and the reply says so by count.
-    expect(outcome.kept).toEqual({ sharedThreads: 1, requests: 1, drafts: 0 });
+    expect(outcome.kept).toEqual({ sharedThreads: 1, requests: 1, drafts: 0, unthreaded: 0 });
     // Ten business days from a Monday morning: two weeks on, at the same hour.
     expect(outcome.dueBy).toBe("2026-10-19T09:00:00.000Z");
 
@@ -544,7 +544,7 @@ describeDb("deletion on request", () => {
       chatThreads: 0,
       drafts: 0,
     });
-    expect(outcome.kept).toEqual({ sharedThreads: 1, requests: 2, drafts: 1 });
+    expect(outcome.kept).toEqual({ sharedThreads: 1, requests: 2, drafts: 1, unthreaded: 0 });
 
     const left = async () =>
       inTenant(c.clinicId, async (client) => ({
@@ -585,6 +585,195 @@ describeDb("deletion on request", () => {
     });
     expect((await reapplyErasures()).failures).toBe(0);
     expect(await left()).toEqual(expected);
+  });
+
+  test("the person's deposits go with their appointments, with the Connect event that last touched each; another's stay", async () => {
+    // The calendar session's re-audit (C19, 12 October 2026): no erase path
+    // touched deposit_payments, the appointment's foreign key set the link to
+    // NULL, and the amount, the payment time and the Checkout session, which
+    // leads to the payer in the practice's Stripe, stayed.
+    const c = await seedClinic("erase-deposits");
+    const at = new Date(Date.now() - 2 * DAY);
+    const person = await seedContact(c.clinicId, "+15550136101");
+    const other = await seedContact(c.clinicId, "+15550136109");
+    const theirs = await seedConversation(c.clinicId, { startedAt: at, booked: true, contactId: person });
+    const others = await seedConversation(c.clinicId, { startedAt: at, booked: true, contactId: other });
+    await inTenant(c.clinicId, async (client) => {
+      await client.query(`update contacts set created_at = $1`, [at]);
+      await client.query(
+        `insert into deposit_payments
+           (clinic_id, appointment_id, channel, amount_cents, stripe_account_id, status, checkout_session_id,
+            last_event_id, paid_at)
+         values ($1, $2, 'web', 5000, 'acct_erase', 'paid', 'cs_erase_theirs', 'evt_erase_theirs_paid', $4),
+                ($1, $3, 'web', 7000, 'acct_erase', 'paid', 'cs_erase_others', 'evt_erase_others_paid', $4)`,
+        [c.clinicId, theirs.appointmentId, others.appointmentId, at],
+      );
+    });
+    // The event that paid theirs, an earlier one for the same session (no
+    // column links it to a deposit: it stays until destruction), and the
+    // other person's.
+    await getMigratorPool().query(
+      `insert into stripe_connect_events (stripe_event_id, type, account, resolved_clinic_id)
+       values ('evt_erase_theirs_paid', 'checkout.session.completed', 'acct_erase', $1),
+              ('evt_erase_theirs_opened', 'checkout.session.async_payment_succeeded', 'acct_erase', $1),
+              ('evt_erase_others_paid', 'checkout.session.completed', 'acct_erase', $1)`,
+      [c.clinicId],
+    );
+
+    const outcome = await erase({ clinicId: c.clinicId, contactId: person, requestedBy: "practice" });
+    if (outcome.status !== "erased") throw new Error(JSON.stringify(outcome));
+    expect(outcome.deleted.deposits).toBe(1);
+    expect(outcome.deleted.appointments).toBe(1);
+
+    const deposits = await inTenant(c.clinicId, async (client) =>
+      (
+        await client.query<{ session: string }>(
+          `select checkout_session_id as session from deposit_payments order by 1`,
+        )
+      ).rows.map((r) => r.session),
+    );
+    expect(deposits).toEqual(["cs_erase_others"]);
+    const events = (
+      await getMigratorPool().query<{ id: string }>(
+        `select stripe_event_id as id from stripe_connect_events where stripe_event_id like 'evt_erase_%' order by 1`,
+      )
+    ).rows.map((r) => r.id);
+    expect(events).toEqual(["evt_erase_others_paid", "evt_erase_theirs_opened"]);
+
+    // The count is in the security event as well as the reply.
+    const event = await getMigratorPool().query<{ deposits: number }>(
+      `select (metadata->>'deposits')::int as deposits from security_events
+        where event = 'person_erased' and metadata->>'erasureId' = $1`,
+      [outcome.erasureId],
+    );
+    expect(event.rows).toEqual([{ deposits: 1 }]);
+  });
+
+  test("a WhatsApp thread on the person's own number keeps what it sent for others, without the number, and loses its draft and its row", async () => {
+    // The calendar session's re-audit (C19): a household thread that also
+    // booked for someone else kept its requests and draft for them, each
+    // carrying the thread's sender id, and on WhatsApp that is the erased
+    // person's own number. The household thread in the other tests is
+    // Instagram, whose sender id is the platform's, which is why they missed it.
+    const c = await seedClinic("erase-whatsapp-household");
+    const at = new Date(Date.now() - 2 * DAY);
+    const parent = await seedContact(c.clinicId, "+15550136201");
+    const child = await seedContact(c.clinicId, "+15550136202");
+    const parentWhatsApp = { platform: "whatsapp", senderId: "15550136201" } as const;
+    const ids = await inTenant(c.clinicId, async (client) => {
+      await client.query(`update contacts set created_at = $1`, [at]);
+      const forParent = await request(client, c.clinicId, parent, parentWhatsApp, at);
+      const forChild = await request(client, c.clinicId, child, parentWhatsApp, at);
+      await thread(client, c.clinicId, "whatsapp", "15550136201", at);
+      // Half-way through booking a sibling: a first name, no number yet.
+      await draft(client, c.clinicId, "whatsapp", "15550136201", null, at);
+      return { forParent, forChild };
+    });
+
+    const outcome = await erase({ clinicId: c.clinicId, contactId: parent, requestedBy: "practice" });
+    if (outcome.status !== "erased") throw new Error(JSON.stringify(outcome));
+    expect(outcome.kept).toEqual({ sharedThreads: 1, requests: 1, drafts: 0, unthreaded: 1 });
+    expect(outcome.deleted).toMatchObject({ bookingRequests: 1, chatThreads: 1, drafts: 1 });
+
+    const left = await inTenant(c.clinicId, async (client) => ({
+      requests: (
+        await client.query<{ id: string; platform: string; sender: string | null; external: string | null; contact: string; window: string }>(
+          `select id, platform, sender_id as sender, external_id as external, contact_id as contact,
+                  preferred_window as window
+             from booking_requests order by id`,
+        )
+      ).rows,
+      drafts: (await client.query(`select 1 from meta_booking_drafts`)).rows.length,
+      threads: (await client.query(`select 1 from chat_threads`)).rows.length,
+    }));
+    // The child's request stays whole, but for the thread.
+    expect(left.requests).toEqual([
+      {
+        id: ids.forChild,
+        platform: "whatsapp",
+        sender: null,
+        external: null,
+        contact: child,
+        window: "Saturday morning",
+      },
+    ]);
+    expect(left.drafts).toBe(0);
+    expect(left.threads).toBe(0);
+    // Nothing anywhere still carries the parent's number as a thread.
+    const carrying = await inTenant(c.clinicId, async (client) =>
+      (
+        await client.query<{ n: number }>(
+          `select (select count(*) from booking_requests where sender_id = '15550136201')::int
+                + (select count(*) from meta_booking_drafts where sender_id = '15550136201')::int as n`,
+        )
+      ).rows[0]!.n,
+    );
+    expect(carrying).toBe(0);
+    // The database did it, and said so.
+    const audit = await inTenant(c.clinicId, async (client) =>
+      (
+        await client.query<{ n: number }>(
+          `select result_count as n from audit_log
+            where resource_type = 'booking_request_unthreaded' and resource_id = $1`,
+          [outcome.erasureId],
+        )
+      ).rows,
+    );
+    expect(audit).toEqual([{ n: 1 }]);
+    // And the runtime role cannot do it itself.
+    await expect(
+      asApp(c.clinicId, (q) =>
+        q.query(`update booking_requests set sender_id = null, external_id = null where id = $1`, [ids.forChild]),
+      ),
+    ).rejects.toMatchObject({ code: "42501" });
+  });
+
+  test("a call with no caller ID goes with the payload that named the person: its conversation and amendments, but not another's", async () => {
+    // The calendar session's re-audit (C19): the payload naming the person
+    // was deleted, but its conversation, with what was asked about and the
+    // transcript's address, stayed until the record clock took it.
+    const c = await seedClinic("erase-no-caller-id");
+    const at = new Date(Date.now() - 2 * DAY);
+    const person = await seedContact(c.clinicId, "+15550136301");
+    const someone = await seedContact(c.clinicId, "+15550136309");
+    const ids = await inTenant(c.clinicId, async (client) => {
+      await client.query(`update contacts set created_at = $1`, [at]);
+      const call = async (callId: string, contactId: string | null) =>
+        (
+          await client.query<{ id: string }>(
+            `insert into conversations (clinic_id, channel, outcome, started_at, contact_id, external_call_id,
+                                        treatment_interest, transcript_uri)
+             values ($1, 'voice', 'qualified_no_booking', $2, $3, $4, 'Lip filler', 'https://vendor.test/t/' || $4)
+             returning id`,
+            [c.clinicId, at, contactId, callId],
+          )
+        ).rows[0]!.id;
+      const unmatched = await call("call_nocid_theirs", null);
+      const otherUnmatched = await call("call_nocid_other", null);
+      // A call on someone's contact whose payload happened to name the person:
+      // that someone's record, and it stays.
+      const onSomeone = await call("call_nocid_someone", someone);
+      await client.query(
+        `insert into record_amendments (clinic_id, target_kind, conversation_id, amendment, requested_by, requested_at, recorded_by)
+         values ($1, 'conversation', $2, 'The caller meant the Tuesday clinic.', 'practice', $3, 'ops@healdesk.test')`,
+        [c.clinicId, unmatched, at],
+      );
+      const say = (callId: string, words: string) => ({ call_id: callId, start_time: at.toISOString(), lead: { phone_number: null }, transcript: words });
+      await payload(client, c.clinicId, "synthflow", "call_nocid_theirs", say("call_nocid_theirs", "My number is 555 013 6301."), at, true);
+      await payload(client, c.clinicId, "synthflow", "call_nocid_other", say("call_nocid_other", "Just asking about prices."), at, true);
+      await payload(client, c.clinicId, "synthflow", "call_nocid_someone", say("call_nocid_someone", "Book my friend on 555-013-6301 too."), at, true);
+      return { unmatched, otherUnmatched, onSomeone };
+    });
+
+    const outcome = await erase({ clinicId: c.clinicId, contactId: person, requestedBy: "practice" });
+    if (outcome.status !== "erased") throw new Error(JSON.stringify(outcome));
+    expect(outcome.deleted.webhookEvents).toBe(2);
+    expect(outcome.deleted.conversations).toBe(1);
+    expect(outcome.deleted.amendments).toBe(1);
+    const left = await inTenant(c.clinicId, async (client) =>
+      (await client.query<{ id: string }>(`select id from conversations order by id`)).rows.map((r) => r.id),
+    );
+    expect(left).toEqual([ids.otherUnmatched, ids.onSomeone].sort());
   });
 
   test("the person's slot holds go before their contacts do, live ones let go, and are counted", async () => {
@@ -628,7 +817,7 @@ describeDb("deletion on request", () => {
     const outcome = await erase({ clinicId: c.clinicId, phone: "+15550136101", requestedBy: "practice" });
     if (outcome.status !== "erased") throw new Error("not erased");
     expect(outcome.deleted).toMatchObject({ bookingRequests: 1, chatThreads: 0, drafts: 0 });
-    expect(outcome.kept).toEqual({ sharedThreads: 1, requests: 0, drafts: 1 });
+    expect(outcome.kept).toEqual({ sharedThreads: 1, requests: 0, drafts: 1, unthreaded: 0 });
     const momThread = identifierRef("chat_party", c.clinicId, "instagram:ig_mom_1361");
     await inTenant(c.clinicId, async (client) => {
       expect((await client.query(`select 1 from meta_booking_drafts where sender_id = 'ig_mom_1361'`)).rows).toHaveLength(1);
@@ -658,7 +847,7 @@ describeDb("deletion on request", () => {
     const outcome = await erase({ clinicId: c.clinicId, phone: "+15550136001", requestedBy: "practice" });
     if (outcome.status !== "erased") throw new Error("not erased");
     expect(outcome.deleted).toMatchObject({ bookingRequests: 2, chatThreads: 1, drafts: 1 });
-    expect(outcome.kept).toEqual({ sharedThreads: 0, requests: 0, drafts: 0 });
+    expect(outcome.kept).toEqual({ sharedThreads: 0, requests: 0, drafts: 0, unthreaded: 0 });
     await inTenant(c.clinicId, async (client) => {
       expect(
         (await client.query(`select 1 from booking_requests where id = any($1::uuid[])`, [ids])).rows,

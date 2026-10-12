@@ -650,6 +650,10 @@ export type ErasureResult = {
   draftsDeleted: number;
   /** Amendments of the requests and conversations deleted (drizzle/0064). */
   amendmentsDeleted: number;
+  /** Deposits of their appointments (drizzle/0067). */
+  depositsDeleted: number;
+  /** The Connect webhook rows that last touched those deposits (drizzle/0067). */
+  connectEventsDeleted: number;
 };
 
 /**
@@ -701,6 +705,8 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
     transactionsDeleted: 0,
     draftsDeleted: 0,
     amendmentsDeleted: 0,
+    depositsDeleted: 0,
+    connectEventsDeleted: 0,
   };
 
   if (ids.length) {
@@ -760,13 +766,19 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
     // so a request leaves only with the person it names. The amendments of
     // the requests and conversations it deletes go first, in the same call
     // (record_amendments, drizzle/0064): an amendment leaves only with what
-    // it amends.
+    // it amends. So do the deposits of their appointments, with the Connect
+    // events that last touched them, before the appointments go (drizzle/0067):
+    // the appointment's foreign key on a deposit is SET NULL, so a deposit
+    // left until afterwards could never be found again, and its Checkout
+    // session leads to the payer in the clinic's own Stripe account.
     const [erased] = (
       await tx.db.execute<{
         requests_deleted: number;
         appointments_deleted: number;
         conversations_deleted: number;
         amendments_deleted: number;
+        deposits_deleted: number;
+        connect_events_deleted: number;
       }>(
         sql`select * from app_erase_contacts(array[${sql.join(
           ids.map((id) => sql`${id}`),
@@ -778,6 +790,8 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
     result.appointmentsDeleted = erased?.appointments_deleted ?? 0;
     result.conversationsDeleted = erased?.conversations_deleted ?? 0;
     result.amendmentsDeleted = erased?.amendments_deleted ?? 0;
+    result.depositsDeleted = erased?.deposits_deleted ?? 0;
+    result.connectEventsDeleted = erased?.connect_events_deleted ?? 0;
   }
 
   // A half-collected Meta draft has no contact, only the number typed into
@@ -812,6 +826,8 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
       transactions: result.transactionsDeleted,
       drafts: result.draftsDeleted,
       amendments: result.amendmentsDeleted,
+      deposits: result.depositsDeleted,
+      connectEvents: result.connectEventsDeleted,
     },
   });
 

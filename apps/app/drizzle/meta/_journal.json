@@ -470,6 +470,13 @@
       "when": 1791818535444,
       "tag": "0066_agreement_end_ends_service",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1791824023640,
+      "tag": "0067_c19_erasure_retention",
+      "breakpoints": true
     }
   ]
 }

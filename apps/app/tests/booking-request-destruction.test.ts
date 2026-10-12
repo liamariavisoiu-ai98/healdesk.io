@@ -675,6 +675,8 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       conversations_deleted: 0,
       contacts_deleted: 0,
       amendments_deleted: 0,
+      deposits_deleted: 0,
+      connect_events_deleted: 0,
     });
 
     // The purge: never ahead of the clinic's own record clock, and inside it
@@ -747,6 +749,8 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       conversations_deleted: 1,
       contacts_deleted: 1,
       amendments_deleted: 0,
+      deposits_deleted: 0,
+      connect_events_deleted: 0,
     });
     expect(after.left).toEqual({
       contacts: 0,

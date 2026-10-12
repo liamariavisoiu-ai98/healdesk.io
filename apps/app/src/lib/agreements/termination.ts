@@ -6,7 +6,7 @@ import type { ActorContext, RequestContext } from "@/lib/audit";
 import { billingRequestsSwitchedOn, requestCancelForAgreementEnd } from "@/lib/billing/requests";
 import { describeError, log } from "@/lib/log";
 import { alertIfOffboardingStartedLate, startOffboarding } from "@/lib/offboarding/offboarding";
-import { notifyOps } from "@/lib/ops/notify";
+import { notifyOps, notifyOpsOnce } from "@/lib/ops/notify";
 import { withTenant } from "@/lib/tenant";
 
 import { agreementInEffectFor } from "./in-effect";
@@ -273,7 +273,9 @@ export type TerminationReconcileSummary = {
  * not started offboarding, or a billing clinic whose subscription hasn't
  * ended has no cancel_now recorded, and finishes those steps the way the
  * termination would have, with its alerts (the refund due, the job off).
- * Then it tells ops what it finished, per practice and step. Idempotent: a
+ * Then it tells ops what it finished, per practice and step; and for an
+ * ending that refunds fees with no termination refund confirmed, it raises
+ * the refund-due alert once if it was never raised. Idempotent: a
  * practice with nothing left undone costs a read and does nothing. A
  * cancel_now that exists in any state is left to the billing requests' own
  * re-arming and stuck alerts.
@@ -311,6 +313,17 @@ export async function reconcileTerminations(): Promise<TerminationReconcileSumma
       for (const billingClinicId of new Set(locations.map((l) => l.billingClinicId))) {
         if (billingClinicId !== null && (await cancellationOwed(billingClinicId))) {
           toCancel.push(billingClinicId);
+        }
+      }
+      // A refund the ending owes and nobody has confirmed: the alert again,
+      // at most once ever per billing clinic and agreement (notifyOpsOnce
+      // finds the one the termination raised, if it did), so a process that
+      // died between the cancellation and the alert doesn't lose it.
+      if (terminationRefundsFees(row.termination_reason)) {
+        for (const billingClinicId of new Set(locations.map((l) => l.billingClinicId))) {
+          if (billingClinicId !== null && (await refundOwedUnconfirmed(billingClinicId))) {
+            await notifyOpsOnce("agreement_refund_due", { clinicId: billingClinicId, agreementId });
+          }
         }
       }
       if (toOffboard.length === 0 && toCancel.length === 0) continue;
@@ -352,6 +365,25 @@ export async function reconcileTerminations(): Promise<TerminationReconcileSumma
     }
   }
   return summary;
+}
+
+/**
+ * Whether a refundable ending's billing clinic had a started plan, so paid
+ * fees the refund may owe, and no termination refund is recorded for it yet
+ * (commitRefund's billing note, `refund_agreement_terminated`).
+ */
+async function refundOwedUnconfirmed(billingClinicId: string): Promise<boolean> {
+  return withTenant({ clinicId: billingClinicId, actor: RECONCILE_ACTOR }, async (tx) => {
+    const result = await tx.db.execute<{ owed: boolean }>(
+      sql`select (exists (select 1 from entitlements e
+                           where e.clinic_id = ${billingClinicId}::uuid
+                             and e.plan_started_at is not null)
+                  and not exists (select 1 from billing_transitions t
+                                   where t.clinic_id = ${billingClinicId}::uuid
+                                     and t.reason = 'refund_agreement_terminated')) as owed`,
+    );
+    return result.rows[0]?.owed === true;
+  });
 }
 
 /**

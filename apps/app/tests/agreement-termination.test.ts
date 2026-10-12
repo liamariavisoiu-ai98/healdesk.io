@@ -35,9 +35,11 @@ import { createStripeWorld, type StripeWorld } from "./setup/stripe-world";
  */
 
 const notifyOps = vi.hoisted(() => vi.fn(async () => {}));
+const notifyOpsOnce = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock("@/lib/ops/notify", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/ops/notify")>()),
   notifyOps,
+  notifyOpsOnce,
 }));
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
@@ -280,6 +282,7 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
 
   beforeEach(async () => {
     notifyOps.mockClear();
+    notifyOpsOnce.mockClear();
     delete process.env.HEALDESK_OPS_EMAIL;
     delete process.env.HEALDESK_ADMIN_EMAIL;
     // On, as it is in service: the tests of it being off switch it off.
@@ -712,6 +715,48 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
       expect.anything(),
     );
     expect(await requestsOf(practice.billingClinicId)).toHaveLength(1);
+  }, 180_000);
+
+  test("a refund-due alert lost with the process is raised again by the reconcile, until the refund is confirmed", async () => {
+    // The verification of 3a6de11: the process died after recording
+    // cancel_now and before agreement_refund_due. Every step is done, so
+    // nothing else would ever say a refund is owed.
+    const practice = await seedPractice("term-lost-alert");
+    const world = worldFor(practice);
+    thisPeriodInvoice(world);
+    await run("markAgreementTerminated", {
+      agreementId: practice.agreementId,
+      terminationDate: TODAY_ON,
+      terminationReason: "practice_healdesk_breach",
+    });
+    expect(await requestsOf(practice.billingClinicId)).toHaveLength(1);
+
+    // The reconcile has no step to finish, and raises the alert once-only:
+    // notifyOpsOnce finds the termination's own alert, if it went.
+    expect(await reconcileBilling(NOW)).toMatchObject({ terminationsFinished: 0 });
+    expect(notifyOpsOnce).toHaveBeenCalledWith("agreement_refund_due", {
+      clinicId: practice.billingClinicId,
+      agreementId: practice.agreementId,
+    });
+
+    // Confirmed, it is owed no longer.
+    const unused = Math.trunc((PACKAGE_CENTS * 18) / 30);
+    await commitRefund(
+      {
+        clinicId: practice.billingClinicId,
+        kind: "agreement_terminated",
+        confirmAmountCents: unused,
+        reason: "Terminated for our breach, clause 17",
+        actorLabel: OPERATOR.email,
+      },
+      { now: NOW, stripe: world.stripe },
+    );
+    notifyOpsOnce.mockClear();
+    await reconcileBilling(NOW);
+    expect(notifyOpsOnce).not.toHaveBeenCalledWith("agreement_refund_due", {
+      clinicId: practice.billingClinicId,
+      agreementId: practice.agreementId,
+    });
   }, 180_000);
 
   test("a location pointed at another practice's billing clinic never gets that practice cancelled", async () => {

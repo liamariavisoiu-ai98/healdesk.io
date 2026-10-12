@@ -1188,17 +1188,13 @@
    centred, so every logo round her is on screen. Its sides and bottom fade
    into the page rather than ending on a line.
 
-   ## The veil and the copy, on the cursor (owner, 9 October 2026)
+   ## The veil and the copy
 
-   On a desktop with a mouse the hero opens on the photo and the logos alone.
-   The white veil, solid behind the copy and very soft by the time it reaches
-   her face, rises a little and fades in with the copy on it when the cursor
-   comes into the bottom third of the hero, and goes when it leaves, while
-   the page is at the top. Scrolling down locks them up; back at the top they
-   follow the cursor again. HeroStage holds the state in `data-reveal`
-   (hidden, shown or locked); this file only draws each. Without a fine
-   pointer that hovers, a touch laptop for one, there is no cursor to follow,
-   so they are simply there, as they are below 1280px.
+   From 1280px the copy sits on a white veil, solid behind the buttons and
+   very soft by the time it reaches her face. Both are there as the page
+   opens (owner, 12 October 2026): until then they waited for the cursor to
+   come into the hero's bottom third, with an arrowhead at its foot to say
+   so (HeroStage.tsx).
 
    ## The orbits, the chips and the cards
 
@@ -1220,8 +1216,7 @@
    site's 0.9 zoom.
 
    Scrolled out of reach the logos rest: `data-paused` holds the drift.
-   Reduced motion: everything is simply in place, and the veil and the copy
-   switch without sliding.
+   Reduced motion: everything is simply in place.
    ============================================================================= */
 
 .hero {
@@ -1234,15 +1229,14 @@
   /*
    * The entrance, as the page opens (owner, 12 October 2026): the photo
    * settles, the full rings draw in round her, then each group's lit stretch,
-   * the chips appear at their heads and the logos fan out of them, and last
-   * the cue's arrowhead draws in. Each beat's start is here, so the order reads in
-   * one place; the copy is not part of it (it comes up on the cursor).
+   * and the chips appear at their heads and the logos fan out of them. Each
+   * beat's start is here, so the order reads in one place; the copy is not
+   * part of it (it is simply there).
    */
   --entrance-rings: 300ms;
   --entrance-arcs: 650ms;
   --entrance-chips: 850ms;
   --entrance-logos: 1000ms;
-  --entrance-cue: 2100ms;
 }
 
 .hero__veil {
@@ -1326,8 +1320,7 @@
   }
 
   /* The white the copy sits on: solid only under the buttons, then thinning
-     along a long eased curve, so it reads as light rather than a sheet. It
-     rises a little and fades in at once (see "Following the cursor"). */
+     along a long eased curve, so it reads as light rather than a sheet. */
   .hero__veil {
     display: block;
     position: absolute;
@@ -1349,9 +1342,6 @@
       rgb(253 253 253 / 0.03) 68%,
       transparent 74%
     );
-    transition:
-      opacity var(--duration-slower) var(--ease-standard),
-      transform var(--duration-slower) var(--ease-out);
   }
 
   .hero__copy {
@@ -1364,163 +1354,6 @@
      overlaps it, and only for as long as a visitor holds it. */
   .portrait__logos {
     z-index: 12;
-  }
-}
-
-/* The cue: the copy is down until the cursor comes to the bottom third, and
-   nothing else on the hero says so. An arrowhead at the foot, pointing down,
-   whenever the copy is down. */
-.hero__cue {
-  display: none;
-}
-
-/* Following the cursor: only where there is one that hovers. */
-@media (min-width: 1280px) and (hover: hover) and (pointer: fine) {
-  .hero[data-reveal="hidden"] .hero__veil {
-    opacity: 0;
-    transform: translateY(24%);
-  }
-
-  /*
-   * Coming: the announcement, then the headline line by line, then the
-   * buttons after its last line. Going: all at once and quicker, so a cursor
-   * that leaves is not left waiting on a slow exit. The pause between lines
-   * is `--line-step`; HeroLines (HeroStage.tsx) numbers each word's line and
-   * counts the lines into `--hero-lines`.
-   */
-  .hero__copy {
-    --line-step: 110ms;
-    --lines-from: 90ms;
-  }
-
-  .hero-line {
-    transition:
-      opacity var(--duration-slow) var(--ease-standard),
-      transform var(--duration-slower) var(--ease-out);
-  }
-
-  .hero-line--after {
-    transition-delay: calc(var(--lines-from) + var(--hero-lines, 1) * var(--line-step) + 60ms);
-  }
-
-  .hero[data-reveal="hidden"] .hero-line {
-    opacity: 0;
-    transform: translateY(24px);
-    transition-duration: var(--duration-base);
-    transition-delay: 0ms;
-  }
-
-  /* Each word rises from under its own line, which clips it: a line comes up
-     out of nothing rather than sliding in from below the one under it. The
-     padding gives the descenders and the italic overhang room inside the
-     clip, and the negative margin gives the room back. */
-  .hero-word {
-    display: inline-block;
-    overflow: clip;
-    padding-block: 0.06em 0.16em;
-    margin-block: -0.06em -0.16em;
-    vertical-align: top;
-  }
-
-  .hero-word > span {
-    display: inline-block;
-    transition:
-      transform var(--duration-slower) var(--ease-out),
-      opacity var(--duration-slow) var(--ease-standard);
-    transition-delay: calc(var(--lines-from) + var(--line, 0) * var(--line-step));
-  }
-
-  .hero[data-reveal="hidden"] .hero-word > span {
-    opacity: 0;
-    transform: translateY(105%);
-    transition-duration: var(--duration-base);
-    transition-delay: 0ms;
-  }
-
-  .hero[data-reveal="hidden"] .hero__copy > div {
-    pointer-events: none;
-  }
-
-  .hero__cue {
-    position: absolute;
-    left: 50%;
-    bottom: 22px;
-    z-index: 6;
-    display: grid;
-    width: 64px;
-    height: 48px;
-    place-items: center;
-    color: var(--color-ink);
-    pointer-events: none;
-    translate: -50% 0;
-    opacity: 0;
-    /* Going, as the copy comes up: at once. */
-    transition: opacity var(--duration-base) var(--ease-standard);
-    /* When it draws in: the entrance's last beat the first time; after
-       that, once the copy has had time to go back down. */
-    --cue-at: var(--entrance-cue);
-  }
-
-  .hero__cue[data-again] {
-    --cue-at: 520ms;
-  }
-
-  .hero__cue svg {
-    width: 34px;
-    height: 19px;
-    overflow: visible;
-    /* A white halo, so it reads over the photo's foot as well as the page. */
-    filter: drop-shadow(0 1px 2px rgb(255 255 255 / 0.9)) drop-shadow(0 2px 8px rgb(23 42 58 / 0.18));
-  }
-
-  .hero__cue path {
-    stroke-dasharray: 1;
-    stroke-dashoffset: 0;
-  }
-
-  /* The last beat of the entrance (see "The entrance" above): once the logos
-     have fanned out the arrowhead draws outwards from its point, then jumps,
-     slowly: down, a small settle, back up, and a long rest at the top. It
-     goes whenever the copy comes up, and whenever the copy goes back down it
-     comes back (owner, 12 October 2026), slowly: a beat later it fades in as
-     it draws again, and only then starts jumping. */
-  .hero__cue[data-show] {
-    opacity: 1;
-    transition: opacity var(--duration-slower) var(--ease-standard) var(--cue-at);
-  }
-
-  .hero__cue[data-show] path {
-    animation: hero-cue-draw var(--duration-slower) var(--ease-out) var(--cue-at) both;
-  }
-
-  .hero__cue[data-show] svg {
-    animation: hero-cue-jump 2.6s var(--ease-in-out) calc(var(--cue-at) + 900ms) infinite;
-  }
-}
-
-@keyframes hero-cue-draw {
-  from {
-    stroke-dashoffset: 1;
-  }
-}
-
-@keyframes hero-cue-jump {
-  0%,
-  100% {
-    transform: translateY(0);
-    opacity: 1;
-  }
-  38% {
-    transform: translateY(11px);
-    opacity: 0.72;
-  }
-  52% {
-    transform: translateY(7px);
-    opacity: 0.86;
-  }
-  70% {
-    transform: translateY(0);
-    opacity: 1;
   }
 }
 

@@ -87,9 +87,12 @@ import { readSynthflowPayload } from "@/lib/voice/synthflow-payload";
  *     (app_erase_contact_evidence), so no telephone number of theirs is left.
  *
  * Slot holds that named them keep only the time, with the contact, request
- * and appointment gone from them (their foreign keys), and are purged a day
- * after they lapse. usage_events keep the keyed reference of each call and
- * conversation, as the billing record, with nothing that leads to the person.
+ * and appointment gone from them (their foreign keys). The purge of a hold a
+ * day after it lapses lands with the calendar session's C12; until then a
+ * spent hold stays, holding the time and its holder_ref (a plain sha256 of
+ * the holder, which is the calendar session's to key). usage_events keep the
+ * keyed reference of each call and conversation, as the billing record, with
+ * nothing that leads to the person.
  *
  * ## The record, and how long it lasts
  *

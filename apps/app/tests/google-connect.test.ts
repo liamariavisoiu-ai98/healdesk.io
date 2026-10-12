@@ -97,6 +97,9 @@ vi.mock("next/headers", async (importOriginal) => {
   const actual = await importOriginal<typeof import("next/headers")>();
   return {
     ...actual,
+    // No session cookie: the portal's start labels its user as the clinic's
+    // sign-in (lib/portal/actor.ts), with no passkey step-up live.
+    headers: async () => new Headers(),
     cookies: async () => ({
       set: (name: string, value: string, options: Record<string, unknown>) => {
         cookieJar.push({ name, value, options });
@@ -189,6 +192,18 @@ async function signIn(
   return { authUrl, cookieValue, input, result: await completeGoogleSignIn(input) };
 }
 
+/**
+ * The browser at the callback, signed in to the portal as `userId` with no
+ * passkey step-up live: a portal sign-in goes on only in its own user's
+ * session (C18; tests/calendar-portal.test.ts drives the real session check
+ * and the step-up an account change needs).
+ */
+function signedInAs(userId: string) {
+  return {
+    portalSession: async () => ({ userId, label: "the clinic's sign-in", steppedUp: false }),
+  };
+}
+
 /** The round trip from the portal, as its server action starts one: from setup or from Settings. */
 async function portalSignIn(
   clinic: { clinicId: string; staffUserId: string },
@@ -202,7 +217,10 @@ async function portalSignIn(
     actor: { type: "user", userId: clinic.staffUserId, label: "clinic portal" },
   });
   const answer = google.authorize(authUrl, consent) as { code: string; state: string };
-  return completeGoogleSignIn({ ...answer, error: null, cookie: cookieValue });
+  return completeGoogleSignIn(
+    { ...answer, error: null, cookie: cookieValue },
+    signedInAs(clinic.staffUserId),
+  );
 }
 
 const PAGE_ACTIONS = {
@@ -551,6 +569,36 @@ describeDb("connecting a Google Calendar", () => {
       );
       expect(foreign.status).toBe(403);
       expect(await states()).toBe(1);
+
+      // The link page is served with no-referrer, so a browser posts its form
+      // with `Origin: null`: let through on the browser's own word that it
+      // came from this origin (Sec-Fetch-Site), and on nothing less.
+      const fromPage = (headers: Record<string, string>) =>
+        startRoute(
+          new Request(`${ORIGIN}/api/calendar/google/start`, {
+            method: "POST",
+            headers: { ...headers, "content-type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              token,
+              disclosure: "accepted",
+              disclosureVersion: GOOGLE_CALENDAR_DISCLOSURE.version,
+            }).toString(),
+          }),
+        );
+      const ownPage = await fromPage({ origin: "null", "sec-fetch-site": "same-origin" });
+      expect(ownPage.status).toBe(303);
+      expect(new URL(ownPage.headers.get("location")!).origin).toBe("https://accounts.google.com");
+      expect(await states()).toBe(2);
+      for (const headers of [
+        { origin: "null", "sec-fetch-site": "cross-site" },
+        { origin: "null", "sec-fetch-site": "same-site" },
+        { origin: "null" },
+        { "sec-fetch-site": "cross-site" },
+        {},
+      ] as Record<string, string>[]) {
+        expect((await fromPage(headers)).status).toBe(403);
+      }
+      expect(await states()).toBe(2);
     },
     SLOW,
   );
@@ -772,7 +820,10 @@ describeDb("connecting a Google Calendar", () => {
         state: string;
       };
       expect(
-        await completeGoogleSignIn({ ...answer, error: null, cookie: cookieJar[0]!.value }),
+        await completeGoogleSignIn(
+          { ...answer, error: null, cookie: cookieJar[0]!.value },
+          signedInAs(clinic.staffUserId),
+        ),
       ).toEqual({
         outcome: "connected",
         redirectPath: `/c/${clinic.slug}/setup?calendar=connected`,
@@ -1144,7 +1195,10 @@ describeDb("connecting a Google Calendar", () => {
         code: string;
         state: string;
       };
-      const result = await completeGoogleSignIn({ ...answer, error: null, cookie: cookieValue });
+      const result = await completeGoogleSignIn(
+        { ...answer, error: null, cookie: cookieValue },
+        signedInAs(clinic.staffUserId),
+      );
       expect(result).toEqual({
         outcome: "connected",
         redirectPath: `/c/${clinic.slug}/settings?calendar=connected`,

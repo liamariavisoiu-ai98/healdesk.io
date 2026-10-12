@@ -1523,12 +1523,19 @@ these is closed, by code, a page, a signed paper or a host setting, and
    - Removal: an amendment goes with its record and at no other time, inside
      the function that deletes that record: erasure (`app_erase_contacts`,
      redefined on 0054's body, still taking only the people's own requests
-     and failing with nothing removed if anything else refers to them), the purge (`app_purge_booking_requests`,
-     redefined with 0058's UTC pin, and the new
-     `app_purge_conversation_amendments`, under the same record-clock floor),
-     and destruction (the new `app_destroy_record_amendments`, on
+     and failing with nothing removed if anything else refers to them), the
+     purge (`app_purge_booking_requests`, redefined with 0058's UTC pin, and
+     the new `app_purge_amended_conversations`, under the same record-clock
+     floor, which deletes an amended conversation and its amendments
+     together), and destruction (the new `app_destroy_record_amendments`, on
      `app_destruction_due`); `app_mark_clinic_destroyed` refuses while one
-     remains.
+     remains. The first version purged a conversation's amendments on their
+     own, floored on `started_at`, which the runtime role could write: it
+     could backdate a live conversation, purge its amendment and put the
+     date back (review of 12 October 2026). The runtime role can no longer
+     write `started_at` (nothing in the application did), and an amendment
+     never goes while what it amends stays. A booking request's floor
+     column, `created_at`, was already out of its reach.
    - docs/handover.md has the "Amendments" runbook, and
      `docs/incident-response.md` points to it.
    - Left: nothing in v1 shows a conversation's record to anyone but the

@@ -453,7 +453,7 @@ const DAY_COUNTING_FUNCTIONS = [
   "app_purge_booking_requests(timestamptz)",
   // 0060: the amendments' delete at destruction, and at the purge.
   "app_destroy_record_amendments(uuid)",
-  "app_purge_conversation_amendments(timestamptz)",
+  "app_purge_amended_conversations(timestamptz)",
 ];
 
 async function offboard(

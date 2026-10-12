@@ -547,8 +547,67 @@ describeDb("the amendment record", () => {
 
     // The runtime role cannot reach ahead of the clinic's record clock for one.
     await expect(
-      asApp(c.clinicId, (q) => q.query(`select app_purge_conversation_amendments(now())`)),
+      asApp(c.clinicId, (q) => q.query(`select app_purge_amended_conversations(now())`)),
     ).rejects.toMatchObject({ code: "23514", message: expect.stringMatching(/record clock/) });
+  });
+
+  test("the runtime role cannot delete a live conversation's amendment and keep the conversation", async () => {
+    const c = await seedClinic("amend-backdate");
+    const contactId = await seedContact(c.clinicId, "+15550148001");
+    const live = await seedConversation(c.clinicId, { startedAt: new Date(), contactId });
+    const id = await amendOp(c.clinicId, "conversation", live.conversationId, "kept");
+
+    // Backdate, purge, restore: the backdate is refused, so the purge finds
+    // nothing past the clock, and the amendment stays with its conversation.
+    // Until the review of 12 October 2026 the runtime role could write
+    // started_at, and the amendments' purge went on its own.
+    await asApp(c.clinicId, async (q) => {
+      await q.query("savepoint backdate");
+      await expect(
+        q.query(`update conversations set started_at = now() - interval '400 days' where id = $1`, [
+          live.conversationId,
+        ]),
+      ).rejects.toMatchObject({ code: "42501" });
+      await q.query("rollback to savepoint backdate");
+      const purged = await q.query<{ n: number }>(
+        `select app_purge_amended_conversations(app_record_cutoff()) as n`,
+      );
+      expect(purged.rows[0]!.n).toBe(0);
+      const still = await q.query(`select 1 from record_amendments where id = $1`, [id]);
+      expect(still.rows).toHaveLength(1);
+      // The old split purge, amendments first and conversations after, is gone.
+      await expect(
+        q.query(`select app_purge_conversation_amendments(app_record_cutoff())`),
+      ).rejects.toMatchObject({ code: "42883" });
+    });
+
+    // Neither date the purge's floor reads can be written by the runtime role.
+    const { rows } = await getMigratorPool().query<{ started: boolean; created: boolean }>(
+      `select has_column_privilege('healdesk_app', 'conversations', 'started_at', 'UPDATE') as started,
+              has_column_privilege('healdesk_app', 'booking_requests', 'created_at', 'UPDATE') as created`,
+    );
+    expect(rows[0]).toEqual({ started: false, created: false });
+
+    // An amended conversation past the clock goes, with its amendments, in
+    // the one call; never the amendment alone.
+    const old = await seedConversation(c.clinicId, {
+      startedAt: new Date(Date.now() - 120 * DAY),
+      contactId,
+    });
+    const oldAmendment = await amendOp(c.clinicId, "conversation", old.conversationId, "old");
+    await asApp(c.clinicId, async (q) => {
+      const purged = await q.query<{ n: number }>(
+        `select app_purge_amended_conversations(app_record_cutoff()) as n`,
+      );
+      expect(purged.rows[0]!.n).toBe(1);
+      const gone = await q.query(
+        `select (select count(*)::int from conversations where id = $1) as conversations,
+                (select count(*)::int from record_amendments where id = $2) as amendments`,
+        [old.conversationId, oldAmendment],
+      );
+      expect(gone.rows[0]).toEqual({ conversations: 0, amendments: 0 });
+    });
+    expect(await amendmentIds(c.clinicId)).toEqual([id, oldAmendment].sort());
   });
 
   test("destruction takes every amendment, and the destruction is not recorded while one remains", async () => {

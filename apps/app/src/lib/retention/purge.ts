@@ -329,18 +329,20 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     result.appointmentsDeleted = gone.length;
   }
 
-  // A conversation's amendments go first, the night it does: the runtime
-  // role may delete a conversation but not an amendment, and no conversation
-  // goes while one of its amendments remains (record_amendments, a foreign
-  // key with no delete action, drizzle/0060). Through
-  // app_purge_conversation_amendments(), at the earlier of this job's cutoff
-  // and the database's own, as the booking requests above, whose amendments
-  // go inside app_purge_booking_requests(). A conversation still amended
-  // after it (a job clock ahead of the database's, or a clock shortened in
-  // the last day) waits for the night its amendment goes.
-  await tx.db.execute(
-    sql`select app_purge_conversation_amendments(least(${recordBefore}::timestamptz, app_record_cutoff()))`,
+  // An amended conversation goes with its amendments, in one call: the
+  // runtime role may delete a conversation but not an amendment, and no
+  // conversation goes while one of its amendments remains (record_amendments,
+  // a foreign key with no delete action, drizzle/0060), so
+  // app_purge_amended_conversations() takes the two together, at the earlier
+  // of this job's cutoff and the database's own, as the booking requests
+  // above, whose amendments go inside app_purge_booking_requests(). An
+  // amendment never goes while what it amends stays. An amended conversation
+  // past this job's cutoff but not the database's (a job clock ahead of it,
+  // or a clock shortened in the last day) waits for the night it goes.
+  const amendedGone = await tx.db.execute<{ n: number }>(
+    sql`select app_purge_amended_conversations(least(${recordBefore}::timestamptz, app_record_cutoff())) as n`,
   );
+  result.conversationsDeleted = amendedGone.rows[0]?.n ?? 0;
   const oldConversations = await tx.db
     .select({ id: conversations.id })
     .from(conversations)
@@ -361,7 +363,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
       .delete(conversations)
       .where(and(eq(conversations.clinicId, tx.clinicId), inArray(conversations.id, conversationIds)))
       .returning({ id: conversations.id });
-    result.conversationsDeleted = gone.length;
+    result.conversationsDeleted += gone.length;
   }
 
   // 3. Contacts nothing refers to any more, and that are themselves old. A

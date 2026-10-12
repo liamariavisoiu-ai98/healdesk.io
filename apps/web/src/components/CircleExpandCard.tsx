@@ -2,8 +2,6 @@
 
 import { useCallback, useEffect, useRef } from "react";
 
-import { REDUCED_MOTION } from "@/lib/use-media-query";
-
 /**
  * A card whose corner icon floods the tile on hover, revealing footage beneath.
  *
@@ -59,30 +57,6 @@ const ARROW = (
  * otherwise a pale wedge shows in the corner for the last few frames.
  */
 const FLOOD_SCALE = 24;
-
-/**
- * How the footage comes up to speed, and comes to rest.
- *
- * It used to start at full speed the instant a pointer landed, which read as
- * abrupt (owner, 12 October 2026). Now it starts at a fifth of its speed and
- * eases up to full over RISE_MS while it fades in, slowly at first, as a
- * camera move gathers itself; and on the way out it slows while it fades,
- * and only once it has gone is it paused and rewound. The fade and a slight
- * push-in on the picture are globals.css's ("Niche card").
- */
-const SLOW_RATE = 0.2;
-const RISE_MS = 1800;
-/** The fade out's length (--duration-slow, globals.css), so the rewind happens once the footage is no longer seen. */
-const SETTLE_MS = 480;
-
-/** A rate some browser refuses leaves the footage at the last one it took. */
-function setRate(el: HTMLVideoElement, rate: number) {
-  try {
-    el.playbackRate = rate;
-  } catch {
-    /* kept at the last rate */
-  }
-}
 
 export function CircleExpandCard({
   title,
@@ -159,105 +133,48 @@ export function CircleExpandCard({
   const pointed = useRef(false);
   /** `expanded`, for the pointer's handlers, which must not close footage an open card is playing. */
   const expandedRef = useRef(expanded);
-  /** Whether the footage should be running: a pending play or a pending rest checks it before acting. */
-  const wanted = useRef(false);
-  const glide = useRef(0);
-  const park = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  useEffect(
-    () => () => {
-      cancelAnimationFrame(glide.current);
-      clearTimeout(park.current);
-    },
-    [],
-  );
-
-  /** Ease the footage's speed to `to` over `ms`, gently at both ends. */
-  const ease = useCallback((el: HTMLVideoElement, to: number, ms: number) => {
-    cancelAnimationFrame(glide.current);
-    const from = el.playbackRate;
-    const began = performance.now();
-    const tick = (now: number) => {
-      const k = Math.min(1, (now - began) / ms);
-      setRate(el, from + (to - from) * k * k * (3 - 2 * k));
-      if (k < 1) glide.current = requestAnimationFrame(tick);
-    };
-    glide.current = requestAnimationFrame(tick);
-  }, []);
 
   /**
-   * Start the footage, slowly (SLOW_RATE above).
+   * Start the footage.
    *
    * The rewind happens on the way OUT, not on the way in. Seeking to zero
    * before the first play means setting currentTime on an element whose
    * readyState is still HAVE_NOTHING, because preload is off until someone
    * hovers, and browsers disagree about what that does to the play() that
-   * follows. Rewinding once it has gone puts the element back at the start
-   * while it has data, so the next hover is a plain play() on a ready element.
-   *
-   * The speed eases up only once play() has resolved, which is when frames
-   * are actually moving: a clip still buffering would otherwise be at full
-   * speed by the time it showed anything. Coming back to a card whose
-   * footage is still slowing on its way out picks it up where it is.
+   * follows. Rewinding on leave puts the element back at the start while it
+   * has data, so the next hover is a plain play() on a ready element.
    */
-  const start = useCallback(() => {
-    const el = videoRef.current;
-    if (!el) return;
-    wanted.current = true;
-    clearTimeout(park.current);
-    const calm = !window.matchMedia(REDUCED_MOTION).matches;
-    if (el.paused) setRate(el, calm ? SLOW_RATE : 1);
-    // Autoplay policy allows this because the element is muted. The rejection
-    // is still caught: a blocked play() is an unhandled promise rejection, and
-    // the still underneath is a perfectly good fallback.
-    void el
-      .play()
-      .then(() => {
-        if (wanted.current && calm) ease(el, 1, RISE_MS);
-      })
-      .catch(() => {});
-  }, [ease]);
-
-  /** Slow it while it fades, then pause and rewind it, so the next start replays the push-in from the top. */
-  const stop = useCallback(() => {
-    const el = videoRef.current;
-    if (!el) return;
-    wanted.current = false;
-    clearTimeout(park.current);
-    if (el.paused) return;
-    const rest = () => {
-      cancelAnimationFrame(glide.current);
-      el.pause();
-      el.currentTime = 0;
-    };
-    if (window.matchMedia(REDUCED_MOTION).matches) {
-      rest();
-      return;
-    }
-    ease(el, SLOW_RATE, SETTLE_MS);
-    park.current = setTimeout(() => {
-      if (!wanted.current) rest();
-    }, SETTLE_MS);
-  }, [ease]);
-
   const enter = useCallback(() => {
     pointed.current = true;
     if (!interactive) return;
-    start();
-  }, [interactive, start]);
+    // Autoplay policy allows this because the element is muted. The rejection
+    // is still caught: a blocked play() is an unhandled promise rejection, and
+    // the still underneath is a perfectly good fallback.
+    void videoRef.current?.play().catch(() => {});
+  }, [interactive]);
 
   const leave = useCallback(() => {
     pointed.current = false;
-    if (expandedRef.current) return;
-    stop();
-  }, [stop]);
+    const el = videoRef.current;
+    if (!el || expandedRef.current) return;
+    el.pause();
+    // Back to the top, so the next hover replays the push-in from the start
+    // rather than picking it up halfway.
+    el.currentTime = 0;
+  }, []);
 
   // An open card plays its footage; one that closes puts it back at the start.
   useEffect(() => {
     expandedRef.current = expanded;
-    if (expanded && live) start();
-    else if (!pointed.current) stop();
-  }, [expanded, live, start, stop]);
+    const el = videoRef.current;
+    if (!el) return;
+    if (expanded && live) {
+      void el.play().catch(() => {});
+    } else if (!pointed.current) {
+      el.pause();
+      el.currentTime = 0;
+    }
+  }, [expanded, live]);
 
   return (
     <button
@@ -286,7 +203,7 @@ export function CircleExpandCard({
         alt=""
         loading="lazy"
         decoding="async"
-        className="niche-card__still absolute inset-0 size-full object-cover"
+        className="absolute inset-0 size-full object-cover"
       />
 
       {video && active ? (

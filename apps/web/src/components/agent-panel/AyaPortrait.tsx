@@ -91,7 +91,10 @@ export function AyaPortrait({
   }, [fallback, frame, reduce]);
 
   const speaking = state === "speaking";
-  const swell = speaking && !reduce ? 1 + Math.min(1, level) * 0.35 : 1;
+  // The soul's aura swells less than the halo: it already breathes and
+  // drifts outwards on its own, and a full swell carried it over the
+  // control above her.
+  const swell = speaking && !reduce ? 1 + Math.min(1, level) * (aura === "soul" ? 0.18 : 0.35) : 1;
 
   return (
     <div

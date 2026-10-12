@@ -33,18 +33,30 @@
  *
  * The number is used for this one call and nothing else, which is also what the
  * text says. Widening that use later means new words and a new version.
+ *
+ * ## Shorter since 12 October 2026
+ *
+ * The owner asked for words that read as an offer rather than a warning: the
+ * 2026-09-09.1 text ran to three clauses of legal register plus a paragraph
+ * on the number, beside a "Call me" button. The four things above are all
+ * still in it, in plain words: healdesk, this number, once, automated, an AI
+ * voice (1 and 2 are the box itself); "not required to buy anything" (3);
+ * "I can hang up anytime" (4, and with a single call, hanging up is the whole
+ * of stopping it). "Call and data rates may apply" went: it is the CTIA's
+ * line for text-message programmes, not one of the FCC rule's disclosures
+ * for a call. "We delete it on
+ * request" went from the note: the consent record is kept for the period a
+ * call could be disputed (the privacy page says how long), so the promise
+ * was the policy's to make, in full, not the note's in part.
  */
 
 export const CALL_CONSENT = {
-  version: "2026-09-09.1",
+  version: "2026-10-12.1",
   text:
-    "I agree that healdesk may place one automated demo call to this number " +
-    "using an AI voice. Consent isn't a condition of purchase, call and data " +
-    "rates may apply, and I can end the call or say \"stop\" at any time.",
-  /** Shown under the checkbox, smaller. Not part of the agreement itself. */
-  note:
-    "We use this number for the demo call only. We don't sell it, we don't " +
-    "add it to a marketing list, and we delete it on request.",
+    "Yes, healdesk may call this number once for an automated demo with AYA, " +
+    "its AI voice. Not required to buy anything, and I can hang up anytime.",
+  /** Shown after it, beside the link to the privacy policy. Not part of the agreement itself. */
+  note: "Used only for this call, never sold or added to a list.",
 } as const;
 
 /**

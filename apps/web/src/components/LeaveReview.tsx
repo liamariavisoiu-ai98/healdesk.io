@@ -6,8 +6,8 @@ import { CitySelect } from "@/components/CitySelect";
 import { site } from "@/lib/site";
 
 /**
- * "Leave a review", the control beside the score on the review wall (or under
- * the homepage FAQ while the wall is hidden), and the form it opens.
+ * "Leave a review", the control under the score on the review wall, and the
+ * form it opens.
  *
  * ## It used to be a panel, twice
  *
@@ -102,15 +102,20 @@ export function LeaveReview() {
         arrow, which slides on hover, and that is the right amount of movement
         for a link.
       */}
+      {/* Under the score since 12 October 2026, in its place: centred with
+          it on a phone, flush left beside the bars from 640px. "Already a
+          customer?" is in the face and size of the section titles (owner,
+          the same day: the eyebrow-tag utility in globals.css), in the
+          page's muted ink, so the red stays the ask's. */}
       <button
         type="button"
         onClick={open}
-        className="group text-left"
+        className="group text-center sm:text-left"
       >
-        <span className="text-muted block text-xs font-bold tracking-[0.14em] uppercase">
+        <span className="text-muted block font-sans text-[16.5px] leading-none font-semibold tracking-[0.005em]">
           Already a customer?
         </span>
-        <span className="text-red-deep group-hover:text-red font-display mt-1.5 flex items-center gap-1.5 text-[22.8px] leading-tight font-medium tracking-[-0.02em] transition-colors">
+        <span className="text-red-deep group-hover:text-red font-display mt-2 flex items-center justify-center gap-1.5 text-[22.8px] leading-tight font-medium tracking-[-0.02em] transition-colors sm:justify-start">
           Leave a review
           <svg
             viewBox="0 0 24 24"

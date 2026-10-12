@@ -128,6 +128,8 @@ export default function PrivacyPage() {
             it is a demonstration for clinic staff, not a patient channel.
           </li>
           <li>
+            {/* LEGAL_VERSION 2026-10-12.1: quotes the shorter consent wording
+                (CALL_CONSENT 2026-10-12.1, lib/consent.ts says what changed). */}
             <strong>Your phone number, if you ask {site.agent} to call you.</strong> Only when you
             tick a separate box reading: <em>"{CALL_CONSENT.text}"</em>. {CALL_CONSENT.note} The
             call is placed by our voice provider, on a separate agent from the product&apos;s own

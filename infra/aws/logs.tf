@@ -11,7 +11,7 @@
 # ever renamed or removed from this file: the audit trail outlives the config.
 
 resource "aws_cloudwatch_log_group" "app" {
-  for_each = toset(["web", "worker", "migrate", "db-bootstrap", "destroy-due", "patient-export", "erase-person", "amend-contact", "tls-proxy"])
+  for_each = toset(["web", "worker", "migrate", "db-bootstrap", "destroy-due", "patient-export", "erase-person", "amend-contact", "reapply-erasures", "tls-proxy"])
 
   name              = "${local.log_prefix}/${each.key}"
   kms_key_id        = aws_kms_key.main.arn

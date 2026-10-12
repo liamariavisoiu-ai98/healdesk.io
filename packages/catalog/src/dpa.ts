@@ -820,9 +820,10 @@ const CLAUSES_1_0: readonly DpaClause[] = [
           `as the clause headed "${STATE_LAW_CLAUSE_HEADING}" provides. healdesk corrects a ` +
           `client's contact details in its own copy. It does not rewrite a booking request, an ` +
           `appointment record or the record of a conversation: it appends the correction to that ` +
-          `record and links the two. Every later use and export of that record then carries the ` +
-          `correction. When a client's information is deleted, healdesk keeps a record of the ` +
-          `request that holds no telephone number, email address or name. For the ` +
+          `record and links the two. Every later export of that record, and every screen of ` +
+          `healdesk's that shows it, then carries the correction. When a client's information is ` +
+          `deleted, healdesk keeps a record of the request that holds no telephone number, email ` +
+          `address or name. For the ` +
           `${BACKUP_RETENTION_DAYS} days in which a backup could still bring the information ` +
           `back, the record also holds one-way keyed references to the client's numbers, ` +
           `addresses and messaging accounts, and healdesk keeps Practice's own message asking ` +
@@ -862,9 +863,13 @@ const CLAUSES_1_0: readonly DpaClause[] = [
 
   /**
    * 1.2.1's four prohibitions in this document's words. Meta is named as it
-   * is there, and the scoping is the same product rule the adapter enforces;
-   * Meta is not healdesk's subcontractor, so the sentence says it is not bound
-   * by this agreement rather than that it signs no BAA.
+   * is there; Meta is not healdesk's subcontractor, so the sentence says it
+   * is not bound by this agreement rather than that it signs no BAA. The
+   * scoping describes the safeguards, as BAA 1.3.0's clause 16 does: what the
+   * assistant is instructed to do there and that its replies are filtered.
+   * Until 12 October 2026 it said the assistant "handles no clinical content,
+   * confirms no appointment details", which no filter guarantees (the owner's
+   * decision after 1.3.0's second read, findings B1-B4).
    */
   {
     id: "prohibited",
@@ -883,8 +888,10 @@ const CLAUSES_1_0: readonly DpaClause[] = [
           `including hashed or aggregated. Instagram, Messenger and WhatsApp are operated by ` +
           `Meta, which is not healdesk's subcontractor and is not bound by this agreement; where ` +
           `Practice connects them, the assistant replies there only inside a conversation the ` +
-          `client started, handles no clinical content, confirms no appointment details, and ` +
-          `moves anything clinical to a call or to Practice's own secure route.`,
+          `client started. It is instructed not to handle clinical content or confirm ` +
+          `appointment details there and to move anything clinical to a call or to Practice's ` +
+          `own secure route, and each reply the language model writes there is checked by ` +
+          `automated filters designed to keep both out.`,
         "  ",
         "    ",
       ) +

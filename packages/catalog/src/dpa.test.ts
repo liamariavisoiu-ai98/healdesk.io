@@ -99,14 +99,14 @@ const VARIANTS: Record<string, Partial<DpaVariables>> = {
 
 /** variant → sha256 of the assembled text. Frozen from the draft; see the header. */
 const GOLDEN: Record<string, string> = {
-  sample: "6811e994dd460c3bd6d026e95865fd8cac80adb2e334cc54aa6e11dc9d2093e5",
-  notcovered_live_covered: "c332a41922d7b7b9edc04d08fc6587d67a328c9773593af826703a6623be8f9c",
-  notcovered_live_uncovered: "3901f4a560d78e4a0b5afd548b8fdb2a3ce59d4b970487562b3900f4f4e0dbdc",
-  notcovered_live_personal: "285dc4403dadb782d3ecd23cd850c87d426e2e85e63e89f8beb3fa6f28a17d02",
-  notcovered_notused_other: "6eb0e5174aeec2bf33768c677bf382367c5b4138949c21ba8f6eca45c8cb426e",
-  vet_live_covered: "54ca23dee950c30cb1b322e76c0c5d3c7318c2ce282460a2d99219e780d478c7",
-  vet_live_personal: "84a2da1cff5755be55909a9b7f661d0226e1a9b31b3fcaefd6918f86085b72b0",
-  vet_notused_mindbody: "ea482e61c38db6632225e495d2a26c32f38162277ebb6f59aeac98aab29f3596",
+  sample: "7b4a1a973f99462ac956feb704c9e5747917a101cd6b566e5ff4e98ab335bc49",
+  notcovered_live_covered: "ccbae90f8a3eacc1d8ba1652fead6b89156647e1822a1a5888eeb9a2afb9e7af",
+  notcovered_live_uncovered: "9fc582396f6a5cd996d1f1bde304d4a503863e04a4fa0a522e8f50b56c6c75a9",
+  notcovered_live_personal: "d720d2964c99729a459a977c0faddcebbe833eb1b664be3ed32cac9eaa6f94de",
+  notcovered_notused_other: "39ff988b541e4b22096b9346034a1e3e1771c5ffeed3a1a28b6137e61de170d2",
+  vet_live_covered: "02890a88566fe4393b60707e457efd4a45882d794c52186db10fc426c2c5b8b4",
+  vet_live_personal: "35b38de283d1acfb794950cbde8b595c27f80fb530bc73387725b55db891126d",
+  vet_notused_mindbody: "3f48f08ddd0c75fe80376d4ed407c9b5557699e1ca07b3fcfcc301bb341a8070",
 };
 
 const template = () => currentDpaTemplate();
@@ -785,7 +785,7 @@ describe("the DPA's pre-release text", () => {
     const pt17 = [
       "healdesk corrects a person's contact details in its own copy.",
       "It does not rewrite a booking request, an appointment record or the record of a conversation: it appends the amendment to that record and links the two, as 45 CFR 164.526(c)(1) provides.",
-      "Every later use and export of that record then carries the amendment.",
+      "Every later export of that record, and every screen of healdesk's that shows it, then carries the amendment.",
     ];
     const baa = baa130();
     for (const sentence of pt17) expect(baa).toContain(sentence);
@@ -822,6 +822,20 @@ describe("the DPA's pre-release text", () => {
     expect(unwrap(section(text, "Term, termination, and what happens to the information"))).not.toMatch(
       /except the telephone number/,
     );
+  });
+
+  // The owner's decision after BAA 1.3.0's second read (12 October 2026,
+  // findings B1-B4): the Meta scoping says what the assistant is instructed
+  // to do and that its replies are filtered, as clause 16 of 1.3.0 does,
+  // never that it handles no clinical content or confirms no appointment.
+  test("on Meta it describes the safeguards rather than promising the outcome, as BAA 1.3.0 does", () => {
+    for (const [name, overrides] of Object.entries(VARIANTS)) {
+      const prohibited = unwrap(section(render(overrides).text, "What healdesk is not authorised to do"));
+      expect(prohibited, name).toContain(
+        "where Practice connects them, the assistant replies there only inside a conversation the client started. It is instructed not to handle clinical content or confirm appointment details there and to move anything clinical to a call or to Practice's own secure route, and each reply the language model writes there is checked by automated filters designed to keep both out.",
+      );
+      expect(prohibited, name).not.toMatch(/handles no clinical content|confirms no appointment details/);
+    }
   });
 });
 

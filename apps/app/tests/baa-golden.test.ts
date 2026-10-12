@@ -95,18 +95,22 @@ const GOLDEN: Record<string, Record<string, string>> = {
   // Moved while it was a draft by the pre-release audit's redraft of 6
   // October 2026 (§12.12, §12.14), on 7 October by clause 11's sentence
   // giving booking requests their own period, on 9 October by the owner's
-  // decisions that 1.2.2 carries too (§13), and last by the release audit's
-  // two text fixes of 12 October (§12.15): the period for transcripts in
-  // clause 11, and the appointment record in clause 14(b). No
+  // decisions that 1.2.2 carries too (§13), by the release audit's two text
+  // fixes of 12 October (§12.15): the period for transcripts in clause 11,
+  // and the appointment record in clause 14(b); and last, the same day and
+  // before anything was pushed, by the owner's decision on the second read
+  // (§12.15): clauses 11 and 16 describe the Meta safeguards rather than
+  // promise outcomes, and 14(b)'s last sentence names the exports and
+  // healdesk's screens rather than "every later use". No
   // covered_verified_boulevard: 1.3.0 refuses verified reporting, which it
   // does not describe (HRC-17).
   "1.3.0": {
-    covered_estimated: "2235429b5b23f49ae004ad2d414bfba630e108bdd36f7793dd1712859844d607",
-    notcovered_estimated: "ff38a96ddd458be2cda8b846e3f88563f2478605051520210ea1899911cf5757",
-    unknown_estimated: "1106e91ca18edc9c390808b2898510d6a4c3356dfa56c1d5c35d59f84568f741",
+    covered_estimated: "d9117482bba644006763a9d613d94ec0a38a3f8888a95b61ad6fbb6f3a68acb3",
+    notcovered_estimated: "a6ea77cff3246a10df40859b7a71a44d2ea2bf11772942f7f8b00bd937779c06",
+    unknown_estimated: "43071c322a261d4fe71aa835412f43e058a954ab427c0004304687819fccf488",
     // Identical to covered_estimated by design, as in 1.2.x: no clause reads
     // outboundMessaging.
-    covered_outbound: "2235429b5b23f49ae004ad2d414bfba630e108bdd36f7793dd1712859844d607",
+    covered_outbound: "d9117482bba644006763a9d613d94ec0a38a3f8888a95b61ad6fbb6f3a68acb3",
   },
   // Released on 2026-10-09 and offered until 1.3.0 replaced it on 2026-10-12
   // (agreement-changes.md §13). No clinic signed it; frozen from the release
@@ -668,13 +672,13 @@ const VARIANTS_1_3: Record<string, Partial<BaaVariables>> = {
 
 /** variant → sha256, for 1.3.0. Frozen from the release (12 October 2026), and recorded in §12.12. */
 const GOLDEN_1_3: Record<string, string> = {
-  uncovered_nobaa: "a37e8909d30fc42941efa331d03a714eedf69488e377da3165a1927cce8dc578",
-  uncovered_personal: "9622fe3e337d3693e06b2873182535d9c12333be1182662761031aafeaa0c1f5",
-  notused_mindbody: "ad456a7f09c1b17f3c6c9d1f3cfc5dd6de0cd90d2244242712101002b6735e5e",
-  notused_other: "d0634fa22bc85786c44314f6f8019dfb1d1248cddd4a378487ee4bc68648e6eb",
-  live_calcom: "a30f9dbafc13c7a9076ed9e542c909693607dedf8354b1a083c35f987bb9d1d8",
-  live_highlevel_personal: "79b5b5fb08c06e5ad94ea5f6b4c41f55dd94631be73e71ed1ab9e30d03e89d97",
-  live_calendly_nobaa: "bc9905270da8fa75968ba80e8070de1275cbbf5856a25abf838f939a21463331",
+  uncovered_nobaa: "62655a3bc397c4f3371de8fa46bb51db660bf4224c997c520779be29caabad72",
+  uncovered_personal: "0ad19a5bcdbe4db23ce702b018662d60875f72ceaed81286b6a20b9910f21992",
+  notused_mindbody: "e67b1d66265d1fdfbb612460a2222f3ee146fdca49c0246c2af59e25ad072494",
+  notused_other: "809c0a3bd67a79338d6bb86af1995bfb4324636328e83249f69777c83ff82693",
+  live_calcom: "0b592d023aceb51924619c8e24e08e92f3a55152d4c8dec3eddf3e1940655365",
+  live_highlevel_personal: "baaee81c9513280a40310e35a241311f9a6bcaed8b9db685baa0630bf8e1d0e0",
+  live_calendly_nobaa: "62ca9ad483f57dc46c886ab2ab0d422ae151f7dee3ac18309cc62cce2e894978",
 };
 
 describe("1.3.0: the calendar-dependent agreement", () => {
@@ -715,7 +719,8 @@ describe("1.3.0: the calendar-dependent agreement", () => {
     expect(BAA_RELEASE_OVERLAP).toEqual({});
     expect(MIN_ACCEPTABLE_BAA_VERSION).toBe(V130);
     // Nothing in the text marks it a draft, so the release itself moved no
-    // hash; the release audit's two text fixes did (§12.15).
+    // hash; the release audit's two text fixes did, and the owner's Meta and
+    // 14(b) wording after the second read (§12.15).
     const text = render({}).text;
     expect(text).toContain("Version 1.3.0 — executed electronically");
     expect(text).not.toMatch(/DRAFT|NOT FOR EXECUTION|\[NAME, TITLE\]/);
@@ -1126,12 +1131,15 @@ describe("1.3.0: the calendar-dependent agreement", () => {
       // Patient rights: "Practice"; contact details corrected in place, and
       // an amendment appended to a booking request, an appointment record or
       // the record of a conversation, as record_amendments does (gate 8;
-      // release audit, 12 October 2026); and a request answered only in
-      // healdesk's reply.
+      // release audit, 12 October 2026), carried by every later export and
+      // every screen of healdesk's that shows the record, never "every later
+      // use" (owner, after the second read the same day); and a request
+      // answered only in healdesk's reply.
       expect(text, label).toContain(
-        "healdesk corrects a person's contact details in its own copy. It does not rewrite a booking request, an appointment record or the record of a conversation: it appends the amendment to that record and links the two, as 45 CFR 164.526(c)(1) provides. Every later use and export of that record then carries the amendment.",
+        "healdesk corrects a person's contact details in its own copy. It does not rewrite a booking request, an appointment record or the record of a conversation: it appends the amendment to that record and links the two, as 45 CFR 164.526(c)(1) provides. Every later export of that record, and every screen of healdesk's that shows it, then carries the amendment.",
       );
       expect(text, label).not.toContain("Where the record can be changed");
+      expect(text, label).not.toContain("Every later use");
       expect(text, label).toContain("in its reply to the patient, tell them");
       // Inbound only: healdesk replies to a patient who writes.
       expect(text, label).toContain("WHERE HEALDESK ACTS IN PRACTICE'S PLACE");
@@ -1139,6 +1147,19 @@ describe("1.3.0: the calendar-dependent agreement", () => {
       expect(text, label).not.toContain("sending messages in");
       // Meta, carved out of the advertising ban expressly (HRC-10, ICD-14).
       expect(text, label).toContain("except by replying on Instagram, Messenger or WhatsApp");
+      // The Meta safeguards described, never promised as outcomes (owner,
+      // after the second read of 12 October 2026, findings B1-B4): what is
+      // kept (clause 11) and what is screened, instructed and filtered
+      // (clause 16), with the limit stated.
+      expect(text, label).toContain(
+        "healdesk does not keep the messages a person sends on Instagram, Messenger or WhatsApp. From those channels it keeps only the details in (a) (a first name and a telephone number, each checked by automated filters designed to keep clinical content out, and preferred times only in a fixed day-and-time form) and the identifier Meta attaches to the conversation.",
+      );
+      expect(text, label).toContain(
+        "healdesk checks each message a person sends there for clinical content before the language model sees it, and keeps no message there and no summary of one. The assistant is instructed not to repeat clinical content, name a treatment or confirm appointment details there, and to move anything clinical to a call or to Practice's own secure route. Each reply the language model writes there is checked by automated filters designed to keep those out, and a reply the filters refuse is replaced by a fixed one. No filter catches every wording, so Practice should not invite patients to send clinical information on these channels.",
+      );
+      expect(text, label).not.toContain("is not kept at all. On every channel");
+      expect(text, label).not.toContain("keeps none, repeats none");
+      expect(text, label).not.toContain("The assistant names no treatment");
       // Term: termination ends the Services; destruction as the product does
       // it; uses and disclosures limited (HRC-02, HRC-03, HRC-07, PT-01).
       expect(text, label).toContain(

@@ -920,16 +920,16 @@ released.
 
 | Document and variant | SHA-256 |
 | --- | --- |
-| 1.3.0 covered_estimated (the sample) | `2235429b5b23f49ae004ad2d414bfba630e108bdd36f7793dd1712859844d607` |
-| 1.3.0 notcovered_estimated | `ff38a96ddd458be2cda8b846e3f88563f2478605051520210ea1899911cf5757` |
-| 1.3.0 unknown_estimated | `1106e91ca18edc9c390808b2898510d6a4c3356dfa56c1d5c35d59f84568f741` |
-| 1.3.0 uncovered_nobaa | `a37e8909d30fc42941efa331d03a714eedf69488e377da3165a1927cce8dc578` |
-| 1.3.0 uncovered_personal | `9622fe3e337d3693e06b2873182535d9c12333be1182662761031aafeaa0c1f5` |
-| 1.3.0 notused_mindbody | `ad456a7f09c1b17f3c6c9d1f3cfc5dd6de0cd90d2244242712101002b6735e5e` |
-| 1.3.0 notused_other | `d0634fa22bc85786c44314f6f8019dfb1d1248cddd4a378487ee4bc68648e6eb` |
-| 1.3.0 live_calcom | `a30f9dbafc13c7a9076ed9e542c909693607dedf8354b1a083c35f987bb9d1d8` |
-| 1.3.0 live_highlevel_personal | `79b5b5fb08c06e5ad94ea5f6b4c41f55dd94631be73e71ed1ab9e30d03e89d97` |
-| 1.3.0 live_calendly_nobaa | `bc9905270da8fa75968ba80e8070de1275cbbf5856a25abf838f939a21463331` |
+| 1.3.0 covered_estimated (the sample) | `d9117482bba644006763a9d613d94ec0a38a3f8888a95b61ad6fbb6f3a68acb3` |
+| 1.3.0 notcovered_estimated | `a6ea77cff3246a10df40859b7a71a44d2ea2bf11772942f7f8b00bd937779c06` |
+| 1.3.0 unknown_estimated | `43071c322a261d4fe71aa835412f43e058a954ab427c0004304687819fccf488` |
+| 1.3.0 uncovered_nobaa | `62655a3bc397c4f3371de8fa46bb51db660bf4224c997c520779be29caabad72` |
+| 1.3.0 uncovered_personal | `0ad19a5bcdbe4db23ce702b018662d60875f72ceaed81286b6a20b9910f21992` |
+| 1.3.0 notused_mindbody | `e67b1d66265d1fdfbb612460a2222f3ee146fdca49c0246c2af59e25ad072494` |
+| 1.3.0 notused_other | `809c0a3bd67a79338d6bb86af1995bfb4324636328e83249f69777c83ff82693` |
+| 1.3.0 live_calcom | `0b592d023aceb51924619c8e24e08e92f3a55152d4c8dec3eddf3e1940655365` |
+| 1.3.0 live_highlevel_personal | `baaee81c9513280a40310e35a241311f9a6bcaed8b9db685baa0630bf8e1d0e0` |
+| 1.3.0 live_calendly_nobaa | `62ca9ad483f57dc46c886ab2ab0d422ae151f7dee3ac18309cc62cce2e894978` |
 | calendar-election/1.0.0 sample | `63586893a436803155ee71811ea17a8d71800a0d90ce41e1b3d9c596650a02aa` |
 | google-calendar-disclosure/1 | `5b3fa42bf21ce7ab880bb869f16f19d6953f87b576f67b0c431eb8eb273387d5` |
 
@@ -956,10 +956,17 @@ covered_outbound hash equals covered_estimated, as in every version since
 again (§ 13): the shared subcontractor sentence gives the list on request,
 the Notices clause names hello@healdesk.io, and the reporting clause carries
 the spec's 60-day wording. The election's and the disclosure's did not move.
-The release audit of 12 October moved the ten 1.3.0 hashes a last time, by
-its two text fixes in clauses 11 and 14(b) (§ 12.15); until then 1.3.0 /
+The release audit of 12 October moved the ten 1.3.0 hashes, by its two
+text fixes in clauses 11 and 14(b) (§ 12.15); until then 1.3.0 /
 covered_estimated was
 `ba71a44659a5b376fb89c22640fc61eb0c6b2e073162156b9bca1a45d9d8ed86`. The
+owner's decision on the second read the same day, before anything was
+pushed, moved them a last time (§ 12.15, "The second read and the owner's
+wording"): clauses 11 and 16 describe the Meta safeguards rather than
+promise outcomes, and the last sentence of 14(b) names the exports and
+healdesk's screens rather than every later use. Until then 1.3.0 /
+covered_estimated was
+`2235429b5b23f49ae004ad2d414bfba630e108bdd36f7793dd1712859844d607`. The
 release itself moved none: nothing in the text marks a draft.
 
 ### 12.13 The owner's choices between two 1.3.0 texts (6 October 2026)
@@ -1944,12 +1951,13 @@ so no released hash moved.
 | 11, Minimum necessary | "Practice may shorten these periods in its portal." | "Practice may shorten the period for transcripts in its portal." | The portal's Settings shortens transcripts (90, 30 or 7 days, `clinic_settings.transcript_retention_days`), with the raw webhook payloads and idle chat threads that carry the same words, and no other period: the purge reads it for those and nothing else (`apps/app/src/lib/retention/purge.ts`). "These periods" promised a control over appointments, booking requests and contact details that no screen offers. The DPA's clause 10 has said this since 12 October |
 | 14(b), Amendment | "Where the record can be changed, healdesk corrects its own copy. Where a record must stay as it was made, such as a booking request or the record of a conversation, healdesk appends the amendment to it and links the two, as 45 CFR 164.526(c)(1) provides." | "healdesk corrects a person's contact details in its own copy. It does not rewrite a booking request, an appointment record or the record of a conversation: it appends the amendment to that record and links the two, as 45 CFR 164.526(c)(1) provides." | Gate 8 (`record_amendments`, drizzle/0064) appends to booking requests, conversations and appointments alike, and `amendContact` corrects a contact's name, number or address in place. The old sentence left an appointment under "where the record can be changed", as if healdesk rewrote it; it never does, because the appointment is the booking as the clinic's calendar holds it, which a sync or a reschedule moves |
 
-The sentence after them is unchanged: "Every later use and export of that
-record then carries the amendment." The DPA's Clients' requests clause
+The sentence after them was left as it was by this audit: "Every later use
+and export of that record then carries the amendment." The second read
+narrowed it (below). The DPA's Clients' requests clause
 carries 14(b) in its own words ("a client's contact details", "the
 correction", no CFR citation), and `packages/catalog/src/dpa.test.ts` holds
 the two together, so it took the same change; the DPA's eight golden hashes
-and `docs/dpa-v1.0.0.txt` were regenerated (the DPA 1.0.0 sample is now
+and `docs/dpa-v1.0.0.txt` were regenerated (the DPA 1.0.0 sample was then
 `6811e994dd460c3bd6d026e95865fd8cac80adb2e334cc54aa6e11dc9d2093e5`).
 
 Not reopened, because the owner decided them (9 and 12 October 2026,
@@ -1957,6 +1965,63 @@ Not reopened, because the owner decided them (9 and 12 October 2026,
 calendar days"; the list of subcontractors on written request; hello@ as
 healdesk's notice address. The 24 hours' notice of a new subcontractor
 stands (§ 12.7).
+
+#### The second read and the owner's wording (12 October 2026)
+
+Before anything was pushed, the audit's rows were read again on the tree
+being released (this release with main and the legal pages merged), in
+five slices: termination; erasure and amendments; retention and
+destruction; Meta; calendar and payments. The Meta slice found four
+outcomes that clauses 11 and 16 promised and the code did not guarantee,
+each shown by a probe through the Meta front door and its reply guard:
+
+| Finding | What the probe showed | Sentence it broke |
+| --- | --- | --- |
+| B1 | The first-name field kept any short run of letters, so "Maria with diabetes" was stored on the booking request, and "Botox" given as a name came back as "Thanks, Botox!" | 11, "Clinical content sent on Instagram, Messenger or WhatsApp is not kept at all"; 16, "repeats none" |
+| B2 | Treatment words outside the catalogue's vocabulary (microblading, sclerotherapy, Profhilo, HRT and others) passed the reply guard | 16, "The assistant names no treatment" |
+| B3 | A day or a time beside an hours word passed ("Your visit can be Tuesday from 9am.") | 16, "confirms no appointment details" |
+| B4 | A reply saying the person's own clinical word back passed whenever the word was on no list ("Please call the practice about your chemo.") | 16, "repeats none" |
+
+The funnel hardened each (`007b58a`, `aa2edd6`, `743aa11` and `2cdc489`,
+on main at `fd91a9f`): a first name is one or two name-like words that hit
+no health or treatment word, said back only through the reply guard;
+the missing treatment words are in the vocabulary; a day or a time passes
+only in a sentence whose subject is the clinic's own hours; and a reply
+that repeats a content word of the person's message is refused. Each is a
+word list, a grammar or a rule over words, and none catches every wording.
+The owner chose to have the text describe the safeguards rather than
+promise outcomes.
+
+The same reading of gate 8 (`record_amendments`, drizzle/0064) found
+"every later use" wider than anything puts an amendment beside a record.
+The amendment is carried by both exports (`exportPatient`,
+`exportClinic`), and on healdesk's screens: the desk's booking link says
+how many there are (counsel's question below), and the portal (M5) must
+show them wherever it shows the record
+(`apps/app/src/lib/patient-rights/amendments.ts`). A use that shows the
+record to no one carries nothing, and the event in
+Practice's calendar is never rewritten (an appointment's amendment sits
+beside it). So 14(b)'s last sentence was narrowed to the exports and the
+screens.
+
+| Clause | Before | After |
+| --- | --- | --- |
+| BAA 11, Minimum necessary | "Clinical content sent on Instagram, Messenger or WhatsApp is not kept at all." | "healdesk does not keep the messages a person sends on Instagram, Messenger or WhatsApp. From those channels it keeps only the details in (a) (a first name and a telephone number, each checked by automated filters designed to keep clinical content out, and preferred times only in a fixed day-and-time form) and the identifier Meta attaches to the conversation." |
+| BAA 16, Not authorised (the Meta paragraph) | "healdesk checks each message a person sends there for clinical content before the language model sees it, and keeps none, repeats none and carries none into a summary. The assistant names no treatment and confirms no appointment details there, and moves anything clinical to a call or to Practice's own secure route." | "healdesk checks each message a person sends there for clinical content before the language model sees it, and keeps no message there and no summary of one. The assistant is instructed not to repeat clinical content, name a treatment or confirm appointment details there, and to move anything clinical to a call or to Practice's own secure route. Each reply the language model writes there is checked by automated filters designed to keep those out, and a reply the filters refuse is replaced by a fixed one. No filter catches every wording, so Practice should not invite patients to send clinical information on these channels." |
+| BAA 14(b), Amendment | "Every later use and export of that record then carries the amendment." | "Every later export of that record, and every screen of healdesk's that shows it, then carries the amendment." |
+| DPA 13, Clients' requests | "Every later use and export of that record then carries the correction." | "Every later export of that record, and every screen of healdesk's that shows it, then carries the correction." |
+| DPA 15, Not authorised (the Meta bullet) | "... the assistant replies there only inside a conversation the client started, handles no clinical content, confirms no appointment details, and moves anything clinical to a call or to Practice's own secure route." | "... the assistant replies there only inside a conversation the client started. It is instructed not to handle clinical content or confirm appointment details there and to move anything clinical to a call or to Practice's own secure route, and each reply the language model writes there is checked by automated filters designed to keep both out." |
+
+Clause 11 also names what the old sentence left unsaid: from a Meta
+conversation healdesk keeps item (a)'s details and the identifier Meta
+attaches to the conversation, which a booking request and a Meta booking
+draft hold (`sender_id`). Every sentence changed is 1.3.0's own object or
+the DPA's, so no released hash of 1.2.2 or older moved; the ten 1.3.0
+hashes, the DPA's eight, `docs/baa-v1.3.0.txt` and `docs/dpa-v1.0.0.txt`
+were regenerated (§ 12.12). The release gates table below records
+clause 11's old sentence ("Clinical content sent on Meta is not kept") as
+it stood at c57360f. The public pages that describe the Meta channels are
+the funnel's to align (gates 12 to 14).
 
 #### What shipped
 
@@ -2030,8 +2095,12 @@ version; every open row must close before the first live clinic.
 
 #### Golden hashes
 
-The ten 1.3.0 hashes moved with the two text fixes and are frozen from the
-release (§ 12.12). The election's
+The ten 1.3.0 hashes moved with the two text fixes, and again with the
+owner's wording after the second read, and are frozen from the release
+(§ 12.12): 1.3.0 / covered_estimated is
+`d9117482bba644006763a9d613d94ec0a38a3f8888a95b61ad6fbb6f3a68acb3`. The DPA's
+eight moved with them (the DPA 1.0.0 sample is now
+`7b4a1a973f99462ac956feb704c9e5747917a101cd6b566e5ff4e98ab335bc49`). The election's
 (`63586893a436803155ee71811ea17a8d71800a0d90ce41e1b3d9c596650a02aa`) and the
 disclosure's did not move. No hash of 1.2.2 or of any older version moved:
 1.2.2 / covered_estimated is still

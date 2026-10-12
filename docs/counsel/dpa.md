@@ -125,7 +125,7 @@ destruction, and adds the processor terms state law asks for.
 | 12 | Reporting incidents and breaches | BAA 1.3.0's one rule, without its HIPAA citations: without unreasonable delay and in no case later than 60 calendar days after discovery, for all three (the spec's wording, owner, 9 October 2026; immediately and within 24 hours before that); the law-enforcement delay; each notice itself the written report, added to promptly, with what Practice needs for its own notices |
 | 13 | Clients' requests | Reconciled with clause 5: the ten-business-day help with any client's request stays, deletion is clause 5's item c, and a request made to healdesk itself, any request, is answered only in healdesk's reply (1.3.0, PT-24); a correction is made in healdesk's copy where the record can be changed, and otherwise appended and linked, as in 1.3.0's clause 14(b) (PT-17) |
 | 14 | Confidentiality | New; a veterinary paragraph |
-| 15 | Not authorised | 1.2.1's four prohibitions; Meta "is not healdesk's subcontractor and is not bound by this agreement" |
+| 15 | Not authorised | 1.2.1's four prohibitions; Meta "is not healdesk's subcontractor and is not bound by this agreement"; the Meta scoping describes the safeguards, as BAA 1.3.0's clause 16 does: what the assistant "is instructed" to do there, and replies "checked by automated filters designed to keep both out" (since 12 October 2026, where it said the assistant "handles no clinical content, confirms no appointment details"; agreement-changes.md § 12.15) |
 | 16 | Assistance and audit | The records-to-HHS clause, made general; reconciled with clause 5: the state privacy laws' help is clause 5's, every other law's stays here |
 | 17 | Term | Written from the offboarding clock in the code (§ 4), not 1.2.1's "within thirty days"; every termination ends the Services and the Fees that day, and Practice's termination for healdesk's violation of a material term or under the Subcontractors clause ("without penalty") refunds the prorated unused part of the paid period, never a setup fee or usage already billed; any other ending refunds nothing (owner, 12 October 2026; gap 17) |
 | 18 | Liability | 1.2.1's allocation and Terms §§ 13–14, in state-law terms; the Term clause's refund outside the exclusion and the indemnity, as 1.3.0's |
@@ -166,7 +166,7 @@ Added on 7 October 2026, read at origin/main c926414:
 | The notice goes "by email to Practice's address in the Notices clause" (12) | The practice's one address: the signer's, which the checkout intent requires to be the buying address and provisioning makes the account's sign-in | as clause 19, above |
 | "in its reply to the client, tell them that healdesk cannot act on it" (13) | v1 is inbound only: no code path contacts a person after a conversation ends (CLAUDE.md, "Product rules"), so the reply is the one moment to say it; passing the request on is an operator's step | the product rules in the root CLAUDE.md |
 | "delete it as the clause headed … provides" (13); ten business days, raw copies, backups within 35 days (5, item c) | The operator's deletion script in apps/app's own shell (`npm run ops:erase-person`; never apps/web, since 12 October 2026) runs `eraseContact` and also deletes the client's raw payloads (`webhook_events`), the drafts and `chat_threads` of their own messaging threads (a thread that also booked for someone else keeps what it sent for others, counted in the reply), and their suppressions, consent records and contact attempts, in one transaction; it records the request with its ten-business-day deadline and shows each subcontractor step (Retell's, done in its console) outstanding until the operator records it. Backups age out at the host's 35 days (gate 18) | `apps/app/src/lib/patient-rights/erasure.ts`; `apps/app/src/lib/ops/patient-entry.ts`; agreement-changes.md § 12.14, gate 6 |
-| "It will correct that information as Practice directs"; "healdesk corrects a client's contact details in its own copy"; "It does not rewrite a booking request, an appointment record or the record of a conversation: it appends the correction to that record and links the two"; "Every later use and export of that record then carries the correction" (13; the appointment record named since BAA 1.3.0's release audit, 12 October 2026, where it read as corrected in place) | Since 12 October 2026: the operator's scripts in apps/app's own shell (never apps/web) correct a contact in place (`npm run ops:amend-contact`, recording which fields changed) and append a correction to a booking request, a conversation or an appointment (`npm run ops:amend-record`) in `record_amendments`, append-only, linked by a foreign key that keeps it on a record of the same clinic, and removed only with that record (erasure, the purge, destruction). `exportPatient` and `exportClinic` carry each beside its record, and the desk's view of a booking request says how many there are (never their words: it opens without a passkey). A booking request still never changes in place (0039's trigger) | `apps/app/src/lib/patient-rights/amendments.ts`, `apps/app/src/lib/patient-rights/export.ts`; `apps/app/drizzle/0064_record_amendments.sql`, pinned by `apps/app/tests/record-amendments.test.ts`; agreement-changes.md § 12.14, gate 8 |
+| "It will correct that information as Practice directs"; "healdesk corrects a client's contact details in its own copy"; "It does not rewrite a booking request, an appointment record or the record of a conversation: it appends the correction to that record and links the two"; "Every later export of that record, and every screen of healdesk's that shows it, then carries the correction" (13; the appointment record named since BAA 1.3.0's release audit, 12 October 2026, where it read as corrected in place; the exports and healdesk's screens named since its second read the same day, where it said "every later use and export") | Since 12 October 2026: the operator's scripts in apps/app's own shell (never apps/web) correct a contact in place (`npm run ops:amend-contact`, recording which fields changed) and append a correction to a booking request, a conversation or an appointment (`npm run ops:amend-record`) in `record_amendments`, append-only, linked by a foreign key that keeps it on a record of the same clinic, and removed only with that record (erasure, the purge, destruction). `exportPatient` and `exportClinic` carry each beside its record, and the desk's view of a booking request says how many there are (never their words: it opens without a passkey). A booking request still never changes in place (0039's trigger) | `apps/app/src/lib/patient-rights/amendments.ts`, `apps/app/src/lib/patient-rights/export.ts`; `apps/app/drizzle/0064_record_amendments.sql`, pinned by `apps/app/tests/record-amendments.test.ts`; agreement-changes.md § 12.14, gate 8 |
 | Terminating "ends the Services on the same day, and no Fees accrue"; on Practice's termination for healdesk's violation or under the Subcontractors clause, "healdesk refunds … the prorated unused part of the subscription period" (17) | Nothing automates it: Package C's refund actions answer "not_available" on main, so an operator refunds through Stripe and cancels the subscription the same day, which starts offboarding (`customer.subscription.deleted`) | `apps/app/src/lib/billing/stripe-actions.ts`; `apps/app/src/lib/billing/events.ts` |
 | "Calendar election" and the form that names this agreement (1, 8, 19) | `calendar-election-dpa/1.0.0` exists as text, unreleased. Nothing can record an election of either kind: the election rows and their writer are plan C6 and C7, not on main | `packages/catalog/src/dpa-calendar-election.ts`; docs/design/google-calendar-2026-10-05.md |
 
@@ -290,8 +290,10 @@ Added on 7 October 2026, read at origin/main c926414:
     refuses. BAA 1.3.0's audit found the same promise in its clause 14(b) and
     fixed it (PT-17). The DPA now says it in 1.3.0's words: corrected in
     healdesk's copy where the record can be changed, and otherwise appended
-    to the record and linked to it, every later use and export then carrying
-    the correction. It says "correction" where 1.3.0 says "amendment",
+    to the record and linked to it, every later export, and every screen of
+    healdesk's that shows the record, then carrying the correction ("every
+    later use and export" until 12 October 2026, as 1.3.0's 14(b) said until
+    its second read). It says "correction" where 1.3.0 says "amendment",
     because a client asks to correct, and cites no 45 CFR. The reconciled
     sentence before it is unchanged; the telephone-number sentence after it
     changed with gates 6 and 7 (§ 6, gap 15). 1.3.0 rests the appending on 45 CFR 164.526(c)(1), which is
@@ -515,10 +517,11 @@ Added on 7 October 2026, read at origin/main c926414:
     § 12.14) builds that amendment record, linked to the booking request or
     conversation it corrects and carried by `exportPatient`, `exportClinic`
     and the portal export. It serves both agreements, since none of those
-    reads the agreement's kind. Both agreements say every later use carries
-    the correction, not only every export, so wherever the portal shows a
-    booking request or a conversation the correction must show with it,
-    which gate 8's list does not yet name. The DPA should not be released
+    reads the agreement's kind. Both agreements say every later export, and
+    every screen of healdesk's that shows the record, carries the correction
+    (since 12 October 2026; before, "every later use"), so wherever the
+    portal shows a booking request or a conversation the correction must
+    show with it, which gate 8's list does not yet name. The DPA should not be released
     before gate 8 lands and `amendContact` has an operator path. Counsel
     should also say whether an appended correction meets a state privacy
     law's right to correct (§ 5, item 15).
@@ -578,7 +581,7 @@ its trigger.
 - [ ] Vet readiness: the veterinary urgent set and its fixed reply, the
       emergency referral number (wizard 2.5), vet practice cases, client
       wording (`audienceFor`), and animal clinical content caught at the Meta
-      boundary, which clause 15 promises.
+      boundary, which clause 15's filters describe.
 - [ ] The animal's name and species in the booking catalogue, if the owner
       wants them collected (the text allows it; nothing asks for them yet).
 - [x] The signing path, PDF and copy email for a DPA (gap 9).

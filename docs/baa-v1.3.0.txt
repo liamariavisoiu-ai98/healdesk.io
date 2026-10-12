@@ -27,6 +27,22 @@ person's contact details in its own copy and never rewrites a booking
 request, an appointment record or the record of a conversation, but appends
 the amendment to it, where an appointment read as corrected in place.
 
+A second read the same day, before anything was pushed, found that the Meta
+safeguards do not guarantee what clauses 11 and 16 promised (§12.15, findings
+B1 to B4), and the owner chose to have the text describe the safeguards rather
+than promise outcomes. Clause 11 now says healdesk does not keep the messages
+a person sends on Instagram, Messenger or WhatsApp, and keeps from those
+channels only the details in its item (a), screened as it says, and the
+identifier Meta attaches to the conversation, where it said clinical content
+sent there "is not kept at all". Clause 16 now says what the assistant is
+instructed to do there, that each reply the language model writes there is
+checked by automated filters, and that no filter catches every wording, where
+it said healdesk "keeps none, repeats none" and the assistant "names no
+treatment and confirms no appointment details". The last sentence of clause
+14(b) was narrowed to what carries an amendment: every later export of the
+record and every screen of healdesk's that shows it, where it said "every
+later use and export".
+
 What is new against 1.2.1, and so against 1.2.2, which is 1.2.1 with the three
 changes above (agreement-changes.md §12, §12.14 and §13): the one
 unconditional Google Calendar clause is replaced by three, exactly one of
@@ -57,7 +73,7 @@ business associate agreement. The specialty shows as the golden test passes
 it, an id rather than the catalogue's display name. From the title line on,
 the sample is exactly what apps/app/tests/baa-golden.test.ts freezes as 1.3.0
 / covered_estimated (SHA-256
-2235429b5b23f49ae004ad2d414bfba630e108bdd36f7793dd1712859844d607). The clauses
+d9117482bba644006763a9d613d94ec0a38a3f8888a95b61ad6fbb6f3a68acb3). The clauses
 that render only for some practices follow in Appendix A, the calendar
 election in Appendix B, and the Google Calendar disclosure the practice ticks
 before connecting in Appendix C. Source: packages/catalog/src/baa.ts (template
@@ -519,10 +535,14 @@ EFFECTIVE 13 September 2026
   It asks for no email address and no history, medication or diagnosis, and it
   never takes a card number. Anything else a person chooses to say or write is
   kept only in the transcript of that conversation, for the period below.
-  Clinical content sent on Instagram, Messenger or WhatsApp is not kept at
-  all. On every channel the assistant's opening line says that it is an AI
-  assistant and, on a call, that the call is transcribed; Practice cannot
-  switch that statement off or edit it out.
+  healdesk does not keep the messages a person sends on Instagram, Messenger
+  or WhatsApp. From those channels it keeps only the details in (a) (a first
+  name and a telephone number, each checked by automated filters designed to
+  keep clinical content out, and preferred times only in a fixed day-and-time
+  form) and the identifier Meta attaches to the conversation. On every channel
+  the assistant's opening line says that it is an AI assistant and, on a call,
+  that the call is transcribed; Practice cannot switch that statement off or
+  edit it out.
 
   healdesk keeps each conversation, with its transcript, for 90 days after it
   took place, and each appointment record for 90 days after the appointment's
@@ -637,8 +657,9 @@ EFFECTIVE 13 September 2026
        164.526. healdesk corrects a person's contact details in its own copy.
        It does not rewrite a booking request, an appointment record or the
        record of a conversation: it appends the amendment to that record and
-       links the two, as 45 CFR 164.526(c)(1) provides. Every later use and
-       export of that record then carries the amendment.
+       links the two, as 45 CFR 164.526(c)(1) provides. Every later export of
+       that record, and every screen of healdesk's that shows it, then carries
+       the amendment.
     c. Accounting. healdesk will maintain and make available the information
        Practice needs to give a patient an accounting of disclosures under 45
        CFR 164.528.
@@ -682,10 +703,14 @@ EFFECTIVE 13 September 2026
   within the window Meta allows. Its first reply in each conversation says
   that it is an AI assistant and that the channel is not secure. healdesk
   checks each message a person sends there for clinical content before the
-  language model sees it, and keeps none, repeats none and carries none into a
-  summary. The assistant names no treatment and confirms no appointment
-  details there, and moves anything clinical to a call or to Practice's own
-  secure route.
+  language model sees it, and keeps no message there and no summary of one.
+  The assistant is instructed not to repeat clinical content, name a treatment
+  or confirm appointment details there, and to move anything clinical to a
+  call or to Practice's own secure route. Each reply the language model writes
+  there is checked by automated filters designed to keep those out, and a
+  reply the filters refuse is replaced by a fixed one. No filter catches every
+  wording, so Practice should not invite patients to send clinical information
+  on these channels.
 
 17. TERM, TERMINATION, AND WHAT HAPPENS TO THE INFORMATION
 

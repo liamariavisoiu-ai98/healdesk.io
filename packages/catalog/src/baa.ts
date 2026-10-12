@@ -2980,13 +2980,31 @@ function calendarClause(kind: CalendarTermsKind): BaaClause {
  * without external counsel (owner, Q2; plan C19), after the release audit of
  * the same day read every sentence that says what healdesk's systems do
  * against the code on main (agreement-changes.md §12.15, which also lists
- * the release gates still open on that day). That audit made the last two
- * edits in place, each so the text says what the code now does: in the
- * Minimum necessary clause, Practice shortens "the period for transcripts"
- * in its portal, where it said "these periods"; and in item b of the
+ * the release gates still open on that day). That audit made two edits in
+ * place, each so the text says what the code now does: in the Minimum
+ * necessary clause, Practice shortens "the period for transcripts" in its
+ * portal, where it said "these periods"; and in item b of the
  * patient-rights clause, healdesk corrects contact details in place and
  * appends an amendment to a booking request, an appointment record or the
  * record of a conversation, where an appointment read as corrected.
+ *
+ * A second read the same day, before anything was pushed, found the Meta
+ * safeguards short of what clauses 11 and 16 promised (findings B1-B4: a
+ * first name that carried clinical words and was said back, treatment
+ * words and appointment details the reply guard passed, a person's own
+ * clinical words repeated). The owner chose to have the text describe the
+ * safeguards rather than promise outcomes, and made the last edits in
+ * place: the Minimum necessary clause says healdesk keeps no message sent
+ * on Instagram, Messenger or WhatsApp, only item (a)'s details as screened
+ * and Meta's identifier, where it said clinical content there "is not kept
+ * at all"; the prohibited clause says what the assistant is instructed to
+ * do there and that its replies are filtered, and that no filter catches
+ * every wording, where it said "keeps none, repeats none" and "names no
+ * treatment and confirms no appointment details"; and item b's last
+ * sentence names every later export and every screen of healdesk's that
+ * shows the record, the places release gate 8 puts an amendment, where it
+ * said "every later use and export". The DPA's matching sentences took the
+ * same change (§12.15).
  *
  * It sits at BAA_TEMPLATES[0], so checkout offers it and validateSignRequest
  * and signAgreement (apps/app/src/lib/agreements.ts) sign it, and nothing
@@ -3347,10 +3365,14 @@ const CLAUSES_1_3: readonly BaaClause[] = [
       wrap(
         `It asks for no email address and no history, medication or diagnosis, and it never ` +
           `takes a card number. Anything else a person chooses to say or write is kept only in the ` +
-          `transcript of that conversation, for the period below. Clinical content sent on ` +
-          `Instagram, Messenger or WhatsApp is not kept at all. On every channel the assistant's ` +
-          `opening line says that it is an AI assistant and, on a call, that the call is ` +
-          `transcribed; Practice cannot switch that statement off or edit it out.`,
+          `transcript of that conversation, for the period below. healdesk does not keep the ` +
+          `messages a person sends on Instagram, Messenger or WhatsApp. From those channels it ` +
+          `keeps only the details in (a) (a first name and a telephone number, each checked by ` +
+          `automated filters designed to keep clinical content out, and preferred times only in a ` +
+          `fixed day-and-time form) and the identifier Meta attaches to the conversation. On ` +
+          `every channel the assistant's opening line says that it is an AI assistant and, on a ` +
+          `call, that the call is transcribed; Practice cannot switch that statement off or edit ` +
+          `it out.`,
       ) +
       "\n\n" +
       wrap(
@@ -3533,8 +3555,8 @@ const CLAUSES_1_3: readonly BaaClause[] = [
           `incorporate any amendment Practice directs, under 45 CFR 164.526. healdesk corrects a ` +
           `person's contact details in its own copy. It does not rewrite a booking request, an ` +
           `appointment record or the record of a conversation: it appends the amendment to that ` +
-          `record and links the two, as 45 CFR 164.526(c)(1) provides. Every later use and export ` +
-          `of that record then carries the amendment.`,
+          `record and links the two, as 45 CFR 164.526(c)(1) provides. Every later export of that ` +
+          `record, and every screen of healdesk's that shows it, then carries the amendment.`,
         `c. Accounting. healdesk will maintain and make available the information Practice needs ` +
           `to give a patient an accounting of disclosures under 45 CFR 164.528.`,
       ]
@@ -3604,10 +3626,13 @@ const CLAUSES_1_3: readonly BaaClause[] = [
           `person started, on the channel the person chose, and only within the window Meta ` +
           `allows. Its first reply in each conversation says that it is an AI assistant and that ` +
           `the channel is not secure. healdesk checks each message a person sends there for ` +
-          `clinical content before the language model sees it, and keeps none, repeats none and ` +
-          `carries none into a summary. The assistant names no treatment and confirms no ` +
-          `appointment details there, and moves anything clinical to a call or to Practice's own ` +
-          `secure route.`,
+          `clinical content before the language model sees it, and keeps no message there and no ` +
+          `summary of one. The assistant is instructed not to repeat clinical content, name a ` +
+          `treatment or confirm appointment details there, and to move anything clinical to a call ` +
+          `or to Practice's own secure route. Each reply the language model writes there is ` +
+          `checked by automated filters designed to keep those out, and a reply the filters ` +
+          `refuse is replaced by a fixed one. No filter catches every wording, so Practice should ` +
+          `not invite patients to send clinical information on these channels.`,
       ),
   },
 
@@ -3932,7 +3957,8 @@ export const BAA_TEMPLATES: readonly BaaTemplate[] = [
     // lawyer's approval. Drafted on 2026-10-06 and redrafted by the
     // pre-release audit (agreement-changes.md §12.14); released after
     // Claude's own audit of the full text against the code (plan C19, owner
-    // answer Q2; §12.15), whose two text fixes are listed above CLAUSES_1_3.
+    // answer Q2; §12.15), whose text fixes, and the owner's Meta and 14(b)
+    // wording after the second read, are listed above CLAUSES_1_3.
     approvedByCounsel: true,
     preamble: preamble130,
     clauses: CLAUSES_1_3,

@@ -213,6 +213,14 @@ export function HeroPortrait({ autoplay = false }: { autoplay?: boolean }) {
   /** The card the hero is playing on its own. */
   const [auto, setAuto] = useState<string | null>(null);
   const busy = useRef(false);
+  /**
+   * Whether the logo pressed was already showing its card when the press
+   * began. A tap focuses the button before its click arrives, and focus opens
+   * the card, so a click that toggled on what it found would close the card
+   * the same tap had just opened: on Android nothing ever showed. Read at
+   * pointer-down, before focus moves.
+   */
+  const wasShown = useRef(false);
   const holdUntil = useRef(0);
 
   useEffect(() => {
@@ -363,9 +371,16 @@ export function HeroPortrait({ autoplay = false }: { autoplay?: boolean }) {
                         aria-label={showcaseText(logo)}
                         onPointerEnter={(event) => hover(event, logo.name)}
                         onPointerLeave={(event) => hover(event, null)}
+                        onPointerDown={() => {
+                          wasShown.current = shown === logo.name;
+                        }}
                         onFocus={() => setShown(logo.name)}
                         onBlur={() => setShown((current) => (current === logo.name ? null : current))}
-                        onClick={() => setShown((current) => (current === logo.name ? null : logo.name))}
+                        onClick={(event) => {
+                          // A keyboard's Enter has no pointer-down: it toggles.
+                          const was = event.detail === 0 ? shown === logo.name : wasShown.current;
+                          setShown(was ? null : logo.name);
+                        }}
                       >
                         <img src={logo.src} alt="" width={192} height={192} decoding="async" draggable={false} className="portrait__logo" />
                       </button>

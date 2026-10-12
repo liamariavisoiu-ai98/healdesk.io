@@ -38,8 +38,8 @@ four calendars; a fictional caller, Jordan, on a number reserved for fiction
 (+1 212 555 0142). Google was never called. The app's own sign-in, callback
 and Calendar code ran unchanged, and every request they made to Google was
 answered by the in-memory Google the tests use (`fakeGoogleCalendar` in
-`packages/connectors/src/google/fake.ts`), including the consent step. The
-app's clock zone was the practice's, America/New_York. Images are 2x, cropped
+`packages/connectors/src/google/fake.ts`), including the consent step. Times
+are shown on the practice's clock (America/New_York). Images are 2x, cropped
 from a 1280-pixel-wide window.
 
 Shots 02 and 07 are Google's own screens, so they need a person signed in to

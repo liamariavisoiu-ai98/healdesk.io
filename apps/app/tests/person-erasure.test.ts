@@ -139,6 +139,16 @@ async function payload(
   return rows[0]!.id;
 }
 
+/** A payload stored as the vendor sent it, byte for byte: escaped JSON, or not JSON at all. */
+async function rawPayload(client: Client, clinicId: string, deliveryId: string, body: string, at: Date): Promise<string> {
+  const { rows } = await client.query<{ id: string }>(
+    `insert into webhook_events (clinic_id, provider, delivery_id, signature_valid, raw_payload, processed_at, received_at)
+     values ($1, 'mindbody', $2, true, $3, $4, $4) returning id`,
+    [clinicId, deliveryId, body, at],
+  );
+  return rows[0]!.id;
+}
+
 async function evidence(client: Client, clinicId: string, phone: string, at: Date): Promise<void> {
   await client.query(
     `insert into suppressions (clinic_id, phone, channel, reason, requested_at) values ($1, $2, null, 'stop_reply', $3)`,
@@ -920,14 +930,27 @@ describeDb("deletion on request", () => {
       bracketed: await payload(client, c.clinicId, "mindbody", "evt_bracketed", { note: "(555) 013-9201" }, at, true),
       // A longer number that contains it: stays.
       longer: await payload(client, c.clinicId, "mindbody", "evt_longer", { ref: "2555013920100" }, at, true),
+      // The second review's cases, matched in each decoded string. After a
+      // newline, a tab, or an escaped "<": goes (the raw-text match missed
+      // them). Behind an apostrophe, which an address's local part may hold:
+      // someone else's, stays. The same ten digits after +44: someone else's
+      // number, stays. As a JSON number: goes. A body that is not JSON is
+      // matched as text: goes.
+      newline: await payload(client, c.clinicId, "mindbody", "evt_nl", { transcript: "user: my email is\nann@mail.test" }, at, true),
+      tab: await payload(client, c.clinicId, "mindbody", "evt_tab", { note: "email:\tann@mail.test" }, at, true),
+      escaped: await rawPayload(client, c.clinicId, "evt_go", '{"from":"Ann \\u003cann@mail.test\\u003e"}', at),
+      apostrophe: await payload(client, c.clinicId, "mindbody", "evt_apos", { client: { email: "o'ann@mail.test" } }, at, true),
+      foreign: await payload(client, c.clinicId, "mindbody", "evt_uk", { client: { mobile: "+44 555 013 9201" } }, at, true),
+      jsonNumber: await rawPayload(client, c.clinicId, "evt_num", '{"client":{"mobile":15550139201}}', at),
+      notJson: await rawPayload(client, c.clinicId, "evt_text", "From: Ann <ann@mail.test>\r\nSubject: booking", at),
     }));
     const outcome = await erase({ clinicId: c.clinicId, phone: "+15550139201", email: "ann@mail.test", requestedBy: "practice" });
     if (outcome.status !== "erased") throw new Error("not erased");
-    expect(outcome.deleted.webhookEvents).toBe(3);
+    expect(outcome.deleted.webhookEvents).toBe(8);
     const left = await inTenant(c.clinicId, async (client) =>
       (await client.query<{ id: string }>(`select id from webhook_events order by id`)).rows.map((r) => r.id),
     );
-    expect(left).toEqual([ids.joann, ids.longer].sort());
+    expect(left).toEqual([ids.joann, ids.longer, ids.apostrophe, ids.foreign].sort());
   });
 
   test("a deletion that finds more than two hundred references still completes, and records them all", async () => {

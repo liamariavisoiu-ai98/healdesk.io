@@ -544,10 +544,13 @@ record of the request, no longer than we need it.
 What it cannot find. A call with no caller ID creates no contact, so nothing ties it to
 the person by number: the deletion finds such a call only if the practice names its
 number and the vendor's payload carries it, and its conversation, which names no one,
-stays until the record clock takes it. Raw payloads are searched for the number and the
-address matched whole, the number in its international form and, for a North American
-number, its ten digits without the country code, with spaces, dots, dashes or brackets
-between the digits; another country's number is found only in its international form.
+stays until the record clock takes it. Raw payloads are searched string by string (a
+JSON body is decoded first; any other body is read as text) for the number and the
+address matched whole: the address with no address character before it or domain
+character after it, the number in its international form and, for a North American
+number, its ten digits without the country code but never right after another
+country's "+" code, with spaces, dots, dashes or brackets between the digits; another
+country's number is found only in its international form.
 Tell the practice when it asks about a call it believes had no caller ID.
 
 What is kept: one `erasure_requests` row, with who asked (one of three), the dates, the

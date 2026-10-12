@@ -448,30 +448,58 @@ function literal(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** A separator a person writes between digits: up to two of space, dot, dash and brackets. */
+const DIGIT_GAP = "[ ().-]{0,2}";
+
 /**
  * The digit runs a number can be written as: its full international form
  * and, for a North American number, its ten-digit national number, each
  * digit allowed up to two separators after it ("+1 (555) 013-0001",
  * "555 013 0001", "15550130001"). No digit may stand directly before or
- * after the run, so a number is matched whole and never inside a longer one.
+ * after the run, so a number is matched whole and never inside a longer one,
+ * and the national form never right after a "+" and a country code: "+44 555
+ * 013 0001" is someone else's number (second review, 12 October 2026).
  * Other countries' numbers are matched in their international form only.
  */
 function numberPatterns(phone: string): string[] {
   const digits = phone.replace(/\D/g, "");
   if (digits.length < 7) return [];
-  const forms = [digits];
-  if (phone.startsWith("+1") && digits.length === 11) forms.push(digits.slice(1));
-  return forms.map((form) => `(^|[^0-9])${form.split("").join("[ ().-]{0,2}")}($|[^0-9])`);
+  const run = (form: string) => form.split("").join(DIGIT_GAP);
+  const patterns = [`(?<![0-9])${run(digits)}(?![0-9])`];
+  if (phone.startsWith("+1") && digits.length === 11) {
+    patterns.push(`(?<![0-9])(?<![+][0-9]{1,3}${DIGIT_GAP})${run(digits.slice(1))}(?![0-9])`);
+  }
+  return patterns;
 }
 
 /**
  * An address, matched whole: nothing that can belong to an address's local
- * part before it, and nothing that continues its domain after it (a full
- * stop ending a sentence is not a continuation). "ann@mail.test" is not
- * found inside "joann@mail.test" or "ann@mail.tester".
+ * part before it (RFC 5322's atext, and the dot), and nothing that continues
+ * its domain after it (a full stop ending a sentence is not a continuation).
+ * "ann@mail.test" is not found inside "joann@mail.test", "o'ann@mail.test"
+ * or "ann@mail.tester", and is found after a newline, a tab or a "<".
  */
 function addressPattern(email: string): string {
-  return `(^|[^a-z0-9._%+-])${literal(email.toLowerCase())}($|[^a-z0-9.-]|[.]($|[^a-z0-9-]))`;
+  return `(?<![a-z0-9!#$%&'*+/=?^_\`{|}~.-])${literal(email.toLowerCase())}(?![a-z0-9-])(?![.][a-z0-9])`;
+}
+
+/**
+ * Whether a payload names the person, judged string by string: a body that
+ * parses as JSON is walked to each decoded string and number, so an address
+ * written after an escape ("\\nann@", "\\u003cann@") is read as the text it
+ * is, and a name in one field never runs into a number in the next; a body
+ * that does not parse is matched as text. In the database, so no body is
+ * read out of it.
+ */
+function payloadNames(patterns: readonly string[]): SQL {
+  const any = textArray(patterns);
+  return sql`case when ${webhookEvents.rawPayload} is json
+    then exists (
+      select 1 from jsonb_path_query(${webhookEvents.rawPayload}::jsonb, 'strict $.**') v
+       where jsonb_typeof(v) in ('string', 'number') and lower(v #>> '{}') ~ any(${any})
+    )
+    else lower(${webhookEvents.rawPayload}) ~ any(${any})
+  end`;
 }
 
 /** The ids of the raw payloads about them: their calls' voice payloads, and any payload naming their number or address. */
@@ -481,11 +509,12 @@ async function payloadsAbout(tx: TenantTx, s: Survey, before: Date): Promise<str
     ...new Set([...s.phones.flatMap(numberPatterns), ...s.emails.map(addressPattern)]),
   ];
 
-  // Any provider: the number or the address in the body, matched whole, by a
-  // regular expression in the database, so no body is read out of it. The
-  // first version tested for a substring, so erasing ann@mail.test deleted
-  // joann@mail.test's payloads, possibly the only copy of an unprocessed
-  // call, and missed a number written without its country code.
+  // Any provider: the number or the address in the body, matched whole in
+  // each decoded string (payloadNames). The first version tested for a
+  // substring, so erasing ann@mail.test deleted joann@mail.test's payloads,
+  // possibly the only copy of an unprocessed call, and missed a number
+  // written without its country code; the second matched the raw text, so it
+  // missed an address after a JSON escape and took o'ann@ and a +44 number.
   if (s.callIds.length || patterns.length) {
     const rows = await tx.db
       .select({ id: webhookEvents.id })
@@ -501,9 +530,7 @@ async function payloadsAbout(tx: TenantTx, s: Survey, before: Date): Promise<str
                   inArray(webhookEvents.deliveryId, s.callIds),
                 )
               : sql`false`,
-            patterns.length
-              ? sql`lower(${webhookEvents.rawPayload}) ~ any(${textArray(patterns)})`
-              : sql`false`,
+            patterns.length ? payloadNames(patterns) : sql`false`,
           ),
         ),
       );

@@ -1,3 +1,4 @@
+import { clientIp } from "@/lib/client-ip";
 import { withinConnectAttemptLimit } from "@/lib/connections/attempt-limit";
 import {
   beginGoogleSignIn,
@@ -61,7 +62,7 @@ export async function POST(request: Request): Promise<Response> {
   } catch {
     return new Response("Bad request.", { status: 400 });
   }
-  const ipAddress = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined;
+  const ipAddress = clientIp(request.headers);
   const userAgent = request.headers.get("user-agent") ?? undefined;
   const context = { ipAddress, userAgent };
 

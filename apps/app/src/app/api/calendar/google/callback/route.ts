@@ -1,3 +1,4 @@
+import { clientIp } from "@/lib/client-ip";
 import {
   clearStateCookieHeader,
   completeGoogleSignIn,
@@ -42,7 +43,7 @@ export async function GET(request: Request): Promise<Response> {
       error: url.searchParams.get("error"),
       cookie: readStateCookie(request.headers.get("cookie")),
       request: {
-        ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined,
+        ipAddress: clientIp(request.headers),
         userAgent: request.headers.get("user-agent") ?? undefined,
       },
     });

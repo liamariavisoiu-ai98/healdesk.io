@@ -689,6 +689,21 @@ function keyReused(prior: Prior): {
     : { kind: "key_reused", first: "request_logged" };
 }
 
+/**
+ * What `key_reused` would say for a booking key that already carries a
+ * booking or a request, or null for a fresh key: for a channel whose key
+ * allows one booking a conversation (the Synthflow harness keys by the call
+ * id) to answer before it offers or holds another time, rather than after
+ * the caller has chosen one.
+ */
+export async function keyReusedFor(
+  tx: TenantTx,
+  bookingKey: string,
+): Promise<ReturnType<typeof keyReused> | null> {
+  const prior = await priorOf(tx, bookingKey);
+  return prior ? keyReused(prior) : null;
+}
+
 /** Whether this holder has a write unsettled under a key other than this one. */
 async function inFlightUnderOtherKey(
   tx: TenantTx,

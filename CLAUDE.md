@@ -78,8 +78,9 @@ enforceable rather than aspirational.
    is inside too.
 
 2. **The demos are on the no-PHI side only because of who they talk to.** They
-   serve clinic owners from a generic knowledge tree, and the demo call still
-   runs through Synthflow until the Retell agent exists. The product's voice
+   serve clinic owners from a generic knowledge tree or, for a personalised
+   demo, from the clinic's public website, and the demo calls run on Retell
+   demo agents (Synthflow was replaced on 5 October 2026). The product's voice
    agent answers real patients, so it belongs in `apps/app`, built on Retell
    (none of it is in the code yet): Retell opens a WebSocket per call to a
    Healdesk-hosted Claude endpoint, and every tool call it makes

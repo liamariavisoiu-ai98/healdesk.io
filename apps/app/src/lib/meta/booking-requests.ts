@@ -1385,7 +1385,7 @@ async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<Decisio
 
   if (row.channel !== "meta") return { outcome: "decided", followUp: null, appointmentId, calendarWrite: null };
   if (!row.connectionId || !row.platform || !row.externalId || !row.senderId) return { outcome: "decided", followUp: "no-channel", appointmentId, calendarWrite: null };
-  const owner: MetaChannelOwner = { clinicId: tx.clinicId, connectionId: row.connectionId, platform: row.platform, enabled: true };
+  const owner: MetaChannelOwner = { clinicId: tx.clinicId, connectionId: row.connectionId, platform: row.platform, enabled: true, platformEnabled: true };
   try {
     // Outside Meta's 24-hour window sendMetaReply sends nothing: v1 has no
     // message tag and no template, so the desk calls instead.

@@ -96,6 +96,8 @@ import {
   annualTotalUsd,
   channelList,
   COHORT_SETUP_CREDIT,
+  DEMO_SETUP_CREDIT,
+  demoSetupCreditUsd,
   METERS,
   type MeterId,
   OVERAGE_BLOCK_UNITS,
@@ -746,11 +748,31 @@ async function syncPlaceholder(
 // and the fee it cancels can never disagree; `duration: "once"` keeps it off
 // every renewal.
 // ---------------------------------------------------------------------------
-async function syncCohortCoupons(stripe: Stripe): Promise<void> {
-  console.log(`\n${COHORT_SETUP_CREDIT.name}`);
+//
+// The demo-week credit (catalog DEMO_SETUP_CREDIT) is the same shape at half
+// the setup fee, for a clinic that buys from its personalised demo inside the
+// demo's week; it runs through the same function.
+type SetupCoupon = { couponId: string; name: string; offer: string; amountOffCents: (plan: (typeof plans)[number]) => number };
+
+const COHORT_COUPON: SetupCoupon = {
+  couponId: COHORT_SETUP_CREDIT.couponId,
+  name: COHORT_SETUP_CREDIT.name,
+  offer: "cohort-setup",
+  amountOffCents: (plan) => plan.setupFeeUsd * 100,
+};
+
+const DEMO_COUPON: SetupCoupon = {
+  couponId: DEMO_SETUP_CREDIT.couponId,
+  name: DEMO_SETUP_CREDIT.name,
+  offer: "demo-setup-half",
+  amountOffCents: (plan) => Math.round(demoSetupCreditUsd(plan) * 100),
+};
+
+async function syncSetupCoupons(stripe: Stripe, coupon: SetupCoupon): Promise<void> {
+  console.log(`\n${coupon.name}`);
   for (const plan of plans) {
-    const id = `${COHORT_SETUP_CREDIT.couponId}-${plan.id}`;
-    const amountOff = plan.setupFeeUsd * 100;
+    const id = `${coupon.couponId}-${plan.id}`;
+    const amountOff = coupon.amountOffCents(plan);
     const label = `coupon   ${id.padEnd(40)} ${usd(amountOff)}`;
     let existing: Stripe.Coupon | null = null;
     try {
@@ -771,8 +793,8 @@ async function syncCohortCoupons(stripe: Stripe): Promise<void> {
       }
       // The name can, and Stripe prints it on Checkout and the invoice, so it
       // follows the catalog (it lost "Founding-cohort" on 6 October 2026).
-      if (existing.name !== COHORT_SETUP_CREDIT.name) {
-        await stripe.coupons.update(existing.id, { name: COHORT_SETUP_CREDIT.name });
+      if (existing.name !== coupon.name) {
+        await stripe.coupons.update(existing.id, { name: coupon.name });
         tally.updated += 1;
         line("~", `UPDATED: ${label}  ${existing.id}  (name now matches the catalog)`);
         continue;
@@ -780,17 +802,17 @@ async function syncCohortCoupons(stripe: Stripe): Promise<void> {
       verified(`${label}  ${existing.id}`);
       continue;
     }
-    const coupon = await stripe.coupons.create({
+    const made = await stripe.coupons.create({
       id,
       // Stripe caps a coupon name at 40 characters, and appending the package
       // name overran it for most packages. The id already names the package.
-      name: COHORT_SETUP_CREDIT.name,
+      name: coupon.name,
       amount_off: amountOff,
       currency: "usd",
       duration: "once",
-      metadata: { [PLAN_META]: plan.id, healdesk_offer: "cohort-setup" },
+      metadata: { [PLAN_META]: plan.id, healdesk_offer: coupon.offer },
     });
-    created(`${label}  ${coupon.id}`);
+    created(`${label}  ${made.id}`);
   }
 }
 
@@ -1115,7 +1137,8 @@ async function main(): Promise<void> {
     await syncMeter(stripe, products, meters, activePrices, meter);
   }
   await syncPlaceholder(stripe, products, activePrices, desired.placeholder);
-  await syncCohortCoupons(stripe);
+  await syncSetupCoupons(stripe, COHORT_COUPON);
+  await syncSetupCoupons(stripe, DEMO_COUPON);
   reportStale(activePrices, desired);
 
   console.log(

@@ -3398,6 +3398,21 @@ export const clinicSettings = pgTable(
       .notNull()
       .default(90),
 
+    /**
+     * Settings → Channels: Instagram, Messenger and WhatsApp, each On or Off
+     * on its own (spec, "Every switch in the portal"; 0061). On by default,
+     * so a platform answers once it is connected. The webhook skips a
+     * message on a platform switched Off (app_meta_channel), and the Meta
+     * channel's own clinic_channels.enabled is kept On while any connected
+     * platform's switch is On, and Off once none is, by their one writer,
+     * lib/channels/meta-platforms.ts.
+     * Beneath the operator's front door (clinics.meta_front_door_enabled),
+     * never instead of it.
+     */
+    instagramEnabled: boolean("instagram_enabled").notNull().default(true),
+    messengerEnabled: boolean("messenger_enabled").notNull().default(true),
+    whatsappEnabled: boolean("whatsapp_enabled").notNull().default(true),
+
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

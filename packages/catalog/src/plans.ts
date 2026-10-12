@@ -220,6 +220,31 @@ export const COHORT_SETUP_CREDIT = {
 } as const;
 
 /**
+ * Half the setup fee off, for a clinic that buys from its personalised demo
+ * inside the demo's week (owner, 7 October 2026). One coupon per package,
+ * `amount_off` half that package's setup fee and applied once, so it takes
+ * half of the setup line off the first invoice and nothing off the
+ * subscription. stripe:setup creates them; the demo page and the checkout
+ * show the same figure.
+ */
+export const DEMO_SETUP_CREDIT = {
+  couponId: "healdesk-demo-setup-half",
+  /** Shown by Stripe on Checkout and the invoice. */
+  name: "Demo week: 50% off setup",
+  percentOfSetupFee: 50,
+} as const;
+
+/**
+ * The demo credit for one package, in whole dollars, rounded up: half of
+ * $997 is $498.50, and a page that shows "$499" over an invoice that takes
+ * $498.50 would disagree with Stripe by fifty cents. Up, so the buyer is
+ * never given less than the half the banner promised.
+ */
+export function demoSetupCreditUsd(plan: { setupFeeUsd: number }): number {
+  return Math.ceil((plan.setupFeeUsd * DEMO_SETUP_CREDIT.percentOfSetupFee) / 100);
+}
+
+/**
  * The days a clinic has to finish its own setup (the owner's decision of
  * 6 October 2026). While no channel is answering patients it gets a reminder
  * every five days, six in all; at the end of the last day an account with
@@ -233,7 +258,7 @@ export const SETUP_REMINDER_EVERY_DAYS = 5;
 export const plans: readonly Plan[] = [
   {
     id: "chat-web",
-    name: "Web Chatbot",
+    name: "AYA Web Chat",
     channels: { web: true, meta: false, voice: false },
     monthlyUsd: 397,
     annualMonthlyUsd: 317,
@@ -246,7 +271,7 @@ export const plans: readonly Plan[] = [
   },
   {
     id: "chat-meta",
-    name: "Meta Chatbot",
+    name: "AYA Meta Chat",
     channels: { web: false, meta: true, voice: false },
     monthlyUsd: 397,
     annualMonthlyUsd: 317,
@@ -259,7 +284,7 @@ export const plans: readonly Plan[] = [
   },
   {
     id: "voice",
-    name: "AI Voice Agent Alone",
+    name: "AYA Voice",
     channels: { web: false, meta: false, voice: true },
     monthlyUsd: 797,
     annualMonthlyUsd: 637,
@@ -272,7 +297,7 @@ export const plans: readonly Plan[] = [
   },
   {
     id: "chat-dual",
-    name: "Web + Meta Chatbot",
+    name: "AYA Web + Meta Chat",
     channels: { web: true, meta: true, voice: false },
     monthlyUsd: 597,
     annualMonthlyUsd: 477,
@@ -285,7 +310,7 @@ export const plans: readonly Plan[] = [
   },
   {
     id: "web-voice",
-    name: "Web + Voice",
+    name: "AYA Web Chat + Voice",
     channels: { web: true, meta: false, voice: true },
     monthlyUsd: 897,
     annualMonthlyUsd: 717,
@@ -298,7 +323,7 @@ export const plans: readonly Plan[] = [
   },
   {
     id: "meta-voice",
-    name: "Meta + Voice",
+    name: "AYA Meta Chat + Voice",
     channels: { web: false, meta: true, voice: true },
     monthlyUsd: 897,
     annualMonthlyUsd: 717,
@@ -311,7 +336,7 @@ export const plans: readonly Plan[] = [
   },
   {
     id: "complete",
-    name: "Complete FrontDesk AI",
+    name: "AYA Complete Frontdesk",
     channels: { web: true, meta: true, voice: true },
     monthlyUsd: 1_197,
     annualMonthlyUsd: 957,
@@ -360,17 +385,17 @@ export type PricingCard = {
   highlight?: string;
 };
 
+/**
+ * Product names are AYA's, never "chatbot" or "AI voice agent" (owner,
+ * 7 October 2026): AYA Web Chat, AYA Meta Chat, AYA Voice, and AYA Complete
+ * Frontdesk, which is the recommended package.
+ */
 export const pricingCards: readonly PricingCard[] = [
-  { id: "chat-single", name: "Web OR Meta Chatbot", planIds: ["chat-web", "chat-meta"] },
-  { id: "voice", name: "AI Voice Agent Alone", planIds: ["voice"] },
-  { id: "chat-dual", name: "Web + Meta Chatbot", planIds: ["chat-dual"] },
-  {
-    id: "chat-voice",
-    name: "Web OR Meta + Voice",
-    planIds: ["web-voice", "meta-voice"],
-    highlight: "Recommended",
-  },
-  { id: "complete", name: "Complete FrontDesk AI", planIds: ["complete"] },
+  { id: "chat-single", name: "AYA Web or Meta Chat", planIds: ["chat-web", "chat-meta"] },
+  { id: "voice", name: "AYA Voice", planIds: ["voice"] },
+  { id: "chat-dual", name: "AYA Web + Meta Chat", planIds: ["chat-dual"] },
+  { id: "chat-voice", name: "AYA Chat + Voice", planIds: ["web-voice", "meta-voice"] },
+  { id: "complete", name: "AYA Complete Frontdesk", planIds: ["complete"], highlight: "Recommended" },
 ] as const;
 
 export function getPricingCard(id: string): PricingCard | undefined {

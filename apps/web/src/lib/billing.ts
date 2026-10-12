@@ -8,6 +8,7 @@ import {
   planStartSentence,
   type PriceKind,
   stripeLookupKey,
+  DEMO_SETUP_CREDIT,
 } from "@healdesk/catalog";
 import Stripe from "stripe";
 
@@ -107,8 +108,12 @@ export type CheckoutIntent = {
   attribution?: {
     campaign: string | null;
     leadId: string | null;
-    /** "cohort-setup" when the lead was offered the setup credit inside its window. */
-    offer?: "cohort-setup" | null;
+    /**
+     * "cohort-setup" when the lead was offered the founding-cohort credit
+     * inside its window; "demo-setup-half" when the buyer came from a
+     * personalised demo still inside its week (catalog DEMO_SETUP_CREDIT).
+     */
+    offer?: "cohort-setup" | "demo-setup-half" | null;
     /** The personalised demo's slug, when the buyer came from its "Book Onboarding" (lib/demo). */
     demo?: string | null;
     /**
@@ -266,7 +271,9 @@ export async function createCheckout(
       ...(process.env.STRIPE_AUTOMATIC_TAX === "true" ? { automatic_tax: { enabled: true } } : {}),
       ...(input.attribution?.offer === "cohort-setup"
         ? { discounts: [{ coupon: cohortCouponIdFor(input.plan) }] }
-        : {}),
+        : input.attribution?.offer === "demo-setup-half"
+          ? { discounts: [{ coupon: `${DEMO_SETUP_CREDIT.couponId}-${input.plan.id}` }] }
+          : {}),
       custom_text: {
         submit: {
           message: `${planStartSentence(input.plan, input.interval)} The setup fee is non-refundable.`,

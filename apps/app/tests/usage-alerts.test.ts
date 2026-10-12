@@ -154,7 +154,7 @@ describeDb("usage-alerts", () => {
       location.clinicId,
       billing.clinicId,
     ]);
-    // Bought Web + Voice, billed as Web Chatbot: voice is 0 on the billed row.
+    // Bought Web + Voice, billed as AYA Web Chat: voice is 0 on the billed row.
     await seedEntitled(billing.clinicId, {
       planId: "chat-web",
       boughtPlanId: "web-voice",

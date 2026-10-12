@@ -1,3 +1,5 @@
+import { demoSlugFromCookieHeader } from "@/lib/demo/attribution";
+import { getDemoSession, type DemoSession } from "@/lib/demo/sessions";
 import { cohortCreditLive, findLeadById } from "@/lib/leads";
 import { checkoutMode } from "@/lib/checkout-mode";
 import { findSetupRequest } from "@/lib/setup-requests";
@@ -103,4 +105,23 @@ export function refuseOtherEmail(request: SetupRequest, field: string): Response
     },
     { status: 422 },
   );
+}
+
+/**
+ * A personalised demo counts as the invitation (owner, 7 October 2026).
+ *
+ * The operator built that demo for one prospect who asked for it, which is
+ * the same act of choosing a buyer a setup link records, so its "Book
+ * Onboarding" opens the purchase directly instead of "Tell us about your
+ * clinic". The demo travels in the first-party cookie its onboard route
+ * sets (lib/demo/attribution.ts) and is re-read here, never taken from the
+ * browser's word: it must exist, be built, and not have been bought already.
+ * The purchase is not bound to the demo's email, because the operator may
+ * not have had the owner's own address when building it.
+ */
+export async function demoInvitation(cookieHeader: string | null): Promise<DemoSession | null> {
+  const slug = demoSlugFromCookieHeader(cookieHeader);
+  if (!slug) return null;
+  const session = await getDemoSession(slug);
+  return session && session.status === "ready" && !session.claimed ? session : null;
 }

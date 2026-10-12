@@ -285,7 +285,7 @@ describeDb("billing actions", () => {
         ["plan_changed", "plan:req-interval-1"],
       ]);
       expect(notices[0]!.payload).toEqual({
-        planName: "Web + Voice",
+        planName: "AYA Web Chat + Voice",
         interval: "year",
         locations: 2,
         setupFeeDeltaCents: 100_000,

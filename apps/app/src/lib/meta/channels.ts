@@ -2,11 +2,13 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import { bookingRequests, clinics } from "@/db/schema";
+import { syncMetaChannelSwitch } from "@/lib/channels/meta-platforms";
 import { saveConnection, withCredentials } from "@/lib/connections/store";
 import type { TenantTx } from "@/lib/tenant";
 
 import type { MetaPlatform } from "./front-door";
 import { GRAPH_VERSION } from "./graph";
+import { META_PROVIDERS } from "./providers";
 
 /**
  * A clinic's Meta channels: one sealed access token per platform, on the
@@ -28,11 +30,7 @@ import { GRAPH_VERSION } from "./graph";
  * path of 23 September 2026 (§G.3) was removed, and nothing in this file can
  * reach a person who has not written in the last 24 hours.
  */
-export const META_PROVIDERS: Record<MetaPlatform, string> = {
-  messenger: "meta-messenger",
-  instagram: "meta-instagram",
-  whatsapp: "meta-whatsapp",
-};
+export { META_PROVIDERS };
 
 /** Meta's customer-service window: 24 hours from the person's last message. */
 export const META_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -50,6 +48,11 @@ export function isMetaPlatform(value: unknown): value is MetaPlatform {
  * `details` are non-secret ids kept in metadata, such as the WhatsApp Business
  * account a number belongs to. `via` says how the token arrived, so the audit
  * trail separates a clinic's own login from an operator pasting one.
+ *
+ * A newly connected platform answers by default (its Settings switch is On
+ * unless someone turned it Off), so the Meta channel's own switch is brought
+ * back in step with the connected platforms' switches in the same
+ * transaction (lib/channels/meta-platforms.ts).
  */
 export async function attachMetaChannel(
   tx: TenantTx,
@@ -75,32 +78,63 @@ export async function attachMetaChannel(
     resourceId: id,
     metadata: { provider: META_PROVIDERS[input.platform], via: input.via ?? "operator" },
   });
+  await syncMetaChannelSwitch(tx, CONNECTED_BY[input.via ?? "operator"]);
   return id;
 }
+
+/** Who a channel switch that follows a new connection is recorded as having changed it. */
+const CONNECTED_BY: Record<"operator" | "facebook_login" | "embedded_signup", string> = {
+  operator: "healdesk support",
+  facebook_login: "Facebook login",
+  embedded_signup: "WhatsApp signup",
+};
 
 export async function setMetaFrontDoor(tx: TenantTx, enabled: boolean): Promise<void> {
   await tx.db.update(clinics).set({ metaFrontDoorEnabled: enabled, updatedAt: new Date() }).where(eq(clinics.id, tx.clinicId));
   tx.audit.record({ action: "update", resourceType: "clinic_meta_front_door", resourceId: tx.clinicId, metadata: { enabled } });
 }
 
-export type MetaChannelOwner = { clinicId: string; connectionId: string; platform: MetaPlatform; enabled: boolean };
+/**
+ * Who owns a Meta page, account or number, and whether it may be answered:
+ * `enabled` is the operator's front door for the whole clinic, and
+ * `platformEnabled` the clinic's own switch for this platform (Settings,
+ * lib/channels/meta-platforms.ts). The webhook answers only when both are on.
+ */
+export type MetaChannelOwner = {
+  clinicId: string;
+  connectionId: string;
+  platform: MetaPlatform;
+  enabled: boolean;
+  platformEnabled: boolean;
+};
 
-/** Which clinic owns this page / account / number. Ids only; see 0036. */
+/** Which clinic owns this page / account / number. Ids and the two switches only; see 0036 and 0061. */
 export async function resolveMetaChannel(externalId: string): Promise<MetaChannelOwner | null> {
-  const result = await unsafeDb.execute<{ clinic_id: string; connection_id: string; provider: string; enabled: boolean }>(
-    sql`select clinic_id, connection_id, provider, enabled from app_meta_channel(${externalId})`,
-  );
+  const result = await unsafeDb.execute<{
+    clinic_id: string;
+    connection_id: string;
+    provider: string;
+    enabled: boolean;
+    platform_enabled: boolean;
+  }>(sql`select clinic_id, connection_id, provider, enabled, platform_enabled from app_meta_channel(${externalId})`);
   const rows = ((result as unknown as { rows?: unknown[] }).rows ?? result) as {
     clinic_id: string;
     connection_id: string;
     provider: string;
     enabled: boolean;
+    platform_enabled: boolean;
   }[];
   const row = rows[0];
   if (!row) return null;
   const platform = (Object.keys(META_PROVIDERS) as MetaPlatform[]).find((p) => META_PROVIDERS[p] === row.provider);
   if (!platform) return null;
-  return { clinicId: row.clinic_id, connectionId: row.connection_id, platform, enabled: Boolean(row.enabled) };
+  return {
+    clinicId: row.clinic_id,
+    connectionId: row.connection_id,
+    platform,
+    enabled: Boolean(row.enabled),
+    platformEnabled: row.platform_enabled === true,
+  };
 }
 
 /**

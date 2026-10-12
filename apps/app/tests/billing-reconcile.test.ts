@@ -608,7 +608,7 @@ describeDb("the billing reconcile job", () => {
         payload: {
           channel: "voice",
           joinsOn: isoDate(due),
-          planName: "Web + Voice",
+          planName: "AYA Web Chat + Voice",
           amountCents: Math.round(recurringUsd(getPlan("web-voice")!, "month") * 100) * 2,
           interval: "month",
           waitingOn: "forwarding",

@@ -29,12 +29,12 @@ export function AgentMark({
       src={logoUrl}
       alt={`${name} logo`}
       referrerPolicy="no-referrer"
-      className="shrink-0 rounded-lg bg-white object-contain"
+      className="shrink-0 rounded-sm bg-white object-contain"
       style={{ height: size, maxWidth: size * 3.5 }}
     />
   ) : (
     <span
-      className="font-display grid shrink-0 place-items-center rounded-lg font-semibold"
+      className="font-display grid shrink-0 place-items-center rounded-sm font-semibold"
       style={{ width: size, height: size, background: "var(--clinic)", color: "var(--clinic-ink)", fontSize: size * 0.45 }}
       aria-hidden
     >
@@ -66,7 +66,7 @@ export function AgentPanel({
   children: ReactNode;
 }) {
   return (
-    <section className="border-line relative flex flex-col overflow-hidden rounded-3xl border bg-white shadow-[0_1px_2px_rgb(23_42_58/0.06),0_12px_40px_-12px_rgb(23_42_58/0.18)]">
+    <section className="border-line relative flex flex-col overflow-hidden rounded-lg border bg-white shadow-md">
       <div className={`border-line flex items-center gap-3 border-b px-5 ${mark ? "py-3" : "py-3.5"}`}>
         {mark ?? <AgentMark name={name} logoUrl={logoUrl} size={28} />}
         <div className="min-w-0">

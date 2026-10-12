@@ -92,7 +92,7 @@ export function ReviewStep({
     >
       {notice ? (
         <p
-          className="border-line bg-paper-2/60 mb-6 rounded-xl border px-4 py-3 text-[15.6px] font-semibold"
+          className="border-line bg-paper-2/60 mb-6 rounded-sm border px-4 py-3 text-[15.6px] font-semibold"
           role="status"
         >
           {notice}
@@ -105,7 +105,7 @@ export function ReviewStep({
       </p>
 
       <section
-        className="border-line mt-4 rounded-2xl border bg-white p-5"
+        className="border-line mt-4 rounded-md border bg-white p-5"
         aria-label="What you pay"
       >
         <p className="font-display text-[26.4px] leading-tight font-medium">{fee.headline}</p>
@@ -145,13 +145,13 @@ export function ReviewStep({
       <p
         role="status"
         aria-live="polite"
-        className="border-line mt-4 rounded-2xl border bg-white px-5 py-4 text-sm"
+        className="border-line mt-4 rounded-md border bg-white px-5 py-4 text-sm"
       >
         {siteRead.text}
       </p>
 
       <section
-        className="border-line bg-paper-2/50 mt-4 rounded-2xl border p-5"
+        className="border-line bg-paper-2/50 mt-4 rounded-md border p-5"
         aria-labelledby="guarantee-heading"
       >
         <h2 id="guarantee-heading" className={FIELD_LABEL}>
@@ -166,7 +166,7 @@ export function ReviewStep({
         </div>
       </section>
 
-      <div className="border-line mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl border bg-white px-5 py-3 text-sm">
+      <div className="border-line mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border bg-white px-5 py-3 text-sm">
         <span className="font-bold">Agreement signed</span>
         <span aria-hidden className="text-red-deep font-bold">
           ✓
@@ -177,7 +177,7 @@ export function ReviewStep({
         {copyLink}
       </div>
       {!agreement.approvedByCounsel ? (
-        <p className="border-red/30 bg-red/[0.06] mt-4 rounded-xl border px-4 py-3 text-[15.6px] font-semibold">
+        <p className="border-red/30 bg-red/[0.06] mt-4 rounded-sm border px-4 py-3 text-[15.6px] font-semibold">
           This agreement is a draft pending legal review. Until it is finalised, accounts are
           created for synthetic data only and cannot receive real patient information.
         </p>
@@ -185,7 +185,7 @@ export function ReviewStep({
 
       {/* The commercial terms are accepted here, beside the action that
           spends the money; the agreement was signed a step earlier. */}
-      <div className="hd-pay-bar border-line bg-paper sticky bottom-0 z-10 mt-6 rounded-t-2xl border-t px-1 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:static sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0">
+      <div className="hd-pay-bar border-line bg-paper sticky bottom-0 z-10 mt-6 rounded-t-md border-t px-1 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:static sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0">
         <label className="flex min-h-11 cursor-pointer items-start gap-3">
           <input
             type="checkbox"

@@ -300,7 +300,7 @@ export function VoiceCard({
             aria-selected={mode === tab.id}
             disabled={busy && tab.id !== "talk"}
             onClick={() => setMode(tab.id)}
-            className={`rounded-xl px-2 py-2 text-center transition-colors disabled:opacity-50 ${mode === tab.id ? "bg-paper-2" : "hover:bg-paper-2/60"}`}
+            className={`rounded-sm px-2 py-2 text-center transition-colors disabled:opacity-50 ${mode === tab.id ? "bg-paper-2" : "hover:bg-paper-2/60"}`}
           >
             <span className={`block text-[14.4px] font-bold ${mode === tab.id ? "text-ink" : "text-muted"}`}>{tab.label}</span>
             <span className="text-muted block text-[12px] font-medium">{tab.hint}</span>
@@ -348,7 +348,7 @@ export function VoiceCard({
                 type="button"
                 onClick={startCall}
                 disabled={locked || busy}
-                className="rounded-full px-6 py-3 text-[16.8px] font-bold shadow-md transition-all duration-200 hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45"
+                className="rounded-full px-6 py-3 text-[16.8px] font-bold shadow-md transition-all duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45"
                 style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
               >
                 {state === "connecting" ? "Connecting…" : state === "ended" ? "Call again" : "Talk now"}
@@ -407,12 +407,12 @@ export function VoiceCard({
                   aria-label="The number you'll call from"
                   autoComplete="tel"
                   disabled={locked}
-                  className="border-line text-ink placeholder:text-muted min-w-0 flex-1 rounded-xl border px-3.5 py-2.5 text-[16px] outline-none transition-colors focus:border-[var(--clinic)]"
+                  className="border-line text-ink placeholder:text-muted min-w-0 flex-1 rounded-sm border px-3.5 py-2.5 text-[16px] outline-none transition-colors focus:border-[var(--clinic)]"
                 />
                 <button
                   type="submit"
                   disabled={locked || dialSaving || !dialFrom.trim()}
-                  className="shrink-0 rounded-xl px-5 py-2.5 text-[16px] font-bold transition-all duration-200 hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45"
+                  className="shrink-0 rounded-sm px-5 py-2.5 text-[16px] font-bold transition-all duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45"
                   style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
                 >
                   {dialSaving ? "Saving…" : "Get the number"}
@@ -459,7 +459,7 @@ export function VoiceCard({
               autoComplete="given-name"
               maxLength={80}
               disabled={locked}
-              className="border-line text-ink placeholder:text-muted min-w-0 rounded-xl border px-3.5 py-2.5 text-[16px] outline-none transition-colors focus:border-[var(--clinic)] sm:w-[8.5rem]"
+              className="border-line text-ink placeholder:text-muted min-w-0 rounded-sm border px-3.5 py-2.5 text-[16px] outline-none transition-colors focus:border-[var(--clinic)] sm:w-[8.5rem]"
             />
             <input
               type="tel"
@@ -470,12 +470,12 @@ export function VoiceCard({
               aria-label="Your phone number"
               autoComplete="tel"
               disabled={locked}
-              className="border-line text-ink placeholder:text-muted min-w-0 flex-1 rounded-xl border px-3.5 py-2.5 text-[16px] outline-none transition-colors focus:border-[var(--clinic)]"
+              className="border-line text-ink placeholder:text-muted min-w-0 flex-1 rounded-sm border px-3.5 py-2.5 text-[16px] outline-none transition-colors focus:border-[var(--clinic)]"
             />
             <button
               type="submit"
               disabled={locked || submitting || !consent || !phone.trim()}
-              className="shrink-0 rounded-xl px-5 py-2.5 text-[16px] font-bold transition-all duration-200 hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45"
+              className="shrink-0 rounded-sm px-5 py-2.5 text-[16px] font-bold transition-all duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45"
               style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
             >
               {submitting ? "Calling…" : "Call me"}

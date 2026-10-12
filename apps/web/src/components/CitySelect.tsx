@@ -175,14 +175,14 @@ export function CitySelect({
               return next;
             });
           }}
-          className="border-line focus:border-orange text-ink placeholder:text-muted mt-2 w-full rounded-xl border px-4 py-3 text-[17.4px] outline-none transition-colors"
+          className="border-line focus:border-orange text-ink placeholder:text-muted mt-2 w-full rounded-sm border px-4 py-3 text-[17.4px] outline-none transition-colors"
         />
 
         {open && rows > 0 ? (
           <ul
             id="review-city-list"
             role="listbox"
-            className="border-line absolute z-20 mt-1 max-h-[268px] w-full overflow-auto rounded-xl border bg-white py-1 shadow-[0_18px_40px_-16px_rgb(23_42_58/0.35)]"
+            className="border-line absolute z-20 mt-1 max-h-[268px] w-full overflow-auto rounded-sm border bg-white py-1 shadow-lg"
           >
             <li
               role="option"
@@ -234,7 +234,7 @@ export function CitySelect({
           required
           value={state}
           onChange={(event) => onState(event.target.value)}
-          className="border-line focus:border-orange text-ink mt-2 w-full rounded-xl border bg-white px-4 py-3 text-[17.4px] outline-none transition-colors"
+          className="border-line focus:border-orange text-ink mt-2 w-full rounded-sm border bg-white px-4 py-3 text-[17.4px] outline-none transition-colors"
         >
           <option value="">Choose</option>
           {/* The code, not the name: it is what the published card shows, so

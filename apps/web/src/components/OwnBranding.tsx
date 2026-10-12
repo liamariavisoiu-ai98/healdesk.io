@@ -317,7 +317,7 @@ export function OwnBranding() {
             <i className="size-3 rounded-full border border-black/10 bg-[#28c840]" />
           </span>
 
-          <div className="relative mx-auto flex h-[34px] min-w-0 flex-1 items-center gap-1.5 rounded-[9px] bg-[#e8e8ea] pr-1 pl-3 transition-[background-color,box-shadow] focus-within:bg-white focus-within:shadow-[0_0_0_3.5px_rgb(0_113_227/0.35)] sm:max-w-[500px]">
+          <div className="relative mx-auto flex h-[34px] min-w-0 flex-1 items-center gap-1.5 rounded-sm bg-[#e8e8ea] pr-1 pl-3 transition-[background-color,box-shadow] focus-within:bg-white focus-within:ring-[3.5px] focus-within:ring-[rgb(0_113_227/0.35)] sm:max-w-[500px]">
             <span className="text-[#8e8e93]">{LOCK}</span>
             <label htmlFor={`${ids}-domain`} className="sr-only">
               Your clinic&rsquo;s website
@@ -348,7 +348,7 @@ export function OwnBranding() {
               type="submit"
               disabled={phase === "reading" || phase === "sending" || phase === "done"}
               aria-label={buttonLabel}
-              className="h-[26px] shrink-0 rounded-[7px] bg-[#0071e3] px-3 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#0077ed] disabled:opacity-60"
+              className="h-[26px] shrink-0 rounded-sm bg-[#0071e3] px-3 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#0077ed] disabled:opacity-60"
             >
               {/* "Email it to me" leaves a phone's pill no room for the address. */}
               {buttonLabel === "Email it to me" ? (
@@ -380,7 +380,7 @@ export function OwnBranding() {
           aria-hidden={!sheetOpen}
           inert={!sheetOpen}
           className={[
-            "absolute inset-x-0 top-[52px] z-10 mx-auto w-[min(440px,calc(100%-24px))] rounded-b-[14px] border border-t-0 border-black/10 bg-white/95 px-5 pt-5 pb-4 shadow-[0_18px_40px_-12px_rgb(0_0_0/0.35)] backdrop-blur-xl transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
+            "absolute inset-x-0 top-[52px] z-10 mx-auto w-[min(440px,calc(100%-24px))] rounded-b-md border border-t-0 border-black/10 bg-white/95 px-5 pt-5 pb-4 shadow-lg backdrop-blur-xl transition-[transform,opacity] duration-base ease-out",
             sheetOpen ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-[110%] opacity-0",
           ].join(" ")}
           onKeyDown={(event) => {
@@ -389,7 +389,7 @@ export function OwnBranding() {
         >
           <form onSubmit={submit} noValidate>
             <div className="flex items-start gap-3">
-              <img src="/icon.png" alt="" className="size-10 shrink-0 rounded-[10px] shadow-[0_0_0_1px_rgb(0_0_0/0.06)]" />
+              <img src="/icon.png" alt="" className="size-10 shrink-0 rounded-sm ring-1 ring-black/[0.06]" />
               <div className="min-w-0 text-left">
                 <p id={`${ids}-sheet-title`} className="text-[15.5px] leading-snug font-semibold text-[#1d1d1f]">
                   Send me my own free AI assistant in my own branding
@@ -419,7 +419,7 @@ export function OwnBranding() {
               disabled={phase === "sending"}
               aria-invalid={emailError ? true : undefined}
               aria-describedby={`${ids}-email-note`}
-              className="mt-4 h-[38px] w-full rounded-[8px] border border-black/15 bg-white px-3 text-[15px] text-[#1d1d1f] outline-none transition-shadow placeholder:text-[#8e8e93] focus:border-[#0071e3] focus:shadow-[0_0_0_3.5px_rgb(0_113_227/0.3)]"
+              className="mt-4 h-[38px] w-full rounded-sm border border-black/15 bg-white px-3 text-[15px] text-[#1d1d1f] outline-none transition-shadow placeholder:text-[#8e8e93] focus:border-[#0071e3] focus:ring-[3.5px] focus:ring-[rgb(0_113_227/0.3)]"
             />
             {/* For bots only: people never see it, and api/own-demo builds nothing when it is filled. */}
             <input
@@ -449,14 +449,14 @@ export function OwnBranding() {
               <button
                 type="button"
                 onClick={cancel}
-                className="h-[30px] rounded-[7px] border border-black/10 bg-white px-3.5 text-[13.5px] font-medium text-[#1d1d1f] shadow-[0_1px_1px_rgb(0_0_0/0.06)] transition-colors hover:bg-[#f5f5f7]"
+                className="h-[30px] rounded-sm border border-black/10 bg-white px-3.5 text-[13.5px] font-medium text-[#1d1d1f] shadow-sm transition-colors hover:bg-[#f5f5f7]"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={phase === "sending" || !email.trim()}
-                className="h-[30px] rounded-[7px] bg-[#0071e3] px-3.5 text-[13.5px] font-semibold text-white shadow-[0_1px_1px_rgb(0_0_0/0.1)] transition-colors hover:bg-[#0077ed] disabled:opacity-50"
+                className="h-[30px] rounded-sm bg-[#0071e3] px-3.5 text-[13.5px] font-semibold text-white shadow-sm transition-colors hover:bg-[#0077ed] disabled:opacity-50"
               >
                 {phase === "sending" ? "Sending…" : "Send it to me"}
               </button>
@@ -487,7 +487,7 @@ export function OwnBranding() {
                   <img src={preview.logoUrl} alt="" className="max-h-7 w-auto max-w-[160px] object-contain" />
                 ) : (
                   <>
-                    <span className="grid size-7 place-items-center rounded-md text-[13px] font-bold" style={{ background: colour, color: ink }}>
+                    <span className="grid size-7 place-items-center rounded-sm text-[13px] font-bold" style={{ background: colour, color: ink }}>
                       {initial}
                     </span>
                     <span className="truncate text-[15px] font-semibold text-[#1d1d1f]">{name}</span>
@@ -517,7 +517,7 @@ export function OwnBranding() {
 
               {/* AYA, in their corner, in their colour. */}
               <div className="own-widget absolute right-4 bottom-4 w-[min(268px,calc(100%-32px))] sm:right-6 sm:bottom-6">
-                <div className="overflow-hidden rounded-2xl bg-white shadow-[0_14px_36px_-12px_rgb(23_42_58/0.45),0_0_0_1px_rgb(0_0_0/0.05)]">
+                <div className="overflow-hidden rounded-md bg-white shadow-md ring-1 ring-black/5">
                   <div className="flex items-center gap-2.5 px-3.5 py-2.5" style={{ background: colour, color: ink }}>
                     <span className="grid size-7 shrink-0 place-items-center rounded-full text-[12px] font-bold" style={{ background: ink, color: colour }}>
                       {initial}
@@ -528,7 +528,7 @@ export function OwnBranding() {
                     </span>
                   </div>
                   <div className="px-3 pt-3 pb-2.5">
-                    <p className="rounded-2xl rounded-bl-md bg-[#f1f1f1] px-3 py-2 text-[12.5px] leading-snug text-[#1d1d1f]">
+                    <p className="rounded-md rounded-bl-sm bg-[#f1f1f1] px-3 py-2 text-[12.5px] leading-snug text-[#1d1d1f]">
                       {greeted ? (
                         <span className="morph-text">{greetingLead(name)}</span>
                       ) : (

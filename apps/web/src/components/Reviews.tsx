@@ -572,7 +572,7 @@ export function Reviews({
         {/* Above the rating on purpose: it has to be read before the 4.9
             is, not found after it. Body size and ink, not a muted caption. */}
         {examples && (
-          <p className="border-line text-ink mx-auto -mt-2 mb-10 inline-block max-w-full rounded-[6px] border bg-white px-4 py-2 text-[15.6px] font-semibold">
+          <p className="border-line text-ink mx-auto -mt-2 mb-10 inline-block max-w-full rounded-sm border bg-white px-4 py-2 text-[15.6px] font-semibold">
             {EXAMPLE_NOTICE}
           </p>
         )}
@@ -650,7 +650,7 @@ export function Reviews({
             aria-label={`Reviews ${i * perPage + 1} to ${Math.min((i + 1) * perPage, reviews.length)}`}
             aria-current={i === page}
             className={[
-              "h-2 rounded-full transition-all duration-300",
+              "hidden h-2 rounded-full transition-all duration-base sm:inline-block",
               i === page ? "bg-red w-6" : "bg-line-strong hover:bg-muted w-2",
             ].join(" ")}
           />

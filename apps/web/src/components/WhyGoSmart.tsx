@@ -98,7 +98,7 @@ export function WhyGoSmart({
         </p>
       </div>
 
-      <div className="border-line mt-11 grid gap-0 overflow-hidden rounded-[24px] border bg-white lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+      <div className="border-line mt-11 grid gap-0 overflow-hidden rounded-lg border bg-white lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
         {/* ── The conversation ─────────────────────────────────────────── */}
         <div className="border-line flex flex-col gap-8 border-b p-7 sm:p-10 lg:border-r lg:border-b-0">
           <p className="text-muted flex items-center gap-2 text-xs font-bold tracking-[0.14em] uppercase">

@@ -126,7 +126,7 @@ export function WhyWaitExperience() {
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <a
                 href={`/${site.cta.secondary.href}`}
-                className="bg-red hover:bg-red-deep inline-flex items-center justify-center gap-2 rounded-[6px] px-6 py-3.5 text-base font-semibold text-white transition-colors"
+                className="bg-red hover:bg-red-deep inline-flex items-center justify-center gap-2 rounded-sm px-6 py-3.5 text-base font-semibold text-white transition-colors"
               >
                 {site.cta.secondary.label}
               </a>
@@ -151,8 +151,8 @@ export function WhyWaitExperience() {
           </div>
 
           {/* The sale: what the demo is standing in for. */}
-          <div className="demo-field-warm rounded-[28px] p-3 sm:p-5">
-            <div className="rounded-[20px] bg-white p-6 shadow-[0_32px_64px_-36px_rgb(23_42_58/0.45)] sm:p-8">
+          <div className="demo-field-warm rounded-lg p-3 sm:p-5">
+            <div className="rounded-md bg-white p-6 shadow-lg sm:p-8">
               <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                 <h3 className="font-display text-ink text-[clamp(26px,2.6vw,34px)] leading-tight font-normal tracking-[-0.025em]">
                   When she&apos;s yours

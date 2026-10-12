@@ -99,7 +99,7 @@ export function PackageStep({
     >
       {error ? (
         <p
-          className="border-red/30 bg-red/[0.06] mb-6 rounded-xl border px-4 py-3 text-[15.6px] font-semibold"
+          className="border-red/30 bg-red/[0.06] mb-6 rounded-sm border px-4 py-3 text-[15.6px] font-semibold"
           role="alert"
         >
           {error}
@@ -160,7 +160,7 @@ export function PackageStep({
 
       {/* Every package covers one location; more is quoted by the team. */}
       {demo ? (
-        <div className="border-line mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-white px-5 py-4">
+        <div className="border-line mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border bg-white px-5 py-4">
           <span className="text-sm font-semibold">More than one location?</span>
           <a
             href="/contact"
@@ -272,11 +272,11 @@ function PackageCard({
   return (
     <label
       className={[
-        "relative flex w-full flex-col rounded-2xl border p-5 text-left transition-colors has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-orange",
+        "relative flex w-full flex-col rounded-md border p-5 text-left transition-colors has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-orange",
         closed
           ? "border-line bg-paper-2 cursor-not-allowed opacity-60"
           : selected
-            ? "border-red bg-orange/[0.06] shadow-brand cursor-pointer"
+            ? "border-red bg-orange/[0.06] shadow-sm cursor-pointer"
             : "border-line hover:border-line-strong cursor-pointer bg-white",
       ].join(" ")}
     >
@@ -365,7 +365,7 @@ export function ChatChannelField({
   const needsWebsite = (choice: ChatChannel) =>
     noWebsite && planNeedsWebsite(planForCard(card, choice));
   return (
-    <div className="border-line mt-6 rounded-2xl border bg-white p-5">
+    <div className="border-line mt-6 rounded-md border bg-white p-5">
       <RadioGroup<ChatChannel>
         name="chatChannelChoice"
         label="Which chat channel?"

@@ -123,11 +123,21 @@
   /*
    * Figures only, and the distinction is the point.
    *
-   * TAN Ashford is a single-weight display face with a lot of voice. It held
-   * the whole heading layer briefly and overpowered every one of them; on a
-   * lone number it is exactly right. `font-figure` goes on the rating, the
-   * prices and the calculator's money, which are the places a number is the
-   * content rather than part of a sentence.
+   *   fast    160ms  a colour, a hover, a press
+   *   base    280ms  a small state: a card's lines, a chip, a tick
+   *   slow    480ms  a panel, a tile's flood, an open or a close
+   *   slower  800ms  an entrance: a reveal on scroll, the hero
+   *
+   * The curves: `standard` for colour and opacity, `out` (fast then settling)
+   * for anything that moves into place, `in-out` for what goes and comes
+   * back, and `spring`, which overshoots a hair and settles, for what drops
+   * in: iOS's notification spring, sampled as a `linear()` curve. Ambient
+   * loops (the soul's heartbeat, the orbit drift, a shimmer) keep their own
+   * periods: those are rhythms, not timings.
+   *
+   * Durations are not a Tailwind namespace, so `duration-fast` and the rest
+   * are utilities below; the easings are, so `ease-out` and the rest come
+   * from here.
    */
   --font-figure: var(--font-ashford), Georgia, serif;
   /*
@@ -135,10 +145,35 @@
    */
   --font-sans: var(--font-hanken), system-ui, sans-serif;
 
-  --shadow-brand: 0 20px 44px -24px rgb(230 38 39 / 0.5);
-  --shadow-brand-lg: 0 24px 48px -20px rgb(230 38 39 / 0.66);
+  --ease-*: initial;
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.45, 0, 0.55, 1);
+  --ease-spring: linear(0, 0.114 5%, 0.348 9%, 0.589 14%, 0.784 18%, 0.919 23%, 0.999 27%, 1.036 32%, 1.046 36%, 1.041 41%, 1.031 45%, 1.02 50%, 1.01 55%, 1.004 59%, 1 64%, 0.998 68%, 0.998 73%, 0.998 77%, 0.999 82%, 0.999 86%, 0.999 91%, 1 95%, 1);
 
-  --ease-panel: cubic-bezier(0.22, 0.61, 0.36, 1);
+  /* What a bare `transition` or `transition-colors` uses. */
+  --default-transition-duration: var(--duration-fast);
+  --default-transition-timing-function: var(--ease-standard);
+}
+
+/* The durations as utilities (see "Motion" in the tokens). Each sets
+   Tailwind's own variable too, so `transition-colors` beside it, in either
+   order, reads the same value. */
+@utility duration-fast {
+  --tw-duration: var(--duration-fast);
+  transition-duration: var(--duration-fast);
+}
+@utility duration-base {
+  --tw-duration: var(--duration-base);
+  transition-duration: var(--duration-base);
+}
+@utility duration-slow {
+  --tw-duration: var(--duration-slow);
+  transition-duration: var(--duration-slow);
+}
+@utility duration-slower {
+  --tw-duration: var(--duration-slower);
+  transition-duration: var(--duration-slower);
 }
 
 /* Gradient is used in a dozen places; keep one definition. */
@@ -284,11 +319,11 @@
   margin: auto;
   padding: 0;
   border: 0;
-  border-radius: 24px;
+  border-radius: var(--radius-lg);
   background: var(--color-paper);
   color: var(--color-ink);
   color-scheme: light;
-  box-shadow: 0 40px 90px -30px rgb(23 42 58 / 0.45);
+  box-shadow:  var(--shadow-lg);
   overflow: hidden;
 }
 
@@ -418,7 +453,7 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .hd-modal[open] {
-    animation: hd-modal-in 220ms cubic-bezier(0.22, 0.61, 0.36, 1);
+    animation: hd-modal-in var(--duration-fast) var(--ease-out);
   }
 
   @keyframes hd-modal-in {
@@ -451,7 +486,7 @@
   right: 20px;
   width: 44px;
   height: 44px;
-  border-radius: 999px;
+  border-radius: 9999px;
   transform-origin: 50% 50%;
   transform: scale(1);
   /*
@@ -460,7 +495,7 @@
    * over four times the distance reads as a slow wipe rather than a flood, and
    * the copy waiting underneath it cannot turn white until the circle arrives.
    */
-  transition: transform var(--flood-ms, 620ms) var(--ease-panel);
+  transition: transform var(--flood-ms, var(--duration-slow)) var(--ease-out);
   /*
    * Semi-transparent so the footage keeps moving underneath rather than being
    * replaced by a flat panel. The text mask below buys back the contrast.
@@ -502,7 +537,7 @@
  */
 .niche-card__arrow {
   transform: rotate(0deg);
-  transition: transform 560ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: transform var(--duration-slow) var(--ease-spring);
 }
 
 .niche-card--ready:hover .niche-card__arrow,
@@ -512,7 +547,7 @@
 
 .niche-card__video {
   opacity: 0;
-  transition: opacity 420ms ease;
+  transition: opacity var(--duration-slow) var(--ease-standard);
 }
 
 .niche-card--ready:hover .niche-card__video,
@@ -643,7 +678,7 @@
     rgb(246 128 52 / 0.2) 44%,
     rgb(246 128 52 / 0) 74%
   );
-  animation: soul-aura var(--soul-beat) cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  animation: soul-aura var(--soul-beat) var(--ease-in-out) infinite;
 }
 
 .soul__aura::before,
@@ -759,7 +794,7 @@
   display: block;
   width: 100%;
   height: 100%;
-  animation: soul-heartbeat var(--soul-beat) cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  animation: soul-heartbeat var(--soul-beat) var(--ease-in-out) infinite;
   /*
    * The white the clip arrives on is removed here, not on the video itself,
    * and the distinction cost an hour. A mask makes an element an isolated
@@ -812,7 +847,7 @@
    * gradients are also pulled well inside the box now, so nothing of the sheen
    * survives as far as the edge, where the sphere is meant to be dissolving.
    */
-  border-radius: 999px;
+  border-radius: 9999px;
   background-image:
     radial-gradient(
       52% 46% at 33% 27%,
@@ -836,7 +871,7 @@
 .soul__ring {
   position: absolute;
   inset: 0;
-  border-radius: 999px;
+  border-radius: 9999px;
   border: 1.5px solid rgb(250 140 44 / 0.5);
   filter: blur(0.6px);
   opacity: 0;
@@ -937,7 +972,7 @@
 }
 
 .soul--voice .soul__ring {
-  animation: soul-emit 1.7s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
+  animation: soul-emit 1.7s var(--ease-out) infinite;
 }
 
 /* =============================================================================
@@ -1094,7 +1129,7 @@
       rgb(253 253 253 / 0.07) 55%,
       transparent 60%
     );
-    transition: transform 800ms cubic-bezier(0.22, 1, 0.36, 1);
+    transition: transform var(--duration-slower) var(--ease-out);
   }
 
   .hero__copy {
@@ -1125,9 +1160,8 @@
 
   .hero-line {
     transition:
-      opacity 600ms ease,
-      transform 800ms cubic-bezier(0.22, 1, 0.36, 1);
-    transition-delay: var(--line-delay, 0ms);
+      opacity var(--duration-slow) var(--ease-standard),
+      transform var(--duration-slower) var(--ease-out);
   }
 
   /* Going, all at once; coming, line by line. */
@@ -1155,9 +1189,7 @@
     background: rgb(255 255 255 / 0.82);
     -webkit-backdrop-filter: blur(14px) saturate(1.4);
     backdrop-filter: blur(14px) saturate(1.4);
-    box-shadow:
-      0 1px 2px rgb(23 42 58 / 0.1),
-      0 12px 28px -14px rgb(23 42 58 / 0.5);
+    box-shadow: var(--shadow-md);
     color: var(--color-ink);
     font-size: 13.5px;
     font-weight: 650;
@@ -1165,7 +1197,7 @@
     pointer-events: none;
     translate: -50% 0;
     opacity: 0;
-    transition: opacity 300ms ease;
+    transition: opacity var(--duration-base) var(--ease-standard);
   }
 
   /* Waits for the logos to have fanned out, then stays until the first reveal. */
@@ -1253,13 +1285,13 @@
 .portrait__spread {
   position: relative;
   transition:
-    transform 500ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 400ms ease;
+    transform var(--duration-slow) var(--ease-out),
+    opacity var(--duration-slow) var(--ease-standard);
 }
 
 /* A few degrees along the orbit and back, each logo at its own point in it. */
 .portrait__drift {
-  animation: portrait-orbit var(--orbit-time) ease-in-out calc(var(--i) * -1.7s) infinite alternate;
+  animation: portrait-orbit var(--orbit-time) var(--ease-in-out) calc(var(--i) * -1.7s) infinite alternate;
 }
 
 @keyframes portrait-orbit {
@@ -1281,7 +1313,7 @@
   height: 100%;
   padding: 0;
   border: 0;
-  border-radius: 24%;
+  border-radius: min(var(--radius-md), 24%);
   background: none;
   cursor: pointer;
 }
@@ -1298,14 +1330,12 @@
   width: 100%;
   height: 100%;
   padding: 13%;
-  border-radius: 24%;
+  border-radius: min(var(--radius-md), 24%);
   background: #fff;
-  box-shadow:
-    0 1px 2px rgb(23 42 58 / 0.12),
-    0 8px 18px -6px rgb(23 42 58 / 0.32);
+  box-shadow: var(--shadow-md);
   object-fit: contain;
   user-select: none;
-  transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform var(--duration-base) var(--ease-out);
 }
 
 .portrait__node[data-shown] .portrait__logo {
@@ -1346,7 +1376,7 @@
 }
 
 .portrait__orbit {
-  transition: opacity 400ms ease;
+  transition: opacity var(--duration-slow) var(--ease-standard);
 }
 
 /* The whole circle, faint: what makes three arcs read as three rings. */
@@ -1371,7 +1401,7 @@
 
 .portrait__orbit-line {
   stroke-width: 1.6;
-  transition: stroke-width 300ms ease;
+  transition: stroke-width var(--duration-base) var(--ease-standard);
 }
 
 .portrait[data-group="messages"] .portrait__orbit[data-group="messages"] .portrait__orbit-line,
@@ -1410,17 +1440,15 @@
   background: rgb(255 255 255 / 0.8);
   -webkit-backdrop-filter: blur(14px) saturate(1.4);
   backdrop-filter: blur(14px) saturate(1.4);
-  box-shadow:
-    0 1px 2px rgb(23 42 58 / 0.1),
-    0 10px 24px -12px rgb(23 42 58 / 0.45);
+  box-shadow: var(--shadow-md);
   color: var(--color-ink);
   font-size: 12.5px;
   font-weight: 650;
   white-space: nowrap;
   transition:
-    background-color 300ms ease,
-    opacity 300ms ease,
-    transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+    background-color var(--duration-base) var(--ease-standard),
+    opacity var(--duration-base) var(--ease-standard),
+    transform var(--duration-base) var(--ease-out);
 }
 
 .portrait__chips .portrait__chip {
@@ -1476,11 +1504,9 @@
   width: 24px;
   height: 24px;
   padding: 3px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: #fff;
-  box-shadow:
-    0 0 0 1.5px #fff,
-    0 1px 3px rgb(23 42 58 / 0.25);
+  box-shadow: 0 0 0 1.5px #fff, var(--shadow-sm);
   object-fit: contain;
 }
 
@@ -1524,13 +1550,11 @@
   display: grid;
   gap: 4px;
   padding: 9px 12px 10px;
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   background: rgb(255 255 255 / 0.95);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
-  box-shadow:
-    0 1px 2px rgb(23 42 58 / 0.1),
-    0 14px 32px -12px rgb(23 42 58 / 0.45);
+  box-shadow: var(--shadow-md);
   color: var(--color-ink);
   font-size: 13px;
   line-height: 1.25;
@@ -1539,8 +1563,8 @@
   pointer-events: none;
   transform: translate(var(--card-from), -50%) scale(0.96);
   transition:
-    opacity 220ms ease,
-    transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+    opacity var(--duration-fast) var(--ease-standard),
+    transform var(--duration-base) var(--ease-out);
 }
 
 /* Always out to the right: the logos on her left open over her hair, the ones
@@ -1573,8 +1597,8 @@
   opacity: 0;
   transform: translateY(4px);
   transition:
-    opacity 250ms ease,
-    transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+    opacity var(--duration-base) var(--ease-standard),
+    transform var(--duration-base) var(--ease-out);
 }
 
 /* One line after another: received, then replied. */
@@ -1640,7 +1664,7 @@
    ============================================================================= */
 
 .share-chevron {
-  transition: transform 460ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: transform var(--duration-slow) var(--ease-spring);
 }
 
 .share-toggle[aria-expanded="true"] .share-chevron {
@@ -1663,7 +1687,7 @@
 }
 
 .share-reveal > * {
-  animation: share-field-in 460ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  animation: share-field-in var(--duration-slow) var(--ease-out) both;
 }
 
 .share-reveal > *:nth-child(1) {
@@ -1719,7 +1743,7 @@
 }
 
 .review-nudge {
-  animation: review-nudge 2.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  animation: review-nudge 2.2s var(--ease-in-out) infinite;
 }
 
 /* The same lean, mirrored, for the arrowhead pointing the other way. */
@@ -1735,7 +1759,7 @@
 }
 
 .review-nudge--back {
-  animation: review-nudge-back 2.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  animation: review-nudge-back 2.2s var(--ease-in-out) infinite;
 }
 
 /* =============================================================================
@@ -1918,7 +1942,7 @@
   letter-spacing: 0.01em;
   line-height: 1;
   padding: 7px 9px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--color-ink);
   background: var(--color-tint-peach);
 }
@@ -1928,13 +1952,13 @@
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1.5px solid var(--color-ink);
   color: var(--color-ink);
   font-weight: 600;
   transition:
-    background-color 200ms var(--ease-panel),
-    color 200ms var(--ease-panel);
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 
   &:hover {
     background: var(--color-ink);
@@ -1953,14 +1977,14 @@
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1.5px solid var(--color-ink);
   background: var(--color-ink);
   color: #fff;
   font-weight: 600;
   transition:
-    background-color 200ms var(--ease-panel),
-    color 200ms var(--ease-panel);
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 
   &:hover {
     background: #fff;
@@ -2001,7 +2025,7 @@
 /* --- M2: the call on her face ------------------------------------------- */
 
 .aya-breathe {
-  animation: aya-breathe 4.6s ease-in-out infinite;
+  animation: aya-breathe 4.6s var(--ease-in-out) infinite;
 }
 
 @keyframes aya-breathe {
@@ -2020,7 +2044,7 @@
 }
 
 .aya-portrait[data-state="connecting"] .aya-halo {
-  animation: aya-wait 1.6s ease-in-out infinite;
+  animation: aya-wait 1.6s var(--ease-in-out) infinite;
 }
 
 .aya-portrait[data-state="speaking"] .aya-halo {
@@ -2051,7 +2075,7 @@
 }
 
 .aya-portrait[data-state="listening"] .aya-ripple {
-  animation: aya-ripple 2.2s ease-out infinite;
+  animation: aya-ripple 2.2s var(--ease-out) infinite;
 }
 
 .aya-portrait[data-state="listening"] .aya-ripple--late {
@@ -2073,7 +2097,7 @@
   background: radial-gradient(60% 60% at 30% 26%, rgb(255 255 255 / 0.35), transparent 70%),
     linear-gradient(140deg, rgb(127 178 255 / 0.32), rgb(86 120 255 / 0.18));
   opacity: 0;
-  transition: opacity 500ms ease;
+  transition: opacity var(--duration-slow) var(--ease-standard);
 }
 
 .aya-portrait[data-state="listening"] .aya-cool {
@@ -2098,7 +2122,7 @@
 
 .aya-portrait[data-state="connecting"] .aya-sweep::after {
   opacity: 1;
-  animation: aya-sweep 1.15s ease-in-out infinite;
+  animation: aya-sweep 1.15s var(--ease-in-out) infinite;
 }
 
 @keyframes aya-sweep {
@@ -2132,7 +2156,7 @@
 
 .call-state[data-state="speaking"]::before,
 .call-state[data-state="connecting"]::before {
-  animation: call-dot 900ms ease-in-out infinite;
+  animation: call-dot 900ms var(--ease-in-out) infinite;
 }
 
 @keyframes call-dot {
@@ -2157,7 +2181,7 @@
   border-radius: 9999px;
   background: currentColor;
   opacity: 0.45;
-  animation: typing-dot 1.2s ease-in-out infinite;
+  animation: typing-dot 1.2s var(--ease-in-out) infinite;
 }
 
 .typing-dots i:nth-child(2) {
@@ -2183,7 +2207,7 @@
 
 /* The first words of an answer arrive as the bubble opens round them. */
 .morph-text {
-  animation: morph-text 320ms 90ms ease both;
+  animation: morph-text var(--duration-base) 90ms var(--ease-standard) both;
 }
 
 @keyframes morph-text {
@@ -2199,7 +2223,7 @@
    built. Indeterminate, as Safari's own is until the page answers. */
 
 .safari-progress > span {
-  animation: safari-progress 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  animation: safari-progress 1.6s var(--ease-standard) infinite;
 }
 
 @keyframes safari-progress {
@@ -2219,7 +2243,7 @@
 
 /* What is in the window changes by rising into place, a short way. */
 .own-rise {
-  animation: own-rise 440ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: own-rise var(--duration-slow) var(--ease-out) both;
 }
 
 @keyframes own-rise {
@@ -2233,7 +2257,7 @@
    a beat after their site has appeared. */
 .own-widget {
   transform-origin: 100% 100%;
-  animation: own-widget 640ms var(--notif-spring) 320ms both;
+  animation: own-widget var(--duration-slow) var(--ease-spring) 320ms both;
 }
 
 @keyframes own-widget {
@@ -2769,15 +2793,14 @@
    there the big card is a wide banner and the tall one spans two rows. */
 
 .bento {
-  --bento-ease: cubic-bezier(0.22, 1, 0.36, 1);
   display: grid;
   gap: 12px;
   height: 1048px;
   grid-template-columns: var(--sm-cols, 1fr 1fr);
   grid-template-rows: var(--sm-rows, repeat(5, 1fr));
   transition:
-    grid-template-columns 700ms var(--bento-ease),
-    grid-template-rows 700ms var(--bento-ease);
+    grid-template-columns var(--duration-slow) var(--ease-out),
+    grid-template-rows var(--duration-slow) var(--ease-out);
 }
 
 @media (min-width: 640px) {

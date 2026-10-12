@@ -107,7 +107,7 @@ function NotConfigured() {
   const missing = showSetup ? missingAdminConfig() : [];
 
   return (
-    <div className="border-line mt-8 rounded-2xl border bg-white p-5">
+    <div className="border-line mt-8 rounded-md border bg-white p-5">
       <p className="text-[18px] font-semibold">Not configured.</p>
       <p className="text-muted mt-2 text-sm">
         There is no admin account set on this server and no key to sign a session

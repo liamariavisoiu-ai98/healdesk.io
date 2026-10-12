@@ -56,8 +56,8 @@ export function DemoPlanPicker({
               return (
                 <div
                   key={plan.id}
-                  className={`overflow-hidden rounded-2xl border transition-all ${
-                    open ? "border-red bg-orange/[0.05] shadow-brand" : "border-line hover:border-line-strong bg-white"
+                  className={`overflow-hidden rounded-md border transition-all ${
+                    open ? "border-red bg-orange/[0.05] shadow-sm" : "border-line hover:border-line-strong bg-white"
                   }`}
                 >
                   <button
@@ -136,7 +136,7 @@ export function DemoPlanPicker({
                         <p className="text-ink mt-1 text-[13px] font-semibold">{includes}</p>
                       </div>
                       {est && est.bookedValueUsd > 0 ? (
-                        <div className="rounded-xl bg-[#e5f6dc] px-3.5 py-3 text-[13.8px] text-[#172a3a]">
+                        <div className="rounded-sm bg-[#e5f6dc] px-3.5 py-3 text-[13.8px] text-[#172a3a]">
                           <p className="text-[12.6px] font-semibold">A clinic like yours is likely to book</p>
                           <p className="font-display text-[22px] leading-tight font-semibold">≈ {usd.format(est.bookedValueUsd)} a month</p>
                           <p>

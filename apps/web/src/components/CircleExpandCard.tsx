@@ -181,7 +181,7 @@ export function CircleExpandCard({
       style={{ ["--flood" as string]: floodScale }}
       className={[
         "niche-card absolute inset-0 flex cursor-pointer flex-col justify-end",
-        "isolate overflow-hidden rounded-[24px] text-left",
+        "isolate overflow-hidden rounded-lg text-left",
         compact && !expanded ? "p-4 sm:p-5" : "p-6",
         interactive ? "niche-card--ready group" : "",
       ].join(" ")}
@@ -225,7 +225,7 @@ export function CircleExpandCard({
 
       <span
         className={[
-          "font-display relative block leading-[1.08] font-medium tracking-[-0.025em] text-white transition-[font-size] duration-500 ease-panel",
+          "font-display relative block leading-[1.08] font-medium tracking-[-0.025em] text-white transition-[font-size] duration-slow ease-out",
           compact && !expanded ? "text-[19px] sm:text-[24px]" : "text-[26px] sm:text-[31.2px]",
         ].join(" ")}
       >
@@ -243,12 +243,12 @@ export function CircleExpandCard({
       */}
       <span
         aria-hidden={false}
-        className="relative grid grid-rows-[0fr] transition-[grid-template-rows] duration-[450ms] ease-panel group-hover:grid-rows-[1fr] group-focus-visible:grid-rows-[1fr] group-data-[expanded]:grid-rows-[1fr]"
+        className="relative grid grid-rows-[0fr] transition-[grid-template-rows] duration-slow ease-out group-hover:grid-rows-[1fr] group-focus-visible:grid-rows-[1fr] group-data-[expanded]:grid-rows-[1fr]"
       >
         <span className="overflow-hidden">
           <span
             className={[
-              "mt-2 block leading-[1.45] font-medium text-white/85 opacity-0 transition-opacity duration-300 group-hover:opacity-100 group-focus-visible:opacity-100 group-data-[expanded]:opacity-100",
+              "mt-2 block leading-[1.45] font-medium text-white/85 opacity-0 transition-opacity duration-base group-hover:opacity-100 group-focus-visible:opacity-100 group-data-[expanded]:opacity-100",
               compact && !expanded ? "text-[15.6px]" : "text-[16.2px]",
             ].join(" ")}
           >

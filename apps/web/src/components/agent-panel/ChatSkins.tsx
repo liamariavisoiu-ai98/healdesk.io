@@ -359,7 +359,7 @@ export function ChatSkins({
       </div>
     ),
     messenger: (
-      <div className="flex items-center gap-2.5 bg-white px-3 py-2.5 shadow-[0_1px_2px_rgb(0_0_0/0.08)]" style={{ color: "#0a7cff" }}>
+      <div className="flex items-center gap-2.5 bg-white px-3 py-2.5 shadow-sm" style={{ color: "#0a7cff" }}>
         <span className="[&_svg]:size-6">{Icon.back}</span>
         <span className="relative">
           <Avatar name={name} logoUrl={logoUrl} size={36} />
@@ -395,8 +395,8 @@ export function ChatSkins({
     const firstOfRun = !prev || prev.role !== message.role;
 
     if (skin === "whatsapp") {
-      const shape = firstOfRun ? (mine ? "rounded-[7.5px] rounded-tr-none" : "rounded-[7.5px] rounded-tl-none") : "rounded-[7.5px]";
-      const className = `relative max-w-[82%] px-2.5 pt-1.5 pb-[18px] text-[14.6px] leading-[1.38] text-[#111b21] shadow-[0_1px_0.5px_rgb(11_20_26/0.13)] ${shape}`;
+      const shape = firstOfRun ? (mine ? "rounded-sm rounded-tr-none" : "rounded-sm rounded-tl-none") : "rounded-sm";
+      const className = `relative max-w-[82%] px-2.5 pt-1.5 pb-[18px] text-[14.6px] leading-[1.38] text-[#111b21] shadow-sm ${shape}`;
       const stamp = (
         <span className="absolute right-2 bottom-1 flex items-center gap-0.5 text-[11px] text-[#667781]">
           {time(message)}
@@ -421,7 +421,7 @@ export function ChatSkins({
 
     if (skin === "instagram" || skin === "messenger") {
       const ig = skin === "instagram";
-      const shape = ig ? "rounded-[22px] px-3.5 py-2 text-[15px] leading-[1.38]" : "rounded-[18px] px-3 py-2 text-[15px] leading-[1.34]";
+      const shape = ig ? "rounded-md px-3.5 py-2 text-[15px] leading-[1.38]" : "rounded-md px-3 py-2 text-[15px] leading-[1.34]";
       return (
         <div key={i} className={`flex items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}>
           {!mine ? <span className="w-7">{firstOfRun ? <Avatar name={name} logoUrl={logoUrl} size={28} /> : null}</span> : null}
@@ -450,13 +450,13 @@ export function ChatSkins({
         {!mine ? <Avatar name={name} logoUrl={logoUrl} size={26} /> : null}
         {mine ? (
           <p
-            className="max-w-[82%] rounded-2xl rounded-br-md px-3.5 py-2.5 text-[15.2px] leading-[1.45] whitespace-pre-wrap"
+            className="max-w-[82%] rounded-md rounded-br-sm px-3.5 py-2.5 text-[15.2px] leading-[1.45] whitespace-pre-wrap"
             style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
           >
             {message.content}
           </p>
         ) : (
-          <AssistantBubble typing={typing} className="text-ink max-w-[82%] rounded-2xl rounded-bl-md bg-[#f1f1f1] px-3.5 py-2.5 text-[15.2px] leading-[1.45]">
+          <AssistantBubble typing={typing} className="text-ink max-w-[82%] rounded-md rounded-bl-sm bg-[#f1f1f1] px-3.5 py-2.5 text-[15.2px] leading-[1.45]">
             {message.content}
           </AssistantBubble>
         )}
@@ -550,9 +550,9 @@ export function ChatSkins({
               role="tab"
               aria-selected={active}
               onClick={() => setSkin(box.id)}
-              className={`flex flex-col items-center gap-1 rounded-xl px-1 py-2 transition-colors ${active ? "bg-paper-2 ring-line-strong ring-1" : "hover:bg-paper-2/60"}`}
+              className={`flex flex-col items-center gap-1 rounded-sm px-1 py-2 transition-colors ${active ? "bg-paper-2 ring-line-strong ring-1" : "hover:bg-paper-2/60"}`}
             >
-              <span className="grid size-8 place-items-center rounded-[10px] [&_svg]:size-[18px]" style={{ background: box.badge, color: box.ink }}>
+              <span className="grid size-8 place-items-center rounded-sm [&_svg]:size-[18px]" style={{ background: box.badge, color: box.ink }}>
                 {box.icon}
               </span>
               <span className={`text-[12.6px] font-bold ${active ? "text-ink" : "text-muted"}`}>{box.label}</span>
@@ -570,7 +570,7 @@ export function ChatSkins({
         aria-live="polite"
       >
         {skin === "whatsapp" ? (
-          <p className="mx-auto mb-2 w-fit rounded-md bg-[#ffeecd] px-3 py-1.5 text-center text-[12px] text-[#54656f] shadow-[0_1px_0.5px_rgb(11_20_26/0.13)]">
+          <p className="mx-auto mb-2 w-fit rounded-sm bg-[#ffeecd] px-3 py-1.5 text-center text-[12px] text-[#54656f] shadow-sm">
             {aiNotice}
           </p>
         ) : null}

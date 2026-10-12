@@ -30,7 +30,7 @@ export function LegalPage({
         {!complete ? (
           <div
             role="status"
-            className="border-sun bg-sun/[0.16] mb-8 rounded-2xl border px-5 py-4 text-[15px] leading-relaxed"
+            className="border-sun bg-sun/[0.16] mb-8 rounded-md border px-5 py-4 text-[15px] leading-relaxed"
           >
             <strong>Draft.</strong> This page is complete except for the legal
             entity name, postal address and governing law, which are being

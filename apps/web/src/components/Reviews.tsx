@@ -59,7 +59,7 @@ import {
  *
  * ## What is borrowed from the specialties section
  *
- * The centred eyebrow over its gradient hairline, the panel corner, and the dot
+ * The centred eyebrow, the panel corner, and the dot
  * row, which the niche deck already uses to mean "here is where you are". The
  * "leave a review" banner takes the circle-flood interaction whole, because
  * like a niche card it is a button that opens something.
@@ -538,11 +538,9 @@ export function Reviews({
   return (
     <section id="reviews" className="scroll-mt-24 py-20 sm:py-24">
       <div className="text-center">
-        <p className="eyebrow-tag">What clinics say</p>
-        <span
-          aria-hidden
-          className="via-orange mx-auto mt-5 mb-9 block h-px w-full max-w-[200px] bg-gradient-to-r from-transparent to-transparent"
-        />
+        <div className="mb-9">
+          <p className="eyebrow-tag">What clinics say</p>
+        </div>
         {/* Above the rating on purpose: it has to be read before the 4.9
             is, not found after it. Body size and ink, not a muted caption. */}
         {examples && (

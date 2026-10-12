@@ -413,12 +413,15 @@ describeDb("Settings → Calendar", () => {
     ).toMatchObject({ ok: true, toast: expect.stringMatching(/^2 named providers saved\./) });
     expect((await settingsRow(covered.clinicId)).booking_detail).toBe("named_provider");
     const providers = await listProviderCalendars(covered.clinicId);
+    // Saved in one transaction, so they share a created_at: order by name.
     expect(
-      providers.providers.map((p) => ({
-        name: p.displayName,
-        calendar: p.calendarId,
-        services: p.services,
-      })),
+      providers.providers
+        .map((p) => ({
+          name: p.displayName,
+          calendar: p.calendarId,
+          services: p.services,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
     ).toEqual([
       { name: "Dr Chen", calendar: "primary", services: ["consultation"] },
       { name: "Maria", calendar: second, services: ["consultation", "peel"] },

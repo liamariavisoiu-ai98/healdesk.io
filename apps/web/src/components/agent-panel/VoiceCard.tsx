@@ -736,10 +736,12 @@ export function VoiceCard({
             />
             <span className="text-[13px] leading-[1.45] font-medium">
               {CALL_CONSENT.text}{" "}
-              <a href="/privacy#collect" className="underline underline-offset-2">
-                what we do with your number
-              </a>
-              . {CALL_CONSENT.note}
+              <span className="opacity-70">
+                {CALL_CONSENT.note}{" "}
+                <a href="/privacy#collect" className="underline underline-offset-2">
+                  Privacy
+                </a>
+              </span>
             </span>
           </label>
           <button

@@ -132,6 +132,48 @@ const STAGGER = 0.06;
  * for the same property, resolved by whatever order Tailwind happened to emit
  * them in. A number cannot be forgotten and cannot lose.
  */
+const STAR = "M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z";
+
+/** STAR's corners, for the area under it. */
+const STAR_POINTS: readonly (readonly [number, number])[] = [
+  [12, 17.27], [18.18, 21], [16.54, 13.97], [22, 9.24], [14.81, 8.63],
+  [12, 2], [9.19, 8.63], [2, 9.24], [7.46, 13.97], [5.82, 21],
+];
+
+/** The area of the star left of x, by the shoelace over the star cut at x. */
+function areaLeftOf(x: number): number {
+  const cut: [number, number][] = [];
+  STAR_POINTS.forEach((a, i) => {
+    const b = STAR_POINTS[(i + 1) % STAR_POINTS.length]!;
+    if (a[0] <= x) cut.push([a[0], a[1]]);
+    if (a[0] <= x !== b[0] <= x) cut.push([x, a[1] + ((x - a[0]) / (b[0] - a[0])) * (b[1] - a[1])]);
+  });
+  let twice = 0;
+  cut.forEach((a, i) => {
+    const b = cut[(i + 1) % cut.length]!;
+    twice += a[0] * b[1] - b[0] * a[1];
+  });
+  return Math.abs(twice) / 2;
+}
+
+/**
+ * Where to stop lighting a star so that `lit` of it, by area, is lit. By
+ * area, not by width: a tenth of the star's width is only the tip of its
+ * right point, too small to see, where a tenth of the star is the point.
+ */
+function litEdge(lit: number): number {
+  if (lit >= 1) return 24;
+  const whole = areaLeftOf(22);
+  let lo = 2;
+  let hi = 22;
+  for (let i = 0; i < 24; i++) {
+    const mid = (lo + hi) / 2;
+    if (areaLeftOf(mid) / whole < lit) lo = mid;
+    else hi = mid;
+  }
+  return lo;
+}
+
 function Stars({
   rating,
   size,
@@ -149,18 +191,22 @@ function Stars({
       aria-label={`${rating} out of 5`}
       className={`flex items-center gap-[3px] ${className}`}
     >
-      {[1, 2, 3, 4, 5].map((n) => (
-        <svg
-          key={n}
-          viewBox="0 0 24 24"
-          width={size}
-          height={size}
-          aria-hidden
-          className={n <= rating ? "fill-sun" : "fill-line-strong"}
-        >
-          <path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
-        </svg>
-      ))}
+      {[1, 2, 3, 4, 5].map((n) => {
+        // How much of this star is lit: 4.9 lights the fifth to nine tenths,
+        // so its right point is grey (owner, 12 October 2026).
+        const lit = Math.max(0, Math.min(1, rating - (n - 1)));
+        const edge = litEdge(lit);
+        return (
+          <svg key={n} viewBox="0 0 24 24" width={size} height={size} aria-hidden className="fill-line-strong">
+            <path d={STAR} />
+            {lit > 0 ? (
+              <svg width={edge} height={24} viewBox={`0 0 ${edge} 24`} className="fill-sun">
+                <path d={STAR} />
+              </svg>
+            ) : null}
+          </svg>
+        );
+      })}
     </span>
   );
 }
@@ -370,7 +416,7 @@ function RatingHeader({ summary }: { summary: ReviewSummary }) {
           <span className="sr-only"> out of 5</span>
         </h2>
         <Stars
-          rating={Math.round(average)}
+          rating={Number(average.toFixed(1))}
           size={20}
           className="mt-4 justify-center sm:justify-start"
         />

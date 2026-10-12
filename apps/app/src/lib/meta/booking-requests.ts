@@ -564,8 +564,11 @@ export async function notifyDesk(
  * of its own: the Meta front door's way to email the desk (the webhook calls
  * it after the answer's transaction, whatever became of the reply), so the
  * email never goes for a request that then rolls back. Never throws: an email
- * that fails here leaves `desk_notified_at` unset, and the request waits in
- * the care view, where the owed notices are picked up.
+ * that fails here is logged and leaves `desk_notified_at` unset, and the
+ * request stays as it is, open and counted in the operator's care view, until
+ * the desk acts on it or it expires. Nothing sends the notice again: no job
+ * has read `desk_notified_at` since C13 removed the sweep, and the daily
+ * summary that would list open requests is not built yet.
  */
 export async function notifyDeskAfterCommit(
   clinicId: string,

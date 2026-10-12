@@ -1139,12 +1139,11 @@
    would leave the hero a tenth short. `--nav-h` is the navbar's height in the
    zoomed page, measured; change it with the navbar.
 
-   The photo is composed as the owner supplied it, never cropped, so neither
-   her face nor a logo is ever what is lost. Since 12 October 2026 it is no
-   wider than keeps every logo inside the content column, centred, with the
-   copy under it rather than over her ("Inside the column, from 1280px"),
-   its sides and its foot fading into the page. The copy sits at the bottom
-   left, on the veil.
+   The photo is the hero's background, composed as the owner supplied it:
+   as wide as the hero, never shifted, cut at the bottom on a screen wider
+   than it is and fading into the page on one taller, so neither her face nor
+   a logo is ever what is lost. The copy sits at the bottom left, on the
+   veil.
 
    Between 1024px and 1280px the copy's box would reach the logos on her left,
    so the hero keeps the stacked layout below.
@@ -1159,8 +1158,8 @@
 
    On a desktop with a mouse the hero opens on the photo and the logos alone.
    The white veil, solid behind the copy and very soft by the time it reaches
-   her face, rises from the bottom with the copy on it when the cursor comes
-   into the bottom third of the hero, and slides away when it leaves, while
+   her face, rises a little and fades in with the copy on it when the cursor
+   comes into the bottom third of the hero, and goes when it leaves, while
    the page is at the top. Scrolling down locks them up; back at the top they
    follow the cursor again. HeroStage holds the state in `data-reveal`
    (hidden, shown or locked); this file only draws each. Without a fine
@@ -1255,12 +1254,13 @@
     overflow: hidden;
   }
 
-  /* Never a cover crop: a logo sits as near as 3.7% of the photo to its
-     edge, and a crop on a screen taller than the photo (1440×1000,
-     1280×1024) cut the outer ones off. Its width and its place are set in
-     "Inside the column, from 1280px" below. No transform: it would make the
-     photo its own stacking context, and the logos inside it could not then
-     rise above the veil. */
+  /* Always the hero's full width, never wider: a logo sits as near as 3.7%
+     of the photo to its edge, and a cover crop on a screen taller than the
+     photo (1440×1000, 1280×1024) cut the outer ones off. On a wider screen
+     the photo runs past the hero's foot, where the veil and the copy are; on
+     a taller one it ends above it and fades into the page. No transform: it
+     would make the photo its own stacking context, and the logos inside it
+     could not then rise above the veil. */
   .hero__frame .portrait {
     position: absolute;
     top: 0;
@@ -1268,11 +1268,32 @@
     width: 100%;
   }
 
-  .hero__frame .portrait__photo {
-    -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent);
-    mask-image: linear-gradient(to bottom, #000 82%, transparent);
+  /* The photo's foot fades into the page along an eased curve (a
+     smoothstep from 74%), not a straight ramp, which ended in a visible band
+     across the hero. */
+  .hero__frame {
+    --hero-foot: linear-gradient(
+      to bottom,
+      #000 74%,
+      rgb(0 0 0 / 0.96) 77.25%,
+      rgb(0 0 0 / 0.84) 80.5%,
+      rgb(0 0 0 / 0.68) 83.75%,
+      rgb(0 0 0 / 0.5) 87%,
+      rgb(0 0 0 / 0.32) 90.25%,
+      rgb(0 0 0 / 0.16) 93.5%,
+      rgb(0 0 0 / 0.04) 96.75%,
+      transparent
+    );
   }
 
+  .hero__frame .portrait__photo {
+    -webkit-mask-image: var(--hero-foot);
+    mask-image: var(--hero-foot);
+  }
+
+  /* The white the copy sits on: solid only under the buttons, then thinning
+     along a long eased curve, so it reads as light rather than a sheet. It
+     rises a little and fades in at once (see "Following the cursor"). */
   .hero__veil {
     display: block;
     position: absolute;
@@ -1282,15 +1303,21 @@
     background: linear-gradient(
       to top,
       var(--color-paper) 0%,
-      var(--color-paper) 22%,
-      rgb(253 253 253 / 0.92) 29%,
-      rgb(253 253 253 / 0.76) 35%,
-      rgb(253 253 253 / 0.5) 42%,
-      rgb(253 253 253 / 0.24) 49%,
-      rgb(253 253 253 / 0.07) 55%,
-      transparent 60%
+      var(--color-paper) 14%,
+      rgb(253 253 253 / 0.97) 20%,
+      rgb(253 253 253 / 0.9) 26%,
+      rgb(253 253 253 / 0.79) 32%,
+      rgb(253 253 253 / 0.65) 38%,
+      rgb(253 253 253 / 0.5) 44%,
+      rgb(253 253 253 / 0.35) 50%,
+      rgb(253 253 253 / 0.21) 56%,
+      rgb(253 253 253 / 0.1) 62%,
+      rgb(253 253 253 / 0.03) 68%,
+      transparent 74%
     );
-    transition: transform var(--duration-slower) var(--ease-out);
+    transition:
+      opacity var(--duration-slower) var(--ease-standard),
+      transform var(--duration-slower) var(--ease-out);
   }
 
   .hero__copy {
@@ -1308,7 +1335,7 @@
 
 /* The cue: the copy is down until the cursor comes to the bottom third, and
    nothing else on the hero says so. An arrowhead at the foot, pointing down,
-   until the first time it comes up. */
+   whenever the copy is down. */
 .hero__cue {
   display: none;
 }
@@ -1316,7 +1343,8 @@
 /* Following the cursor: only where there is one that hovers. */
 @media (min-width: 1280px) and (hover: hover) and (pointer: fine) {
   .hero[data-reveal="hidden"] .hero__veil {
-    transform: translateY(100%);
+    opacity: 0;
+    transform: translateY(24%);
   }
 
   /*
@@ -1392,7 +1420,15 @@
     pointer-events: none;
     translate: -50% 0;
     opacity: 0;
-    transition: opacity var(--duration-slow) var(--ease-standard);
+    /* Going, as the copy comes up: at once. */
+    transition: opacity var(--duration-base) var(--ease-standard);
+    /* When it draws in: the entrance's last beat the first time; after
+       that, once the copy has had time to go back down. */
+    --cue-at: var(--entrance-cue);
+  }
+
+  .hero__cue[data-again] {
+    --cue-at: 520ms;
   }
 
   .hero__cue svg {
@@ -1411,17 +1447,20 @@
   /* The last beat of the entrance (see "The entrance" above): once the logos
      have fanned out the arrowhead draws outwards from its point, then jumps,
      slowly: down, a small settle, back up, and a long rest at the top. It
-     stays until the copy first comes up, then fades. */
+     goes whenever the copy comes up, and whenever the copy goes back down it
+     comes back (owner, 12 October 2026), slowly: a beat later it fades in as
+     it draws again, and only then starts jumping. */
   .hero__cue[data-show] {
     opacity: 1;
+    transition: opacity var(--duration-slower) var(--ease-standard) var(--cue-at);
   }
 
   .hero__cue[data-show] path {
-    animation: hero-cue-draw var(--duration-slower) var(--ease-out) var(--entrance-cue) both;
+    animation: hero-cue-draw var(--duration-slower) var(--ease-out) var(--cue-at) both;
   }
 
   .hero__cue[data-show] svg {
-    animation: hero-cue-jump 2.6s var(--ease-in-out) calc(var(--entrance-cue) + 900ms) infinite;
+    animation: hero-cue-jump 2.6s var(--ease-in-out) calc(var(--cue-at) + 900ms) infinite;
   }
 }
 
@@ -1800,58 +1839,21 @@
   }
 }
 
-/* --- Inside the column, from 1280px ---------------------------------------
-   The owner's, 12 October 2026, after trying it as `?orbits=contained`. On a
-   screen wider than the 1240px column the logos ran out to the screen's
-   edges while the navbar and the copy stayed inside it. Now the photo, and
-   the orbits on it, is no wider than keeps every logo and chip inside the
-   column, centred, its sides fading into the page, and no taller than leaves
-   room under it for the copy on one screen: the hero is the photo and the
-   copy, at most the screen, and the copy sits under her rather than over her.
-   Drawing the orbits in towards her instead put the logos on her face: they
-   are placed against the photo (integrations.test.ts), so the photo comes
-   with them.
-
-   It is all here, so it is right on the first paint (the preview measured it
-   after the page's script ran, and the hero jumped):
-   - 1166px is the widest photo whose outermost logo and chip stay inside
-     the column's 1128px, its 1240 less 56px of padding a side, as measured;
-   - `--copy-h` is the copy's box under it, the announcement, two lines of
-     headline and the buttons: 354 to 365px from 1280 to 2560px wide. It
-     comes up over the photo's last 18%, the foot that fades into the page,
-     where no logo on her left is: on a laptop's short screen that is a fifth
-     more photo, and the chips, which do not shrink with it, stay clear of
-     the logos;
-   - 640px is the least it narrows to, on a screen too short for both.
-
+/* --- The drift, from 1280px -----------------------------------------------
    Each layer drifts after the cursor by its own few pixels, and the photo a
    little the other way (`--mx`, `--my`, from -1 to 1, set by HeroPortrait),
-   so the hero has depth rather than pop-ups. Centred by `left`, not a
-   transform: a transform on .portrait would trap the logos under the veil
-   (see "Laid out, from 1280px"). */
-@media (min-width: 1280px) {
-  .hero {
-    --copy-h: 365px;
-    --portrait-w: clamp(640px, (var(--hero-h) - var(--copy-h)) * 1672 / 941 / 0.82, 1166px);
-    min-height: min(var(--hero-h), var(--portrait-w) * 941 / 1672 * 0.82 + var(--copy-h));
-  }
+   so the hero has depth rather than pop-ups. The photo is a hundredth larger
+   than its box, so its drift never shows the page at the screen's edge.
 
+   From 12 October 2026 the photo and its orbits sat inside the content
+   column for an afternoon, centred, with its sides and its foot fading into
+   the page. Its grey wall ended in a soft box there, and the owner took the
+   photo back to the full screen the same day: the logos are placed against
+   the photo (integrations.test.ts), so they come with it. */
+@media (min-width: 1280px) {
   .hero__frame .portrait {
     --mx: 0;
     --my: 0;
-    left: calc((100% - var(--portrait-w)) / 2);
-    width: var(--portrait-w);
-  }
-
-  .hero__frame .portrait__photo {
-    -webkit-mask-image:
-      linear-gradient(to bottom, #000 82%, transparent),
-      linear-gradient(to right, transparent, #000 7%, #000 93%, transparent);
-    -webkit-mask-composite: source-in;
-    mask-image:
-      linear-gradient(to bottom, #000 82%, transparent),
-      linear-gradient(to right, transparent, #000 7%, #000 93%, transparent);
-    mask-composite: intersect;
   }
 
   .portrait__logos,
@@ -1885,6 +1887,7 @@
   }
 
   .portrait__photo {
+    scale: 1.01;
     translate: calc(var(--mx) * -4px) calc(var(--my) * -3px);
   }
 
@@ -3007,7 +3010,13 @@
    ============================================================================= */
 
 /* The small title over a section's heading (owner, 12 October 2026: at 13px,
-   drawn at 90%, they read too small). */
+   drawn at 90%, they read too small), on a stroke of highlighter rather than
+   a tidy tint (owner, the same day: some rawness in the design). One pass of
+   an orange chisel-tip marker, drawn as an SVG: a stroke that climbs a
+   little, with slanted ends; streaks along it where the felt ran lighter
+   (stretched noise); edges that wander (a displacement); and the ink a shade
+   deeper where the tip landed and lifted. It stretches to the words, so the
+   streaks run longer under a longer title, as they would. */
 @utility eyebrow-tag {
   display: inline-block;
   font-family: var(--font-sans);
@@ -3015,10 +3024,9 @@
   font-weight: 600;
   letter-spacing: 0.005em;
   line-height: 1;
-  padding: 8px 13px;
-  border-radius: var(--radius-sm);
+  padding: 8px 14px;
   color: var(--color-ink);
-  background: var(--color-tint-peach);
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 44' preserveAspectRatio='none'%3E%3Cfilter id='h' x='-4%25' y='-30%25' width='108%25' height='160%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.004 .3' numOctaves='3' seed='4' result='s'/%3E%3CfeColorMatrix in='s' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 .38' result='m'/%3E%3CfeComposite in='SourceGraphic' in2='m' operator='in' result='t'/%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.018 .06' numOctaves='2' seed='9' result='e'/%3E%3CfeDisplacementMap in='t' in2='e' scale='3.2' xChannelSelector='R' yChannelSelector='G'/%3E%3C/filter%3E%3ClinearGradient id='a' gradientUnits='userSpaceOnUse' x1='4' x2='52'%3E%3Cstop offset='0' stop-color='%23ff9a4a' stop-opacity='.3'/%3E%3Cstop offset='1' stop-color='%23ff9a4a' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='b' gradientUnits='userSpaceOnUse' x1='295' x2='250'%3E%3Cstop offset='0' stop-color='%23ff9a4a' stop-opacity='.26'/%3E%3Cstop offset='1' stop-color='%23ff9a4a' stop-opacity='0'/%3E%3C/linearGradient%3E%3Cg filter='url(%23h)'%3E%3Cpath fill='%23ff9a4a' fill-opacity='.5' d='M10 13C70 10.5 190 9.5 290 7.5L295 34C200 36 95 37.6 4 38.6Z'/%3E%3Cpath fill='url(%23a)' d='M10 13C70 10.5 190 9.5 290 7.5L295 34C200 36 95 37.6 4 38.6Z'/%3E%3Cpath fill='url(%23b)' d='M10 13C70 10.5 190 9.5 290 7.5L295 34C200 36 95 37.6 4 38.6Z'/%3E%3C/g%3E%3C/svg%3E") center / 100% 100% no-repeat;
 }
 
 /*
@@ -3305,44 +3313,6 @@
   }
 }
 
-.aya-cool {
-  background: radial-gradient(60% 60% at 30% 26%, rgb(255 255 255 / 0.35), transparent 70%),
-    linear-gradient(140deg, rgb(127 178 255 / 0.32), rgb(86 120 255 / 0.18));
-  opacity: 0;
-  transition: opacity var(--duration-slow) var(--ease-standard);
-}
-
-.aya-portrait[data-state="listening"] .aya-cool {
-  opacity: 1;
-}
-
-.aya-sweep {
-  overflow: hidden;
-  border-radius: 9999px;
-}
-
-.aya-sweep::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -60%;
-  width: 45%;
-  background: linear-gradient(100deg, transparent, rgb(255 255 255 / 0.7), transparent);
-  opacity: 0;
-}
-
-.aya-portrait[data-state="connecting"] .aya-sweep::after {
-  opacity: 1;
-  animation: aya-sweep 1.15s var(--ease-in-out) infinite;
-}
-
-@keyframes aya-sweep {
-  to {
-    left: 120%;
-  }
-}
-
 /* The state, in words, beside her. */
 .call-state {
   display: inline-flex;
@@ -3374,6 +3344,297 @@
 @keyframes call-dot {
   50% {
     opacity: 0.3;
+  }
+}
+
+/* --- The chat card, 12 October 2026 (ChatSkins.tsx, ChatCards.tsx) -------
+   The owner's picks for the demo's chat: one app morphing into the next, the
+   answer streaming in word by word, each app's receipts, the suggestions as a
+   row that swipes, cards under answers about booking and deposits, and a
+   frosted header that casts a shadow once the thread runs under it. */
+
+/* The header: glass over the thread, in each app's own colour. */
+.chat-head {
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  backdrop-filter: blur(18px) saturate(1.6);
+  transition: box-shadow var(--duration-base) var(--ease-standard);
+}
+
+.chat-head[data-skin="website"]:has([data-tone="light"]) {
+  background: rgb(255 255 255 / 0.8);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.chat-head[data-skin="website"]:has([data-tone="brand"]) {
+  background: color-mix(in srgb, var(--clinic) 90%, transparent);
+}
+
+.chat-head[data-skin="whatsapp"] {
+  background: rgb(0 128 105 / 0.93);
+}
+
+.chat-head[data-skin="instagram"] {
+  background: rgb(255 255 255 / 0.82);
+  border-bottom: 1px solid rgb(219 219 219 / 0.8);
+}
+
+.chat-head[data-skin="messenger"] {
+  background: rgb(255 255 255 / 0.82);
+}
+
+.chat-head[data-scrolled] {
+  box-shadow: var(--shadow-sm);
+}
+
+/* A word arriving: up out of a blur, once, as it lands. */
+.stream-word {
+  animation: stream-word var(--duration-slow) var(--ease-out) both;
+}
+
+@keyframes stream-word {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+  }
+}
+
+/* A receipt changing, "Sent" to "Seen": in, quietly. */
+.receipt-in {
+  animation: receipt-in var(--duration-base) var(--ease-out) both;
+}
+
+@keyframes receipt-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+
+/* WhatsApp's ticks turning blue. */
+.wa-ticks {
+  transition: color var(--duration-slow) var(--ease-standard);
+}
+
+/* The suggestions: a row that swipes, its ends fading out. */
+.chip-rail__track {
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 14px, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 14px, #000 calc(100% - 28px), transparent);
+  cursor: grab;
+}
+
+.chip-rail__track::-webkit-scrollbar {
+  display: none;
+}
+
+.chip-rail__track[data-dragging] {
+  cursor: grabbing;
+  scroll-snap-type: none;
+}
+
+.chip-rail__chip {
+  scroll-snap-align: start;
+}
+
+/* A card under an answer, and each step inside one: in on the spring. */
+.chat-card-in {
+  animation: chat-card-in var(--duration-slow) var(--ease-spring) both;
+}
+
+@keyframes chat-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+}
+
+/* The 60-second hold, running down: a real period, not a timing, so it is
+   the card's own (`--hold`, ChatCards.tsx), not a duration token. */
+.chat-hold-ring {
+  stroke-dasharray: 1;
+  animation: chat-hold var(--hold) linear both;
+}
+
+@keyframes chat-hold {
+  to {
+    stroke-dashoffset: 1;
+  }
+}
+
+.chat-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 9999px;
+  animation: chat-spin 0.8s linear infinite;
+}
+
+@keyframes chat-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* One app into the next: the header, the thread, the composer and the box's
+   highlight each morph, and the page itself does not cross-fade under them. */
+:root.chat-morph::view-transition-old(root),
+:root.chat-morph::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+::view-transition-group(*.chat-morph) {
+  animation-duration: var(--duration-slow);
+  animation-timing-function: var(--ease-out);
+}
+
+::view-transition-old(*.chat-morph),
+::view-transition-new(*.chat-morph) {
+  animation-duration: var(--duration-slow);
+  animation-timing-function: var(--ease-out);
+}
+
+/* --- The voice card, 12 October 2026 (VoiceCard.tsx) ---------------------
+   The owner's picks: iOS's segmented control, her face shrinking to the top
+   once a call is on and the call rising under it, captions, things to ask
+   her, iOS's round call buttons, a dial card, a switch for consent, and the
+   visitor's phone ringing. */
+
+/* The segmented control's pill, sliding to the way chosen: one column of the
+   control's grid wide (its padding and gap taken off), moved along by whole
+   widths of itself. */
+.voice-segments__pill {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc((100% - 8px) / var(--n));
+  border-radius: var(--radius-sm);
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  transform: translateX(calc(var(--at) * 100%));
+  transition: transform var(--duration-slow) var(--ease-spring);
+}
+
+/* What the panel changes to rises into place. */
+.voice-rise {
+  animation: voice-rise var(--duration-slow) var(--ease-out) both;
+}
+
+@keyframes voice-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+/* Her face growing and shrinking with the call. */
+.voice-talk .aya-portrait,
+.voice-talk .aya-portrait > .aya-breathe {
+  transition:
+    width var(--duration-slow) var(--ease-spring),
+    height var(--duration-slow) var(--ease-spring);
+}
+
+/* Each new line of hers comes up softly. */
+.voice-caption__line {
+  display: inline-block;
+  animation: stream-word var(--duration-slow) var(--ease-out) both;
+}
+
+/* Things to ask her, drifting slowly past; still where motion is reduced. */
+.voice-asks {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 10%, #000 90%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 10%, #000 90%, transparent);
+}
+
+.voice-asks__track {
+  animation: voice-asks 34s linear infinite;
+}
+
+.voice-asks:hover .voice-asks__track {
+  animation-play-state: paused;
+}
+
+@keyframes voice-asks {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* The consent switch: iOS's, green when on. Still a checkbox underneath. */
+.voice-switch {
+  position: relative;
+  width: 40px;
+  height: 24px;
+  border-radius: 9999px;
+  background: rgb(120 120 128 / 0.28);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: background-color var(--duration-base) var(--ease-standard);
+}
+
+.voice-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--duration-base) var(--ease-spring);
+}
+
+.voice-switch:checked {
+  background: #34c759;
+}
+
+.voice-switch:checked::after {
+  transform: translateX(16px);
+}
+
+.voice-switch:focus-visible {
+  outline: 3px solid var(--color-orange);
+  outline-offset: 2px;
+}
+
+/* The visitor's phone ringing: a buzz, and a ring running round it. */
+.voice-buzz {
+  animation: voice-buzz 1.4s var(--ease-in-out) infinite;
+}
+
+@keyframes voice-buzz {
+  0%,
+  40%,
+  100% {
+    transform: rotate(0);
+  }
+  5%,
+  15%,
+  25% {
+    transform: rotate(-12deg);
+  }
+  10%,
+  20%,
+  30% {
+    transform: rotate(12deg);
+  }
+}
+
+/* As long as a call takes to reach the phone (`--ring`, VoiceCard.tsx). */
+.voice-ring {
+  stroke-dasharray: 1;
+  animation: voice-ring var(--ring) linear both;
+}
+
+@keyframes voice-ring {
+  from {
+    stroke-dashoffset: 1;
   }
 }
 
@@ -4245,13 +4506,15 @@
   scale: 0.97;
 }
 
+/* "Talk to AYA": the logo's red (owner, 12 October 2026), with the deeper
+   red under the pointer that "Get AYA" has. */
 .notice__button--primary {
-  background: var(--color-ink);
+  background: var(--color-red);
   color: #fff;
 }
 
 .notice__button--primary:hover {
-  background: color-mix(in srgb, var(--color-ink) 88%, #fff);
+  background: var(--color-red-deep);
 }
 
 .notice__button:focus-visible {

@@ -18,10 +18,11 @@ import {
 import { seedClinic } from "./setup/factories";
 
 /**
- * A missed incident deadline raises an alert (BAA 1.3.0 release gate 5):
- * every open incident past its 24-hour notice deadline with no notice
- * recorded raises one ops alert, ever, with ids only; one notified, resolved
- * or still inside its 24 hours raises none.
+ * A missed incident notice target raises an alert (BAA 1.3.0 release gate
+ * 5): every open incident past healdesk's internal 24-hour notice target
+ * (the agreements promise 60 calendar days) with no notice recorded raises
+ * one ops alert, ever, with ids only; one notified, resolved or still inside
+ * its 24 hours raises none.
  */
 
 const describeDb = hasTestDatabase ? describe : describe.skip;

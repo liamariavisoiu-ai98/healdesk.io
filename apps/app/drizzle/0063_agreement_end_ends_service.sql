@@ -249,14 +249,15 @@ COMMENT ON FUNCTION app_organization_clinics(text) IS
 --> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
--- A missed incident deadline raises an alert (BAA 1.3.0 release gate 5)
+-- A missed incident notice target raises an alert (BAA 1.3.0 release gate 5)
 -- -----------------------------------------------------------------------------
 -- overdueIncidents (lib/incidents/incidents.ts) had no caller, so an incident
--- past its 24-hour notice deadline sat in the console unremarked. The hourly
--- incident-deadlines job raises one ops alert, ever, per such incident, with
--- ids only. Seeded ON, unlike every other job: it only alerts, it sends
--- nothing to a clinic, and a deadline nobody is told about is the failure it
--- exists to prevent.
+-- past healdesk's internal 24-hour notice target sat in the console
+-- unremarked. The agreements promise 60 calendar days (the owner, 12 October
+-- 2026); the target is ours, and stricter. The hourly incident-deadlines job
+-- raises one ops alert, ever, per such incident, with ids only. Seeded ON,
+-- unlike every other job: it only alerts, it sends nothing to a clinic, and a
+-- target nobody is told about is the failure it exists to prevent.
 INSERT INTO scheduled_jobs (name, cadence, enabled) VALUES
-  ('incident-deadlines', 'Hourly; raises one ops alert, ever, for each open incident whose 24-hour notice deadline has passed with no notice recorded', true)
+  ('incident-deadlines', 'Hourly; raises one ops alert, ever, for each open incident past the internal 24-hour notice target with no notice recorded', true)
 ON CONFLICT (name) DO NOTHING;

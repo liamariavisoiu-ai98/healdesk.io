@@ -104,9 +104,10 @@ export const OPS_EVENTS = [
   // (lib/agreements/termination.ts), once per billing clinic: the operator
   // previews and confirms the refund on its Billing page.
   "agreement_refund_due",
-  // An open incident past its 24-hour notice deadline with no notice
-  // recorded (BAA 1.3.0 release gate 5), once per incident, by the hourly
-  // incident-deadlines job (lib/scheduler/incident-deadlines.ts).
+  // An open incident past healdesk's internal 24-hour notice target with no
+  // notice recorded (BAA 1.3.0 release gate 5; the agreements promise 60
+  // calendar days), once per incident, by the hourly incident-deadlines job
+  // (lib/scheduler/incident-deadlines.ts).
   "incident_notice_overdue",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];

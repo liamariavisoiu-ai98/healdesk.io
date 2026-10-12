@@ -93,8 +93,9 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // at day 89, and the next hourly run destroys it (lib/offboarding, "Which
   // rule, and why").
   await record("offboarding-destroy", () => runOffboardingDestroyJob({ now }));
-  // Every hour: an incident whose 24-hour notice deadline has passed with no
-  // notice recorded raises one ops alert, ever (BAA 1.3.0 release gate 5).
+  // Every hour: an incident past our internal 24-hour notice target with no
+  // notice recorded raises one ops alert, ever (BAA 1.3.0 release gate 5;
+  // the agreements' own limit is 60 calendar days).
   await record("incident-deadlines", () => runIncidentDeadlinesJob({ now }));
   // The setup reminder (O7), hourly: each clinic's due reminder is queued
   // only in its own daytime, so the hour it runs is the clinic's, not UTC's.

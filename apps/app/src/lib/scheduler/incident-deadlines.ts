@@ -10,12 +10,15 @@ import { JOB_INCIDENT_DEADLINES, runJob, type JobOutcome } from "./jobs";
  * A missed incident deadline raises an alert (BAA 1.3.0 release gate 5, the
  * C19 audit's note on it).
  *
- * Every BAA commits healdesk to tell the practice of a breach, a security
- * incident or an improper use or disclosure within 24 hours of discovery,
- * and opening an incident stamps that deadline as `notify_by`
- * (lib/incidents/incidents.ts). Nothing read it back: an incident nobody
- * recorded as notified sat past its deadline in the console, and only someone
- * looking would see it.
+ * The agreements promise the practice notice of a breach, a security
+ * incident or an improper use or disclosure without unreasonable delay and
+ * in no case later than 60 calendar days after discovery (BAA 1.2.2 on;
+ * the owner, 12 October 2026). Opening an incident stamps healdesk's own,
+ * stricter target as `notify_by`: 24 hours from discovery, an internal
+ * target the agreements do not state (lib/incidents/incidents.ts). Nothing
+ * read it back: an incident nobody recorded as notified sat past it in the
+ * console, and only someone looking would see it. This alerts on that
+ * internal target, so a notice is chased long before the agreement's limit.
  *
  * Hourly from the tick, behind its switch, which the migration seeds on
  * because the job only alerts: every open incident whose `notify_by` has

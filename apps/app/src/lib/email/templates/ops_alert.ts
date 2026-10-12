@@ -276,9 +276,9 @@ const WORDING: Record<OpsEvent, Wording> = {
   // Raised once per incident by the hourly incident-deadlines job, with the
   // clinic's and the incident's ids.
   incident_notice_overdue: {
-    title: "An incident's notice deadline has passed",
+    title: "An incident's notice target has passed",
     action:
-      "The agreement promises the practice notice within 24 hours of discovering a breach, a security incident or an improper use or disclosure, and none is recorded for the incident below. Send the notice to the practice's notice address now, following docs/incident-response.md, then record it on the incident in the console.",
+      "Our own target is to tell the practice within 24 hours of discovering a breach, a security incident or an improper use or disclosure, well inside the agreement's outer limit, and no notice is recorded for the incident below. Send the notice to the practice's notice address now, following docs/incident-response.md, then record it on the incident in the console.",
   },
   agreement_refund_due: {
     title: "A terminated practice is owed a refund",

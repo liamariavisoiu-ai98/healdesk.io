@@ -66,6 +66,7 @@ export function CircleExpandCard({
   active = true,
   interactive = true,
   compact = false,
+  floodScale = FLOOD_SCALE,
 }: {
   title: string;
   body: string;
@@ -98,6 +99,11 @@ export function CircleExpandCard({
    * of the section wide, rather than a deck's 340px card.
    */
   compact?: boolean;
+  /**
+   * How far the puck grows to cover the tile. The default covers a 320x440
+   * card; a bento's big tile is wider than that, and needs more.
+   */
+  floodScale?: number;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -137,11 +143,11 @@ export function CircleExpandCard({
       onMouseLeave={leave}
       onFocus={enter}
       onBlur={leave}
-      style={{ ["--flood" as string]: FLOOD_SCALE }}
+      style={{ ["--flood" as string]: floodScale }}
       className={[
         "niche-card absolute inset-0 flex cursor-pointer flex-col justify-end",
         "isolate overflow-hidden rounded-[24px] text-left",
-        compact ? "p-5" : "p-6",
+        compact ? "p-4 sm:p-5" : "p-6",
         interactive ? "niche-card--ready group" : "",
       ].join(" ")}
     >
@@ -185,7 +191,7 @@ export function CircleExpandCard({
       <span
         className={[
           "font-display relative block leading-[1.08] font-medium tracking-[-0.025em] text-white",
-          compact ? "text-[24px]" : "text-[31.2px]",
+          compact ? "text-[19px] sm:text-[24px]" : "text-[31.2px]",
         ].join(" ")}
       >
         {title}

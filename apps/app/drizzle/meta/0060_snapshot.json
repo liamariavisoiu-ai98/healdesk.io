@@ -5752,7 +5752,7 @@
       "checkConstraints": {
         "erasure_requests_requested_by_check": {
           "name": "erasure_requests_requested_by_check",
-          "value": "char_length(btrim(\"erasure_requests\".\"requested_by\")) between 2 and 200"
+          "value": "\"erasure_requests\".\"requested_by\" in ('practice', 'person_via_practice', 'representative_via_practice')"
         },
         "erasure_requests_received_check": {
           "name": "erasure_requests_received_check",

@@ -503,7 +503,7 @@ describeDb("the amendment record", () => {
     const outcome = data<ErasePersonOutcome>(
       await runOperation(
         "erasePerson",
-        { clinicId: c.clinicId, phone: "+15550144001", requestedBy: "the practice, ticket 2203" },
+        { clinicId: c.clinicId, phone: "+15550144001", requestedBy: "practice" },
         OPERATOR,
       ),
     );
@@ -664,7 +664,7 @@ describeDb("the amendment record", () => {
     const erased = data<ErasePersonOutcome>(
       await runOperation(
         "erasePerson",
-        { clinicId: c.clinicId, phone: "+15550149001", requestedBy: "the practice" },
+        { clinicId: c.clinicId, phone: "+15550149001", requestedBy: "practice" },
         OPERATOR,
       ),
     );

@@ -420,7 +420,15 @@ Added on 7 October 2026, read at origin/main c926414:
     everything else. Clause 13 now says what a deletion keeps, in those
     terms, and clause 17 that after destruction healdesk holds no Client
     Information, with no exception. `docs/dpa-v1.0.0.txt` and the golden
-    hashes were regenerated with them; no BAA hash moved.
+    hashes were regenerated with them; no BAA hash moved. The review of the
+    same day found two copies the sentence did not cover. "Who asked" was
+    free text, screened only for numbers and addresses, so a name could be
+    stored in the record and its audit row: it is now one of three, chosen,
+    never typed. And the runbook kept the practice's own message, which
+    names the client, for the 35 days as the restore fallback: clause 13
+    now says so, exactly (that message, those 35 days, only to delete again
+    after a restore). 1.3.0's clause 4(c), "keeps only a record of the
+    request, for no longer than it needs one", already covers it.
 16. **Overlaps not reconciled.** Permitted uses (4), confidentiality (14) and
     the subcontractor flow-down (11) also overlap the shared clause (its
     purposes, its item a, its subcontractor paragraph). § 12.14 named only

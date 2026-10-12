@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
 
+import type { ErasureRequester } from "@/lib/admin/erasure-requesters";
 import { requireOperator } from "@/lib/admin/operator";
 import {
   addReportRecipient as addRecipientUpstream,
@@ -103,7 +104,12 @@ export default async function CarePage({ params }: { params: Promise<{ clinicId:
   }
   // The person's number and address pass through this action to apps/app in
   // the signed request and are kept nowhere on this side.
-  async function erasePerson(input: { phone?: string; email?: string; requestedBy: string; receivedAt?: string }) {
+  async function erasePerson(input: {
+    phone?: string;
+    email?: string;
+    requestedBy: ErasureRequester;
+    receivedAt?: string;
+  }) {
     "use server";
     const result = await erasePersonUpstream(clinicId, input);
     revalidatePath(path);

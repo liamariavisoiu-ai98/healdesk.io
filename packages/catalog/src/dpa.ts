@@ -759,7 +759,14 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * subcontractor stamps, with no number, address or name, and keyed
    * references (one-way HMACs, never the details) emptied BACKUP_RETENTION_DAYS
    * after the deletion, used only by `reapplyErasures` after a restore. It
-   * says the same as item c of the shared clause, more particularly.
+   * says the same as item c of the shared clause, more particularly. Who
+   * asked is one of three, chosen, never typed (12 October 2026), so no name
+   * reaches the record or its audit row. And it says what else is kept and
+   * for how long: the practice's own message asking for the deletion, which
+   * names the client, kept in healdesk's mailbox for the same 35 days as the
+   * fallback a restore after a total loss needs (docs/handover.md, "Deletion
+   * requests" and "Restoring"), then deleted. Until then the sentence said
+   * only that the record held no number, while the runbook kept the message.
    */
   {
     id: "requests",
@@ -778,8 +785,9 @@ const CLAUSES_1_0: readonly DpaClause[] = [
           `request that holds no telephone number, email address or name. For the ` +
           `${BACKUP_RETENTION_DAYS} days in which a backup could still bring the information ` +
           `back, the record also holds one-way keyed references to the client's numbers, ` +
-          `addresses and messaging accounts, used only to delete the information again if a ` +
-          `backup is restored; then they are removed.`,
+          `addresses and messaging accounts, and healdesk keeps Practice's own message asking ` +
+          `for the deletion, both used only to delete the information again if a backup is ` +
+          `restored; then both are removed.`,
       ) +
       "\n\n" +
       wrap(

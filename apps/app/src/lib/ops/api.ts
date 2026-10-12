@@ -88,7 +88,9 @@ import {
 } from "@/lib/ops/calendar-ops";
 import { startForwardingTest } from "@/lib/onboarding/forwarding-test";
 import {
+  ERASURE_REQUESTER_LABELS,
   erasePerson,
+  isErasureRequester,
   isErasureVendorStep,
   listErasureRequests,
   stampErasureVendorStep,
@@ -3224,7 +3226,7 @@ export type CareView = {
   };
   /**
    * The clinic's deletion requests (lib/patient-rights/erasure.ts), newest
-   * first: who asked by role or ticket, the dates, the counts and each
+   * first: who asked (one of three, as the console says it), the dates, the counts and each
    * subcontractor step, outstanding until stamped, with the deadline. Never a
    * number, an address or a reference to one.
    */
@@ -3711,8 +3713,14 @@ async function opErasePerson(args: Record<string, unknown>, operator: Operator):
   const email = rawEmail?.toLowerCase();
   if (email && !EMAIL_SHAPED.test(email)) return erase.error("That is not an email address.");
   if (!phone && !email) return erase.error("Give the person's telephone number, their email address, or both.");
-  const requestedBy = whoAsked(stringArg(args, "requestedBy", 200));
-  if (typeof requestedBy !== "string") return erase.error(requestedBy.error);
+  // Who asked is chosen, never typed: the record and its audit row outlive
+  // the deletion, so they hold nothing a person wrote.
+  const requestedBy = stringArg(args, "requestedBy", 40);
+  if (!isErasureRequester(requestedBy)) {
+    return erase.error(
+      `Who asked? One of: ${Object.values(ERASURE_REQUESTER_LABELS).join("; ")}. Nothing typed is kept with the record.`,
+    );
+  }
   const receivedRaw = stringArg(args, "receivedAt", 40);
   const receivedAt = receivedRaw ? new Date(receivedRaw) : undefined;
   if (receivedAt && (Number.isNaN(receivedAt.getTime()) || receivedAt.getTime() > Date.now() + 60_000)) {

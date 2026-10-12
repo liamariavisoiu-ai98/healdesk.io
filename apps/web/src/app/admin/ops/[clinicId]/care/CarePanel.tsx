@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 
+import { ERASURE_REQUESTERS, type ErasureRequester } from "@/lib/admin/erasure-requesters";
 import { INCIDENT_CLASSES, type IncidentClass } from "@/lib/admin/incident-classes";
 import type {
   AmendContactOutcome,
@@ -30,7 +31,7 @@ type Actions = {
   erasePerson: (input: {
     phone?: string;
     email?: string;
-    requestedBy: string;
+    requestedBy: ErasureRequester;
     receivedAt?: string;
   }) => Promise<OpsResult<ErasePersonOutcome>>;
   markErasureVendorDeleted: (erasureId: string, step: string, how: string) => Promise<OpsResult<CareOutcome>>;
@@ -251,7 +252,8 @@ function DeletionRequests({ view, actions }: { view: CareView; actions: Actions 
           const f = new FormData(form);
           const phone = String(f.get("phone") ?? "").trim();
           const email = String(f.get("email") ?? "").trim();
-          const requestedBy = String(f.get("requestedBy") ?? "").trim();
+          const asked = String(f.get("requestedBy") ?? "");
+          const requestedBy = (Object.keys(ERASURE_REQUESTERS) as ErasureRequester[]).find((k) => k === asked) ?? "practice";
           const received = String(f.get("receivedAt") ?? "").trim();
           if (!window.confirm(`Delete everything ${view.clinic.name} holds about this person? This cannot be undone.`)) return;
           start(async () => {
@@ -290,14 +292,14 @@ function DeletionRequests({ view, actions }: { view: CareView; actions: Actions 
             <input name="email" type="email" autoComplete="off" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
           </label>
           <label className="text-sm">
-            <span className="text-muted block text-xs font-bold uppercase">Who asked — role or ticket, never a name</span>
-            <input
-              name="requestedBy"
-              required
-              maxLength={200}
-              placeholder="the practice, ticket 1182"
-              className="border-line mt-1 w-full rounded-lg border px-3 py-2"
-            />
+            <span className="text-muted block text-xs font-bold uppercase">Who asked (nothing typed is kept)</span>
+            <select name="requestedBy" required defaultValue="practice" className="border-line mt-1 w-full rounded-lg border px-3 py-2">
+              {(Object.entries(ERASURE_REQUESTERS) as [ErasureRequester, string][]).map(([id, label]) => (
+                <option key={id} value={id}>
+                  {label}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="text-sm">
             <span className="text-muted block text-xs font-bold uppercase">Request reached us (optional; default now)</span>

@@ -1400,7 +1400,9 @@ these is closed, by code, a page, a signed paper or a host setting, and
      and stays as the other person's record.
    - `eraseContact` no longer writes `suppressions`, and its comment says
      why. The request is recorded in `erasure_requests` without the number:
-     who asked by role or ticket, when it arrived, the ten-business-day
+     who asked (one of three, chosen, never typed: the first version took
+     free text screened only for numbers and addresses, so a name could be
+     kept; review of 12 October 2026), when it arrived, the ten-business-day
      deadline (SL-06), when the deletion ran (the database's clock, stamped
      by a trigger), the counts, and the operator's stamp for each
      subcontractor step: Retell's, done in its console, since nothing in

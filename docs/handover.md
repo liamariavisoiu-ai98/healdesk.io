@@ -421,9 +421,9 @@ record of the request, no longer than we need it.
    telephone number and/or email address they gave the practice's assistant. Never ask
    for, or write down, their name.
 3. **Run it.** `/admin/ops/<clinic>/care` → "Deletion requests" → "Delete a person":
-   the number and/or the address, who asked by role or ticket ("the practice, ticket
-   1182"; a name or a number there is refused), and when the request reached us (the
-   deadline runs from it). One transaction, through the signed ops envelope
+   the number and/or the address, who asked (one of three, chosen: the practice; the
+   person, through the practice; a legal representative, through the practice; nothing
+   typed is kept), and when the request reached us (the deadline runs from it). One transaction, through the signed ops envelope
    (`erasePerson`, `apps/app/src/lib/patient-rights/erasure.ts`). Who the person is:
    the number and address the practice gave, plus every number and address on a
    contact either one matches (one step, never a chain); every contact carrying any of
@@ -455,11 +455,16 @@ record of the request, no longer than we need it.
    the information, the date each subcontractor deleted its copy, and that copies in
    our encrypted backups expire within 35 days of the deletion. Keep the thread (it holds
    the number) until the record's restore references expire, 35 days after the
-   deletion, as the fallback a restore after a total loss needs (below), then delete it
-   from the mailbox and its trash.
+   deletion, as the fallback a restore after a total loss needs (below), and for nothing
+   else, then delete it from the mailbox and its trash. The DPA's Clients' requests
+   clause says exactly this: the practice's own message, for those 35 days, used only to
+   delete the information again after a restore. Copy nothing from it anywhere else:
+   "who asked" on the care page is chosen from three (the practice; the person, through
+   the practice; a legal representative, through the practice), never typed.
 
-What is kept: one `erasure_requests` row, with who asked, the dates, the counts and the
-subcontractor stamps, and no number, address or name. Its `restore_refs` are keyed
+What is kept: one `erasure_requests` row, with who asked (one of three), the dates, the
+counts and the subcontractor stamps, and no number, address or name; and, for 35 days,
+the practice's message in the mailbox (step 6). Its `restore_refs` are keyed
 references to what the deletion found, used only by `npm run reapply-erasures` after a
 restore. The hourly `erasure-expiry` sweep in the worker empties them 35 days
 (`BACKUP_RETENTION_DAYS`) after the deletion, when no backup that held the person is

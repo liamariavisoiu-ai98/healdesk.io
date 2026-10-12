@@ -2261,7 +2261,7 @@ export type CareView = {
   };
   /**
    * The clinic's deletion requests (apps/app lib/patient-rights/erasure.ts),
-   * newest first: who asked by role or ticket, the dates as "YYYY-MM-DD HH:MM
+   * newest first: who asked (one of three, as a label), the dates as "YYYY-MM-DD HH:MM
    * UTC", the counts, and each subcontractor step, outstanding until stamped.
    * Nothing here names the person: apps/app sends no number, address or
    * reference to one.
@@ -2306,6 +2306,7 @@ export type CareView = {
 // Defined in lib/admin/incident-classes.ts so client components never import
 // a value from this server-only module; re-exported here for server callers.
 export { INCIDENT_CLASSES, type IncidentClass } from "@/lib/admin/incident-classes";
+import type { ErasureRequester } from "@/lib/admin/erasure-requesters";
 
 function readCareView(value: unknown): CareView {
   const data = object(value, "getClinicCare");
@@ -2479,9 +2480,11 @@ export type ErasePersonOutcome =
  * else: this module logs only the operation's name, and the reply is the
  * request's id, its deadline and a count.
  */
+export { ERASURE_REQUESTERS, type ErasureRequester } from "@/lib/admin/erasure-requesters";
+
 export function erasePerson(
   clinicId: string,
-  input: { phone?: string; email?: string; requestedBy: string; receivedAt?: string },
+  input: { phone?: string; email?: string; requestedBy: ErasureRequester; receivedAt?: string },
 ): Promise<OpsResult<ErasePersonOutcome>> {
   return callOps("erasePerson", "write", { clinicId, ...input }, (value) => {
     const data = object(value, "erasePerson");

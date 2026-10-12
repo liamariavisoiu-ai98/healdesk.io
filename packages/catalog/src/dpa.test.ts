@@ -98,14 +98,14 @@ const VARIANTS: Record<string, Partial<DpaVariables>> = {
 
 /** variant → sha256 of the assembled text. Frozen from the draft; see the header. */
 const GOLDEN: Record<string, string> = {
-  sample: "b8bc4c48de681707f2f2911d06f20f776bb8b922e8f3461265f4c39ca9089725",
-  notcovered_live_covered: "bed2485e35fc239d562aa1e5da9d41aef295c23d26c7b83cc5ff9e0d4f850910",
-  notcovered_live_uncovered: "f8f5b0a31eef09f5fd078079a77ec6c55c473830b8d56e91333d30584af56ba3",
-  notcovered_live_personal: "00919393357a8d3e5b2df88d9ff80ffe16335fe1289a94b86fffcec7593a1f80",
-  notcovered_notused_other: "04edff3786b0e86dd3024c72a14b002ef185e56667cfaeeb2e4225f6e884b94a",
-  vet_live_covered: "048049fc04d7824d45ec47f1378dbdeeaec240c0b48d43519c4ee69065e98caf",
-  vet_live_personal: "b1796c2c9bc2a0b2abc17f702e25dfc09199f4eb3a1b60961d723fe599d7b870",
-  vet_notused_mindbody: "0f9dd216921f84eb29b398a6508898e62a94a0c800f58a40a7b71917ab784ed2",
+  sample: "db155c8f30dbfb63c78e731aedc80faa66f415abcf6acbbfe78877adf872f40e",
+  notcovered_live_covered: "51b63ae44edc558dc0907be89251e49528ceb816a475bedeecccfd45eeb8c488",
+  notcovered_live_uncovered: "f5ac2dd9f7b22475f940178791c7245777bbb6aefe8fea9fb0aa0198ed3146d8",
+  notcovered_live_personal: "7e5125934f0d1a735788c2692713b2b7853594b02ad7c40f4ae8eb4cf22b6a83",
+  notcovered_notused_other: "9d9e4e7441b30dc7b78488f50044d0810c0206e6f911e7f02557877cc305f09c",
+  vet_live_covered: "8a6abccd98716590d2083026adb9f484b91b44ea18ee538da0bbd39c1f565398",
+  vet_live_personal: "d11b4a188879f5b39e23bcd9bfa32a40adfd58caef3f2932bd31a95a8180fd46",
+  vet_notused_mindbody: "9fef53f48b5394217424ed607611cbb5d053974665dd54dc8cd55a059eb10391",
 };
 
 const template = () => currentDpaTemplate();
@@ -787,7 +787,7 @@ describe("the DPA's pre-release text", () => {
     const text = render({}).text;
     const requests = unwrap(section(text, "Clients' requests"));
     expect(requests).toContain(
-      `When a client's information is deleted, healdesk keeps a record of the request that holds no telephone number, email address or name. For the ${BACKUP_RETENTION_DAYS} days in which a backup could still bring the information back, the record also holds one-way keyed references to the client's numbers, addresses and messaging accounts, used only to delete the information again if a backup is restored; then they are removed.`,
+      `When a client's information is deleted, healdesk keeps a record of the request that holds no telephone number, email address or name. For the ${BACKUP_RETENTION_DAYS} days in which a backup could still bring the information back, the record also holds one-way keyed references to the client's numbers, addresses and messaging accounts, and healdesk keeps Practice's own message asking for the deletion, both used only to delete the information again if a backup is restored; then both are removed.`,
     );
     expect(requests).not.toMatch(/telephone number of a client whose information is deleted is kept/);
     expect(unwrap(section(text, "Term, termination, and what happens to the information"))).not.toMatch(

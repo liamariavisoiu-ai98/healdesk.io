@@ -22,7 +22,7 @@ Mindbody, which does not read Google Calendar, so the calendar clause is the
 one under which healdesk connects nothing; and a personal Google account,
 which that clause does not depend on. From the title line on, the sample is
 exactly what packages/catalog/src/dpa.test.ts freezes as dpa/1.0.0 / sample
-(SHA-256 b8bc4c48de681707f2f2911d06f20f776bb8b922e8f3461265f4c39ca9089725).
+(SHA-256 db155c8f30dbfb63c78e731aedc80faa66f415abcf6acbbfe78877adf872f40e).
 The clauses that render only for some practices follow in Appendix A, numbered
 as they render; nothing else in the text varies. Appendix B is the calendar
 election that names this agreement, which its Definitions clause and its
@@ -479,8 +479,9 @@ EFFECTIVE 6 October 2026
   healdesk keeps a record of the request that holds no telephone number, email
   address or name. For the 35 days in which a backup could still bring the
   information back, the record also holds one-way keyed references to the
-  client's numbers, addresses and messaging accounts, used only to delete the
-  information again if a backup is restored; then they are removed.
+  client's numbers, addresses and messaging accounts, and healdesk keeps
+  Practice's own message asking for the deletion, both used only to delete the
+  information again if a backup is restored; then both are removed.
 
   If a client makes such a request, or any other request about their
   information, to healdesk itself rather than to Practice, healdesk will not

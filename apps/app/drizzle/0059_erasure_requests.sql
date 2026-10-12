@@ -8,7 +8,7 @@ CREATE TABLE "erasure_requests" (
 	"deleted" jsonb DEFAULT '{}'::jsonb NOT NULL,
 	"restore_refs" text[] DEFAULT '{}'::text[] NOT NULL,
 	"vendor_steps" jsonb DEFAULT '{}'::jsonb NOT NULL,
-	CONSTRAINT "erasure_requests_requested_by_check" CHECK (char_length(btrim("erasure_requests"."requested_by")) between 2 and 200),
+	CONSTRAINT "erasure_requests_requested_by_check" CHECK ("erasure_requests"."requested_by" in ('practice', 'person_via_practice', 'representative_via_practice')),
 	CONSTRAINT "erasure_requests_received_check" CHECK ("erasure_requests"."received_at" <= "erasure_requests"."erased_at"),
 	CONSTRAINT "erasure_requests_due_check" CHECK ("erasure_requests"."due_by" > "erasure_requests"."received_at"),
 	CONSTRAINT "erasure_requests_refs_check" CHECK (array_position("erasure_requests"."restore_refs", null) is null),
@@ -40,9 +40,13 @@ CREATE INDEX "erasure_requests_clinic_idx" ON "erasure_requests" USING btree ("c
 --
 -- What changes:
 --
---   * erasure_requests is the record: who asked by role or ticket, when, the
---     deadline, when the deletion ran, the counts, and the operator's stamp
---     for each subcontractor step. No number, address or name. Its only
+--   * erasure_requests is the record: who asked, from a closed set (the
+--     practice; the person, through the practice; a legal representative,
+--     through the practice), when, the deadline, when the deletion ran, the
+--     counts, and the operator's stamp for each subcontractor step. No
+--     number, address or name, and nothing typed: the first version took who
+--     asked as free text, screened only for numbers and addresses, so a name
+--     could be stored here and in the audit row for good. Its only
 --     reference to the person is restore_refs, keyed references
 --     (lib/identifier-ref.ts) kept so a database restored to a point before
 --     the deletion can be cleaned again; the hourly expiry empties them
@@ -282,7 +286,7 @@ $$;--> statement-breakpoint
 -- Comments
 -- -----------------------------------------------------------------------------
 COMMENT ON TABLE erasure_requests IS
-  'One person''s deletion request, recorded without the person: who asked (a role or ticket), when it arrived, the ten-business-day deadline, when the deletion ran, the counts, and the operator''s stamp for each subcontractor step. restore_refs are keyed references to what the deletion found, used only to delete the person again after a restore and emptied 35 days (BACKUP_RETENTION_DAYS) after the deletion, when the row goes too unless a subcontractor step is still outstanding. Never read for a contact decision. erased_at is stamped by the database at the insert.';--> statement-breakpoint
+  'One person''s deletion request, recorded without the person: who asked (one of three, never typed), when it arrived, the ten-business-day deadline, when the deletion ran, the counts, and the operator''s stamp for each subcontractor step. restore_refs are keyed references to what the deletion found, used only to delete the person again after a restore and emptied 35 days (BACKUP_RETENTION_DAYS) after the deletion, when the row goes too unless a subcontractor step is still outstanding. Never read for a contact decision. erased_at is stamped by the database at the insert.';--> statement-breakpoint
 COMMENT ON COLUMN erasure_requests.restore_refs IS
   'identifierRef values (erasure kind for "phone:"/"email:" values, chat_party for messaging threads) naming what the deletion found, so reapplyErasures can find the person again in a database restored to a point before it. Only ever emptied: by the hourly expiry, BACKUP_RETENTION_DAYS after erased_at.';--> statement-breakpoint
 COMMENT ON FUNCTION app_erase_contact_evidence(uuid, text[]) IS

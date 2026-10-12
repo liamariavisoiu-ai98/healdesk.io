@@ -141,7 +141,7 @@ describeDb("care operations", () => {
     // No agreement on file: the strictest rule, a day before the thirty days.
     expect(view.clinic.destruction).toMatchObject({ rule: "thirty_days", basis: "no_agreement" });
 
-    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportClinic(tx, "offboarding"));
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportClinic(tx, "practice"));
     const delivered = data<{ status: string }>(
       await runOperation("markExportDelivered", { clinicId: c.clinicId, how: "bundle by SFTP" }, OPERATOR),
     );
@@ -172,7 +172,7 @@ describeDb("care operations", () => {
     expect(await stamp()).toBeNull();
 
     // Produced, as the patient-export script does: still nothing stamped.
-    const bundle = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportClinic(tx, "offboarding"));
+    const bundle = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportClinic(tx, "practice"));
     expect(bundle.producedAt).toBeTruthy();
     expect(await stamp()).toBeNull();
 

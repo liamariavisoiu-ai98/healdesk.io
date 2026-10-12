@@ -7,7 +7,7 @@ import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { withTenant } from "@/lib/tenant";
 import { ingestCall, voiceMeteringFor, type VoiceCallEvent } from "@/lib/voice/ingest";
 import { readSynthflowPayload } from "@/lib/voice/synthflow-payload";
-import { __resetVoiceToolLimitsForTests, handleVoiceTool } from "@/lib/voice/tools";
+import { __resetVoiceToolLimitsForTests, handleVoiceTool, CLOSED_LINE } from "@/lib/voice/tools";
 
 import {
   closePools,
@@ -291,7 +291,7 @@ describeDb("the answer gate in front of the voice tools (BD25, R25)", () => {
   });
 
   function tool(
-    name: "context" | "slots",
+    name: "context" | "slots" | "request",
     clinicId: string,
     callId = "call_gate_1",
   ): Promise<Response> {
@@ -384,6 +384,58 @@ describeDb("the answer gate in front of the voice tools (BD25, R25)", () => {
     );
     expect(alerts.rows.map((r) => r.fields.code)).toEqual(["suspended"]);
   });
+
+  /** A production clinic live on voice whose Services have ended: no agreement bound, or its subscription cancelled. */
+  async function endedClinic(label: string, how: "no_agreement" | "canceled") {
+    const c = await seedClinic(label);
+    if (how === "canceled") await bindAgreementInEffect(c.clinicId);
+    await getMigratorPool().query(
+      `update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`,
+      [c.clinicId],
+    );
+    await seedEntitled(c.clinicId, { planStartedAt: WINDOW_START });
+    await seedChannels(c.clinicId, [{ channel: "voice", liveAt: WINDOW_START }]);
+    if (how === "canceled") {
+      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+        const { transition } = await import("@/lib/billing/state-machine");
+        await transition(tx, "canceled", { actor: "system", reason: "subscription_deleted" });
+      });
+    }
+    return c;
+  }
+
+  for (const how of ["no_agreement", "canceled"] as const) {
+    test(`once the Services have ended (${how}) a call with no direct line is closed with a fixed line, never answered, and no request is taken`, async () => {
+      const c = await endedClinic(`tools-ended-${how}`, how);
+      const ctx = await tool("context", c.clinicId);
+      expect(ctx.status).toBe(200);
+      const body = (await ctx.json()) as Record<string, unknown>;
+      expect(body).toMatchObject({
+        answer_mode: "closed",
+        transfer_number: null,
+        closed_line: CLOSED_LINE,
+        deposit_line: "",
+        clinic_phone_spoken: "",
+      });
+
+      const request = await tool("request", c.clinicId);
+      expect(request.status).toBe(403);
+      expect(await request.json()).toEqual({ error: "closed", say: CLOSED_LINE });
+      expect((await tool("slots", c.clinicId)).status).toBe(403);
+
+      const audit = await inTenant(c.clinicId, async (client) => {
+        const { rows } = await client.query<{ resource_type: string; metadata: Record<string, unknown> }>(
+          `select resource_type, metadata from audit_log where resource_type like 'voice_tool_%' order by occurred_at`,
+        );
+        return rows;
+      });
+      expect(audit.map((a) => [a.resource_type, a.metadata.reason, a.metadata.outcome ?? a.metadata.answerMode])).toEqual([
+        ["voice_tool_context", how, "closed"],
+        ["voice_tool_request", how, "refused"],
+        ["voice_tool_slots", how, "refused"],
+      ]);
+    });
+  }
 
   test("an unknown clinic is still a 404, and raises nothing", async () => {
     const unknown = "44444444-4444-4444-8444-444444444444";

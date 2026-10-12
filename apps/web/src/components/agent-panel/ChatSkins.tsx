@@ -37,8 +37,9 @@ import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
  * ## The owner's picks of 12 October 2026
  *
  *   - Changing the box morphs one app into the next: the browser's view
- *     transition carries the header, the thread, the composer and the box's
- *     highlight from one look to the other, rather than swapping the card.
+ *     transition carries the header, the thread and the composer from one
+ *     look to the other, rather than swapping the card, while the boxes'
+ *     own pill slides under the one chosen, as the voice card's does.
  *   - The answer streams in word by word, each word fading up out of a
  *     blur as it lands; each app waits its own way (WhatsApp says "typing…"
  *     in its header and draws no bubble until the words come; the others
@@ -430,6 +431,14 @@ export function ChatSkins({
   const [headH, setHeadH] = useState<number | null>(null);
   /** A pressed suggestion, flying into the field. */
   const [flying, setFlying] = useState<string | null>(null);
+  /**
+   * The website's Send has turned into its paper plane: the first time the
+   * visitor's words wake the button, once, and it stays the plane after
+   * (owner, 12 October 2026: it folded on every hover). Set while rendering,
+   * the moment there are words, so the fold starts with the button waking.
+   */
+  const [armed, setArmed] = useState(false);
+  if (!armed && input.trim()) setArmed(true);
   const rail = useDragScroll();
   /** This card's names for the view transition, unique on the page. */
   const vt = `chat${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
@@ -543,18 +552,14 @@ export function ChatSkins({
       headerTone === "light" ? (
         <div className="text-ink flex items-center gap-2.5 px-4 py-3" data-tone="light">
           <Avatar name={name} logoUrl={logoUrl} size={34} filled />
-          <div className="min-w-0">
-            <p className="truncate text-[15px] leading-tight font-semibold">{name}</p>
-            <p className="text-muted truncate text-[12.6px] leading-tight">We typically reply instantly</p>
-          </div>
+          {/* The name alone: "We typically reply instantly" under it went
+              (owner, 12 October 2026). */}
+          <p className="min-w-0 truncate text-[15px] leading-tight font-semibold">{name}</p>
         </div>
       ) : (
         <div className="flex items-center gap-2.5 px-4 py-3" data-tone="brand" style={{ color: "var(--clinic-ink)" }}>
           <Avatar name={name} logoUrl={logoUrl} size={34} />
-          <div className="min-w-0">
-            <p className="truncate text-[15px] leading-tight font-semibold">{name}</p>
-            <p className="truncate text-[12.6px] leading-tight opacity-80">We typically reply instantly</p>
-          </div>
+          <p className="min-w-0 truncate text-[15px] leading-tight font-semibold">{name}</p>
         </div>
       ),
     whatsapp: (
@@ -765,12 +770,13 @@ export function ChatSkins({
         <button
           type="submit"
           disabled={disabled || streaming || !input.trim()}
-          className="morph-btn shrink-0 rounded-full px-5 py-2.5 text-[15.2px] font-bold transition-opacity disabled:opacity-45"
+          data-armed={armed || undefined}
+          className="morph-btn morph-btn--once shrink-0 rounded-full px-5 py-2.5 text-[15.2px] font-bold transition-opacity disabled:opacity-45"
           style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
         >
           <span className="morph-btn__label">Send</span>
-          {/* Under the pointer the word folds into a paper plane, and back
-              when it leaves (owner, 12 October 2026). */}
+          {/* The word folds into a paper plane as the visitor's first words
+              wake the button, and it stays the plane (`armed`). */}
           <span aria-hidden className="morph-btn__icon morph-btn__icon--fly">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21.5 2.5 10.6 13.4" />
@@ -837,34 +843,40 @@ export function ChatSkins({
 
   return (
     <div className="flex h-[600px] flex-1 flex-col sm:h-[620px]" data-skin={skin}>
-      {/* The boxes: where the same assistant answers. They change the look, never the conversation. */}
-      <div className="border-line grid grid-cols-4 gap-1 border-b p-2" role="tablist" aria-label="Where patients can message you">
-        {BOXES.map((box) => {
-          const active = box.id === skin;
-          return (
-            <button
-              key={box.id}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => switchSkin(box.id)}
-              className={`relative flex flex-col items-center gap-1 rounded-sm px-1 py-2 transition-colors ${active ? "" : "hover:bg-paper-2/60"}`}
-            >
-              {/* The highlight, which the view transition carries from box to box. */}
-              {active ? (
-                <span
-                  aria-hidden
-                  className="bg-paper-2 ring-line-strong absolute inset-0 rounded-sm ring-1"
-                  style={{ viewTransitionName: `${vt}-tab`, ["viewTransitionClass" as string]: "chat-morph" }}
-                />
-              ) : null}
-              <span className="relative grid size-8 place-items-center rounded-sm [&_svg]:size-[18px]" style={{ background: box.badge, color: box.ink }}>
-                {box.icon}
-              </span>
-              <span className={`relative text-[12.6px] font-bold ${active ? "text-ink" : "text-muted"}`}>{box.label}</span>
-            </button>
-          );
-        })}
+      {/* The boxes: where the same assistant answers. They change the look,
+          never the conversation. The voice card's segmented control, with
+          its white pill sliding under the box chosen (owner, 12 October
+          2026). The highlight used to be carried from box to box by the view
+          transition, which lifts what it carries above the page, so it slid
+          over the other boxes' icons; the pill is the control's own, under
+          them. */}
+      <div className="border-line border-b px-2.5 pt-2.5 pb-2">
+        <div
+          className="voice-segments relative grid grid-cols-4 rounded-sm bg-black/[0.055] p-1"
+          role="tablist"
+          aria-label="Where patients can message you"
+          style={{ ["--n" as string]: BOXES.length, ["--at" as string]: Math.max(0, BOXES.findIndex((box) => box.id === skin)) }}
+        >
+          <span aria-hidden className="voice-segments__pill" />
+          {BOXES.map((box) => {
+            const active = box.id === skin;
+            return (
+              <button
+                key={box.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => switchSkin(box.id)}
+                className="relative z-[1] flex flex-col items-center gap-1 rounded-sm px-1 py-1.5"
+              >
+                <span className="grid size-8 place-items-center rounded-sm [&_svg]:size-[18px]" style={{ background: box.badge, color: box.ink }}>
+                  {box.icon}
+                </span>
+                <span className={`text-[12.6px] font-bold transition-colors duration-fast ${active ? "text-ink" : "text-muted hover:text-ink"}`}>{box.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="relative flex min-h-0 flex-1 flex-col" style={{ ["--chat-head" as string]: `${headH ?? 60}px` }}>

@@ -87,8 +87,12 @@ async function main(): Promise<void> {
     [
       `[healdesk] erased: request ${outcome.erasureId}, ${outcome.rows} rows, due by ${outcome.dueBy}`,
       `  numbers ${outcome.identifiers.phones}, addresses ${outcome.identifiers.emails} (those given, and every one on a contact they matched)`,
+      `  deposits ${outcome.deleted.deposits} (our copies; the charge stays the practice's record in its own Stripe account)`,
       outcome.kept.sharedThreads
-        ? `  kept for someone else: ${outcome.kept.requests} booking request(s) and ${outcome.kept.drafts} draft(s) on ${outcome.kept.sharedThreads} shared thread(s); tell the practice`
+        ? `  kept for someone else: ${outcome.kept.requests} booking request(s) and ${outcome.kept.drafts} draft(s) on ${outcome.kept.sharedThreads} shared thread(s); tell the practice` +
+          (outcome.kept.unthreaded
+            ? `. ${outcome.kept.unthreaded} of those requests came from a thread on the person's own number and now carry no thread: the desk answers them by calling the number on the request`
+            : "")
         : "  nothing kept for anyone else",
       "  Next: each subcontractor step on the care page, by the deadline.",
     ].join("\n"),

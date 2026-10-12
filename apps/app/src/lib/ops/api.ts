@@ -164,7 +164,7 @@ import {
   updateAgentConfig,
   type AgentConfigInput,
 } from "@/lib/onboarding/agent-config";
-import { goLive, goLivePreconditions } from "@/lib/onboarding/go-live";
+import { goLive, goLivePreconditions, readVoiceLine } from "@/lib/onboarding/go-live";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { completeStep, reopenStep } from "@/lib/onboarding/steps";
 import { getJob, listJobs as listJobRecords, PHASE_TWO_JOBS } from "@/lib/scheduler/jobs";
@@ -2817,7 +2817,7 @@ async function opGetOnboarding(
           approvedByLabel: agent.approvedByLabel,
         }
       : null,
-    goLive: goLivePreconditions(clinic),
+    goLive: goLivePreconditions(clinic, await readVoiceLine(clinic.id)),
     requirements: {
       fields: resolveBookingRequirements(clinic.specialty, clinic.bookingRequirements).map((f) => f.id),
       confirmedAt: clinic.bookingRequirementsConfirmedAt?.toISOString() ?? null,
@@ -3615,7 +3615,7 @@ async function opMarkExportDelivered(
   );
   if (!delivered) {
     return care.error(
-      "No return bundle has been produced since offboarding started. Produce it in AWS CloudShell (bash run-task.sh patient-export <clinic id> \"<who asked>\"), hand it over, then record the handover here.",
+      "No return bundle has been produced since offboarding started. Produce it in AWS CloudShell (bash run-task.sh patient-export <clinic id>), hand it over, then record the handover here.",
     );
   }
   await audit(operator, "offboarding_export_delivered", { clinicSlug: clinic.slug });

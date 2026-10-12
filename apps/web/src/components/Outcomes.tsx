@@ -58,6 +58,16 @@ import { REDUCED_MOTION } from "@/lib/use-media-query";
  * Friday and 9:41, and the browser puts its own in as soon as it runs, long
  * before a visitor scrolls this far.
  *
+ * ## The weather (owner, 12 October 2026)
+ *
+ * Under the clock, where iOS puts a lock screen's widgets, the Weather
+ * widget: its glyph, the place with the arrow that says it is where the phone
+ * is, the temperature and the day's high and low. The place is a clinic's
+ * town rather than the visitor's, which the page has no way to know (a time
+ * zone names one city for half a country); the sky follows the visitor's
+ * clock, the sun by day and the moon by night. It is decoration, so a screen
+ * reader is not told the weather.
+ *
  * ## It opens (the owner, 12 October 2026)
  *
  * Pressing a notification opens it the way iOS opens one pressed hard: it
@@ -83,6 +93,16 @@ import { REDUCED_MOTION } from "@/lib/use-media-query";
 /** What the server writes, before the visitor's own clock is known: the Friday the owner chose this, at 9:41. */
 const DATE = "Friday, October 9";
 const TIME = "9:41";
+
+/** The lock screen's weather: a clinic's town, a clear sky (see "The weather" above). */
+const WEATHER = { place: "Scottsdale", day: { temp: 78, sky: "Sunny" }, night: { temp: 64, sky: "Clear" }, high: 84, low: 61 } as const;
+
+/** The sun from six in the morning until seven at night, on the visitor's clock; the server writes the day. */
+function isNight(minute: number | null): boolean {
+  if (minute === null) return false;
+  const hour = new Date(minute * 60_000).getHours();
+  return hour < 6 || hour >= 19;
+}
 
 /** The wide render, the wall, from here. */
 const WIDE = "(min-width: 1024px)";
@@ -370,11 +390,12 @@ export function Outcomes() {
     };
   }, [openId, close]);
 
+  const night = isNight(minute);
   const outcome = openId ? OUTCOMES.find((o) => o.id === openId) : undefined;
   const timeOf = (o: Outcome) => clock?.notes[o.id] ?? o.time;
 
   return (
-    <section id="outcomes" aria-labelledby="outcomes-heading" className="scroll-mt-24 pt-16 sm:pt-24">
+    <section id="outcomes" aria-labelledby="outcomes-heading" className="page-section page-section--band scroll-mt-24">
       {/* Centred header, the specialties section's own. */}
       <div data-reveal="stagger" className="mx-auto text-center">
         <p className="eyebrow-tag">What changes in month one</p>
@@ -403,6 +424,44 @@ export function Outcomes() {
           <p className="lockscreen__time" aria-hidden>
             {clock?.time ?? TIME}
           </p>
+
+          {/* The Weather widget, as iOS draws one under the clock: its glyph
+              (SF Symbols' sun.max.fill or moon.stars.fill, redrawn), the
+              place with location.fill, then now and the day's range. */}
+          <div aria-hidden className="lockscreen__weather">
+            <svg viewBox="0 0 24 24" fill="currentColor" className="lockscreen__weather-sky">
+              {night ? (
+                <>
+                  <path d="M20.6 14.2A8.6 8.6 0 0 1 9.8 3.4a8.6 8.6 0 1 0 10.8 10.8Z" />
+                  <path d="m17.4 2.6.62 1.66 1.66.62-1.66.62-.62 1.66-.62-1.66-1.66-.62 1.66-.62Zm3.5 4.9.38 1 1 .38-1 .38-.38 1-.38-1-1-.38 1-.38Z" />
+                </>
+              ) : (
+                <>
+                  <circle cx="12" cy="12" r="4.6" />
+                  <path
+                    stroke="currentColor"
+                    strokeWidth="1.9"
+                    strokeLinecap="round"
+                    d="M12 2.4v2.1M12 19.5v2.1M2.4 12h2.1M19.5 12h2.1M5.2 5.2l1.5 1.5M17.3 17.3l1.5 1.5M5.2 18.8l1.5-1.5M17.3 6.7l1.5-1.5"
+                  />
+                </>
+              )}
+            </svg>
+            <span className="lockscreen__weather-text">
+              <span className="lockscreen__weather-place">
+                {WEATHER.place}
+                <svg viewBox="0 0 24 24" fill="currentColor" className="lockscreen__weather-here">
+                  <path d="M20.4 3.6 3.9 10.5c-.7.3-.6 1.3.1 1.5l6.6 1.5 1.5 6.6c.2.7 1.2.8 1.5.1Z" />
+                </svg>
+              </span>
+              <span className="lockscreen__weather-now">
+                {night ? `${WEATHER.night.temp}° ${WEATHER.night.sky}` : `${WEATHER.day.temp}° ${WEATHER.day.sky}`}
+                <span className="lockscreen__weather-range">
+                  H:{WEATHER.high}° L:{WEATHER.low}°
+                </span>
+              </span>
+            </span>
+          </div>
 
           <ol className="lockscreen__wall" aria-label="Notifications from healdesk in month one" inert={outcome ? true : undefined}>
             {OUTCOMES.map((o, j) => {
@@ -446,12 +505,19 @@ export function Outcomes() {
 
           {/* The foot of a lock screen: the flashlight, the camera, the home
               bar, and on a phone, where iOS says "Swipe up to open", how to
-              open one of these. */}
+              open one of these. The two glyphs are iOS's own shapes, filled,
+              as the lock screen draws them (SF Symbols' flashlight.off.fill
+              and camera.fill, owner, 12 October 2026): redrawn here, because
+              Apple licenses the symbol files for apps on its platforms only. */}
           <div aria-hidden className="lockscreen__foot">
             <span className="lockscreen__button">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
-                <path d="M8 2.5h8v4l-2 3v12h-4v-12l-2-3z" />
-                <path d="M12 12.5v2.5" strokeLinecap="round" />
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                {/* The lens cap, then the head narrowing into the handle, with its round switch cut out. */}
+                <path d="M8.35 1.75h7.3a1.6 1.6 0 0 1 1.6 1.6v.85a.75.75 0 0 1-.75.75H7.5a.75.75 0 0 1-.75-.75v-.85a1.6 1.6 0 0 1 1.6-1.6Z" />
+                <path
+                  fillRule="evenodd"
+                  d="M7.05 6.15h9.9c.5 0 .82.53.59.97l-1.74 3.3a1.9 1.9 0 0 0-.22.89v8.84a2.1 2.1 0 0 1-2.1 2.1h-2.96a2.1 2.1 0 0 1-2.1-2.1v-8.84c0-.31-.08-.62-.22-.89L6.46 7.12a.66.66 0 0 1 .59-.97ZM12 12.6a1.55 1.55 0 1 0 0 3.1 1.55 1.55 0 0 0 0-3.1Z"
+                />
               </svg>
             </span>
             <span className="lockscreen__middle">
@@ -459,9 +525,12 @@ export function Outcomes() {
               <span className="lockscreen__home" />
             </span>
             <span className="lockscreen__button">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
-                <path d="M3.5 8h3.5l2-2.5h6l2 2.5h3.5v11h-17z" />
-                <circle cx="12" cy="13" r="3.6" />
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                {/* The body with its hump, the lens ring cut out of it, the glass inside the ring. */}
+                <path
+                  fillRule="evenodd"
+                  d="M9.7 3.9h4.6c.66 0 1.27.33 1.64.88l.86 1.27h2.1A3.1 3.1 0 0 1 22 9.15v8.6a3.1 3.1 0 0 1-3.1 3.1H5.1A3.1 3.1 0 0 1 2 17.75v-8.6a3.1 3.1 0 0 1 3.1-3.1h2.1l.86-1.27c.37-.55.98-.88 1.64-.88ZM12 8.75a4.65 4.65 0 1 0 0 9.3 4.65 4.65 0 0 0 0-9.3Zm0 1.55a3.1 3.1 0 1 1 0 6.2 3.1 3.1 0 0 1 0-6.2Z"
+                />
               </svg>
             </span>
           </div>

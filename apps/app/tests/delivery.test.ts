@@ -455,6 +455,8 @@ describeDb("delivery", () => {
           "billing-requests",
           // Destruction runs every hour (drizzle/0058), on every rule, so a
           // clinic is gone before its agreement's thirty days, or ninety, are up.
+          // Its switch widens it: off, it still runs for the clinics whose
+          // agreement states the export rule (C19, 12 October 2026).
           "offboarding-destroy",
           // The setup reminder (drizzle/0056), hourly behind its switch: each
           // clinic's reminder waits for that clinic's own daytime.
@@ -478,8 +480,10 @@ describeDb("delivery", () => {
         if (job === "booking-request-expiry") continue; // a sweep, not a switched job: pure function of the clock, reports a count
         if (job === "welcome-email") continue; // a sweep: retries only a welcome provisioning recorded as owed
         if (job === "erasure-expiry") continue; // a sweep: empties and deletes only expired deletion records
+        if (job === "offboarding-destroy") continue; // widening: runs for 1.3.0 and DPA clinics, switch or not
         expect(status, job).toBe("disabled");
       }
+      expect(jobs["offboarding-destroy"]).toBe("ok");
       expect(jobs["booking-request-expiry"]).toBe("ok");
       expect(jobs["welcome-email"]).toBe("ok");
       expect(jobs["erasure-expiry"]).toBe("ok");

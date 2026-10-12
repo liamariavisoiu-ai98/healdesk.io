@@ -70,6 +70,15 @@
    */
   --color-paper-2: #f1f1f1;
 
+  /*
+   * The homepage's tonal bands (owner, 12 October 2026): the ground a shade
+   * warmer, under every other section ("Sections" below), the warm of the
+   * proposal the owner chose them from. Warm rather than paper-2's neutral
+   * grey, which beside the page white reads as a panel, not a change of
+   * light.
+   */
+  --color-paper-warm: #f7f3ef;
+
   /* Deep Space Blue, lightened to 5.2:1 on Snow, readable as body text. */
   --color-muted: #5c6e7e;
 
@@ -693,15 +702,43 @@
   transform: rotate(180deg);
 }
 
+/*
+ * The footage comes in slowly (owner, 12 October 2026: it cut in, at full
+ * speed, the moment the pointer landed). It fades up over a second on an
+ * ease that starts gently, while CircleExpandCard eases its speed up from a
+ * fifth; and the picture, still and footage together so the two never part,
+ * pushes in by a few percent over a long deceleration, which is what makes
+ * it read as a camera move rather than a switch. Going is quicker than
+ * coming, so a pointer passing over the bento does not leave a trail of
+ * cards still fading out, and the rewind waits until it has gone.
+ */
+.niche-card__still,
+.niche-card__video {
+  transform: scale(1);
+  transition: transform var(--duration-slower) var(--ease-out);
+}
+
 .niche-card__video {
   opacity: 0;
-  transition: opacity var(--duration-slow) var(--ease-standard);
+  transition:
+    opacity var(--duration-slow) var(--ease-standard),
+    transform var(--duration-slower) var(--ease-out);
+}
+
+.niche-card--ready:hover :is(.niche-card__still, .niche-card__video),
+.niche-card--ready:focus-visible :is(.niche-card__still, .niche-card__video),
+.niche-card[data-expanded] :is(.niche-card__still, .niche-card__video) {
+  transform: scale(1.04);
+  transition: transform calc(var(--duration-slower) * 3) var(--ease-out);
 }
 
 .niche-card--ready:hover .niche-card__video,
 .niche-card--ready:focus-visible .niche-card__video,
 .niche-card[data-expanded] .niche-card__video {
   opacity: 1;
+  transition:
+    opacity calc(var(--duration-slower) * 1.4) var(--ease-in-out),
+    transform calc(var(--duration-slower) * 3) var(--ease-out);
 }
 
 /* Sits above the flood, under the copy. Without it, white text over 72% red
@@ -723,8 +760,14 @@
      instant and complete rather than a 0.01ms sweep. */
   .niche-card__flood,
   .niche-card__video,
-  .niche-card__arrow {
-    transition: none;
+  .niche-card__arrow,
+  .niche-card__still {
+    transition: none !important;
+  }
+
+  .niche-card__still,
+  .niche-card__video {
+    transform: none !important;
   }
 }
 
@@ -1154,17 +1197,13 @@
    centred, so every logo round her is on screen. Its sides and bottom fade
    into the page rather than ending on a line.
 
-   ## The veil and the copy, on the cursor (owner, 9 October 2026)
+   ## The veil and the copy
 
-   On a desktop with a mouse the hero opens on the photo and the logos alone.
-   The white veil, solid behind the copy and very soft by the time it reaches
-   her face, rises a little and fades in with the copy on it when the cursor
-   comes into the bottom third of the hero, and goes when it leaves, while
-   the page is at the top. Scrolling down locks them up; back at the top they
-   follow the cursor again. HeroStage holds the state in `data-reveal`
-   (hidden, shown or locked); this file only draws each. Without a fine
-   pointer that hovers, a touch laptop for one, there is no cursor to follow,
-   so they are simply there, as they are below 1280px.
+   From 1280px the copy sits on a white veil, solid behind the buttons and
+   very soft by the time it reaches her face. Both are there as the page
+   opens (owner, 12 October 2026): until then they waited for the cursor to
+   come into the hero's bottom third, with an arrowhead at its foot to say
+   so (HeroStage.tsx).
 
    ## The orbits, the chips and the cards
 
@@ -1186,8 +1225,7 @@
    site's 0.9 zoom.
 
    Scrolled out of reach the logos rest: `data-paused` holds the drift.
-   Reduced motion: everything is simply in place, and the veil and the copy
-   switch without sliding.
+   Reduced motion: everything is simply in place.
    ============================================================================= */
 
 .hero {
@@ -1200,15 +1238,14 @@
   /*
    * The entrance, as the page opens (owner, 12 October 2026): the photo
    * settles, the full rings draw in round her, then each group's lit stretch,
-   * the chips appear at their heads and the logos fan out of them, and last
-   * the cue's arrowhead draws in. Each beat's start is here, so the order reads in
-   * one place; the copy is not part of it (it comes up on the cursor).
+   * and the chips appear at their heads and the logos fan out of them. Each
+   * beat's start is here, so the order reads in one place; the copy is not
+   * part of it (it is simply there).
    */
   --entrance-rings: 300ms;
   --entrance-arcs: 650ms;
   --entrance-chips: 850ms;
   --entrance-logos: 1000ms;
-  --entrance-cue: 2100ms;
 }
 
 .hero__veil {
@@ -1292,8 +1329,7 @@
   }
 
   /* The white the copy sits on: solid only under the buttons, then thinning
-     along a long eased curve, so it reads as light rather than a sheet. It
-     rises a little and fades in at once (see "Following the cursor"). */
+     along a long eased curve, so it reads as light rather than a sheet. */
   .hero__veil {
     display: block;
     position: absolute;
@@ -1315,9 +1351,6 @@
       rgb(253 253 253 / 0.03) 68%,
       transparent 74%
     );
-    transition:
-      opacity var(--duration-slower) var(--ease-standard),
-      transform var(--duration-slower) var(--ease-out);
   }
 
   .hero__copy {
@@ -1330,163 +1363,6 @@
      overlaps it, and only for as long as a visitor holds it. */
   .portrait__logos {
     z-index: 12;
-  }
-}
-
-/* The cue: the copy is down until the cursor comes to the bottom third, and
-   nothing else on the hero says so. An arrowhead at the foot, pointing down,
-   whenever the copy is down. */
-.hero__cue {
-  display: none;
-}
-
-/* Following the cursor: only where there is one that hovers. */
-@media (min-width: 1280px) and (hover: hover) and (pointer: fine) {
-  .hero[data-reveal="hidden"] .hero__veil {
-    opacity: 0;
-    transform: translateY(24%);
-  }
-
-  /*
-   * Coming: the announcement, then the headline line by line, then the
-   * buttons after its last line. Going: all at once and quicker, so a cursor
-   * that leaves is not left waiting on a slow exit. The pause between lines
-   * is `--line-step`; HeroLines (HeroStage.tsx) numbers each word's line and
-   * counts the lines into `--hero-lines`.
-   */
-  .hero__copy {
-    --line-step: 110ms;
-    --lines-from: 90ms;
-  }
-
-  .hero-line {
-    transition:
-      opacity var(--duration-slow) var(--ease-standard),
-      transform var(--duration-slower) var(--ease-out);
-  }
-
-  .hero-line--after {
-    transition-delay: calc(var(--lines-from) + var(--hero-lines, 1) * var(--line-step) + 60ms);
-  }
-
-  .hero[data-reveal="hidden"] .hero-line {
-    opacity: 0;
-    transform: translateY(24px);
-    transition-duration: var(--duration-base);
-    transition-delay: 0ms;
-  }
-
-  /* Each word rises from under its own line, which clips it: a line comes up
-     out of nothing rather than sliding in from below the one under it. The
-     padding gives the descenders and the italic overhang room inside the
-     clip, and the negative margin gives the room back. */
-  .hero-word {
-    display: inline-block;
-    overflow: clip;
-    padding-block: 0.06em 0.16em;
-    margin-block: -0.06em -0.16em;
-    vertical-align: top;
-  }
-
-  .hero-word > span {
-    display: inline-block;
-    transition:
-      transform var(--duration-slower) var(--ease-out),
-      opacity var(--duration-slow) var(--ease-standard);
-    transition-delay: calc(var(--lines-from) + var(--line, 0) * var(--line-step));
-  }
-
-  .hero[data-reveal="hidden"] .hero-word > span {
-    opacity: 0;
-    transform: translateY(105%);
-    transition-duration: var(--duration-base);
-    transition-delay: 0ms;
-  }
-
-  .hero[data-reveal="hidden"] .hero__copy > div {
-    pointer-events: none;
-  }
-
-  .hero__cue {
-    position: absolute;
-    left: 50%;
-    bottom: 22px;
-    z-index: 6;
-    display: grid;
-    width: 64px;
-    height: 48px;
-    place-items: center;
-    color: var(--color-ink);
-    pointer-events: none;
-    translate: -50% 0;
-    opacity: 0;
-    /* Going, as the copy comes up: at once. */
-    transition: opacity var(--duration-base) var(--ease-standard);
-    /* When it draws in: the entrance's last beat the first time; after
-       that, once the copy has had time to go back down. */
-    --cue-at: var(--entrance-cue);
-  }
-
-  .hero__cue[data-again] {
-    --cue-at: 520ms;
-  }
-
-  .hero__cue svg {
-    width: 34px;
-    height: 19px;
-    overflow: visible;
-    /* A white halo, so it reads over the photo's foot as well as the page. */
-    filter: drop-shadow(0 1px 2px rgb(255 255 255 / 0.9)) drop-shadow(0 2px 8px rgb(23 42 58 / 0.18));
-  }
-
-  .hero__cue path {
-    stroke-dasharray: 1;
-    stroke-dashoffset: 0;
-  }
-
-  /* The last beat of the entrance (see "The entrance" above): once the logos
-     have fanned out the arrowhead draws outwards from its point, then jumps,
-     slowly: down, a small settle, back up, and a long rest at the top. It
-     goes whenever the copy comes up, and whenever the copy goes back down it
-     comes back (owner, 12 October 2026), slowly: a beat later it fades in as
-     it draws again, and only then starts jumping. */
-  .hero__cue[data-show] {
-    opacity: 1;
-    transition: opacity var(--duration-slower) var(--ease-standard) var(--cue-at);
-  }
-
-  .hero__cue[data-show] path {
-    animation: hero-cue-draw var(--duration-slower) var(--ease-out) var(--cue-at) both;
-  }
-
-  .hero__cue[data-show] svg {
-    animation: hero-cue-jump 2.6s var(--ease-in-out) calc(var(--cue-at) + 900ms) infinite;
-  }
-}
-
-@keyframes hero-cue-draw {
-  from {
-    stroke-dashoffset: 1;
-  }
-}
-
-@keyframes hero-cue-jump {
-  0%,
-  100% {
-    transform: translateY(0);
-    opacity: 1;
-  }
-  38% {
-    transform: translateY(11px);
-    opacity: 0.72;
-  }
-  52% {
-    transform: translateY(7px);
-    opacity: 0.86;
-  }
-  70% {
-    transform: translateY(0);
-    opacity: 1;
   }
 }
 
@@ -1911,7 +1787,8 @@
   font-size: 12.5px;
   line-height: 1.3;
   /* Closed: a small oval bubble at the logo's side, which it goes back to
-     quickly. */
+     quickly. Its scale is HeroPortrait's CLOSED_SCALE, which works out from
+     it where the open card will be. */
   opacity: 0;
   pointer-events: none;
   border-radius: 50%;
@@ -2966,6 +2843,152 @@
 }
 
 /* =============================================================================
+   Sections: one rhythm, and tonal bands (owner, 12 October 2026)
+   =============================================================================
+   Every section of the homepage carries `page-section`, so each is padded the
+   same above and below and the gap between any two is twice that: 96px on a
+   phone, 120px from 640px and 144px from 1024px (before the site's 0.9 zoom).
+   Until then each section set its own padding, and the gaps ran from 96px to
+   192px, which read as accident rather than structure.
+
+   Month one and the reviews sit on a band of warm paper, as wide as the
+   screen, so the sections alternate white, warm, white, warm, white before
+   the closing band, at every width. A band reaches one section's padding
+   past its section above and below and fades over twice that, across the
+   gap, so there is never a line where it meets the white and it never
+   reaches the next section's content. It is drawn as a border image pushed
+   out past the box, which paints across the screen without widening the
+   page: what a border image paints outside its box is never scrolled to.
+
+   On a phone the navbar also says which section is on screen (Nav.tsx,
+   "Wayfinding").
+   ============================================================================= */
+
+.page-section {
+  --section-pad: 48px;
+  padding-block: var(--section-pad);
+}
+
+.page-section--band {
+  border-image: linear-gradient(
+      to bottom,
+      transparent,
+      var(--color-paper-warm) calc(var(--section-pad) * 2),
+      var(--color-paper-warm) calc(100% - var(--section-pad) * 2),
+      transparent
+    )
+    0 fill / / var(--section-pad) 100vmax;
+}
+
+@media (min-width: 640px) {
+  .page-section {
+    --section-pad: 60px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .page-section {
+    --section-pad: 72px;
+  }
+}
+
+/* The navbar's wayfinding, on a phone (Nav.tsx, useWayfinding): past the
+   hero, the wordmark gives way to the mark and the section's title, which
+   rises in afresh at each new section, and the reading hairline shows. One
+   grid cell, so the swap moves nothing else in the bar. */
+.nav-brand {
+  display: grid;
+  align-items: center;
+}
+
+.nav-brand > * {
+  grid-area: 1 / 1;
+  transition:
+    opacity var(--duration-base) var(--ease-standard),
+    transform var(--duration-slow) var(--ease-out);
+}
+
+.nav-brand__logo {
+  display: block;
+}
+
+.nav-brand__way {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+}
+
+.nav[data-way] .nav-brand__logo {
+  opacity: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
+}
+
+.nav[data-way] .nav-brand__way {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.nav-brand__mark {
+  display: block;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 1px var(--color-line);
+}
+
+.nav-brand__title {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  color: var(--color-red-deep);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.005em;
+  animation: nav-title-in var(--duration-slow) var(--ease-out) both;
+}
+
+@keyframes nav-title-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* How far through the page past the hero (`--read`, 0 to 1). */
+.nav-progress {
+  position: absolute;
+  inset-inline: 0;
+  bottom: -1px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--color-red), var(--color-orange));
+  transform: scaleX(var(--read, 0));
+  transform-origin: 0 50%;
+  opacity: 0;
+  transition: opacity var(--duration-base) var(--ease-standard);
+}
+
+.nav[data-way] .nav-progress {
+  opacity: 1;
+}
+
+@media (min-width: 640px) {
+  .nav-brand__way,
+  .nav-progress {
+    display: none;
+  }
+}
+
+/* =============================================================================
    Review card
    =============================================================================
    One face since 12 October 2026: the card no longer turns over to show the
@@ -3016,7 +3039,14 @@
    little, with slanted ends; streaks along it where the felt ran lighter
    (stretched noise); edges that wander (a displacement); and the ink a shade
    deeper where the tip landed and lifted. It stretches to the words, so the
-   streaks run longer under a longer title, as they would. */
+   streaks run longer under a longer title, as they would.
+
+   The words are white (owner, 12 October 2026; they were the logo's red
+   that morning), so the stroke is the logo's orange at its text shade
+   (--color-orange-deep) and nearly opaque, its lighter streaks only a little
+   lighter: white on the pale peach it was measured 1.4:1. White on this
+   orange is about 3.5:1. "Already a customer?" on the review wall is set in
+   the same face and size (LeaveReview.tsx), so change the two together. */
 @utility eyebrow-tag {
   display: inline-block;
   font-family: var(--font-sans);
@@ -3025,8 +3055,8 @@
   letter-spacing: 0.005em;
   line-height: 1;
   padding: 8px 14px;
-  color: var(--color-ink);
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 44' preserveAspectRatio='none'%3E%3Cfilter id='h' x='-4%25' y='-30%25' width='108%25' height='160%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.004 .3' numOctaves='3' seed='4' result='s'/%3E%3CfeColorMatrix in='s' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 .38' result='m'/%3E%3CfeComposite in='SourceGraphic' in2='m' operator='in' result='t'/%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.018 .06' numOctaves='2' seed='9' result='e'/%3E%3CfeDisplacementMap in='t' in2='e' scale='3.2' xChannelSelector='R' yChannelSelector='G'/%3E%3C/filter%3E%3ClinearGradient id='a' gradientUnits='userSpaceOnUse' x1='4' x2='52'%3E%3Cstop offset='0' stop-color='%23ff9a4a' stop-opacity='.3'/%3E%3Cstop offset='1' stop-color='%23ff9a4a' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='b' gradientUnits='userSpaceOnUse' x1='295' x2='250'%3E%3Cstop offset='0' stop-color='%23ff9a4a' stop-opacity='.26'/%3E%3Cstop offset='1' stop-color='%23ff9a4a' stop-opacity='0'/%3E%3C/linearGradient%3E%3Cg filter='url(%23h)'%3E%3Cpath fill='%23ff9a4a' fill-opacity='.5' d='M10 13C70 10.5 190 9.5 290 7.5L295 34C200 36 95 37.6 4 38.6Z'/%3E%3Cpath fill='url(%23a)' d='M10 13C70 10.5 190 9.5 290 7.5L295 34C200 36 95 37.6 4 38.6Z'/%3E%3Cpath fill='url(%23b)' d='M10 13C70 10.5 190 9.5 290 7.5L295 34C200 36 95 37.6 4 38.6Z'/%3E%3C/g%3E%3C/svg%3E") center / 100% 100% no-repeat;
+  color: #fff;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 44' preserveAspectRatio='none'%3E%3Cfilter id='h' x='-4%25' y='-30%25' width='108%25' height='160%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.004 .3' numOctaves='3' seed='4' result='s'/%3E%3CfeColorMatrix in='s' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 .8' result='m'/%3E%3CfeComposite in='SourceGraphic' in2='m' operator='in' result='t'/%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.018 .06' numOctaves='2' seed='9' result='e'/%3E%3CfeDisplacementMap in='t' in2='e' scale='3.2' xChannelSelector='R' yChannelSelector='G'/%3E%3C/filter%3E%3ClinearGradient id='a' gradientUnits='userSpaceOnUse' x1='4' x2='52'%3E%3Cstop offset='0' stop-color='%23e05800' stop-opacity='.3'/%3E%3Cstop offset='1' stop-color='%23e05800' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='b' gradientUnits='userSpaceOnUse' x1='295' x2='250'%3E%3Cstop offset='0' stop-color='%23e05800' stop-opacity='.26'/%3E%3Cstop offset='1' stop-color='%23e05800' stop-opacity='0'/%3E%3C/linearGradient%3E%3Cg filter='url(%23h)'%3E%3Cpath fill='%23e05800' fill-opacity='.94' d='M10 13C70 10.5 190 9.5 290 7.5L295 34C200 36 95 37.6 4 38.6Z'/%3E%3Cpath fill='url(%23a)' d='M10 13C70 10.5 190 9.5 290 7.5L295 34C200 36 95 37.6 4 38.6Z'/%3E%3Cpath fill='url(%23b)' d='M10 13C70 10.5 190 9.5 290 7.5L295 34C200 36 95 37.6 4 38.6Z'/%3E%3C/g%3E%3C/svg%3E") center / 100% 100% no-repeat;
 }
 
 /*
@@ -3144,6 +3174,15 @@
    paper plane that flies in; when the pointer leaves they change back. The
    two share the button's one cell, so it keeps the word's width, and the
    word stays in the page as the button's name. */
+/*
+ * A button's words giving way to its icon, as one hand-over rather than a
+ * swap (owner, 12 October 2026: "Talk now" into the phone, and "Send" into
+ * the paper plane, were too abrupt). The leaving one goes first, softening
+ * and shrinking a little; the arriving one follows a beat later out of a
+ * blur, on a long deceleration with no overshoot, so the two are never both
+ * sharp at once. Each state's rule carries the delay of the one arriving in
+ * it, so the hand-over runs the same way back.
+ */
 .morph-btn {
   display: inline-grid;
   place-items: center;
@@ -3152,16 +3191,21 @@
 .morph-btn > * {
   grid-area: 1 / 1;
   transition:
-    opacity var(--duration-base) var(--ease-standard),
-    transform var(--duration-slow) var(--ease-spring),
-    filter var(--duration-base) var(--ease-standard);
+    opacity var(--duration-slow) var(--ease-standard),
+    transform var(--duration-slower) var(--ease-out),
+    filter var(--duration-slow) var(--ease-standard);
+}
+
+.morph-btn__label {
+  transition-delay: 140ms;
 }
 
 .morph-btn__icon {
   display: grid;
   opacity: 0;
-  filter: blur(3px);
-  transform: scale(0.4) rotate(-30deg);
+  filter: blur(6px);
+  transform: scale(0.62) rotate(-16deg);
+  transition-delay: 0ms;
 }
 
 .morph-btn__icon svg {
@@ -3169,40 +3213,50 @@
   height: 1.3em;
 }
 
+/* The plane comes in from low and to the left, as if landing. */
 .morph-btn__icon--fly {
-  transform: translate(-10px, 8px) scale(0.5) rotate(-12deg);
+  transform: translate(-9px, 7px) scale(0.62) rotate(-10deg);
 }
 
+/* Morphed. Under the pointer or keyboard focus on most; on Send, once the
+   visitor's first words have woken it (`data-armed`, ChatSkins.tsx), and
+   then for good. */
 @media (hover: hover) {
-  .morph-btn:hover .morph-btn__label {
+  .morph-btn:not(.morph-btn--once):hover .morph-btn__label {
     opacity: 0;
-    filter: blur(4px);
-    transform: scale(0.7);
+    filter: blur(6px);
+    transform: scale(0.82);
+    transition-delay: 0ms;
   }
 
-  .morph-btn:hover .morph-btn__icon {
+  .morph-btn:not(.morph-btn--once):hover .morph-btn__icon {
     opacity: 1;
     filter: blur(0);
     transform: none;
+    transition-delay: 140ms;
   }
 }
 
-.morph-btn:focus-visible:not(:disabled) .morph-btn__label {
+.morph-btn:not(.morph-btn--once):focus-visible:not(:disabled) .morph-btn__label,
+.morph-btn--once[data-armed] .morph-btn__label {
   opacity: 0;
-  filter: blur(4px);
-  transform: scale(0.7);
+  filter: blur(6px);
+  transform: scale(0.82);
+  transition-delay: 0ms;
 }
 
-.morph-btn:focus-visible:not(:disabled) .morph-btn__icon {
+.morph-btn:not(.morph-btn--once):focus-visible:not(:disabled) .morph-btn__icon,
+.morph-btn--once[data-armed] .morph-btn__icon {
   opacity: 1;
   filter: blur(0);
   transform: none;
+  transition-delay: 140ms;
 }
 
 /* The phone rings once it is there. */
 @media (prefers-reduced-motion: no-preference) and (hover: hover) {
   .morph-btn:hover .morph-btn__icon--ring svg {
-    animation: morph-ring var(--duration-slower) var(--ease-in-out) var(--duration-base) both;
+    animation: morph-ring var(--duration-slower) var(--ease-in-out) 520ms both;
   }
 }
 
@@ -3241,12 +3295,14 @@
 }
 
 /* The soul's aura round her, on healdesk's own card: the same three layers
-   the soul has, larger, reaching well past her face so the part outside it
-   is the living edge. */
+   the soul has, reaching a little past her face so the part outside it is
+   the living edge. Kept inside the gap between her and the ways to call
+   (owner, 12 October 2026): at -34% it reached over the line above her and
+   the "In your browser" under the control. */
 .aya-aura {
   --soul-beat: 3500ms;
-  --soul-aura: -34%;
-  --soul-aura-blur: 22px;
+  --soul-aura: -12%;
+  --soul-aura-blur: 18px;
   pointer-events: none;
 }
 
@@ -3477,8 +3533,10 @@
   }
 }
 
-/* One app into the next: the header, the thread, the composer and the box's
-   highlight each morph, and the page itself does not cross-fade under them. */
+/* One app into the next: the header, the thread and the composer each morph,
+   and the page itself does not cross-fade under them. The boxes' pill is not
+   among them: a morphing element is drawn above the whole page while it
+   moves, and the pill has to stay under the boxes' icons (.voice-segments). */
 :root.chat-morph::view-transition-old(root),
 :root.chat-morph::view-transition-new(root) {
   animation: none;
@@ -3504,7 +3562,7 @@
 
 /* The segmented control's pill, sliding to the way chosen: one column of the
    control's grid wide (its padding and gap taken off), moved along by whole
-   widths of itself. */
+   widths of itself. The chat card's boxes are the same control (ChatSkins). */
 .voice-segments__pill {
   position: absolute;
   top: 4px;
@@ -3955,6 +4013,58 @@
   color: transparent;
 }
 
+/* The Weather widget under the clock (Outcomes.tsx, "The weather"): white
+   on the wallpaper, as the date and the clock are, with no plate behind it,
+   as iOS draws a rectangular widget. */
+.lockscreen__weather {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 10px;
+  margin: 10px auto 0;
+  color: rgb(255 255 255 / 0.94);
+  text-align: left;
+}
+
+.lockscreen__weather-sky {
+  width: 30px;
+  height: 30px;
+  flex: none;
+}
+
+.lockscreen__weather-text {
+  display: grid;
+  gap: 1px;
+}
+
+.lockscreen__weather-place {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.005em;
+}
+
+.lockscreen__weather-here {
+  width: 11px;
+  height: 11px;
+}
+
+.lockscreen__weather-now {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.lockscreen__weather-range {
+  opacity: 0.78;
+}
+
 .lockscreen__wall {
   --note-gap: 8px;
   --note-h: 106px;
@@ -4137,6 +4247,7 @@
 
   .lockscreen__date,
   .lockscreen__time,
+  .lockscreen__weather,
   .lockscreen__foot {
     transition:
       opacity var(--duration-slower) var(--ease-standard) 200ms,
@@ -4149,7 +4260,8 @@
   }
 
   .month[data-state="armed"] .lockscreen__date,
-  .month[data-state="armed"] .lockscreen__time {
+  .month[data-state="armed"] .lockscreen__time,
+  .month[data-state="armed"] .lockscreen__weather {
     opacity: 0;
     transform: translateY(12px) scale(0.98);
   }
@@ -4361,16 +4473,51 @@
   padding: 16px;
 }
 
+/*
+ * The opened card is iOS 26's Liquid Glass (owner, 12 October 2026): it was
+ * a near-opaque sheet. Glass is several things at once, and each is a layer
+ * here rather than one tint:
+ *
+ * - The body is clear enough to see the wallpaper through. The scrim under
+ *   it has already blurred and dimmed the screen; the card's own blur and
+ *   lifted saturation add to that where a browser lets it see past the
+ *   scrim (Chromium does not: a parent with a backdrop-filter is as far
+ *   back as a child's can see), so the colour under it comes through
+ *   brighter than it is, as the material bends light rather than frosts.
+ * - Light falls from the top left: a soft sheen across that corner, and the
+ *   body a shade clearer toward the foot.
+ * - The rim catches it: a bright line along the top edge, a white hairline
+ *   all round, and a band of light along the lower lip. Shadows and the
+ *   background stay put while the card scrolls, which a pseudo-element drawn
+ *   over a scrolling box would not.
+ * - It floats, on the site's large shadow.
+ *
+ * The refraction iOS draws at the edge needs an SVG displacement behind the
+ * card, which only Chromium accepts in backdrop-filter, and a browser that
+ * fails to read the declaration drops the blur with it, so the edge's light
+ * is drawn and not bent. The words stay legible because the scrim under the
+ * card has already dimmed and blurred the wallpaper: the glass is lit
+ * against a dark, even field, and its secondary text is set darker than a
+ * solid card would need (.notice__detail, .notice__time).
+ */
 .notice {
   width: min(560px, 100%);
   max-height: 100%;
   overflow: auto;
   padding: 16px 16px 18px;
   border-radius: var(--radius-lg);
-  background: rgb(247 247 250 / 0.97);
+  background:
+    radial-gradient(120% 70% at 0% 0%, rgb(255 255 255 / 0.42), transparent 58%),
+    linear-gradient(to top, rgb(255 255 255 / 0.3), transparent 22px),
+    linear-gradient(165deg, rgb(255 255 255 / 0.84) 0%, rgb(250 250 253 / 0.7) 46%, rgb(246 247 251 / 0.64) 100%);
+  -webkit-backdrop-filter: blur(40px) saturate(1.9) brightness(1.08);
+  backdrop-filter: blur(40px) saturate(1.9) brightness(1.08);
   color: #000;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
-  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.06), var(--shadow-lg);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.95),
+    0 0 0 0.5px rgb(255 255 255 / 0.6),
+    var(--shadow-lg);
   overscroll-behavior: contain;
 }
 
@@ -4426,7 +4573,7 @@
 
 .notice__app {
   flex: 1;
-  color: rgb(60 60 67 / 0.7);
+  color: rgb(40 40 46 / 0.76);
   font-size: 12.5px;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -4434,7 +4581,7 @@
 }
 
 .notice__time {
-  color: rgb(60 60 67 / 0.6);
+  color: rgb(40 40 46 / 0.72);
   font-size: 13px;
 }
 
@@ -4468,7 +4615,7 @@
 
 .notice__detail {
   margin-top: 12px;
-  color: rgb(60 60 67 / 0.88);
+  color: rgb(28 28 34 / 0.86);
   font-size: 15.5px;
   line-height: 1.5;
   letter-spacing: -0.01em;
@@ -4480,6 +4627,8 @@
   padding: 18px 8px 0;
 }
 
+/* Close is a pane of the same glass, lit along its top edge, rather than a
+   grey fill, which on a clear card read as a hole in it. */
 .notice__button {
   display: grid;
   flex: 1;
@@ -4487,7 +4636,11 @@
   place-items: center;
   border: 0;
   border-radius: var(--radius-md);
-  background: rgb(120 120 128 / 0.16);
+  background: rgb(255 255 255 / 0.42);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.9),
+    0 0 0 0.5px rgb(255 255 255 / 0.5),
+    var(--shadow-sm);
   color: #000;
   font: inherit;
   font-size: 16px;
@@ -4499,7 +4652,7 @@
 }
 
 .notice__button:hover {
-  background: rgb(120 120 128 / 0.24);
+  background: rgb(255 255 255 / 0.62);
 }
 
 .notice__button:active {
@@ -4510,6 +4663,9 @@
    red under the pointer that "Get AYA" has. */
 .notice__button--primary {
   background: var(--color-red);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.32),
+    var(--shadow-sm);
   color: #fff;
 }
 

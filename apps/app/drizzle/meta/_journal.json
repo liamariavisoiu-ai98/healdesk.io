@@ -474,8 +474,15 @@
     {
       "idx": 67,
       "version": "7",
-      "when": 1791822611432,
-      "tag": "0067_baa_release_1_3_0",
+      "when": 1791824023640,
+      "tag": "0067_c19_erasure_retention",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1791829061372,
+      "tag": "0068_baa_release_1_3_0",
       "breakpoints": true
     }
   ]

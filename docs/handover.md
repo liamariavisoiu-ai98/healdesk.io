@@ -379,8 +379,15 @@ npm test -w @healdesk/app          # database suites skip without TEST_APP_URL
 
 `queue:install` is separate because pg-boss creates a schema, and CREATE is a privilege
 the runtime role deliberately does not have. The worker is a plain Node entry point, not
-a Next route. Every job ships switched off and is enabled from the ops console; the
-`heartbeat` row is the liveness signal and `/api/health` reports its age.
+a Next route. Jobs are enabled from the ops console, and most ship switched off, with
+these exceptions. `heartbeat` and `incident-deadlines` ship on (0066 seeds the latter
+on). `retention-purge` and `offboarding-destroy` run for every clinic whose agreement
+states what they do, whatever their switch, which only adds the other clinics: BAA
+1.3.0 and the DPA today, read from each version's own text (`purgeIsPromised`,
+`exportRuleIsPromised`; switched off, each run's note says so). And four sweeps have no
+switch at all: `erasure-expiry`, `booking-request-expiry`, `welcome-email` and
+`booking-requirements-defaults`. The `heartbeat` row is the liveness signal and
+`/api/health` reports its age.
 [on-call.md](./on-call.md) is the runbook.
 
 ### Retention and offboarding
@@ -405,7 +412,11 @@ vendor payload (`webhook_events`) thirty days after it arrived once processed (o
 record clock, if shorter) and at the record clock if it was never processed, and either
 kind of payload no later than the transcript period, since a call's payload carries its
 transcript, and an amendment with the record it amends. `lib/retention/purge.ts` lists
-each period as BAA 1.3.0's clause 11 states it.
+each period as BAA 1.3.0's clause 11 states it. Every cutoff is a day early, so a row is
+gone before its period ends whichever of the 03 and 09 UTC runs takes it (the database's
+`app_record_cutoff()` takes the same day), and a deposit goes the night its appointment
+does, or once older than the record clock when its appointment is already gone
+(`app_purge_deposit_payments()`, 0067).
 
 Which clinics: a clinic whose agreement states the purge's periods is purged every night
 whether the job's switch is on or not (`purgeIsPromised`, which reads each version's own
@@ -484,7 +495,11 @@ record of the request, no longer than we need it.
    acting on a request from anywhere else. The request names the person by the
    telephone number and/or email address they gave the practice's assistant. Never ask
    for, or write down, their name.
-3. **Run it, never on the care page.** The person's number and address must not cross
+3. **Run it for each location, never on the care page.** A deletion reaches one
+   location: each of a practice's locations is its own clinic here, with its own
+   contacts, calls and requests, so run it once for every location the person may have
+   used, with that location's clinic id (and, on the AWS host, that location's contact
+   id). The person's number and address must not cross
    apps/web, which runs on a host with no business associate agreement, so the deletion
    is a script in apps/app (`npm run ops:erase-person -w @healdesk/app`;
    `erasePersonFromShell` in `apps/app/src/lib/ops/patient-entry.ts`):
@@ -498,7 +513,11 @@ record of the request, no longer than we need it.
      CloudShell. The person is whoever that
      contact's number and address lead to, read inside the transaction. Nothing about
      the person is typed or passed: there is no interactive shell there, and run-task's
-     overrides are recorded by CloudTrail ("Reaching the app's shell", below);
+     overrides are recorded by CloudTrail ("Reaching the app's shell", below). **Nothing
+     on AWS turns a number into a contact id yet**: the ops console does not show one,
+     and the route, a deletion request the practice files in its portal behind step-up,
+     waits for M5. A practice never sees our contact ids, so until then nothing on the
+     AWS host can supply one, and a deletion there waits for M5;
    - **on a development machine, against a development database:** the same as
      arguments (`--clinic`, `--contact`, `--requested-by`, `--received-at`,
      `--operator`), or, without `--contact`, the number and the address typed at the
@@ -513,13 +532,20 @@ record of the request, no longer than we need it.
    those is theirs, and goes whole, so a second contact that shares their number goes
    with its calls even when the practice gave only the address. The reply says how
    many numbers and addresses that came to. What goes: the person's contacts, calls,
-   appointments, payments matched to them, every booking request that names them, their half-collected Meta drafts, their own messaging threads, the raw
-   payloads the voice vendor or another service sent about them, and their
-   suppressions, consent records and contact attempts. A booking request that names
-   someone else stays, even one the person sent: a messaging thread is theirs only when
-   everything it sent named them, and a thread that also booked for others (a parent
-   booking for a child and for themselves) keeps what it sent for them, with its draft
-   and its thread. The reply counts what was kept that way, never who; tell the
+   appointments, payments matched to them, the deposits of their appointments (our
+   copies, with the Connect event that last touched each; the charge stays the
+   practice's record in its own Stripe account), every booking request that names
+   them, their half-collected Meta drafts, their own messaging threads, the raw
+   payloads the voice vendor or another service sent about them, the conversation of a
+   call with no caller ID whose payload named them, and their suppressions, consent
+   records and contact attempts. A booking request that names someone else stays, even
+   one the person sent: a messaging thread is theirs only when everything it sent
+   named them, and a thread that also booked for others (a parent booking for a child
+   and for themselves) keeps what it sent for them, with its draft and its thread.
+   Unless the thread is on the person's own number, as every WhatsApp thread is: then
+   its requests for the others stay without the thread (no sender id, no message id;
+   the desk calls the number on the request), and its draft and its row go. The reply
+   counts what was kept that way, and how many lost their thread, never who; tell the
    practice those requests stay as the other people's records. The care page then
    lists the request, its deadline and its subcontractor steps, and nothing that
    names the person.
@@ -527,7 +553,9 @@ record of the request, no longer than we need it.
    deadline, until it is recorded. Retell: in Retell's console, find and delete the
    person's calls and transcripts by their number, then record how it went on the care
    page, one of two choices ("Deleted in the vendor's console", "The vendor held
-   nothing for the person"), never typed. Anthropic is not
+   nothing for the person"), never typed. Retell is the only voice vendor with a step:
+   **no real patient call may go through Synthflow**, which still carries the owners'
+   demo calls and has no deletion step here, so a deletion could not reach its copy. Anthropic is not
    a step: what it keeps it keeps under the exception clause 4(c) names, for the period
    the Subcontractors clause states. AWS is our database and its backups, which the
    deletion and the 35-day backup window reach. Meta and Google Calendar are the
@@ -549,8 +577,8 @@ record of the request, no longer than we need it.
 
 What it cannot find. A call with no caller ID creates no contact, so nothing ties it to
 the person by number: the deletion finds such a call only if the practice names its
-number and the vendor's payload carries it, and its conversation, which names no one,
-stays until the record clock takes it. Raw payloads are searched string by string (a
+number and the vendor's payload carries it. Then its conversation goes with the
+payload, unless someone's contact is on it or someone else's booking refers to it. Raw payloads are searched string by string (a
 JSON body is decoded first; any other body is read as text) for the number and the
 address matched whole: the address with no address character before it or domain
 character after it, the number in its international form and, for a North American
@@ -665,10 +693,9 @@ recorded by CloudTrail. So on the AWS host: by contact id, through run-task.sh o
   and the details are patient data. They wait for the M5 portal, which takes them from
   the practice behind step-up.
 
-**Open items.** The task families for these scripts (the task definitions, roles, log
-groups, the deploy workflow and run-task.sh's list) are the infra owner's to add once
-the scripts are on main; nothing in infra/ runs them yet. And the operator needs a
-contact's id without the person's details crossing any channel: the clean route is a
+**Open items.** run-task.sh runs `erase-person` and `amend-contact` as one-off tasks.
+The operator needs a contact's id without the person's details crossing any channel,
+and nothing shows one: the ops console does not, and the clean route is a
 deletion request the practice files in its portal behind step-up (M5), which yields the
 request's or the contact's id for the task's environment. Until M5 there is no such
 route on AWS: finding a contact's id from a number would mean typing the number there.
@@ -746,7 +773,7 @@ request run again before the service reopens:
    to name each request lost (clinic and request id): run each deletion again from the
    practice's request, which the mailbox keeps for those 35 days ("Deletion requests").
 5. Run `npm run reapply-erasures -w @healdesk/app` with the runtime role's
-   `DATABASE_URL`. For every deletion whose record still holds its references, it finds
+   `DATABASE_URL` (on the AWS host: `bash run-task.sh reapply-erasures` in CloudShell). For every deletion whose record still holds its references, it finds
    the person in the restored data and deletes what was recorded no later than the
    deletion ran, so anything they gave afterwards stays, and writes no new record. It
    exits non-zero if any clinic could not be done.

@@ -6,6 +6,7 @@
 #   bash infra/aws/scripts/run-task.sh migrate        migrations, then queue:install
 #   bash infra/aws/scripts/run-task.sh db-bootstrap   init-secrets, then the two roles
 #   bash infra/aws/scripts/run-task.sh destroy-due    after a restore: destroy every clinic due
+#   bash infra/aws/scripts/run-task.sh reapply-erasures   after a restore: delete again every person deleted
 #   bash infra/aws/scripts/run-task.sh patient-export <clinic id>
 #                                                     a leaving clinic's return bundle
 #   bash infra/aws/scripts/run-task.sh erase-person <clinic id> <contact id> <who asked> <you@healdesk.io> [received at]
@@ -65,7 +66,7 @@ fail() {
   exit 1
 }
 usage() {
-  echo "usage: $0 migrate|db-bootstrap|destroy-due" >&2
+  echo "usage: $0 migrate|db-bootstrap|destroy-due|reapply-erasures" >&2
   echo "       $0 patient-export <clinic id>" >&2
   echo "       $0 erase-person <clinic id> <contact id> <who asked> <you@healdesk.io> [received at, e.g. 2026-10-12]" >&2
   echo "       $0 amend-contact <clinic id> <contact id> <fields to clear, e.g. phone,email> <who asked> <you@healdesk.io>" >&2
@@ -92,6 +93,10 @@ case "$1" in
     ;;
   destroy-due)
     family=healdesk-production-destroy-due
+    container=app
+    ;;
+  reapply-erasures)
+    family=healdesk-production-reapply-erasures
     container=app
     ;;
   patient-export)
@@ -141,7 +146,7 @@ fi
 # drawn from a character set that needs no quoting in JSON.
 if [ "$1" = erase-person ] || [ "$1" = amend-contact ]; then
   is_uuid "$2" || fail "the clinic id must be the clinic's uuid (the ops console shows it)"
-  is_uuid "$3" || fail "the contact id must be the contact's uuid (the ops console shows it); a person is never named by their number, address or name here"
+  is_uuid "$3" || fail "the contact id must be the contact's uuid; until the M5 portal nothing on AWS turns a number, an address or a name into one (docs/handover.md, \"Deletion requests\"), and a person is never named by any of those here"
   clinic_id=$(lower "$2")
   contact_id=$(lower "$3")
 fi
@@ -296,7 +301,7 @@ if [ "$exit_code" != 0 ]; then
 fi
 say "$1 succeeded"
 if [ "$1" = patient-export ]; then
-  say "the bundle is s3://$EXPORT_BUCKET/$export_key (it is deleted after 7 days if nobody deletes it first)"
+  say "the bundle is s3://$EXPORT_BUCKET/$export_key: download it now (S3 deletes it within two days if nobody deletes it first)"
   say "download it here, then Actions > Download file:  aws s3 cp s3://$EXPORT_BUCKET/$export_key ."
   say "after the handover, delete both copies:  aws s3 rm s3://$EXPORT_BUCKET/$export_key && rm -f $export_key"
   say "then record the handover on the clinic's care page in the ops console"

@@ -217,6 +217,7 @@ export async function erasePersonFromShell(input: {
     clinicSlug: clinic.slug,
     erasureId: result.erasureId,
     rows,
+    deposits: result.deleted.deposits,
   });
   return {
     status: "erased",

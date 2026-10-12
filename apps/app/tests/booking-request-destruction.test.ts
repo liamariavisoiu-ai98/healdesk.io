@@ -675,6 +675,8 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       conversations_deleted: 0,
       contacts_deleted: 0,
       amendments_deleted: 0,
+      deposits_deleted: 0,
+      connect_events_deleted: 0,
     });
 
     // The purge: never ahead of the clinic's own record clock, and inside it
@@ -747,6 +749,8 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       conversations_deleted: 1,
       contacts_deleted: 1,
       amendments_deleted: 0,
+      deposits_deleted: 0,
+      connect_events_deleted: 0,
     });
     expect(after.left).toEqual({
       contacts: 0,
@@ -1096,14 +1100,15 @@ describeDb("booking requests at destruction, erasure and purge", () => {
     ).rejects.toMatchObject(tooLate);
     expect(await counts(c.clinicId)).toEqual(ONE_PERSON);
 
-    // The cutoff is the clock in force, ninety days of twenty-four hours,
-    // in a zone that stretches the session's ninety days and in one that
-    // shrinks them.
+    // The cutoff is the clock in force, ninety days of twenty-four hours, a
+    // day early (drizzle/0067: the purge runs twice a day, and a row must be
+    // gone before its period ends), in a zone that stretches the session's
+    // ninety days and in one that shrinks them.
     for (const hostile of [await zoneStretching("90 days"), await zoneShrinking("90 days")]) {
       const { rows } = await asApp(c.clinicId, async (q) => {
         await setLocalZone(q, hostile.zone);
         return q.query<{ exact: boolean; reach: number }>(
-          `select app_record_cutoff() = now() - interval '2160 hours' as exact,
+          `select app_record_cutoff() = now() - interval '2136 hours' as exact,
                   extract(epoch from now() - (now() - interval '90 days'))::float8 / 86400 as reach`,
         );
       });

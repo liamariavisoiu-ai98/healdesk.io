@@ -167,6 +167,32 @@ describe("the guard", () => {
     expect(FRONT_DOOR_PROBES.length).toBeGreaterThanOrEqual(12);
     expect(FRONT_DOOR_PROBES.map((p) => p.id)).toEqual(expect.arrayContaining(["alts", "surname"]));
   });
+
+  test("the prompt asks for no greeting: the code opens a first reply with the channel's, so the model starts with the substance (BAA 1.3.0 gate 20)", () => {
+    const resolved = resolveBookingRequirements("med-spa", null);
+    const prompt = buildFrontDoorPrompt({
+      clinicName: "Radiance",
+      phone: "+1 415 555 0199",
+      websiteHint: "radiance.example",
+      services: [{ name: "Consultation", priceFromUsd: 0, priceToUsd: 0 }],
+      notes: null,
+      escalationHours: null,
+      requirements: metaEligible(resolved),
+      deferredRequirements: resolved.filter((f) => !f.metaEligible),
+    });
+    expect(prompt).not.toContain("Greet the person warmly and briefly");
+    // The one line that speaks of greeting or introducing forbids both, and says why.
+    const greetingLines = prompt.split("\n").filter((line) => /\bgreet|\bintroduc/i.test(line));
+    expect(greetingLines).toEqual([
+      '1. Start your reply with the substance. Never greet the person (no "Hi", "Hello" or "Hey"), and never introduce yourself or say what you are unless they ask: the code puts the channel\'s opening line in front of your reply wherever one is owed, and that line already greets them and says you are an AI assistant.',
+    ]);
+    // The rest of the list stands as it was: rule 1 changed, 2 to 4 did not.
+    const rules = prompt.split("\n").filter((line) => /^\d\. /.test(line));
+    expect(rules.map((line) => line.slice(0, 3))).toEqual(["1. ", "2. ", "3. ", "4. "]);
+    expect(rules[1]).toBe("2. Answer PUBLIC questions from the facts below: hours, location, parking, and whether the practice offers something the person asks about and its published price, without ever naming it.");
+    expect(rules[2]).toBe("3. Move the person to a secure channel to discuss anything personal: the phone (+1 415 555 0199) or the website (radiance.example).");
+    expect(prompt).toContain("- Claim to be human. If asked, say you are an automated assistant.");
+  });
 });
 
 describe("reading Meta's payloads", () => {

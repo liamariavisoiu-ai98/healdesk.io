@@ -14,8 +14,13 @@
 #     upload that names another kind of encryption;
 #   - TLS only, no public access of any kind, objects owned by the bucket;
 #   - NOT versioned: the operator's delete after the handover is final, and an
-#     object nobody deletes is gone after export_retention_days anyway, well
-#     inside the thirty days the 1.3.0 agreement gives the export;
+#     object nobody deletes is gone after export_retention_days anyway. One
+#     day, which S3 counts to the next midnight UTC after a full day, so a
+#     bundle lasts 24 to 48 hours: one produced on day 28 or 29 of the
+#     destruction clock cannot outlive the destruction by more than that, and
+#     the operator downloads it straight after the run in any case (the C19
+#     re-audit: at seven days a late bundle could outlive the data it copied,
+#     against 1.3.0 clause 17's "retains no copies");
 #   - every object read and write is a CloudTrail data event (cloudtrail.tf):
 #     who downloaded which clinic's bundle, and when.
 #
@@ -27,7 +32,7 @@
 locals {
   export_bucket          = "${local.name}-exports-${local.account_id}"
   export_bucket_arn      = "arn:aws:s3:::${local.export_bucket}"
-  export_retention_days  = 7
+  export_retention_days  = 1
   export_task_family     = "${local.name}-patient-export"
   export_task_role_name  = "${local.name}-export-task"
   export_object_key_glob = "${local.export_bucket_arn}/clinic-*.json"

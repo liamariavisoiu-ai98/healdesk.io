@@ -150,6 +150,96 @@ describeDb("care operations", () => {
     expect(view.clinic.exportDeliveredAt).not.toBeNull();
   }, 120_000);
 
+  // The calendar session's re-audit (C19, 12 October 2026): the return
+  // bundle left out the raw payloads, the only place a transcript's words
+  // sit in the database, kept up to the record clock when never processed,
+  // while clause 17 promises "an export of the patient information it holds".
+  test("the clinic's return bundle carries its raw payloads, decoded where they parse, with its threads and drafts", async () => {
+    const c = await seedClinic("care-export-payloads");
+    const at = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    const deep = "[".repeat(100_000) + '"x"' + "]".repeat(100_000);
+    // Deep enough to parse, and to pass a check that writes the body alone,
+    // but not to be written inside the bundle (third review of C19).
+    const deepish = "[".repeat(7_000) + '"x"' + "]".repeat(7_000);
+    // The cap itself: 512 levels decode, 513 go as text. Where the stack runs
+    // out depends on the process, so the cap, not the stack, decides.
+    const atCap = "[".repeat(512) + '"x"' + "]".repeat(512);
+    const pastCap = "[".repeat(513) + '"x"' + "]".repeat(513);
+    const client = await getMigratorPool().connect();
+    try {
+      await client.query("begin");
+      await client.query(`select set_config('app.clinic_id', $1, true)`, [c.clinicId]);
+      await client.query(
+        `insert into webhook_events (clinic_id, provider, delivery_id, signature_valid, raw_payload, processed_at, received_at)
+         values ($1, 'synthflow', 'call_export_1', true, $2, $3, $3),
+                ($1, 'mindbody', 'evt_export_text', false, 'From: Ann <ann@mail.test>', null, $3),
+                ($1, 'mindbody', 'evt_export_deep', true, $4, null, $3),
+                ($1, 'mindbody', 'evt_export_deepish', true, $5, null, $3),
+                ($1, 'mindbody', 'evt_export_at_cap', true, $6, null, $3),
+                ($1, 'mindbody', 'evt_export_past_cap', true, $7, null, $3)`,
+        [
+          c.clinicId,
+          JSON.stringify({ call_id: "call_export_1", transcript: "Caller asked about a consultation." }),
+          at,
+          deep,
+          deepish,
+          atCap,
+          pastCap,
+        ],
+      );
+      await client.query(
+        `insert into chat_threads (clinic_id, channel, party_ref, conversation_id, conversation_started_at, last_inbound_at)
+         values ($1, 'instagram', 'ref_export_thread', gen_random_uuid(), $2, $2)`,
+        [c.clinicId, at],
+      );
+      await client.query(
+        `insert into meta_booking_drafts (clinic_id, platform, sender_id, external_id, first_name, phone, updated_at)
+         values ($1, 'instagram', 'ig_export', 'page_1', 'Sam', null, $2)`,
+        [c.clinicId, at],
+      );
+      await client.query("commit");
+    } finally {
+      client.release();
+    }
+
+    const bundle = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportClinic(tx, "practice"));
+    const byDelivery = Object.fromEntries((bundle.rawPayloads ?? []).map((p) => [p.deliveryId, p]));
+    expect(Object.keys(byDelivery).sort()).toEqual([
+      "call_export_1",
+      "evt_export_at_cap",
+      "evt_export_deep",
+      "evt_export_deepish",
+      "evt_export_past_cap",
+      "evt_export_text",
+    ]);
+    expect(byDelivery.call_export_1).toMatchObject({
+      provider: "synthflow",
+      processed: true,
+      text: null,
+      body: { call_id: "call_export_1", transcript: "Caller asked about a consultation." },
+    });
+    expect(byDelivery.evt_export_text).toMatchObject({
+      provider: "mindbody",
+      processed: false,
+      signatureValid: false,
+      body: null,
+      text: "From: Ann <ann@mail.test>",
+    });
+    // Past DECODED_PAYLOAD_MAX_DEPTH: its text, as received, however it parses.
+    expect(byDelivery.evt_export_deep).toMatchObject({ body: null, text: deep });
+    expect(byDelivery.evt_export_deepish).toMatchObject({ body: null, text: deepish });
+    expect(byDelivery.evt_export_past_cap).toMatchObject({ body: null, text: pastCap });
+    expect(byDelivery.evt_export_at_cap!.text).toBeNull();
+    expect(byDelivery.evt_export_at_cap!.body).toEqual(JSON.parse(atCap));
+    expect(byDelivery.call_export_1!.receivedAt).toEqual(at);
+    expect(bundle.messagingThreads).toEqual([
+      expect.objectContaining({ channel: "instagram", partyRef: "ref_export_thread", conversationsCount: 1 }),
+    ]);
+    expect(bundle.metaBookingDrafts).toEqual([expect.objectContaining({ senderId: "ig_export", firstName: "Sam" })]);
+    // And it survives being written out, as patient-export writes it.
+    expect(() => JSON.stringify(bundle, null, 2)).not.toThrow();
+  });
+
   // BAA 1.3.0 release gate 7: "delivered" means the export reached the
   // practice, never that it was produced.
   test("producing the export stamps nothing; the operator's record of its handover does, once, and not before a bundle exists", async () => {
@@ -169,6 +259,8 @@ describeDb("care operations", () => {
     );
     expect(unproduced.status).toBe("error");
     expect(unproduced.message).toMatch(/No return bundle has been produced/);
+    // As run-task.sh takes it: the clinic's id, and nothing else (C19).
+    expect(unproduced.message).toContain("(bash run-task.sh patient-export <clinic id>)");
     expect(await stamp()).toBeNull();
 
     // Produced, as the patient-export script does: still nothing stamped.

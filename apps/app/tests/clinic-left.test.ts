@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { clinicHasLeft } from "@/lib/clinic/leaving";
+import { sendMetaReply } from "@/lib/meta/channels";
 import { answerFrontDoor } from "@/lib/meta/front-door";
 import { appendAmendment } from "@/lib/patient-rights/amendments";
 import { ingestWebhook } from "@/lib/sync/webhooks";
@@ -219,6 +220,33 @@ describeDb("a clinic that has left keeps nothing new", () => {
       [c.clinicId],
     );
     expect(rows).toEqual([]);
+  });
+
+  test("nothing more is sent on a Meta thread once the clinic has left, the desk's follow-up included", async () => {
+    // The desk's decision and its reschedule line reach the person through
+    // sendMetaReply; a clinic that has left sends neither.
+    const c = await liveClinic("left-follow-up");
+    await startOffboarding(c.clinicId);
+    const send = vi.fn(async () => {});
+    const outcome = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      sendMetaReply(
+        tx,
+        {
+          clinicId: c.clinicId,
+          connectionId: randomUUID(),
+          platform: "messenger",
+          enabled: true,
+          platformEnabled: true,
+        },
+        "page_left",
+        "user_left",
+        "The practice has reviewed your request and will call you.",
+        send,
+        { lastInboundAt: new Date() },
+      ),
+    );
+    expect(outcome).toEqual({ status: "withheld", reason: "clinic_left" });
+    expect(send).not.toHaveBeenCalled();
   });
 
   test("a booking platform's webhook for a clinic that has left is stored nowhere", async () => {

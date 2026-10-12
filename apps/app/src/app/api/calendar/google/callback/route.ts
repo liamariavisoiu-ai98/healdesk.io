@@ -15,7 +15,15 @@ export const dynamic = "force-dynamic";
  *
  * lib/connections/google-oauth.ts does the work: it consumes the state
  * before anything else, holds it to the browser that started it (the
- * `hd_gcal` cookie), and keeps nothing until every check has passed.
+ * `hd_gcal` cookie), and keeps nothing until every check has passed. A
+ * sign-in the portal started goes on only in the session of the portal user
+ * who started it, on a clinic they still hold (C18): requirePortal's own
+ * question, asked of this request's session cookie, which Google's redirect
+ * back carries (SameSite=Lax, a top-level GET). Anyone else's session, or
+ * none, is recorded as a refusal and sent back to the portal page with
+ * `?calendar=failed`, whose own requirePortal signs the browser in or
+ * answers 404, with the state spent and nothing asked of Google. Replacing
+ * the connected account also needs a passkey step-up live on that session.
  *
  * Every outcome is a redirect, never JSON, because a person's browser is
  * what arrives here: to the calendar link's page with `?outcome=`, to the

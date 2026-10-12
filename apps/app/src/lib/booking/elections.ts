@@ -1,22 +1,24 @@
 import { isIP } from "node:net";
 
 import {
+  agreementKindOfVersion,
   bookingSyncFor,
   CALENDAR_CLAUSE_IDS,
+  calendarElectionFor,
   calendarTermsKind,
-  currentCalendarElection,
   electionWidens,
   hashCalendarElection,
   isBookingSystemId,
   isCalendarAccount,
-  prepareCalendarElection,
   renderCalendarElection,
+  renderDpaCalendarElection,
   selectCalendarClause,
   type BookingSync,
   type BookingSystemId,
   type CalendarAccount,
   type CalendarClauseId,
   type CalendarElection,
+  type CalendarElectionVariables,
   type CalendarTermsKind,
 } from "@healdesk/catalog";
 import { and, eq, isNull, sql } from "drizzle-orm";
@@ -30,16 +32,22 @@ import {
   type CalendarElectionSource,
   type PendingCalendarElection,
 } from "@/db/schema";
-import type { RequestContext } from "@/lib/audit";
+import type { ActorContext, RequestContext } from "@/lib/audit";
 import {
   eraseGoogleCalendarWithin,
   googleCalendarConnection,
+  revokeGoogleGrantIfUnused,
+  type CalendarCallOptions,
+  type GoogleCalendarConnection,
   type GoogleGrant,
 } from "@/lib/connections/google-calendar";
+import { calendarRecipients, ownerRecipients } from "@/lib/connections/recipients";
+import { mailCalendarElectionCopy, type CalendarMailClinic } from "@/lib/email/calendar-link";
 import { log } from "@/lib/log";
-import type { TenantTx } from "@/lib/tenant";
+import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { releaseLiveHolds } from "./holds";
+import { calendarTermsFor, type CalendarTermsNeedsElectionReason } from "./terms";
 
 /**
  * Calendar elections: how a location's calendar terms change after the
@@ -72,20 +80,31 @@ import { releaseLiveHolds } from "./holds";
  *   - In the portal, elections are the owner's alone, narrowing included
  *     (plan §4.1): another member's answer is `owner_only`. The guard would
  *     take a member's narrowing election; the plan keeps the setting the
- *     owner's. With one sign-in per clinic in v1, that sign-in is the owner.
+ *     owner's. With one sign-in per clinic in v1, that sign-in is the owner,
+ *     whose own acceptance confirms a widening election (`owner_confirmed`,
+ *     `elected_by_user_id`). The Settings card's functions are at the end
+ *     (C18): getCalendarTerms, previewCalendarElection, recordPortalElection.
  *   - Confirming is recording through that confirm link: the document must
  *     still render to the version and hash the link carries, or nothing is
  *     recorded and the answer is `changed` ("This election has changed;
  *     start again").
  *
+ * The document is the form for the agreement the location is under
+ * (calendarElectionFor): the BAA's `calendar-election/…`, or the DPA's own
+ * `calendar-election-dpa/…` for a `dpa/…` agreement, never the BAA's form
+ * handed to a DPA practice. Each form counts only once released, or on a
+ * demo clinic, so a DPA practice records no election until its form is
+ * released (docs/counsel/dpa.md, gap 6).
+ *
  * After every election, in the same transaction (plan §2.6): the location's
  * booking system is the one elected; a Google connection the new terms no
  * longer cover (`not_used`, or an account kind other than the connected
  * one) is erased and the holds released; and the link it came through is
- * spent. What has to happen after commit is the connect flow's (C8), from
- * what this returns: revoking the erased grant at Google (`erased.grant`,
- * the token read before the erasure sealed over it), the practice's copy of
- * the election and a rotated continuation link.
+ * spent. What has to happen after commit is the caller's, from what this
+ * returns: revoking the erased grant at Google (`erased.grant`, the token
+ * read before the erasure sealed over it), the practice's copy of the
+ * election and, on a link, a rotated continuation link (C8's
+ * submitCalendarElection; recordPortalElection for the portal).
  */
 
 export class CalendarElectionError extends Error {
@@ -172,7 +191,11 @@ export type RecordElectionOutcome =
       previousKind: CalendarTermsKind | "none";
       pending: PendingCalendarElection;
     }
-  /** A confirm link whose pending election no longer renders the same: nothing recorded. */
+  /**
+   * The document the person was asked to accept (a confirm link's pending
+   * election, or the portal card's preview) no longer renders the same:
+   * nothing recorded.
+   */
   | { status: "changed" }
   /** Not one of this location's calendar links, or spent, or expired: nothing recorded. */
   | { status: "link_not_usable" }
@@ -263,11 +286,12 @@ function checkChoice(choice: ElectionChoice): void {
 }
 
 /**
- * The signature the owner has not given yet: an owner confirm link's hash is
- * of the document rendered with this in the signature block and the
- * agreement's own date as the day, so it changes when anything the owner is
- * asked to accept changes (the practice, the location, the agreement, the
- * clause, the document's version or wording) and not with who signs or when.
+ * The signature the owner has not given yet: an owner confirm link's hash,
+ * and the portal preview's fingerprint, are of the document rendered with
+ * this in the signature block and the agreement's own date as the day, so
+ * they change when anything the owner is asked to accept changes (the
+ * practice, the location, the agreement, the clause, the document's version
+ * or wording) and not with who signs or when.
  */
 const PENDING_SIGNATORY = "The practice owner, on confirming";
 
@@ -279,13 +303,50 @@ function pendingElectionFor(
   return pendingDocumentFor(context, choice, election).pending;
 }
 
+/**
+ * The election form for the agreement a location is under, by that
+ * agreement's kind (calendarElectionFor): the one way this file picks a form.
+ */
+function electionFormFor(agreement: NonNullable<ElectionContext["agreement"]>): CalendarElection {
+  return calendarElectionFor(agreement.version);
+}
+
+/**
+ * The text of an election in its agreement's form: the DPA's own wording
+ * for a `dpa/…` agreement, the BAA's otherwise. Either way the hash is the
+ * SHA-256 of the UTF-8 text (hashCalendarElection), the digest the guard
+ * checks against `rendered_text`.
+ */
+function renderElection(variables: CalendarElectionVariables, election: CalendarElection): string {
+  return agreementKindOfVersion(variables.agreementVersion.trim()) === "dpa"
+    ? renderDpaCalendarElection(variables, election)
+    : renderCalendarElection(variables, election);
+}
+
+/** Whether the form counts for this location: released, or the demo clinic's draft (plan A10). */
+function electionCounts(election: CalendarElection, demo: boolean): boolean {
+  return election.approvedByCounsel || demo;
+}
+
+/**
+ * Whether a location under the agreement of this version can record an
+ * election now: that agreement's own form is released (a DPA's form for a
+ * `dpa/…` agreement, the BAA's otherwise), or the location is the demo
+ * clinic. The rule recordCalendarElection applies, for whatever offers an
+ * election (the calendar link's page and its mailings, Settings → Calendar),
+ * so nothing offers a form whose submission could only answer `draft_terms`.
+ */
+export function electionPossibleUnder(agreementVersion: string, demo: boolean): boolean {
+  return electionCounts(calendarElectionFor(agreementVersion), demo);
+}
+
 /** The document an owner is asked to accept, as pendingElectionFor hashes it, and that hash. */
 function pendingDocumentFor(
   context: ElectionContext & { agreement: NonNullable<ElectionContext["agreement"]> },
   choice: ElectionChoice,
   election: CalendarElection,
 ): { text: string; pending: PendingCalendarElection } {
-  const text = renderCalendarElection(
+  const text = renderElection(
     {
       clinicLegalName: context.clinicLegalName,
       locationName: context.locationName,
@@ -320,11 +381,10 @@ export async function planCalendarElection(
 ): Promise<ElectionPlan> {
   checkChoice(choice);
   const context = await electionContext(tx);
-  const election = currentCalendarElection();
   if (!context.agreement) return { status: "unavailable", reason: "no_agreement" };
-  if (!election.approvedByCounsel && !context.demo) {
+  const election = electionFormFor(context.agreement);
+  if (!electionCounts(election, context.demo))
     return { status: "unavailable", reason: "draft_terms" };
-  }
   const { kind, clauseId } = selectCalendarClause(choice);
   return {
     status: "ready",
@@ -365,11 +425,10 @@ export async function previewPendingElection(
   const choice = { bookingSystem: asked.bookingSystem, calendarAccount: asked.calendarAccount };
   checkChoice(choice);
   const context = await electionContext(tx);
-  const election = currentCalendarElection();
   if (!context.agreement) return { status: "unavailable", reason: "no_agreement" };
-  if (!election.approvedByCounsel && !context.demo) {
+  const election = electionFormFor(context.agreement);
+  if (!electionCounts(election, context.demo))
     return { status: "unavailable", reason: "draft_terms" };
-  }
   const { text, pending } = pendingDocumentFor(
     { ...context, agreement: context.agreement },
     choice,
@@ -404,6 +463,14 @@ export async function recordCalendarElection(
     choice: ElectionChoice;
     signatory: ElectionSignatory;
     via: ElectionVia;
+    /**
+     * The document the person was shown before accepting, as
+     * previewCalendarElection fingerprinted it (its version, and the hash
+     * pendingElectionFor computes): recorded only if it still renders the
+     * same, `changed` otherwise. The portal's card sends it; a confirm link
+     * carries its own.
+     */
+    previewed?: { documentVersion: string; documentHash: string };
     request?: RequestContext;
     /** The day of acceptance is today in UTC, as the agreement's is; injectable for tests. */
     now?: Date;
@@ -413,12 +480,11 @@ export async function recordCalendarElection(
   const label = signatureLabel(input.signatory);
 
   const context = await electionContext(tx);
-  const election = currentCalendarElection();
   if (!context.agreement) return { status: "unavailable", reason: "no_agreement" };
-  if (!election.approvedByCounsel && !context.demo) {
-    return { status: "unavailable", reason: "draft_terms" };
-  }
   const agreement = context.agreement;
+  const election = electionFormFor(agreement);
+  if (!electionCounts(election, context.demo))
+    return { status: "unavailable", reason: "draft_terms" };
 
   // Who is speaking, and whether they speak for the owner.
   let ownerBasis: boolean;
@@ -488,6 +554,17 @@ export async function recordCalendarElection(
       return { status: "changed" };
     }
   }
+  // So does the portal's card, with the document its owner previewed: the
+  // agreement in effect, the location's name or the form's version may have
+  // changed between the preview and the tick, and the signature is never
+  // put on a document nobody was shown.
+  if (
+    input.previewed &&
+    (input.previewed.documentVersion !== pending.documentVersion ||
+      input.previewed.documentHash !== pending.documentHash)
+  ) {
+    return { status: "changed" };
+  }
 
   const { kind } = selectCalendarClause(input.choice);
   const widens = electionWidens(context.previousKind, kind);
@@ -500,7 +577,7 @@ export async function recordCalendarElection(
     };
   }
 
-  const prepared = prepareCalendarElection(
+  const prepared = prepareElection(
     {
       clinicLegalName: context.clinicLegalName,
       locationName: context.locationName,
@@ -545,18 +622,11 @@ export async function recordCalendarElection(
     .where(eq(clinics.id, tx.clinicId));
 
   // A connection the new terms do not cover is taken away now, not at the
-  // watch's next run: `not_used` reads nothing and writes nothing, and a
-  // calendar of another account kind than the terms name is not theirs.
-  // An unknown kind is not a match.
+  // watch's next run (takesConnectionAway).
   let erased: RecordedElection["erased"] = null;
   let releasedHolds = 0;
   const connection = await googleCalendarConnection(tx, { forUpdate: true });
-  if (
-    connection &&
-    connection.status !== "revoked" &&
-    (prepared.kind === "not_used" ||
-      connection.managed !== (input.choice.calendarAccount !== "personal"))
-  ) {
+  if (connection && takesConnectionAway(connection, prepared.kind, input.choice.calendarAccount)) {
     const taken = await eraseGoogleCalendarWithin(tx, {
       connectionId: connection.id,
       reason: "election_changed",
@@ -809,8 +879,421 @@ export async function recordAgreementTerms(
 }
 
 // -----------------------------------------------------------------------------
+// The portal's Settings → Calendar card (C18)
+// -----------------------------------------------------------------------------
+
+/**
+ * The portal user recording an election: requirePortal's user
+ * (lib/portal/access.ts), labelled as every portal change is
+ * (lib/portal/actor.ts: the device whose passkey is live on the session, or
+ * the clinic's sign-in). Only the caller can build it. The election stores
+ * the user as `elected_by_user_id`, the database's guard asks after that
+ * user's membership, and the audit rows name them.
+ */
+export type PortalElectionActor = Extract<ActorContext, { type: "user" }>;
+
+/** Who a read is made as when the caller names nobody. A read writes no audit row. */
+const ELECTIONS_ACTOR: ActorContext = { type: "service", serviceName: "calendar-elections" };
+
+/** A location's calendar terms as Settings → Calendar shows them, and whether they can change now. */
+export type CalendarTermsView = {
+  terms:
+    /** No agreement in effect: there is nothing to elect under. */
+    | { kind: "none" }
+    /** The agreement gives this location no calendar terms that count: an election does. */
+    | { kind: "needs_election"; reason: CalendarTermsNeedsElectionReason }
+    | {
+        kind: CalendarTermsKind;
+        /** The card's two answers, as the terms in effect have them. */
+        bookingSystem: BookingSystemId;
+        calendarAccount: CalendarAccount;
+        /** The signed agreement, a calendar link, or the portal. */
+        source: CalendarElectionSource;
+        electedAt: Date;
+      };
+  /** Whether the owner can record an election now, and why not when not. */
+  election: { status: "ready" } | { status: "unavailable"; reason: ElectionUnavailableReason };
+};
+
+/**
+ * Settings → Calendar's terms: what governs the location's calendar now
+ * (calendarTermsFor), with the booking system and the kind of Google account
+ * the card pre-fills its two answers from, and whether an election can be
+ * recorded now (an agreement in effect, and its election form released, or
+ * the demo clinic). Reads; records nothing.
+ */
+export async function getCalendarTerms(
+  clinicId: string,
+  options: CalendarCallOptions = {},
+): Promise<CalendarTermsView> {
+  return withTenant(
+    { clinicId, actor: options.actor ?? ELECTIONS_ACTOR, request: options.request },
+    async (tx) => {
+      const terms = await calendarTermsFor(tx);
+      const context = await electionContext(tx);
+      const election: CalendarTermsView["election"] = !context.agreement
+        ? { status: "unavailable", reason: "no_agreement" }
+        : electionPossibleUnder(context.agreement.version, context.demo)
+          ? { status: "ready" }
+          : { status: "unavailable", reason: "draft_terms" };
+      if (terms.kind === "none") return { terms: { kind: "none" }, election };
+      if (terms.kind === "needs_election") {
+        return { terms: { kind: "needs_election", reason: terms.reason }, election };
+      }
+      return {
+        terms: {
+          kind: terms.kind,
+          bookingSystem: terms.bookingSystem,
+          calendarAccount: terms.account,
+          source: terms.source,
+          electedAt: terms.electedAt,
+        },
+        election,
+      };
+    },
+  );
+}
+
+export type CalendarElectionPreview =
+  | { status: "unavailable"; reason: ElectionUnavailableReason }
+  | { status: "invalid"; field: string; message: string }
+  | {
+      status: "ready";
+      kind: CalendarTermsKind;
+      previousKind: CalendarTermsKind | "none";
+      /**
+       * It lets more reach Google (electionWidens). In the portal the owner's
+       * own acceptance is the owner's confirmation the guard requires.
+       */
+      widens: boolean;
+      /**
+       * Recording it takes the location's Google connection away
+       * (takesConnectionAway): the card says so, and the clinic connects the
+       * right account after.
+       */
+      disconnects: boolean;
+      documentVersion: string;
+      /**
+       * The document's fingerprint, which the card sends back with the
+       * acceptance (with `documentVersion`), so that recordPortalElection
+       * records this document or nothing: the hash pendingElectionFor
+       * computes, of the text with the signature still to come and the
+       * agreement's own date, so neither the name typed nor the day it is
+       * accepted changes it.
+       */
+      documentHash: string;
+      /** The document as it will be stored, with today's date and the signature still to come. */
+      text: string;
+    };
+
+/**
+ * What an election would be, for the card to show before the owner accepts
+ * it: its kind, whether it widens what reaches Google, whether it takes the
+ * connected calendar away, and the document itself in the agreement's own
+ * form, with the fingerprint the acceptance must carry back. The signature
+ * block reads "The practice owner, on confirming" until the owner types a
+ * name, which recordPortalElection puts there. The two answers are the
+ * card's, as sent, and are checked here. Reads; records nothing.
+ */
+export async function previewCalendarElection(
+  clinicId: string,
+  answers: { bookingSystem: unknown; calendarAccount: unknown },
+  options: CalendarCallOptions & { now?: Date } = {},
+): Promise<CalendarElectionPreview> {
+  const choice = {
+    bookingSystem: answers?.bookingSystem,
+    calendarAccount: answers?.calendarAccount,
+  } as ElectionChoice;
+  try {
+    checkChoice(choice);
+  } catch (error) {
+    if (error instanceof CalendarElectionError) {
+      return { status: "invalid", field: error.field ?? "election", message: error.message };
+    }
+    throw error;
+  }
+  return withTenant(
+    { clinicId, actor: options.actor ?? ELECTIONS_ACTOR, request: options.request },
+    async (tx): Promise<CalendarElectionPreview> => {
+      const context = await electionContext(tx);
+      if (!context.agreement) return { status: "unavailable", reason: "no_agreement" };
+      const election = electionFormFor(context.agreement);
+      if (!electionCounts(election, context.demo)) {
+        return { status: "unavailable", reason: "draft_terms" };
+      }
+      const prepared = prepareElection(
+        {
+          clinicLegalName: context.clinicLegalName,
+          locationName: context.locationName,
+          agreementVersion: context.agreement.version,
+          agreementEffectiveDate: context.agreement.effectiveDate,
+          bookingSystem: choice.bookingSystem,
+          calendarAccount: choice.calendarAccount,
+          signatoryName: PENDING_SIGNATORY,
+          electedOn: (options.now ?? new Date()).toISOString().slice(0, 10),
+        },
+        election,
+      );
+      const pending = pendingElectionFor(
+        { ...context, agreement: context.agreement },
+        choice,
+        election,
+      );
+      const connection = await googleCalendarConnection(tx);
+      return {
+        status: "ready",
+        kind: prepared.kind,
+        previousKind: context.previousKind,
+        widens: electionWidens(context.previousKind, prepared.kind),
+        disconnects:
+          connection !== null &&
+          takesConnectionAway(connection, prepared.kind, choice.calendarAccount),
+        documentVersion: pending.documentVersion,
+        documentHash: pending.documentHash,
+        text: prepared.text,
+      };
+    },
+  );
+}
+
+/**
+ * What the card sends: its two answers, the fingerprint of the document it
+ * showed for them (previewCalendarElection), the signature, and the tick.
+ */
+export type PortalElectionSubmission = {
+  bookingSystem: unknown;
+  calendarAccount: unknown;
+  /** The preview's `documentVersion` and `documentHash`, as it gave them. */
+  documentVersion: unknown;
+  documentHash: unknown;
+  /** The name typed: the signature on the election. */
+  name: unknown;
+  title?: unknown;
+  /** The tick: "I accept this calendar election for {location}". */
+  accepted: boolean;
+};
+
+export type PortalElectionOutcome =
+  | {
+      status: "recorded";
+      electionId: string;
+      sequence: number;
+      kind: CalendarTermsKind;
+      widened: boolean;
+      /** The location's Google connection was taken away: the new terms do not cover it. */
+      disconnected: boolean;
+    }
+  | { status: "unavailable"; reason: ElectionUnavailableReason }
+  /**
+   * The document no longer renders as the card previewed it (or the card
+   * sent no fingerprint): nothing recorded. The card previews again ("This
+   * election has changed; start again").
+   */
+  | { status: "changed" }
+  /** The portal user holds no active membership of this location: nothing recorded. */
+  | { status: "not_member" }
+  /** A member who is not the owner: the calendar terms are the owner's. Nothing recorded. */
+  | { status: "owner_only" }
+  | { status: "invalid"; field: string; message: string };
+
+/**
+ * Record an election from Settings → Calendar (plan §2.6's `portal` row):
+ * the owner's own sign-in, so `source` is `portal`, `elected_by_user_id` is
+ * the user, and the owner's acceptance confirms an election that widens
+ * what reaches Google (`owner_confirmed`), which the guard checks against
+ * the user's `owner` membership again. Any other member's answer is
+ * `owner_only`, narrowing included; with one sign-in per clinic in v1, that
+ * sign-in is the owner.
+ *
+ * Both of the card's answers are an election: where the location's bookings
+ * live, and which kind of Google account holds its calendar. The card sends
+ * both, the one not being changed as getCalendarTerms gave it, so a change
+ * of the kind of account alone is this call with the same booking system.
+ * It is also how the owner answers `?calendar=election_needed`, when a
+ * Google account of another kind or Workspace domain is to replace the
+ * connected one: once the election is recorded, the same sign-in goes
+ * through (lib/connections/google-oauth.ts).
+ *
+ * What is recorded is the document the card previewed for these answers,
+ * or nothing: the server renders and hashes the text it stores, and the
+ * fingerprint the card sends back (previewCalendarElection's
+ * `documentVersion` and `documentHash`) must still be that document's, or
+ * the answer is `changed`, as on an owner's confirm link (plan §4.1).
+ *
+ * In one transaction, recordCalendarElection's whole work: the row, the
+ * location's booking system, and the connection the new terms no longer
+ * cover erased with its holds. After commit, that connection's grant is
+ * revoked at Google unless another location holds the account live, and the
+ * practice's copy is mailed to the practice's address. Statuses other than
+ * `recorded` write nothing.
+ */
+export async function recordPortalElection(
+  clinicId: string,
+  submission: PortalElectionSubmission,
+  options: { actor: PortalElectionActor; request?: RequestContext; now?: Date },
+): Promise<PortalElectionOutcome> {
+  const actor = options?.actor;
+  if (actor?.type !== "user" || typeof actor.userId !== "string" || !actor.userId) {
+    // A caller's mistake, not the owner's: thrown, never answered as a form problem.
+    throw new Error("A portal election names the portal user who made it.");
+  }
+  if (submission?.accepted !== true) {
+    return {
+      status: "invalid",
+      field: "accepted",
+      message: "Tick the box to accept the calendar election.",
+    };
+  }
+  // No fingerprint, no document the owner can be shown to have seen: an
+  // empty one never matches, so the answer is `changed`, after the answers,
+  // the terms and the membership have each had their say.
+  const previewed = {
+    documentVersion:
+      typeof submission.documentVersion === "string" ? submission.documentVersion : "",
+    documentHash: typeof submission.documentHash === "string" ? submission.documentHash : "",
+  };
+  const choice = {
+    bookingSystem: submission.bookingSystem,
+    calendarAccount: submission.calendarAccount,
+  } as ElectionChoice;
+  const now = options.now ?? new Date();
+
+  let done: {
+    outcome: RecordElectionOutcome;
+    copy: Awaited<ReturnType<typeof electionCopyFacts>> | null;
+  };
+  try {
+    done = await withTenant({ clinicId, actor, request: options.request }, async (tx) => {
+      const outcome = await recordCalendarElection(tx, {
+        choice,
+        signatory: {
+          name: typeof submission.name === "string" ? submission.name : "",
+          title: typeof submission.title === "string" ? submission.title : null,
+        },
+        via: { source: "portal", userId: actor.userId },
+        previewed,
+        request: options.request,
+        now,
+      });
+      return {
+        outcome,
+        copy: outcome.status === "recorded" ? await electionCopyFacts(tx) : null,
+      };
+    });
+  } catch (error) {
+    if (error instanceof CalendarElectionError) {
+      return { status: "invalid", field: error.field ?? "election", message: error.message };
+    }
+    throw error;
+  }
+
+  const { outcome } = done;
+  switch (outcome.status) {
+    case "recorded": {
+      const election = outcome.election;
+      if (election.erased?.grant) {
+        await revokeGoogleGrantIfUnused(election.erased.grant, {
+          clinicId,
+          reason: "election_changed",
+        });
+      }
+      await mailCalendarElectionCopy({
+        ...done.copy!.clinic,
+        recipients: done.copy!.recipients,
+        electionId: election.electionId,
+        kind: election.kind,
+        calendarAccount: choice.calendarAccount,
+        bookingSystem: choice.bookingSystem,
+        electedAt: now,
+      });
+      return {
+        status: "recorded",
+        electionId: election.electionId,
+        sequence: election.sequence,
+        kind: election.kind,
+        widened: election.widened,
+        disconnected: election.erased !== null,
+      };
+    }
+    case "unavailable":
+      return { status: "unavailable", reason: outcome.reason };
+    case "changed":
+    case "not_member":
+    case "owner_only":
+      return { status: outcome.status };
+    case "owner_confirmation_required":
+    case "link_not_usable":
+      // Only a calendar link answers these: the owner's own sign-in confirms
+      // its own election, and the portal has no link to spend.
+      throw new Error(`A portal election cannot end ${outcome.status}.`);
+  }
+}
+
+/** The clinic and the practice's address, for its copy of an election, read in its tenant. */
+async function electionCopyFacts(
+  tx: TenantTx,
+): Promise<{ clinic: CalendarMailClinic; recipients: string[] }> {
+  const [row] = await tx.db
+    .select({ name: clinics.name, specialty: clinics.specialty, timezone: clinics.timezone })
+    .from(clinics)
+    .where(eq(clinics.id, tx.clinicId))
+    .limit(1);
+  if (!row) throw new CalendarElectionError("No such location.");
+  // In v1 both are the clinic's one address (lib/connections/recipients.ts).
+  const recipients = [
+    ...new Set([...(await ownerRecipients(tx)), ...(await calendarRecipients(tx))]),
+  ];
+  return {
+    clinic: {
+      clinicId: tx.clinicId,
+      clinicName: row.name,
+      specialty: row.specialty,
+      timeZone: row.timezone,
+    },
+    recipients,
+  };
+}
+
+// -----------------------------------------------------------------------------
 // Internals
 // -----------------------------------------------------------------------------
+
+/** Render, hash and name the clause, in the agreement's own form (renderElection). */
+function prepareElection(
+  variables: CalendarElectionVariables,
+  election: CalendarElection,
+): {
+  text: string;
+  hash: string;
+  version: string;
+  kind: CalendarTermsKind;
+  clauseId: CalendarClauseId;
+} {
+  const text = renderElection(variables, election);
+  const { kind, clauseId } = selectCalendarClause({
+    bookingSystem: variables.bookingSystem,
+    calendarAccount: variables.calendarAccount,
+  });
+  return { text, hash: hashCalendarElection(text), version: election.version, kind, clauseId };
+}
+
+/**
+ * Whether terms of this kind, for this kind of Google account, take the
+ * location's live connection away when they are recorded: `not_used` reads
+ * nothing and writes nothing, and a calendar of another account kind than
+ * the terms name is not theirs (a Workspace account for the two Workspace
+ * kinds, a personal one for `personal`). An unknown kind is not a match.
+ */
+function takesConnectionAway(
+  connection: GoogleCalendarConnection,
+  kind: CalendarTermsKind,
+  account: CalendarAccount,
+): boolean {
+  return (
+    connection.status !== "revoked" &&
+    (kind === "not_used" || connection.managed !== (account !== "personal"))
+  );
+}
 
 type ElectionInsert = typeof calendarElections.$inferInsert;
 

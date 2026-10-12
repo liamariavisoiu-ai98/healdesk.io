@@ -154,6 +154,31 @@ describeDb("scheduler", () => {
     expect(outcome).toEqual({ status: "ok", note: "recovered" });
   });
 
+  test("a job that runs often can shorten its stale lock, for its own runs only", async () => {
+    const opsUser = await seedOpsUser();
+    await setJobEnabled(JOB_WEEKLY_RECAP, true, opsUser);
+    const tenMinutes = { staleLockMs: 10 * 60 * 1000 };
+    const lockedAgo = (minutes: number | null) =>
+      getMigratorPool().query(`update scheduled_jobs set running_since = $2 where name = $1`, [
+        JOB_WEEKLY_RECAP,
+        minutes === null ? null : new Date(Date.now() - minutes * 60 * 1000),
+      ]);
+
+    // Eleven minutes into a run is still a live run under the default hour…
+    await lockedAgo(11);
+    expect((await runJob(JOB_WEEKLY_RECAP, async () => "too soon")).status).toBe("already-running");
+    // …and a crashed one under the calendar watch's ten minutes.
+    expect(await runJob(JOB_WEEKLY_RECAP, async () => "reclaimed", new Date(), tenMinutes)).toEqual(
+      { status: "ok", note: "reclaimed" },
+    );
+    // Nine minutes is inside it.
+    await lockedAgo(9);
+    expect(
+      (await runJob(JOB_WEEKLY_RECAP, async () => "too soon", new Date(), tenMinutes)).status,
+    ).toBe("already-running");
+    await lockedAgo(null);
+  });
+
   test("a phase-two job does nothing in v1, even switched on, and says why", async () => {
     const opsUser = await seedOpsUser();
     delete process.env.HEALDESK_PHASE_TWO_ATTRIBUTION;

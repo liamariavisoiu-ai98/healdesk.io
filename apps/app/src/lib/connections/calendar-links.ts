@@ -1,7 +1,6 @@
 import {
   BOOKING_SYSTEMS,
   CALENDAR_ACCOUNT_OPTIONS,
-  currentCalendarElection,
   renderGoogleCalendarDisclosure,
   type BookingSystemId,
   type CalendarAccount,
@@ -13,6 +12,7 @@ import { clinics } from "@/db/schema";
 import type { ActorContext, RequestContext } from "@/lib/audit";
 import {
   CalendarElectionError,
+  electionPossibleUnder,
   previewPendingElection,
   recordCalendarElection,
   type ElectionChoice,
@@ -108,9 +108,16 @@ async function mailFacts(tx: TenantTx): Promise<MailFacts & { leaving: boolean }
   };
 }
 
-/** Whether this location can record an election now: a released document, or the demo clinic. */
+/**
+ * Whether this location can record an election now: the election form of
+ * the agreement it is under is released, or it is the demo clinic. The form
+ * is the agreement's own (electionPossibleUnder), as recordCalendarElection
+ * takes it, so a practice under a DPA is never mailed or shown a form whose
+ * submission could only answer `draft_terms` because the BAA's is released.
+ */
 function electionPossible(terms: CalendarTerms): boolean {
-  return currentCalendarElection().approvedByCounsel || terms.demo;
+  if (terms.kind === "none") return false;
+  return electionPossibleUnder(terms.agreementVersion, terms.demo);
 }
 
 // -----------------------------------------------------------------------------

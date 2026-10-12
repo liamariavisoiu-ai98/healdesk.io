@@ -4,14 +4,17 @@ import {
   appointments,
   auditLog,
   bookingRequests,
+  chatThreads,
   consentRecords,
   contactAttempts,
   contacts,
   conversations,
   depositPayments,
+  metaBookingDrafts,
   slotHolds,
   suppressions,
   transactions,
+  webhookEvents,
 } from "@/db/schema";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -45,6 +48,13 @@ import { isPatientRequester, type PatientRequester } from "./requesters";
  * clinic can find it by. Destruction deletes them (BAA 1.3.0 clause 17 lets
  * only two records survive), so the return bundle is the clinic's copy.
  *
+ * The whole clinic's bundle also carries the raw payloads other services
+ * sent (`rawPayloads`: provider, when it arrived, whether it was processed,
+ * and the body, decoded where it parses), which hold the transcripts' words
+ * that no other table does, the messaging threads as keyed references, and
+ * the half-collected Meta drafts: clause 17 promises "an export of the
+ * patient information it holds" (the calendar session's re-audit, C19).
+ *
  * Who asked is one of PATIENT_REQUESTERS, chosen, never typed: the audit
  * row this writes outlives the person, so it holds nothing typed.
  *
@@ -71,7 +81,67 @@ export type PatientBundle = {
   slotHolds: { id: string; startsAt: Date; endsAt: Date; status: string; createdAt: Date }[];
   /** Every audit row that touched any of the ids above: the accounting of disclosures. */
   accountingOfDisclosures: (typeof auditLog.$inferSelect)[];
+  /**
+   * The whole clinic's bundle only. The raw copies the voice vendor and the
+   * other services sent (webhook_events), each decoded where it parses and
+   * as its text where it does not: the only place a transcript's words sit
+   * in our database (a conversation keeps the transcript's address), kept up
+   * to the record clock when never processed (C19, 12 October 2026).
+   */
+  rawPayloads?: RawPayloadRecord[];
+  /** The whole clinic's bundle only: messaging threads, as keyed references (never the sender's id) and dates. */
+  messagingThreads?: MessagingThreadRecord[];
+  /** The whole clinic's bundle only: half-collected Meta bookings (a first name, a number, a time). */
+  metaBookingDrafts?: (typeof metaBookingDrafts.$inferSelect)[];
 };
+
+export type RawPayloadRecord = {
+  id: string;
+  provider: string;
+  deliveryId: string;
+  receivedAt: Date;
+  processedAt: Date | null;
+  processed: boolean;
+  signatureValid: boolean;
+  /** The body, decoded, where it parses as JSON; otherwise null and `text` holds it. */
+  body: unknown;
+  /** The body as received, where it does not parse as JSON; otherwise null. */
+  text: string | null;
+};
+
+export type MessagingThreadRecord = Pick<
+  typeof chatThreads.$inferSelect,
+  "channel" | "partyRef" | "conversationStartedAt" | "lastInboundAt" | "conversationsCount"
+>;
+
+/**
+ * A raw payload for the bundle: decoded where it parses, and where the
+ * decoded body can be written out again (the bundle is written as JSON, and
+ * a body nested deeply enough parses but cannot be); its text otherwise.
+ */
+function payloadRecord(row: typeof webhookEvents.$inferSelect): RawPayloadRecord {
+  let body: unknown = null;
+  let text: string | null = row.rawPayload;
+  try {
+    const decoded: unknown = JSON.parse(row.rawPayload);
+    JSON.stringify(decoded);
+    body = decoded;
+    text = null;
+  } catch {
+    body = null;
+  }
+  return {
+    id: row.id,
+    provider: row.provider,
+    deliveryId: row.deliveryId,
+    receivedAt: row.receivedAt,
+    processedAt: row.processedAt,
+    processed: row.processedAt !== null,
+    signatureValid: row.signatureValid,
+    body,
+    text,
+  };
+}
 
 export type DepositRecord = Pick<
   typeof depositPayments.$inferSelect,
@@ -290,8 +360,26 @@ export async function exportClinic(tx: TenantTx, requestedBy: PatientRequester):
     .where(eq(slotHolds.clinicId, c));
   const deposits = await tx.db.select(DEPOSIT_COLUMNS).from(depositPayments).where(eq(depositPayments.clinicId, c));
   const accounting = await tx.db.select().from(auditLog).where(eq(auditLog.clinicId, c));
+  // Clause 17's "an export of the patient information it holds": the raw
+  // payloads hold the transcripts' words, which no other table does, and
+  // canceled.ts promises the leaving practice "your export of transcripts"
+  // (the calendar session's re-audit, C19, 12 October 2026).
+  const payloads = (
+    await tx.db.select().from(webhookEvents).where(eq(webhookEvents.clinicId, c))
+  ).map(payloadRecord);
+  const threads = await tx.db
+    .select({
+      channel: chatThreads.channel,
+      partyRef: chatThreads.partyRef,
+      conversationStartedAt: chatThreads.conversationStartedAt,
+      lastInboundAt: chatThreads.lastInboundAt,
+      conversationsCount: chatThreads.conversationsCount,
+    })
+    .from(chatThreads)
+    .where(eq(chatThreads.clinicId, c));
+  const drafts = await tx.db.select().from(metaBookingDrafts).where(eq(metaBookingDrafts.clinicId, c));
 
-  const rows = found.length + convos.length + appts.length + txns.length + consents.length;
+  const rows = found.length + convos.length + appts.length + txns.length + consents.length + payloads.length;
   tx.audit.record({
     action: "export",
     resourceType: "clinic_bundle",
@@ -313,6 +401,9 @@ export async function exportClinic(tx: TenantTx, requestedBy: PatientRequester):
     depositPayments: deposits,
     slotHolds: holds,
     accountingOfDisclosures: accounting,
+    rawPayloads: payloads,
+    messagingThreads: threads,
+    metaBookingDrafts: drafts,
   };
 }
 

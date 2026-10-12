@@ -11,7 +11,7 @@ CREATE TABLE "erasure_requests" (
 	CONSTRAINT "erasure_requests_requested_by_check" CHECK (char_length(btrim("erasure_requests"."requested_by")) between 2 and 200),
 	CONSTRAINT "erasure_requests_received_check" CHECK ("erasure_requests"."received_at" <= "erasure_requests"."erased_at"),
 	CONSTRAINT "erasure_requests_due_check" CHECK ("erasure_requests"."due_by" > "erasure_requests"."received_at"),
-	CONSTRAINT "erasure_requests_refs_check" CHECK (array_position("erasure_requests"."restore_refs", null) is null and cardinality("erasure_requests"."restore_refs") <= 200),
+	CONSTRAINT "erasure_requests_refs_check" CHECK (array_position("erasure_requests"."restore_refs", null) is null),
 	CONSTRAINT "erasure_requests_vendor_steps_check" CHECK (jsonb_typeof("erasure_requests"."vendor_steps") = 'object' and ("erasure_requests"."vendor_steps" - 'retell') = '{}'::jsonb)
 );
 --> statement-breakpoint

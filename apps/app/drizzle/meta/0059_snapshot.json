@@ -5737,7 +5737,7 @@
         },
         "erasure_requests_refs_check": {
           "name": "erasure_requests_refs_check",
-          "value": "array_position(\"erasure_requests\".\"restore_refs\", null) is null and cardinality(\"erasure_requests\".\"restore_refs\") <= 200"
+          "value": "array_position(\"erasure_requests\".\"restore_refs\", null) is null"
         },
         "erasure_requests_vendor_steps_check": {
           "name": "erasure_requests_vendor_steps_check",

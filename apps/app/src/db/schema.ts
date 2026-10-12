@@ -2422,10 +2422,10 @@ export const erasureRequests = pgTable(
     ),
     check("erasure_requests_received_check", sql`${t.receivedAt} <= ${t.erasedAt}`),
     check("erasure_requests_due_check", sql`${t.dueBy} > ${t.receivedAt}`),
-    check(
-      "erasure_requests_refs_check",
-      sql`array_position(${t.restoreRefs}, null) is null and cardinality(${t.restoreRefs}) <= 200`,
-    ),
+    // No bound on how many: a deletion records every reference it found, and
+    // a cap the survey could exceed would roll the deletion back with it,
+    // every time, past the ten business days (review of 12 October 2026).
+    check("erasure_requests_refs_check", sql`array_position(${t.restoreRefs}, null) is null`),
     check(
       "erasure_requests_vendor_steps_check",
       sql`jsonb_typeof(${t.vendorSteps}) = 'object' and (${t.vendorSteps} - 'retell') = '{}'::jsonb`,

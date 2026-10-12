@@ -816,6 +816,42 @@ describeDb("deletion on request", () => {
     ).rejects.toMatchObject({ code: "42501" });
   });
 
+  test("a deletion that finds more than two hundred references still completes, and records them all", async () => {
+    // The first version capped restore_refs at 200 (a CHECK), and recorded
+    // every reference the survey found, so a person past the cap could never
+    // be deleted: every attempt rolled back, past the ten business days.
+    const c = await seedClinic("erase-many-refs");
+    await inTenant(c.clinicId, (client) =>
+      client.query(
+        `insert into contacts (clinic_id, phone, email, created_at)
+         select $1, '+1555015' || lpad(i::text, 4, '0'), 'shared@example-patient.test', now() - interval '1 day'
+           from generate_series(1, 120) i`,
+        [c.clinicId],
+      ),
+    );
+    const outcome = data<ErasePersonOutcome>(
+      await runOperation(
+        "erasePerson",
+        { clinicId: c.clinicId, email: "shared@example-patient.test", requestedBy: "the practice" },
+        OPERATOR,
+      ),
+    );
+    if (outcome.status !== "erased") throw new Error(JSON.stringify(outcome));
+    expect(outcome.deleted.contacts).toBe(120);
+    const refs = await inTenant(
+      c.clinicId,
+      async (client) =>
+        (
+          await client.query<{ n: number }>(
+            `select cardinality(restore_refs) as n from erasure_requests where id = $1`,
+            [outcome.erasureId],
+          )
+        ).rows[0]!.n,
+    );
+    // 120 numbers, one address, and the 120 WhatsApp ids the numbers are.
+    expect(refs).toBe(241);
+  });
+
   test("the runtime role cannot choose when the record's clock starts", async () => {
     const c = await seedClinic("erase-stamp");
     const app = await getAppPool().connect();

@@ -42,10 +42,7 @@ const ACTIONS: Actions = {
   startOffboarding: NOT_IN_A_RENDER,
   markExportDelivered: NOT_IN_A_RENDER,
   markVoiceVendorDataDeleted: NOT_IN_A_RENDER,
-  erasePerson: NOT_IN_A_RENDER,
   markErasureVendorDeleted: NOT_IN_A_RENDER,
-  amendRecord: NOT_IN_A_RENDER,
-  amendContact: NOT_IN_A_RENDER,
 };
 
 function leaving(
@@ -74,6 +71,7 @@ function leaving(
           how: null,
         },
       },
+      patientRights: { amendments: 0, corrections: 0 },
       deletionRequests: [],
       recipients: [],
       deliveries: [],
@@ -160,5 +158,25 @@ describe("the care page's rule under BAA 1.3.0 and the DPA", () => {
     expect(page).toContain(
       "Export delivered 2026-11-10. Destruction is due at 2026-11-30 15:00 UTC.",
     );
+  });
+});
+
+// A deletion, an amendment and a correction carry a patient's details, so
+// they are entered in apps/app's own shell and never on this page: until 12
+// October 2026 its forms sent them through a Vercel server action.
+describe("the care page takes no patient data", () => {
+  test("it has no field for a number, an address, a name or an amendment's words, and names the scripts instead", () => {
+    const html = renderToStaticMarkup(h(CarePanel, { view: leaving(THIRTY_DAYS), actions: ACTIONS }));
+    // (The report recipients' form keeps its one `email` field: a clinic
+    // staff address, business contact data, not a patient's.)
+    for (const field of ["phone", "fullName", "amendment", "targetId", "contactId", "requestedBy", "receivedAt"]) {
+      expect(html, field).not.toContain(`name="${field}"`);
+    }
+    expect(html.match(/name="email"/g) ?? []).toHaveLength(1);
+    const page = text(h(CarePanel, { view: leaving(THIRTY_DAYS), actions: ACTIONS }));
+    expect(page).toContain("npm run ops:erase-person -w @healdesk/app");
+    expect(page).toContain("npm run ops:amend-record -w @healdesk/app");
+    expect(page).toContain("npm run ops:amend-contact -w @healdesk/app");
+    expect(page).toContain("0 amendments appended · 0 contact corrections");
   });
 });

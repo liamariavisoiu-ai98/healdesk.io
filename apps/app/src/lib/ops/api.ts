@@ -1,11 +1,10 @@
 import { randomUUID } from "node:crypto";
 
-import { GOOGLE_CALENDAR_PROVIDER, toE164 } from "@healdesk/connectors";
+import { GOOGLE_CALENDAR_PROVIDER } from "@healdesk/connectors";
 import { and, desc, eq, gt, isNull, ne, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import {
-  AMENDMENT_TARGET_KINDS,
   appointments,
   auditLog,
   baaAcceptances,
@@ -13,9 +12,9 @@ import {
   clinics,
   connectionLinks,
   providerConnections,
+  recordAmendments,
   reportDeliveries,
   scheduledJobs,
-  type AmendmentTargetKind,
   type PhiBasis,
 } from "@/db/schema";
 import {
@@ -87,22 +86,13 @@ import {
 } from "@/lib/ops/calendar-ops";
 import { startForwardingTest } from "@/lib/onboarding/forwarding-test";
 import {
-  erasePerson,
+  ERASURE_STEP_OUTCOMES,
+  isErasureStepOutcome,
   isErasureVendorStep,
   listErasureRequests,
   stampErasureVendorStep,
-  totalErased,
-  type ErasureCounts,
-  type ErasureKept,
   type ErasureVendorStepId,
 } from "@/lib/patient-rights/erasure";
-import {
-  AMENDMENT_MAX_LENGTH,
-  amendmentCarriesIdentifier,
-  appendAmendment,
-} from "@/lib/patient-rights/amendments";
-import { amendContact } from "@/lib/patient-rights/export";
-import { isPatientRequester, REQUESTER_LABELS, type PatientRequester } from "@/lib/patient-rights/requesters";
 import { listConnections } from "@/lib/connections/store";
 import { selfCheckCredentialKey, type CredentialKeySelfCheck } from "@/lib/crypto/envelope";
 import { credentialKeyConfiguration, type CredentialKeyConfiguration } from "@/lib/crypto/kms";
@@ -318,18 +308,13 @@ const OPERATIONS = [
   "markExportDelivered",
   "markVoiceVendorDataDeleted",
   // Deletion on request (lib/patient-rights/erasure.ts; BAA 1.3.0 release gate
-  // 6). The one operation here that takes a patient's identifiers in: the
-  // number or address to delete, read and dropped in this request, never
-  // stored by apps/web and never sent back. The answer is counts and a date.
-  "erasePerson",
+  // 6): the subcontractor step's stamp, a closed outcome, never typed. The
+  // deletion itself, and amendments and corrections (release gate 8), take a
+  // patient's identifiers or words in, so they are not operations here at
+  // all: they run in apps/app's own shell (lib/ops/patient-entry.ts, npm run
+  // ops:erase-person, ops:amend-record, ops:amend-contact), and nothing of a
+  // patient crosses apps/web (review of 12 October 2026).
   "markErasureVendorDeleted",
-  // Amendments on Practice's direction (lib/patient-rights/amendments.ts and
-  // export.ts; BAA 1.3.0 clause 14(b), release gate 8). Like erasePerson, they
-  // take patient details in, the amendment's words or a contact's corrected
-  // details, read and used in this request, never stored by apps/web and
-  // never sent back. The answer is an id and a date.
-  "amendRecord",
-  "amendContact",
   // The billing panel (lib/ops/billing.ts; build spec §7 E, R35): one clinic's
   // subscription, usage, switches and the billing engine's ledgers, and the
   // support actions on them. Ids, counts, cents and codes; never a payload.
@@ -425,10 +410,7 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "startOffboarding",
   "markExportDelivered",
   "markVoiceVendorDataDeleted",
-  "erasePerson",
   "markErasureVendorDeleted",
-  "amendRecord",
-  "amendContact",
   // The billing panel's writes. getClinicBilling and previewRefund are reads:
   // the preview asks Stripe and writes nothing but its audit row.
   "setOverageMode",
@@ -931,14 +913,8 @@ export async function runOperation(
       return opMarkExportDelivered(args, operator);
     case "markVoiceVendorDataDeleted":
       return opMarkVoiceVendorDataDeleted(args, operator);
-    case "erasePerson":
-      return opErasePerson(args, operator);
     case "markErasureVendorDeleted":
       return opMarkErasureVendorDeleted(args, operator);
-    case "amendRecord":
-      return opAmendRecord(args, operator);
-    case "amendContact":
-      return opAmendContact(args, operator);
     case "getClinicBilling":
       return opGetClinicBilling(args, operator);
     case "previewRefund":
@@ -3163,6 +3139,12 @@ export type CareView = {
    * subcontractor step, outstanding until stamped, with the deadline. Never a
    * number, an address or a reference to one.
    */
+  /**
+   * How many amendments the practice has directed at this clinic, and how
+   * many contact corrections: counts only. Both are entered in apps/app's
+   * shell (lib/ops/patient-entry.ts), never here.
+   */
+  patientRights: { amendments: number; corrections: number };
   deletionRequests: {
     id: string;
     requestedBy: string;
@@ -3172,6 +3154,7 @@ export type CareView = {
     deleted: Record<string, number>;
     /** When the record's restore references are emptied; null once they have been. */
     restoreRecordUntil: string | null;
+    /** `how` is the closed outcome's label (ERASURE_STEP_OUTCOMES), never typed text. */
     steps: { id: string; label: string; stampedAt: string | null; stampedBy: string | null; how: string | null }[];
   }[];
   recipients: { email: string; label: string | null; addedBy: string; addedAt: string }[];
@@ -3223,6 +3206,14 @@ async function opGetClinicCare(
       const incidents = await listIncidents(tx);
       tx.audit.record({ action: "read", resourceType: "incident", resultCount: incidents.length, metadata: { purpose: "care_view" } });
       const deletionRequests = await listErasureRequests(tx);
+      const [amendmentCount] = await tx.db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(recordAmendments)
+        .where(eq(recordAmendments.clinicId, tx.clinicId));
+      const [correctionCount] = await tx.db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(auditLog)
+        .where(and(eq(auditLog.clinicId, tx.clinicId), eq(auditLog.resourceType, "contact_amendment")));
       return {
         clinic: {
           id: clinic.id,
@@ -3254,6 +3245,7 @@ async function opGetClinicCare(
               }
             : null,
         },
+        patientRights: { amendments: amendmentCount?.n ?? 0, corrections: correctionCount?.n ?? 0 },
         deletionRequests: deletionRequests.map((d) => ({
           id: d.id,
           requestedBy: d.requestedBy,
@@ -3267,7 +3259,7 @@ async function opGetClinicCare(
             label: step.label,
             stampedAt: step.stamp?.at ?? null,
             stampedBy: step.stamp?.by ?? null,
-            how: step.stamp?.how ?? null,
+            how: step.stamp ? (isErasureStepOutcome(step.stamp.how) ? ERASURE_STEP_OUTCOMES[step.stamp.how] : "Recorded") : null,
           })),
         })),
         recipients: recipients.map((r) => ({
@@ -3579,99 +3571,18 @@ async function opMarkVoiceVendorDataDeleted(
 }
 
 // -----------------------------------------------------------------------------
-// Deletion on request
+// Deletion on request: the subcontractor steps
 // -----------------------------------------------------------------------------
 
-export type ErasePersonOutcome =
-  | {
-      status: "erased";
-      erasureId: string;
-      dueBy: string;
-      rows: number;
-      deleted: ErasureCounts;
-      /** What stayed because a thread the person was on also booked for someone else: counts only. */
-      kept: ErasureKept;
-      /**
-       * The numbers and addresses taken as the person's: those given, and
-       * every one on a contact they matched; every contact carrying any of
-       * them was erased whole. Counts only.
-       */
-      identifiers: { phones: number; emails: number };
-    }
-  | { status: "error"; message: string };
-
-const erase = {
-  error: (message: string) => ok({ status: "error", message } satisfies ErasePersonOutcome),
-};
-
 /**
- * Who asked, chosen from the closed set (PATIENT_REQUESTERS), never typed:
- * the record and its audit row outlive the person, so they hold nothing a
- * person wrote. A typed "who asked" carried a name into the audit log
- * (review of 12 October 2026).
+ * The operator's stamp that a subcontractor deleted what it held about the
+ * person, in its own console. Once per step. How it went is one of a closed
+ * set (ERASURE_STEP_OUTCOMES), never typed: the stamp outlives the person,
+ * and a line typed here could name them. The deletion itself, and
+ * amendments and corrections, are not operations of this envelope: they run
+ * in apps/app's shell (lib/ops/patient-entry.ts), so no patient's identifier
+ * or words cross apps/web.
  */
-function chosenRequester(value: string | undefined): PatientRequester | { error: string } {
-  if (isPatientRequester(value)) return value;
-  return {
-    error: `Who asked? One of: ${Object.values(REQUESTER_LABELS).join("; ")}. Nothing typed is kept with the record.`,
-  };
-}
-
-/**
- * Delete one person at a clinic, and record the request without them
- * (docs/handover.md, "Deletion requests"). The number and the address are
- * read from the signed request, normalised, used, and dropped: they reach no
- * log line, no audit row and no reply. The reply is the request's id, its
- * deadline and the counts. The `person data erased` log line, written once
- * the deletion has committed, is the record outside the database that a
- * restore to an earlier point needs (docs/handover.md, "Restoring").
- */
-async function opErasePerson(args: Record<string, unknown>, operator: Operator): Promise<OpsOutcome> {
-  const clinic = await clinicById(stringArg(args, "clinicId"));
-  if (!clinic) return erase.error("No such clinic.");
-  if (clinic.destroyedAt) {
-    return erase.error("This clinic's data has already been destroyed; there is no one left to delete.");
-  }
-  const rawPhone = stringArg(args, "phone", 40);
-  const rawEmail = stringArg(args, "email", MAX_EMAIL_LENGTH);
-  const phone = rawPhone ? toE164(rawPhone) : undefined;
-  if (rawPhone && !phone) {
-    return erase.error("That is not a telephone number we can match. Give it in international form: +1 and ten digits for a US number.");
-  }
-  const email = rawEmail?.toLowerCase();
-  if (email && !EMAIL_SHAPED.test(email)) return erase.error("That is not an email address.");
-  if (!phone && !email) return erase.error("Give the person's telephone number, their email address, or both.");
-  // Who asked is chosen, never typed: the record and its audit row outlive
-  // the deletion, so they hold nothing a person wrote.
-  const requestedBy = chosenRequester(stringArg(args, "requestedBy", 40));
-  if (typeof requestedBy !== "string") return erase.error(requestedBy.error);
-  const receivedRaw = stringArg(args, "receivedAt", 40);
-  const receivedAt = receivedRaw ? new Date(receivedRaw) : undefined;
-  if (receivedAt && (Number.isNaN(receivedAt.getTime()) || receivedAt.getTime() > Date.now() + 60_000)) {
-    return erase.error("When did the request reach us? A past date and time.");
-  }
-
-  const result = await withTenant(
-    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
-    (tx) => erasePerson(tx, { phone, email, requestedBy, receivedAt }),
-  );
-  const rows = totalErased(result.deleted);
-  // Outside the database, after the commit: a restore to a point before this
-  // deletion loses its record with it, and this line says it happened.
-  log.info("person data erased", { clinicId: clinic.id, erasureId: result.erasureId, count: rows });
-  await audit(operator, "person_erased", { clinicSlug: clinic.slug, erasureId: result.erasureId, rows });
-  return ok({
-    status: "erased",
-    erasureId: result.erasureId,
-    dueBy: result.dueBy.toISOString(),
-    rows,
-    deleted: result.deleted,
-    kept: result.kept,
-    identifiers: result.identifiers,
-  } satisfies ErasePersonOutcome);
-}
-
-/** The operator's stamp that a subcontractor deleted what it held about the person, in its own console. Once per step. */
 async function opMarkErasureVendorDeleted(args: Record<string, unknown>, operator: Operator): Promise<OpsOutcome> {
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return care.error("No such clinic.");
@@ -3679,202 +3590,19 @@ async function opMarkErasureVendorDeleted(args: Record<string, unknown>, operato
   if (!erasureId || !UUID_SHAPED.test(erasureId)) return care.error("Which deletion request?");
   const step = stringArg(args, "step", 40);
   if (!isErasureVendorStep(step)) return care.error("Which subcontractor step?");
-  const how = incidentText(stringArg(args, "how", 200), "how");
-  if (typeof how !== "string") return care.error(how.error);
+  const how = stringArg(args, "how", 40);
+  if (!isErasureStepOutcome(how)) {
+    return care.error(`How did it go? One of: ${Object.keys(ERASURE_STEP_OUTCOMES).join(", ")}.`);
+  }
   const outcome = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
     (tx) => stampErasureVendorStep(tx, { erasureId, step: step as ErasureVendorStepId, by: operator.email, how }),
   );
   if (outcome === "not_found") return care.error("No such deletion request at this clinic.");
   if (outcome === "already_stamped") return care.error("That step is already recorded.");
-  await audit(operator, "erasure_vendor_step_recorded", { clinicSlug: clinic.slug, erasureId, step });
+  await audit(operator, "erasure_vendor_step_recorded", { clinicSlug: clinic.slug, erasureId, step, how });
   return care.updated();
 }
-
-// -----------------------------------------------------------------------------
-// Amendments on Practice's direction
-// -----------------------------------------------------------------------------
-
-export type AmendRecordOutcome =
-  | { status: "amended"; amendmentId: string; recordedAt: string }
-  | { status: "error"; message: string };
-
-const amend = {
-  error: (message: string) => ok({ status: "error", message } satisfies AmendRecordOutcome),
-};
-
-/** The text as sent, untrimmed of nothing but its ends, or undefined; never truncated. */
-function rawText(args: Record<string, unknown>, key: string): string | undefined {
-  const value = args[key];
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed || undefined;
-}
-
-/** When Practice directed it: a past moment, or now when omitted. */
-function pastMoment(value: string | undefined): Date | undefined | { error: string } {
-  if (!value) return undefined;
-  const at = new Date(value);
-  if (Number.isNaN(at.getTime()) || at.getTime() > Date.now() + 60_000) {
-    return { error: "When did the practice ask? A past date and time." };
-  }
-  return at;
-}
-
-/**
- * Append Practice's amendment to a booking request or a conversation that
- * must stay as it was made, or to an appointment, whose service,
- * practitioner or time the calendar holds (BAA 1.3.0 clause 14(b);
- * docs/handover.md, "Amendments"). The operator names the record by the id the patient's
- * export gives it. The amendment's words are read from the signed request
- * and stored in record_amendments only: no log line, audit row or reply
- * carries them, and the reply is the amendment's id and when it was
- * appended. Every later export carries it beside the record.
- */
-async function opAmendRecord(args: Record<string, unknown>, operator: Operator): Promise<OpsOutcome> {
-  const clinic = await clinicById(stringArg(args, "clinicId"));
-  if (!clinic) return amend.error("No such clinic.");
-  if (clinic.destroyedAt) return amend.error("This clinic's data has already been destroyed.");
-  const kind = stringArg(args, "targetKind", 40);
-  if (!kind || !(AMENDMENT_TARGET_KINDS as readonly string[]).includes(kind)) {
-    return amend.error("Which kind of record: a booking request, a conversation or an appointment?");
-  }
-  const targetId = stringArg(args, "targetId");
-  if (!targetId || !UUID_SHAPED.test(targetId)) {
-    return amend.error("Which record? Give its id from the patient's export.");
-  }
-  const text = rawText(args, "amendment");
-  if (!text) return amend.error("Give the amendment as the practice directed it.");
-  if (text.length > AMENDMENT_MAX_LENGTH) {
-    return amend.error(`An amendment is at most ${AMENDMENT_MAX_LENGTH} characters.`);
-  }
-  if (amendmentCarriesIdentifier(text)) {
-    return amend.error(
-      "An amendment never carries a telephone number or an email address: it can sit on someone else's record, where a deletion would not find it. Correct a contact's number or address with \"Correct a contact\" instead.",
-    );
-  }
-  const requestedBy = chosenRequester(stringArg(args, "requestedBy", 40));
-  if (typeof requestedBy !== "string") return amend.error(requestedBy.error);
-  const requestedAt = pastMoment(stringArg(args, "requestedAt", 40));
-  if (requestedAt && !(requestedAt instanceof Date)) return amend.error(requestedAt.error);
-
-  const outcome = await withTenant(
-    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
-    (tx) =>
-      appendAmendment(tx, {
-        target: { kind: kind as AmendmentTargetKind, id: targetId },
-        amendment: text,
-        requestedBy,
-        requestedAt,
-        recordedBy: operator.email,
-      }),
-  );
-  if (outcome.status === "not_found") {
-    return amend.error(`No such ${kind === "booking_request" ? "booking request" : kind} at this clinic.`);
-  }
-  // Outside the database, after the commit, as for a deletion: a restore to
-  // a point before this loses the amendment with its security event, and
-  // this line, which names the amendment and the clinic and never its words,
-  // is what tells ops to ask the practice to send it again
-  // (docs/handover.md, "Restoring").
-  log.info("record amended", { clinicId: clinic.id, amendmentId: outcome.id, kind });
-  await audit(operator, "record_amended", { clinicSlug: clinic.slug, amendmentId: outcome.id, targetKind: kind });
-  return ok({
-    status: "amended",
-    amendmentId: outcome.id,
-    recordedAt: outcome.recordedAt.toISOString(),
-  } satisfies AmendRecordOutcome);
-}
-
-export type AmendContactOutcome = { status: "corrected" } | { status: "error"; message: string };
-
-const correct = {
-  error: (message: string) => ok({ status: "error", message } satisfies AmendContactOutcome),
-};
-
-/**
- * Correct a contact's name, number or address in place, or clear one, on
- * Practice's direction (BAA 1.3.0 clause 14(b): "Where the record can be
- * changed, healdesk corrects its own copy"; `amendContact` in
- * lib/patient-rights/export.ts). A field is cleared only when `clear` names
- * it: an empty value is dropped, never written. The operator names the contact by the id the
- * patient's export gives it. The corrected details are read from the signed
- * request and written to the contact only; the audit row says which fields
- * changed and who asked, and the reply says only that it was done.
- */
-async function opAmendContact(args: Record<string, unknown>, operator: Operator): Promise<OpsOutcome> {
-  const clinic = await clinicById(stringArg(args, "clinicId"));
-  if (!clinic) return correct.error("No such clinic.");
-  if (clinic.destroyedAt) return correct.error("This clinic's data has already been destroyed.");
-  const contactId = stringArg(args, "contactId");
-  if (!contactId || !UUID_SHAPED.test(contactId)) {
-    return correct.error("Which contact? Give its id from the patient's export.");
-  }
-  const changes: { fullName?: string | null; phone?: string | null; email?: string | null } = {};
-  const fullName = rawText(args, "fullName");
-  if (fullName !== undefined) {
-    if (fullName.length > 200) return correct.error("A name is at most 200 characters.");
-    changes.fullName = fullName;
-  }
-  const rawPhone = rawText(args, "phone");
-  if (rawPhone !== undefined) {
-    const phone = toE164(rawPhone);
-    if (!phone) {
-      return correct.error("That is not a telephone number we can store. Give it in international form: +1 and ten digits for a US number.");
-    }
-    changes.phone = phone;
-  }
-  const rawEmail = rawText(args, "email");
-  if (rawEmail !== undefined) {
-    const email = rawEmail.toLowerCase();
-    if (email.length > MAX_EMAIL_LENGTH || !EMAIL_SHAPED.test(email)) return correct.error("That is not an email address.");
-    changes.email = email;
-  }
-  // A field the practice says is wrong and has no replacement for is
-  // cleared by name, never by sending it empty: an empty value is dropped
-  // above, so a blank form field can never wipe one by accident.
-  const clear = args.clear;
-  if (clear !== undefined) {
-    if (!Array.isArray(clear)) return correct.error("Say which fields to clear.");
-    const clearable = ["fullName", "phone", "email"] as const;
-    for (const value of clear as unknown[]) {
-      const field = clearable.find((name) => name === value);
-      if (!field) {
-        return correct.error("Only the name, the telephone number or the email address can be cleared.");
-      }
-      if (changes[field] !== undefined && changes[field] !== null) {
-        return correct.error("A field is either corrected or cleared, not both.");
-      }
-      changes[field] = null;
-    }
-  }
-  if (Object.keys(changes).length === 0) {
-    return correct.error("Give the corrected name, telephone number or email address, or say which to clear.");
-  }
-  const requestedBy = chosenRequester(stringArg(args, "requestedBy", 40));
-  if (typeof requestedBy !== "string") return correct.error(requestedBy.error);
-
-  const found = await withTenant(
-    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
-    (tx) => amendContact(tx, contactId, changes, requestedBy),
-  );
-  if (!found) return correct.error("No such contact at this clinic.");
-  // Outside the database, after the commit: which contact and which fields,
-  // never what they now say, so a restore that loses the correction can have
-  // the practice send it again (docs/handover.md, "Restoring").
-  log.info("contact corrected", {
-    clinicId: clinic.id,
-    contactId,
-    field: Object.keys(changes).sort().join(","),
-  });
-  await audit(operator, "contact_corrected", {
-    clinicSlug: clinic.slug,
-    contactId,
-    fields: Object.keys(changes).join(","),
-  });
-  return ok({ status: "corrected" } satisfies AmendContactOutcome);
-}
-
 
 // -----------------------------------------------------------------------------
 // Phase 8: forwarding test, first-weeks health, human touches

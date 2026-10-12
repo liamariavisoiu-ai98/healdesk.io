@@ -39,8 +39,9 @@ import { isPatientRequester, type PatientRequester } from "./requesters";
  *
  * Who writes them:
  *
- *   - the operator, on Practice's direction, through the signed ops envelope
- *     (`amendRecord` in lib/ops/api.ts; docs/handover.md, "Amendments");
+ *   - the operator, on Practice's direction, in apps/app's own shell
+ *     (`npm run ops:amend-record`, lib/ops/patient-entry.ts; docs/handover.md,
+ *     "Amendments"), never through apps/web;
  *   - the clinic portal, with M5. Its path calls `appendAmendment` inside the
  *     clinic's own tenant with the member as `recordedBy`, and it must show
  *     the amendments beside each record wherever the portal shows or exports

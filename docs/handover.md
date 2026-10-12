@@ -414,8 +414,9 @@ too, are purged as well, and check that the next 03 UTC run's note no longer beg
 than six hours, so a crashed one cannot hold it for good, and the purge runs again at
 09 UTC, so a clinic whose 02 UTC sync held it at 03 is purged the same day. `baa_acceptances` has its own six-year floor.
 Vendor-side retention (Retell's per-agent setting) is a setting, not a delete we run:
-set it to the minimum and screenshot it. Deleting one person on request is the care
-page's "Delete a person" ("Deletion requests", below). Set the host's snapshot
+set it to the minimum and screenshot it. Deleting one person on request is
+`npm run ops:erase-person -w @healdesk/app`, in the app's own shell ("Deletion
+requests", below). Set the host's snapshot
 retention to 35 days.
 
 When Stripe sends `customer.subscription.deleted` (or an operator starts it), the clinic
@@ -478,11 +479,27 @@ record of the request, no longer than we need it.
    acting on a request from anywhere else. The request names the person by the
    telephone number and/or email address they gave the practice's assistant. Never ask
    for, or write down, their name.
-3. **Run it.** `/admin/ops/<clinic>/care` → "Deletion requests" → "Delete a person":
-   the number and/or the address, who asked (one of three, chosen: the practice; the
-   person, through the practice; a legal representative, through the practice; nothing
-   typed is kept), and when the request reached us (the deadline runs from it). One transaction, through the signed ops envelope
-   (`erasePerson`, `apps/app/src/lib/patient-rights/erasure.ts`). Who the person is:
+3. **Run it, in the app's own shell, never on the care page.** The person's number
+   and address must not cross apps/web, which runs on a host with no business
+   associate agreement, so the deletion is a script on the app host ("Reaching the
+   app's shell", below):
+
+   ```bash
+   npm run ops:erase-person -w @healdesk/app -- --clinic <clinic id> \
+     --operator <your healdesk address> \
+     --requested-by practice|person_via_practice|representative_via_practice \
+     [--received-at <when the request reached us, ISO>]
+   ```
+
+   It then asks for the telephone number and the email address (either may be
+   blank), one per line. Type them at the prompt: never put them on the command
+   line, where they would stay in the shell's history and show in the process list
+   (the script refuses a number or an address in any argument). Who asked is one of
+   three, chosen, never typed; the deadline runs from `--received-at`, or now. One
+   transaction (`erasePersonFromShell` in `apps/app/src/lib/ops/patient-entry.ts`,
+   `apps/app/src/lib/patient-rights/erasure.ts`), with the same log line and
+   security event the console's form wrote, and it prints the request's id, the
+   deadline and counts. Who the person is:
    the number and address the practice gave, plus every number and address on a
    contact either one matches (one step, never a chain); every contact carrying any of
    those is theirs, and goes whole, so a second contact that shares their number goes
@@ -495,12 +512,14 @@ record of the request, no longer than we need it.
    everything it sent named them, and a thread that also booked for others (a parent
    booking for a child and for themselves) keeps what it sent for them, with its draft
    and its thread. The reply counts what was kept that way, never who; tell the
-   practice those requests stay as the other people's records. apps/web keeps nothing
-   it was typed; the reply is counts and the deadline, and nothing on the page names
-   the person afterwards.
+   practice those requests stay as the other people's records. The care page then
+   lists the request, its deadline and its subcontractor steps, and nothing that
+   names the person.
 4. **The subcontractor steps.** The care page lists each one outstanding, with the
    deadline, until it is recorded. Retell: in Retell's console, find and delete the
-   person's calls and transcripts by their number, then "Record it". Anthropic is not
+   person's calls and transcripts by their number, then record how it went on the care
+   page, one of two choices ("Deleted in the vendor's console", "The vendor held
+   nothing for the person"), never typed. Anthropic is not
    a step: what it keeps it keeps under the exception clause 4(c) names, for the period
    the Subcontractors clause states. AWS is our database and its backups, which the
    deletion and the 35-day backup window reach. Meta and Google Calendar are the
@@ -560,24 +579,44 @@ over the calendar's.
    the id of the contact, booking request, appointment or conversation the practice
    means. Ask the
    practice, never the patient, when it is not clear which.
-3. **Record it.** `/admin/ops/<clinic>/care` → "Amendments":
-   - "Correct a contact" for a name, number or address: it changes the contact row in
-     place (`amendContact`), and the audit row says which fields changed and who asked,
-     not what they said. Where the practice says a detail is wrong and gives nothing in
-     its place, tick "clear" for it: only a field named that way is cleared, and an
-     empty box changes nothing;
-   - "Append an amendment" for a booking request, a conversation or an appointment:
-     the practice's words, who asked (one of three, chosen: the practice; the person,
-     through the practice; a legal representative, through the practice; never typed,
-     for a deletion, an amendment and a correction alike), and when it asked. The words
-     never carry a telephone number or an email address (the page and the database
-     refuse them): an amendment can sit on someone else's record, where deleting that
-     person would never find it. A number or an address is a contact's, corrected with
-     "Correct a contact". It is written to
-     `record_amendments` (`amendRecord`, `apps/app/src/lib/patient-rights/amendments.ts`)
-     and never changed afterwards; a later correction is another amendment beside it.
-   Both go through the signed ops envelope. apps/web keeps nothing typed; the reply is an
-   id and a time.
+3. **Record it, in the app's own shell, never on the care page** ("Reaching the app's
+   shell", below). The practice's words and a contact's details must not cross
+   apps/web:
+   - to correct a contact's name, number or address, or clear one:
+
+     ```bash
+     npm run ops:amend-contact -w @healdesk/app -- --clinic <clinic id> \
+       --operator <your healdesk address> --contact <contact id> \
+       --requested-by practice|person_via_practice|representative_via_practice \
+       [--clear fullName,phone,email]
+     ```
+
+     It asks for the corrected name, number and address, one per line; a blank line
+     leaves that field as it is, and a field is cleared only when `--clear` names it.
+     It changes the contact row in place (`amendContact`), and the audit row says which
+     fields changed and who asked, not what they said;
+   - to append an amendment to a booking request, a conversation or an appointment:
+
+     ```bash
+     npm run ops:amend-record -w @healdesk/app -- --clinic <clinic id> \
+       --operator <your healdesk address> \
+       --kind booking_request|conversation|appointment --record <its id> \
+       --requested-by practice|person_via_practice|representative_via_practice \
+       [--requested-at <when the practice asked, ISO>]
+     ```
+
+     It asks for the practice's words, one line. Who asked is one of three, chosen,
+     never typed, for a deletion, an amendment and a correction alike. The words never
+     carry a telephone number or an email address (the script and the database refuse
+     them): an amendment can sit on someone else's record, where deleting that person
+     would never find it; a number or an address is a contact's, corrected with
+     `ops:amend-contact`. It is written to `record_amendments`
+     (`apps/app/src/lib/patient-rights/amendments.ts`) and never changed afterwards; a
+     later correction is another amendment beside it.
+   Each script refuses a number or an address on its command line, prints ids only,
+   and writes the same audit row, log line and security event the console's forms
+   did. The care page shows how many amendments and corrections the clinic has, and
+   nothing they say.
 4. **The deadline.** Ten business days from the practice's request.
 5. **The reply.** On the practice's own thread: the date it was done, and that every
    export of the record now carries the amendment. A fresh export shows it under
@@ -587,6 +626,27 @@ An amendment lives exactly as long as the record it amends: the erasure, the pur
 destruction delete it with that record, in the same function, and nothing deletes it
 on its own (drizzle/0062). The portal (M5) must show amendments beside every record it
 shows or exports.
+
+### Reaching the app's shell
+
+The deletion, amendment and correction scripts (`ops:erase-person`,
+`ops:amend-record`, `ops:amend-contact`) run where `apps/app` runs: its image, its
+`DATABASE_URL` (the runtime role) and its `HEALDESK_IDENTIFIER_REF_KEY`, with an
+interactive terminal for the prompt. Locally, and on any host where an operator has a
+shell with that environment, run them from the repository root as above.
+
+**On the AWS host there is no such route yet. This is an open item for the infra
+owner.** `infra/aws` turns ECS Exec off on purpose ("it would put a root shell on a
+container holding PHI", README, `ecs.tf`), and its one-off tasks
+(`infra/aws/scripts/run-task.sh`) run a task definition's own command with no
+overrides and no stdin, because run-task arguments are recorded by CloudTrail; a
+script that reads a patient's number from a prompt can run in neither. The owner
+chooses one route, for example a dedicated `ops-shell` task definition (the worker's
+image, environment and task role) reached through ECS Exec on that task family alone,
+with the session logged under the product key, or an SSM session on a bastion in the
+private subnets with the image's scripts and the runtime role's `DATABASE_URL`. Until
+then a deletion, an amendment or a correction for a production clinic waits for that
+route: never type the person's details into apps/web or a run-task override instead.
 
 ### Restoring
 

@@ -178,8 +178,9 @@ export async function exportPatient(
  * old name would keep the wrong data the amendment exists to remove. The
  * records that must stay as they were made (a booking request, a
  * conversation) take an appended amendment instead
- * (lib/patient-rights/amendments.ts). The operator's path is the ops
- * envelope's `amendContact`; the portal's comes with M5.
+ * (lib/patient-rights/amendments.ts). The operator's path is
+ * `npm run ops:amend-contact` in apps/app's own shell (lib/ops/patient-entry.ts),
+ * never apps/web; the portal's comes with M5.
  */
 export async function amendContact(
   tx: TenantTx,

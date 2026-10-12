@@ -2,17 +2,14 @@
 
 import { useState, useTransition } from "react";
 
-import { ERASURE_REQUESTERS, type ErasureRequester } from "@/lib/admin/erasure-requesters";
 import { INCIDENT_CLASSES, type IncidentClass } from "@/lib/admin/incident-classes";
-import type {
-  AmendContactOutcome,
-  AmendRecordOutcome,
-  CareOutcome,
-  CareView,
-  ErasePersonOutcome,
-  OpenIncidentOutcome,
-  OpsResult,
-} from "@/lib/admin/ops-client";
+import type { CareOutcome, CareView, OpenIncidentOutcome, OpsResult } from "@/lib/admin/ops-client";
+import {
+  ERASURE_STEP_OUTCOMES,
+  HANDOVER_URL,
+  PATIENT_ENTRY_SCRIPTS,
+  type ErasureStepOutcome,
+} from "@/lib/admin/patient-rights";
 
 type Actions = {
   addRecipient: (email: string, label?: string) => Promise<OpsResult<CareOutcome>>;
@@ -28,29 +25,7 @@ type Actions = {
   startOffboarding: (reason: string) => Promise<OpsResult<CareOutcome>>;
   markExportDelivered: (how: string) => Promise<OpsResult<CareOutcome>>;
   markVoiceVendorDataDeleted: (how: string) => Promise<OpsResult<CareOutcome>>;
-  erasePerson: (input: {
-    phone?: string;
-    email?: string;
-    requestedBy: ErasureRequester;
-    receivedAt?: string;
-  }) => Promise<OpsResult<ErasePersonOutcome>>;
-  markErasureVendorDeleted: (erasureId: string, step: string, how: string) => Promise<OpsResult<CareOutcome>>;
-  amendRecord: (input: {
-    targetKind: "booking_request" | "conversation" | "appointment";
-    targetId: string;
-    amendment: string;
-    requestedBy: string;
-    requestedAt?: string;
-  }) => Promise<OpsResult<AmendRecordOutcome>>;
-  amendContact: (input: {
-    contactId: string;
-    fullName?: string;
-    phone?: string;
-    email?: string;
-    /** Fields the practice says to clear, by name: an empty value is never sent. */
-    clear?: ("fullName" | "phone" | "email")[];
-    requestedBy: string;
-  }) => Promise<OpsResult<AmendContactOutcome>>;
+  markErasureVendorDeleted: (erasureId: string, step: "retell", how: ErasureStepOutcome) => Promise<OpsResult<CareOutcome>>;
 };
 
 // The clocks apps/app computes (lib/incidents/incidents.ts): BAA 1.3.0 gives
@@ -63,14 +38,7 @@ const CLASS_LABELS: Record<IncidentClass, string> = {
   service_complaint: "Service complaint (2 business days to a first reply)",
 };
 
-function describe(
-  result:
-    | OpsResult<CareOutcome>
-    | OpsResult<OpenIncidentOutcome>
-    | OpsResult<ErasePersonOutcome>
-    | OpsResult<AmendRecordOutcome>
-    | OpsResult<AmendContactOutcome>,
-): string | null {
+function describe(result: OpsResult<CareOutcome> | OpsResult<OpenIncidentOutcome>): string | null {
   if (!result.ok) return result.message;
   if (result.data.status === "refused") return result.data.message;
   return null;
@@ -167,7 +135,7 @@ export function CarePanel({ view, actions }: { view: OpsResult<CareView>; action
       </Section>
 
       <Section title="Amendments">
-        <Amendments actions={actions} />
+        <Amendments view={v} />
       </Section>
 
       <Section title="Offboarding">
@@ -179,25 +147,23 @@ export function CarePanel({ view, actions }: { view: OpsResult<CareView>; action
 
 /**
  * One person deleted on the practice's request (docs/handover.md, "Deletion
- * requests"). The number and the address are typed here, sent once in the
- * signed request, and gone: this page keeps neither, the form is cleared when
- * the deletion succeeds, and nothing that comes back names the person.
+ * requests"). The person's number and address are never typed here: the
+ * deletion runs in apps/app's own shell, so nothing of the person crosses
+ * apps/web. What this page shows is the record of each request, who asked
+ * (one of three), the dates, the counts and each subcontractor step, and
+ * what it sends is the request's id and a closed outcome for a step.
  */
 function DeletionRequests({ view, actions }: { view: CareView; actions: Actions }) {
   const [pending, start] = useTransition();
   const [problem, setProblem] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
   const now = new Date().toISOString().slice(0, 16).replace("T", " ");
   return (
     <div className="text-sm">
       <p className="text-muted">
-        When the practice asks us to delete a person, delete them here within ten business days of the request reaching
-        us, then do each subcontractor step in the vendor&rsquo;s own console and record it. This deletes their contact,
-        calls, appointments, booking requests, drafts, messaging threads, raw payloads and any stop, consent or
-        contact-attempt record, and keeps a record of the request without their number. A booking request that names
-        someone else stays, even when the person sent it: a messaging account that also booked for others keeps what it
-        sent for them, and the reply counts it. Only the practice can ask: a request from the person goes to the
-        practice (docs/handover.md, &ldquo;Deletion requests&rdquo;).
+        When the practice asks us to delete a person, delete them within ten business days of the request reaching us,
+        then do each subcontractor step in the vendor&rsquo;s own console and record it below. The deletion is run in the
+        app&rsquo;s own shell, never on this page: <code>{PATIENT_ENTRY_SCRIPTS.erase} -- --clinic {view.clinic.id}</code>{" "}
+        (<a className="underline" href={`${HANDOVER_URL}#deletion-requests`}>handover, &ldquo;Deletion requests&rdquo;</a>).
       </p>
       {view.deletionRequests.length ? (
         <ul className="mt-3 grid gap-3">
@@ -220,18 +186,20 @@ function DeletionRequests({ view, actions }: { view: CareView; actions: Actions 
                     <li key={step.id} className={r.dueBy < now ? "text-red-deep font-bold" : "text-red-deep"}>
                       Outstanding: {step.label}, by {r.dueBy}
                       {r.dueBy < now ? " — OVERDUE" : ""}.{" "}
-                      <button
-                        type="button"
-                        disabled={pending}
-                        onClick={() => {
-                          const how = window.prompt("How was it deleted at the vendor? (one line, no patient details)");
-                          if (!how) return;
-                          start(async () => setProblem(describe(await actions.markErasureVendorDeleted(r.id, step.id, how))));
-                        }}
-                        className="border-line-strong ml-1 rounded-full border px-2 py-0.5 font-bold"
-                      >
-                        Record it
-                      </button>
+                      {(Object.entries(ERASURE_STEP_OUTCOMES) as [ErasureStepOutcome, string][]).map(([how, label]) => (
+                        <button
+                          key={how}
+                          type="button"
+                          disabled={pending}
+                          onClick={() => {
+                            if (!window.confirm(`Record "${label}" for this step?`)) return;
+                            start(async () => setProblem(describe(await actions.markErasureVendorDeleted(r.id, step.id, how))));
+                          }}
+                          className="border-line-strong ml-1 rounded-full border px-2 py-0.5 font-bold"
+                        >
+                          {label}
+                        </button>
+                      ))}
                     </li>
                   ),
                 )}
@@ -245,232 +213,30 @@ function DeletionRequests({ view, actions }: { view: CareView; actions: Actions 
           ))}
         </ul>
       ) : null}
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          const form = event.currentTarget;
-          const f = new FormData(form);
-          const phone = String(f.get("phone") ?? "").trim();
-          const email = String(f.get("email") ?? "").trim();
-          const asked = String(f.get("requestedBy") ?? "");
-          const requestedBy = (Object.keys(ERASURE_REQUESTERS) as ErasureRequester[]).find((k) => k === asked) ?? "practice";
-          const received = String(f.get("receivedAt") ?? "").trim();
-          if (!window.confirm(`Delete everything ${view.clinic.name} holds about this person? This cannot be undone.`)) return;
-          start(async () => {
-            setProblem(null);
-            setDone(null);
-            const result = await actions.erasePerson({
-              ...(phone ? { phone } : {}),
-              ...(email ? { email } : {}),
-              requestedBy,
-              ...(received ? { receivedAt: new Date(received).toISOString() } : {}),
-            });
-            const message = describe(result);
-            setProblem(message);
-            if (!message && result.ok && result.data.status === "erased") {
-              form.reset();
-              const { kept, identifiers } = result.data;
-              setDone(
-                `Deleted ${result.data.rows} rows, for ${identifiers.phones} number(s) and ${identifiers.emails} address(es): those given, and every one on a contact they matched, with every contact carrying any of them. Record each subcontractor step below by ${result.data.dueBy}.` +
-                  (kept.sharedThreads
-                    ? ` Kept ${kept.requests} booking request(s) and ${kept.drafts} draft(s) for someone else, sent from ${kept.sharedThreads} messaging account(s) this person also used: tell the practice they stay as those people's records.`
-                    : ""),
-              );
-            }
-          });
-        }}
-        className="mt-5 grid gap-3"
-      >
-        <p className="text-xs font-bold uppercase">Delete a person</p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="text-sm">
-            <span className="text-muted block text-xs font-bold uppercase">Telephone number</span>
-            <input name="phone" type="tel" autoComplete="off" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
-          </label>
-          <label className="text-sm">
-            <span className="text-muted block text-xs font-bold uppercase">Email address</span>
-            <input name="email" type="email" autoComplete="off" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
-          </label>
-          <label className="text-sm">
-            <span className="text-muted block text-xs font-bold uppercase">Who asked (nothing typed is kept)</span>
-            <select name="requestedBy" required defaultValue="practice" className="border-line mt-1 w-full rounded-lg border px-3 py-2">
-              {(Object.entries(ERASURE_REQUESTERS) as [ErasureRequester, string][]).map(([id, label]) => (
-                <option key={id} value={id}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-sm">
-            <span className="text-muted block text-xs font-bold uppercase">Request reached us (optional; default now)</span>
-            <input name="receivedAt" type="datetime-local" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
-          </label>
-        </div>
-        <div>
-          <button type="submit" disabled={pending} className="rounded-full bg-black px-4 py-2 text-xs font-bold text-white">
-            Delete this person
-          </button>
-        </div>
-        {problem ? <p className="text-red-deep text-xs">{problem}</p> : null}
-        {done ? <p className="text-done text-xs">{done}</p> : null}
-      </form>
+      {problem ? <p className="text-red-deep mt-3 text-xs">{problem}</p> : null}
     </div>
   );
 }
 
 /**
- * The practice's amendments (docs/handover.md, "Amendments"). A booking
- * request or a conversation must stay as it was made, and an appointment is
- * the booking as the calendar holds it, so the amendment is appended beside
- * it and every later export carries it; a contact's name, number or address
- * is corrected in place, or cleared when the practice names it. The record is named by the id the
- * patient's export gives it. What is typed here is sent once in the signed
- * request and kept nowhere on this side; the forms clear when it is done.
+ * The practice's amendments and corrections (docs/handover.md,
+ * "Amendments"): counts only. The words and the corrected details are never
+ * typed here; the operator enters them in apps/app's own shell, so nothing
+ * of a patient crosses apps/web.
  */
-function Amendments({ actions }: { actions: Actions }) {
-  const [pending, start] = useTransition();
-  const [problem, setProblem] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
-  const field = (f: FormData, name: string) => String(f.get(name) ?? "").trim();
+function Amendments({ view }: { view: CareView }) {
   return (
     <div className="text-sm">
-      <p className="text-muted">
-        When the practice directs an amendment, record it here within ten business days of its request. Find the record&rsquo;s
-        id in the patient&rsquo;s export (docs/handover.md, &ldquo;Amendments&rdquo;). Never type a patient&rsquo;s name in
-        &ldquo;who asked&rdquo;.
+      <p>
+        {view.patientRights.amendments} amendment{view.patientRights.amendments === 1 ? "" : "s"} appended ·{" "}
+        {view.patientRights.corrections} contact correction{view.patientRights.corrections === 1 ? "" : "s"}
       </p>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          const form = event.currentTarget;
-          const f = new FormData(form);
-          const received = field(f, "requestedAt");
-          start(async () => {
-            setProblem(null);
-            setDone(null);
-            const result = await actions.amendRecord({
-              targetKind: (["conversation", "appointment"] as const).find((k) => k === field(f, "targetKind")) ?? "booking_request",
-              targetId: field(f, "targetId"),
-              amendment: field(f, "amendment"),
-              requestedBy: field(f, "requestedBy"),
-              ...(received ? { requestedAt: new Date(received).toISOString() } : {}),
-            });
-            const message = describe(result);
-            setProblem(message);
-            if (!message && result.ok && result.data.status === "amended") {
-              form.reset();
-              setDone(`Amendment appended at ${result.data.recordedAt}. Every export of the record now carries it.`);
-            }
-          });
-        }}
-        className="mt-4 grid gap-3"
-      >
-        <p className="text-xs font-bold uppercase">Append an amendment to a booking request, a conversation or an appointment</p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="text-sm">
-            <span className="text-muted block text-xs font-bold uppercase">Record</span>
-            <select name="targetKind" className="border-line mt-1 w-full rounded-lg border px-3 py-2">
-              <option value="booking_request">Booking request</option>
-              <option value="conversation">Conversation</option>
-              <option value="appointment">Appointment (its service, practitioner or time)</option>
-            </select>
-          </label>
-          <label className="text-sm">
-            <span className="text-muted block text-xs font-bold uppercase">Its id, from the export</span>
-            <input name="targetId" required autoComplete="off" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
-          </label>
-          <label className="text-sm sm:col-span-2">
-            <span className="text-muted block text-xs font-bold uppercase">The amendment, as the practice directed it</span>
-            <textarea
-              name="amendment"
-              required
-              maxLength={4000}
-              rows={3}
-              className="border-line mt-1 w-full rounded-lg border px-3 py-2"
-            />
-          </label>
-          <label className="text-sm">
-            <span className="text-muted block text-xs font-bold uppercase">Who asked — role or ticket, never a name</span>
-            <input name="requestedBy" required maxLength={200} className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
-          </label>
-          <label className="text-sm">
-            <span className="text-muted block text-xs font-bold uppercase">The practice asked (optional; default now)</span>
-            <input name="requestedAt" type="datetime-local" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
-          </label>
-        </div>
-        <div>
-          <button type="submit" disabled={pending} className="rounded-full bg-black px-4 py-2 text-xs font-bold text-white">
-            Append the amendment
-          </button>
-        </div>
-      </form>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          const form = event.currentTarget;
-          const f = new FormData(form);
-          const fullName = field(f, "fullName");
-          const phone = field(f, "phone");
-          const email = field(f, "email");
-          const clear = (["fullName", "phone", "email"] as const).filter((name) => f.get(`clear_${name}`) === "on");
-          start(async () => {
-            setProblem(null);
-            setDone(null);
-            const result = await actions.amendContact({
-              contactId: field(f, "contactId"),
-              ...(fullName ? { fullName } : {}),
-              ...(phone ? { phone } : {}),
-              ...(email ? { email } : {}),
-              ...(clear.length ? { clear } : {}),
-              requestedBy: field(f, "requestedBy"),
-            });
-            const message = describe(result);
-            setProblem(message);
-            if (!message && result.ok && result.data.status === "corrected") {
-              form.reset();
-              setDone("Contact corrected.");
-            }
-          });
-        }}
-        className="mt-6 grid gap-3"
-      >
-        <p className="text-xs font-bold uppercase">Correct or clear a contact&rsquo;s details</p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="text-sm">
-            <span className="text-muted block text-xs font-bold uppercase">Contact id, from the export</span>
-            <input name="contactId" required autoComplete="off" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
-          </label>
-          <label className="text-sm">
-            <span className="text-muted block text-xs font-bold uppercase">Who asked — role or ticket, never a name</span>
-            <input name="requestedBy" required maxLength={200} className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
-          </label>
-          <label className="text-sm">
-            <span className="text-muted block text-xs font-bold uppercase">Corrected name</span>
-            <input name="fullName" autoComplete="off" maxLength={200} className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
-          </label>
-          <label className="text-sm">
-            <span className="text-muted block text-xs font-bold uppercase">Corrected telephone number</span>
-            <input name="phone" type="tel" autoComplete="off" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
-          </label>
-          <label className="text-sm">
-            <span className="text-muted block text-xs font-bold uppercase">Corrected email address</span>
-            <input name="email" type="email" autoComplete="off" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
-          </label>
-          <fieldset className="text-sm sm:col-span-2">
-            <legend className="text-muted text-xs font-bold uppercase">Or clear, where the practice says it is wrong and gives nothing in its place</legend>
-            <label className="mr-4"><input type="checkbox" name="clear_fullName" /> the name</label>
-            <label className="mr-4"><input type="checkbox" name="clear_phone" /> the telephone number</label>
-            <label><input type="checkbox" name="clear_email" /> the email address</label>
-          </fieldset>
-        </div>
-        <div>
-          <button type="submit" disabled={pending} className="rounded-full bg-black px-4 py-2 text-xs font-bold text-white">
-            Correct the contact
-          </button>
-        </div>
-      </form>
-      {problem ? <p className="text-red-deep mt-3 text-xs">{problem}</p> : null}
-      {done ? <p className="text-done mt-3 text-xs">{done}</p> : null}
+      <p className="text-muted mt-2">
+        When the practice directs an amendment, record it within ten business days in the app&rsquo;s own shell, never on
+        this page: <code>{PATIENT_ENTRY_SCRIPTS.amendRecord}</code> for a booking request, a conversation or an
+        appointment, and <code>{PATIENT_ENTRY_SCRIPTS.amendContact}</code> to correct or clear a contact&rsquo;s name,
+        number or address (<a className="underline" href={`${HANDOVER_URL}#amendments`}>handover, &ldquo;Amendments&rdquo;</a>).
+      </p>
     </div>
   );
 }

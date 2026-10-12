@@ -174,15 +174,12 @@ type OperatorOp =
   | "startOffboarding"
   | "markExportDelivered"
   | "markVoiceVendorDataDeleted"
-  // Deletion on request (BAA 1.3.0 release gate 6). The number and address go
-  // up in the signed body and are never stored, logged or sent back here.
-  | "erasePerson"
+  // Deletion on request (BAA 1.3.0 release gate 6): the subcontractor step's
+  // stamp, ids and a closed outcome. The deletion itself, and amendments and
+  // corrections (release gate 8), carry a patient's identifiers or words, so
+  // they are not operations here: they run in apps/app's shell
+  // (lib/admin/patient-rights.ts names the scripts), never through apps/web.
   | "markErasureVendorDeleted"
-  // Amendments on the practice's direction (BAA 1.3.0 release gate 8). The
-  // amendment's words and a contact's corrected details go up in the signed
-  // body and are never stored, logged or sent back here.
-  | "amendRecord"
-  | "amendContact"
   // The billing panel (build spec §7 E, R35).
   | "getClinicBilling"
   | "setOverageMode"
@@ -2376,9 +2373,12 @@ export type CareView = {
    * Nothing here names the person: apps/app sends no number, address or
    * reference to one.
    */
+  /** How many amendments and contact corrections the practice has directed: counts only. */
+  patientRights: { amendments: number; corrections: number };
   deletionRequests: {
     id: string;
-    requestedBy: string;
+    /** One of REQUESTER_LABELS (lib/admin/patient-rights.ts); the reader refuses anything else. */
+    requestedBy: (typeof REQUESTER_LABELS)[number];
     receivedAt: string;
     dueBy: string;
     erasedAt: string;
@@ -2386,7 +2386,14 @@ export type CareView = {
     rows: number;
     /** When the restore references are emptied, or null once they have been. */
     restoreRecordUntil: string | null;
-    steps: { id: string; label: string; stampedAt: string | null; stampedBy: string | null; how: string | null }[];
+    steps: {
+      id: "retell";
+      label: string;
+      stampedAt: string | null;
+      stampedBy: string | null;
+      /** One of ERASURE_STEP_OUTCOMES' labels, never typed text; the reader refuses anything else. */
+      how: (typeof ERASURE_STEP_OUTCOMES)[ErasureStepOutcome] | null;
+    }[];
   }[];
   recipients: { email: string; label: string | null; addedBy: string; addedOn: string }[];
   deliveries: {
@@ -2416,7 +2423,11 @@ export type CareView = {
 // Defined in lib/admin/incident-classes.ts so client components never import
 // a value from this server-only module; re-exported here for server callers.
 export { INCIDENT_CLASSES, type IncidentClass } from "@/lib/admin/incident-classes";
-import type { ErasureRequester } from "@/lib/admin/erasure-requesters";
+import {
+  ERASURE_STEP_OUTCOMES,
+  REQUESTER_LABELS,
+  type ErasureStepOutcome,
+} from "@/lib/admin/patient-rights";
 
 function readCareView(value: unknown): CareView {
   const data = object(value, "getClinicCare");
@@ -2440,12 +2451,13 @@ function readCareView(value: unknown): CareView {
       destruction: readDestruction(clinic.destruction),
       voiceVendorDeletion: readVoiceVendorDeletion(clinic.voiceVendorDeletion),
     },
+    patientRights: readPatientRights(data.patientRights),
     deletionRequests: list(data.deletionRequests ?? [], "care.deletionRequests").map((entry) => {
       const d = object(entry, "care.deletionRequest");
       const deleted = object(d.deleted, "care.deletionRequest.deleted");
       return {
         id: id(d.id, "care.deletionRequest.id"),
-        requestedBy: text(d.requestedBy, "care.deletionRequest.requestedBy"),
+        requestedBy: literal(d.requestedBy, REQUESTER_LABELS, "care.deletionRequest.requestedBy"),
         receivedAt: instant(d.receivedAt, "care.deletionRequest.receivedAt").at,
         dueBy: instant(d.dueBy, "care.deletionRequest.dueBy").at,
         erasedAt: instant(d.erasedAt, "care.deletionRequest.erasedAt").at,
@@ -2454,11 +2466,14 @@ function readCareView(value: unknown): CareView {
         steps: list(d.steps, "care.deletionRequest.steps").map((value) => {
           const step = object(value, "care.deletionRequest.step");
           return {
-            id: text(step.id, "care.deletionRequest.step.id"),
+            id: literal(step.id, ["retell"] as const, "care.deletionRequest.step.id"),
             label: text(step.label, "care.deletionRequest.step.label"),
             stampedAt: optionalInstant(step.stampedAt, "care.deletionRequest.step.stampedAt")?.at ?? null,
             stampedBy: optionalText(step.stampedBy, "care.deletionRequest.step.stampedBy"),
-            how: optionalText(step.how, "care.deletionRequest.step.how"),
+            how:
+              step.how === null || step.how === undefined
+                ? null
+                : literal(step.how, Object.values(ERASURE_STEP_OUTCOMES), "care.deletionRequest.step.how"),
           };
         }),
       };
@@ -2500,6 +2515,15 @@ function readCareView(value: unknown): CareView {
         openedBy: text(i.openedBy, "care.incident.openedBy"),
       };
     }),
+  };
+}
+
+function readPatientRights(value: unknown): CareView["patientRights"] {
+  if (value === null || value === undefined) return { amendments: 0, corrections: 0 };
+  const p = object(value, "care.patientRights");
+  return {
+    amendments: count(p.amendments, "care.patientRights.amendments"),
+    corrections: count(p.corrections, "care.patientRights.corrections"),
   };
 }
 
@@ -2563,132 +2587,20 @@ export function markVoiceVendorDataDeleted(clinicId: string, how: string) {
   return careWrite("markVoiceVendorDataDeleted", { clinicId, how });
 }
 
-export type ErasePersonOutcome =
-  | {
-      status: "erased";
-      erasureId: string;
-      dueBy: string;
-      rows: number;
-      /**
-       * What stayed because a messaging thread the person was on also booked
-       * for someone else (a parent booking for a child and for themselves):
-       * the threads, and the requests and drafts on them that name another
-       * person. Counts only, never who.
-       */
-      kept: { sharedThreads: number; requests: number; drafts: number };
-      /**
-       * How many numbers and addresses apps/app took as the person's: those
-       * given, and every one on a contact they matched. Counts only.
-       */
-      identifiers: { phones: number; emails: number };
-    }
-  | { status: "refused"; message: string };
-
 /**
- * Delete one person at a clinic (docs/handover.md, "Deletion requests"). The
- * number and the address travel in the signed body to apps/app and nowhere
- * else: this module logs only the operation's name, and the reply is the
- * request's id, its deadline and a count.
+ * The operator's record that a subcontractor deleted what it held about a
+ * person: the request's id, the step and a closed outcome, nothing typed.
+ * The deletion itself runs in apps/app's shell, never here.
  */
-export { ERASURE_REQUESTERS, type ErasureRequester } from "@/lib/admin/erasure-requesters";
-
-export function erasePerson(
+export function markErasureVendorDeleted(
   clinicId: string,
-  input: { phone?: string; email?: string; requestedBy: ErasureRequester; receivedAt?: string },
-): Promise<OpsResult<ErasePersonOutcome>> {
-  return callOps("erasePerson", "write", { clinicId, ...input }, (value) => {
-    const data = object(value, "erasePerson");
-    if (state(data, "erasePerson") !== "erased") return refusal(data, "erasePerson");
-    return {
-      status: "erased",
-      erasureId: id(data.erasureId, "erasePerson.erasureId"),
-      dueBy: instant(data.dueBy, "erasePerson.dueBy").at,
-      rows: count(data.rows, "erasePerson.rows"),
-      kept: readKept(data.kept),
-      identifiers: readIdentifiers(data.identifiers),
-    };
-  });
-}
-
-function readIdentifiers(value: unknown): Extract<ErasePersonOutcome, { status: "erased" }>["identifiers"] {
-  if (value === null || value === undefined) return { phones: 0, emails: 0 };
-  const i = object(value, "erasePerson.identifiers");
-  return {
-    phones: count(i.phones, "erasePerson.identifiers.phones"),
-    emails: count(i.emails, "erasePerson.identifiers.emails"),
-  };
-}
-
-function readKept(value: unknown): Extract<ErasePersonOutcome, { status: "erased" }>["kept"] {
-  if (value === null || value === undefined) return { sharedThreads: 0, requests: 0, drafts: 0 };
-  const k = object(value, "erasePerson.kept");
-  return {
-    sharedThreads: count(k.sharedThreads, "erasePerson.kept.sharedThreads"),
-    requests: count(k.requests, "erasePerson.kept.requests"),
-    drafts: count(k.drafts, "erasePerson.kept.drafts"),
-  };
-}
-
-export function markErasureVendorDeleted(clinicId: string, erasureId: string, step: string, how: string) {
+  erasureId: string,
+  step: "retell",
+  how: ErasureStepOutcome,
+) {
   return careWrite("markErasureVendorDeleted", { clinicId, erasureId, step, how });
 }
 
-export type AmendRecordOutcome =
-  | { status: "amended"; amendmentId: string; recordedAt: string }
-  | { status: "refused"; message: string };
-
-/**
- * Append the practice's amendment to a booking request, a conversation or an
- * appointment (docs/handover.md, "Amendments"). The words travel in the signed body to
- * apps/app and nowhere else; the reply is the amendment's id and when it was
- * appended.
- */
-export function amendRecord(
-  clinicId: string,
-  input: {
-    targetKind: "booking_request" | "conversation" | "appointment";
-    targetId: string;
-    amendment: string;
-    requestedBy: string;
-    requestedAt?: string;
-  },
-): Promise<OpsResult<AmendRecordOutcome>> {
-  return callOps("amendRecord", "write", { clinicId, ...input }, (value) => {
-    const data = object(value, "amendRecord");
-    if (state(data, "amendRecord") !== "amended") return refusal(data, "amendRecord");
-    return {
-      status: "amended",
-      amendmentId: id(data.amendmentId, "amendRecord.amendmentId"),
-      recordedAt: instant(data.recordedAt, "amendRecord.recordedAt").at,
-    };
-  });
-}
-
-export type AmendContactOutcome = { status: "corrected" } | { status: "refused"; message: string };
-
-/**
- * Correct a contact's name, number or address in place, or clear one, on the
- * practice's direction. The corrected details travel in the signed body to apps/app and
- * nowhere else; the reply says only that it was done.
- */
-export function amendContact(
-  clinicId: string,
-  input: {
-    contactId: string;
-    fullName?: string;
-    phone?: string;
-    email?: string;
-    /** Fields to clear, by name: the only way to clear one, so a blank field never wipes it. */
-    clear?: ("fullName" | "phone" | "email")[];
-    requestedBy: string;
-  },
-): Promise<OpsResult<AmendContactOutcome>> {
-  return callOps("amendContact", "write", { clinicId, ...input }, (value) => {
-    const data = object(value, "amendContact");
-    if (state(data, "amendContact") !== "corrected") return refusal(data, "amendContact");
-    return { status: "corrected" };
-  });
-}
 
 export type OpenIncidentOutcome =
   | { status: "opened"; id: string; notifyBy: string; ftcNotifyBy: string | null }

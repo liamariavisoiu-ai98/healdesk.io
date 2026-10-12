@@ -150,6 +150,22 @@ export const ERASURE_VENDOR_STEPS = [
 
 export type ErasureVendorStepId = (typeof ERASURE_VENDOR_STEPS)[number]["id"];
 
+/**
+ * How a subcontractor step went, as the operator records it: one of these,
+ * never typed. The stamp outlives the person, and a line typed into it could
+ * name them ("deleted Sam's two calls"), so the care page offers these and
+ * the ops envelope refuses anything else.
+ */
+export const ERASURE_STEP_OUTCOMES = {
+  deleted: "Deleted in the vendor's console",
+  nothing_held: "The vendor held nothing for the person",
+} as const;
+export type ErasureStepOutcome = keyof typeof ERASURE_STEP_OUTCOMES;
+
+export function isErasureStepOutcome(value: unknown): value is ErasureStepOutcome {
+  return typeof value === "string" && Object.hasOwn(ERASURE_STEP_OUTCOMES, value);
+}
+
 export function isErasureVendorStep(value: unknown): value is ErasureVendorStepId {
   return ERASURE_VENDOR_STEPS.some((step) => step.id === value);
 }
@@ -803,7 +819,7 @@ export type VendorStampOutcome = "stamped" | "already_stamped" | "not_found";
 /** The operator's record that a subcontractor deleted what it held about the person. Once per step. */
 export async function stampErasureVendorStep(
   tx: TenantTx,
-  input: { erasureId: string; step: ErasureVendorStepId; by: string; how: string },
+  input: { erasureId: string; step: ErasureVendorStepId; by: string; how: ErasureStepOutcome },
 ): Promise<VendorStampOutcome> {
   const [row] = await tx.db
     .select({ vendorSteps: erasureRequests.vendorSteps })

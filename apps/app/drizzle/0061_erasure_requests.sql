@@ -186,11 +186,14 @@ BEGIN
   FOR step IN SELECT jsonb_object_keys(NEW.vendor_steps) LOOP
     CONTINUE WHEN OLD.vendor_steps ? step;
     stamp := NEW.vendor_steps -> step;
+    -- How it went is one of a closed set (ERASURE_STEP_OUTCOMES), never
+    -- typed: the stamp outlives the person, and a typed line could name them.
     IF jsonb_typeof(stamp) IS DISTINCT FROM 'object'
        OR jsonb_typeof(stamp -> 'by') IS DISTINCT FROM 'string'
-       OR jsonb_typeof(stamp -> 'how') IS DISTINCT FROM 'string'
-       OR btrim(stamp ->> 'by') = '' OR btrim(stamp ->> 'how') = '' THEN
-      RAISE EXCEPTION 'erasure_requests: a subcontractor step is stamped with who did it and how'
+       OR btrim(stamp ->> 'by') = ''
+       OR (stamp ->> 'how') IS NULL
+       OR (stamp ->> 'how') NOT IN ('deleted', 'nothing_held') THEN
+      RAISE EXCEPTION 'erasure_requests: a subcontractor step is stamped with who did it and one of the closed outcomes'
         USING ERRCODE = 'check_violation';
     END IF;
     NEW.vendor_steps := jsonb_set(NEW.vendor_steps, ARRAY[step, 'at'], to_jsonb(clock_timestamp()));

@@ -4,11 +4,13 @@ import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { resolveBookingRequest } from "@/lib/meta/booking-requests";
 import {
-  runOperation,
-  type AmendRecordOutcome,
-  type ErasePersonOutcome,
-  type Operator,
-} from "@/lib/ops/api";
+  amendContactFromShell,
+  amendRecordFromShell,
+  erasePersonFromShell,
+  type ShellAmendOutcome,
+  type ShellCorrectOutcome,
+  type ShellEraseOutcome,
+} from "@/lib/ops/patient-entry";
 import { destroyDueClinics, startOffboarding } from "@/lib/offboarding/offboarding";
 import { amendContact, exportClinic, exportPatient } from "@/lib/patient-rights/export";
 import { purgeClinic } from "@/lib/retention/purge";
@@ -40,15 +42,22 @@ import { inTenant, seedClinic, seedContact, seedConversation } from "./setup/fac
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const DAY = 24 * 60 * 60 * 1000;
 const ACTOR = { type: "service", serviceName: "test" } as const;
-const OPERATOR: Operator = { email: "ops@healdesk.test", request: { ipAddress: "127.0.0.1" } };
 
 type Client = Parameters<Parameters<typeof inTenant>[1]>[0];
 
-function data<T>(outcome: Awaited<ReturnType<typeof runOperation>>): T {
-  if (outcome.status !== 200)
-    throw new Error(`ops ${outcome.status}: ${JSON.stringify(outcome.body)}`);
-  return (outcome.body as { data: T }).data;
+const SHELL = { label: "ops@healdesk.test" };
+
+/** The operator's entries, as ops:erase-person, ops:amend-record and ops:amend-contact run them in apps/app's shell. */
+function erase(args: Omit<Parameters<typeof erasePersonFromShell>[0], "operator">): Promise<ShellEraseOutcome> {
+  return erasePersonFromShell({ ...args, operator: SHELL });
 }
+function amend(args: Record<string, unknown>): Promise<ShellAmendOutcome> {
+  return amendRecordFromShell({ ...(args as Omit<Parameters<typeof amendRecordFromShell>[0], "operator">), operator: SHELL });
+}
+function correct(args: Record<string, unknown>): Promise<ShellCorrectOutcome> {
+  return amendContactFromShell({ ...(args as Omit<Parameters<typeof amendContactFromShell>[0], "operator">), operator: SHELL });
+}
+
 
 /** A transaction as the runtime role inside the tenant, always rolled back. */
 async function asApp<T>(clinicId: string, fn: (c: Client) => Promise<T>): Promise<T> {
@@ -99,13 +108,7 @@ async function amendOp(
   targetId: string,
   amendment: string,
 ): Promise<string> {
-  const outcome = data<AmendRecordOutcome>(
-    await runOperation(
-      "amendRecord",
-      { clinicId, targetKind, targetId, amendment, requestedBy: "practice" },
-      OPERATOR,
-    ),
-  );
+  const outcome = await amend({ clinicId, targetKind, targetId, amendment, requestedBy: "practice" });
   if (outcome.status !== "amended") throw new Error(`not amended: ${JSON.stringify(outcome)}`);
   return outcome.amendmentId;
 }
@@ -148,21 +151,16 @@ describeDb("the amendment record", () => {
     const requestId = await request(c.clinicId, contactId, new Date(Date.now() - DAY));
 
     const words = "Preferred window should read Tuesday evenings, not Saturday mornings.";
-    const outcome = await runOperation(
-      "amendRecord",
-      {
-        clinicId: c.clinicId,
-        targetKind: "booking_request",
-        targetId: requestId,
-        amendment: words,
-        requestedBy: "practice",
-        requestedAt: "2026-10-05T09:00:00Z",
-      },
-      OPERATOR,
-    );
-    const amended = data<AmendRecordOutcome>(outcome);
-    expect(amended.status).toBe("amended");
-    expect(JSON.stringify(outcome.body)).not.toContain("Tuesday");
+    const outcome = await amend({
+      clinicId: c.clinicId,
+      targetKind: "booking_request",
+      targetId: requestId,
+      amendment: words,
+      requestedBy: "practice",
+      requestedAt: "2026-10-05T09:00:00Z",
+    });
+    expect(outcome.status).toBe("amended");
+    expect(JSON.stringify(outcome)).not.toContain("Tuesday");
     await amendOp(
       c.clinicId,
       "conversation",
@@ -242,9 +240,7 @@ describeDb("the amendment record", () => {
         requestedBy: "practice",
       },
     ]) {
-      const refused = data<AmendRecordOutcome>(
-        await runOperation("amendRecord", { clinicId: c.clinicId, ...args }, OPERATOR),
-      );
+      const refused = await amend({ clinicId: c.clinicId, ...args });
       expect(refused.status, JSON.stringify(args).slice(0, 80)).toBe("error");
     }
     expect(await amendmentIds(c.clinicId)).toHaveLength(2);
@@ -263,19 +259,13 @@ describeDb("the amendment record", () => {
     let amendmentId: string;
     try {
       amendmentId = await amendOp(c.clinicId, "booking_request", requestId, "Prefers Rhys as a name.");
-      data(
-        await runOperation(
-          "amendContact",
-          {
+      await correct({
             clinicId: c.clinicId,
             contactId,
             fullName: "Rhys Morgan",
             email: "rhys@example-patient.test",
             requestedBy: "practice",
-          },
-          OPERATOR,
-        ),
-      );
+          });
     } finally {
       spy.mockRestore();
     }
@@ -310,13 +300,7 @@ describeDb("the amendment record", () => {
       "Use 5550139302 instead.",
       "Write to her at mum@example-patient.test.",
     ]) {
-      const refused = data<AmendRecordOutcome>(
-        await runOperation(
-          "amendRecord",
-          { clinicId: c.clinicId, targetKind: "booking_request", targetId: requestId, amendment: words, requestedBy: "practice" },
-          OPERATOR,
-        ),
-      );
+      const refused = await amend({ clinicId: c.clinicId, targetKind: "booking_request", targetId: requestId, amendment: words, requestedBy: "practice" });
       expect(refused.status, words).toBe("error");
       await expect(
         asApp(c.clinicId, (q) =>
@@ -352,21 +336,9 @@ describeDb("the amendment record", () => {
       contactId: jane,
     });
     const typed = "Jane Doe's mother, by telephone";
-    const corrected = data<{ status: string }>(
-      await runOperation(
-        "amendContact",
-        { clinicId: c.clinicId, contactId: jane, fullName: "Jane Q Doe", requestedBy: typed },
-        OPERATOR,
-      ),
-    );
+    const corrected = await correct({ clinicId: c.clinicId, contactId: jane, fullName: "Jane Q Doe", requestedBy: typed });
     expect(corrected.status).toBe("error");
-    const amended = data<AmendRecordOutcome>(
-      await runOperation(
-        "amendRecord",
-        { clinicId: c.clinicId, targetKind: "conversation", targetId: conversationId, amendment: "Lip filler, not botox.", requestedBy: typed },
-        OPERATOR,
-      ),
-    );
+    const amended = await amend({ clinicId: c.clinicId, targetKind: "conversation", targetId: conversationId, amendment: "Lip filler, not botox.", requestedBy: typed });
     expect(amended.status).toBe("error");
     // The library refuses it too, and so does the database.
     await expect(
@@ -386,13 +358,7 @@ describeDb("the amendment record", () => {
     ).rejects.toMatchObject({ code: "23514", constraint: "record_amendments_requested_by_check" });
 
     // Chosen: accepted, and the audit rows carry the choice, never a name.
-    data(
-      await runOperation(
-        "amendContact",
-        { clinicId: c.clinicId, contactId: jane, fullName: "Jane Q Doe", requestedBy: "representative_via_practice" },
-        OPERATOR,
-      ),
-    );
+    await correct({ clinicId: c.clinicId, contactId: jane, fullName: "Jane Q Doe", requestedBy: "representative_via_practice" });
     await amendOp(c.clinicId, "conversation", conversationId, "Lip filler, not botox.");
     const { rows } = await getMigratorPool().query<{ n: number }>(
       `select count(*)::int as n from audit_log where clinic_id = $1 and metadata::text ilike '%doe%'`,
@@ -475,19 +441,13 @@ describeDb("the amendment record", () => {
       ["booking_request", theirs],
       ["conversation", theirCall.conversationId],
     ] as const) {
-      const refused = data<AmendRecordOutcome>(
-        await runOperation(
-          "amendRecord",
-          {
+      const refused = await amend({
             clinicId: a.clinicId,
             targetKind: kind,
             targetId: id,
             amendment: "x",
             requestedBy: "practice",
-          },
-          OPERATOR,
-        ),
-      );
+          });
       expect(refused).toMatchObject({ status: "error", message: expect.stringMatching(/No such/) });
     }
 
@@ -652,13 +612,7 @@ describeDb("the amendment record", () => {
       await amendOp(c.clinicId, "conversation", neighbourCall.conversationId, "e"),
     ].sort();
 
-    const outcome = data<ErasePersonOutcome>(
-      await runOperation(
-        "erasePerson",
-        { clinicId: c.clinicId, phone: "+15550144001", requestedBy: "practice" },
-        OPERATOR,
-      ),
-    );
+    const outcome = await erase({ clinicId: c.clinicId, phone: "+15550144001", requestedBy: "practice" });
     expect(outcome.status).toBe("erased");
     if (outcome.status !== "erased") return;
     expect(outcome.deleted).toMatchObject({ amendments: 2, bookingRequests: 2 });
@@ -813,13 +767,7 @@ describeDb("the amendment record", () => {
     ).rejects.toMatchObject({ code: "23514", message: expect.stringMatching(/record clock/) });
 
     // An erasure takes it with the person's appointment.
-    const erased = data<ErasePersonOutcome>(
-      await runOperation(
-        "erasePerson",
-        { clinicId: c.clinicId, phone: "+15550149001", requestedBy: "practice" },
-        OPERATOR,
-      ),
-    );
+    const erased = await erase({ clinicId: c.clinicId, phone: "+15550149001", requestedBy: "practice" });
     if (erased.status !== "erased") throw new Error("not erased");
     expect(erased.deleted).toMatchObject({ appointments: 1, amendments: 1 });
     expect(await amendmentIds(c.clinicId)).toEqual([]);
@@ -844,28 +792,16 @@ describeDb("the amendment record", () => {
       );
 
     // An empty value is dropped: nothing to change, and nothing changes.
-    const empty = data<{ status: string }>(
-      await runOperation(
-        "amendContact",
-        { clinicId: c.clinicId, contactId, email: "  ", requestedBy: "practice" },
-        OPERATOR,
-      ),
-    );
+    const empty = await correct({ clinicId: c.clinicId, contactId, email: "  ", requestedBy: "practice" });
     expect(empty.status).toBe("error");
     // Both at once is refused.
-    const both = data<{ status: string }>(
-      await runOperation(
-        "amendContact",
-        {
+    const both = await correct({
           clinicId: c.clinicId,
           contactId,
           email: "right@example-patient.test",
           clear: ["email"],
           requestedBy: "practice",
-        },
-        OPERATOR,
-      ),
-    );
+        });
     expect(both.status).toBe("error");
     expect(await read()).toEqual({
       email: "wrong@example-patient.test",
@@ -873,13 +809,7 @@ describeDb("the amendment record", () => {
       phone: "+15550149101",
     });
 
-    const cleared = data<{ status: string }>(
-      await runOperation(
-        "amendContact",
-        { clinicId: c.clinicId, contactId, clear: ["email", "fullName"], requestedBy: "practice" },
-        OPERATOR,
-      ),
-    );
+    const cleared = await correct({ clinicId: c.clinicId, contactId, clear: ["email", "fullName"], requestedBy: "practice" });
     expect(cleared.status).toBe("corrected");
     expect(await read()).toEqual({ email: null, full_name: null, phone: "+15550149101" });
   });

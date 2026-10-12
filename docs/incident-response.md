@@ -186,17 +186,20 @@ produce the bundle.
    never as a plain email attachment and never through the ops console, which
    lives in the app that holds no PHI. Delete the local copy once receipt is
    confirmed.
-4. For an amendment, use the care page's "Amendments" section
-   (`docs/handover.md`, "Amendments"). Where the record can change (a
-   contact's name, number or address), "Correct a contact" corrects it in
+4. For an amendment, run the scripts in the app's own shell, never the
+   care page (`docs/handover.md`, "Amendments" and "Reaching the app's
+   shell"). Where the record can change (a contact's name, number or
+   address), `npm run ops:amend-contact -w @healdesk/app` corrects it in
    place; the audit row records which fields changed, not what they said.
    Where a record must stay as it was made (a booking request's times and
    service are frozen from creation, and its collected fields once it is
-   decided; a conversation's record of what was said), "Append an amendment"
-   appends the practice's words beside it and links the two, so every later
-   export carries it (BAA 1.3.0 clause 14(b), 45 CFR 164.526(c)(1)). Name the
-   record by the id in the patient's export, and keep the incident's summary
-   in ids, as always.
+   decided; a conversation's record of what was said; an appointment as the
+   calendar holds it), `npm run ops:amend-record -w @healdesk/app` appends
+   the practice's words beside it and links the two, so every later export
+   carries it (BAA 1.3.0 clause 14(b), 45 CFR 164.526(c)(1)). Both read the
+   patient's details from a prompt, never the command line. Name the record
+   by the id in the patient's export, and keep the incident's summary in
+   ids, as always.
 5. Resolve the incident with the date delivered.
 
 The same script with `--all` produces the whole-clinic return bundle at

@@ -545,7 +545,7 @@ down. On 6 October 2026:
 | Payments: healdesk may send a link in website chat or on Instagram, Messenger or WhatsApp, through Practice's own processor; on a call none, and the deposit is flagged for staff; a link, and what healdesk sends the processor, carry only an amount, a generic description and a reference number; no payer details kept from the processor's notice | On a call: `depositLine` in `apps/app/src/lib/voice/tools.ts` states the deposit and sends nothing. Links: nothing yet; deposit links are package D, which is paused | On a call, yes; links, no (package D; § 12.14, gate 10) |
 | Payments: healdesk never takes card numbers | Nothing in `apps/app` asks for, parses or stores a card number, and 1.2.1's minimum-necessary clause says the same. One a patient volunteers would sit in the conversation transcript like any other words; the audit weighs that against "never takes" | Yes, by absence |
 | State law: processes patient information only on Practice's documented instructions (this agreement and the portal settings) and for purposes a–i; does not sell or share it as 1798.140 defines the words; combines it with other sources only for security and fraud | Nothing in the code sells, shares or combines it across clinics (identifier references are keyed per clinic). The portal the instructions name is not built yet (the funnel session builds it) | By design |
-| State law: gives Practice what it needs for a consumer's access, deletion or correction request within ten business days; deletes one person's information within ten business days, raw copies from other services included, and from backups within 35 days after | Operator tools in `apps/app/src/lib/patient-rights/export.ts`: `exportPatient` (access) and `amendContact` (correction), and since 12 October 2026 the care page's "Amendments" (ops `amendRecord`, `amendContact`), which appends an amendment beside a booking request or a conversation (`record_amendments`) that both exports carry. Since 8 October 2026 the care page's "Delete a person" (ops `erasePerson`, `apps/app/src/lib/patient-rights/erasure.ts`) deletes one person, their raw payloads, the Meta requests they sent and their messaging threads included, records the request without their number, and shows each subcontractor step outstanding with its ten-business-day deadline; backups age out at the host's 35 days (gate 18) | Deletion, yes (§ 12.14, gate 6); correction, yes (gate 8) |
+| State law: gives Practice what it needs for a consumer's access, deletion or correction request within ten business days; deletes one person's information within ten business days, raw copies from other services included, and from backups within 35 days after | Operator tools in `apps/app/src/lib/patient-rights/export.ts`: `exportPatient` (access) and `amendContact` (correction), and since 12 October 2026 the operator's `ops:amend-record` and `ops:amend-contact` scripts in apps/app's own shell, which append an amendment beside a booking request, a conversation or an appointment (`record_amendments`) that both exports carry. Since 8 October 2026 a deletion (`apps/app/src/lib/patient-rights/erasure.ts`, run since 12 October 2026 by the `ops:erase-person` script in apps/app's shell, never apps/web) deletes one person, their raw payloads and their own messaging threads included, records the request without their number, and shows each subcontractor step outstanding with its ten-business-day deadline; backups age out at the host's 35 days (gate 18) | Deletion, yes (§ 12.14, gate 6); correction, yes (gate 8) |
 | State law: tells Practice if healdesk can no longer meet these obligations; lets it stop and remedy unauthorised use; provides compliance documents on request | Operating processes, none written down | No (a written process) |
 
 The release audit checks each row against the code. No clause promises a
@@ -1365,11 +1365,18 @@ these is closed, by code, a page, a signed paper or a host setting, and
    Done on 8 October 2026 (`drizzle/0061_erasure_requests.sql`,
    `apps/app/src/lib/patient-rights/erasure.ts`, pinned by
    `tests/person-erasure.test.ts`):
-   - The operator erase path is the care page's "Delete a person", through
-     the signed ops envelope (`erasePerson`). The number and the address go
-     up in the signed body and nowhere else: apps/web keeps nothing it was
-     typed, no log line or audit row carries them, and the reply is the
-     request's id, its deadline and counts.
+   - The operator erase path is `npm run ops:erase-person`, run in apps/app's
+     own shell, which reads the number and the address from a prompt, never
+     the command line. Until the second review of 12 October 2026 it was the
+     care page's "Delete a person", which sent them through a Vercel server
+     action into the signed ops envelope: a hop through a host with no BAA.
+     That operation, and `amendRecord` and `amendContact`, are gone from the
+     envelope; the care page keeps the records, the subcontractor steps (a
+     closed outcome each, never typed) and counts. No log line or audit row
+     carries the person's details, and the script prints the request's id,
+     its deadline and counts. On the AWS host the route to an interactive
+     shell is an open item for the infra owner (docs/handover.md, "Reaching
+     the app's shell").
    - One transaction runs `eraseContact` for each number and address, then
      deletes what it does not reach: the person's raw payloads
      (`webhook_events`: every voice payload of their calls, and any payload
@@ -1528,12 +1535,15 @@ these is closed, by code, a page, a signed paper or a host setting, and
    - Append-only: the runtime role holds INSERT and SELECT only, a trigger
      refuses any UPDATE by any role, and the foreign keys have no delete
      action, so a record cannot be deleted around its amendment.
-   - Writers: the care page's "Amendments" section, through the signed ops
-     envelope: "Append an amendment" (`amendRecord`) and "Correct a contact"
-     (`amendContact`, which corrects a contact in place, the record that can
-     change). The words go up in the signed body and nowhere else; no audit
-     row, log line or reply carries them. The portal (M5) calls
-     `appendAmendment` with its member as the recorder.
+   - Writers: the operator's scripts in apps/app's own shell,
+     `npm run ops:amend-record` and `npm run ops:amend-contact` (which
+     corrects a contact in place, the record that can change), reading the
+     words and the corrected details from a prompt, never the command line.
+     Until the second review of 12 October 2026 they were the care page's
+     forms, through a Vercel server action into the signed ops envelope; both
+     operations are gone from it. No audit row, log line or reply carries the
+     words. The portal (M5) calls `appendAmendment` with its member as the
+     recorder.
    - Exports and uses: `exportPatient` and `exportClinic` carry each
      amendment beside the request or conversation it amends (`amendments`,
      oldest first), and the accounting of disclosures shows each being

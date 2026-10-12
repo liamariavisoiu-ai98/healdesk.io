@@ -6,7 +6,8 @@ import { BACKUP_RETENTION_DAYS } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { identifierRef } from "@/lib/identifier-ref";
-import { runOperation, type CareView, type ErasePersonOutcome, type Operator } from "@/lib/ops/api";
+import { runOperation, type CareView, type Operator } from "@/lib/ops/api";
+import { erasePersonFromShell, type ShellEraseOutcome } from "@/lib/ops/patient-entry";
 import {
   ERASURE_VENDOR_STEPS,
   expireErasureRecords,
@@ -42,6 +43,13 @@ import { inTenant, seedClinic, seedContact, seedConversation } from "./setup/fac
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const DAY = 24 * 60 * 60 * 1000;
 const OPERATOR: Operator = { email: "ops@healdesk.test", request: { ipAddress: "127.0.0.1" } };
+
+/** The operator's deletion, as ops:erase-person runs it in apps/app's shell. */
+function erase(
+  args: Omit<Parameters<typeof erasePersonFromShell>[0], "operator">,
+): Promise<ShellEraseOutcome> {
+  return erasePersonFromShell({ ...args, operator: { label: "ops@healdesk.test" } });
+}
 
 function data<T>(outcome: Awaited<ReturnType<typeof runOperation>>): T {
   if (outcome.status !== 200)
@@ -392,20 +400,14 @@ describeDb("deletion on request", () => {
     const before = await tableCounts(c.clinicId);
     const otherBefore = await tableCounts(elsewhere.clinicId);
 
-    const outcome = data<ErasePersonOutcome>(
-      await runOperation(
-        "erasePerson",
-        {
+    const outcome = await erase({
           clinicId: c.clinicId,
           // As an operator types it; the API matches it in E.164.
           phone: "(555) 013-0001",
           email: "P5550130001@Example-Patient.test",
           requestedBy: "practice",
           receivedAt: "2026-10-05T09:00:00Z",
-        },
-        OPERATOR,
-      ),
-    );
+        });
     expect(outcome.status).toBe("erased");
     if (outcome.status !== "erased") return;
     expect(outcome.deleted).toMatchObject({
@@ -523,13 +525,7 @@ describeDb("deletion on request", () => {
     });
     const parentThread = identifierRef("chat_party", c.clinicId, "instagram:ig_parent");
 
-    const outcome = data<ErasePersonOutcome>(
-      await runOperation(
-        "erasePerson",
-        { clinicId: c.clinicId, phone: "+15550135001", requestedBy: "person_via_practice" },
-        OPERATOR,
-      ),
-    );
+    const outcome = await erase({ clinicId: c.clinicId, phone: "+15550135001", requestedBy: "person_via_practice" });
     if (outcome.status !== "erased") throw new Error("not erased");
     expect(outcome.deleted).toMatchObject({
       contacts: 1,
@@ -593,13 +589,7 @@ describeDb("deletion on request", () => {
       await draft(client, c.clinicId, "instagram", "ig_own_136", null, at);
       return [first, second];
     });
-    const outcome = data<ErasePersonOutcome>(
-      await runOperation(
-        "erasePerson",
-        { clinicId: c.clinicId, phone: "+15550136001", requestedBy: "practice" },
-        OPERATOR,
-      ),
-    );
+    const outcome = await erase({ clinicId: c.clinicId, phone: "+15550136001", requestedBy: "practice" });
     if (outcome.status !== "erased") throw new Error("not erased");
     expect(outcome.deleted).toMatchObject({ bookingRequests: 2, chatThreads: 1, drafts: 1 });
     expect(outcome.kept).toEqual({ sharedThreads: 0, requests: 0, drafts: 0 });
@@ -620,13 +610,7 @@ describeDb("deletion on request", () => {
     // Anything typed is refused: a number, and a name, which the first
     // version's screen let through into the record and the audit row.
     for (const requestedBy of ["Sam on +1 555 013 1001", "Sam Rhys, by phone", "the practice, ticket 1182"]) {
-      const refused = data<ErasePersonOutcome>(
-        await runOperation(
-          "erasePerson",
-          { clinicId: c.clinicId, phone: "+15550131001", requestedBy },
-          OPERATOR,
-        ),
-      );
+      const refused = await erase({ clinicId: c.clinicId, phone: "+15550131001", requestedBy });
       expect(refused.status, requestedBy).toBe("error");
     }
     expect(await tableCounts(c.clinicId)).toMatchObject({ contacts: 2 });
@@ -641,21 +625,11 @@ describeDb("deletion on request", () => {
       ),
     ).rejects.toMatchObject({ code: "23514", constraint: "erasure_requests_requested_by_check" });
 
-    const nothing = data<ErasePersonOutcome>(
-      await runOperation(
-        "erasePerson",
-        { clinicId: c.clinicId, requestedBy: "practice" },
-        OPERATOR,
-      ),
-    );
+    const nothing = await erase({ clinicId: c.clinicId, requestedBy: "practice" });
     expect(nothing.status).toBe("error");
 
-    const outcome = await runOperation(
-      "erasePerson",
-      { clinicId: c.clinicId, phone: "+15550131001", requestedBy: "practice" },
-      OPERATOR,
-    );
-    expect(JSON.stringify(outcome.body)).not.toMatch(/5550131001|example-patient/);
+    const outcome = await erase({ clinicId: c.clinicId, phone: "+15550131001", requestedBy: "practice" });
+    expect(JSON.stringify(outcome)).not.toMatch(/5550131001|example-patient/);
     const view = data<CareView>(
       await runOperation("getClinicCare", { clinicId: c.clinicId }, OPERATOR),
     );
@@ -667,13 +641,7 @@ describeDb("deletion on request", () => {
   test("each subcontractor step shows outstanding with the deadline until it is stamped, once", async () => {
     const c = await seedClinic("erase-vendor");
     await seedEverywhere(c.clinicId, "5550132001", new Date(Date.now() - DAY));
-    const erased = data<ErasePersonOutcome>(
-      await runOperation(
-        "erasePerson",
-        { clinicId: c.clinicId, phone: "+15550132001", requestedBy: "practice" },
-        OPERATOR,
-      ),
-    );
+    const erased = await erase({ clinicId: c.clinicId, phone: "+15550132001", requestedBy: "practice" });
     if (erased.status !== "erased") throw new Error("not erased");
 
     let view = data<CareView>(
@@ -688,15 +656,24 @@ describeDb("deletion on request", () => {
       new Date(new Date(listed.erasedAt).getTime() + BACKUP_RETENTION_DAYS * DAY).toISOString(),
     );
 
-    const stamped = data<{ status: string }>(
+    // How it went is chosen, never typed: a typed line could name the person.
+    const typed = data<{ status: string }>(
       await runOperation(
         "markErasureVendorDeleted",
         {
           clinicId: c.clinicId,
           erasureId: erased.erasureId,
           step: "retell",
-          how: "Two calls deleted in Retell's console",
+          how: "Deleted Sam's two calls in Retell's console",
         },
+        OPERATOR,
+      ),
+    );
+    expect(typed.status).toBe("error");
+    const stamped = data<{ status: string }>(
+      await runOperation(
+        "markErasureVendorDeleted",
+        { clinicId: c.clinicId, erasureId: erased.erasureId, step: "retell", how: "deleted" },
         OPERATOR,
       ),
     );
@@ -705,14 +682,14 @@ describeDb("deletion on request", () => {
     expect(view.deletionRequests[0]!.steps[0]).toMatchObject({
       id: "retell",
       stampedBy: "ops@healdesk.test",
-      how: "Two calls deleted in Retell's console",
+      how: "Deleted in the vendor's console",
     });
     expect(view.deletionRequests[0]!.steps[0]!.stampedAt).not.toBeNull();
 
     const twice = data<{ status: string; message?: string }>(
       await runOperation(
         "markErasureVendorDeleted",
-        { clinicId: c.clinicId, erasureId: erased.erasureId, step: "retell", how: "again" },
+        { clinicId: c.clinicId, erasureId: erased.erasureId, step: "retell", how: "nothing_held" },
         OPERATOR,
       ),
     );
@@ -737,13 +714,7 @@ describeDb("deletion on request", () => {
   test("the record keeps its references for the backup window and no longer, and goes once its steps are stamped", async () => {
     const c = await seedClinic("erase-expiry");
     await seedEverywhere(c.clinicId, "5550133001", new Date(Date.now() - DAY));
-    const erased = data<ErasePersonOutcome>(
-      await runOperation(
-        "erasePerson",
-        { clinicId: c.clinicId, phone: "+15550133001", requestedBy: "practice" },
-        OPERATOR,
-      ),
-    );
+    const erased = await erase({ clinicId: c.clinicId, phone: "+15550133001", requestedBy: "practice" });
     if (erased.status !== "erased") throw new Error("not erased");
     const row = async () =>
       inTenant(
@@ -786,7 +757,7 @@ describeDb("deletion on request", () => {
     data(
       await runOperation(
         "markErasureVendorDeleted",
-        { clinicId: c.clinicId, erasureId: erased.erasureId, step: "retell", how: "No calls held" },
+        { clinicId: c.clinicId, erasureId: erased.erasureId, step: "retell", how: "nothing_held" },
         OPERATOR,
       ),
     );
@@ -809,27 +780,21 @@ describeDb("deletion on request", () => {
           )
         ).rows[0]!.n,
       );
-    const erase = `select * from app_erase_contact_evidence($1::uuid, array['+15550137002']::text[])`;
+    const eraseEvidence = `select * from app_erase_contact_evidence($1::uuid, array['+15550137002']::text[])`;
 
     // No deletion request: refused, whatever id is passed. The first version
     // took a bare cutoff, and now() let the runtime role delete any "stop".
-    await expect(asApp(c.clinicId, (q) => q.query(erase, [randomUUID()]))).rejects.toMatchObject({
+    await expect(asApp(c.clinicId, (q) => q.query(eraseEvidence, [randomUUID()]))).rejects.toMatchObject({
       code: "42501",
     });
 
     // A request recorded earlier, whose references have expired: refused.
-    const earlier = data<ErasePersonOutcome>(
-      await runOperation(
-        "erasePerson",
-        { clinicId: c.clinicId, phone: "+15550137001", requestedBy: "practice" },
-        OPERATOR,
-      ),
-    );
+    const earlier = await erase({ clinicId: c.clinicId, phone: "+15550137001", requestedBy: "practice" });
     if (earlier.status !== "erased") throw new Error("not erased");
     await backdateErasure(c.clinicId, earlier.erasureId, (BACKUP_RETENTION_DAYS + 1) * DAY);
     await expireErasureRecords();
     await expect(
-      asApp(c.clinicId, (q) => q.query(erase, [earlier.erasureId])),
+      asApp(c.clinicId, (q) => q.query(eraseEvidence, [earlier.erasureId])),
     ).rejects.toMatchObject({ code: "42501" });
     expect(await evidenceLeft()).toBe(3);
 
@@ -841,7 +806,7 @@ describeDb("deletion on request", () => {
          values ($1, 'practice', now(), now() + interval '14 days') returning id`,
         [c.clinicId],
       );
-      return (await q.query(erase, [rows[0]!.id])).rows[0];
+      return (await q.query(eraseEvidence, [rows[0]!.id])).rows[0];
     });
     expect(deleted).toEqual({
       suppressions_deleted: 1,
@@ -880,17 +845,11 @@ describeDb("deletion on request", () => {
     await seedConversation(c.clinicId, { startedAt: at, contactId: caller });
     await seedConversation(c.clinicId, { startedAt: at, contactId: stranger });
 
-    const outcome = data<ErasePersonOutcome>(
-      await runOperation(
-        "erasePerson",
-        {
+    const outcome = await erase({
           clinicId: c.clinicId,
           email: "dana@example-patient.test",
           requestedBy: "practice",
-        },
-        OPERATOR,
-      ),
-    );
+        });
     if (outcome.status !== "erased") throw new Error("not erased");
     expect(outcome.deleted).toMatchObject({
       contacts: 2,
@@ -924,13 +883,7 @@ describeDb("deletion on request", () => {
       // A longer number that contains it: stays.
       longer: await payload(client, c.clinicId, "mindbody", "evt_longer", { ref: "2555013920100" }, at, true),
     }));
-    const outcome = data<ErasePersonOutcome>(
-      await runOperation(
-        "erasePerson",
-        { clinicId: c.clinicId, phone: "+15550139201", email: "ann@mail.test", requestedBy: "practice" },
-        OPERATOR,
-      ),
-    );
+    const outcome = await erase({ clinicId: c.clinicId, phone: "+15550139201", email: "ann@mail.test", requestedBy: "practice" });
     if (outcome.status !== "erased") throw new Error("not erased");
     expect(outcome.deleted.webhookEvents).toBe(3);
     const left = await inTenant(c.clinicId, async (client) =>
@@ -952,13 +905,7 @@ describeDb("deletion on request", () => {
         [c.clinicId],
       ),
     );
-    const outcome = data<ErasePersonOutcome>(
-      await runOperation(
-        "erasePerson",
-        { clinicId: c.clinicId, email: "shared@example-patient.test", requestedBy: "practice" },
-        OPERATOR,
-      ),
-    );
+    const outcome = await erase({ clinicId: c.clinicId, email: "shared@example-patient.test", requestedBy: "practice" });
     if (outcome.status !== "erased") throw new Error(JSON.stringify(outcome));
     expect(outcome.deleted.contacts).toBe(120);
     const refs = await inTenant(
@@ -977,13 +924,7 @@ describeDb("deletion on request", () => {
 
   test("the record's clock is the database's: the runtime role can neither empty it early, delete it, nor fake a stamp", async () => {
     const c = await seedClinic("erase-clock-sql");
-    const erased = data<ErasePersonOutcome>(
-      await runOperation(
-        "erasePerson",
-        { clinicId: c.clinicId, phone: "+15550139001", requestedBy: "practice" },
-        OPERATOR,
-      ),
-    );
+    const erased = await erase({ clinicId: c.clinicId, phone: "+15550139001", requestedBy: "practice" });
     if (erased.status !== "erased") throw new Error("not erased");
     const id = erased.erasureId;
 
@@ -1054,13 +995,7 @@ describeDb("deletion on request", () => {
     await expect(inTenant(c.clinicId, (q) => q.query(insert, [c.clinicId]))).rejects.toMatchObject({
       code: "42501",
     });
-    const refused = data<ErasePersonOutcome>(
-      await runOperation(
-        "erasePerson",
-        { clinicId: c.clinicId, phone: "+15550139101", requestedBy: "practice" },
-        OPERATOR,
-      ),
-    );
+    const refused = await erase({ clinicId: c.clinicId, phone: "+15550139101", requestedBy: "practice" });
     expect(refused.status).toBe("error");
   });
 
@@ -1090,13 +1025,7 @@ describeDb("deletion on request", () => {
     const c = await seedClinic("erase-restore");
     const at = new Date(Date.now() - 3 * DAY);
     const seeded = await seedEverywhere(c.clinicId, "5550134001", at);
-    const erased = data<ErasePersonOutcome>(
-      await runOperation(
-        "erasePerson",
-        { clinicId: c.clinicId, phone: "+15550134001", requestedBy: "practice" },
-        OPERATOR,
-      ),
-    );
+    const erased = await erase({ clinicId: c.clinicId, phone: "+15550134001", requestedBy: "practice" });
     if (erased.status !== "erased") throw new Error("not erased");
 
     // A restore brings the person's old rows back (as a data-only load would,

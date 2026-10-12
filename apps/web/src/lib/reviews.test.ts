@@ -12,7 +12,6 @@ import {
   type Review,
 } from "@/lib/reviews";
 import { SAMPLE, SAMPLE_REVIEWS } from "@/lib/reviews.sample";
-import { EXAMPLE_NOTICE } from "@/components/Reviews";
 
 /**
  * Reviews, guarded where they can go wrong.
@@ -21,13 +20,14 @@ import { EXAMPLE_NOTICE } from "@/components/Reviews";
  * testimonials and an invented "286 clinics, 4.9" rating. The wall's design
  * came back on 3 October 2026 with its content split off: the homepage shows
  * PUBLISHED, or while that is empty the placeholder set in reviews.sample.ts
- * labelled as examples. src/lib/reviews.ts says why. Pinned here: that the gate holds, that
+ * (labelled as examples until 12 October 2026, when the owner replaced the
+ * label with the section's heading). src/lib/reviews.ts says why. Pinned
+ * here: that the switch to PUBLISHED holds, that
  * no placeholder leaks into PUBLISHED, that the header's numbers are counted
  * rather than typed, and that the attribution line says as little as it can.
  */
 
 const HOMEPAGE = fileURLToPath(new URL("../app/page.tsx", import.meta.url));
-const WALL = fileURLToPath(new URL("../components/Reviews.tsx", import.meta.url));
 const SRC = fileURLToPath(new URL("..", import.meta.url));
 const PORTRAITS = fileURLToPath(
   new URL("../../public/reviews", import.meta.url),
@@ -42,24 +42,15 @@ const PER_PAGE = [1, 3, 5];
  */
 const MAX_BODY = 340;
 
-describe("placeholder reviews only ever show as examples", () => {
-  test("the homepage shows the sample set only labelled as examples", () => {
+describe("placeholder reviews stay apart from published ones", () => {
+  test("the homepage shows the sample set only while nothing is published", () => {
     const source = readFileSync(HOMEPAGE, "utf8");
     expect(source).toContain("const SHOWING_EXAMPLES = PUBLISHED.length === 0;");
     expect(source).toContain(
       "const REVIEWS = SHOWING_EXAMPLES ? SAMPLE : summarize(PUBLISHED);",
     );
-    expect(source).toContain("<Reviews summary={REVIEWS} examples={SHOWING_EXAMPLES} />");
+    expect(source).toContain("<Reviews summary={REVIEWS} />");
     expect(source).not.toMatch(/\b(4\.9|286)\b/);
-  });
-
-  test("the wall prints the examples notice above the rating", () => {
-    const source = readFileSync(WALL, "utf8");
-    expect(EXAMPLE_NOTICE).toMatch(/^Example reviews:/);
-    const notice = source.indexOf("{EXAMPLE_NOTICE}");
-    expect(notice, "Reviews.tsx no longer renders the notice").toBeGreaterThan(-1);
-    expect(source.slice(notice - 400, notice)).toContain("{examples && (");
-    expect(notice).toBeLessThan(source.indexOf("<RatingHeader summary={summary} />"));
   });
 
   test("nothing else imports the sample set", () => {

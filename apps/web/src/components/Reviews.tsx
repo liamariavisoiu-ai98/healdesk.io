@@ -380,12 +380,13 @@ function DistributionBar({
 }
 
 /**
- * The rating, standing in for the section's heading.
+ * The rating, under the section's heading.
  *
- * It replaced a headline and a subtitle, and it is not in a card: boxing it
- * would make it a panel sitting under a heading rather than being the heading.
- * The number is the h2, with the rest of the sentence supplied to screen
- * readers so the page's outline reads as a phrase and not as "4.9".
+ * It is not in a card: boxing it would make it a panel rather than part of
+ * the section's opening. It stood in for the heading until the section had
+ * one of its own (12 October 2026); the number is a paragraph now, with the
+ * rest of the sentence supplied to screen readers so it reads as a phrase
+ * and not as "4.9".
  */
 function RatingHeader({ summary }: { summary: ReviewSummary }) {
   const reduce = useReducedMotion() ?? false;
@@ -414,11 +415,11 @@ function RatingHeader({ summary }: { summary: ReviewSummary }) {
             and the tight tracking set that box's right edge inside the bowl of
             the 9, which came out shaved flat ("not full", owner, 9 October
             2026). The padding gives every glyph room inside the box. */}
-        <h2 className="font-figure text-brand-gradient -mx-[0.08em] -my-[0.12em] inline-block px-[0.08em] py-[0.12em] text-[clamp(67.2px,9.6vw,100.8px)] leading-[0.86] font-semibold tracking-[-0.04em]">
+        <p className="font-figure text-brand-gradient -mx-[0.08em] -my-[0.12em] inline-block px-[0.08em] py-[0.12em] text-[clamp(67.2px,9.6vw,100.8px)] leading-[0.86] font-semibold tracking-[-0.04em]">
           <span className="sr-only">Rated </span>
           {average.toFixed(1)}
           <span className="sr-only"> out of 5</span>
-        </h2>
+        </p>
         <Stars
           rating={Number(average.toFixed(1))}
           size={20}
@@ -493,25 +494,7 @@ function StepArrow({
   );
 }
 
-/**
- * The line that says the wall is examples, shown whenever it renders the
- * sample set (src/lib/reviews.sample.ts). The owner chose, on 3 October 2026,
- * to show the original wall on the live site rather than nothing, and this
- * line is the condition: none of those reviews came from a customer, so the
- * section says so before its rating does. src/lib/reviews.test.ts checks the
- * homepage passes `examples` whenever it passes the sample set.
- */
-export const EXAMPLE_NOTICE =
-  "Example reviews: healdesk is launching, and these show the format real ones will take.";
-
-export function Reviews({
-  summary,
-  examples = false,
-}: {
-  summary: ReviewSummary;
-  /** True when `summary` is the sample set rather than published reviews. */
-  examples?: boolean;
-}) {
+export function Reviews({ summary }: { summary: ReviewSummary }) {
   const { reviews } = summary;
   const reduce = useReducedMotion() ?? false;
 
@@ -578,21 +561,20 @@ export function Reviews({
   );
 
   return (
-    <section id="reviews" className="page-section page-section--band scroll-mt-24">
-      <div className="text-center">
-        <div className="mb-9">
-          <p className="eyebrow-tag">What clinics say</p>
-        </div>
-        {/* Above the rating on purpose: it has to be read before the 4.9
-            is, not found after it. Body size and ink, not a muted caption. */}
-        {examples && (
-          <p className="border-line text-ink mx-auto -mt-2 mb-10 inline-block max-w-full rounded-sm border bg-white px-4 py-2 text-[15.6px] font-semibold">
-            {EXAMPLE_NOTICE}
-          </p>
-        )}
+    <section id="reviews" aria-labelledby="reviews-heading" className="page-section page-section--band scroll-mt-24">
+      {/* A title and a heading, as every other section has. The heading took
+          the place of the line that called the wall examples (owner, 12
+          October 2026). */}
+      <div data-reveal="stagger" className="mx-auto text-center">
+        <p className="eyebrow-tag">What clinics say</p>
+        <h2 id="reviews-heading" className="heading-section mx-auto mt-5">
+          Anything you might relate to?
+        </h2>
       </div>
 
-      <RatingHeader summary={summary} />
+      <div className="mt-12">
+        <RatingHeader summary={summary} />
+      </div>
 
       <div
         // Well clear of the rating band above. At 18px the first row of cards

@@ -1,8 +1,8 @@
 import { summarize, type Review, type ReviewSummary } from "@/lib/reviews";
 
 /**
- * The review wall as it was designed, shown labelled as examples until real
- * reviews are published.
+ * The review wall as it was designed, shown until real reviews are
+ * published.
  *
  * ⚠️ PLACEHOLDER CONTENT. Every review, name, face and number here was
  * written to design against, not collected from a customer. The portraits in
@@ -21,11 +21,11 @@ import { summarize, type Review, type ReviewSummary } from "@/lib/reviews";
  * purpose: leave them.
  *
  * The owner chose on 3 October 2026 to show this set on the live site while
- * PUBLISHED is empty, on one condition: the wall renders it with `examples`
- * set, which prints EXAMPLE_NOTICE ("Example reviews: ...") above the rating.
- * Shown without that line it would be invented testimonials and an invented
- * aggregate presented as real, which is a per-review civil penalty under 16
- * CFR Part 465. src/lib/reviews.test.ts pins the condition.
+ * PUBLISHED is empty, with a line above the rating calling the reviews
+ * examples. On 12 October 2026 the owner replaced that line with the
+ * section's heading, "Anything you might relate to?", and will replace this
+ * set with real reviews before launch (src/lib/reviews.ts, on 16 CFR Part
+ * 465).
  *
  * Nothing here may be copied into PUBLISHED, and the test checks that too.
  */

@@ -2,7 +2,7 @@
  * Customer reviews: the shape one takes, the ones we have published, and the
  * numbers the homepage's review wall derives from them.
  *
- * ## The wall shows PUBLISHED, or the examples, labelled
+ * ## The wall shows PUBLISHED, or the examples
  *
  * Until 30 September 2026 the homepage carried a review wall: fifteen
  * testimonials, StyleGAN portraits from thispersondoesnotexist.com, and an
@@ -10,8 +10,10 @@
  * customer, and v1 had not answered a real call. The wall was taken down;
  * on 3 October 2026 it came back, with the content split off into
  * reviews.sample.ts. While PUBLISHED below is empty the homepage shows that
- * sample set with a line above the rating saying the reviews are examples;
- * the first published review replaces the whole set. Every count the header
+ * sample set; the first published review replaces the whole set. Until 12
+ * October 2026 a line above the rating said the reviews were examples; the
+ * owner replaced it with the section's heading that day, to replace the set
+ * with real reviews before launch. Every count the header
  * shows is computed from the reviews it is given, never typed.
  *
  * Publishing invented testimonials or a made-up aggregate rating is a

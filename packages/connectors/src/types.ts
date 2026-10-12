@@ -164,6 +164,12 @@ export type CreateAppointmentInput = {
    */
   origin?: "assistant" | "desk";
   /**
+   * Who the practice's customers are (catalog `audienceFor`), for the word a
+   * calendar entry uses when the name cannot: "Client" at a vet, "Patient"
+   * otherwise. Omitted means "patients".
+   */
+  audience?: "patients" | "clients";
+  /**
    * What the person asked for, for platforms that cannot book without a
    * service. Null where the event type already says what it is.
    */

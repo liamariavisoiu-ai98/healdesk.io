@@ -103,6 +103,14 @@ export type FakeGoogleCalendarInput = {
   timeZone?: string;
   /** Hidden from the calendar list unless showHidden is asked for. */
   hidden?: boolean;
+  /**
+   * The Workspace domain the calendar belongs to, which is what
+   * calendarList's showOwnOrganizationOnly filters on: by default the
+   * account's own (its `hd`, or none for a consumer account); another
+   * domain for a calendar shared in from another organisation; null for one
+   * a consumer account shares in.
+   */
+  organization?: string | null;
 };
 
 /**
@@ -139,6 +147,7 @@ type Calendar = {
   timeZone: string;
   accessRole: FakeGoogleRole;
   hidden: boolean;
+  organization: string | null;
   events: Map<string, FakeGoogleEvent>;
   busy: Array<{ start: number; end: number }>;
 };
@@ -432,6 +441,11 @@ export function fakeGoogleCalendar(
     const floor = minRole === null ? 0 : FAKE_GOOGLE_ROLES.indexOf(minRole as FakeGoogleRole);
     if (floor < 0) return apiError(400, "invalidParameter", "Invalid value for: minAccessRole");
     const showHidden = query.get("showHidden") === "true";
+    // Google applies showOwnOrganizationOnly to Workspace users only.
+    const ownOrganization =
+      query.get("showOwnOrganizationOnly") === "true" && auth.account.hd !== undefined
+        ? auth.account.hd
+        : undefined;
     const requested = Number(query.get("maxResults") ?? 100);
     const pageSize = Number.isInteger(requested) && requested > 0 ? Math.min(requested, 250) : 100;
     const offset = Number(query.get("pageToken") ?? 0);
@@ -441,7 +455,10 @@ export function fakeGoogleCalendar(
 
     const entries = [...auth.account.calendars.values()]
       .filter((calendar) => FAKE_GOOGLE_ROLES.indexOf(calendar.accessRole) >= floor)
-      .filter((calendar) => showHidden || !calendar.hidden);
+      .filter((calendar) => showHidden || !calendar.hidden)
+      .filter(
+        (calendar) => ownOrganization === undefined || calendar.organization === ownOrganization,
+      );
     const page = entries.slice(offset, offset + pageSize);
     const next = offset + pageSize < entries.length ? String(offset + pageSize) : undefined;
     return masked(query, {
@@ -716,7 +733,7 @@ export function fakeGoogleCalendar(
     requests.filter((request) => request.endpoint === endpoint).length;
 
   function newCalendar(
-    input: FakeGoogleCalendarInput & { id: string; primary: boolean },
+    input: FakeGoogleCalendarInput & { id: string; primary: boolean; organization: string | null },
   ): Calendar {
     return {
       id: input.id,
@@ -725,6 +742,7 @@ export function fakeGoogleCalendar(
       timeZone: input.timeZone ?? "America/New_York",
       accessRole: input.accessRole ?? "owner",
       hidden: input.hidden ?? false,
+      organization: input.organization,
       events: new Map(),
       busy: [],
     };
@@ -785,6 +803,7 @@ export function fakeGoogleCalendar(
         summary: input.email ?? input.sub,
         primary: true,
         timeZone: input.timeZone,
+        organization: input.hd ?? null,
       });
       accounts.set(input.sub, {
         sub: input.sub,
@@ -797,14 +816,20 @@ export function fakeGoogleCalendar(
       });
     },
 
-    /** Another calendar on the account's list: one it owns, or one shared with it. Returns its id. */
+    /**
+     * Another calendar on the account's list: one it owns, or one shared with
+     * it, in the account's own organisation unless `organization` says
+     * otherwise. Returns its id.
+     */
     addCalendar(sub: string, input: FakeGoogleCalendarInput): string {
       const account = accountOf(sub);
       const id = input.id ?? `c_${randomBytes(12).toString("hex")}@group.calendar.fake.test`;
       if (calendarFor(account, id)) {
         throw new Error(`fakeGoogleCalendar: "${sub}" already lists "${id}".`);
       }
-      account.calendars.set(id, newCalendar({ ...input, id, primary: false }));
+      const organization =
+        input.organization !== undefined ? input.organization : (account.hd ?? null);
+      account.calendars.set(id, newCalendar({ ...input, id, primary: false, organization }));
       return id;
     },
 
@@ -938,6 +963,10 @@ export function fakeGoogleCalendar(
     /** The account's role on one of its calendars changes, as when the calendar is reshared. */
     setAccessRole(sub: string, accessRole: FakeGoogleRole, calendarId = "primary"): void {
       calendarOf(sub, calendarId).accessRole = accessRole;
+    },
+    /** The organisation a calendar belongs to changes, as when another domain takes it over. */
+    setOrganization(sub: string, organization: string | null, calendarId = "primary"): void {
+      calendarOf(sub, calendarId).organization = organization;
     },
 
     // ---- Switches ------------------------------------------------------------

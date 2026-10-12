@@ -81,6 +81,10 @@
         // inbound-only rule.
         "HEALDESK_DIRECT_BOOKING_ENABLED",
         "HEALDESK_VOICE_TOOLS_SECRET",
+        // The Google Calendar connection (plan §12): apps/app only; set on the
+        // AWS BAA host, never on a Vercel project.
+        "GOOGLE_OAUTH_CLIENT_ID",
+        "GOOGLE_OAUTH_CLIENT_SECRET",
         // Phase two (attribution): off unless "true", and unset in v1.
         "HEALDESK_PHASE_TWO_ATTRIBUTION",
         "META_APP_ID",

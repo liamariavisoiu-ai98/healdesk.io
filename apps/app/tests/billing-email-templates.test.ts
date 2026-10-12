@@ -5,8 +5,8 @@ import { forwardingInstructions, type Carrier, type PhoneSystemType } from "@hea
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import type { CoverageMode } from "@/lib/billing/answering";
-import type { NoticePayloads } from "@/lib/billing/notices";
-import { NOTICE_KIND_REGISTRY, NOTICE_KINDS, type NoticeKind } from "@/lib/email/kinds";
+import type { BillingNoticeKind, NoticePayloads } from "@/lib/billing/notices";
+import { NOTICE_KIND_REGISTRY, NOTICE_KINDS } from "@/lib/email/kinds";
 import {
   assertPayloadAllowed,
   copyProblems,
@@ -83,7 +83,9 @@ const BILLING_KINDS = NOTICE_KINDS.filter(
     kind !== "usage_80" &&
     kind !== "usage_100",
 );
-type BillingKind = Exclude<NoticeKind, "usage_80" | "usage_100">;
+// The billing payload map's kinds: the outbox registry holds the plan's own
+// kinds too (the setup emails), which lib/notices/plan-notices.ts types.
+type BillingKind = Exclude<BillingNoticeKind, "usage_80" | "usage_100">;
 
 type Variant = { name: string; kind: BillingKind; payload: Record<string, unknown> };
 

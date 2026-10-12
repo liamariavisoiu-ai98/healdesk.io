@@ -8,12 +8,15 @@ import type { EmailTemplate } from "./types";
  * Each phone or computer that opens patient details does so with its own
  * passkey, so this email is how the clinic notices a device it does not
  * recognise. It names the device and says when, in the clinic's own time,
- * and what to do if it wasn't them. Until the portal's Settings → Sign-in
- * exists, what to do is to reply: we remove the device and sign everyone
- * out by hand, through the human route in plan Part D3.
+ * and what to do if it wasn't them: reply, and we remove the device and sign
+ * everyone out by hand, through the human route in plan Part D3, because a
+ * device the clinic does not recognise may also hold the sign-in.
+ *
+ * "Someone left" (Settings → Sign-in) sends one of these too, `signed_out`:
+ * every session ended, the devices picked removed, and the backup reset.
  */
 
-export type DeviceChange = "added" | "removed" | "locked";
+export type DeviceChange = "added" | "removed" | "locked" | "signed_out";
 
 export type DeviceChangedPayload = {
   change: DeviceChange;
@@ -22,6 +25,8 @@ export type DeviceChangedPayload = {
   changedAt: string;
   /** For a lockout: how long code entry is locked. */
   lockedMinutes?: number;
+  /** For "Someone left": how many devices were removed with it. */
+  removedCount?: number;
 };
 
 const NOT_YOU =
@@ -87,6 +92,36 @@ export const renderDeviceChanged: EmailTemplate<DeviceChangedPayload> = (payload
             {
               type: "paragraph",
               text: "If that wasn't someone at your clinic, reply to this email now and we'll help.",
+            },
+          ],
+        },
+        ctx,
+      );
+    }
+    case "signed_out": {
+      const removed = payload.removedCount ?? 0;
+      return compose(
+        {
+          subject: "Everyone was signed out of your healdesk sign-in",
+          preheader: "Someone at your clinic used Someone left.",
+          blocks: [
+            {
+              type: "paragraph",
+              text: `On ${when}, someone at your clinic used “Someone left” in Settings: every browser was signed out, ${
+                removed === 0
+                  ? "no device was removed"
+                  : removed === 1
+                    ? "one device was removed"
+                    : `${removed} devices were removed`
+              }, and the authenticator-app backup and backup codes were reset.`,
+            },
+            {
+              type: "paragraph",
+              text: "Sign in again with a link from healdesk's sign-in page. Devices that weren't removed open patient details as before; add the authenticator app again in Settings → Sign-in.",
+            },
+            {
+              type: "paragraph",
+              text: "If nobody at your clinic did this, reply to this email now and we'll check what happened.",
             },
           ],
         },

@@ -1,32 +1,28 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 
-import { findClinicalContent, resolveBookingRequirements } from "@healdesk/catalog";
+import { resolveBookingRequirements } from "@healdesk/catalog";
 import { toE164 } from "@healdesk/connectors";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
-import { agentConfigs, appointments, bookingRequests, clinics, type DepositPolicy } from "@/db/schema";
+import { agentConfigs, clinics, type DepositPolicy } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
 import {
   clinicDefaultDepositUsd,
   depositDecision,
-  effectiveDepositUsd,
-  findService,
   normaliseDepositUsd,
   readClinicDepositFacts,
   type DepositAction,
 } from "@/lib/billing/deposits";
-import { slotLabel, slotsFor, writeToCalendar, type CalendarWriteOutcome } from "@/lib/booking/calendar";
-import { directBookingAllowed } from "@/lib/booking/mode";
+import { HOLD_SECONDS } from "@/lib/booking/holds";
+import { MANUAL_BOOKING_LINE } from "@/lib/booking/lines";
+import { bookingModeFor } from "@/lib/booking/mode";
 import { env } from "@/lib/env";
 import { describeError, log } from "@/lib/log";
-import { BOOKING_REQUEST_TTL_DAYS, cleanCollectedFields, notifyDesk } from "@/lib/meta/booking-requests";
-import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
-import { upsertCallerContact } from "./ingest";
-import { spokenFieldList, spokenPhone, spokenSlot } from "./spoken";
+import { spokenFieldList, spokenPhone } from "./spoken";
 
 /**
  * The mid-call tool routes (design of 23 September 2026, §E.2): what the
@@ -43,21 +39,24 @@ import { spokenFieldList, spokenPhone, spokenSlot } from "./spoken";
  *
  *   context   what this clinic's assistant asks for, and whether it may
  *             book: the requirement set as one spoken sentence, the
- *             effective booking mode, the deposit line and the practice's
- *             number for the ear.
- *   slots     free times from the writable calendar, six at most, each with
- *             a spoken form — refused outright unless every direct-booking
- *             gate holds, so the agent falls back to taking a request.
- *   book      the direct booking: idempotent on the vendor's call id, the
- *             time must be one a fresh slot read returned, the appointment
- *             and an already-`confirmed` request are inserted together,
- *             the calendar is written after the commit with an eight-second
- *             budget, and the desk gets the FYI.
+ *             booking mode, the deposit line and the practice's number for
+ *             the ear.
+ *   slots     parked: 403 `manual_booking` for every clinic.
+ *   book      parked: 403 `manual_booking` for every clinic.
+ *
+ * A pre-Retell test harness (plan §7.13). No time read from a clinic's
+ * Google Calendar reaches Synthflow for any real clinic: the context says
+ * `desk_confirms` and cannot offer times (`harness_demo_only`) for every
+ * clinic but healdesk's demo clinic, whose context reads the booking mode
+ * (lib/booking/mode.ts bookingModeFor). Booking itself goes through the
+ * engine (lib/booking/engine.ts), which the harness reaches for the demo
+ * clinic only once it is wired (C14); until then `slots` and `book` refuse
+ * for everyone, and the agent takes a request, which the post-call webhook
+ * delivers to the desk. The 23 September flows these tools ran (a slot list
+ * from a vendor with a PHI basis, and a booking with no hold) are gone.
  *
  * The call-back tool of 23 September 2026 (§F.9) was removed: v1 places no
- * calls. TODO(v1, launch plan steps 1.5 and 1.7): the Google Calendar write
- * and the 60-second hold before anything confirming is said; see
- * lib/booking/mode.ts for the gate this path still depends on.
+ * calls.
  *
  * Authentication is a fixed Bearer secret compared in constant time, and it
  * is a DIFFERENT secret from the post-call webhook's: these routes can book;
@@ -72,13 +71,17 @@ import { spokenFieldList, spokenPhone, spokenSlot } from "./spoken";
 export type VoiceTool = "context" | "slots" | "book";
 
 export const VOICE_TOOL_MAX_BODY_BYTES = 32 * 1024;
-export const VOICE_TOOL_SLOT_LIMIT = 6;
-/** How long the calendar write may take before the agent is told "unknown" (§E.2). The write itself carries on and records its own result. */
-export const BOOK_CALENDAR_BUDGET_MS = 8_000;
+/** At most this many times in one voice offer (Q7; plan §6.4). */
+export const VOICE_TOOL_SLOT_LIMIT = 3;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TOOL_ACTOR: ActorContext = { type: "agent", serviceName: "voice-tools" };
-const DIRECT_BOOKING_LABEL = "assistant (direct booking)";
+
+/** The `slots` and `book` answer for every clinic while the harness is parked (plan §7.13). */
+export const MANUAL_BOOKING_REPLY = {
+  status: 403,
+  body: { error: "manual_booking", say: MANUAL_BOOKING_LINE },
+} as const;
 
 type Deps = { transport?: EmailTransport; now?: Date };
 
@@ -162,12 +165,6 @@ function text(v: unknown, max: number): string | undefined {
   return typeof v === "string" && v.trim() ? v.trim().replace(/\s+/g, " ").slice(0, max) : undefined;
 }
 
-function isoDate(v: unknown): Date | null {
-  if (typeof v !== "string" || !v.trim()) return null;
-  const d = new Date(v);
-  return Number.isFinite(d.getTime()) ? d : null;
-}
-
 // -----------------------------------------------------------------------------
 // Rate limits — the attempt-limit.ts pattern, per clinic and per call id
 // -----------------------------------------------------------------------------
@@ -213,8 +210,14 @@ function reclaim(now: number): void {
 
 export type VoiceContextReply = {
   required_fields_spoken: string;
-  /** The EFFECTIVE mode: "direct" only while every §E.1 gate holds right now, so the agent never starts a flow the tool would refuse. */
+  /** "direct" only for healdesk's demo clinic while bookingModeFor says live; every other clinic takes requests. */
   booking_mode: "desk_confirms" | "direct";
+  /** Whether the assistant may offer real free times on this call (bookingModeFor's canOfferTimes). */
+  can_offer_times: boolean;
+  /** How long a held time lasts while the caller's details are taken. */
+  hold_seconds: number;
+  /** Why the assistant takes requests, as codes: `harness_demo_only` for any clinic but the demo clinic. */
+  booking_mode_reasons: string[];
   deposit_line: string;
   clinic_phone_spoken: string;
   /**
@@ -237,19 +240,26 @@ export type VoiceContextReply = {
  * the caller's details for the front desk and books nothing), and ops has
  * already been told (voiceAnswerDecision). Either way a refused call never
  * books straight into the calendar, so `booking_mode` is never "direct" then.
+ *
+ * The booking mode is the harness's (plan §7.13): requests, with no times on
+ * offer, for every clinic but healdesk's demo clinic, whose mode is read
+ * fresh from bookingModeFor.
  */
 async function voiceToolContext(call: ToolCall, gate: AnswerDecision): Promise<ToolReply> {
   const refused = gate.decision === "pass_through";
   const transferTo = gate.decision === "pass_through" ? gate.directLine : null;
   const reply = await withTenant({ clinicId: call.clinicId, actor: TOOL_ACTOR }, async (tx): Promise<VoiceContextReply | null> => {
     const [clinic] = await tx.db
-      .select({ specialty: clinics.specialty, requirements: clinics.bookingRequirements, bookingMode: clinics.bookingMode, phone: clinics.publishedPhoneE164 })
+      .select({ specialty: clinics.specialty, requirements: clinics.bookingRequirements, phone: clinics.publishedPhoneE164 })
       .from(clinics)
       .where(eq(clinics.id, tx.clinicId))
       .limit(1);
     if (!clinic) return null;
     const [agent] = await tx.db.select({ depositPolicy: agentConfigs.depositPolicy }).from(agentConfigs).where(eq(agentConfigs.clinicId, tx.clinicId)).limit(1);
-    const direct = !refused && clinic.bookingMode === "direct" && (await directBookingAllowed(tx)).ok;
+    const mode = await bookingModeFor(tx);
+    const direct = !refused && mode.demo && mode.mode === "live";
+    const canOfferTimes = !refused && mode.demo && mode.canOfferTimes;
+    const reasons = mode.demo ? mode.reasons.map((r) => r.code as string) : ["harness_demo_only"];
     const answerMode = transferTo ? "pass_through" : "assistant";
     tx.audit.record({
       action: "read",
@@ -260,6 +270,9 @@ async function voiceToolContext(call: ToolCall, gate: AnswerDecision): Promise<T
     return {
       required_fields_spoken: spokenFieldList(resolveBookingRequirements(clinic.specialty, clinic.requirements ?? null)),
       booking_mode: direct ? "direct" : "desk_confirms",
+      can_offer_times: canOfferTimes,
+      hold_seconds: HOLD_SECONDS,
+      booking_mode_reasons: reasons,
       deposit_line: await voiceDepositLine(tx, agent?.depositPolicy ?? null),
       clinic_phone_spoken: clinic.phone ? spokenPhone(clinic.phone) : "",
       answer_mode: answerMode,
@@ -322,321 +335,42 @@ async function voiceDepositLine(tx: TenantTx, policy: DepositPolicy | null): Pro
 }
 
 // -----------------------------------------------------------------------------
-// slots
+// slots and book: parked (plan §7.13)
 // -----------------------------------------------------------------------------
 
-export type VoiceSlot = { at: string; label: string; spoken: string };
-
+/**
+ * Parked for every clinic: no time from a clinic's Google Calendar reaches
+ * the voice vendor. The answer gate still comes first, as before: a refused
+ * call hears only that the service is unavailable, never why (a clinic's
+ * billing state is not the voice vendor's business); the audit row keeps
+ * the reason.
+ */
 async function voiceToolSlots(call: ToolCall, gate: AnswerDecision): Promise<ToolReply> {
-  const from = isoDate(call.body.from);
-  const daysRaw = call.body.days;
-  const days = typeof daysRaw === "number" && Number.isInteger(daysRaw) && daysRaw >= 1 && daysRaw <= 14 ? daysRaw : 14;
   return withTenant({ clinicId: call.clinicId, actor: TOOL_ACTOR }, async (tx): Promise<ToolReply> => {
-    // Refused by the answer gate: no times offered. The vendor hears only
-    // that the service is unavailable, never why (a clinic's billing state
-    // is not the voice vendor's business); the audit row keeps the reason.
     if (gate.decision === "pass_through") {
       tx.audit.record({ action: "read", resourceType: "voice_tool_slots", resourceId: tx.clinicId, metadata: { callRef: call.callRef, outcome: "refused", reason: gate.reason } });
       return { status: 403, body: { error: "service_unavailable" } };
     }
-    const allowed = await directBookingAllowed(tx);
-    if (!allowed.ok) {
-      tx.audit.record({ action: "read", resourceType: "voice_tool_slots", resourceId: tx.clinicId, metadata: { callRef: call.callRef, outcome: "refused", reason: allowed.reason } });
-      return { status: 403, body: { error: "direct_booking_off", missing: allowed.missing } };
-    }
-    const start = from && from.getTime() > call.now.getTime() ? from : call.now;
-    const slots = await listSpokenSlots(tx, { from: start, days });
-    tx.audit.record({ action: "read", resourceType: "voice_tool_slots", resourceId: tx.clinicId, metadata: { callRef: call.callRef, count: slots.length, days } });
-    return { status: 200, body: { slots } };
+    tx.audit.record({ action: "read", resourceType: "voice_tool_slots", resourceId: tx.clinicId, metadata: { callRef: call.callRef, outcome: "refused", reason: "manual_booking" } });
+    return MANUAL_BOOKING_REPLY;
   });
-}
-
-/** The first six free times, chronologically, each with its spoken form in the clinic's clock. */
-async function listSpokenSlots(tx: TenantTx, opts: { from: Date; days: number }): Promise<VoiceSlot[]> {
-  const [clinic] = await tx.db.select({ timezone: clinics.timezone }).from(clinics).where(eq(clinics.id, tx.clinicId)).limit(1);
-  const timeZone = clinic?.timezone ?? "America/New_York";
-  const listed = await slotsFor(tx, opts.days, { now: opts.from });
-  return listed
-    .map((s) => ({ ...s, ms: Date.parse(s.at) }))
-    .sort((a, b) => a.ms - b.ms)
-    .slice(0, VOICE_TOOL_SLOT_LIMIT)
-    .map((s) => ({ at: s.at, label: s.label, spoken: spokenSlot(new Date(s.ms), timeZone) }));
-}
-
-// -----------------------------------------------------------------------------
-// book
-// -----------------------------------------------------------------------------
-
-/** `deposit_line` is present when a deposit was flagged for the desk: the agent tells the caller (BD27). */
-export type VoiceBookReply = { booked: true; when_spoken: string; calendar: CalendarWriteOutcome; deposit_line?: string };
-
-/** A deposit was due, voice may not book without one, and the request went to the desk instead (BD27, R25). */
-export const DEPOSIT_DECLINED_REPLY: ToolReply = { status: 403, body: { error: "deposit_required", request_taken: true } };
-
-type Booked = { kind: "booked"; requestId: string; token: string; appointmentId: string; whenSpoken: string; depositLine: string };
-type Declined = { kind: "declined"; requestId: string; token: string };
-type BookStep = Booked | Declined | { kind: "replay"; reply: ToolReply } | { kind: "refused"; reply: ToolReply };
-
-async function voiceToolBook(call: ToolCall): Promise<ToolReply> {
-  const firstNameRaw = text(call.body.first_name, 40);
-  const firstName = firstNameRaw && /^[\p{L}][\p{L}' -]*$/u.test(firstNameRaw) ? firstNameRaw : null;
-  const at = isoDate(call.body.at);
-  // A service name is screened the way `treatment` is on an inbound call:
-  // no clinical content and no digit run; the window matcher's treatment
-  // words would refuse "consultation", which is exactly what this field is.
-  const serviceRaw = text(call.body.service, 120);
-  const service = serviceRaw && findClinicalContent({ service: serviceRaw }).length === 0 && !/\d{7,}/.test(serviceRaw) ? serviceRaw : null;
-  const fieldsRaw = call.body.fields;
-  const fields = fieldsRaw && typeof fieldsRaw === "object" && !Array.isArray(fieldsRaw) ? (fieldsRaw as Record<string, unknown>) : {};
-
-  // 1. The replay, in its own short transaction (R25): a retry of a call that
-  //    already booked, or already went to the desk for a deposit, answers as
-  //    it did the first time, whatever the gate or the switches say now.
-  const prior = await withTenant({ clinicId: call.clinicId, actor: TOOL_ACTOR }, (tx) => priorOutcome(tx, call));
-  if (prior) return prior;
-
-  // 2. The answer gate (BD25, R1), outside any transaction: it opens the
-  //    location's and then the billing clinic's in sequence, and nesting
-  //    either inside a booking transaction would hold two pooled connections.
-  const gate = await voiceAnswerDecision(call.clinicId, call.now);
-  if (gate.decision !== "answer") {
-    await withTenant({ clinicId: call.clinicId, actor: TOOL_ACTOR }, async (tx) => {
-      tx.audit.record({ action: "create", resourceType: "voice_tool_book", resourceId: tx.clinicId, metadata: { callRef: call.callRef, outcome: "refused", reason: "service_unavailable", decision: gate.reason } });
-    });
-    return { status: 403, body: { error: "service_unavailable" } };
-  }
-
-  // 3. The booking itself.
-  let step: BookStep;
-  try {
-    step = await withTenant({ clinicId: call.clinicId, actor: TOOL_ACTOR }, (tx) => bookInTenant(tx, call, { firstName, at, service, fields }));
-  } catch (error) {
-    // Two retries of one call racing: the partial unique index on
-    // (clinic_id, vendor_call_id) let exactly one through. Answer with it.
-    if (!isUniqueViolation(error)) throw error;
-    const replay = await withTenant({ clinicId: call.clinicId, actor: TOOL_ACTOR }, (tx) => priorOutcome(tx, call));
-    if (!replay) throw error;
-    return replay;
-  }
-  if (step.kind === "refused" || step.kind === "replay") return step.reply;
-  if (step.kind === "declined") {
-    // The request is the desk's now; until booking alerts land (M5) the
-    // desk's email is how staff hear of it.
-    const declined = step;
-    await withTenant({ clinicId: call.clinicId, actor: TOOL_ACTOR }, (tx) =>
-      notifyDesk(tx, { id: declined.requestId, token: declined.token }, { channel: "voice", platform: null }, { transport: call.transport, variant: "new" }),
-    );
-    return DEPOSIT_DECLINED_REPLY;
-  }
-
-  // §B.4 after the commit, inside the agent's patience (§E.2): the write
-  // carries on past the budget and records its own outcome; the agent is
-  // told "unknown" and says the desk will make sure.
-  const calendar = await withBudget(writeToCalendar(call.clinicId, step.appointmentId, { actor: TOOL_ACTOR, now: call.now }), BOOK_CALENDAR_BUDGET_MS, "unknown" as const);
-
-  await withTenant({ clinicId: call.clinicId, actor: TOOL_ACTOR }, (tx) =>
-    notifyDesk(tx, { id: step.requestId, token: step.token }, { channel: "voice", platform: null }, { transport: call.transport, variant: "fyi_direct" }),
-  );
-  const reply: VoiceBookReply = { booked: true, when_spoken: step.whenSpoken, calendar, ...(step.depositLine ? { deposit_line: step.depositLine } : {}) };
-  return { status: 200, body: reply };
-}
-
-async function bookInTenant(
-  tx: TenantTx,
-  call: ToolCall,
-  input: { firstName: string | null; at: Date | null; service: string | null; fields: Record<string, unknown> },
-): Promise<BookStep> {
-  const refuse = (status: number, error: string, extra: Record<string, unknown> = {}): BookStep => {
-    tx.audit.record({ action: "create", resourceType: "voice_tool_book", resourceId: tx.clinicId, metadata: { callRef: call.callRef, outcome: "refused", reason: error } });
-    return { kind: "refused", reply: { status, body: { error, ...extra } } };
-  };
-
-  // Idempotent on the vendor's call id before anything else is read: a
-  // retry that raced past voiceToolBook's own check answers with the first
-  // outcome, whatever the gates say now.
-  const replay = await priorOutcome(tx, call);
-  if (replay) return { kind: "replay", reply: replay };
-
-  const allowed = await directBookingAllowed(tx);
-  if (!allowed.ok) return refuse(403, "direct_booking_off", { missing: allowed.missing });
-  if (!input.firstName) return refuse(400, "first_name_required");
-  if (!input.at || input.at.getTime() <= call.now.getTime()) return refuse(400, "at_required");
-
-  // The time must be one a fresh read of the calendar returned: the agent
-  // cannot invent a slot, and a slot taken since the list was read is gone.
-  const fresh = await slotsFor(tx, 14, { now: call.now });
-  const slot = fresh.find((s) => Date.parse(s.at) === input.at!.getTime());
-  if (!slot) return refuse(409, "slot_unavailable");
-
-  const [clinic] = await tx.db
-    .select({ timezone: clinics.timezone, specialty: clinics.specialty, requirements: clinics.bookingRequirements })
-    .from(clinics)
-    .where(eq(clinics.id, tx.clinicId))
-    .limit(1);
-  if (!clinic) return refuse(404, "unknown_clinic");
-  const requirements = resolveBookingRequirements(clinic.specialty, clinic.requirements ?? null);
-  const { accepted, refused } = cleanCollectedFields(requirements, input.fields);
-  for (const r of refused) {
-    tx.audit.record({ action: "create", resourceType: "booking_request", metadata: { outcome: "field_refused", field: r.field, reason: r.reason } });
-  }
-
-  const contactId = await upsertCallerContact(tx.db, { clinicId: tx.clinicId, phone: call.phone, name: input.firstName, clinicTimezone: clinic.timezone });
-
-  // The deposit decision (BD27). Voice never collects, so its own switch
-  // decides: On books and leaves the deposit to the front desk; Off books
-  // nothing and sends the request to the desk. The amount is the named
-  // service's own deposit, else the clinic default.
-  const deposits = await readClinicDepositFacts(tx);
-  const serviceName = input.service ?? accepted.service ?? null;
-  const decision = depositDecision({
-    channel: "voice",
-    depositsEnabled: deposits.depositsEnabled,
-    isConnected: deposits.isConnected,
-    amountUsd: effectiveDepositUsd({ service: findService(deposits.services, serviceName), policy: deposits.policy }),
-    bookVoiceWithoutDeposit: deposits.bookVoiceWithoutDeposit,
-    bookChatWithoutDeposit: deposits.bookChatWithoutDeposit,
-    uncollectable: deposits.uncollectable,
-  });
-  const label = slotLabel(input.at, clinic.timezone);
-
-  if (decision.action === "decline_and_alert") {
-    // No booking: a request for the desk, carrying the call id so the
-    // post-call webhook links its conversation to it instead of opening a
-    // second request, and a retry of this tool call is answered from it.
-    const raw = randomBytes(32);
-    const token = raw.toString("base64url");
-    raw.fill(0);
-    const [request] = await tx.db
-      .insert(bookingRequests)
-      .values({
-        clinicId: tx.clinicId,
-        contactId,
-        channel: "voice",
-        conversationId: null,
-        preferredWindow: label,
-        alternativeWindows: [],
-        treatment: input.service,
-        collectedFields: accepted,
-        tokenHash: createHash("sha256").update(token, "utf8").digest(),
-        expiresAt: new Date(call.now.getTime() + BOOKING_REQUEST_TTL_DAYS * 24 * 60 * 60 * 1000),
-        vendorCallId: call.callId,
-      })
-      .returning({ id: bookingRequests.id });
-    if (!request) throw new Error("Direct booking: no request row returned.");
-    await notifyBookingAlert(tx, "deposit_to_collect", { bookingRequestId: request.id });
-    tx.audit.record({ action: "create", resourceType: "booking_request", resourceId: request.id, resourceIds: [contactId], metadata: { channel: "voice", via: "deposit_declined", expiresInDays: BOOKING_REQUEST_TTL_DAYS } });
-    tx.audit.record({ action: "create", resourceType: "voice_tool_book", resourceId: request.id, metadata: { callRef: call.callRef, outcome: "request_taken", reason: "deposit_required", fields: Object.keys(accepted) } });
-    return { kind: "declined", requestId: request.id, token };
-  }
-
-  const depositStatus = decision.action === "book_and_flag" ? "pending_front_desk" : "none";
-  const [appointment] = await tx.db
-    .insert(appointments)
-    .values({
-      clinicId: tx.clinicId,
-      contactId,
-      conversationId: null,
-      scheduledFor: input.at,
-      treatment: serviceName,
-      depositUsd: decision.isRequired && decision.amountUsd !== null ? String(decision.amountUsd) : null,
-      depositStatus,
-      externalConfirmedAt: null,
-    })
-    .returning({ id: appointments.id });
-  if (!appointment) throw new Error("Direct booking: no appointment row returned.");
-  if (depositStatus === "pending_front_desk") {
-    await notifyBookingAlert(tx, "deposit_to_collect", { appointmentId: appointment.id });
-  }
-
-  // The request, INSERTed already confirmed (the 0040 trigger is BEFORE
-  // UPDATE only, on purpose). The token exists once, here, for the FYI.
-  const raw = randomBytes(32);
-  const token = raw.toString("base64url");
-  raw.fill(0);
-  const [request] = await tx.db
-    .insert(bookingRequests)
-    .values({
-      clinicId: tx.clinicId,
-      contactId,
-      channel: "voice",
-      conversationId: null,
-      preferredWindow: label,
-      alternativeWindows: [],
-      treatment: input.service,
-      collectedFields: accepted,
-      status: "confirmed",
-      tokenHash: createHash("sha256").update(token, "utf8").digest(),
-      expiresAt: new Date(call.now.getTime() + BOOKING_REQUEST_TTL_DAYS * 24 * 60 * 60 * 1000),
-      decidedAt: call.now,
-      decidedByLabel: DIRECT_BOOKING_LABEL,
-      confirmedFor: input.at,
-      appointmentId: appointment.id,
-      bookedVia: "agent_direct",
-      vendorCallId: call.callId,
-    })
-    .returning({ id: bookingRequests.id });
-  if (!request) throw new Error("Direct booking: no request row returned.");
-
-  tx.audit.record({
-    action: "create",
-    resourceType: "appointment",
-    resourceId: appointment.id,
-    metadata: { bookingRequestId: request.id, confirmedByDesk: false, bookedByAssistant: true, confirmedByClinicSystem: false, deposit: depositStatus, depositRule: decision.rule },
-  });
-  tx.audit.record({ action: "create", resourceType: "booking_request", resourceId: request.id, resourceIds: [contactId], metadata: { channel: "voice", via: "agent_direct", expiresInDays: BOOKING_REQUEST_TTL_DAYS } });
-  tx.audit.record({ action: "create", resourceType: "voice_tool_book", resourceId: request.id, metadata: { callRef: call.callRef, outcome: "booked", fields: Object.keys(accepted) } });
-  return {
-    kind: "booked",
-    requestId: request.id,
-    token,
-    appointmentId: appointment.id,
-    whenSpoken: spokenSlot(input.at, clinic.timezone),
-    depositLine: depositStatus === "pending_front_desk" ? depositLine({ action: "book_and_flag", amountUsd: decision.amountUsd }) : "",
-  };
 }
 
 /**
- * What this call already got, as the agent was first told it, or null: the
- * booking, with its deposit line read back from the appointment, or the
- * request a deposit sent to the desk.
+ * Parked for every clinic: the assistant takes a request, which the
+ * post-call webhook delivers. The gate is asked here, outside any
+ * transaction, as the engine's route will ask it after its replay (C14).
  */
-async function priorOutcome(tx: TenantTx, call: ToolCall): Promise<ToolReply | null> {
-  const [existing] = await tx.db
-    .select({
-      id: bookingRequests.id,
-      confirmedFor: bookingRequests.confirmedFor,
-      calendar: appointments.calendarWriteStatus,
-      depositStatus: appointments.depositStatus,
-      depositUsd: appointments.depositUsd,
-      timezone: clinics.timezone,
-    })
-    .from(bookingRequests)
-    .innerJoin(clinics, eq(clinics.id, bookingRequests.clinicId))
-    .leftJoin(appointments, eq(appointments.id, bookingRequests.appointmentId))
-    .where(and(eq(bookingRequests.clinicId, tx.clinicId), eq(bookingRequests.vendorCallId, call.callId)))
-    .limit(1);
-  if (!existing) return null;
-  tx.audit.record({ action: "create", resourceType: "voice_tool_book", resourceId: existing.id, metadata: { callRef: call.callRef, outcome: "replayed" } });
-  if (!existing.confirmedFor) return DEPOSIT_DECLINED_REPLY;
-  const calendar: CalendarWriteOutcome = existing.calendar === "written" ? "written" : existing.calendar === "failed" ? "failed" : existing.calendar === "none" ? "not-connected" : "unknown";
-  const deposit = existing.depositStatus === "pending_front_desk" ? depositLine({ action: "book_and_flag", amountUsd: existing.depositUsd === null ? null : Number(existing.depositUsd) }) : "";
-  const reply: VoiceBookReply = { booked: true, when_spoken: spokenSlot(existing.confirmedFor, existing.timezone), calendar, ...(deposit ? { deposit_line: deposit } : {}) };
-  return { status: 200, body: reply };
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  const code = (error as { code?: string })?.code ?? (error as { cause?: { code?: string } })?.cause?.code;
-  return code === "23505";
-}
-
-async function withBudget<T, F>(work: Promise<T>, ms: number, fallback: F): Promise<T | F> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<F>((resolve) => {
-    timer = setTimeout(() => resolve(fallback), ms);
+async function voiceToolBook(call: ToolCall): Promise<ToolReply> {
+  const gate = await voiceAnswerDecision(call.clinicId, call.now);
+  return withTenant({ clinicId: call.clinicId, actor: TOOL_ACTOR }, async (tx): Promise<ToolReply> => {
+    const refused = gate.decision !== "answer";
+    tx.audit.record({
+      action: "create",
+      resourceType: "voice_tool_book",
+      resourceId: tx.clinicId,
+      metadata: { callRef: call.callRef, outcome: "refused", reason: refused ? "service_unavailable" : "manual_booking", ...(gate.decision !== "answer" ? { decision: gate.reason } : {}) },
+    });
+    return refused ? { status: 403, body: { error: "service_unavailable" } } : MANUAL_BOOKING_REPLY;
   });
-  try {
-    return await Promise.race([work, late]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
 }

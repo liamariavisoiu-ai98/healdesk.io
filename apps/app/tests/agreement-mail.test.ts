@@ -541,4 +541,71 @@ describe("renderAgreementCopy", () => {
     expect(copy.html).not.toContain("<img");
     expect(copy.html).toContain("&lt;img");
   });
+
+  /**
+   * Worded by the kind the stored version carries (plan Annex X, P6). A BAA's
+   * copy says what it has always said, word for word; a Data Protection
+   * Agreement's names its own document and never calls a client a patient.
+   */
+  test("a BAA's copy is worded as it always was", () => {
+    const copy = renderAgreementCopy({ ...ACCEPTANCE, version: "1.2.1" });
+    expect(copy.subject).toBe("Your signed business associate agreement for Radiance Med Spa");
+    expect(copy.text.split("\n").slice(0, 3)).toEqual([
+      "Attached, as a PDF, is the business associate agreement you signed for",
+      "Radiance Med Spa. It is the document we recorded at signature, word for",
+      "word — the same text that was on your screen.",
+    ]);
+    expect(copy.text).toContain(
+      [
+        "Please keep it. This is a contract with two parties to it, and healdesk",
+        "should not be the only one holding a copy — if your practice is ever asked",
+        "to produce its business associate agreements, this is the file.",
+      ].join("\n"),
+    );
+    expect(copy.html).toContain(
+      "<p>Attached, as a PDF, is the business associate agreement you signed for <strong>Radiance Med Spa</strong>.",
+    );
+    expect(copy.html).toContain(
+      "ever asked to produce its business associate agreements, this is the file.</p>",
+    );
+  });
+
+  test("a DPA's copy names the Data Protection Agreement, and no patient", () => {
+    const copy = renderAgreementCopy({
+      ...ACCEPTANCE,
+      clinicName: "Golden Paws Veterinary LLC",
+      version: "dpa/1.0.0",
+    });
+    expect(copy.subject).toBe(
+      "Your signed data protection agreement for Golden Paws Veterinary LLC",
+    );
+    expect(copy.text).toContain("Attached, as a PDF, is the data protection agreement you signed for");
+    expect(copy.text).toContain("Agreement version dpa/1.0.0.");
+    expect(copy.html).toContain("is the data protection agreement you signed for");
+    for (const part of [copy.subject, copy.text, copy.html]) {
+      expect(part).not.toMatch(/business associate|\bpatients?\b|\bPHI\b/i);
+    }
+    // Still the four facts.
+    for (const body of [copy.text, copy.html]) {
+      expect(body).toContain("Alex Chen");
+      expect(body).toContain("18 August 2026");
+      expect(body).toContain(ACCEPTANCE.documentHash);
+    }
+  });
+
+  test("a DPA's file is named for it when the renderer gives no name", async () => {
+    const transport = new StubTransport({ status: "sent", messageId: "m-dpa" });
+    await sendAgreementCopy(
+      { ...ACCEPTANCE, version: "dpa/1.0.0", filename: undefined },
+      { transport },
+    );
+    const [attachment] = transport.sent[0]!.message.attachments!;
+    expect(attachment!.filename).toBe("healdesk-data-protection-agreement-1.0.0-2026-08-18.pdf");
+
+    const baa = new StubTransport({ status: "sent", messageId: "m-baa" });
+    await sendAgreementCopy({ ...ACCEPTANCE, filename: undefined }, { transport: baa });
+    expect(baa.sent[0]!.message.attachments![0]!.filename).toBe(
+      "healdesk-business-associate-agreement-0.1.0-draft-2026-08-18.pdf",
+    );
+  });
 });

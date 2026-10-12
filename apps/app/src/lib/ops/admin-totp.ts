@@ -11,6 +11,7 @@ import { and, eq, lt, sql } from "drizzle-orm";
 import { unsafeDb } from "@/db";
 import { adminTotp } from "@/db/schema";
 import { open, seal } from "@/lib/crypto/envelope";
+import { FIXED_LOCK_LABELS } from "@/lib/crypto/kms";
 import { env } from "@/lib/env";
 import { log } from "@/lib/log";
 
@@ -144,6 +145,15 @@ const SECRET_IDENTITY = {
   clinicId: "healdesk-admin",
   credentialId: "admin_totp:1",
 } as const;
+
+/**
+ * The lock label the secret's data key is wrapped under: ops / admin-code.
+ * Constant like the identity, since the operator is no clinic and has no
+ * client number; on AWS it is what CloudTrail shows against every unseal of
+ * the operator's second factor. A secret enrolled before labels opens without
+ * one (envelope.ts), and stays as it is: nothing here can re-seal it.
+ */
+const SECRET_LABEL = FIXED_LOCK_LABELS.adminCode;
 
 // -----------------------------------------------------------------------------
 // Recovery codes
@@ -396,7 +406,7 @@ export async function enrolAdminTotp(
   }
 
   const codes = Array.from({ length: RECOVERY_CODE_COUNT }, generateRecoveryCode);
-  const sealed = await seal(secret, SECRET_IDENTITY);
+  const sealed = await seal(secret, SECRET_IDENTITY, SECRET_LABEL);
   const enrolledAt = new Date();
 
   const [row] = await unsafeDb
@@ -468,7 +478,7 @@ export async function verifyAdminTotpCode(
 
   let secret: string;
   try {
-    secret = await open(row.sealed, SECRET_IDENTITY);
+    secret = await open(row.sealed, SECRET_IDENTITY, SECRET_LABEL);
   } catch (error) {
     /**
      * A GCM tag failure means the row or the key has changed under us — a

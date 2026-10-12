@@ -1,0 +1,242 @@
+name: Infra (AWS)
+
+# Terraform for the product host (infra/aws), run by hand from main: `plan`
+# shows what would change, `apply` changes it. The job assumes the role
+# healdesk-github-terraform (infra/aws/bootstrap/bootstrap.yaml) with GitHub's
+# OIDC token, and no AWS key is stored anywhere.
+#
+# Who can run it is decided by that role's trust policy, in AWS, not by this
+# file, which a branch can edit: AWS accepts the token only for a run of this
+# repository on main (its subject and ref) started by the owner (its
+# actor_id). The job names no GitHub environment, so no environment setting is
+# part of that control, and a job that named one would get a different subject
+# and be refused. The checks below only say so in plain words before AWS does.
+# Both actions run from main: the role holds AdministratorAccess, and a plan is
+# not read-only, since it runs the providers and data sources of whatever code
+# it is given.
+#
+# `apply` makes a fresh plan in the same job and applies exactly that saved
+# plan, so what changes is what the log shows, and Terraform refuses it if the
+# state moved in between. Read a `plan` run first: the apply's plan should
+# match it.
+#
+# Nothing secret comes from GitHub. The Cloudflare token Terraform writes the
+# app records with lives in Parameter Store (CLOUDFLARE_TOKEN_PARAMETER below),
+# and the plan and apply steps each read it after assuming the role, so only a
+# run AWS trusts can see it and no later step inherits it. The personal
+# settings (alarm and admin addresses, the Cloudflare zone id) are repository
+# variables passed as TF_VAR_*, so they stay out of git; production.tfvars
+# holds only the rest.
+#
+# The saved plan itself is never uploaded. A plan file holds every value in
+# clear, sensitive ones included, and an artifact would keep them in GitHub for
+# weeks. The artifact is the rendered plan instead, in which Terraform redacts
+# every sensitive value.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "plan shows what would change; apply changes it"
+        type: choice
+        options: [plan, apply]
+        default: plan
+
+permissions:
+  id-token: write
+  contents: read
+
+# One group for everything that changes production, this and deploy-app.yml,
+# so an apply never runs beside a deploy. A new run waits for the one in
+# progress. GitHub keeps only the newest waiting run in a group and cancels an
+# older waiting one, but never a run already going.
+concurrency:
+  group: healdesk-aws-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  TF_IN_AUTOMATION: "1"
+  TF_INPUT: "0"
+  # A SecureString the owner pastes with infra/aws/scripts/put-external-secrets.sh
+  # (Edit zone DNS on healdesk.io), under the bootstrap stack's key, which no
+  # task role can use. Read with the Terraform role, never a GitHub secret:
+  # those reach every branch's workflows.
+  CLOUDFLARE_TOKEN_PARAMETER: /healdesk/production/ci/CLOUDFLARE_API_TOKEN
+
+jobs:
+  terraform:
+    name: terraform ${{ inputs.action }}
+    runs-on: ubuntu-latest
+    # As long as the AWS session below (role-duration-seconds): a job that
+    # outlived its credentials would fail mid-apply with the state lock still
+    # held. Lengthen both together, within the role's MaxSessionDuration
+    # (7200 in the bootstrap stack).
+    timeout-minutes: 90
+    # shell named so every script runs with -e and -o pipefail; the default
+    # shell has no pipefail.
+    defaults:
+      run:
+        shell: bash
+        working-directory: infra/aws
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Fail in plain words before anything else does it in AWS's.
+      - name: Check the run
+        env:
+          ACTION: ${{ inputs.action }}
+          TERRAFORM_ROLE: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          STATE_KEY: ${{ vars.TF_STATE_KMS_KEY_ARN }}
+          ALARM_EMAIL: ${{ vars.ALARM_EMAIL }}
+          ADMIN_EMAIL: ${{ vars.HEALDESK_ADMIN_EMAIL }}
+          ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+        run: |
+          missing=""
+          [ -n "$TERRAFORM_ROLE" ] || missing="$missing AWS_TERRAFORM_ROLE_ARN"
+          [ -n "$STATE_BUCKET" ] || missing="$missing TF_STATE_BUCKET"
+          [ -n "$STATE_KEY" ] || missing="$missing TF_STATE_KMS_KEY_ARN"
+          if [ -n "$missing" ]; then
+            echo "::error::Set the GitHub variable(s)$missing from the outputs of the healdesk-bootstrap stack (infra/aws/bootstrap/bootstrap.yaml)."
+            exit 1
+          fi
+          missing=""
+          [ -n "$ALARM_EMAIL" ] || missing="$missing ALARM_EMAIL"
+          [ -n "$ADMIN_EMAIL" ] || missing="$missing HEALDESK_ADMIN_EMAIL"
+          [ -n "$ZONE_ID" ] || missing="$missing CLOUDFLARE_ZONE_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::Set the GitHub variable(s)$missing: Terraform takes the personal settings from repository variables, not from git (HEALDESK_OPS_EMAIL is optional)."
+            exit 1
+          fi
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::infra.yml runs from main only ($ACTION was started on $GITHUB_REF): AWS gives the role to no other branch. Merge first; CI's infra job checks fmt, validate and the tests on pull requests."
+            exit 1
+          fi
+          # The bootstrap stack's GitHubActorId is the owner's id; if it ever
+          # names someone else, this check has to follow.
+          if [ "$GITHUB_ACTOR_ID" != "$GITHUB_REPOSITORY_OWNER_ID" ]; then
+            echo "::error::AWS gives the role only to runs the repository owner starts, and $GITHUB_ACTOR started this one. Start it as the owner."
+            exit 1
+          fi
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.16.5
+          # The wrapper re-prints every command's output as step outputs; the
+          # plan's exit code is read directly below.
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+          role-session-name: healdesk-terraform-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+          # 90 minutes, the job's whole timeout: these are static credentials
+          # nothing renews, and an apply cannot stop to fetch new ones.
+          role-duration-seconds: 5400
+          # The account designated under the AWS BAA; credentials for any
+          # other account stop the job here.
+          allowed-account-ids: "865780386982"
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff
+
+      # The bucket and the key come from the bootstrap stack; everything else
+      # about the backend is in backend.tf. readonly: production gets exactly
+      # the provider builds .terraform.lock.hcl pins, as CI does.
+      - name: terraform init
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          STATE_KEY: ${{ vars.TF_STATE_KMS_KEY_ARN }}
+        run: |
+          terraform init -input=false -lockfile=readonly \
+            -backend-config="bucket=$STATE_BUCKET" \
+            -backend-config="kms_key_id=$STATE_KEY"
+
+      - name: terraform validate
+        run: terraform validate -no-color
+
+      # The token is masked before anything could print it and exported to
+      # Terraform alone, in this step's shell; GITHUB_ENV would hand it to
+      # every later step and action.
+      - name: terraform plan
+        id: plan
+        env:
+          TF_VAR_alarm_email: ${{ vars.ALARM_EMAIL }}
+          TF_VAR_healdesk_admin_email: ${{ vars.HEALDESK_ADMIN_EMAIL }}
+          TF_VAR_healdesk_ops_email: ${{ vars.HEALDESK_OPS_EMAIL }}
+          TF_VAR_cloudflare_zone_id: ${{ vars.CLOUDFLARE_ZONE_ID }}
+        run: |
+          if ! token=$(aws ssm get-parameter --name "$CLOUDFLARE_TOKEN_PARAMETER" --with-decryption \
+            --query Parameter.Value --output text 2>"$RUNNER_TEMP/ssm.err"); then
+            if grep -q ParameterNotFound "$RUNNER_TEMP/ssm.err"; then
+              echo "::error::$CLOUDFLARE_TOKEN_PARAMETER is not in Parameter Store. Paste the Cloudflare API token (Edit zone DNS on healdesk.io) in CloudShell with: bash put-external-secrets.sh CLOUDFLARE_API_TOKEN (infra/aws/scripts/). Then run this again."
+            else
+              cat "$RUNNER_TEMP/ssm.err" >&2
+            fi
+            exit 1
+          fi
+          if [ -z "$token" ] || [ "$token" = __unset__ ]; then
+            echo "::error::$CLOUDFLARE_TOKEN_PARAMETER holds no token yet. Paste it in CloudShell with: bash put-external-secrets.sh CLOUDFLARE_API_TOKEN (infra/aws/scripts/). Then run this again."
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          export CLOUDFLARE_API_TOKEN="$token"
+          set +e
+          terraform plan -input=false -lock-timeout=5m -var-file=production.tfvars \
+            -out=tfplan -detailed-exitcode
+          code=$?
+          set -e
+          case "$code" in
+            0) echo "changes=false" >>"$GITHUB_OUTPUT" ;;
+            2) echo "changes=true" >>"$GITHUB_OUTPUT" ;;
+            *) exit "$code" ;;
+          esac
+          terraform show -no-color tfplan >plan.txt
+          {
+            echo "### terraform plan ($GITHUB_REF_NAME, ${GITHUB_SHA:0:12})"
+            echo
+            grep -E '^(Plan:|No changes\.)' plan.txt || true
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the rendered plan
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: terraform-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: infra/aws/plan.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      # The saved plan carries the variable values it was made with, so the
+      # TF_VAR_* settings are not needed again here; the token is, for the
+      # provider.
+      - name: terraform apply
+        if: ${{ inputs.action == 'apply' && steps.plan.outputs.changes == 'true' }}
+        run: |
+          token=$(aws ssm get-parameter --name "$CLOUDFLARE_TOKEN_PARAMETER" --with-decryption \
+            --query Parameter.Value --output text)
+          echo "::add-mask::$token"
+          export CLOUDFLARE_API_TOKEN="$token"
+          terraform apply -input=false -lock-timeout=5m tfplan
+
+      - name: Nothing to apply
+        if: ${{ inputs.action == 'apply' && steps.plan.outputs.changes == 'false' }}
+        run: echo "::notice::The plan found no changes, so nothing was applied."
+
+      # What the next steps need: github_deploy_role_arn for the
+      # AWS_DEPLOY_ROLE_ARN variable, and parameters_to_fill for the owner.
+      # Printed after every apply, changes or not, so a re-run shows them
+      # again. Sensitive outputs print as <sensitive>.
+      - name: terraform output
+        if: ${{ inputs.action == 'apply' }}
+        run: |
+          {
+            echo "### terraform output"
+            echo
+            echo '```'
+            terraform output -no-color
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"

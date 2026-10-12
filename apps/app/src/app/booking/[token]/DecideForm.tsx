@@ -54,6 +54,7 @@ export function DecideForm({
   const ringOrCall = "Call them to confirm it; healdesk does not call them.";
 
   return (
+    <>
     <form action={action} className="mt-6 grid gap-4 text-[15px]">
       <input type="hidden" name="token" value={token} />
       <input type="hidden" name="tzOffsetMinutes" value={offset} />
@@ -199,5 +200,31 @@ export function DecideForm({
         </div>
       ) : null}
     </form>
+    {state.status === "busy" ? (
+      // A form of its own, so "Confirm anyway" can only ever confirm the
+      // exact time Google showed busy, never a time typed afterwards.
+      <form action={action} className="mt-3 grid gap-3 rounded-2xl border border-[color:var(--color-line)] p-4 text-[15px]">
+        <input type="hidden" name="token" value={token} />
+        <input type="hidden" name="tzOffsetMinutes" value={offset} />
+        <input type="hidden" name="slotAt" value={state.slotAt} />
+        <input type="hidden" name="treatment" value={state.treatment ?? ""} />
+        <input type="hidden" name="name" value={state.name ?? ""} />
+        <input type="hidden" name="note" value={state.note ?? ""} />
+        <input type="hidden" name="addAnyway" value="1" />
+        <p role="alert" className="font-medium">
+          {state.message}
+        </p>
+        <button
+          type="submit"
+          name="decision"
+          value="confirmed"
+          disabled={pending}
+          className="justify-self-start rounded-xl border border-[color:var(--color-line)] px-5 py-2.5 font-semibold disabled:opacity-60"
+        >
+          Confirm anyway
+        </button>
+      </form>
+    ) : null}
+    </>
   );
 }

@@ -1,12 +1,19 @@
 import { describe, expect, test } from "vitest";
 
 import { BILLING_NOTICE_KINDS } from "@/db/schema";
-import { NOTICE_KIND_REGISTRY, NOTICE_KINDS } from "@/lib/email/kinds";
+import {
+  NOTICE_KIND_REGISTRY,
+  NOTICE_KINDS,
+  PACKAGE_NOTICE_KINDS,
+  PLAN_NOTICE_KINDS,
+} from "@/lib/email/kinds";
 
 /**
- * The outbox's kind registry (lib/email/kinds.ts) against the list the CHECK
- * is built from. The payload map in lib/billing/notices.ts is held to the
- * same kinds by its compile-time check, so the three cannot drift apart.
+ * The outbox's kind registry (lib/email/kinds.ts) against the lists built
+ * from it: the CHECK covers every kind (`NOTICE_KINDS`), lib/billing's
+ * payload map the packages' (`BILLING_NOTICE_KINDS`) and lib/notices/plan-
+ * notices.ts's the plan's. Each payload map is held to its kinds by a
+ * compile-time check, so none of them can drift apart.
  */
 
 const F0_KINDS = [
@@ -29,9 +36,41 @@ const F0_KINDS = [
 
 describe("the notice kind registry", () => {
   test("every outbox kind has an entry, and every entry is an outbox kind", () => {
-    expect([...BILLING_NOTICE_KINDS].sort()).toEqual(Object.keys(NOTICE_KIND_REGISTRY).sort());
-    expect(new Set(BILLING_NOTICE_KINDS).size).toBe(BILLING_NOTICE_KINDS.length);
-    expect(BILLING_NOTICE_KINDS).toEqual(NOTICE_KINDS);
+    expect([...NOTICE_KINDS].sort()).toEqual(Object.keys(NOTICE_KIND_REGISTRY).sort());
+    expect(new Set(NOTICE_KINDS).size).toBe(NOTICE_KINDS.length);
+  });
+
+  test("each kind is enqueued by its owner's payload map: billing's for the packages, the plan's for its own", () => {
+    expect(BILLING_NOTICE_KINDS).toEqual(PACKAGE_NOTICE_KINDS);
+    expect([...PACKAGE_NOTICE_KINDS, ...PLAN_NOTICE_KINDS].sort()).toEqual([...NOTICE_KINDS].sort());
+    for (const kind of BILLING_NOTICE_KINDS) {
+      expect(NOTICE_KIND_REGISTRY[kind].owner, kind).not.toBe("plan");
+    }
+    expect([...PLAN_NOTICE_KINDS].sort()).toEqual([
+      "calendar_reconnected",
+      "calendar_stopped",
+      "channel_ready",
+      "setting_changed",
+      "setup_closed",
+      "setup_reminder",
+    ]);
+    for (const kind of PLAN_NOTICE_KINDS) expect(NOTICE_KIND_REGISTRY[kind].owner, kind).toBe("plan");
+  });
+
+  test("the setup reminder and O10 wait for daytime; the closure, the calendar emails and O4 go at any hour", () => {
+    expect(NOTICE_KIND_REGISTRY.setup_reminder).toMatchObject({ annex: "O7", quietHours: "daytime" });
+    expect(NOTICE_KIND_REGISTRY.setup_closed.quietHours).toBe("any_hour");
+    expect(NOTICE_KIND_REGISTRY.calendar_stopped).toMatchObject({ annex: "O13", quietHours: "any_hour" });
+    expect(NOTICE_KIND_REGISTRY.setting_changed).toMatchObject({ annex: "O4", quietHours: "any_hour" });
+    // O10 is a step to take, not an alert: it waits for the clinic's daytime.
+    expect(NOTICE_KIND_REGISTRY.channel_ready).toMatchObject({ annex: "O10", quietHours: "daytime" });
+    for (const kind of PLAN_NOTICE_KINDS) {
+      expect(NOTICE_KIND_REGISTRY[kind]).toMatchObject({
+        class: "transactional",
+        priority: "normal",
+        optionalSwitch: null,
+      });
+    }
   });
 
   test("F0's kinds stay, apart from the welcome resend, which is a link email", () => {

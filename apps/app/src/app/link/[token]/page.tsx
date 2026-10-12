@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth";
+import { clientIp } from "@/lib/client-ip";
 import { currentUserId } from "@/lib/portal/access";
 import {
   consumeSignInLink,
@@ -50,7 +51,9 @@ async function continueWithLink(formData: FormData): Promise<void> {
   "use server";
   const token = formData.get("token");
   const h = await headers();
-  const consumed = await consumeSignInLink(token, h.get("x-forwarded-for") ?? h.get("x-real-ip"));
+  // The address our load balancer saw, not the chain's first entry, which
+  // the browser writes (lib/client-ip.ts).
+  const consumed = await consumeSignInLink(token, clientIp(h) ?? null);
   // Back to the GET, which says what went wrong. Outside any try: redirect()
   // works by throwing, and a catch-all would swallow it.
   if (!consumed.ok) redirect(`/link/${encodeURIComponent(String(token ?? ""))}`);

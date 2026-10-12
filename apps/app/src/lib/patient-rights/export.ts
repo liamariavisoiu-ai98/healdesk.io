@@ -8,6 +8,7 @@ import {
   contactAttempts,
   contacts,
   conversations,
+  slotHolds,
   suppressions,
   transactions,
 } from "@/db/schema";
@@ -41,6 +42,8 @@ export type PatientBundle = {
   contactAttempts: (typeof contactAttempts.$inferSelect)[];
   /** Booking requests from any channel, handed to the desk on the manual booking path; the token digest is not included. */
   bookingRequests: Omit<typeof bookingRequests.$inferSelect, "tokenHash">[];
+  /** Times the assistant held for them on a call (plan §11.8): when, for how long, and what became of it. */
+  slotHolds: { id: string; startsAt: Date; endsAt: Date; status: string; createdAt: Date }[];
   /** Every audit row that touched any of the ids above: the accounting of disclosures. */
   accountingOfDisclosures: (typeof auditLog.$inferSelect)[];
 };
@@ -88,6 +91,12 @@ export async function exportPatient(
   const bookings = ids.length
     ? (await tx.db.select().from(bookingRequests).where(and(eq(bookingRequests.clinicId, tx.clinicId), inArray(bookingRequests.contactId, ids)))).map(withoutDigest)
     : [];
+  const holds = ids.length
+    ? await tx.db
+        .select({ id: slotHolds.id, startsAt: slotHolds.startsAt, endsAt: slotHolds.endsAt, status: slotHolds.status, createdAt: slotHolds.createdAt })
+        .from(slotHolds)
+        .where(and(eq(slotHolds.clinicId, tx.clinicId), inArray(slotHolds.contactId, ids)))
+    : [];
 
   const everyId = [
     ...ids,
@@ -96,6 +105,7 @@ export async function exportPatient(
     ...txns.map((t) => t.id),
     ...consents.map((c) => c.id),
     ...bookings.map((b) => b.id),
+    ...holds.map((h) => h.id),
   ];
   const accounting = everyId.length
     ? await tx.db
@@ -130,6 +140,7 @@ export async function exportPatient(
     suppressions: supp,
     contactAttempts: attempts,
     bookingRequests: bookings,
+    slotHolds: holds,
     accountingOfDisclosures: accounting,
   };
 }
@@ -193,6 +204,10 @@ export async function exportClinic(tx: TenantTx, requestedBy: string): Promise<P
   const supp = await tx.db.select().from(suppressions).where(eq(suppressions.clinicId, c));
   const attempts = await tx.db.select().from(contactAttempts).where(eq(contactAttempts.clinicId, c));
   const bookings = (await tx.db.select().from(bookingRequests).where(eq(bookingRequests.clinicId, c))).map(withoutDigest);
+  const holds = await tx.db
+    .select({ id: slotHolds.id, startsAt: slotHolds.startsAt, endsAt: slotHolds.endsAt, status: slotHolds.status, createdAt: slotHolds.createdAt })
+    .from(slotHolds)
+    .where(eq(slotHolds.clinicId, c));
   const accounting = await tx.db.select().from(auditLog).where(eq(auditLog.clinicId, c));
 
   const rows = found.length + convos.length + appts.length + txns.length + consents.length;
@@ -214,6 +229,7 @@ export async function exportClinic(tx: TenantTx, requestedBy: string): Promise<P
     suppressions: supp,
     contactAttempts: attempts,
     bookingRequests: bookings,
+    slotHolds: holds,
     accountingOfDisclosures: accounting,
   };
 }

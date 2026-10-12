@@ -404,9 +404,9 @@ nothing and removes the argument.
 > it: `validateSignRequest` and `signAgreement` both settle the version
 > through `signableTemplate` (plan C3), which takes only `BAA_TEMPLATES[0]`,
 > or a released version inside its `BAA_RELEASE_OVERLAP` window.
-> Provisioning does not check it: its approval gate reads
-> `currentBaaTemplate()`, not the bound acceptance's version, until plan C15
-> changes that, and C15 must land before the release. The full text is
+> Provisioning refuses a row signed under it too: since plan C15 its approval
+> gate reads the bound acceptance's own version (`isBaaVersionAcceptable`),
+> where it used to read `currentBaaTemplate()`. The full text is
 > rendered in `docs/baa-v1.3.0-draft-calendar-clauses.txt`. The owner decided
 > on 5 October 2026 (answer Q2) that Claude releases 1.3.0 and the calendar
 > election after its own adversarial audit of the full text, with no counsel
@@ -836,6 +836,10 @@ release by changing the code, the clause or the site copy:
    `dueForDestruction` in `apps/app/src/lib/offboarding/offboarding.ts`). The
    funnel's design flags the same gap for this version
    (`docs/design/funnel-onboarding-portal-2026-10-06.md`, Part L, on main).
+   (Since 7 October 2026 the code keeps each agreement's own rule: 1.2.1 and
+   earlier destroy before thirty days are up whatever the export, and the
+   ninety days apply only where the agreement states them; drizzle/0058 and
+   release gate 7 in §12.14.)
 9. **The Payments clause describes a link nothing creates.** "Where Practice
    takes deposits, healdesk creates a payment link through Practice's own
    payment processor." No code does: deposit links are package D, which is
@@ -865,13 +869,14 @@ release by changing the code, the clause or the site copy:
     note ("fifteen days' notice"). Before 1.3.0 is offered it has to look
     them up through `clauseExplainer(template.version, id)`, or a 1.3.0 buyer
     reads fifteen days beside a clause that gives 24 hours.
-13. **The gate that is not built yet.** Signing refuses 1.3.0 today only
+13. **The gates on an unreleased version.** Signing refuses 1.3.0 today
     because `signableTemplate` takes `BAA_TEMPLATES[0]`, or a released
     version inside its `BAA_RELEASE_OVERLAP` window, and 1.3.0 is neither.
     Plan C3, which made both signing paths settle the version that way, has
-    landed. Plan C15, which makes provisioning's approval gate read the bound
-    acceptance's version instead of `currentBaaTemplate()`, has not, and
-    must land before the release.
+    landed, and so has plan C15, which makes provisioning's approval gate
+    read the bound acceptance's own version (`isBaaVersionAcceptable`)
+    instead of `currentBaaTemplate()`: a row signed under 1.3.0 provisions
+    nothing until the release.
 
 The pre-release audit (§ 12.14) settled these: items 1 (ICD-17), 2
 (ICD-25), 3 (ICD-05, SL-01), 4 (ICD-11), 8 (HRC-02) and 11 (PT-29) are fixed
@@ -1357,16 +1362,43 @@ these is closed, by code, a page, a signed paper or a host setting, and
    kept "so the request itself is honoured forever" changes with it. That is
    what clause 4(c) promises: "only a record of the request, for no longer
    than it needs one to make sure the information stays deleted".
-7. **Offboarding (HRC-02, PT-01).**
-   - The funnel's change lands: 1.2.1 and earlier keep their flat thirty
-     days, by the bound version, and 1.3.0 keeps the DPA's rule, which
-     clause 17 states.
-   - `export_delivered_at` is stamped only once the export has been
-     delivered to Practice, never when it is merely produced.
-   - `dueForDestruction` meets the 30- and 90-day marks as deadlines (the
-     job runs once a day).
-   - `destroyClinicData` also deletes suppressions, consent records and
-     contact attempts, with the grant they need.
+7. **Offboarding (HRC-02, PT-01).** Code in
+   `drizzle/0058_destruction_clock.sql` and
+   `apps/app/src/lib/offboarding/offboarding.ts`, pinned by
+   `tests/destruction-clock.test.ts`.
+   - Done: 1.2.1 and earlier keep their flat thirty days and 1.3.0 and the
+     DPA keep the DPA's rule, which clause 17 states, read from the
+     agreement the clinic was bound to when its service ended, terminated
+     since or not (`app_agreement_at_end`, `DESTRUCTION_RULES`,
+     `destructionPlan`; `app_destruction_due()` is the same rule as the
+     database's floor). No agreement, or a version the map does not know,
+     gets the thirty days. The clock starts at the subscription's own end,
+     which the database takes up to a week back.
+   - Done: `export_delivered_at` is stamped only by the operator's record of
+     the handover, which is refused until a bundle has been produced since
+     offboarding started, through `app_mark_export_delivered()`, the
+     column's only writer. The portal export, when it is built, stamps it
+     once its download has reached Practice.
+   - Done: the job runs every hour, and a clinic on the thirty days is due
+     at day 29, so its data is gone before thirty days have passed.
+   - Done (the calendar session's decision, 7 October 2026): 1.3.0's Term
+     clause keeps its words, "thirty days after the Services end if the
+     export has been delivered by then; otherwise as soon as the export is
+     delivered; and in any case no later than ninety days after the Services
+     end", and the code meets them exactly. Every hourly run destroys on
+     this rule too, and a 1.3.0 or DPA clinic is due at day 29 once its
+     export has been delivered (by day 30), at the delivery when that is
+     later, and at day 89 without one, so neither limit is passed whatever
+     the hour (`THIRTY_DAY_LIMIT_DUE_DAYS`, `NINETY_DAY_LIMIT_DUE_DAYS`;
+     `app_destruction_due()` the same in the database). The 04 UTC run,
+     which could come up to a day after day 30, after a delivery and after
+     day 90, is gone. 1.3.0 and the DPA keep one rule. The DPA's clause 17
+     ("runs once a day ... at the first run once") is left as it is: the
+     hourly job destroys no later than it says.
+   - Done: `destroyClinicData` also deletes suppressions, consent records and
+     contact attempts, through `app_destroy_contact_evidence()` (the runtime
+     role keeps no DELETE on them), and `app_mark_clinic_destroyed()` refuses
+     while any is left.
    - Done: destruction, `eraseContact` and the purge succeed for a practice
      with a confirmed booking request
      (`drizzle/0054_booking_request_destruction.sql`). The request's
@@ -1374,11 +1406,24 @@ these is closed, by code, a page, a signed paper or a host setting, and
      requests now go first, through three functions bound to the practice,
      and `docs/counsel/dpa.md` § 9 records how.
      `tests/booking-request-destruction.test.ts` pins each path.
-   - The clinic's calls and agent are deleted at Retell by the deadline.
-   - A restore re-runs destruction.
+   - The clinic's calls and agent are deleted at Retell by the deadline. An
+     operator step for now: recorded on the care page as a
+     `voice_vendor_data_deleted` security event, and shown outstanding, with
+     its deadline (the day the data is destroyed here), until it is. Nothing
+     in apps/app reaches Retell yet; the deletion moves into code with the
+     voice runtime.
+   - Done: a restore re-runs destruction. `docs/handover.md` ("Restoring")
+     gives the steps: each destruction's `clinic data destroyed` log line
+     carries the dates it ran on, which the owner puts back where a restore
+     lost them, and `npm run destroy-due -w @healdesk/app`
+     (`destroyEverythingDue`) then destroys every clinic due and exits
+     non-zero while any still is. `tests/destruction-clock.test.ts` restores
+     a destroyed clinic and runs both.
 8. **Amendment record (PT-17).** An append-only amendment linked to the
    booking request or conversation it amends, carried by `exportPatient`,
-   `exportClinic` and the portal export.
+   `exportClinic` and the portal export. The DPA's clause 13 promises the
+   same, as a correction, so its release waits on this gate too (`dpa.md`,
+   gap 22).
 9. **Retention (PT-28).** The nightly purge switched on for every 1.3.0
    clinic (0032 ships it off), and extended to webhook events that are never
    processed. Done in drizzle/0054 and `lib/retention/purge.ts`: the purge
@@ -1398,10 +1443,14 @@ these is closed, by code, a page, a signed paper or a host setting, and
       (SUB-01, §12.11 item 12). apps/web's `agreement-kinds.ts` does this
       since the four-step funnel (8d7fcd4).
     - The "Why you're signing this" bullets come through
-      `baaExplainerTerms(template.version)`. apps/web's `agreement-kinds.ts`
-      and the catalog's `AGREEMENT_COPY` still hand out `BAA_EXPLAINER`, so
-      today a 1.3.0 buyer would read "use it only" and "materially breach"
-      above a clause that says more.
+      `baaExplainerTerms(template.version)`. Done: the catalog's
+      `AGREEMENT_COPY[kind].explainer(version)` (`baaExplainerFor`) gives each
+      version its own bullets, and apps/web's `agreement-kinds.ts` builds each
+      entry from the template it renders (`baaAgreementCopy`), so the version
+      shown, its bullets, its text and the version signed are one version.
+      1.2.1 still shows `BAA_EXPLAINER` word for word; a 1.3.0 buyer reads
+      "limit its use and disclosure" and "if you determine that we have
+      violated a material term of it" (`AgreementStep.version.test.ts`).
     - Plan C15 lands: provisioning's approval gate reads the bound
       acceptance's version (§12.11 item 13). Plan C3 has landed (ad02b30):
       both signing paths settle the version through `signableTemplate`.
@@ -1454,26 +1503,39 @@ switches it, as the shared-module agreement of 6 October provides:
   variant of the state-law clause in its appendix.
 - The DPA's eight golden hashes and `docs/dpa-v1.0.0.txt` are regenerated.
 
-What remains the funnel's to do, before the DPA is released:
+What remained the funnel's to do, before the DPA is released, and what was
+done on 7 October 2026 (`docs/counsel/dpa.md` § 5, items 10 to 15; the DPA's
+golden hashes and `docs/dpa-v1.0.0.txt` regenerated, no BAA hash moved):
 
-- Define "calendar election" in the DPA's own Definitions clause, as BAA
-  1.3.0's clause 1 does, since the shared state-law clause and the location
-  paragraph both use it.
-- Get an election form that names the Data Protection Agreement.
-  `CALENDAR_ELECTIONS[0]` names only the Business Associate Agreement
-  (`dpa.md`, gap 6). Until there is one, the DPA refuses a second location
-  or a change of booking system.
-- Give "without penalty" the same effect in its own Term clause, and move its
-  incident and breach notice to the 24-hour rule.
-- Change the "Clients' requests" and Term clauses. Both say the telephone
+- Done: "calendar election" defined in the DPA's own Definitions clause, in
+  BAA 1.3.0's clause 1 words, an accepted one part of the agreement and of
+  its entire-agreement sentence.
+- Done, in part: an election form that names the Data Protection
+  Agreement, `calendar-election-dpa/1.0.0`
+  (`packages/catalog/src/dpa-calendar-election.ts`), unreleased and frozen,
+  with `calendarElectionFor` to pick a form by the agreement's kind. The
+  calendar session's election rows (plan C6, C7) are not on main, so
+  nothing can record an election of either kind, and the DPA still refuses
+  a second location or a change of booking system; that refusal stays
+  until the form is released and the rows take it (`dpa.md`, gap 6).
+- Done: "without penalty" has 1.3.0's effect (the Services end that day, no
+  Fees after, a refund outside the liability exclusion and the indemnity,
+  and the agreement prevails over the Terms on termination and the Fees),
+  and the incident and breach notice is the 24-hour rule.
+- Done: the instructions, requests and assistance clauses reconciled with the
+  shared clause, one statement of each duty, the more protective kept; and
+  a request made to healdesk is answered only in its reply (PT-24).
+- Done, from review: the requests clause no longer promises, read alone, to
+  correct a booking request in place, which 0039's trigger refuses. It takes
+  1.3.0's clause 14(b) fix (PT-17) in its own words: corrected where the
+  record can change, otherwise appended and linked. That rests on gate 8,
+  so gate 8 holds the DPA's release too (`dpa.md`, gap 22).
+- Done: `docs/counsel/dpa.md` brought up to date.
+- Still to do: the "Clients' requests" and Term clauses say the telephone
   number of a client whose information was deleted is kept as the record of
-  the request, and gates 6 and 7 remove that number. Item c of the shared
-  clause allows only a record kept no longer than needed.
-- Reconcile the DPA's own instructions, requests and assistance clauses with
-  the shared clause where they overlap. Meanwhile the shared clause's
-  precedence sentence makes the more protective one govern.
-- Bring `docs/counsel/dpa.md` up to date: it still describes the two edits
-  and the open choice of the fuller clause.
+  the request; gates 6 and 7 remove that number, and both sentences change
+  with them. Item c of the shared clause, which allows only a record kept no
+  longer than needed, governs meanwhile.
 
 #### Flagged for the owner
 

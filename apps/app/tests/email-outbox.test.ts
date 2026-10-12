@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi 
 
 import { GET as health } from "@/app/api/health/route";
 import { enqueueNotice, type NoticePayloads } from "@/lib/billing/notices";
-import type { NoticeKind } from "@/lib/email/kinds";
+import type { PackageNoticeKind } from "@/lib/email/kinds";
 import {
   deliverCriticalAfterCommit,
   deliverNotice,
@@ -97,7 +97,7 @@ const TEST_TEMPLATE: TemplateEntry = {
 const TEMPLATED: ReadonlySet<string> = new Set(["payment_failed", "renewal_upcoming", "restored"]);
 const templates = (kind: string) => (TEMPLATED.has(kind) ? TEST_TEMPLATE : undefined);
 
-async function enqueue<K extends NoticeKind>(
+async function enqueue<K extends PackageNoticeKind>(
   clinicId: string,
   kind: K,
   key: string,

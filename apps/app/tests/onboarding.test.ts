@@ -77,6 +77,25 @@ describe("clinical content guard", () => {
     expect(() => validateAgentConfig({ ...base, greeting: "Guaranteed results every time." })).toThrow(/results guarantee/);
     expect(() => validateAgentConfig(base)).not.toThrow();
   });
+
+  test("a med spa's services named for a condition, and a greeting that names them, are its own words and are kept", () => {
+    // The everyday skin and hair conditions are the Meta channels' rule only.
+    const base = defaultAgentConfig("med-spa", "Glow");
+    const config = {
+      ...base,
+      greeting: "Thanks for calling Glow. I can book an Acne Facial, our Rosacea Laser or a consultation, and take a message for the team.",
+      services: [
+        ...base.services,
+        { name: "Acne Facial", priceFromUsd: 150, priceToUsd: 150, durationMinutes: 60 },
+        { name: "Rosacea Laser", priceFromUsd: 350, priceToUsd: 450, durationMinutes: 45 },
+        { name: "Hair loss PRP", priceFromUsd: 600, priceToUsd: 900, durationMinutes: 60 },
+      ],
+      notes: "Scar revision consultations are free.",
+    };
+    expect(() => validateAgentConfig(config)).not.toThrow();
+    // The same words would be refused on a Meta channel.
+    expect(findClinicalContent({ name: "Acne Facial" }, { conditions: true })).toHaveLength(1);
+  });
 });
 
 describe("open required steps", () => {
@@ -134,6 +153,12 @@ describeDb("onboarding", () => {
     const reopened = await withTenant({ clinicId, actor: ACTOR }, (tx) => reopenStep(tx, "forwarding_configured", "test failed"));
     expect(reopened.forwarding_configured).toBeNull();
     expect(await withTenant({ clinicId, actor: ACTOR }, readOnboarding)).toHaveProperty("hours_confirmed", null);
+    // A reopened step, like every step provisioning seeds open, holds a JSON
+    // null, and completing it stamps it again.
+    const restamped = await withTenant({ clinicId, actor: ACTOR }, (tx) =>
+      completeStep(tx, "forwarding_configured", { at: new Date("2026-09-03T00:00:00Z") }),
+    );
+    expect(restamped.forwarding_configured).toBe("2026-09-03T00:00:00.000Z");
   });
 
   test("the agent script is seeded, edits clear approval, approval stamps the step", async () => {

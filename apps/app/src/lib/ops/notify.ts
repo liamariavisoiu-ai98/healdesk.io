@@ -59,6 +59,39 @@ export const OPS_EVENTS = [
   // raised once, ever, by the dmarc-review job on the 14th day after Resend
   // first sent as healdesk.io (lib/scheduler/dmarc-review.ts).
   "dmarc_review_due",
+  // Offboarding (lib/offboarding, the destruction_clock migration): a clinic
+  // on the thirty days with no export recorded as delivered, raised once by
+  // the destruction job from day 21; and a subscription deletion processed
+  // more than a week after the service ended, which the database's clamp
+  // started a week back and no further.
+  "export_undelivered_before_destruction",
+  "offboarding_started_late",
+  // The Google Calendar connection (the calendar session; the funnel and
+  // portal contract of 6 October 2026 routes its ops alerts here): a
+  // location's connection broke and it now takes booking requests. Raised
+  // once per breakage by markCalendarBroken (lib/connections/google-calendar.ts),
+  // and once per run by the calendar watch for the breakages it found or
+  // told, counted.
+  "calendar_broken",
+  // The calendar watch (lib/scheduler/calendar-watch.ts), once per run for
+  // each: connections that missed three probes in a row and now take
+  // requests, and degraded connections whose probe passed again; a run that
+  // ran out of time before it had probed every connection; and a run in
+  // which a step threw.
+  "calendar_degraded",
+  "calendar_recovered",
+  "calendar_watch_incomplete",
+  "calendar_watch_failed",
+  // The setup wizard (M3): a welcome email (B1) still unsent an hour after
+  // provisioning, or one the clinic has moved past before it could go, so
+  // the order confirmation has to be sent by hand.
+  "welcome_email_unsent",
+  // Google refused healdesk's own OAuth client (invalid, unauthorised or
+  // deleted), or the Calendar API is disabled in its project: no clinic can
+  // connect or keep a calendar until someone fixes the Google Cloud project.
+  // Raised by the connect flow's code exchange (lib/connections/google-oauth.ts)
+  // and by the calendar watch's probe, with `code` oauth_client or api_disabled.
+  "google_oauth_client_rejected",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 
@@ -151,6 +184,7 @@ const NOT_IDENTITY = new Set([
   "months",
   "ms",
   "units",
+  "lateDays",
 ]);
 
 /** What the email may carry: each field the payload allowlist accepts on its own. */

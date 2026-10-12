@@ -152,7 +152,11 @@ export type NoticePayloads = {
     isBeforeStart: boolean;
     /** The bought channels. */
     channels: Channel[];
-    /** The last day to ask for the export, and the day the data is destroyed (dueForDestruction's rule). */
+    /**
+     * The last day to download the export, and the day by which the data is
+     * destroyed: destructionPlan's exportByOn and destroyByOn
+     * (lib/offboarding), by the rule of the clinic's own agreement.
+     */
     exportByOn: string;
     destroyByOn: string;
   } & ForwardingFacts;

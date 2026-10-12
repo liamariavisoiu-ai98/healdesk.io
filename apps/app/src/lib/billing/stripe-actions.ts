@@ -27,7 +27,7 @@ import {
   type Entitlements,
 } from "@/db/schema";
 import { assertNoPhi, type ActorContext } from "@/lib/audit";
-import { coverageModeOf, type CoverageMode } from "@/lib/billing/answering";
+import { readCoverageMode, type CoverageMode } from "@/lib/billing/answering";
 import { createLocationClinic, LOCATION_CLINICS_READY } from "@/lib/location-clinic";
 import { log } from "@/lib/log";
 import { notifyOps } from "@/lib/ops/notify";
@@ -522,9 +522,8 @@ async function addBoughtChannelRows(
 
 /**
  * How the clinic's calls reach us, for an email that ends a channel's service
- * (R31). `routing` follows the BD23 mapping that `coverageModeOf` in
- * answering.ts owns: `always` forwards every call, `conditional` the ones
- * staff miss plus everything after hours.
+ * (R31). `routing` is the clinic's coverage mode, through `readCoverageMode`
+ * in answering.ts: `clinic_settings.coverage_mode`, the single source.
  */
 async function forwardingFacts(tx: TenantTx): Promise<{
   carrier: NoticePayloads["plan_changed"]["carrier"];
@@ -544,7 +543,7 @@ async function forwardingFacts(tx: TenantTx): Promise<{
   return {
     carrier: isCarrier(clinic.carrier) ? clinic.carrier : null,
     phoneSystem: clinic.phoneSystem,
-    routing: coverageModeOf(clinic),
+    routing: await readCoverageMode(tx.db, tx.clinicId, clinic),
   };
 }
 
@@ -788,7 +787,7 @@ export async function changePlan(
   let releaseOnExit = true;
   try {
     const outcome = claim.isStarted
-      ? await changeStartedPlan(stripe, claim, group.inService, billingClinicId, owner, actor)
+      ? await changeStartedPlan(stripe, claim, group.inService, billingClinicId, owner, actor, now)
       : await chargePlanChangeDelta(stripe, claim, null, billingClinicId, owner, actor);
     if (!outcome.ok) {
       // Refused or declined before anything was charged: the change is over.
@@ -959,6 +958,7 @@ async function changeStartedPlan(
   billingClinicId: string,
   owner: string,
   actor: ActorContext,
+  now: Date,
 ): Promise<StripeOutcome> {
   const subscription = await retrieveSubscription(stripe, claim.row.stripeSubscriptionId as string);
   const current = packageItemOf(subscription);
@@ -995,7 +995,9 @@ async function changeStartedPlan(
   const expected = expectedMeteredKeys(claim.newPlan.id, claim.interval) ?? [];
   const metered = await meteredItemParams(meteredItemChanges(subscription, expected), { stripe });
   const targetPrice = await priceForLookupKey(stripeLookupKey(target, claim.interval), { stripe });
-  const sinceSeconds = Math.floor(Date.now() / 1000);
+  // On the caller's clock, like the rest of this change: an invoice is ours only if
+  // Stripe created it after this moment, give or take the window in invoiceUrlRaisedSince.
+  const sinceSeconds = Math.floor(now.getTime() / 1000);
 
   if (targetPrice.id !== current.priceId || claim.interval !== current.interval) {
     const setupProduct =
@@ -1604,6 +1606,7 @@ export async function addLocation(
         billingClinicId,
         owner,
         actor,
+        now,
       );
       if (charge.status === "declined") {
         await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
@@ -1677,6 +1680,7 @@ async function chargeLocation(
   billingClinicId: string,
   owner: string,
   actor: ActorContext,
+  now: Date,
 ): Promise<LocationCharge> {
   const subscription = await retrieveSubscription(stripe, claim.row.stripeSubscriptionId as string);
   if (hasEnded(subscription)) {
@@ -1721,7 +1725,9 @@ async function chargeLocation(
       message: "Your plan is still being set up in Stripe. Try again in a few minutes.",
     };
   }
-  const sinceSeconds = Math.floor(Date.now() / 1000);
+  // On the caller's clock, like the rest of this change: an invoice is ours only if
+  // Stripe created it after this moment, give or take the window in invoiceUrlRaisedSince.
+  const sinceSeconds = Math.floor(now.getTime() / 1000);
   await renewLease(billingClinicId, owner, actor);
   try {
     const updated = (await stripe.subscriptions.update(

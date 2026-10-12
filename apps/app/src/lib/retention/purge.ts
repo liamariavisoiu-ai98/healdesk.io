@@ -8,6 +8,7 @@ import {
   conversations,
   metaBookingDrafts,
   reconciliationExceptions,
+  slotHolds,
   suppressions,
   syncRuns,
   transactions,
@@ -60,12 +61,18 @@ import type { TenantTx } from "@/lib/tenant";
  * draft abandoned for a day goes here too, as a backstop to the sweep the
  * clinic's next Meta message runs.
  *
- * ## What is never purged, and why
+ * ## What the record clock never purges, and why
  *
- * `consent_records`, `suppressions` and `contact_attempts` are the evidence
- * that an outbound call was lawful and that "stop" was honoured. The TCPA's
- * limitation period is four years and an opt-out is honoured forever, so
- * deleting these would be destroying the defence, not protecting anyone.
+ * `consent_records`, `suppressions` and `contact_attempts` are not on the
+ * record clock. A suppression is a person's "stop", or the record that their
+ * information was erased (eraseContact below), and has to outlast the rows it
+ * stopped; all three are append-only by grant (0010). None of them stays for
+ * good, though: they go with the rest of the clinic's data when it is
+ * destroyed at offboarding (destroyClinicData in lib/offboarding, through
+ * app_destroy_contact_evidence, drizzle/0058). They were kept past that as
+ * the TCPA evidence that an outbound contact was lawful, but v1 contacts no
+ * one first, so there is nothing for them to evidence, and every agreement's
+ * return-or-destroy clause reaches them (BAA 1.3.0 release gate 7).
  * `audit_log` is append-only by grant. `baa_acceptances` has its own
  * six-year floor (0025) and is never swept by anything.
  *
@@ -79,6 +86,8 @@ import type { TenantTx } from "@/lib/tenant";
  */
 
 export const WEBHOOK_PAYLOAD_RETENTION_DAYS = 30;
+/** A slot hold that has stopped blocking is kept a week at most (plan §11.8), less on a shorter record clock. */
+export const SLOT_HOLD_RETENTION_DAYS = 7;
 
 export type PurgeResult = {
   clinicId: string;
@@ -91,6 +100,7 @@ export type PurgeResult = {
   contactsDeleted: number;
   draftsDeleted: number;
   webhookEventsDeleted: number;
+  slotHoldsDeleted: number;
 };
 
 function daysAgo(now: Date, days: number): Date {
@@ -116,6 +126,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     contactsDeleted: 0,
     draftsDeleted: 0,
     webhookEventsDeleted: 0,
+    slotHoldsDeleted: 0,
   };
 
   const [running] = await tx.db
@@ -155,7 +166,33 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ id: conversations.id });
   result.mediaCleared = cleared.length;
 
-  // 2. Records, children first. Booking requests lead: one that produced an
+  // 2. Slot holds first (plan §11.8). A hold names its contact, request and
+  //    appointment, each ON DELETE SET NULL, so the deletes below would
+  //    otherwise rewrite holds through the transition trigger. Every hold
+  //    that has stopped blocking goes once it is a week old, or older than
+  //    the record clock when that is shorter: a hold is made when its
+  //    request is, so no hold younger than the clock names a request this
+  //    run deletes. One that still blocks is never deleted (the delete
+  //    guard, drizzle/0057), and the same predicate keeps it out of reach
+  //    here, by the database's clock.
+  const holdsBefore = new Date(
+    Math.max(daysAgo(now, SLOT_HOLD_RETENTION_DAYS).getTime(), recordBefore.getTime()),
+  );
+  const holds = await tx.db
+    .delete(slotHolds)
+    .where(
+      and(
+        eq(slotHolds.clinicId, tx.clinicId),
+        lt(slotHolds.createdAt, holdsBefore),
+        sql`not ((${slotHolds.status} = 'held' and ${slotHolds.expiresAt} > clock_timestamp())
+                 or (${slotHolds.status} in ('writing', 'unknown', 'reserved')
+                     and ${slotHolds.blocksUntil} > clock_timestamp()))`,
+      ),
+    )
+    .returning({ id: slotHolds.id });
+  result.slotHoldsDeleted = holds.length;
+
+  // 3. Records, children first. Booking requests lead: one that produced an
   //    appointment holds it, so it goes before it, once its own dates and
   //    its appointment's are all past the clock. Through
   //    app_purge_booking_requests(), as the app role has no DELETE on them,
@@ -244,7 +281,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     result.conversationsDeleted = gone.length;
   }
 
-  // 3. Contacts nothing refers to any more, and that are themselves old. A
+  // 4. Contacts nothing refers to any more, and that are themselves old. A
   //    request still inside the clock keeps its person: a Meta request reuses
   //    the contact without touching updated_at, and a person a request names
   //    cannot be deleted (booking_requests.contact_id is NO ACTION), so
@@ -265,7 +302,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ id: contacts.id });
   result.contactsDeleted = orphaned.length;
 
-  // 4. Processed vendor payloads: raw bodies, PHI by the migration's own
+  // 5. Processed vendor payloads: raw bodies, PHI by the migration's own
   //    admission, and useless once processed.
   const payloads = await tx.db
     .delete(webhookEvents)
@@ -279,7 +316,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ id: webhookEvents.id });
   result.webhookEventsDeleted = payloads.length;
 
-  // 5. Abandoned Meta drafts: a first name and a number, "swept after a day"
+  // 6. Abandoned Meta drafts: a first name and a number, "swept after a day"
   //    when the clinic's next Meta message arrives (readMetaDraft in
   //    lib/meta/booking-requests.ts). A clinic whose threads go quiet would
   //    keep them for good without this.
@@ -303,7 +340,8 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     result.conversationsDeleted +
     result.contactsDeleted +
     result.draftsDeleted +
-    result.webhookEventsDeleted;
+    result.webhookEventsDeleted +
+    result.slotHoldsDeleted;
   if (total > 0) {
     tx.audit.record({
       action: "delete",
@@ -318,6 +356,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
         contacts: result.contactsDeleted,
         drafts: result.draftsDeleted,
         webhookEvents: result.webhookEventsDeleted,
+        slotHolds: result.slotHoldsDeleted,
         mediaDays: clinic.mediaDays,
         recordDays: clinic.recordDays,
       },
@@ -356,9 +395,10 @@ export type ErasureResult = {
  * half-collected Meta draft carrying the number. A deleted request's id and
  * token hash are never written again (booking_request_keys). What remains
  * afterwards is a suppression row for the phone number — deliberately. The
- * number is kept so the request itself is honoured forever; keeping it is
- * what the law expects of a do-not-contact list, and it is the one thing an
- * erasure must not erase.
+ * number is kept so the request itself is honoured for as long as healdesk
+ * holds the clinic's data; keeping it is what the law expects of a
+ * do-not-contact list, and it is the one thing an erasure must not erase.
+ * Destruction at offboarding takes it with everything else (lib/offboarding).
  */
 export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promise<ErasureResult> {
   if (!request.phone && !request.email) {

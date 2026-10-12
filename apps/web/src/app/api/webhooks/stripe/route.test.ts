@@ -78,6 +78,7 @@ function firstInvoice(metadata: Record<string, string>, billingReason = "subscri
     object: "invoice",
     billing_reason: billingReason,
     customer: "cus_1",
+    hosted_invoice_url: RECEIPT,
     metadata: {},
     parent: {
       type: "subscription_details",
@@ -85,6 +86,9 @@ function firstInvoice(metadata: Record<string, string>, billingReason = "subscri
     },
   });
 }
+
+/** The paid invoice's hosted page, which holds its receipt. */
+const RECEIPT = "https://invoice.stripe.com/i/acct_1/test_receipt";
 
 /** A healdesk subscription's metadata, as createCheckout writes it. */
 const PAID = { app: "healdesk", ref: "ref_1", plan: "web-voice", billingInterval: "year", attempt: "2" };
@@ -175,6 +179,7 @@ describe("the first paid invoice makes the account", () => {
       attempt: 2,
       plan: "web-voice",
       billingInterval: "year",
+      hostedInvoiceUrl: RECEIPT,
     });
     const timestamp = provision.headers.get(TIMESTAMP_HEADER)!;
     expect(provision.headers.get(SIGNATURE_HEADER)).toBe(
@@ -215,6 +220,7 @@ describe("the first paid invoice makes the account", () => {
       attempt: 2,
       plan: "web-voice",
       billingInterval: "year",
+      hostedInvoiceUrl: RECEIPT,
     });
   });
 

@@ -7,6 +7,7 @@ import {
 } from "@healdesk/catalog";
 
 import { agentConfigs, clinics, type AgentService, type DepositPolicy } from "@/db/schema";
+import { carryServiceDetails } from "@/lib/setup/prices";
 import type { TenantTx } from "@/lib/tenant";
 
 import { completeStep } from "./steps";
@@ -88,6 +89,24 @@ export function defaultAgentConfig(specialty: string, clinicName: string): Agent
   };
 }
 
+/**
+ * The most services a clinic's list may hold: a full med-spa menu, as its
+ * website states it, fits; anything longer is a misreading, not a menu.
+ */
+export const MAX_AGENT_SERVICES = 100;
+
+/**
+ * The largest deposit, in dollars, that a service or the clinic default may
+ * ask for (BD27: $0 to this). Every writer of a deposit holds to it: this
+ * file's validateAgentConfig, and the setup wizard and Knowledge
+ * (lib/setup/knowledge.ts). The ops console sends each service's deposit
+ * back as it read it, so one stored above it by another writer would have
+ * every later save of the clinic's script refused, over a field the console
+ * cannot change.
+ */
+export const MAX_DEPOSIT_USD = 10_000;
+const MAX_DEPOSIT_LABEL = `$${MAX_DEPOSIT_USD.toLocaleString("en-US")}`;
+
 export function validateAgentConfig(input: AgentConfigInput): void {
   if (!input.greeting.trim() || input.greeting.length > 600) {
     throw new AgentConfigError("The greeting must be between 1 and 600 characters.");
@@ -95,11 +114,13 @@ export function validateAgentConfig(input: AgentConfigInput): void {
   if (input.escalationPhone && !/^\+[1-9]\d{6,14}$/.test(input.escalationPhone)) {
     throw new AgentConfigError("The escalation number must be E.164 (e.g. +14155550100).");
   }
-  if (input.services.length > 40) throw new AgentConfigError("At most 40 services.");
+  if (input.services.length > MAX_AGENT_SERVICES) {
+    throw new AgentConfigError(`At most ${MAX_AGENT_SERVICES} services.`);
+  }
   const deposit = input.depositPolicy ?? null;
   if (deposit) {
-    if (deposit.amountUsd !== null && (!Number.isFinite(deposit.amountUsd) || deposit.amountUsd < 0 || deposit.amountUsd > 10_000)) {
-      throw new AgentConfigError("The deposit amount must be between $0 and $10,000, or left blank.");
+    if (deposit.amountUsd !== null && (!Number.isFinite(deposit.amountUsd) || deposit.amountUsd < 0 || deposit.amountUsd > MAX_DEPOSIT_USD)) {
+      throw new AgentConfigError(`The deposit amount must be between $0 and ${MAX_DEPOSIT_LABEL}, or left blank.`);
     }
     if (deposit.collection !== "front_desk" && deposit.collection !== "stripe_connect") {
       throw new AgentConfigError("Deposits are collected by the front desk or through Stripe Connect.");
@@ -117,8 +138,8 @@ export function validateAgentConfig(input: AgentConfigInput): void {
     // a string, which must be refused, not compared.
     const deposit: unknown = service.depositUsd;
     if (deposit !== undefined && deposit !== null) {
-      if (typeof deposit !== "number" || !Number.isFinite(deposit) || deposit < 0 || deposit > 10_000) {
-        throw new AgentConfigError(`"${service.name}": the deposit must be between $0 and $10,000, or left blank to use the default.`);
+      if (typeof deposit !== "number" || !Number.isFinite(deposit) || deposit < 0 || deposit > MAX_DEPOSIT_USD) {
+        throw new AgentConfigError(`"${service.name}": the deposit must be between $0 and ${MAX_DEPOSIT_LABEL}, or left blank to use the default.`);
       }
     }
   }
@@ -159,14 +180,23 @@ export async function seedAgentConfig(tx: TenantTx, specialty: string, clinicNam
     .onConflictDoNothing({ target: agentConfigs.clinicId });
 }
 
-/** Any edit bumps the version and clears the approval; go-live needs a fresh one. */
+/**
+ * Any edit bumps the version and clears the approval; go-live needs a fresh one.
+ *
+ * The ops console's form edits a service's name, prices and length, and none
+ * of what the setup wizard and Knowledge add to it (0056): the price kind, a
+ * per-unit price's unit and the deposit. Whatever a caller leaves out is
+ * carried from the stored service of the same name, so an operator's edit to
+ * the greeting can never erase them (lib/setup/prices.ts).
+ */
 export async function updateAgentConfig(tx: TenantTx, input: AgentConfigInput): Promise<AgentConfigRow> {
   validateAgentConfig(input);
   const existing = await getAgentConfig(tx);
+  const services = carryServiceDetails(existing?.services ?? [], input.services);
   const now = new Date();
   const values = {
     greeting: input.greeting.trim(),
-    services: input.services,
+    services,
     escalationPhone: input.escalationPhone,
     escalationHours: input.escalationHours?.trim() || null,
     notes: input.notes?.trim() || null,

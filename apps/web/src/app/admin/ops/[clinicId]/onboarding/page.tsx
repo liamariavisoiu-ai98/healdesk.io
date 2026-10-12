@@ -8,22 +8,22 @@ import {
   attachMetaChannel as metaChannelUpstream,
   setMetaFrontDoor as metaSwitchUpstream,
   completeOnboardingStep as completeUpstream,
+  disconnectCalendar as disconnectCalendarUpstream,
   fetchOnboarding,
   goLive as goLiveUpstream,
+  issueCalendarLink as calendarLinkUpstream,
   issueSetupLink as setupLinkUpstream,
   reopenOnboardingStep as reopenUpstream,
   retryCalendarWrite as retryWriteUpstream,
-  setBookingMode as bookingModeUpstream,
+  setAutoConfirm as autoConfirmUpstream,
   setBookingRequirements as requirementsUpstream,
   setClinicTimezone as timezoneUpstream,
-  setConnectionPhiBasis as phiBasisUpstream,
   setPhoneSettings as phoneUpstream,
   startForwardingTest as forwardingTestUpstream,
   updateAgentConfig as agentUpstream,
   type AgentService,
   type DepositPolicy,
   type MetaPlatform,
-  type PhiBasis,
 } from "@/lib/admin/ops-client";
 
 import { OnboardingPanel } from "./OnboardingPanel";
@@ -120,7 +120,7 @@ export default async function OnboardingPage({
     revalidatePath(path);
     return result;
   }
-  // Booking hand-off and direct booking (design of 23 September 2026).
+  // Booking hand-off (design of 23 September 2026).
   async function saveRequirements(fields: string[]) {
     "use server";
     const result = await requirementsUpstream(clinicId, fields);
@@ -133,21 +133,9 @@ export default async function OnboardingPage({
     revalidatePath(path);
     return result;
   }
-  async function setBookingMode(mode: "desk_confirms" | "direct") {
-    "use server";
-    const result = await bookingModeUpstream(clinicId, mode);
-    revalidatePath(path);
-    return result;
-  }
   async function confirmTimezone(timezone: string) {
     "use server";
     const result = await timezoneUpstream(clinicId, timezone);
-    revalidatePath(path);
-    return result;
-  }
-  async function setPhiBasis(input: { connectionId: string; basis: PhiBasis | null; note?: string }) {
-    "use server";
-    const result = await phiBasisUpstream(clinicId, input);
     revalidatePath(path);
     return result;
   }
@@ -157,13 +145,35 @@ export default async function OnboardingPage({
     revalidatePath(path);
     return result;
   }
+  // The booking mode and the Google Calendar (plan §10). The mode is derived
+  // upstream; Auto-confirm is the only switch here, and the clinic's id is
+  // this page's, never one the browser sends.
+  async function setAutoConfirm(on: boolean) {
+    "use server";
+    const result = await autoConfirmUpstream(clinicId, on === true);
+    revalidatePath(path);
+    return result;
+  }
+  async function sendCalendarLink() {
+    "use server";
+    const result = await calendarLinkUpstream(clinicId);
+    revalidatePath(path);
+    return result;
+  }
+  async function disconnectCalendar() {
+    "use server";
+    const result = await disconnectCalendarUpstream(clinicId);
+    revalidatePath(path);
+    return result;
+  }
 
   return (
     <OnboardingPanel
       view={view}
       actions={{
         completeStep, reopenStep, savePhone, saveAgent, approveAgent, goLive, startForwardingTest, attachMeta, setMeta,
-        saveRequirements, resendSetupLink, setBookingMode, confirmTimezone, setPhiBasis, retryCalendarWrite,
+        saveRequirements, resendSetupLink, confirmTimezone, retryCalendarWrite, setAutoConfirm, sendCalendarLink,
+        disconnectCalendar,
       }}
     />
   );

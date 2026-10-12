@@ -403,6 +403,28 @@ describeDb("delivery", () => {
       // Ids only. The clinic's name is not in the digest; nor is any patient.
       expect(transport.sent[0]!.message.text).not.toContain("Clinic");
     });
+
+    test("never reports a Google Calendar connection: it never syncs, and its health is the calendar watch's", async () => {
+      const calendar = await seedClinic("health-google");
+      for (const status of ["active", "revoked", "error"]) {
+        await inTenant(calendar.clinicId, async (client) => {
+          await client.query(`delete from provider_connections where clinic_id = $1`, [
+            calendar.clinicId,
+          ]);
+          await client.query(
+            `insert into provider_connections
+               (clinic_id, provider, status, ciphertext, iv, auth_tag, wrapped_dek, key_version, aad_version)
+             values ($1, 'google_calendar', $2, 'x', 'x', 'x', 'x', 'v1', 1)`,
+            [calendar.clinicId, status],
+          );
+        });
+        const findings = await findUnhealthyConnections(new Date());
+        expect(
+          findings.filter((f) => f.clinicId === calendar.clinicId),
+          status,
+        ).toEqual([]);
+      }
+    });
   });
 
   describe("the hourly tick", () => {
@@ -430,6 +452,15 @@ describeDb("delivery", () => {
           // and the requests worker's hourly backstop.
           "billing-reconcile",
           "billing-requests",
+          // Destruction runs every hour (drizzle/0058), on every rule, so a
+          // clinic is gone before its agreement's thirty days, or ninety, are up.
+          "offboarding-destroy",
+          // The setup reminder (drizzle/0056), hourly behind its switch: each
+          // clinic's reminder waits for that clinic's own daytime.
+          "setup-reminders",
+          // The welcome email's backstop: a sweep, not a switched job, because
+          // the welcome it retries goes unswitched at every provisioning.
+          "welcome-email",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;
@@ -438,9 +469,11 @@ describeDb("delivery", () => {
         if (job === "connection-health") continue; // enabled by the test above
         if (job === "booking-requirements-defaults") continue; // §H.5 sweep, not a switched job
         if (job === "booking-request-expiry") continue; // a sweep, not a switched job: pure function of the clock, reports a count
+        if (job === "welcome-email") continue; // a sweep: retries only a welcome provisioning recorded as owed
         expect(status, job).toBe("disabled");
       }
       expect(jobs["booking-request-expiry"]).toBe("ok");
+      expect(jobs["welcome-email"]).toBe("ok");
       expect(out.some((o) => o.status === "threw")).toBe(false);
     });
   });

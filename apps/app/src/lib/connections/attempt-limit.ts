@@ -34,12 +34,12 @@ import { createHash } from "node:crypto";
  *     that flood needs a token which resolves to a clinic and there is exactly
  *     one of those per link. It is also the key an attacker cannot forge.
  *   - **Per address.** The only key that bounds a caller spraying tokens it
- *     does not hold. On its own it is the weaker half — the address is read
- *     from a forwarded-for header, which is attacker-influenced text (see
- *     `normaliseIp()` in links.ts) — so it bounds ordinary load and honest
- *     runaway clients rather than a determined one. Keyed on its own token, a
- *     sprayer opens a fresh window with every guess and is limited by nothing;
- *     that is the gap it closes.
+ *     does not hold. On its own it is the weaker half — the address is the
+ *     one our load balancer saw (lib/client-ip.ts), which a client cannot
+ *     forge but can change by sending from somewhere else — so it bounds
+ *     ordinary load and honest runaway clients rather than a determined one.
+ *     Keyed on its own token, a sprayer opens a fresh window with every guess
+ *     and is limited by nothing; that is the gap it closes.
  *
  * Both counters are always taken, never short-circuited: tripping one must not
  * buy a free pass on the other.

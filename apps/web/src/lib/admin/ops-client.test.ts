@@ -16,16 +16,20 @@ vi.mock("next/headers", () => ({
   headers: async () => new Headers({ "user-agent": "vitest", "x-forwarded-for": "203.0.113.9" }),
 }));
 
+import * as opsClient from "@/lib/admin/ops-client";
 import {
   closeUnfinishedSetup,
   commitRefund,
+  disconnectCalendar,
   extendSetupDeadline,
   fetchClinicBilling,
   fetchOnboarding,
+  issueCalendarLink,
   issueStripeConnectLink,
   previewRefund,
   retryLocationSetup,
   retryOverageInvoice,
+  setAutoConfirm,
   setAutoRenew,
   setClinicSettings,
   setDepositSettings,
@@ -120,7 +124,48 @@ describe("what the console says when apps/app fails (F12)", () => {
 // F2: the greeting round trip
 // -----------------------------------------------------------------------------
 
-function onboardingWith(greeting: string): unknown {
+/** getOnboarding's `booking`, as apps/app's readBookingProjection writes it. */
+const BOOKING = {
+  mode: "manual",
+  canOfferTimes: true,
+  reasons: [
+    {
+      code: "auto_confirm_off",
+      sentence:
+        "Auto-confirm is off, so your assistant takes each booking as a request for your staff to confirm.",
+    },
+    { code: "kill_switch_off", sentence: "healdesk hasn't switched on live booking yet." },
+  ],
+  autoConfirm: false,
+  autoConfirmChangedAt: "2026-10-11T09:30:00.000Z",
+  killSwitchOn: false,
+  demo: false,
+  terms: {
+    kind: "covered",
+    source: "agreement",
+    clauseId: "google-calendar-covered",
+    documentVersion: "1.3.0",
+    documentReleased: true,
+    electedAt: "2026-10-08T09:00:00.000Z",
+    reason: null,
+  },
+  calendar: {
+    connectionId: BILLING,
+    status: "active",
+    accountKind: "workspace",
+    hostedDomain: "glow.test",
+    timeZoneMatches: true,
+    disclosureCurrent: true,
+    connectedAt: "2026-10-08T09:05:00.000Z",
+    lastVerifiedAt: "2026-10-12T08:00:00.000Z",
+    lastError: null,
+    brokenAt: null,
+  },
+  calendarLinkOutstanding: false,
+  pendingAssistantWrites: 1,
+};
+
+function onboardingWith(greeting: string, booking: unknown = BOOKING): unknown {
   return {
     data: {
       clinic: {
@@ -170,14 +215,10 @@ function onboardingWith(greeting: string): unknown {
         catalogue: [],
         neverAsked: [],
       },
-      bookingMode: "desk_confirms",
-      directBookingElectedAt: null,
-      directBookingWithdrawnAt: null,
-      directBooking: { addendumVersion: "1.0.0", addendumApproved: false, gates: [], missing: [] },
       timezoneConfirmedAt: null,
       timezone: "America/New_York",
-      calendarConnection: null,
       calendarWrites: [],
+      booking,
     },
   };
 }
@@ -705,5 +746,171 @@ describe("the billing panel's writes", () => {
     // Whether anything changed is part of the answer, not optional.
     reply({ data: { status: "ok", closesOn: null, auditRecorded: true } });
     expect(await setAutoRenew(CLINIC, true)).toMatchObject({ ok: false, code: "malformed" });
+  });
+});
+
+// -----------------------------------------------------------------------------
+// The booking card (plan §10, C17)
+// -----------------------------------------------------------------------------
+
+describe("the booking card reads the derived mode, and switches only Auto-confirm", () => {
+  test("getOnboarding's booking is read field by field, instants in the console's UTC form", async () => {
+    reply(onboardingWith("Hi"));
+    const view = await fetchOnboarding(CLINIC);
+    if (!view.ok) throw new Error(view.message);
+    expect(view.data.booking).toEqual({
+      ...BOOKING,
+      autoConfirmChangedAt: "2026-10-11 09:30 UTC",
+      terms: { ...BOOKING.terms, electedAt: "2026-10-08 09:00 UTC" },
+      calendar: {
+        ...BOOKING.calendar,
+        connectedAt: "2026-10-08 09:05 UTC",
+        lastVerifiedAt: "2026-10-12 08:00 UTC",
+      },
+    });
+    // The direct-booking addendum's switch and gates are gone from the view.
+    for (const key of ["bookingMode", "directBooking", "calendarConnection"]) {
+      expect(view.data, key).not.toHaveProperty(key);
+    }
+  });
+
+  test("no terms and no calendar read as such; an older apps/app's missing booking reads as null", async () => {
+    reply(
+      onboardingWith("Hi", {
+        ...BOOKING,
+        canOfferTimes: false,
+        terms: {
+          kind: "none",
+          source: null,
+          clauseId: null,
+          documentVersion: null,
+          documentReleased: null,
+          electedAt: null,
+          reason: "no_agreement",
+        },
+        calendar: null,
+      }),
+    );
+    const bare = await fetchOnboarding(CLINIC);
+    if (!bare.ok) throw new Error(bare.message);
+    expect(bare.data.booking).toMatchObject({
+      terms: { kind: "none", source: null, reason: "no_agreement" },
+      calendar: null,
+    });
+
+    const fromOlder = onboardingWith("Hi") as { data: Record<string, unknown> };
+    delete fromOlder.data.booking;
+    reply(fromOlder);
+    const older = await fetchOnboarding(CLINIC);
+    if (!older.ok) throw new Error(older.message);
+    expect(older.data.booking).toBeNull();
+  });
+
+  test("a mode, a terms kind or a reason it cannot read leaves the booking unreadable, never a guessed mode, and the rest of the page read", async () => {
+    for (const booking of [
+      { ...BOOKING, mode: "direct" },
+      { ...BOOKING, terms: { ...BOOKING.terms, kind: "legacy" } },
+      { ...BOOKING, reasons: [{ code: "Kill Switch", sentence: "x" }] },
+      { ...BOOKING, calendar: { ...BOOKING.calendar, status: "connected" } },
+      { ...BOOKING, pendingAssistantWrites: -1 },
+      { ...BOOKING, killSwitchOn: "false" },
+      null,
+    ]) {
+      reply(onboardingWith("Hi", booking));
+      const view = await fetchOnboarding(CLINIC);
+      if (!view.ok) throw new Error(`${JSON.stringify(booking)}: ${view.message}`);
+      expect(view.data.booking, JSON.stringify(booking)).toBe("unreadable");
+      expect(view.data.agent?.greeting).toBe("Hi");
+    }
+    // The rest of the page is as strict as it was.
+    const broken = onboardingWith("Hi") as { data: Record<string, unknown> };
+    broken.data.calendarWrites = "none";
+    reply(broken);
+    expect(await fetchOnboarding(CLINIC)).toMatchObject({ ok: false, code: "malformed" });
+  });
+
+  test("setAutoConfirm sends the page's clinic and a boolean, and reads the mode it leaves", async () => {
+    reply({
+      data: {
+        status: "updated",
+        changed: true,
+        autoConfirm: false,
+        mode: "manual",
+        reasons: BOOKING.reasons,
+        auditRecorded: true,
+      },
+    });
+    expect(await setAutoConfirm(CLINIC, false)).toEqual({
+      ok: true,
+      data: {
+        status: "updated",
+        changed: true,
+        autoConfirm: false,
+        mode: "manual",
+        reasons: BOOKING.reasons,
+        auditRecorded: true,
+      },
+    });
+    expect(sent.at(-1)).toEqual({ op: "setAutoConfirm", args: { clinicId: CLINIC, on: false } });
+    reply({ data: { status: "error", message: "Auto-confirm is on or off." } });
+    expect(await setAutoConfirm(CLINIC, true)).toEqual({
+      ok: true,
+      data: { status: "refused", message: "Auto-confirm is on or off." },
+    });
+  });
+
+  test("the calendar link takes no recipient, and shows a URL only when apps/app sends one", async () => {
+    const issued = {
+      status: "issued",
+      expiresAt: "2026-10-19 09:00 UTC",
+      delivery: { sent: 1, failed: 0, recipients: 1 },
+      auditRecorded: true,
+    };
+    reply({ data: issued });
+    expect(await issueCalendarLink(CLINIC)).toEqual({
+      ok: true,
+      data: { ...issued, url: null },
+    });
+    expect(sent.at(-1)).toEqual({ op: "issueCalendarLink", args: { clinicId: CLINIC } });
+
+    // The demo clinic's, for Google's verification video.
+    const demo = "https://app.healdesk.test/calendar/abc";
+    reply({ data: { ...issued, url: demo } });
+    expect(await issueCalendarLink(CLINIC)).toMatchObject({ ok: true, data: { url: demo } });
+    reply({ data: { ...issued, url: "javascript:alert(1)" } });
+    expect(await issueCalendarLink(CLINIC)).toMatchObject({ ok: false, code: "malformed" });
+    reply({ data: { status: "error", message: "No agreement is in effect." } });
+    expect(await issueCalendarLink(CLINIC)).toEqual({
+      ok: true,
+      data: { status: "refused", message: "No agreement is in effect." },
+    });
+  });
+
+  test("a disconnect reads disconnected, not connected, or the refusal", async () => {
+    reply({ data: { status: "disconnected", revokedAtGoogle: false, auditRecorded: true } });
+    expect(await disconnectCalendar(CLINIC)).toEqual({
+      ok: true,
+      data: { status: "disconnected", revokedAtGoogle: false, auditRecorded: true },
+    });
+    reply({ data: { status: "not_connected" } });
+    expect(await disconnectCalendar(CLINIC)).toEqual({
+      ok: true,
+      data: { status: "not_connected" },
+    });
+    reply({ data: { status: "error", message: "No such clinic." } });
+    expect(await disconnectCalendar(CLINIC)).toEqual({
+      ok: true,
+      data: { status: "refused", message: "No such clinic." },
+    });
+    expect(sent.map((call) => call.op)).toEqual([
+      "disconnectCalendar",
+      "disconnectCalendar",
+      "disconnectCalendar",
+    ]);
+  });
+
+  test("the direct-booking switch is gone from the client", () => {
+    expect(opsClient).not.toHaveProperty("setBookingMode");
+    expect(opsClient).not.toHaveProperty("DIRECT_BOOKING_GATES");
   });
 });

@@ -2,10 +2,14 @@ import type { EmailKind } from "../kind-rules";
 import type { NoticeKind, NoticeOwner } from "../kinds";
 
 import { ALLOWANCE_FALLBACK_ENTRY } from "./allowance_fallback";
+import { CALENDAR_RECONNECTED_ENTRY, CALENDAR_STOPPED_ENTRY } from "./calendar_state";
+import { CALENDAR_ELECTION_RECORDED_ENTRY } from "./calendar_election_recorded";
+import { CALENDAR_LINK_ENTRY } from "./calendar_link";
 import { CANCEL_REVERSED_ENTRY } from "./cancel_reversed";
 import { CANCEL_SCHEDULED_ENTRY } from "./cancel_scheduled";
 import { CANCELED_ENTRY } from "./canceled";
 import { CARD_EXPIRING_ENTRY } from "./card_expiring";
+import { CHANNEL_READY_ENTRY } from "./channel_ready";
 import { CONNECT_CONNECTED_ENTRY } from "./connect_connected";
 import { CONNECT_DISCONNECTED_ENTRY } from "./connect_disconnected";
 import { DEVICE_CHANGED_ENTRY } from "./device_changed";
@@ -23,10 +27,15 @@ import { RECEIPT_ENTRY } from "./receipt";
 import { REFUND_ISSUED_ENTRY } from "./refund_issued";
 import { RENEWAL_UPCOMING_ENTRY } from "./renewal_upcoming";
 import { RESTORED_ENTRY } from "./restored";
+import { SETTING_CHANGED_ENTRY } from "./setting_changed";
+import { SETUP_CLOSED_ENTRY } from "./setup_closed";
+import { SETUP_REMINDER_ENTRY } from "./setup_reminder";
 import { SIGN_IN_LINK_ENTRY } from "./sign_in_link";
 import { STEP_UP_REMINDER_ENTRY } from "./step_up_reminder";
+import { STEPS_SENT_ENTRY } from "./steps_sent";
 import { SUSPENDED_ENTRY } from "./suspended";
 import type { EmailTemplate } from "./types";
+import { WELCOME_ENTRY } from "./welcome";
 
 /**
  * Which kinds have a template, and who owes the rest.
@@ -82,6 +91,20 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   refund_issued: REFUND_ISSUED_ENTRY,
   card_expiring: CARD_EXPIRING_ENTRY,
   connect_connected: CONNECT_CONNECTED_ENTRY,
+  // The setup milestone (M3): the welcome email, the setup reminder, the
+  // setup closure and the calendar emails.
+  welcome: WELCOME_ENTRY,
+  setup_reminder: SETUP_REMINDER_ENTRY,
+  setup_closed: SETUP_CLOSED_ENTRY,
+  calendar_stopped: CALENDAR_STOPPED_ENTRY,
+  calendar_reconnected: CALENDAR_RECONNECTED_ENTRY,
+  // The portal (M3, part two): O4, O10 and O11.
+  setting_changed: SETTING_CHANGED_ENTRY,
+  channel_ready: CHANNEL_READY_ENTRY,
+  steps_sent: STEPS_SENT_ENTRY,
+  // The calendar backend's two (plan §2.6, §4.1).
+  calendar_link: CALENDAR_LINK_ENTRY,
+  calendar_election_recorded: CALENDAR_ELECTION_RECORDED_ENTRY,
 };
 
 export type PendingTemplate = {
@@ -122,6 +145,16 @@ export const PENDING_TEMPLATES: Record<
     | "sign_in_link"
     | "order_confirmed_delayed"
     | "device_changed"
+    | "welcome"
+    | "setup_reminder"
+    | "setup_closed"
+    | "calendar_stopped"
+    | "calendar_reconnected"
+    | "setting_changed"
+    | "channel_ready"
+    | "steps_sent"
+    | "calendar_link"
+    | "calendar_election_recorded"
     | BillingTemplatedKind
   >,
   PendingTemplate

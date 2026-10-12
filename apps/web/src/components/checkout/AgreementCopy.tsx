@@ -2,6 +2,7 @@
 
 import { type MouseEvent } from "react";
 
+import { versionLabel } from "./agreement-kinds";
 import type { AgreementResult } from "./AgreementStep";
 
 /**
@@ -44,9 +45,12 @@ export function AgreementCopyLink({
   // the browser holding the cookie that signing set. Pasting this URL anywhere
   // else gets a 401.
   const pdfHref = `/api/agreement/pdf?id=${encodeURIComponent(agreement?.agreementId ?? "")}`;
-  const pdfName = `${fileStem}-${agreement?.version ?? "agreement"}.pdf`;
+  // The version as the document prints it: a DPA's "dpa/1.0.0" would put a
+  // path separator in the name, and the stem already says which agreement.
+  const version = agreement?.version ? versionLabel(agreement.version) : "agreement";
+  const pdfName = `${fileStem}-${version}.pdf`;
   const textHref = `data:text/plain;charset=utf-8,${encodeURIComponent(agreement?.text ?? "")}`;
-  const textName = `${fileStem}-${agreement?.version ?? "agreement"}.txt`;
+  const textName = `${fileStem}-${version}.txt`;
   // No id means nothing to ask the server for, so the link is the text from
   // the start rather than a PDF link that is certain to fail.
   const pdfOffered = Boolean(agreement?.agreementId) && !unavailable;

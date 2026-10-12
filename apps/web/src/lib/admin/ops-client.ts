@@ -173,6 +173,7 @@ type OperatorOp =
   | "resolveIncident"
   | "startOffboarding"
   | "markExportDelivered"
+  | "markVoiceVendorDataDeleted"
   // The billing panel (build spec §7 E, R35).
   | "getClinicBilling"
   | "setOverageMode"
@@ -200,10 +201,14 @@ type OperatorOp =
   | "setBookingRequirements"
   | "setClinicTimezone"
   | "setConnectionPhiBasis"
-  | "setBookingMode"
   | "issueSetupLink"
   | "retryCalendarWrite"
-  | "listCalendarWrites";
+  | "listCalendarWrites"
+  // The booking mode and the Google Calendar (plan §10): Auto-confirm, the
+  // calendar link mailed to the practice's own address, and a disconnect.
+  | "setAutoConfirm"
+  | "issueCalendarLink"
+  | "disconnectCalendar";
 
 /**
  * The operations that happen BEFORE there is a session, and there are exactly
@@ -1821,12 +1826,52 @@ export type OnboardingStepView = {
 
 export type AgentService = {
   name: string;
+  /** Dollars, to the cent. */
   priceFromUsd: number | null;
   priceToUsd: number | null;
   durationMinutes: number | null;
+  /**
+   * What the clinic's setup and Knowledge add to a service: how the price is
+   * stated, a per-unit price's unit and the deposit. The console shows them
+   * and sends them back as it got them; it does not edit them. apps/app also
+   * keeps the stored ones for a service sent without them.
+   */
+  priceKind?: ServicePriceKind | null;
+  unit?: string | null;
   /** The service's own deposit in dollars; null or absent means the clinic default. */
   depositUsd?: number | null;
 };
+
+export type ServicePriceKind = "exact" | "from" | "range" | "per_unit";
+const SERVICE_PRICE_KINDS: readonly ServicePriceKind[] = ["exact", "from", "range", "per_unit"];
+
+/**
+ * One service from getOnboarding, keeping what the clinic set beyond the
+ * console's four fields. Dropping them here used to send every service back
+ * without its kind, unit and deposit, and a greeting edit erased them.
+ */
+export function readAgentService(entry: unknown): AgentService {
+  const row = object(entry, "service");
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const service: AgentService = {
+    name: text(row.name, "service.name"),
+    priceFromUsd: num(row.priceFromUsd),
+    priceToUsd: num(row.priceToUsd),
+    durationMinutes: num(row.durationMinutes),
+  };
+  // Kept only when present and well formed, so what the console sends back
+  // is what it was given, and a key it never had stays absent for apps/app
+  // to fill from the stored service.
+  if (row.priceKind === null || SERVICE_PRICE_KINDS.includes(row.priceKind as ServicePriceKind)) {
+    service.priceKind = row.priceKind as ServicePriceKind | null;
+  }
+  if (row.unit === null) service.unit = null;
+  else if (typeof row.unit === "string") service.unit = text(row.unit, "service.unit");
+  if (row.depositUsd === null || num(row.depositUsd) !== null) {
+    service.depositUsd = num(row.depositUsd);
+  }
+  return service;
+}
 
 export type OnboardingView = {
   clinic: {
@@ -1886,23 +1931,77 @@ export type OnboardingView = {
     catalogue: { id: string; label: string; locked: boolean; phoneOnly: boolean }[];
     neverAsked: string[];
   };
-  bookingMode: "desk_confirms" | "direct";
-  directBookingElectedAt: string | null;
-  directBookingWithdrawnAt: string | null;
-  directBooking: {
-    addendumVersion: string;
-    addendumApproved: boolean;
-    gates: { id: DirectBookingGate; ok: boolean }[];
-    missing: string[];
-  };
   timezoneConfirmedAt: string | null;
   timezone: string;
-  calendarConnection: { connectionId: string; platform: string; phiBasis: PhiBasis | null; writable: boolean } | null;
   calendarWrites: CalendarWriteRow[];
+  /**
+   * The location's booking mode and every reason for it, Auto-confirm, the
+   * kill switch, the calendar terms and the Google Calendar connection, as
+   * apps/app derives them (plan §10). Null only from an apps/app older than
+   * the projection; "unreadable" when apps/app sent one this console could
+   * not read. Either way the two cards say so rather than guessing a mode,
+   * and the rest of the page still shows.
+   */
+  booking: BookingView | "unreadable" | null;
 };
 
-export type DirectBookingGate = "env" | "addendum" | "election" | "calendar" | "production" | "agent";
-export const DIRECT_BOOKING_GATES: readonly DirectBookingGate[] = ["env", "addendum", "election", "calendar", "production", "agent"];
+/** One reason a location takes requests: apps/app's code, and its sentence in the clinic's words. */
+export type BookingReason = { code: string; sentence: string };
+
+export type CalendarTermsKind = "none" | "needs_election" | "covered" | "uncovered" | "not_used";
+const CALENDAR_TERMS_KINDS: readonly CalendarTermsKind[] = ["none", "needs_election", "covered", "uncovered", "not_used"];
+
+export type CalendarConnectionStatus = "pending" | "active" | "degraded" | "error" | "revoked";
+const CALENDAR_CONNECTION_STATUSES: readonly CalendarConnectionStatus[] = ["pending", "active", "degraded", "error", "revoked"];
+
+/**
+ * getOnboarding's `booking`. Configuration and counts: never the Google
+ * account's address or the calendar's own zone, which apps/app keeps back.
+ * Instants are the "YYYY-MM-DD HH:MM UTC" this console shows.
+ */
+export type BookingView = {
+  /**
+   * `live`: the location's settings allow booking straight into its calendar;
+   * which channels can is not this field's to say. `manual`: every booking is
+   * a request.
+   */
+  mode: "live" | "manual";
+  /** Real free times are on offer, whether the chosen one is booked or requested. */
+  canOfferTimes: boolean;
+  /** Every reason that applies, in apps/app's order; empty exactly when live. */
+  reasons: BookingReason[];
+  autoConfirm: boolean;
+  autoConfirmChangedAt: string | null;
+  /** HEALDESK_DIRECT_BOOKING_ENABLED, the owner's: shown, never set from here. */
+  killSwitchOn: boolean;
+  demo: boolean;
+  terms: {
+    kind: CalendarTermsKind;
+    source: "agreement" | "calendar_link" | "portal" | null;
+    clauseId: string | null;
+    documentVersion: string | null;
+    /** Null when no terms are in effect. */
+    documentReleased: boolean | null;
+    electedAt: string | null;
+    /** Why no terms are in effect; null when they are. */
+    reason: string | null;
+  };
+  calendar: {
+    connectionId: string;
+    status: CalendarConnectionStatus;
+    accountKind: "workspace" | "personal" | null;
+    hostedDomain: string | null;
+    timeZoneMatches: boolean | null;
+    disclosureCurrent: boolean;
+    connectedAt: string | null;
+    lastVerifiedAt: string | null;
+    lastError: string | null;
+    brokenAt: string | null;
+  } | null;
+  calendarLinkOutstanding: boolean;
+  pendingAssistantWrites: number;
+};
+
 export type PhiBasis = "vendor_baa" | "practice_account";
 export type CalendarWriteRow = {
   appointmentId: string;
@@ -2017,19 +2116,10 @@ function readOnboardingView(value: unknown): OnboardingView {
       ? {
           version: count(agent.version, "agent.version"),
           greeting: editable(agent.greeting, "agent.greeting", MAX_GREETING),
-          services: list(agent.services, "agent.services").map((entry) => {
-            const row = object(entry, "service");
-            const num = (v: unknown) => (typeof v === "number" ? v : null);
-            return {
-              name: text(row.name, "service.name"),
-              priceFromUsd: num(row.priceFromUsd),
-              priceToUsd: num(row.priceToUsd),
-              durationMinutes: num(row.durationMinutes),
-              // Read back so a save of the script carries it, rather than
-              // wiping every service's own deposit.
-              depositUsd: num(row.depositUsd),
-            };
-          }),
+          // Read back with what the clinic set beyond the console's four
+          // fields, its deposit included, so a save of the script carries
+          // them rather than wiping them (readAgentService).
+          services: list(agent.services, "agent.services").map(readAgentService),
           escalationPhone: optionalString(agent.escalationPhone),
           escalationHours: optionalString(agent.escalationHours),
           notes: optionalString(agent.notes),
@@ -2064,36 +2154,88 @@ function readOnboardingView(value: unknown): OnboardingView {
         neverAsked: list(r.neverAsked ?? [], "requirements.neverAsked").map((n) => text(n, "requirements.neverAsked")),
       };
     })(),
-    bookingMode: data.bookingMode === "direct" ? "direct" : "desk_confirms",
-    directBookingElectedAt: optionalString(data.directBookingElectedAt),
-    directBookingWithdrawnAt: optionalString(data.directBookingWithdrawnAt),
-    directBooking: (() => {
-      const d = object(data.directBooking ?? {}, "getOnboarding.directBooking");
-      return {
-        addendumVersion: optionalString(d.addendumVersion) ?? "",
-        addendumApproved: d.addendumApproved === true,
-        gates: list(d.gates ?? [], "directBooking.gates").flatMap((entry) => {
-          const g = object(entry, "directBooking.gate");
-          const id = DIRECT_BOOKING_GATES.find((x) => x === g.id);
-          return id ? [{ id, ok: g.ok === true }] : [];
-        }),
-        missing: list(d.missing ?? [], "directBooking.missing").map((m) => text(m, "directBooking.missing")),
-      };
-    })(),
     timezoneConfirmedAt: optionalString(data.timezoneConfirmedAt),
     timezone: optionalString(data.timezone) ?? text(clinic.timezone, "clinic.timezone"),
-    calendarConnection: (() => {
-      if (!data.calendarConnection) return null;
-      const c = object(data.calendarConnection, "getOnboarding.calendarConnection");
-      const basis = optionalString(c.phiBasis);
-      return {
-        connectionId: id(c.connectionId, "calendarConnection.connectionId"),
-        platform: text(c.platform, "calendarConnection.platform"),
-        phiBasis: basis === "vendor_baa" || basis === "practice_account" ? basis : null,
-        writable: c.writable === true,
-      };
-    })(),
     calendarWrites: list(data.calendarWrites ?? [], "getOnboarding.calendarWrites").map(readCalendarWrite),
+    booking: data.booking === undefined ? null : readBookingOrUnreadable(data.booking),
+  };
+}
+
+/**
+ * The booking card's state on its own: a shape it cannot read leaves the two
+ * cards that show it saying so, not the whole onboarding page blank, and
+ * still never a mode guessed from what was readable.
+ */
+function readBookingOrUnreadable(value: unknown): BookingView | "unreadable" {
+  try {
+    return readBookingView(value);
+  } catch (error) {
+    if (!(error instanceof ShapeError)) throw error;
+    console.error("[healdesk] admin ops: getOnboarding answered an unexpected shape at", error.message);
+    return "unreadable";
+  }
+}
+
+/** A code apps/app names a reason or a state by: lower-case words and underscores. */
+function code(value: unknown, at: string): string {
+  if (typeof value !== "string" || !/^[a-z][a-z0-9_]{0,63}$/.test(value)) throw new ShapeError(at);
+  return value;
+}
+
+function optionalBool(value: unknown, at: string): boolean | null {
+  return value === null || value === undefined ? null : bool(value, at);
+}
+
+function readReasons(value: unknown, at: string): BookingReason[] {
+  return list(value, at).map((entry) => {
+    const r = object(entry, `${at}.reason`);
+    return { code: code(r.code, `${at}.code`), sentence: text(r.sentence, `${at}.sentence`) };
+  });
+}
+
+/**
+ * Strict, field by field: this card tells an operator whether a clinic's
+ * patients are booked straight into its calendar, so a reply it cannot read
+ * is an error on the page, never a mode guessed from what is missing.
+ */
+function readBookingView(value: unknown): BookingView {
+  const b = object(value, "booking");
+  const t = object(b.terms, "booking.terms");
+  const c = b.calendar === null ? null : object(b.calendar, "booking.calendar");
+  const source = t.source === null ? null : literal(t.source, ["agreement", "calendar_link", "portal"], "booking.terms.source");
+  return {
+    mode: literal(b.mode, ["live", "manual"], "booking.mode"),
+    canOfferTimes: bool(b.canOfferTimes, "booking.canOfferTimes"),
+    reasons: readReasons(b.reasons, "booking.reasons"),
+    autoConfirm: bool(b.autoConfirm, "booking.autoConfirm"),
+    autoConfirmChangedAt: optionalInstant(b.autoConfirmChangedAt, "booking.autoConfirmChangedAt")?.at ?? null,
+    killSwitchOn: bool(b.killSwitchOn, "booking.killSwitchOn"),
+    demo: bool(b.demo, "booking.demo"),
+    terms: {
+      kind: literal(t.kind, CALENDAR_TERMS_KINDS, "booking.terms.kind"),
+      source,
+      clauseId: optionalText(t.clauseId, "booking.terms.clauseId"),
+      documentVersion: optionalText(t.documentVersion, "booking.terms.documentVersion"),
+      documentReleased: optionalBool(t.documentReleased, "booking.terms.documentReleased"),
+      electedAt: optionalInstant(t.electedAt, "booking.terms.electedAt")?.at ?? null,
+      reason: t.reason === null || t.reason === undefined ? null : code(t.reason, "booking.terms.reason"),
+    },
+    calendar: c
+      ? {
+          connectionId: id(c.connectionId, "booking.calendar.connectionId"),
+          status: literal(c.status, CALENDAR_CONNECTION_STATUSES, "booking.calendar.status"),
+          accountKind: c.accountKind === null ? null : literal(c.accountKind, ["workspace", "personal"] as const, "booking.calendar.accountKind"),
+          hostedDomain: optionalText(c.hostedDomain, "booking.calendar.hostedDomain"),
+          timeZoneMatches: optionalBool(c.timeZoneMatches, "booking.calendar.timeZoneMatches"),
+          disclosureCurrent: bool(c.disclosureCurrent, "booking.calendar.disclosureCurrent"),
+          connectedAt: optionalInstant(c.connectedAt, "booking.calendar.connectedAt")?.at ?? null,
+          lastVerifiedAt: optionalInstant(c.lastVerifiedAt, "booking.calendar.lastVerifiedAt")?.at ?? null,
+          lastError: optionalText(c.lastError, "booking.calendar.lastError"),
+          brokenAt: optionalInstant(c.brokenAt, "booking.calendar.brokenAt")?.at ?? null,
+        }
+      : null,
+    calendarLinkOutstanding: bool(b.calendarLinkOutstanding, "booking.calendarLinkOutstanding"),
+    pendingAssistantWrites: count(b.pendingAssistantWrites, "booking.pendingAssistantWrites"),
   };
 }
 
@@ -2197,6 +2339,26 @@ export type CareView = {
     exportDeliveredOn: string | null;
     destroyAfterOn: string | null;
     destroyedOn: string | null;
+    /**
+     * When the clinic's data goes, by the rule of the agreement its service
+     * ended under (destructionPlan in apps/app's lib/offboarding), as
+     * "YYYY-MM-DD HH:MM UTC". Null while it is not offboarding.
+     */
+    destruction: {
+      rule: "thirty_days" | "export_or_ninety";
+      basis: "agreement" | "no_agreement" | "unknown_version";
+      agreementVersion: string | null;
+      exportDueAt: string;
+      destroyDueAt: string;
+      latestDestroyAt: string;
+    } | null;
+    /** The clinic's calls and agent deleted at the voice vendor: outstanding until recordedAt. */
+    voiceVendorDeletion: {
+      deadline: string;
+      recordedAt: string | null;
+      recordedBy: string | null;
+      how: string | null;
+    } | null;
   };
   recipients: { email: string; label: string | null; addedBy: string; addedOn: string }[];
   deliveries: {
@@ -2246,6 +2408,8 @@ function readCareView(value: unknown): CareView {
       exportDeliveredOn: on(clinic.exportDeliveredAt, "care.clinic.exportDeliveredAt"),
       destroyAfterOn: on(clinic.destroyAfter, "care.clinic.destroyAfter"),
       destroyedOn: on(clinic.destroyedAt, "care.clinic.destroyedAt"),
+      destruction: readDestruction(clinic.destruction),
+      voiceVendorDeletion: readVoiceVendorDeletion(clinic.voiceVendorDeletion),
     },
     recipients: list(data.recipients, "care.recipients").map((entry) => {
       const r = object(entry, "care.recipient");
@@ -2287,6 +2451,30 @@ function readCareView(value: unknown): CareView {
   };
 }
 
+function readDestruction(value: unknown): CareView["clinic"]["destruction"] {
+  if (value === null || value === undefined) return null;
+  const d = object(value, "care.clinic.destruction");
+  return {
+    rule: literal(d.rule, ["thirty_days", "export_or_ninety"], "care.clinic.destruction.rule"),
+    basis: literal(d.basis, ["agreement", "no_agreement", "unknown_version"], "care.clinic.destruction.basis"),
+    agreementVersion: optionalText(d.agreementVersion, "care.clinic.destruction.agreementVersion"),
+    exportDueAt: instant(d.exportDueBy, "care.clinic.destruction.exportDueBy").at,
+    destroyDueAt: instant(d.destroyDueAt, "care.clinic.destruction.destroyDueAt").at,
+    latestDestroyAt: instant(d.latestDestroyAt, "care.clinic.destruction.latestDestroyAt").at,
+  };
+}
+
+function readVoiceVendorDeletion(value: unknown): CareView["clinic"]["voiceVendorDeletion"] {
+  if (value === null || value === undefined) return null;
+  const d = object(value, "care.clinic.voiceVendorDeletion");
+  return {
+    deadline: instant(d.deadline, "care.clinic.voiceVendorDeletion.deadline").at,
+    recordedAt: optionalInstant(d.recordedAt, "care.clinic.voiceVendorDeletion.recordedAt")?.at ?? null,
+    recordedBy: optionalText(d.recordedBy, "care.clinic.voiceVendorDeletion.recordedBy"),
+    how: optionalText(d.how, "care.clinic.voiceVendorDeletion.how"),
+  };
+}
+
 export function fetchClinicCare(clinicId: string): Promise<OpsResult<CareView>> {
   return callOps("getClinicCare", "read", { clinicId }, readCareView);
 }
@@ -2318,6 +2506,9 @@ export function startOffboarding(clinicId: string, reason: string) {
 }
 export function markExportDelivered(clinicId: string, how: string) {
   return careWrite("markExportDelivered", { clinicId, how });
+}
+export function markVoiceVendorDataDeleted(clinicId: string, how: string) {
+  return careWrite("markVoiceVendorDataDeleted", { clinicId, how });
 }
 
 export type OpenIncidentOutcome =
@@ -3376,9 +3567,9 @@ export function setMetaFrontDoor(clinicId: string, enabled: boolean) {
 
 
 // -----------------------------------------------------------------------------
-// Booking hand-off and direct booking (design of 23 September 2026). The
-// call-back switch and the WhatsApp template op went with v1's inbound-only
-// rule.
+// Booking hand-off (design of 23 September 2026). The call-back switch and
+// the WhatsApp template op went with v1's inbound-only rule, and the
+// direct-booking switch with v1's derived booking mode (below).
 // -----------------------------------------------------------------------------
 
 export function setBookingRequirements(clinicId: string, fields: string[]) {
@@ -3391,25 +3582,6 @@ export function setClinicTimezone(clinicId: string, timezone: string) {
 
 export function setConnectionPhiBasis(clinicId: string, input: { connectionId: string; basis: PhiBasis | null; note?: string }) {
   return simple("setConnectionPhiBasis", { clinicId, connectionId: input.connectionId, basis: input.basis, ...(input.note ? { note: input.note } : {}) });
-}
-
-export type BookingModeOutcome =
-  | { status: "updated"; mode: "desk_confirms" | "direct" }
-  | { status: "refused"; message: string; missing: string[] };
-
-export function setBookingMode(clinicId: string, mode: "desk_confirms" | "direct"): Promise<OpsResult<BookingModeOutcome>> {
-  return callOps("setBookingMode", "write", { clinicId, mode }, (value) => {
-    const data = object(value, "setBookingMode");
-    const s = state(data, "setBookingMode");
-    if (s === "updated") return { status: "updated", mode: data.mode === "direct" ? "direct" : "desk_confirms" };
-    const missing = list(data.missing ?? [], "setBookingMode.missing").map((m) => text(m, "setBookingMode.missing"));
-    const reason = optionalText(data.reason, "setBookingMode.reason");
-    return {
-      status: "refused",
-      message: optionalText(data.message, "setBookingMode.message") ?? (reason ? `Refused: ${reason.replace(/_/g, " ")}.` : "Refused."),
-      missing,
-    };
-  });
 }
 
 /** Same shape as the connect link: the URL comes back once, composed upstream. */
@@ -3445,5 +3617,98 @@ export function fetchCalendarWrites(clinicId: string): Promise<OpsResult<Calenda
   return callOps("listCalendarWrites", "read", { clinicId }, (value) => {
     const data = object(value, "listCalendarWrites");
     return list(data.writes ?? [], "listCalendarWrites.writes").map(readCalendarWrite);
+  });
+}
+
+// -----------------------------------------------------------------------------
+// The booking mode and the Google Calendar (plan §10). The mode is derived in
+// apps/app; the console switches only Auto-confirm, the clinic's own switch.
+// The owner's kill switch is an environment variable, and no operation sets it.
+// -----------------------------------------------------------------------------
+
+export type AutoConfirmOutcome =
+  | ({
+      status: "updated";
+      /** False when Auto-confirm already was where it was asked to be. */
+      changed: boolean;
+      autoConfirm: boolean;
+      /** The mode it leaves, and every reason for it. */
+      mode: "live" | "manual";
+      reasons: BookingReason[];
+    } & Audited)
+  | { status: "refused"; message: string };
+
+export function setAutoConfirm(clinicId: string, on: boolean): Promise<OpsResult<AutoConfirmOutcome>> {
+  return callOps("setAutoConfirm", "write", { clinicId, on }, (value) => {
+    const data = object(value, "setAutoConfirm");
+    if (state(data, "setAutoConfirm") !== "updated") return refusal(data, "setAutoConfirm");
+    return {
+      status: "updated",
+      changed: bool(data.changed, "setAutoConfirm.changed"),
+      autoConfirm: bool(data.autoConfirm, "setAutoConfirm.autoConfirm"),
+      mode: literal(data.mode, ["live", "manual"], "setAutoConfirm.mode"),
+      reasons: readReasons(data.reasons, "setAutoConfirm.reasons"),
+      auditRecorded: bool(data.auditRecorded, "setAutoConfirm.auditRecorded"),
+    };
+  });
+}
+
+export type CalendarLinkOutcome =
+  | ({
+      status: "issued";
+      expiresAt: string;
+      delivery: { sent: number; failed: number; recipients: number };
+      /** healdesk's demo clinic only, for Google's verification video; mailed otherwise, never shown. */
+      url: string | null;
+    } & Audited)
+  | { status: "refused"; message: string };
+
+/**
+ * Mail the location's calendar link to the practice's own address. It takes
+ * no recipient: a calendar link is a capability, so apps/app sends it only
+ * where the practice receives its calendar mail, and refuses when the link
+ * page would have nothing for the clinic to do.
+ */
+export function issueCalendarLink(clinicId: string): Promise<OpsResult<CalendarLinkOutcome>> {
+  return callOps("issueCalendarLink", "write", { clinicId }, (value) => {
+    const data = object(value, "issueCalendarLink");
+    if (state(data, "issueCalendarLink") !== "issued") return refusal(data, "issueCalendarLink");
+    const delivery = object(data.delivery, "issueCalendarLink.delivery");
+    return {
+      status: "issued",
+      expiresAt: text(data.expiresAt, "issueCalendarLink.expiresAt"),
+      delivery: {
+        sent: count(delivery.sent, "issueCalendarLink.delivery.sent"),
+        failed: count(delivery.failed, "issueCalendarLink.delivery.failed"),
+        recipients: count(delivery.recipients, "issueCalendarLink.delivery.recipients"),
+      },
+      url: data.url === undefined ? null : url(data.url, "issueCalendarLink.url"),
+      auditRecorded: bool(data.auditRecorded, "issueCalendarLink.auditRecorded"),
+    };
+  });
+}
+
+export type DisconnectCalendarOutcome =
+  | ({ status: "disconnected"; revokedAtGoogle: boolean } & Audited)
+  | { status: "not_connected" }
+  | { status: "refused"; message: string };
+
+/**
+ * Disconnect the location's Google Calendar, erasing its token, and revoke
+ * healdesk's grant at Google unless another location uses that account.
+ * `revokedAtGoogle` is false then, and when Google could not be asked or did
+ * not answer.
+ */
+export function disconnectCalendar(clinicId: string): Promise<OpsResult<DisconnectCalendarOutcome>> {
+  return callOps("disconnectCalendar", "write", { clinicId }, (value) => {
+    const data = object(value, "disconnectCalendar");
+    const status = state(data, "disconnectCalendar");
+    if (status === "not_connected") return { status: "not_connected" };
+    if (status !== "disconnected") return refusal(data, "disconnectCalendar");
+    return {
+      status: "disconnected",
+      revokedAtGoogle: bool(data.revokedAtGoogle, "disconnectCalendar.revokedAtGoogle"),
+      auditRecorded: bool(data.auditRecorded, "disconnectCalendar.auditRecorded"),
+    };
   });
 }

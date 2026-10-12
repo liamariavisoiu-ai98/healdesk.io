@@ -355,9 +355,21 @@ describe("decideAnswer: where a refusal goes", () => {
 });
 
 describe("coverageModeOf (BD23)", () => {
-  test("call_routing maps to the coverage modes; nothing maps to after hours only yet", () => {
+  test("clinic_settings.coverage_mode is the single source, whatever call_routing says", () => {
+    expect(
+      coverageModeOf({ callRouting: "conditional" }, { coverageMode: "after_hours_only" }),
+    ).toBe("after_hours_only");
+    expect(coverageModeOf({ callRouting: "always" }, { coverageMode: "overflow_after_hours" })).toBe(
+      "overflow_after_hours",
+    );
+    expect(coverageModeOf({ callRouting: "conditional" }, { coverageMode: "all_calls" })).toBe(
+      "all_calls",
+    );
+  });
+
+  test("with no settings row, call_routing maps to the coverage modes", () => {
     expect(coverageModeOf({ callRouting: "always" })).toBe("all_calls");
-    expect(coverageModeOf({ callRouting: "conditional" })).toBe("overflow_after_hours");
+    expect(coverageModeOf({ callRouting: "conditional" }, null)).toBe("overflow_after_hours");
     expect(coverageModeOf({ callRouting: null })).toBe("overflow_after_hours");
   });
 });

@@ -1,7 +1,12 @@
 import { STATE_LAW_CLAUSE_HEADING } from "./baa";
 import type { BookingSystemId } from "./booking-systems";
-import { CALENDAR_CLAUSE_HEADING, type CalendarAccount } from "./calendar-terms";
+import {
+  CALENDAR_CLAUSE_HEADING,
+  type CalendarAccount,
+  type CalendarElectionVariables,
+} from "./calendar-terms";
 import { currentDpaTemplate, DPA_PRACTICE_DESCRIPTORS, prepareDpa, type DpaVariables } from "./dpa";
+import { currentDpaCalendarElection, prepareDpaCalendarElection } from "./dpa-calendar-election";
 import { regimeFor, specialties } from "./specialties";
 import { wrap } from "./wrap";
 
@@ -26,6 +31,24 @@ export const DPA_REVIEW_SAMPLE: DpaVariables = {
   specialty: "med-spa",
   bookingSystem: "mindbody",
   calendarAccount: "personal",
+};
+
+/**
+ * The sample practice's election for a second location, in Appendix B: the
+ * uncovered clause, the longest, which shows every sentence the DPA's words
+ * change, the quoted event word included. dpa-calendar-election.test.ts
+ * freezes it.
+ */
+export const DPA_ELECTION_REVIEW_SAMPLE: CalendarElectionVariables = {
+  clinicLegalName: DPA_REVIEW_SAMPLE.clinicLegalName,
+  locationName: "Glow Med Spa, Main Street",
+  agreementVersion: "dpa/1.0.0",
+  agreementEffectiveDate: DPA_REVIEW_SAMPLE.effectiveDate,
+  bookingSystem: "google_calendar",
+  calendarAccount: "personal",
+  signatoryName: DPA_REVIEW_SAMPLE.signatoryName,
+  signatoryTitle: DPA_REVIEW_SAMPLE.signatoryTitle,
+  electedOn: "2026-10-07",
 };
 
 const VET_PRACTICE = "Golden Paws Veterinary LLC";
@@ -148,10 +171,24 @@ function header(): string {
   return [
     `healdesk Data Protection Agreement — version ${template.version}, ${template.approvedByCounsel ? "RELEASED" : "DRAFT"}, rendered ${published} for the owner's release. Not released, so nothing can sign it: approvedByCounsel is false in packages/catalog/src/dpa.ts, which is the one switch. While it is false, agreementKindFor gives a practice that answers "No" the business associate agreement, as it always has, and refuses a veterinary practice, and provisioning refuses an account bound to an unreleased DPA. Nothing in the text marks it a draft, so releasing it moves no hash; an edit before release regenerates this file and the golden hashes in packages/catalog/src/dpa.test.ts in the same commit.`,
     `Who signs it (plan Part L): a veterinary practice, without being asked the covered-entity question; and a med spa, hair restoration, or massage and chiropractic practice that answers "No" to billing any health insurance electronically. "Not sure" signs the BAA, and so does every specialty HIPAA always reaches. Its launch-checklist items (Gate A): this text; vet readiness (the veterinary urgent set and its fixed reply, the emergency referral number, vet practice cases, client wording); and the supersede function for the "No" branch (app_supersede_agreement, drizzle/0051).`,
-    `Rendered for a sample practice: a med spa that answered "No"; bookings in Mindbody, which does not read Google Calendar, so the calendar clause is the one under which healdesk connects nothing; and a personal Google account, which that clause does not depend on. From the title line on, the sample is exactly what packages/catalog/src/dpa.test.ts freezes as ${template.version} / sample (SHA-256 ${sample.hash}). The clauses that render only for some practices follow in the appendix, numbered as they render; nothing else in the text varies. What each sentence rests on in the code, and the gaps found, are in docs/counsel/dpa.md. Source: packages/catalog/src/dpa.ts, with the state-law and Payments clauses quoted from baa.ts, the calendar clause from calendar-terms.ts and the notice of a new subcontractor from subprocessor-notice.ts.`,
+    `Rendered for a sample practice: a med spa that answered "No"; bookings in Mindbody, which does not read Google Calendar, so the calendar clause is the one under which healdesk connects nothing; and a personal Google account, which that clause does not depend on. From the title line on, the sample is exactly what packages/catalog/src/dpa.test.ts freezes as ${template.version} / sample (SHA-256 ${sample.hash}). The clauses that render only for some practices follow in Appendix A, numbered as they render; nothing else in the text varies. Appendix B is the calendar election that names this agreement, which its Definitions clause and its calendar clause refer to. What each sentence rests on in the code, and the gaps found, are in docs/counsel/dpa.md. Source: packages/catalog/src/dpa.ts, with the state-law and Payments clauses quoted from baa.ts, the calendar clause from calendar-terms.ts and the notice of a new subcontractor from subprocessor-notice.ts; the election is dpa-calendar-election.ts.`,
   ]
     .map((p) => wrap(p, ""))
     .join("\n\n");
+}
+
+/** Appendix B: what the election is, then the sample practice's, exactly as it would be accepted. */
+function electionAppendix(): string {
+  const election = currentDpaCalendarElection();
+  const prepared = prepareDpaCalendarElection(DPA_ELECTION_REVIEW_SAMPLE, election);
+  return [
+    `APPENDIX B — THE CALENDAR ELECTION (${election.version}, ${election.approvedByCounsel ? "RELEASED" : "DRAFT"})`,
+    wrap(
+      `How a location's calendar terms change after signing, and how a second location gets calendar terms at all: the form this agreement's calendar clause sends both to, and its Definitions clause makes part of the agreement once accepted. Section 2 is the calendar clause that applies, in this agreement's words, without its location paragraph. Not released; until it is, only a demo clinic's election is to count (plan A10), and nothing can record an election of either kind yet, because the election rows and the code that writes them (plan C6 and C7) are not built. Rendered for the sample practice electing a personal Google account for a second location; frozen as ${election.version} in packages/catalog/src/dpa-calendar-election.test.ts (SHA-256 ${prepared.hash}).`,
+      "",
+    ),
+    prepared.text,
+  ].join("\n\n");
 }
 
 /** The whole file, exactly as docs/dpa-v1.0.0.txt must hold it. */
@@ -164,8 +201,10 @@ export function dpaReviewDocument(): string {
     RULE,
     render({}).trimEnd(),
     RULE,
-    `APPENDIX — CLAUSES THAT RENDER ONLY FOR SOME PRACTICES\n(not part of the sample above)`,
+    `APPENDIX A — CLAUSES THAT RENDER ONLY FOR SOME PRACTICES\n(not part of the sample above)`,
     appendix,
+    RULE,
+    electionAppendix(),
   ]
     .join("\n\n")
     .concat("\n");

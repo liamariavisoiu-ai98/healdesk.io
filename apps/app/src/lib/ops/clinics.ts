@@ -75,6 +75,13 @@ export type ClinicOverview = {
    * one, RLS hides every other organisation's agreement and this reads null.
    */
   baaVersion: string | null;
+  /**
+   * 0058: the version of the agreement the clinic was bound to when its
+   * service ended (app_agreement_at_end), terminated since or not, or null
+   * while it is not offboarding or held none then. The destruction rule is
+   * read from it (destructionPlan in lib/offboarding). Contract metadata.
+   */
+  destructionAgreementVersion: string | null;
 };
 
 /** Something an operator has to act on before this clinic can go live. */
@@ -95,7 +102,7 @@ export async function listClinics(): Promise<ClinicOverview[]> {
                timezone_confirmed_at,
                booking_requirements, booking_requirements_confirmed_at, booking_requirements_source,
                billing_clinic_id, stripe_connect_disconnected_at,
-               baa_version
+               baa_version, destruction_agreement_version
           from app_clinics_overview()`,
   );
 
@@ -154,6 +161,7 @@ export async function listClinics(): Promise<ClinicOverview[]> {
       ? new Date(row.stripe_connect_disconnected_at as string)
       : null,
     baaVersion: (row.baa_version as string | null) ?? null,
+    destructionAgreementVersion: (row.destruction_agreement_version as string | null) ?? null,
   }));
 }
 

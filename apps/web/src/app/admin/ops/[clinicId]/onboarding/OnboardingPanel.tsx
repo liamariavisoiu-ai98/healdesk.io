@@ -4,16 +4,19 @@ import { useState, useTransition } from "react";
 
 import type {
   AgentService,
-  BookingModeOutcome,
+  AutoConfirmOutcome,
+  BookingView,
+  CalendarConnectionStatus,
+  CalendarLinkOutcome,
+  CalendarTermsKind,
   DepositPolicy,
-  DirectBookingGate,
+  DisconnectCalendarOutcome,
   ForwardingTestOutcome,
   GoLiveOutcome,
   IssueLinkOutcome,
   MetaPlatform,
   OnboardingView,
   OpsResult,
-  PhiBasis,
   RetryCalendarWriteOutcome,
   SimpleOutcome,
 } from "@/lib/admin/ops-client";
@@ -41,24 +44,22 @@ type Actions = {
   startForwardingTest: () => Promise<OpsResult<ForwardingTestOutcome>>;
   attachMeta: (input: { platform: MetaPlatform; externalId: string; accessToken: string; label?: string }) => Promise<OpsResult<SimpleOutcome>>;
   setMeta: (enabled: boolean) => Promise<OpsResult<SimpleOutcome>>;
-  // Booking hand-off and direct booking (design of 23 September 2026).
+  // Booking hand-off (design of 23 September 2026).
   saveRequirements: (fields: string[]) => Promise<OpsResult<SimpleOutcome>>;
   resendSetupLink: (to: string | null) => Promise<OpsResult<IssueLinkOutcome>>;
-  setBookingMode: (mode: "desk_confirms" | "direct") => Promise<OpsResult<BookingModeOutcome>>;
   confirmTimezone: (timezone: string) => Promise<OpsResult<SimpleOutcome>>;
-  setPhiBasis: (input: { connectionId: string; basis: PhiBasis | null; note?: string }) => Promise<OpsResult<SimpleOutcome>>;
   retryCalendarWrite: (appointmentId: string) => Promise<OpsResult<RetryCalendarWriteOutcome>>;
+  // The booking mode and the Google Calendar (plan §10).
+  setAutoConfirm: (on: boolean) => Promise<OpsResult<AutoConfirmOutcome>>;
+  sendCalendarLink: () => Promise<OpsResult<CalendarLinkOutcome>>;
+  disconnectCalendar: () => Promise<OpsResult<DisconnectCalendarOutcome>>;
 };
 
-/** The six gates behind the direct-booking switch (§E.1), in the console's words. */
-const GATE_LABELS: Record<DirectBookingGate, string> = {
-  env: "HEALDESK_DIRECT_BOOKING_ENABLED is \"true\" in this environment",
-  addendum: "The direct-booking addendum is approved by counsel",
-  election: "The practice accepted the addendum on its setup link (unwithdrawn)",
-  calendar: "Writable calendar with a PHI basis recorded on the connection (none can exist until the Google Calendar adapter is built)",
-  production: "The clinic is live (production)",
-  agent: "The agent script is approved",
-};
+const UNAUDITED = "Done, but the audit entry could not be written. Tell whoever keeps the security log.";
+
+/** getOnboarding's `booking` in a shape this console cannot read: said on its two cards, never guessed. */
+const UNREADABLE_BOOKING =
+  "apps/app sent a booking state this console could not read, so no booking mode or calendar is shown rather than a guess. The error log names the field.";
 
 const CARRIERS = [
   ["verizon", "Verizon"],
@@ -168,8 +169,18 @@ export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingV
         <RequirementsCard view={v} onSave={actions.saveRequirements} onResend={actions.resendSetupLink} />
       </Section>
 
-      <Section title={`Booking mode — ${v.bookingMode === "direct" ? "the assistant books directly" : "the desk confirms"}`}>
-        <BookingModeCard view={v} onSwitch={actions.setBookingMode} />
+      <Section
+        title={`Booking mode — ${
+          v.booking === null
+            ? "unknown"
+            : v.booking === "unreadable"
+              ? "could not be read"
+              : v.booking.mode === "live"
+                ? "settings allow live booking"
+                : "requests for staff to confirm"
+        }`}
+      >
+        <BookingCard booking={v.booking} onAutoConfirm={actions.setAutoConfirm} />
       </Section>
 
       <Section title="Time zone">
@@ -177,7 +188,7 @@ export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingV
       </Section>
 
       <Section title="Calendar">
-        <CalendarCard view={v} onBasis={actions.setPhiBasis} onRetry={actions.retryCalendarWrite} />
+        <CalendarCard view={v} onSendLink={actions.sendCalendarLink} onDisconnect={actions.disconnectCalendar} onRetry={actions.retryCalendarWrite} />
       </Section>
 
       <Section title="Go live">
@@ -302,6 +313,24 @@ function PhoneForm({ view, onSave }: { view: OnboardingView; onSave: Actions["sa
   );
 }
 
+/**
+ * What the clinic set on a service beyond the four fields above, read-only
+ * here: the console carries it back untouched, and a price edited out of its
+ * kind (a top added to a per-unit price) is re-read by apps/app.
+ */
+function serviceDetail(s: AgentService): string | null {
+  const parts: string[] = [];
+  if (s.priceKind === "per_unit" && s.unit) parts.push(`priced per ${s.unit}`);
+  else if (s.priceKind === "from") parts.push("a starting price");
+  if (typeof s.depositUsd === "number" && s.depositUsd > 0) {
+    parts.push(`deposit $${Number.isInteger(s.depositUsd) ? s.depositUsd : s.depositUsd.toFixed(2)}`);
+  } else if (s.depositUsd === 0) {
+    // The clinic's "no deposit" (BD27's 0), which a default set below does not override.
+    parts.push("no deposit, so the default below does not apply");
+  }
+  return parts.length ? `Set by the clinic: ${parts.join(" · ")}` : null;
+}
+
 function AgentForm({ view, onSave, onApprove }: { view: OnboardingView; onSave: Actions["saveAgent"]; onApprove: Actions["approveAgent"] }) {
   const [pending, start] = useTransition();
   const [problem, setProblem] = useState<string | null>(null);
@@ -339,15 +368,16 @@ function AgentForm({ view, onSave, onApprove }: { view: OnboardingView; onSave: 
           <textarea name="greeting" defaultValue={agent?.greeting ?? ""} rows={3} className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
         </label>
         <div>
-          <span className="text-muted block text-xs font-bold uppercase">Services and price ranges (whole dollars; blank = offer a consult instead of a price)</span>
+          <span className="text-muted block text-xs font-bold uppercase">Services and price ranges (dollars and cents; blank = offer a consult instead of a price)</span>
           <div className="mt-1 grid gap-2">
             {services.map((s, i) => (
               <div key={i} className="grid grid-cols-[1fr_90px_90px_80px_auto] items-center gap-2 text-sm">
                 <input value={s.name} onChange={(e) => setServices(services.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} placeholder="Service" className="border-line rounded-lg border px-2 py-1.5" />
-                <input value={s.priceFromUsd ?? ""} onChange={(e) => setServices(services.map((x, j) => (j === i ? { ...x, priceFromUsd: e.target.value ? Number(e.target.value) : null } : x)))} placeholder="from $" inputMode="numeric" className="border-line rounded-lg border px-2 py-1.5" />
-                <input value={s.priceToUsd ?? ""} onChange={(e) => setServices(services.map((x, j) => (j === i ? { ...x, priceToUsd: e.target.value ? Number(e.target.value) : null } : x)))} placeholder="to $" inputMode="numeric" className="border-line rounded-lg border px-2 py-1.5" />
+                <input value={s.priceFromUsd ?? ""} onChange={(e) => setServices(services.map((x, j) => (j === i ? { ...x, priceFromUsd: e.target.value ? Number(e.target.value) : null } : x)))} placeholder="from $" inputMode="decimal" className="border-line rounded-lg border px-2 py-1.5" />
+                <input value={s.priceToUsd ?? ""} onChange={(e) => setServices(services.map((x, j) => (j === i ? { ...x, priceToUsd: e.target.value ? Number(e.target.value) : null } : x)))} placeholder="to $" inputMode="decimal" className="border-line rounded-lg border px-2 py-1.5" />
                 <input value={s.durationMinutes ?? ""} onChange={(e) => setServices(services.map((x, j) => (j === i ? { ...x, durationMinutes: e.target.value ? Number(e.target.value) : null } : x)))} placeholder="min" inputMode="numeric" className="border-line rounded-lg border px-2 py-1.5" />
                 <button type="button" onClick={() => setServices(services.filter((_, j) => j !== i))} className="text-muted text-xs underline">remove</button>
+                {serviceDetail(s) ? <span className="text-muted col-span-full text-xs">{serviceDetail(s)}</span> : null}
               </div>
             ))}
             <button type="button" onClick={() => setServices([...services, { name: "", priceFromUsd: null, priceToUsd: null, durationMinutes: null }])} className="text-xs underline justify-self-start">+ add a service</button>
@@ -553,9 +583,11 @@ function MetaFrontDoor({ view, onAttach, onSwitch }: { view: OnboardingView; onA
       <p className="text-muted mt-3">
         Booking requests handed to the desk, last 30 days (phone and Meta): <strong>{m.bookingRequests.waiting}</strong>{" "}
         waiting · {m.bookingRequests.confirmed} confirmed · {m.bookingRequests.accepted} accepted (the desk calls) ·{" "}
-        {m.bookingRequests.declined} declined. Until the Google Calendar adapter exists every booking is a request: the agent
-        takes a name, a number and a preferred window, emails the desk a single-use link, and the desk confirms a slot, calls
-        them or declines there. healdesk itself contacts no one about a request. The requests themselves are not shown here.
+        {m.bookingRequests.declined} declined. Meta conversations always take requests. Calls take requests too: a call can
+        book only at healdesk&rsquo;s demo clinic, and only while the booking mode below allows live booking. For a request
+        the agent takes a name, a number and a preferred window, emails the desk a single-use link, and the desk confirms a
+        slot, calls them or declines there. healdesk itself contacts no one about a request. The requests themselves are not
+        shown here.
       </p>
       <form
         onSubmit={(event) => {
@@ -622,7 +654,7 @@ function MetaFrontDoor({ view, onAttach, onSwitch }: { view: OnboardingView; onA
 
 
 /* -------------------------------------------------------------------------- */
-/* Booking hand-off, direct booking, time zone and calendar                    */
+/* Booking hand-off, booking mode, time zone and calendar                      */
 /* -------------------------------------------------------------------------- */
 
 function whenLabel(iso: string | null): string {
@@ -716,73 +748,155 @@ function RequirementsCard({ view, onSave, onResend }: { view: OnboardingView; on
   );
 }
 
-function BookingModeCard({ view, onSwitch }: { view: OnboardingView; onSwitch: Actions["setBookingMode"] }) {
+/** The calendar terms' kinds (lib/booking/terms.ts), in the console's words. */
+const TERMS_LABELS: Record<CalendarTermsKind, string> = {
+  none: "None: no agreement is in effect.",
+  needs_election: "None yet: the location needs a calendar election.",
+  covered: "Covered: a Google Workspace account under Google's BAA. healdesk adds bookings to the calendar.",
+  uncovered:
+    "Practice-directed: an account without Google's BAA. healdesk adds bookings to the calendar at the practice's direction.",
+  not_used: "Not used: the booking system doesn't read Google Calendar, so healdesk connects no calendar.",
+};
+
+/** Why no terms are in effect. A reason apps/app adds later shows as its code. */
+const TERMS_REASONS: Record<string, string> = {
+  no_agreement: "The organisation has no agreement in effect.",
+  legacy_agreement:
+    "The agreement in effect predates the calendar clauses, so the practice elects its terms on a calendar link.",
+  location: "The agreement has the calendar clauses, but this location has no election under it.",
+  draft_terms: "The newest election is on an unreleased document, which counts only on the demo clinic.",
+};
+
+const ELECTION_SOURCES = { agreement: "the signed agreement", calendar_link: "a calendar link", portal: "the portal" } as const;
+
+/**
+ * What the location's settings allow, and only that: the mode is the
+ * location's, not any channel's, and no channel books for a real clinic yet.
+ * channelsNow says what each one does.
+ */
+function modeHeadline(b: BookingView): string {
+  if (b.mode === "live") return "Settings allow live booking into the location's Google Calendar.";
+  return b.canOfferTimes
+    ? "Settings allow real free times from the location's Google Calendar, each booking a request for staff to confirm."
+    : "Settings allow requests only: a preferred time for staff to confirm, with no times offered.";
+}
+
+/**
+ * What each channel does with those settings today. Calls reach the booking
+ * tools only through the pre-Retell voice harness, which reads the mode for
+ * healdesk's demo clinic alone; every other clinic's calls take requests
+ * until the Retell runtime exists (launch plan 2.1). Meta never books. Worded
+ * as what can happen, never as what has, so it holds whether or not the
+ * demo clinic's booking tools are wired yet.
+ */
+function channelsNow(b: BookingView): string[] {
+  const calls = b.demo
+    ? "Calls: the voice harness reads these settings for healdesk's demo clinic alone. It can book only while they allow live booking, and takes a request otherwise."
+    : "Calls: requests, with no times offered, until the Retell runtime exists. The voice harness can book only for healdesk's demo clinic.";
+  return [calls, "Meta: always requests."];
+}
+
+/**
+ * The booking mode as apps/app derives it, and why (plan §10). Nothing here
+ * sets the mode: it follows from the location's calendar terms, its Google
+ * Calendar, its hours and zone, going live, Auto-confirm and the owner's
+ * kill switch, all read fresh upstream. Auto-confirm is the clinic's own
+ * switch and the only control on this card. It is offered under every terms
+ * kind, as the portal offers it, because the mode weighs it under every kind:
+ * where the terms let healdesk write nothing yet, the card says it takes
+ * effect once they do.
+ */
+function BookingCard({
+  booking: b,
+  onAutoConfirm,
+}: {
+  booking: BookingView | "unreadable" | null;
+  onAutoConfirm: Actions["setAutoConfirm"];
+}) {
   const [pending, start] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
-  const [missing, setMissing] = useState<string[]>([]);
-  const d = view.directBooking;
-  const direct = view.bookingMode === "direct";
+  if (b === "unreadable") return <p className="text-red-deep text-sm">{UNREADABLE_BOOKING}</p>;
+  if (!b) {
+    return (
+      <p className="text-red-deep text-sm">
+        apps/app sent no booking mode: it is older than this console. Deploy it before reading or changing anything here.
+      </p>
+    );
+  }
+  const writes = b.terms.kind === "covered" || b.terms.kind === "uncovered";
+  const t = b.terms;
   return (
     <div className="text-sm">
-      <p className="text-muted">
-        Desk confirms: every request goes to the front desk's single-use link. Direct: on phone calls only, the assistant books
-        a caller straight into the connected calendar at a time it read as free. The database is the authority either way: a
-        switch here with an un-edited prompt never books, and an edited prompt with the switch off is refused by the tool.
-        In v1 this becomes the clinic's own &ldquo;Auto-confirm bookings&rdquo; switch, writing to Google Calendar, once that
-        adapter is built (launch plan steps 1.5 and 1.7); until then no clinic can pass the calendar gate below.
-      </p>
-      <p className="mt-2">
-        Election: {view.directBookingElectedAt ? `accepted ${whenLabel(view.directBookingElectedAt)}` : "none"}
-        {view.directBookingWithdrawnAt ? `, withdrawn ${whenLabel(view.directBookingWithdrawnAt)}` : ""}. Addendum {d.addendumVersion}
-        {d.addendumApproved ? ", approved by counsel." : " is not yet approved by counsel; the setup link does not offer it."}
-      </p>
-      <ul className="mt-3 grid gap-1">
-        {d.gates.map((g) => (
-          <li key={g.id} className={g.ok ? "text-done" : "text-muted"}>
-            <span aria-hidden>{g.ok ? "✓" : "○"}</span> {GATE_LABELS[g.id]}
-          </li>
+      <p className="font-semibold">{modeHeadline(b)}</p>
+      <p className="text-muted mt-3 text-xs font-bold uppercase">What each channel does now</p>
+      <ul className="mt-1 grid gap-1">
+        {channelsNow(b).map((line) => (
+          <li key={line}>{line}</li>
         ))}
       </ul>
-      {d.missing.length && !direct ? (
-        <ul className="text-muted mt-2 list-disc pl-5 text-xs">
-          {d.missing.filter((m) => !/booking mode is desk_confirms/.test(m)).map((m, i) => (
-            <li key={i}>{m}</li>
-          ))}
-        </ul>
+      {b.reasons.length ? (
+        <>
+          <p className="text-muted mt-3 text-xs font-bold uppercase">Why it takes requests</p>
+          <ul className="mt-1 grid gap-1">
+            {b.reasons.map((r) => (
+              <li key={r.code}>
+                <span aria-hidden>○</span> {r.sentence} <code className="text-muted text-xs">{r.code}</code>
+              </li>
+            ))}
+          </ul>
+        </>
       ) : null}
-      <div className="mt-3 flex flex-wrap items-center gap-3">
+      <dl className="mt-4 grid gap-x-4 gap-y-2 sm:grid-cols-[150px_1fr]">
+        <dt className="text-muted text-xs font-bold uppercase">Auto-confirm</dt>
+        <dd>
+          {b.autoConfirm ? "On." : "Off: every booking the assistant takes is a request."}
+          {b.autoConfirmChangedAt ? ` Switched ${b.autoConfirmChangedAt}.` : ""}
+          {writes ? "" : " It takes effect once the calendar terms let healdesk write."}
+        </dd>
+        <dt className="text-muted text-xs font-bold uppercase">Kill switch</dt>
+        <dd>
+          {b.killSwitchOn ? "On" : "Off: the assistant books nothing itself, for any clinic"}. HEALDESK_DIRECT_BOOKING_ENABLED is the
+          owner&rsquo;s, set only in the environment.
+        </dd>
+        <dt className="text-muted text-xs font-bold uppercase">Calendar terms</dt>
+        <dd>
+          {TERMS_LABELS[t.kind]}
+          {t.clauseId ? (
+            <span className="text-muted block text-xs">
+              Clause {t.clauseId}
+              {t.documentVersion ? ` of ${t.documentVersion}` : ""}
+              {t.documentReleased === null ? "" : t.documentReleased ? " (released)" : " (draft)"}
+              {t.source ? `, from ${ELECTION_SOURCES[t.source]}` : ""}
+              {t.electedAt ? ` on ${t.electedAt}` : ""}.
+            </span>
+          ) : null}
+          {t.reason ? <span className="text-muted block text-xs">{TERMS_REASONS[t.reason] ?? t.reason}</span> : null}
+        </dd>
+      </dl>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
         <button
           type="button"
           disabled={pending}
           onClick={() => {
-            const next = direct ? "desk_confirms" : "direct";
-            if (next === "desk_confirms" && !window.confirm("Switch back to desk confirms? This records the election as withdrawn; a new setup link is needed to elect again.")) return;
+            const on = !b.autoConfirm;
+            if (on && !window.confirm("Switch Auto-confirm on, on the clinic's instruction? Once every other reason above is cleared, the location's settings allow live booking into its calendar.")) return;
             start(async () => {
               setMessage(null);
-              setMissing([]);
-              const result = await onSwitch(next);
+              const result = await onAutoConfirm(on);
               if (!result.ok) return setMessage(result.message);
-              if (result.data.status === "refused") {
-                setMessage(result.data.message);
-                setMissing(result.data.missing);
-                return;
-              }
-              setMessage(result.data.mode === "direct" ? "Direct booking is on." : "Back to desk confirms; the election is recorded as withdrawn.");
+              if (result.data.status === "refused") return setMessage(result.data.message);
+              const said = result.data.changed
+                ? `Auto-confirm is ${result.data.autoConfirm ? "on" : "off"}. The settings ${result.data.mode === "live" ? "allow live booking" : "leave the location on requests"}.`
+                : `Auto-confirm was already ${result.data.autoConfirm ? "on" : "off"}. Nothing changed.`;
+              setMessage(result.data.auditRecorded ? said : `${said} ${UNAUDITED}`);
             });
           }}
-          className={`rounded-full px-4 py-2 text-xs font-bold ${direct ? "border-line-strong border" : "bg-black text-white"}`}
+          className={`rounded-full px-4 py-2 text-xs font-bold ${b.autoConfirm ? "border-line-strong border" : "bg-black text-white"}`}
         >
-          {direct ? "Switch back to desk confirms" : "Switch to direct booking"}
+          {b.autoConfirm ? "Switch Auto-confirm off" : "Switch Auto-confirm on"}
         </button>
         {message ? <span className="text-xs">{message}</span> : null}
       </div>
-      {missing.length ? (
-        <ul className="text-red-deep mt-2 list-disc pl-5 text-xs">
-          {missing.map((m, i) => (
-            <li key={i}>{m}</li>
-          ))}
-        </ul>
-      ) : null}
     </div>
   );
 }
@@ -818,50 +932,134 @@ function TimezoneCard({ view, onConfirmTimezone }: { view: OnboardingView; onCon
   );
 }
 
-function CalendarCard({ view, onBasis, onRetry }: { view: OnboardingView; onBasis: Actions["setPhiBasis"]; onRetry: Actions["retryCalendarWrite"] }) {
+const CONNECTION_STATUS: Record<CalendarConnectionStatus, string> = {
+  pending: "Pending: the practice did not finish connecting.",
+  active: "Active.",
+  degraded: "Degraded: healdesk can't reach it reliably, so the location takes requests until a check succeeds.",
+  error: "Broken: the practice must reconnect.",
+  revoked: "Revoked: access was removed, and the token erased. The practice must connect again.",
+};
+
+/**
+ * The location's Google Calendar, the one calendar v1 writes to, and the
+ * assistant's write ledger. What may reach the calendar is the location's
+ * calendar terms, never a basis an operator records, so this card offers
+ * none. The account's address and the calendar's own zone stay in apps/app.
+ */
+function CalendarCard({
+  view,
+  onSendLink,
+  onDisconnect,
+  onRetry,
+}: {
+  view: OnboardingView;
+  onSendLink: Actions["sendCalendarLink"];
+  onDisconnect: Actions["disconnectCalendar"];
+  onRetry: Actions["retryCalendarWrite"];
+}) {
   const [pending, start] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
-  const c = view.calendarConnection;
+  const [demoLink, setDemoLink] = useState<string | null>(null);
+  const unreadable = view.booking === "unreadable";
+  const b = view.booking === "unreadable" ? null : view.booking;
+  const g = b?.calendar ?? null;
   const attention = view.calendarWrites.filter((w) => w.status === "failed" || w.status === "unknown");
   return (
     <div className="text-sm">
       <p className="text-muted">
-        v1 writes bookings to the clinic&rsquo;s Google Calendar and nothing else: no Cal.com, Mindbody or Boulevard. That
-        adapter is not built yet (launch plan steps 1.5 and 1.7), so no connection here is writable today and a confirmed
-        request is recorded in healdesk only. A connection is written to only once the lawful basis for holding a first name,
-        a service and a time is recorded on it: the vendor&rsquo;s own BAA with us, or the practice&rsquo;s own account
-        under the practice&rsquo;s agreement. None means read-only.
+        v1 writes bookings to the location&rsquo;s Google Calendar and nothing else: no Cal.com, Mindbody or Boulevard. The
+        practice connects it from its calendar link or the portal, with the kind of Google account its calendar terms name.
       </p>
-      {c ? (
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            const f = new FormData(event.currentTarget);
-            const raw = String(f.get("basis") ?? "");
-            const basis = raw === "vendor_baa" || raw === "practice_account" ? raw : null;
-            const note = String(f.get("note") ?? "").trim() || undefined;
-            start(async () => setMessage(describe(await onBasis({ connectionId: c.connectionId, basis, note })) ?? "Recorded."));
-          }}
-          className="mt-3 grid gap-3 sm:grid-cols-[200px_1fr_auto] sm:items-end"
-        >
-          <label>
-            <span className="text-muted block text-xs font-bold uppercase">{c.platform} — basis</span>
-            <select name="basis" defaultValue={c.phiBasis ?? ""} className="border-line mt-1 w-full rounded-lg border px-3 py-2">
-              <option value="">None (read-only)</option>
-              <option value="vendor_baa">Vendor BAA with healdesk</option>
-              <option value="practice_account">Practice's own account</option>
-            </select>
-          </label>
-          <label>
-            <span className="text-muted block text-xs font-bold uppercase">Note (who signed what, when; no patient details)</span>
-            <input name="note" maxLength={500} className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
-          </label>
-          <button type="submit" disabled={pending} className="border-line-strong rounded-full border px-4 py-2 text-xs font-bold">Record basis</button>
-          <p className="text-muted text-xs sm:col-span-3">{c.writable ? "Writable." : "Not writable until a basis is recorded."}</p>
-        </form>
+      {g ? (
+        <dl className="mt-3 grid gap-x-4 gap-y-2 sm:grid-cols-[150px_1fr]">
+          <dt className="text-muted text-xs font-bold uppercase">Status</dt>
+          <dd>
+            {CONNECTION_STATUS[g.status]}
+            {g.brokenAt ? ` Broken since ${g.brokenAt}.` : ""}
+            {g.lastError ? <span className="text-muted block text-xs">Last error: {g.lastError}</span> : null}
+          </dd>
+          <dt className="text-muted text-xs font-bold uppercase">Account</dt>
+          <dd>
+            {g.accountKind === "workspace"
+              ? `Google Workspace${g.hostedDomain ? `, ${g.hostedDomain}` : ""}.`
+              : g.accountKind === "personal"
+                ? "A personal Google account."
+                : "Not known."}
+          </dd>
+          <dt className="text-muted text-xs font-bold uppercase">Checked</dt>
+          <dd>
+            Connected {g.connectedAt ?? "—"}; last verified {g.lastVerifiedAt ?? "never"}.
+          </dd>
+          <dt className="text-muted text-xs font-bold uppercase">Data-use notice</dt>
+          <dd>{g.disclosureCurrent ? "Accepted under the current notice." : "Accepted under an outdated notice: the practice must reconnect."}</dd>
+          <dt className="text-muted text-xs font-bold uppercase">Time zone</dt>
+          <dd>
+            {g.timeZoneMatches === null
+              ? "The calendar's zone was not recorded."
+              : g.timeZoneMatches
+                ? "The calendar's zone is the clinic's."
+                : "The calendar's zone is not the clinic's."}
+          </dd>
+        </dl>
       ) : (
-        <p className="text-muted mt-2">No writable calendar connection on this clinic.</p>
+        <p className={unreadable ? "text-red-deep mt-2" : "mt-2"}>
+          {unreadable ? UNREADABLE_BOOKING : b ? "No Google Calendar connected." : "Not known: apps/app sent no booking state."}
+        </p>
       )}
+      {b ? (
+        <p className="text-muted mt-3">
+          Assistant writes not yet settled: {b.pendingAssistantWrites}. Calendar link:{" "}
+          {b.calendarLinkOutstanding ? "one is out, unused and unexpired." : "none outstanding."}
+        </p>
+      ) : null}
+      {b ? (
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() =>
+              start(async () => {
+                setMessage(null);
+                setDemoLink(null);
+                const result = await onSendLink();
+                if (!result.ok) return setMessage(result.message);
+                if (result.data.status === "refused") return setMessage(result.data.message);
+                const d = result.data.delivery;
+                setDemoLink(result.data.url);
+                const said = `Mailed to the practice's own address (${d.sent} of ${d.recipients} sent${d.failed ? `, ${d.failed} failed` : ""}). Expires ${result.data.expiresAt}.`;
+                setMessage(result.data.auditRecorded ? said : `${said} ${UNAUDITED}`);
+              })
+            }
+            className="border-line-strong rounded-full border px-4 py-2 text-xs font-bold"
+          >
+            Send calendar link
+          </button>
+          {g && g.status !== "revoked" ? (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => {
+                if (!window.confirm("Disconnect this location's Google Calendar? healdesk erases its token and revokes its access at Google unless another location uses that account, and the location takes requests until the practice connects again.")) return;
+                start(async () => {
+                  setMessage(null);
+                  const result = await onDisconnect();
+                  if (!result.ok) return setMessage(result.message);
+                  if (result.data.status === "refused") return setMessage(result.data.message);
+                  if (result.data.status === "not_connected") return setMessage("No Google Calendar was connected.");
+                  const said = result.data.revokedAtGoogle
+                    ? "Disconnected: the token is erased and access revoked at Google."
+                    : "Disconnected: the token is erased, but access was not revoked at Google (another location uses that account, or Google did not answer). The audit entry says which.";
+                  setMessage(result.data.auditRecorded ? said : `${said} ${UNAUDITED}`);
+                });
+              }}
+              className="border-line-strong rounded-full border px-4 py-2 text-xs font-bold"
+            >
+              Disconnect
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {demoLink ? <code className="mt-2 block break-all rounded bg-black/5 px-2 py-1 text-xs">{demoLink}</code> : null}
       <p className="mt-4 font-semibold">Calendar writes needing attention: {attention.length}</p>
       <ul className="mt-2 grid gap-2">
         {view.calendarWrites.map((w) => (

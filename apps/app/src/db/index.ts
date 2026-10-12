@@ -42,12 +42,18 @@ const globalForDb = globalThis as unknown as { __healdeskPool?: Pool };
  * contractual obligation, not a preference, and managed Postgres (RDS,
  * Supabase, Neon) expects it.
  *
- * `sslmode=disable` in the connection string opts out — deliberately, loudly,
- * and only where an operator has decided TLS is terminated elsewhere (a unix
- * socket, a sidecar proxy) or the target is a local container. Without this
- * escape hatch there is no way to run a production build against a local
- * database, which means the production code path never gets exercised until it
- * reaches production.
+ * A running production process gets here only with a URL that carries
+ * sslmode=verify-full: env.databaseUrl() refuses anything else, because pg
+ * lets the URL's sslmode replace the object returned below, and pg-boss's
+ * pool has no object of its own. So in production the URL decides, and this
+ * default is the floor if that check is ever loosened.
+ *
+ * `sslmode=disable` still opts out everywhere else: local development and
+ * tests, which have no TLS default to opt out of, and `next build`, which
+ * imports this module under NODE_ENV=production without connecting and gets
+ * the warning below (CI builds with a plaintext URL to its service
+ * container). It no longer opts a running production server out, where "TLS
+ * is terminated elsewhere" would be the hop the BAA covers.
  */
 function sslConfig(url: string): { rejectUnauthorized: boolean } | undefined {
   const disabled = /[?&]sslmode=disable(&|$)/.test(url);

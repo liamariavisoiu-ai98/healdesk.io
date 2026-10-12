@@ -1,13 +1,19 @@
 import {
   agreementKindFor,
+  agreementKindOfVersion,
   assentSentence,
   BAA_ASSENT_LABEL,
   BAA_RELEASE_OVERLAP,
   BaaRenderError,
   buildBaaSelections,
   currentBaaTemplate,
+  currentDpaTemplate,
+  DPA_ASSENT_LABEL,
+  dpaAssentSentence,
+  DpaRenderError,
   getBaaTemplate,
   getBookingSystem,
+  getDpaTemplate,
   getPlatform,
   isBookingSystemId,
   isCalendarAccount,
@@ -15,6 +21,7 @@ import {
   isSpecialtyId,
   NO_PLATFORM_ID,
   prepareBaa,
+  prepareDpa,
   supportsVerifiedAttribution,
   templateReadsCalendarAccount,
   type AgreementKind,
@@ -23,7 +30,10 @@ import {
   type BookingSystemId,
   type CalendarAccount,
   type CoveredAnswer,
+  type DpaTemplate,
+  type DpaVariables,
   type Platform,
+  type SpecialtyId,
 } from "@healdesk/catalog";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 
@@ -39,7 +49,13 @@ import { env } from "./env";
 import { log } from "@/lib/log";
 
 /**
- * Signing the business associate agreement, before payment.
+ * Signing the data agreement, before payment: the business associate
+ * agreement, or, for a practice HIPAA does not reach, the Data Protection
+ * Agreement (plan Part L). `agreementKindFor` decides which, and both are
+ * rendered by the server, compared with the hash of what the screen showed,
+ * stored in `baa_acceptances` under their own namespaced versions and sent to
+ * the signer as a PDF by the same code. The DPA is signed only once the owner
+ * releases it: until then every request it would govern is refused.
  *
  * The ordering is the point. A covered entity may not hand patient data to a
  * business associate without a written contract (45 CFR 164.502(e)), so the
@@ -171,6 +187,14 @@ export type SignableOptions = {
   now?: Date;
   releaseOverlap?: Readonly<Record<string, string>>;
   current?: BaaTemplate;
+  /**
+   * Stands in for the owner's release of the Data Protection Agreement, for a
+   * test that signs one as it will be signed after the release. It decides
+   * which agreement a practice signs and whether the DPA template may be
+   * signed, so nothing but a test may pass it: the release itself is the
+   * template's own flag (`approvedByCounsel`, read by `isDpaReleased`).
+   */
+  dpaReleased?: boolean;
 };
 
 /**
@@ -184,15 +208,13 @@ export type SignableOptions = {
  * agreement itself records; its null ("I don't know") asks exactly as the
  * funnel's "not_sure" does.
  *
- * This endpoint signs only the business associate agreement, and no data
- * protection agreement exists to sign yet, so a practice the decision sends
- * anywhere else is refused rather than handed a BAA. Today that is a
- * veterinary practice, whose patients HIPAA does not reach (it could sign a
- * BAA here before plan C3): with the DPA unreleased it has nothing to sign
- * at all. Once the DPA is released, the decision also sends there a practice
- * HIPAA reaches only when covered that answers "No", and both meet the
- * second refusal below, which the funnel's DPA change replaces with DPA
- * signing. `dpaReleased` is for tests; production reads the catalogue's flag.
+ * The answer is "baa" or "dpa", and each is signed by its own path below.
+ * While the Data Protection Agreement is unreleased the decision never
+ * answers "dpa": a practice HIPAA reaches only when covered that answers "No"
+ * signs the BAA, as it always has, and a veterinary practice, whose patients
+ * HIPAA does not reach, has nothing to sign and is refused by name (it could
+ * sign a BAA here before plan C3). `dpaReleased` is for tests; production
+ * reads the catalogue's flag.
  */
 export function agreementKindForRequest(
   request: { specialty?: unknown; isCoveredEntity?: unknown },
@@ -208,12 +230,6 @@ export function agreementKindForRequest(
       choice.reason === "dpa_not_released"
         ? "This specialty can't sign up yet."
         : "Unknown specialty.",
-      "specialty",
-    );
-  }
-  if (choice.kind === "dpa") {
-    throw new AgreementError(
-      "This practice signs the Data Protection Agreement, which can't be signed yet.",
       "specialty",
     );
   }
@@ -241,11 +257,10 @@ function coveredAnswerOf(isCoveredEntity: unknown): CoveredAnswer | null {
  * must see the new one.
  *
  * Both signing entry points ask this, validateSignRequest and signAgreement
- * (through prepareAgreement), so neither can sign a draft. That reaches past
- * the endpoint: provisioning binds the acceptance a purchase names, and until
- * plan C15 its approval gate reads the current template rather than the
- * bound row's version, so a row signed against a draft would carry an
- * unreleased text into a live account.
+ * (through prepareAgreement), so neither can sign a draft. Provisioning,
+ * which binds the acceptance a purchase names, refuses a draft's row too,
+ * since plan C15 by the bound row's own version, so neither check alone
+ * stands between an unreleased text and a live account.
  */
 export function signableTemplate(version: unknown, options: SignableOptions = {}): BaaTemplate {
   const template = typeof version === "string" ? getBaaTemplate(version) : undefined;
@@ -302,6 +317,48 @@ function overlapClosesAt(deadline: string | undefined): number {
     sign === undefined ? 0 : (sign === "-" ? -1 : 1) * (Number(hours) * 60 + Number(minutes));
   const readBack = new Date(at + offsetMinutes * 60_000).toISOString().slice(0, written.length);
   return readBack === written ? at : Number.NaN;
+}
+
+/**
+ * The Data Protection Agreement a signature may be made against: the current
+ * DPA template, and only once it is released. The rule signableTemplate
+ * applies to the BAA, for a document with one version so far: no overlap,
+ * because no release has replaced anything yet, and never a draft, because a
+ * row signed against an unreleased text would carry it into a live account
+ * the day provisioning admitted the version. A BAA version here, or a DPA
+ * version that is not current, is refused as stale, so a screen loaded before
+ * a change of agreement or of version shows the buyer the document they now
+ * sign.
+ *
+ * `dpaReleased` stands in for the owner's release, in tests only.
+ */
+export function signableDpaTemplate(
+  version: unknown,
+  options: Pick<SignableOptions, "dpaReleased"> = {},
+): DpaTemplate {
+  if (typeof version === "string" && agreementKindOfVersion(version) !== "dpa") {
+    throw new AgreementError(
+      "This practice signs the Data Protection Agreement. Please reload and review it.",
+      "templateVersion",
+    );
+  }
+  const template = typeof version === "string" ? getDpaTemplate(version) : undefined;
+  if (!template) {
+    throw new AgreementError("Unknown agreement version.", "templateVersion");
+  }
+  if (template.version !== currentDpaTemplate().version) {
+    throw new AgreementError(
+      "The agreement has been updated. Please reload and review the current version.",
+      "templateVersion",
+    );
+  }
+  if (!(options.dpaReleased ?? template.approvedByCounsel)) {
+    throw new AgreementError(
+      "The Data Protection Agreement can't be signed yet.",
+      "templateVersion",
+    );
+  }
+  return template;
 }
 
 /** The answers that choose what the document names, however typed. */
@@ -402,6 +459,51 @@ function verifiedSourceOf(template: BaaTemplate, body: AnswerFields): Platform |
   return id ? getPlatform(id) : undefined;
 }
 
+/**
+ * What a Data Protection Agreement cannot be rendered without, checked by
+ * name before rendering, as checkAnswersFor checks a BAA's.
+ *
+ * - Both calendar answers, which choose its Google Calendar clause exactly as
+ *   they choose 1.3.0's; and a platform, where one is sent, only as the
+ *   booking system's own phase-two platform, so the row cannot name two
+ *   systems.
+ * - Estimated reporting: the DPA describes no read-back from a practice's
+ *   systems, so it never signs verified reporting, whatever phase two's
+ *   switch says.
+ * - No "yes" to billing insurance electronically. The DPA is signed only by a
+ *   practice HIPAA does not cover: a "No", which its status clause records
+ *   as the practice's warranty, or a veterinary practice, which the funnel
+ *   never asks. A covered practice is sent to the BAA before this; a "yes"
+ *   here can only come from a request the funnel did not build.
+ */
+function checkDpaAnswers(body: AnswerFields & { isCoveredEntity?: unknown }): void {
+  if (body.bookingSystem == null) {
+    throw new AgreementError("Answer where the practice's bookings live today.", "bookingSystem");
+  }
+  if (body.calendarAccount == null) {
+    throw new AgreementError(
+      "Answer which kind of Google account holds the practice's calendar.",
+      "calendarAccount",
+    );
+  }
+  const own = getBookingSystem(body.bookingSystem)?.phaseTwoPlatformId ?? NO_PLATFORM_ID;
+  if (body.platform != null && body.platform !== own) {
+    throw new AgreementError("The platform doesn't match the booking system.", "platform");
+  }
+  if (body.attributionMode !== "estimated") {
+    throw new AgreementError(
+      "The Data Protection Agreement describes no verified reporting.",
+      "attributionMode",
+    );
+  }
+  if (body.isCoveredEntity === true) {
+    throw new AgreementError(
+      "The Data Protection Agreement is only for a practice that bills no health insurance electronically.",
+      "isCoveredEntity",
+    );
+  }
+}
+
 export function validateSignRequest(
   input: unknown,
   options: SignableOptions = {},
@@ -422,7 +524,7 @@ export function validateSignRequest(
   }
   // Which agreement, before anything about this one: a practice that cannot
   // sign it is told so first, not asked to correct its other fields.
-  agreementKindForRequest(body);
+  const kind = agreementKindForRequest(body, options);
 
   // The typed name IS the signature. A single character is not a signature, and
   // an empty one would render a contract signed by nobody.
@@ -477,10 +579,12 @@ export function validateSignRequest(
   // what makes a click-through enforceable — "what did the button say" — so
   // the client may only confirm it showed the published label, exactly; the
   // sentence that is stored is derived server-side (see signAgreement).
+  // Each kind's own label: a DPA signed under the BAA's words, or the reverse,
+  // would record a click on a button that named another document.
   if (!body.assentLabel?.trim() || body.assentLabel.length > MAX_ASSENT_LABEL) {
     throw new AgreementError("Missing assent label.", "assentLabel");
   }
-  if (body.assentLabel.trim() !== BAA_ASSENT_LABEL) {
+  if (body.assentLabel.trim() !== (kind === "dpa" ? DPA_ASSENT_LABEL : BAA_ASSENT_LABEL)) {
     throw new AgreementError(
       "The assent label does not match the published agreement label.",
       "assentLabel",
@@ -496,6 +600,11 @@ export function validateSignRequest(
 
   // What the answers must be depends on the version they will be rendered
   // into, so the version is settled first.
+  if (kind === "dpa") {
+    signableDpaTemplate(body.templateVersion, options);
+    checkDpaAnswers(body);
+    return;
+  }
   checkAnswersFor(signableTemplate(body.templateVersion, options), body);
 }
 
@@ -533,10 +642,10 @@ export function prepareAgreement(
 ): { template: BaaTemplate; variables: BaaVariables; prepared: PreparedBaa } {
   // Settled first: what the answers must be depends on the version.
   const template = signableTemplate(request.templateVersion, options);
-  // What this prepares is a business associate agreement. agreementKindForRequest
-  // refuses any other kind itself today; once the DPA can be signed it will
-  // answer "dpa" instead, and this keeps such a practice from a BAA row.
-  if (agreementKindForRequest(request) !== "baa") {
+  // What this prepares is a business associate agreement. A practice the
+  // decision sends to the DPA is prepared by prepareDpaAgreement, and this
+  // keeps it from a BAA row whoever calls.
+  if (agreementKindForRequest(request, options) !== "baa") {
     throw new AgreementError(
       "This practice signs the Data Protection Agreement, not this one.",
       "specialty",
@@ -576,6 +685,158 @@ export function prepareAgreement(
   }
 }
 
+/** What prepareDpa returns: the text, its hash, the version and the variant. */
+type PreparedDpa = ReturnType<typeof prepareDpa>;
+
+/**
+ * The Data Protection Agreement a request signs, exactly as signAgreement
+ * will store it: prepareAgreement's counterpart for a practice HIPAA does not
+ * reach (plan Part L), held to the same rules.
+ *
+ * The kind is agreementKindFor's, never the request's: a practice the
+ * decision sends to the BAA is refused here, and while the DPA is unreleased
+ * the decision sends nobody here at all. The version is settled by
+ * signableDpaTemplate, the rule validateSignRequest applies, so a direct
+ * caller can sign only the current, released DPA. The variables are the
+ * DPA's own (`DpaVariables`): the specialty by its id, which chooses the
+ * status clause and the practice's descriptor, and both calendar answers,
+ * which choose the Google Calendar clause as 1.3.0's are chosen. The funnel's
+ * preview builds the same eight values (apps/web's agreement-kinds.ts), so
+ * the browser's hash and this render agree byte for byte.
+ */
+export function prepareDpaAgreement(
+  request: SignAgreementRequest,
+  effectiveDate: string,
+  options: SignableOptions = {},
+): { template: DpaTemplate; variables: DpaVariables; prepared: PreparedDpa } {
+  if (agreementKindForRequest(request, options) !== "dpa") {
+    throw new AgreementError(
+      "This practice signs the Business Associate Agreement, not this one.",
+      "specialty",
+    );
+  }
+  const template = signableDpaTemplate(request.templateVersion, options);
+  checkKnownAnswers(request);
+  checkDpaAnswers(request);
+
+  try {
+    const variables: DpaVariables = {
+      clinicLegalName: request.clinicLegalName.trim(),
+      signatoryName: request.signatoryName.trim(),
+      signatoryTitle: request.signatoryTitle?.trim() || undefined,
+      signatoryEmail: request.signatoryEmail.trim().toLowerCase(),
+      effectiveDate,
+      // The checks above have proved all three are the catalogue's.
+      specialty: request.specialty as SpecialtyId,
+      bookingSystem: request.bookingSystem as BookingSystemId,
+      calendarAccount: request.calendarAccount as CalendarAccount,
+    };
+    return { template, variables, prepared: prepareDpa(template, variables) };
+  } catch (error) {
+    // As for the BAA: every caller error has been answered by name above, so
+    // a render that fails here is our bug, never a half-built contract.
+    if (error instanceof DpaRenderError) {
+      throw new AgreementError(
+        "We couldn't prepare your agreement. Nothing has been charged — please contact us.",
+      );
+    }
+    throw error;
+  }
+}
+
+/**
+ * One prepared signature, whichever agreement it is: what the row stores and
+ * the security event records. Built by `prepareSigning` from the kind's own
+ * path, so the write below cannot tell the two apart and cannot treat them
+ * differently.
+ */
+type PreparedSigning = {
+  version: string;
+  hash: string;
+  text: string;
+  clauseIds: string[];
+  approvedByCounsel: boolean;
+  /** The row's `variables`: the document's own, and beside them, outside its hash, the answers. */
+  stored: Record<string, unknown>;
+  /** The full sentence beside the checkbox, re-derived from the validated clinic name. */
+  assentSentence: string;
+  signatoryName: string;
+  signatoryEmail: string;
+  signatoryTitle: string | null;
+};
+
+function prepareSigning(
+  request: SignAgreementRequest,
+  effectiveDate: string,
+  options: SignableOptions,
+): PreparedSigning {
+  if (agreementKindForRequest(request, options) === "dpa") {
+    const { template, variables, prepared } = prepareDpaAgreement(request, effectiveDate, options);
+    return {
+      version: prepared.version,
+      hash: prepared.hash,
+      text: prepared.text,
+      clauseIds: prepared.clauseIds,
+      approvedByCounsel: template.approvedByCounsel,
+      stored: {
+        ...variables,
+        // The determination the DPA is signed on, not an answer: a "No"
+        // practice said it, and a veterinary practice is never asked. It is
+        // what provisioning puts on the clinic row and what the checkout
+        // intent compares (agreementForProvisioning, agreementMismatch), and
+        // checkDpaAnswers has refused a "yes".
+        isCoveredEntity: false,
+        // A platform that was sent, which checkDpaAnswers has proved to be the
+        // booking system's own; the booking system and the account kind are
+        // the document's variables already.
+        ...(request.platform != null ? { platformId: request.platform } : {}),
+        appliedClauses: prepared.clauseIds,
+        displayedHashVerified: Boolean(request.displayedHash),
+      },
+      assentSentence: dpaAssentSentence(variables.clinicLegalName),
+      signatoryName: variables.signatoryName,
+      signatoryEmail: variables.signatoryEmail,
+      signatoryTitle: variables.signatoryTitle ?? null,
+    };
+  }
+
+  const { template, variables, prepared } = prepareAgreement(request, effectiveDate, options);
+  return {
+    version: prepared.version,
+    hash: prepared.hash,
+    text: prepared.text,
+    clauseIds: prepared.clauseIds,
+    approvedByCounsel: template.approvedByCounsel,
+    stored: {
+      ...variables,
+      // The answers, as they were sent, beside the document and outside its
+      // hash. The variables of a version before 1.3.0 hold none of the three
+      // ids, only the name the document gives the platform, which is why
+      // they are kept here: the booking system is what provisioning is to
+      // read into the clinic row (plan C15) rather than asking again, and
+      // the platform is what named a 1.2.1 document. 1.3.0's variables carry
+      // the booking system and the account kind already, as these same
+      // values, and a platform beside them has been checked to be the
+      // booking system's own (checkAnswersFor).
+      ...(request.platform != null ? { platformId: request.platform } : {}),
+      ...(request.bookingSystem != null ? { bookingSystem: request.bookingSystem } : {}),
+      ...(request.calendarAccount != null ? { calendarAccount: request.calendarAccount } : {}),
+      // The variant, recorded. Reproducing the document years from now must
+      // not depend on the clause predicates still evaluating the same way.
+      appliedClauses: prepared.clauseIds,
+      // Recorded because its ABSENCE is itself a fact about the signature:
+      // this one could not be checked against what the browser displayed.
+      displayedHashVerified: Boolean(request.displayedHash),
+    } as unknown as Record<string, unknown>,
+    // validateSignRequest has already proved the client displayed the
+    // published label.
+    assentSentence: assentSentence(variables.clinicLegalName),
+    signatoryName: variables.signatoryName,
+    signatoryEmail: variables.signatoryEmail,
+    signatoryTitle: variables.signatoryTitle ?? null,
+  };
+}
+
 export async function signAgreement(
   request: SignAgreementRequest,
   context: RequestContext = {},
@@ -585,14 +846,15 @@ export async function signAgreement(
   // browser hashes what it displayed and the check below refuses a signature
   // whose document differs from ours by a byte; and only for a version the
   // endpoint would sign, judged again here because this function is exported
-  // and writes the row however it is reached.
-  const { template, variables, prepared } = prepareAgreement(
+  // and writes the row however it is reached. Which agreement is the
+  // catalogue's decision (agreementKindForRequest), never the request's.
+  const prepared = prepareSigning(
     request,
     // Today, in UTC. The signer's own clock is not authoritative and is not asked.
     new Date().toISOString().slice(0, 10),
     options,
   );
-  const email = variables.signatoryEmail;
+  const email = prepared.signatoryEmail;
 
   /**
    * The screen and the record must agree, byte for byte.
@@ -621,34 +883,14 @@ export async function signAgreement(
       documentVersion: prepared.version,
       documentHash: prepared.hash,
       renderedText: prepared.text,
-      variables: {
-        ...variables,
-        // The answers, as they were sent, beside the document and outside its
-        // hash. The variables of a version before 1.3.0 hold none of the three
-        // ids, only the name the document gives the platform, which is why
-        // they are kept here: the booking system is what provisioning is to
-        // read into the clinic row (plan C15) rather than asking again, and
-        // the platform is what named a 1.2.1 document. 1.3.0's variables carry
-        // the booking system and the account kind already, as these same
-        // values, and a platform beside them has been checked to be the
-        // booking system's own (checkAnswersFor).
-        ...(request.platform != null ? { platformId: request.platform } : {}),
-        ...(request.bookingSystem != null ? { bookingSystem: request.bookingSystem } : {}),
-        ...(request.calendarAccount != null ? { calendarAccount: request.calendarAccount } : {}),
-        // The variant, recorded. Reproducing the document years from now must
-        // not depend on the clause predicates still evaluating the same way.
-        appliedClauses: prepared.clauseIds,
-        // Recorded because its ABSENCE is itself a fact about the signature:
-        // this one could not be checked against what the browser displayed.
-        displayedHashVerified: Boolean(request.displayedHash),
-      } as unknown as Record<string, unknown>,
+      variables: prepared.stored,
       // The full sentence beside the checkbox, re-derived from the validated
       // clinic name rather than copied from the request. validateSignRequest
       // has already proved the client displayed the published label.
-      assentLabel: assentSentence(variables.clinicLegalName),
-      acceptedByName: variables.signatoryName,
+      assentLabel: prepared.assentSentence,
+      acceptedByName: prepared.signatoryName,
       acceptedByEmail: email,
-      acceptedByTitle: variables.signatoryTitle ?? null,
+      acceptedByTitle: prepared.signatoryTitle,
       ipAddress: context.ipAddress ?? null,
       userAgent: context.userAgent ?? null,
     })
@@ -664,9 +906,10 @@ export async function signAgreement(
     userAgent: context.userAgent ?? null,
     metadata: {
       agreementId: acceptance.id,
+      // A DPA's version names its kind ("dpa/1.0.0"), so one event serves both.
       version: prepared.version,
       hash: prepared.hash,
-      approvedByCounsel: template.approvedByCounsel,
+      approvedByCounsel: prepared.approvedByCounsel,
       // Deliberately not the clinic name: security_events is the identity
       // plane's log and the acceptance row already holds the detail.
     },
@@ -704,7 +947,7 @@ export async function signAgreement(
     clauseIds: prepared.clauseIds,
     text: prepared.text,
     acceptedAt: acceptance.acceptedAt,
-    approvedByCounsel: template.approvedByCounsel,
+    approvedByCounsel: prepared.approvedByCounsel,
     copy,
   };
 }

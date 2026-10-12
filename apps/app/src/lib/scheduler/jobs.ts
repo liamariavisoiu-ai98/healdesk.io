@@ -70,6 +70,23 @@ export const JOB_CARD_EXPIRING = "card-expiring";
  */
 export const JOB_DMARC_REVIEW = "dmarc-review";
 /**
+ * The setup reminder (O7), seeded off by drizzle/0056. Hourly from the tick:
+ * while none of a clinic's channels is live, the reminder due on day 5, 10,
+ * 15, 20, 25 or 30 of its setup window, queued only in the clinic's daytime
+ * (lib/setup/reminders.ts). The owner switches it on with the email launch
+ * set (Annex X9), once the sender's own switch is on.
+ */
+export const JOB_SETUP_REMINDERS = "setup-reminders";
+/**
+ * The calendar watch (plan §9, owner decision 5), seeded off by drizzle/0057.
+ * Every five minutes from its own `calendar-watch` queue, not the tick: one
+ * forced token refresh and one free/busy probe per Google Calendar
+ * connection, so a location whose access was removed takes booking requests
+ * within one cycle (lib/scheduler/calendar-watch.ts). Its lock goes stale
+ * after ten minutes rather than an hour (runJob's `staleLockMs`).
+ */
+export const JOB_CALENDAR_WATCH = "calendar-watch";
+/**
  * Phase two: the attribution jobs. Their code is kept, but they never run in
  * v1 (env.phaseTwoAttribution()), and the console refuses to switch them on.
  * The 0040 `callback-dialer` job was removed by drizzle/0041.
@@ -126,12 +143,19 @@ export async function setJobEnabled(
  * can be distinguished from a live one and reclaimed after STALE_LOCK_MS.
  * A boolean flag left set by a crash blocks the job forever, and the first
  * symptom is a customer asking where their report went.
+ *
+ * `staleLockMs` shortens that for a job that runs often and ends quickly:
+ * the calendar watch runs every five minutes and stops launching work after
+ * four, so an hour's lock would turn one crash into twelve missed runs, an
+ * hour in which a location whose calendar access was removed still books.
  */
 export async function runJob(
   name: string,
   work: () => Promise<string>,
   now: Date = new Date(),
+  options: { staleLockMs?: number } = {},
 ): Promise<JobOutcome> {
+  const staleLockMs = options.staleLockMs ?? STALE_LOCK_MS;
   const job = await getJob(name);
   if (!job) throw new Error(`Unknown job: ${name}`);
 
@@ -147,10 +171,7 @@ export async function runJob(
     return { status: "disabled" };
   }
 
-  if (
-    job.runningSince &&
-    now.getTime() - job.runningSince.getTime() < STALE_LOCK_MS
-  ) {
+  if (job.runningSince && now.getTime() - job.runningSince.getTime() < staleLockMs) {
     return { status: "already-running", since: job.runningSince };
   }
 
@@ -163,7 +184,7 @@ export async function runJob(
       sql`${scheduledJobs.name} = ${name}
           and ${scheduledJobs.enabled} = true
           and (${scheduledJobs.runningSince} is null
-               or ${scheduledJobs.runningSince} < ${new Date(now.getTime() - STALE_LOCK_MS)})`,
+               or ${scheduledJobs.runningSince} < ${new Date(now.getTime() - staleLockMs)})`,
     )
     .returning({ name: scheduledJobs.name });
 

@@ -1,0 +1,29 @@
+# Terraform's working files. Never commit them: a local init leaves hundreds
+# of megabytes of providers in .terraform/, and a state file or a saved plan
+# maps the whole account (a binary plan is not redacted the way a rendered one
+# is). The lock file (.terraform.lock.hcl) IS committed: both inits run with
+# -lockfile=readonly.
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+*.tfplan
+tfplan
+plan.txt
+crash.log
+crash.*.log
+.terraformrc
+terraform.rc
+# Local overrides would change what is applied without showing in review.
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+# Variable files may hold personal values (an address, a zone id); keep them
+# local. production.tfvars is the exception: it holds only non-personal
+# settings and infra.yml reads it, so it is committed.
+*.tfvars
+*.tfvars.json
+!production.tfvars
+# Never commit an env file of secret values.
+*.env

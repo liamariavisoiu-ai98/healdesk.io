@@ -1,21 +1,49 @@
 name: Deploy apps/app (AWS)
 
 # Builds apps/app and its two helper images, migrates the database and rolls
-# the web and worker services on ECS, by hand. It runs from main only, in the
-# production environment, as the Terraform-made role
-# healdesk-production-github-deploy, assumed with GitHub's OIDC token. No AWS
-# key is stored anywhere, and no database credential ever reaches GitHub: the
-# migrations run inside the VPC as a one-off task that reads its own secret.
+# the web and worker services on ECS, by hand, from main. It runs as the
+# Terraform-made role healdesk-production-github-deploy, assumed with GitHub's
+# OIDC token, and AWS gives that role only to a run of this repository on
+# main started by the owner: the role's trust policy (infra/aws/iam.tf) checks
+# the token's subject, ref and actor_id, as the Terraform role's does. That
+# policy is the control, not the checks below, which live in a file a branch
+# can edit. No job names a GitHub environment: one that did would get a
+# different subject and be refused. No AWS key is stored anywhere, and no
+# database credential ever reaches GitHub: the migrations run inside the VPC
+# as a one-off task that reads its own secret.
 #
-#   bootstrap_db  Once, on a new database: create the two roles (the
-#                 db-bootstrap task, as the RDS master user) before migrating.
+# The role is as powerful as the code it deploys: a revision it registers and
+# runs receives every secret its task definition names. So before anything is
+# registered or rolled back to, each task definition is checked against the
+# shape Terraform gives it (its containers, its roles, the variables no app
+# task may carry), and one shaped otherwise stops the run.
+#
+#   bootstrap_db  Run db-bootstrap first, as the RDS master user: it fills in
+#                 the internal secrets still unset in Parameter Store (the
+#                 database passwords and URLs, the auth secrets; a value
+#                 already set is never replaced), then creates the two
+#                 database roles, or re-sets their passwords, from them. The
+#                 first deploy must, since nothing can connect before it has
+#                 run; later, only to re-set the role passwords.
 #   migrate       Run the migrations and the queue install before the services
-#                 move. The first deploy has to.
+#                 move. The first deploy must.
 #   restart_only  Build and migrate nothing: start fresh tasks of the revisions
 #                 already running, so they read their parameters again (after
 #                 a value is pasted into Parameter Store). A change Terraform
 #                 makes to a task definition reaches the services with the
 #                 next full deploy, not with a restart.
+#   rollback_to   A commit SHA (7 to 40 hex characters; give the one a past
+#                 deploy's summary names). Build and migrate nothing: put web
+#                 and worker back on the newest revisions that ran that commit,
+#                 provided they are still active and their images still in ECR
+#                 (the last 30 per repository are kept). Never Terraform's own
+#                 revisions, whose placeholder image was never pushed. Those
+#                 revisions carry the configuration of their day, so rolling
+#                 back past a Terraform change undoes it on the services until
+#                 the next full deploy. The schema stays where it is: migrations
+#                 only add, which keeps older code working. Then make main
+#                 match (git revert) before the next deploy, or it brings the
+#                 bad commit back.
 #
 # Everything is found at run time rather than copied in: the registry from
 # the account, each task definition from its family's latest revision (which
@@ -32,7 +60,7 @@ on:
   workflow_dispatch:
     inputs:
       bootstrap_db:
-        description: "Create the database roles first (once, on a new database)"
+        description: "Run db-bootstrap first: fill in unset internal secrets, then create the database roles (the first deploy must)"
         type: boolean
         default: false
       migrate:
@@ -43,6 +71,10 @@ on:
         description: "Only restart web and worker so they re-read their parameters (no build, no migrations)"
         type: boolean
         default: false
+      rollback_to:
+        description: "Roll web and worker back to the revisions of this commit SHA (no build, no migrations); empty for a deploy"
+        type: string
+        default: ""
 
 permissions:
   id-token: write
@@ -64,19 +96,17 @@ env:
   WORKER_SERVICE: healdesk-production-worker
   MIGRATE_FAMILY: healdesk-production-migrate
   DB_BOOTSTRAP_FAMILY: healdesk-production-db-bootstrap
+  DESTROY_DUE_FAMILY: healdesk-production-destroy-due
   APP_URL: https://app.healdesk.io
   # ECR tags are immutable, so the commit names one image for good.
   IMAGE_TAG: ${{ github.sha }}
 
 jobs:
   deploy:
-    name: ${{ inputs.restart_only && 'restart' || 'deploy' }}
+    name: ${{ inputs.rollback_to != '' && 'rollback' || (inputs.restart_only && 'restart' || 'deploy') }}
     # x86_64, matching the task definitions' LINUX/X86_64 runtime platform, so
     # the native modules npm installs in the image are the ones Fargate runs.
     runs-on: ubuntu-latest
-    environment:
-      name: production
-      url: https://app.healdesk.io
     timeout-minutes: 120
     # Named explicitly so every script runs with -e and -o pipefail; the
     # default shell has no pipefail.
@@ -84,10 +114,14 @@ jobs:
       run:
         shell: bash
     steps:
+      # The mode decides every later step: deploy (build, migrate, roll),
+      # restart or rollback (neither builds nor migrates).
       - name: Check the run
+        id: run
         env:
           BOOTSTRAP_DB: ${{ inputs.bootstrap_db }}
           RESTART_ONLY: ${{ inputs.restart_only }}
+          ROLLBACK_TO: ${{ inputs.rollback_to }}
           DEPLOY_ROLE: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
         run: |
           if [ -z "$DEPLOY_ROLE" ]; then
@@ -95,16 +129,45 @@ jobs:
             exit 1
           fi
           if [ "$GITHUB_REF" != refs/heads/main ]; then
-            echo "::error::Production deploys run from main only; this run is on $GITHUB_REF."
+            echo "::error::Production deploys run from main only, and AWS gives the deploy role to no other branch; this run is on $GITHUB_REF."
             exit 1
           fi
-          if [ "$RESTART_ONLY" = true ] && [ "$BOOTSTRAP_DB" = true ]; then
-            echo "::error::restart_only builds and migrates nothing, so it cannot bootstrap the database. Untick one."
+          # The deploy role trusts the owner's runs alone (actor_id); if it ever
+          # names someone else, this check has to follow.
+          if [ "$GITHUB_ACTOR_ID" != "$GITHUB_REPOSITORY_OWNER_ID" ]; then
+            echo "::error::AWS gives the deploy role only to runs the repository owner starts, and $GITHUB_ACTOR started this one. Start it as the owner."
             exit 1
           fi
+          mode=deploy
+          commit=""
+          # Anything typed in rollback_to means a rollback (the job's name says
+          # so too), so a value that is not a SHA stops the run rather than
+          # falling through to a deploy.
+          if [ -n "$ROLLBACK_TO" ]; then
+            commit=$(tr -d '[:space:]' <<<"$ROLLBACK_TO" | tr '[:upper:]' '[:lower:]')
+            if ! [[ "$commit" =~ ^[0-9a-f]{7,40}$ ]]; then
+              echo "::error::rollback_to takes a commit SHA, 7 to 40 hex characters."
+              exit 1
+            fi
+            mode=rollback
+          fi
+          if [ "$RESTART_ONLY" = true ]; then
+            if [ "$mode" = rollback ]; then
+              echo "::error::Choose restart_only or rollback_to, not both."
+              exit 1
+            fi
+            mode=restart
+          fi
+          if [ "$mode" != deploy ] && [ "$BOOTSTRAP_DB" = true ]; then
+            echo "::error::A $mode builds and migrates nothing, so it cannot bootstrap the database. Untick bootstrap_db."
+            exit 1
+          fi
+          echo "mode=$mode" >>"$GITHUB_OUTPUT"
+          echo "rollback_to=$commit" >>"$GITHUB_OUTPUT"
+          echo "Mode: $mode"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: ${{ !inputs.restart_only }}
+        if: ${{ steps.run.outputs.mode == 'deploy' }}
         with:
           persist-credentials: false
 
@@ -117,16 +180,18 @@ jobs:
           allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
 
       # Terraform creates both services at 0 tasks, so nothing crash-loops
-      # before an image exists. A service still at 0 has never been deployed:
-      # this run brings it up, after the migrations have passed, to the count
-      # Terraform records in the service's DesiredCount tag (web_desired and
-      # worker_desired, 1 by default), and from then on leaves the counts
-      # alone.
+      # before an image exists. Both still at 0 means nothing has been
+      # deployed: this run must bootstrap the database and migrate, and
+      # brings each service up, after the migrations have passed, to the
+      # count Terraform records in its DesiredCount tag (web_desired and
+      # worker_desired, 1 by default). A service found at 0 beside a running
+      # one is brought up the same way; one already running keeps its count.
       - name: Read the services
         id: services
         env:
+          MODE: ${{ steps.run.outputs.mode }}
           MIGRATE: ${{ inputs.migrate }}
-          RESTART_ONLY: ${{ inputs.restart_only }}
+          BOOTSTRAP_DB: ${{ inputs.bootstrap_db }}
         run: |
           describe() {
             aws ecs describe-services --cluster "$CLUSTER" --services "$WEB_SERVICE" "$WORKER_SERVICE" \
@@ -166,7 +231,7 @@ jobs:
             exit 1
           fi
           first_deploy=false
-          if [ "$web_desired" = 0 ] || [ "$worker_desired" = 0 ]; then first_deploy=true; fi
+          if [ "$web_desired" = 0 ] && [ "$worker_desired" = 0 ]; then first_deploy=true; fi
           {
             echo "web_family=$web_family"
             echo "worker_family=$worker_family"
@@ -180,72 +245,26 @@ jobs:
           } >>"$GITHUB_OUTPUT"
           echo "$WEB_SERVICE: $web_desired task(s) desired ($web_family)"
           echo "$WORKER_SERVICE: $worker_desired task(s) desired ($worker_family)"
-          if [ "$RESTART_ONLY" = true ]; then
+          if [ "$MODE" != deploy ]; then
             if [ "$web_desired" = 0 ]; then
-              echo "::error::Nothing has been deployed yet, so there is nothing to restart. Run a full deploy."
+              echo "::error::Nothing has been deployed yet, so there is nothing to ${MODE/rollback/roll back}. Run a full deploy."
               exit 1
             fi
-          elif [ "$MIGRATE" != true ] && [ "$first_deploy" = true ]; then
-            echo "::error::The first deploy must migrate: a service at 0 tasks has never run against this database."
-            exit 1
+          elif [ "$first_deploy" = true ]; then
+            if [ "$BOOTSTRAP_DB" != true ]; then
+              echo "::error::The first deploy must bootstrap the database (tick bootstrap_db): until db-bootstrap has run, the database passwords and URLs are unset and nothing can connect."
+              exit 1
+            fi
+            if [ "$MIGRATE" != true ]; then
+              echo "::error::The first deploy must migrate: nothing has run against this database yet."
+              exit 1
+            fi
           fi
-
-      # ---------------------------------------------------------------- restart
-      # Each restart is followed by its own deployment id: the circuit breaker
-      # rolls a failed deployment back to the previous one, and the service is
-      # then "stable" again, so stability alone would report a failed restart
-      # as a success.
-      - name: Restart web and worker
-        if: ${{ inputs.restart_only }}
-        env:
-          WEB_DESIRED: ${{ steps.services.outputs.web_desired }}
-          WORKER_DESIRED: ${{ steps.services.outputs.worker_desired }}
-        run: |
-          restart() {
-            aws ecs update-service --cluster "$CLUSTER" --service "$1" --force-new-deployment \
-              --query "service.deployments[?status=='PRIMARY'] | [0].id" --output text
-          }
-          wait_for() {
-            local service=$1 id=$2 deadline=$(($(date +%s) + 1800)) state
-            while :; do
-              # A read that fails leaves state empty and is tried again.
-              state=$(aws ecs describe-services --cluster "$CLUSTER" --services "$service" --output text \
-                --query "services[0].deployments[?id=='$id'] | [0].[rolloutState, rolloutStateReason]") || state=""
-              case "$state" in
-                COMPLETED*) echo "$service: deployment $id completed"; return 0 ;;
-                FAILED*) echo "::error::$service: deployment $id failed: ${state#FAILED}"; return 1 ;;
-                None*) echo "::error::$service: deployment $id is gone: the circuit breaker rolled it back"; return 1 ;;
-              esac
-              if [ "$(date +%s)" -ge "$deadline" ]; then
-                echo "::error::$service: deployment $id did not finish within 30 minutes"
-                return 1
-              fi
-              sleep 15
-            done
-          }
-          services=()
-          if [ "$WORKER_DESIRED" = 0 ]; then
-            echo "::warning::$WORKER_SERVICE runs no tasks, so it was not restarted."
-          else
-            services+=("$WORKER_SERVICE")
-          fi
-          services+=("$WEB_SERVICE")
-          ids=()
-          for service in "${services[@]}"; do
-            id=$(restart "$service")
-            echo "$service: deployment $id started"
-            ids+=("$id")
-          done
-          failed=0
-          for i in "${!services[@]}"; do
-            wait_for "${services[$i]}" "${ids[$i]}" || failed=1
-          done
-          exit "$failed"
 
       # ----------------------------------------------------------------- images
       - name: Log in to ECR
         id: ecr
-        if: ${{ !inputs.restart_only }}
+        if: ${{ steps.run.outputs.mode == 'deploy' }}
         uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
 
       # One platform, no attestations: a single image manifest per tag, which
@@ -254,7 +273,7 @@ jobs:
       # them, since an immutable tag cannot be pushed twice.
       - name: Build and push the images
         id: images
-        if: ${{ !inputs.restart_only }}
+        if: ${{ steps.run.outputs.mode == 'deploy' }}
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
@@ -278,10 +297,12 @@ jobs:
           build tls_proxy_image healdesk/tls-proxy infra/aws/images/tls-proxy/Dockerfile infra/aws/images/tls-proxy
           build db_admin_image healdesk/db-admin infra/aws/images/db-admin/Dockerfile .
 
-      # The build can use a good part of the first session's hour; a fresh one
-      # covers the task definitions and the one-off tasks.
+      # The build can use a good part of the first session's hour (the action's
+      # default); a fresh one covers the task definitions and the one-off
+      # tasks. Each renewal is a new OIDC exchange, so it works even after the
+      # session before it has expired.
       - name: Renew the deploy role session
-        if: ${{ !inputs.restart_only }}
+        if: ${{ steps.run.outputs.mode == 'deploy' }}
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
@@ -297,7 +318,7 @@ jobs:
       # run registers is not Terraform's.
       - name: Fetch the task definitions
         id: taskdefs
-        if: ${{ !inputs.restart_only }}
+        if: ${{ steps.run.outputs.mode == 'deploy' }}
         env:
           WEB_FAMILY: ${{ steps.services.outputs.web_family }}
           WORKER_FAMILY: ${{ steps.services.outputs.worker_family }}
@@ -311,6 +332,7 @@ jobs:
           }
           fetch "$WEB_FAMILY" web
           fetch "$WORKER_FAMILY" worker
+          fetch "$DESTROY_DUE_FAMILY" destroy-due
           if [ "$MIGRATE" = true ]; then fetch "$MIGRATE_FAMILY" migrate; fi
           if [ "$BOOTSTRAP_DB" = true ]; then fetch "$DB_BOOTSTRAP_FAMILY" db-bootstrap; fi
           # The TLS sidecar is in the web task only while alb_to_task_tls is on.
@@ -318,9 +340,238 @@ jobs:
             echo "web_has_tls_proxy=true" >>"$GITHUB_OUTPUT"
           fi
 
+      # For each family, the newest revision that ran the commit asked for and
+      # can run it again: ACTIVE (ECS refuses an inactive one), every image in
+      # this account's registry, tagged with that one full commit, and still
+      # in ECR. Terraform's own revisions never qualify: their placeholder tag
+      # is not a commit and was never pushed. Web decides the commit (a short
+      # SHA must match exactly one); the worker must have run the same one,
+      # so the two never run different code. The last 50 revisions of each
+      # family are searched; ECR keeps 30 images, so anything older has lost
+      # its image anyway.
+      - name: Choose the rollback revisions
+        id: rollback
+        if: ${{ steps.run.outputs.mode == 'rollback' }}
+        env:
+          ROLLBACK_TO: ${{ steps.run.outputs.rollback_to }}
+          WEB_FAMILY: ${{ steps.services.outputs.web_family }}
+          WORKER_FAMILY: ${{ steps.services.outputs.worker_family }}
+        run: |
+          registry="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/"
+          # The one commit every image of a revision is tagged with; fails
+          # unless they are all ours and all carry the same full SHA.
+          commit_of() {
+            jq -er --arg registry "$registry" '
+              [.containerDefinitions[].image] as $images
+              | ($images | map(ltrimstr($registry) | split(":") | last) | unique) as $tags
+              | select(all($images[]; startswith($registry)) and ($tags | length) == 1)
+              | $tags[0] | select(test("^[0-9a-f]{40}$"))' "$1"
+          }
+          # Prints "<revision> <commit>" for each such revision of a family,
+          # newest first, and keeps each one's JSON for the checks below.
+          revisions() {
+            local family=$1 latest revision file commit
+            latest=$(aws ecs describe-task-definition --task-definition "$family" \
+              --query taskDefinition.revision --output text)
+            for ((revision = latest; revision > 0 && revision > latest - 50; revision--)); do
+              file="$RUNNER_TEMP/$family-$revision.json"
+              # A revision deleted for good cannot be described: skip it, but
+              # stop on any other error rather than search on blind.
+              if ! aws ecs describe-task-definition --task-definition "$family:$revision" \
+                --query taskDefinition --output json >"$file" 2>"$RUNNER_TEMP/describe.err" </dev/null; then
+                grep -q ClientException "$RUNNER_TEMP/describe.err" && continue
+                cat "$RUNNER_TEMP/describe.err" >&2
+                exit 1
+              fi
+              [ "$(jq -r .status "$file")" = ACTIVE ] || continue
+              commit=$(commit_of "$file") || continue
+              echo "$revision $commit"
+            done
+          }
+          images_in_ecr() {
+            local image repo tag digest
+            while read -r image; do
+              repo=${image#"$registry"}
+              tag=${repo##*:}
+              repo=${repo%:*}
+              if ! digest=$(aws ecr batch-get-image --repository-name "$repo" --image-ids imageTag="$tag" \
+                --query 'images[0].imageId.imageDigest' --output text </dev/null); then
+                echo "::error::Could not look $image up in ECR."
+                exit 1
+              fi
+              if [[ "$digest" != sha256:* ]]; then
+                echo "$image is no longer in ECR (the last 30 images per repository are kept)."
+                return 1
+              fi
+            done < <(jq -r '.containerDefinitions[].image' "$1")
+          }
+          choose() {
+            local family=$1 label=$2 commit=$3 revision ran
+            while read -r revision ran; do
+              [ "$ran" = "$commit" ] || continue
+              if images_in_ecr "$RUNNER_TEMP/$family-$revision.json"; then
+                cp "$RUNNER_TEMP/$family-$revision.json" "$RUNNER_TEMP/$label.json"
+                echo "${label}_task_definition=$family:$revision" >>"$GITHUB_OUTPUT"
+                echo "$label: $family:$revision ran $commit"
+                return 0
+              fi
+            done <"$RUNNER_TEMP/$label-revisions"
+            echo "::error::No $family revision that ran $commit can run it again: none is still ACTIVE with its images in ECR."
+            exit 1
+          }
+          revisions "$WEB_FAMILY" >"$RUNNER_TEMP/web-revisions"
+          mapfile -t commits < <(awk -v want="$ROLLBACK_TO" 'index($2, want) == 1 { print $2 }' \
+            "$RUNNER_TEMP/web-revisions" | sort -u)
+          if [ "${#commits[@]}" = 0 ]; then
+            echo "::error::No $WEB_FAMILY revision among the last 50 that could run again ran a commit starting $ROLLBACK_TO."
+            if [ -s "$RUNNER_TEMP/web-revisions" ]; then
+              echo "These could (revision, commit):"
+              cat "$RUNNER_TEMP/web-revisions"
+            else
+              echo "None could: no active revision names this registry's images tagged with a commit."
+            fi
+            exit 1
+          fi
+          if [ "${#commits[@]}" != 1 ]; then
+            echo "::error::$ROLLBACK_TO matches more than one commit (${commits[*]}). Give more of the SHA."
+            exit 1
+          fi
+          commit=${commits[0]}
+          choose "$WEB_FAMILY" web "$commit"
+          revisions "$WORKER_FAMILY" >"$RUNNER_TEMP/worker-revisions"
+          choose "$WORKER_FAMILY" worker "$commit"
+          echo "commit=$commit" >>"$GITHUB_OUTPUT"
+
+      # Defence in depth behind the trust policy: whatever registered the
+      # revision this run starts from (deploy) or returns to (rollback), it
+      # must have the shape Terraform gives its family, or nothing is
+      # registered or moved. Web: app, plus tls-proxy while the hop is
+      # encrypted; worker, destroy-due and migrate: app; db-bootstrap:
+      # db-admin. The execution role everywhere, the app task role on web,
+      # worker and destroy-due, the
+      # db-admin task role on db-bootstrap and none on migrate (the db-admin
+      # role may write the internal secrets; no app container may hold it).
+      # No web, worker or destroy-due container may carry what Terraform
+      # refuses them
+      # (never_on_app_tasks in infra/aws/locals.tf), and only db-bootstrap may
+      # name a Secrets Manager secret: the RDS master user's.
+      - name: Check the task definitions
+        if: ${{ steps.run.outputs.mode == 'deploy' || steps.run.outputs.mode == 'rollback' }}
+        env:
+          NEVER_ON_APP_TASKS: MIGRATION_DATABASE_URL HEALDESK_LOCAL_KEK HEALDESK_DIRECT_BOOKING_ENABLED HEALDESK_PHASE_TWO_ATTRIBUTION BETTER_AUTH_SECRETS
+        run: |
+          role="arn:aws:iam::$AWS_ACCOUNT_ID:role/$CLUSTER"
+          failed=0
+          refuse() {
+            echo "::error::$1 task definition ($(jq -r '"\(.family):\(.revision)"' "$2")): $3"
+            failed=1
+          }
+          check() {
+            local label=$1 file="$RUNNER_TEMP/$1.json" names task_role found
+            names=$(jq -c '[.containerDefinitions[].name] | sort' "$file")
+            case "$label" in
+              web) [ "$names" = '["app"]' ] || [ "$names" = '["app","tls-proxy"]' ] || refuse "$label" "$file" "containers $names" ;;
+              worker | destroy-due | migrate) [ "$names" = '["app"]' ] || refuse "$label" "$file" "containers $names" ;;
+              db-bootstrap) [ "$names" = '["db-admin"]' ] || refuse "$label" "$file" "containers $names" ;;
+            esac
+            [ "$(jq -r '.executionRoleArn // ""' "$file")" = "$role-ecs-execution" ] \
+              || refuse "$label" "$file" "execution role $(jq -r '.executionRoleArn // "none"' "$file")"
+            case "$label" in
+              web | worker | destroy-due) task_role="$role-app-task" ;;
+              db-bootstrap) task_role="$role-db-admin-task" ;;
+              migrate) task_role="" ;;
+            esac
+            [ "$(jq -r '.taskRoleArn // ""' "$file")" = "$task_role" ] \
+              || refuse "$label" "$file" "task role $(jq -r '.taskRoleArn // "none"' "$file")"
+            if [ "$label" = web ] || [ "$label" = worker ] || [ "$label" = destroy-due ]; then
+              found=$(jq -r --arg never "$NEVER_ON_APP_TASKS" '($never | split(" ")) as $n
+                | [.containerDefinitions[] | (.environment // []) + (.secrets // []) | .[].name
+                  | select(. as $name | $n | index($name))] | unique | join(" ")' "$file")
+              [ -z "$found" ] || refuse "$label" "$file" "carries $found, which no app task may"
+            fi
+            if [ "$label" != db-bootstrap ]; then
+              found=$(jq -r '[.containerDefinitions[] | (.secrets // [])[]
+                | select(.valueFrom | contains(":secretsmanager:")) | .name] | join(" ")' "$file")
+              [ -z "$found" ] || refuse "$label" "$file" "reads $found from Secrets Manager, which only db-bootstrap may"
+            fi
+          }
+          for label in web worker destroy-due migrate db-bootstrap; do
+            if [ -f "$RUNNER_TEMP/$label.json" ]; then check "$label"; fi
+          done
+          if [ "$failed" = 1 ]; then
+            echo "::error::Nothing was registered or moved. A revision shaped differently from Terraform's came from outside this workflow: find out how before deploying again (CloudTrail names who registered it)."
+          fi
+          exit "$failed"
+
+      # ---------------------------------------------- restart or roll back
+      # Each service's deployment is followed by its own id: the circuit
+      # breaker rolls a failed deployment back to the previous one, and the
+      # service is then "stable" again, so stability alone would report a
+      # failure as a success. Both deployments run side by side and share one
+      # 30-minute deadline, which keeps the whole step inside this session.
+      - name: Restart or roll back web and worker
+        if: ${{ steps.run.outputs.mode == 'restart' || steps.run.outputs.mode == 'rollback' }}
+        env:
+          WEB_DESIRED: ${{ steps.services.outputs.web_desired }}
+          WORKER_DESIRED: ${{ steps.services.outputs.worker_desired }}
+          WEB_TARGET: ${{ steps.rollback.outputs.web_task_definition }}
+          WORKER_TARGET: ${{ steps.rollback.outputs.worker_task_definition }}
+        run: |
+          # A restart starts fresh tasks of the running revision; a rollback
+          # names the revision to return to.
+          move() {
+            local args=(--force-new-deployment)
+            [ -z "$2" ] || args+=(--task-definition "$2")
+            aws ecs update-service --cluster "$CLUSTER" --service "$1" "${args[@]}" \
+              --query "service.deployments[?status=='PRIMARY'] | [0].id" --output text
+          }
+          deadline=$(($(date +%s) + 1800))
+          wait_for() {
+            local service=$1 id=$2 state
+            while :; do
+              # A read that fails leaves state empty and is tried again.
+              state=$(aws ecs describe-services --cluster "$CLUSTER" --services "$service" --output text \
+                --query "services[0].deployments[?id=='$id'] | [0].[rolloutState, rolloutStateReason]") || state=""
+              case "$state" in
+                COMPLETED*) echo "$service: deployment $id completed"; return 0 ;;
+                FAILED*) echo "::error::$service: deployment $id failed: ${state#FAILED}"; return 1 ;;
+                None*) echo "::error::$service: deployment $id is gone: the circuit breaker rolled it back"; return 1 ;;
+              esac
+              if [ "$(date +%s)" -ge "$deadline" ]; then
+                echo "::error::$service: deployment $id did not finish within 30 minutes"
+                return 1
+              fi
+              sleep 15
+            done
+          }
+          services=()
+          targets=()
+          # A worker at 0 tasks has nothing to restart; a rollback still moves
+          # it, so whatever starts it next runs the same commit as web.
+          if [ "$WORKER_DESIRED" = 0 ] && [ -z "$WORKER_TARGET" ]; then
+            echo "::warning::$WORKER_SERVICE runs no tasks, so it was not restarted."
+          else
+            services+=("$WORKER_SERVICE")
+            targets+=("$WORKER_TARGET")
+          fi
+          services+=("$WEB_SERVICE")
+          targets+=("$WEB_TARGET")
+          ids=()
+          for i in "${!services[@]}"; do
+            id=$(move "${services[$i]}" "${targets[$i]}")
+            echo "${services[$i]}: deployment $id started${targets[$i]:+ (${targets[$i]})}"
+            ids+=("$id")
+          done
+          failed=0
+          for i in "${!services[@]}"; do
+            wait_for "${services[$i]}" "${ids[$i]}" || failed=1
+          done
+          exit "$failed"
+
+      # ---------------------------------------------------------------- render
       - name: Render web (app)
         id: render-web-app
-        if: ${{ !inputs.restart_only }}
+        if: ${{ steps.run.outputs.mode == 'deploy' }}
         uses: aws-actions/amazon-ecs-render-task-definition@8d79160660ad39c402a16e5fc7cd2a32e8f7d6b7 # v1.9.1
         with:
           task-definition: ${{ runner.temp }}/web.json
@@ -329,7 +580,7 @@ jobs:
 
       - name: Render web (tls-proxy)
         id: render-web
-        if: ${{ !inputs.restart_only && steps.taskdefs.outputs.web_has_tls_proxy == 'true' }}
+        if: ${{ steps.run.outputs.mode == 'deploy' && steps.taskdefs.outputs.web_has_tls_proxy == 'true' }}
         uses: aws-actions/amazon-ecs-render-task-definition@8d79160660ad39c402a16e5fc7cd2a32e8f7d6b7 # v1.9.1
         with:
           task-definition: ${{ steps.render-web-app.outputs.task-definition }}
@@ -338,16 +589,25 @@ jobs:
 
       - name: Render worker
         id: render-worker
-        if: ${{ !inputs.restart_only }}
+        if: ${{ steps.run.outputs.mode == 'deploy' }}
         uses: aws-actions/amazon-ecs-render-task-definition@8d79160660ad39c402a16e5fc7cd2a32e8f7d6b7 # v1.9.1
         with:
           task-definition: ${{ runner.temp }}/worker.json
           container-name: app
           image: ${{ steps.images.outputs.app_image }}
 
+      - name: Render destroy-due
+        id: render-destroy-due
+        if: ${{ steps.run.outputs.mode == 'deploy' }}
+        uses: aws-actions/amazon-ecs-render-task-definition@8d79160660ad39c402a16e5fc7cd2a32e8f7d6b7 # v1.9.1
+        with:
+          task-definition: ${{ runner.temp }}/destroy-due.json
+          container-name: app
+          image: ${{ steps.images.outputs.app_image }}
+
       - name: Render migrate
         id: render-migrate
-        if: ${{ !inputs.restart_only && inputs.migrate }}
+        if: ${{ steps.run.outputs.mode == 'deploy' && inputs.migrate }}
         uses: aws-actions/amazon-ecs-render-task-definition@8d79160660ad39c402a16e5fc7cd2a32e8f7d6b7 # v1.9.1
         with:
           task-definition: ${{ runner.temp }}/migrate.json
@@ -356,7 +616,7 @@ jobs:
 
       - name: Render db-bootstrap
         id: render-db-bootstrap
-        if: ${{ !inputs.restart_only && inputs.bootstrap_db }}
+        if: ${{ steps.run.outputs.mode == 'deploy' && inputs.bootstrap_db }}
         uses: aws-actions/amazon-ecs-render-task-definition@8d79160660ad39c402a16e5fc7cd2a32e8f7d6b7 # v1.9.1
         with:
           task-definition: ${{ runner.temp }}/db-bootstrap.json
@@ -367,7 +627,7 @@ jobs:
       # services.
       - name: Register db-bootstrap
         id: register-db-bootstrap
-        if: ${{ !inputs.restart_only && inputs.bootstrap_db }}
+        if: ${{ steps.run.outputs.mode == 'deploy' && inputs.bootstrap_db }}
         uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
         with:
           task-definition: ${{ steps.render-db-bootstrap.outputs.task-definition }}
@@ -375,7 +635,7 @@ jobs:
 
       - name: Register migrate
         id: register-migrate
-        if: ${{ !inputs.restart_only && inputs.migrate }}
+        if: ${{ steps.run.outputs.mode == 'deploy' && inputs.migrate }}
         uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
         with:
           task-definition: ${{ steps.render-migrate.outputs.task-definition }}
@@ -387,15 +647,16 @@ jobs:
       # ordinary non-zero exit). Each task gets the web service's private
       # subnets and security group, the one the database admits. Nothing is
       # overridden at run time: run-task arguments land in CloudTrail, so the
-      # commands and secrets live in the task definitions.
+      # commands and secrets live in the task definitions. db-bootstrap goes
+      # first: migrate reads the migrator URL it may just have written, and
+      # ECS reads a task's secrets when the task starts.
       - name: Run the one-off tasks
-        if: ${{ !inputs.restart_only && (inputs.bootstrap_db || inputs.migrate) }}
+        if: ${{ steps.run.outputs.mode == 'deploy' && (inputs.bootstrap_db || inputs.migrate) }}
         env:
           DB_BOOTSTRAP_TASK: ${{ steps.register-db-bootstrap.outputs.task-definition-arn }}
           MIGRATE_TASK: ${{ steps.register-migrate.outputs.task-definition-arn }}
           SUBNETS: ${{ steps.services.outputs.subnets }}
           SECURITY_GROUPS: ${{ steps.services.outputs.security_groups }}
-          FIRST_DEPLOY: ${{ steps.services.outputs.first_deploy }}
         run: |
           run_one_off() {
             local label=$1 task_definition=$2 container=$3 taskdef_file=$4
@@ -430,11 +691,6 @@ jobs:
               group=$(jq -r --arg c "$container" '.containerDefinitions[] | select(.name == $c) | .logConfiguration.options["awslogs-group"] // "?"' "$taskdef_file")
               prefix=$(jq -r --arg c "$container" '.containerDefinitions[] | select(.name == $c) | .logConfiguration.options["awslogs-stream-prefix"] // "?"' "$taskdef_file")
               echo "::error::$label failed (exit code $exit_code). Its output is in CloudWatch Logs, group $group, stream $prefix/$container/${task##*/}; it is not printed here because it can carry data."
-              # The usual first-deploy mistake: the migrator role is created
-              # by db-bootstrap, so on a new database migrate cannot sign in.
-              if [ "$label" = migrate ] && [ "$FIRST_DEPLOY" = true ] && [ -z "$DB_BOOTSTRAP_TASK" ]; then
-                echo "::notice::This was the first deploy and bootstrap_db was not ticked. On a new database the migrator role does not exist until db-bootstrap creates it: run again with bootstrap_db ticked."
-              fi
               return 1
             fi
           }
@@ -446,10 +702,11 @@ jobs:
           fi
 
       # --------------------------------------------------------------- services
-      # Sessions last an hour at most, and the one-off tasks can use up to
-      # forty minutes of one; the rollout gets its own.
+      # Each session is the action's default hour, and the one-off tasks can
+      # use forty minutes of one; the rollout, and the clean-up after a failed
+      # one, get their own.
       - name: Renew the deploy role session for the rollout
-        if: ${{ !inputs.restart_only }}
+        if: ${{ steps.run.outputs.mode == 'deploy' }}
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
@@ -464,7 +721,7 @@ jobs:
       # the deployment back. An empty desired-count keeps the current one.
       - name: Deploy the worker
         id: deploy-worker
-        if: ${{ !inputs.restart_only }}
+        if: ${{ steps.run.outputs.mode == 'deploy' }}
         uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
         with:
           task-definition: ${{ steps.render-worker.outputs.task-definition }}
@@ -477,7 +734,7 @@ jobs:
 
       - name: Deploy the web tier
         id: deploy-web
-        if: ${{ !inputs.restart_only }}
+        if: ${{ steps.run.outputs.mode == 'deploy' }}
         uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
         with:
           task-definition: ${{ steps.render-web.outputs.task-definition || steps.render-web-app.outputs.task-definition }}
@@ -487,6 +744,53 @@ jobs:
           wait-for-service-stability: true
           wait-for-minutes: 15
           wait-max-delay-seconds: 15
+
+      # Registered only, once both services run this commit's image: the
+      # after-restore check (docs/handover.md, "Restoring") is run by hand,
+      # with infra/aws/scripts/run-task.sh destroy-due, which picks the
+      # revision naming the image the worker runs. This role may register it
+      # but not run it.
+      - name: Register destroy-due
+        id: register-destroy-due
+        if: ${{ steps.run.outputs.mode == 'deploy' }}
+        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        with:
+          task-definition: ${{ steps.render-destroy-due.outputs.task-definition }}
+          cluster: ${{ env.CLUSTER }}
+
+      # A service this run started from 0 has no good revision to fall back
+      # to: its last completed deployment is Terraform's, at 0 tasks, with a
+      # placeholder image that was never pushed. The circuit breaker would
+      # return it there at the count this run set, and ECS would retry that
+      # pull until the next good deploy. So a failed or cancelled rollout of
+      # such a service puts it back at 0 tasks, and the next run starts it
+      # afresh. A service that was already running is left to the breaker,
+      # whose rollback target then exists. A smoke-test failure alone never
+      # gets here: the tasks it tested are healthy.
+      - name: Put a failed first rollout back to 0 tasks
+        if: >-
+          ${{ (failure() || cancelled()) && steps.run.outputs.mode == 'deploy'
+          && ((steps.deploy-worker.outcome == 'failure' || steps.deploy-worker.outcome == 'cancelled')
+          || (steps.deploy-web.outcome == 'failure' || steps.deploy-web.outcome == 'cancelled')) }}
+        env:
+          WORKER_OUTCOME: ${{ steps.deploy-worker.outcome }}
+          WEB_OUTCOME: ${{ steps.deploy-web.outcome }}
+          WORKER_DESIRED: ${{ steps.services.outputs.worker_desired }}
+          WEB_DESIRED: ${{ steps.services.outputs.web_desired }}
+        run: |
+          back_to_zero() {
+            local service=$1 outcome=$2 desired_before=$3
+            case "$outcome" in failure | cancelled) ;; *) return 0 ;; esac
+            if [ "$desired_before" != 0 ]; then
+              echo "$service was running before this deploy: the circuit breaker returns it to that revision."
+              return 0
+            fi
+            aws ecs update-service --cluster "$CLUSTER" --service "$service" --desired-count 0 \
+              --query 'service.desiredCount' --output text >/dev/null
+            echo "::warning::$service: its first rollout did not finish, so it is back at 0 tasks rather than retrying Terraform's placeholder image. Fix the cause and deploy again; that run starts it afresh."
+          }
+          back_to_zero "$WORKER_SERVICE" "$WORKER_OUTCOME" "$WORKER_DESIRED"
+          back_to_zero "$WEB_SERVICE" "$WEB_OUTCOME" "$WEB_DESIRED"
 
       # From outside, through Cloudflare's DNS, the load balancer and (when on)
       # the TLS sidecar: the path a clinic's browser takes. The liveness probe
@@ -507,17 +811,41 @@ jobs:
           echo "::error::$url did not answer 200 within five minutes."
           exit 1
 
+      # The full commit is what rollback_to takes later.
       - name: Summary
-        if: ${{ success() && !inputs.restart_only }}
         env:
-          WEB_TASK: ${{ steps.deploy-web.outputs.task-definition-arn }}
-          WORKER_TASK: ${{ steps.deploy-worker.outputs.task-definition-arn }}
+          MODE: ${{ steps.run.outputs.mode }}
+          WEB_TASK: ${{ steps.deploy-web.outputs.task-definition-arn || steps.rollback.outputs.web_task_definition }}
+          WORKER_TASK: ${{ steps.deploy-worker.outputs.task-definition-arn || steps.rollback.outputs.worker_task_definition }}
+          DESTROY_DUE_TASK: ${{ steps.register-destroy-due.outputs.task-definition-arn }}
+          ROLLED_BACK_TO: ${{ steps.rollback.outputs.commit }}
           MIGRATED: ${{ inputs.migrate }}
+          BOOTSTRAPPED: ${{ inputs.bootstrap_db }}
         run: |
           {
-            echo "### Deployed ${GITHUB_SHA:0:12}"
-            echo
-            echo "- web: ${WEB_TASK##*/}"
-            echo "- worker: ${WORKER_TASK##*/}"
-            echo "- migrations: $([ "$MIGRATED" = true ] && echo ran || echo skipped)"
+            case "$MODE" in
+              deploy)
+                echo "### Deployed $GITHUB_SHA"
+                echo
+                echo "- web: ${WEB_TASK##*/}"
+                echo "- worker: ${WORKER_TASK##*/}"
+                echo "- destroy-due: ${DESTROY_DUE_TASK##*/} (registered; run by hand after a restore)"
+                echo "- db-bootstrap: $([ "$BOOTSTRAPPED" = true ] && echo ran || echo skipped)"
+                echo "- migrations: $([ "$MIGRATED" = true ] && echo ran || echo skipped)"
+                ;;
+              rollback)
+                echo "### Rolled back to $ROLLED_BACK_TO"
+                echo
+                echo "- web: ${WEB_TASK##*/}"
+                echo "- worker: ${WORKER_TASK##*/}"
+                echo "- migrations: not run (the schema stays where it is)"
+                echo
+                echo "Make main match before the next deploy (git revert), or it brings the bad commit back."
+                ;;
+              restart)
+                echo "### Restarted web and worker"
+                echo
+                echo "Same revisions, fresh tasks: each has read its parameters again."
+                ;;
+            esac
           } >>"$GITHUB_STEP_SUMMARY"

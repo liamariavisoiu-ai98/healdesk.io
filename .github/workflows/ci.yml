@@ -180,11 +180,14 @@ jobs:
           exit "$failed"
 
   # The Terraform for the product host (infra/aws) is applied only by hand,
-  # through infra.yml, so a formatting slip or a broken reference would
-  # otherwise surface for the first time in front of production. This needs no
-  # AWS credentials and no state: init without a backend only downloads the
-  # providers, and validate checks the configuration against their schemas.
-  # It runs beside the test job, not after it.
+  # through infra.yml, so a formatting slip, a broken reference or a broken
+  # rule would otherwise surface for the first time in front of production.
+  # This needs no AWS credentials and no state: init without a backend only
+  # downloads the providers, validate checks the configuration against their
+  # schemas, and terraform test plans the whole module against mocked
+  # providers (infra/aws/tests), so the preconditions, the variable
+  # validations and the policies the tests assert are exercised without an
+  # account. It runs beside the test job, not after it.
   infra:
     runs-on: ubuntu-latest
     permissions:
@@ -211,3 +214,8 @@ jobs:
       - run: terraform init -backend=false -input=false -lockfile=readonly
 
       - run: terraform validate -no-color
+
+      # The module's two providers, aws and cloudflare, are both mocked in the
+      # suite, so nothing here can reach AWS or Cloudflare, and none of their
+      # credentials exist in this job to be reached with.
+      - run: terraform test -no-color

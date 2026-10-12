@@ -166,3 +166,41 @@ resource "aws_cloudwatch_metric_alarm" "rds_freeable_memory" {
   alarm_actions       = local.alarm_actions
   ok_actions          = local.alarm_actions
 }
+
+# A transaction held open. docs/handover.md asks for an alarm on any
+# transaction open longer than five minutes (pg_stat_activity.xact_start),
+# because one that shortens a clinic's record clock or starts its offboarding
+# and then stays open commits a change whose wait has already run, holding the
+# clinic's row locked all that time.
+#
+# This is the part infrastructure can see without logging in to the database
+# or killing anything: Performance Insights' counter for the longest session
+# idle inside a transaction, which is how a client holding one open between
+# statements looks. CloudWatch reads it through DB_PERF_INSIGHTS (and creates
+# its own service-linked role for that on the first apply); the counter
+# carries no query text, so it needs no right on our key. It does not see a
+# transaction kept open by one statement that runs for longer than five
+# minutes (a long query, or a pg_sleep): Performance Insights has no counter
+# for the age of an active transaction, only its age in transaction ids. That
+# part of the handover's alarm stays open, for a check run inside the
+# database. No timeout setting is used instead: one would kill the runtime
+# role's transactions.
+resource "aws_cloudwatch_metric_alarm" "rds_idle_in_transaction" {
+  alarm_name          = "${local.name}-rds-idle-in-transaction"
+  alarm_description   = "A database session has held a transaction open, idle, for more than five minutes. See docs/handover.md, Retention and offboarding."
+  comparison_operator = "GreaterThanThreshold"
+  threshold           = 300
+  evaluation_periods  = 1
+  datapoints_to_alarm = 1
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = local.alarm_actions
+  ok_actions          = local.alarm_actions
+
+  metric_query {
+    id          = "idle"
+    label       = "Longest idle-in-transaction time (seconds)"
+    expression  = "DB_PERF_INSIGHTS('RDS', '${aws_db_instance.main.resource_id}', 'db.state.idle_in_transaction_max_time.max')"
+    period      = 60
+    return_data = true
+  }
+}

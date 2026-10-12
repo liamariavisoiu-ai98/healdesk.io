@@ -138,11 +138,21 @@ resource "aws_cloudtrail" "main" {
   kms_key_id                    = aws_kms_key.main.arn
 
   # Management events, read and write, with KMS events NOT excluded (no
-  # exclude_management_event_sources). Data events join when the S3 bucket
-  # for transcripts exists.
+  # exclude_management_event_sources). With the transcript bucket on
+  # (storage.tf), every read and write of one of its objects is a data event
+  # too: who opened which transcript object, and when.
   event_selector {
     read_write_type           = "All"
     include_management_events = true
+
+    dynamic "data_resource" {
+      for_each = var.enable_transcript_bucket ? [local.transcript_bucket_arn] : []
+
+      content {
+        type   = "AWS::S3::Object"
+        values = ["${data_resource.value}/"]
+      }
+    }
   }
 
   # CloudTrail checks the bucket policy when the trail is created.

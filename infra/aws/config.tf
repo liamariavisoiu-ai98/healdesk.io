@@ -5,10 +5,12 @@
 # Configuration items describe resources, never their contents, so the
 # delivery bucket uses S3-managed encryption: putting it under our key would
 # need a key-policy grant for Config that the key otherwise does without.
-# A custom role rather than Config's service-linked role, so this apply does
-# not collide with one created earlier by the console. A region holds one
-# recorder and one delivery channel, though: if Config was switched on in the
-# console first, import those two instead of letting this apply fail on them.
+# A custom role rather than Config's service-linked role
+# (AWSServiceRoleForConfig): creating that role fails if the console made it
+# first, and a role of our own neither collides with it nor depends on it. A
+# region holds one recorder and one delivery channel, though: if Config was
+# switched on in the console first, import those two (each by its name, with
+# an import block) instead of letting this apply fail on them.
 
 locals {
   config_bucket = "${local.name}-config-${local.account_id}"

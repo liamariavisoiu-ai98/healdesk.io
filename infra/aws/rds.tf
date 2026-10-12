@@ -34,7 +34,7 @@ resource "aws_db_subnet_group" "main" {
 resource "aws_db_parameter_group" "main" {
   name        = "${local.name}-postgres${split(".", var.postgres_version)[0]}"
   family      = "postgres${split(".", var.postgres_version)[0]}"
-  description = "${local.name}: TLS forced, SCRAM passwords, no statements or row values in the engine log"
+  description = "${local.name}: TLS forced, SCRAM passwords, no statement text or row values in the engine log"
 
   # Refuse any connection without TLS (the default on 15+, set explicitly so
   # it cannot drift), and nothing older than TLS 1.2.
@@ -56,11 +56,24 @@ resource "aws_db_parameter_group" "main" {
     apply_method = "pending-reboot"
   }
 
-  # The engine log is exported to CloudWatch, where it is the only place a
-  # failed migration explains itself (drizzle-kit exits 1 with no text). It
-  # must not carry PHI or passwords: terse verbosity drops the DETAIL lines
-  # that print key values and failing rows, and no statement logging keeps
-  # ALTER ROLE ... PASSWORD and query parameters out of it.
+  # The engine log is exported to CloudWatch, where it never expires and is
+  # the only place a failed migration explains itself (drizzle-kit exits 1
+  # with no text). It must not carry PHI or passwords, and three settings keep
+  # them out:
+  #
+  #   - log_error_verbosity terse drops the DETAIL, HINT, QUERY and CONTEXT
+  #     lines, which print key values and failing rows;
+  #   - log_statement none logs no statement as it runs;
+  #   - log_min_error_statement panic keeps the text of a failing statement
+  #     out. At PostgreSQL's default (error) every failing statement is logged
+  #     in full after its ERROR line, whatever the other two say: a failed
+  #     ALTER ROLE ... PASSWORD '...' from the db-bootstrap task (psql fills
+  #     the password in on the client), or an INSERT carrying patient values.
+  #     The ERROR line itself stays, which is what a failed migration needs.
+  #
+  # What remains: a primary message that quotes its own input (invalid input
+  # syntax for type uuid: "...") is still logged at ERROR. The app's queries
+  # are parameterised, so a bind value appears only there.
   parameter {
     name         = "log_error_verbosity"
     value        = "terse"
@@ -71,6 +84,12 @@ resource "aws_db_parameter_group" "main" {
     name         = "log_statement"
     value        = "none"
     apply_method = "pending-reboot"
+  }
+
+  parameter {
+    name         = "log_min_error_statement"
+    value        = "panic"
+    apply_method = "immediate"
   }
 
   lifecycle {

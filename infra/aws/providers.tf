@@ -19,8 +19,11 @@ provider "aws" {
   }
 }
 
-# Authenticates from the CLOUDFLARE_API_TOKEN environment variable (a GitHub
-# secret scoped to Zone:DNS:Edit on healdesk.io). Deliberately not a Terraform
-# variable: variable values are written into saved plan files, and the infra
-# workflow uploads its plan as an artifact.
+# Authenticates from the CLOUDFLARE_API_TOKEN environment variable: a token
+# scoped to Zone:DNS:Edit on healdesk.io, kept as the SecureString
+# /healdesk/production/ci/CLOUDFLARE_API_TOKEN and read by infra.yml only after
+# it has assumed the Terraform role. It is never a GitHub secret, which every
+# branch's workflows could read, and no role this module creates can read it
+# (iam.tf). Deliberately not a Terraform variable either: variable values are
+# written into saved plan files.
 provider "cloudflare" {}

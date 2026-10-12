@@ -32,6 +32,11 @@ resource "aws_kms_alias" "main" {
 # roles, the Terraform role that creates RDS, SSM and ECR resources under the
 # key) is authorised by IAM through the account-root statement, with
 # kms:ViaService conditions where a service uses the key on a role's behalf.
+# It names the app's task role in no statement of its own, and must never:
+# KMS allows a call that either the key policy or an IAM policy allows, so a
+# statement naming the role without the lock-label conditions (the console's
+# default "key users" one, say) would make those conditions in iam.tf moot
+# (docs/design/google-calendar-2026-10-05.md section 5).
 data "aws_iam_policy_document" "kms" {
   statement {
     sid       = "AccountRootDelegatesToIam"

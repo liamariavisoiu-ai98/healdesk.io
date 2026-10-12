@@ -9,7 +9,14 @@
 # updates the services; the services therefore ignore task_definition and
 # desired_count here. They are created at desired 0 and the workflow scales
 # them up after the first good migration, reading the intended count from the
-# service's DesiredCount tag, so nothing crash-loops before an image exists.
+# service's DesiredCount tag, so nothing runs before an image exists.
+#
+# Terraform's own revisions name the image tag terraform-placeholder, which
+# nothing pushes (locals.tf). Never roll back to one: pick a revision by its
+# image, not its number. A failed first deploy has no earlier version to go
+# back to, only Terraform's revision at 0 tasks, so deploy-app.yml sets the
+# service back to 0 rather than leave the circuit breaker retrying an image
+# that does not exist.
 #
 # No ECS Exec anywhere: it would put an interactive root shell on a container
 # holding PHI. Maintenance runs as reviewed one-off tasks instead.
@@ -178,17 +185,44 @@ locals {
     }
   }
 
+  # The check docs/handover.md ("Restoring") runs after any restore, before
+  # the service reopens: every clinic due for destruction destroyed now, and
+  # exit 1 while any is still due. It is the worker's container with its own
+  # command, because destruction needs what the worker has: the runtime
+  # role's URL, the KMS key (a Google grant still standing is revoked first)
+  # and the Google client. Registered by every deploy, run only from a
+  # terminal (infra/aws/scripts/run-task.sh destroy-due), never by the deploy
+  # role, which may register it but not run it.
+  destroy_due_container = merge(local.worker_container, {
+    command     = ["node", "--import", "tsx", "scripts/destroy-due.ts"]
+    stopTimeout = 30
+
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = merge(local.log_driver_options, {
+        awslogs-group         = aws_cloudwatch_log_group.app["destroy-due"].name
+        awslogs-stream-prefix = "destroy-due"
+      })
+    }
+  })
+
   # Migrations then the queue install, as healdesk_migrator, before every
   # service update. It gets the migrator URL and nothing else: no app
-  # secrets, no KMS settings, no task role.
+  # secrets, no KMS settings, no task role. npm keeps its cache and logs under
+  # $HOME, which is /repo and not the image user's to write, so both go to
+  # /tmp, and npm does not ask the registry whether it is out of date.
   migrate_container = {
     name      = "app"
     image     = local.app_image
     essential = true
     command   = ["sh", "-c", "npm run db:migrate -w @healdesk/app && npm run queue:install -w @healdesk/app"]
 
-    environment = [{ name = "NODE_EXTRA_CA_CERTS", value = local.rds_ca_bundle }]
-    secrets     = [{ name = "MIGRATION_DATABASE_URL", valueFrom = aws_ssm_parameter.migration_database_url.arn }]
+    environment = [
+      { name = "NODE_EXTRA_CA_CERTS", value = local.rds_ca_bundle },
+      { name = "NPM_CONFIG_CACHE", value = "/tmp/npm-cache" },
+      { name = "NPM_CONFIG_UPDATE_NOTIFIER", value = "false" },
+    ]
+    secrets = [{ name = "MIGRATION_DATABASE_URL", valueFrom = local.parameter_arns["MIGRATION_DATABASE_URL"] }]
 
     linuxParameters = { initProcessEnabled = true }
 
@@ -201,11 +235,17 @@ locals {
     }
   }
 
-  # Run once, as the RDS master user, to create healdesk_migrator and
-  # healdesk_app with the RDS-safe provision-roles.sql. libpq reads the
-  # connection from the standard PG* variables, so the master credentials
-  # arrive only as secrets (JSON keys of the RDS-managed secret) and nothing
-  # sensitive is ever in the command or in a run-task override.
+  # Run as the RDS master user, on a new database and after a password is
+  # reset. First init-secrets: it generates, inside AWS, each of the six
+  # internal parameters still "__unset__" (ssm.tf) and composes both URLs from
+  # PGHOST, writing them with the key named here. Then provision-roles.sql
+  # (RDS-safe) creates healdesk_migrator and healdesk_app with the two
+  # passwords it reads back through its task role (iam.tf). The passwords are
+  # therefore not ECS secrets here: they may still be "__unset__" when the
+  # task starts. libpq reads the connection from the standard PG* variables,
+  # so the master credentials arrive only as secrets (JSON keys of the
+  # RDS-managed secret), and nothing sensitive is ever in the command or in a
+  # run-task override.
   db_bootstrap_container = {
     name      = "db-admin"
     image     = local.db_admin_image
@@ -214,6 +254,9 @@ locals {
     # Both lists in name order, like the other containers', so a revision
     # always renders the same way.
     environment = [
+      { name = "AWS_REGION", value = var.region },
+      { name = "HEALDESK_KMS_KEY_ID", value = aws_kms_key.main.arn },
+      { name = "HEALDESK_PARAMETER_PREFIX", value = local.param_prefix },
       { name = "PGDATABASE", value = local.db_name },
       { name = "PGHOST", value = aws_db_instance.main.address },
       { name = "PGPORT", value = tostring(local.db_port) },
@@ -222,8 +265,6 @@ locals {
     ]
 
     secrets = [
-      { name = "APP_PASSWORD", valueFrom = aws_ssm_parameter.db_app_password.arn },
-      { name = "MIGRATOR_PASSWORD", valueFrom = aws_ssm_parameter.db_migrator_password.arn },
       { name = "PGPASSWORD", valueFrom = "${aws_db_instance.main.master_user_secret[0].secret_arn}:password::" },
       { name = "PGUSER", valueFrom = "${aws_db_instance.main.master_user_secret[0].secret_arn}:username::" },
     ]
@@ -263,9 +304,19 @@ resource "aws_ecs_task_definition" "web" {
       condition     = length(setintersection(concat(keys(local.web_environment), local.web_secret_names), local.never_on_app_tasks)) == 0
       error_message = "The web task must never be given any of: ${join(", ", local.never_on_app_tasks)} (contract section 3)."
     }
+
+    precondition {
+      condition     = length(setintersection(keys(local.web_environment), local.secret_environment_names)) == 0
+      error_message = "A secret name is in the web task's plain environment; secrets come from SSM only (ssm.tf)."
+    }
+
+    precondition {
+      condition     = length(setsubtract(keys(local.web_environment), concat(local.stack_environment_names, keys(var.app_environment)))) == 0
+      error_message = "The web task sets a name missing from local.stack_environment_names (locals.tf); add it there so app_environment cannot override it."
+    }
   }
 
-  #checkov:skip=CKV_AWS_336:Next writes .next/cache at run time, so the app container needs a writable root until the image provides a writable mount; the tls-proxy sidecar is built to run read-only (key and temp files in /dev/shm) and can be switched once Fargate's /dev/shm is confirmed on the first deploy. Both run as non-root users.
+  #checkov:skip=CKV_AWS_336:Next writes .next/cache at run time, so the app container needs a writable root until the image provides a writable mount, and the tls-proxy sidecar writes its key and nginx's run files at start; a read-only root for either needs a writable volume tried on Fargate first. Both run as non-root users.
 }
 
 resource "aws_ecs_task_definition" "worker" {
@@ -288,6 +339,16 @@ resource "aws_ecs_task_definition" "worker" {
     precondition {
       condition     = length(setintersection(concat(keys(local.worker_environment), local.worker_secret_names), local.never_on_app_tasks)) == 0
       error_message = "The worker task must never be given any of: ${join(", ", local.never_on_app_tasks)} (contract section 3)."
+    }
+
+    precondition {
+      condition     = length(setintersection(keys(local.worker_environment), local.secret_environment_names)) == 0
+      error_message = "A secret name is in the worker task's plain environment; secrets come from SSM only (ssm.tf)."
+    }
+
+    precondition {
+      condition     = length(setsubtract(keys(local.worker_environment), concat(local.stack_environment_names, keys(var.app_environment)))) == 0
+      error_message = "The worker task sets a name missing from local.stack_environment_names (locals.tf); add it there so app_environment cannot override it."
     }
   }
 
@@ -312,6 +373,34 @@ resource "aws_ecs_task_definition" "migrate" {
   #checkov:skip=CKV_AWS_336:npm and tsx write caches and temp files at run time; a read-only root needs writable mounts the image does not provide yet. The task runs once per deploy as a non-root user.
 }
 
+# The worker's shape, roles and preconditions: the same environment and
+# secrets, so the same refusals apply.
+resource "aws_ecs_task_definition" "destroy_due" {
+  family                   = local.task_families.destroy_due
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = "512"
+  memory                   = "1024"
+  execution_role_arn       = aws_iam_role.ecs_execution.arn
+  task_role_arn            = aws_iam_role.app_task.arn
+
+  container_definitions = jsonencode([local.destroy_due_container])
+
+  runtime_platform {
+    operating_system_family = "LINUX"
+    cpu_architecture        = "X86_64"
+  }
+
+  lifecycle {
+    precondition {
+      condition     = length(setintersection(concat(keys(local.worker_environment), local.worker_secret_names), local.never_on_app_tasks)) == 0
+      error_message = "The destroy-due task must never be given any of: ${join(", ", local.never_on_app_tasks)} (contract section 3)."
+    }
+  }
+
+  #checkov:skip=CKV_AWS_336:tsx compiles the script at start and writes its cache under /tmp, as the worker does; a read-only root needs a writable /tmp mount the image does not provide yet. It runs once, by hand, as a non-root user.
+}
+
 resource "aws_ecs_task_definition" "db_bootstrap" {
   family                   = local.task_families.db_bootstrap
   requires_compatibilities = ["FARGATE"]
@@ -328,7 +417,7 @@ resource "aws_ecs_task_definition" "db_bootstrap" {
     cpu_architecture        = "X86_64"
   }
 
-  #checkov:skip=CKV_AWS_336:psql and the entrypoint may write temp files; the task runs once, by hand, and holds no long-lived state.
+  #checkov:skip=CKV_AWS_336:The entrypoint passes values between the AWS CLI, Python and psql through files in a private temporary directory, removed on exit; the task runs once, by hand or from the deploy workflow, and holds no long-lived state.
 }
 
 # ---------------------------------------------------------------------------
@@ -356,6 +445,8 @@ resource "aws_ecs_service" "web" {
 
   # A deployment whose tasks never become healthy is rolled back to the last
   # one that completed. With one task, ECS needs three failed tasks to decide.
+  # On a first deploy that is Terraform's placeholder revision (see the top of
+  # this file), which deploy-app.yml then sets back to 0 tasks.
   deployment_circuit_breaker {
     enable   = true
     rollback = true
@@ -381,8 +472,15 @@ resource "aws_ecs_service" "web" {
     ignore_changes = [task_definition, desired_count]
   }
 
-  # A service cannot attach to a target group that no listener uses yet.
-  depends_on = [aws_lb_listener.https]
+  # ECS refuses a service whose target group no listener uses yet, and the
+  # group is used only through the listener rules (the listener's own default
+  # is a 404), which wait for the validated certificate.
+  depends_on = [
+    aws_acm_certificate_validation.app,
+    aws_lb_listener.https,
+    aws_lb_listener_rule.internal_signed,
+    aws_lb_listener_rule.public,
+  ]
 }
 
 resource "aws_ecs_service" "worker" {
@@ -402,6 +500,8 @@ resource "aws_ecs_service" "worker" {
   deployment_minimum_healthy_percent = 100
   deployment_maximum_percent         = 200
 
+  # As the web service's: a failed first deploy has only Terraform's
+  # placeholder revision behind it, and deploy-app.yml sets it back to 0.
   deployment_circuit_breaker {
     enable   = true
     rollback = true

@@ -4,110 +4,71 @@
 # so a changed value takes a new deployment). Never in `environment`, never in
 # run-task overrides: CloudTrail records both.
 #
-# Internal values are generated here, so they also sit in Terraform state,
-# which is why the state bucket is private and KMS-encrypted. Passwords are
-# alphanumeric, so they are safe inside a URL as they are; they are still
-# passed through urlencode() in case the character set is ever widened.
-
-resource "random_password" "db_app" {
-  length  = 40
-  special = false
-}
-
-resource "random_password" "db_migrator" {
-  length  = 40
-  special = false
-}
-
-resource "random_password" "better_auth_secret" {
-  length  = 64
-  special = false
-}
-
-# Never rotated without a re-key plan: every stored identifier reference was
-# made under it (lib/env.ts), so a new value would orphan every conversation
-# and count every call again. prevent_destroy stops a plan that would replace
-# it, for example after an edit to these arguments.
-resource "random_password" "identifier_ref_key" {
-  length  = 64
-  special = false
-
-  lifecycle {
-    prevent_destroy = true
-  }
-}
+# Terraform creates every parameter and never holds a value. Each is created
+# holding the literal "__unset__", through the provider's write-only argument
+# (value_wo): written once at creation, never stored in the state or a plan,
+# never read back. The plain `value` argument would not do: the provider reads
+# a SecureString back with decryption on every refresh and stores it in the
+# state, so `value` with ignore_changes would copy every pasted or generated
+# secret into the state at the next plan. The image's entrypoint unsets any
+# variable whose value is exactly "__unset__", so until a real value is
+# written the app sees it as unset and the feature stays off.
+#
+# Who writes the real values:
+#   - internal: the db-bootstrap task's init-secrets, inside AWS, before it
+#     provisions the roles. It generates each one still "__unset__" (keeping
+#     any already set, because rotating a database password without
+#     re-provisioning the role would lock everything out) and composes both
+#     database URLs from the RDS endpoint. Its task role may write these six
+#     and nothing else (iam.tf);
+#   - external: the owner, in AWS CloudShell, with
+#     infra/aws/scripts/put-external-secrets.sh (the parameters_to_fill
+#     output lists them). Several stay "__unset__" on purpose until the vendor
+#     chain is complete (META_*, ANTHROPIC_API_KEY, the voice secrets).
+#
+# Three things follow from the write-only form, and each is pinned below:
+#   - an in-place change to any other argument makes the provider put the
+#     value it holds again, which is nothing, and AWS refuses an empty value.
+#     So description, key, tier and type are ignored once a parameter exists;
+#     change one by hand in the console, or by recreating the parameter on
+#     purpose;
+#   - raising value_wo_version writes "__unset__" over the live value. Never
+#     for an internal parameter once the database is provisioned;
+#   - destroying a parameter destroys its live value (for
+#     HEALDESK_IDENTIFIER_REF_KEY, every stored identifier reference), hence
+#     prevent_destroy.
+#
+# One parameter is deliberately not here: /healdesk/<environment>/ci/
+# CLOUDFLARE_API_TOKEN, which infra.yml reads before Terraform runs, so it has
+# to exist before the first plan. The owner creates it with the same script.
+# No role this module creates can read it (iam.tf).
 
 locals {
-  # verify-full checks the certificate chain and the host name; sslrootcert
-  # points at the RDS bundle in the image. Both pg-boss and drizzle-kit take
-  # TLS only from the URL, so it is the one place TLS is decided.
-  database_url_options = "sslmode=verify-full&sslrootcert=${local.rds_ca_bundle}"
-  database_host        = "${aws_db_instance.main.address}:${local.db_port}"
-}
+  unset_placeholder = "__unset__"
 
-resource "aws_ssm_parameter" "db_app_password" {
-  name        = "${local.param_prefix}/db/APP_PASSWORD"
-  description = "Password of the healdesk_app runtime role. Read by the db-bootstrap task; also inside DATABASE_URL."
-  type        = "SecureString"
-  key_id      = aws_kms_key.main.arn
-  tier        = "Standard"
-  value       = random_password.db_app.result
-}
+  # Generated inside AWS by the db-bootstrap task. Name => path under the
+  # prefix; the name is also the variable a task receives it as.
+  internal_parameter_paths = {
+    APP_PASSWORD                = "db/APP_PASSWORD"
+    MIGRATOR_PASSWORD           = "db/MIGRATOR_PASSWORD"
+    BETTER_AUTH_SECRET          = "app/BETTER_AUTH_SECRET"
+    HEALDESK_IDENTIFIER_REF_KEY = "app/HEALDESK_IDENTIFIER_REF_KEY"
+    DATABASE_URL                = "app/DATABASE_URL"
+    MIGRATION_DATABASE_URL      = "migrator/MIGRATION_DATABASE_URL"
+  }
 
-resource "aws_ssm_parameter" "db_migrator_password" {
-  name        = "${local.param_prefix}/db/MIGRATOR_PASSWORD"
-  description = "Password of the healdesk_migrator role that owns the tables. Read by the db-bootstrap task; also inside MIGRATION_DATABASE_URL."
-  type        = "SecureString"
-  key_id      = aws_kms_key.main.arn
-  tier        = "Standard"
-  value       = random_password.db_migrator.result
-}
+  internal_parameter_descriptions = {
+    APP_PASSWORD                = "Password of the healdesk_app runtime role (inside DATABASE_URL). Generated once by the db-bootstrap task, which sets the role's password from it."
+    MIGRATOR_PASSWORD           = "Password of the healdesk_migrator role that owns the tables (inside MIGRATION_DATABASE_URL). Generated once by the db-bootstrap task, which sets the role's password from it."
+    BETTER_AUTH_SECRET          = "Signs sessions and email stop links. Generated once by the db-bootstrap task. Rotating it signs every clinic out."
+    HEALDESK_IDENTIFIER_REF_KEY = "Keys the identifier references stored instead of phone numbers. Generated once by the db-bootstrap task. Never rotate it without a re-key plan."
+    DATABASE_URL                = "Runtime connection for web and worker, as healdesk_app (no BYPASSRLS, owns nothing), TLS verified. Composed by the db-bootstrap task from the RDS endpoint."
+    MIGRATION_DATABASE_URL      = "Migrations and the queue install only, as healdesk_migrator. Composed by the db-bootstrap task; given to the migrate task and nothing else."
+  }
 
-resource "aws_ssm_parameter" "better_auth_secret" {
-  name        = "${local.param_prefix}/app/BETTER_AUTH_SECRET"
-  description = "Signs sessions and email stop links. Rotating it signs every clinic out."
-  type        = "SecureString"
-  key_id      = aws_kms_key.main.arn
-  tier        = "Standard"
-  value       = random_password.better_auth_secret.result
-}
-
-resource "aws_ssm_parameter" "identifier_ref_key" {
-  name        = "${local.param_prefix}/app/HEALDESK_IDENTIFIER_REF_KEY"
-  description = "Keys the identifier references stored instead of phone numbers. Never rotate without a re-key plan."
-  type        = "SecureString"
-  key_id      = aws_kms_key.main.arn
-  tier        = "Standard"
-  value       = random_password.identifier_ref_key.result
-}
-
-resource "aws_ssm_parameter" "database_url" {
-  name        = "${local.param_prefix}/app/DATABASE_URL"
-  description = "Runtime connection for web and worker, as healdesk_app (no BYPASSRLS, owns nothing), TLS verified."
-  type        = "SecureString"
-  key_id      = aws_kms_key.main.arn
-  tier        = "Standard"
-  value       = "postgresql://healdesk_app:${urlencode(random_password.db_app.result)}@${local.database_host}/${local.db_name}?${local.database_url_options}"
-}
-
-resource "aws_ssm_parameter" "migration_database_url" {
-  name        = "${local.param_prefix}/migrator/MIGRATION_DATABASE_URL"
-  description = "Migrations and queue install only, as healdesk_migrator. Given to the migrate task and nothing else."
-  type        = "SecureString"
-  key_id      = aws_kms_key.main.arn
-  tier        = "Standard"
-  value       = "postgresql://healdesk_migrator:${urlencode(random_password.db_migrator.result)}@${local.database_host}/${local.db_name}?${local.database_url_options}"
-}
-
-# External values: created as the literal "__unset__" and filled in by the
-# owner in the console (the parameters_to_fill output lists them). Terraform
-# never reads them back into a plan: ignore_changes on the value. The image's
-# entrypoint unsets any variable whose value is exactly "__unset__", so until a
-# value is pasted the app sees it as unset and the feature stays off instead of
-# failing on a placeholder. Several stay unset on purpose until the vendor
-# chain is complete (META_*, ANTHROPIC_API_KEY, the voice secrets).
-resource "aws_ssm_parameter" "external" {
-  for_each = toset([
+  # Pasted by the owner. All of them live under app/ and reach the web tier;
+  # the worker gets the few it reads (locals.tf).
+  external_parameter_names = [
     "HEALDESK_PROVISION_SECRET",
     "STRIPE_SECRET_KEY",
     "STRIPE_CONNECT_WEBHOOK_SECRET",
@@ -117,16 +78,54 @@ resource "aws_ssm_parameter" "external" {
     "ANTHROPIC_API_KEY",
     "HEALDESK_VOICE_WEBHOOK_SECRET",
     "HEALDESK_VOICE_TOOLS_SECRET",
-  ])
+    "GOOGLE_OAUTH_CLIENT_ID",
+    "GOOGLE_OAUTH_CLIENT_SECRET",
+  ]
 
-  name        = "${local.param_prefix}/app/${each.key}"
-  description = "Pasted by the owner in the console; created as __unset__, which the image's entrypoint treats as unset."
+  parameter_paths = merge(
+    local.internal_parameter_paths,
+    { for name in local.external_parameter_names : name => "app/${name}" },
+  )
+
+  # Full names and ARNs are written out rather than read from the resources,
+  # so the policies and task definitions that name them are exact and do not
+  # wait on the parameters.
+  parameter_names = { for name, path in local.parameter_paths : name => "${local.param_prefix}/${path}" }
+  parameter_arns  = { for name, full in local.parameter_names : name => "arn:aws:ssm:${var.region}:${local.account_id}:parameter${full}" }
+}
+
+resource "aws_ssm_parameter" "internal" {
+  for_each = local.internal_parameter_paths
+
+  name        = local.parameter_names[each.key]
+  description = local.internal_parameter_descriptions[each.key]
   type        = "SecureString"
   key_id      = aws_kms_key.main.arn
   tier        = "Standard"
-  value       = "__unset__"
+
+  value_wo         = local.unset_placeholder
+  value_wo_version = 1
 
   lifecycle {
-    ignore_changes = [value]
+    prevent_destroy = true
+    ignore_changes  = [description, key_id, tier, type, allowed_pattern, data_type]
+  }
+}
+
+resource "aws_ssm_parameter" "external" {
+  for_each = toset(local.external_parameter_names)
+
+  name        = local.parameter_names[each.key]
+  description = "Pasted by the owner with infra/aws/scripts/put-external-secrets.sh. Created as __unset__, which the image's entrypoint treats as unset."
+  type        = "SecureString"
+  key_id      = aws_kms_key.main.arn
+  tier        = "Standard"
+
+  value_wo         = local.unset_placeholder
+  value_wo_version = 1
+
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = [description, key_id, tier, type, allowed_pattern, data_type]
   }
 }

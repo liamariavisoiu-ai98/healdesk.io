@@ -1,8 +1,9 @@
 # One web ACL with one rule: a per-IP rate limit, the "rate-limited by the
-# host" the health route and the docs rely on. Over the limit, AWS WAF answers
-# 429 rather than its default 403, because apps/web's relay retries only 401,
-# 429 and 5xx: any other 4xx from this host makes it acknowledge a Stripe event
-# to Stripe and drop it, leaving a paid customer without an account.
+# host" the health route and the docs rely on, on both origins. Over the limit,
+# AWS WAF answers 429 rather than its default 403, because apps/web's relay
+# retries only 401, 429 and 5xx: any other 4xx from the internal origin makes it
+# acknowledge a Stripe event to Stripe and drop it, leaving a paid customer
+# without an account.
 #
 # No AWS managed rule groups. The Core rule set blocks request bodies over
 # 8 KB, and relayed Stripe events (up to 1 MB) and checkout intents (up to

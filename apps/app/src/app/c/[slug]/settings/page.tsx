@@ -5,15 +5,16 @@ import { requirePortal } from "@/lib/portal/access";
 import { readSignInFactors } from "@/lib/portal/devices";
 import { portalDay, portalMoment } from "@/lib/portal/format";
 import { loadPortalPage, shellProps } from "@/lib/portal/page";
+import { readCalendarCard } from "@/lib/portal/settings-calendar";
 import { readSettingsView } from "@/lib/portal/settings-view";
 import { sessionBinding } from "@/lib/portal/step-up";
 
 import { PortalShell } from "../PortalShell";
 
 import { FeedbackProvider } from "../feedback";
+import { CalendarCard } from "./CalendarCard";
 import {
   AlertsCard,
-  CalendarCard,
   ChannelsCard,
   PaymentsCard,
   SafetyNetCard,
@@ -30,7 +31,9 @@ export const dynamic = "force-dynamic";
  * cards"): Channels, How AYA talks, Calendar, Payments, Safety net, Alerts
  * and Sign-in, for the channels the clinic bought. Each switch saves the
  * moment it changes and says what it did (actions.ts, lib/portal/settings.ts);
- * Sign-in's devices, backup and "Someone left" are sign-in-actions.ts.
+ * the Calendar card's are calendar-actions.ts, and Sign-in's devices, backup
+ * and "Someone left" are sign-in-actions.ts. A sign-in with Google comes
+ * back here with `?calendar=<outcome>`.
  *
  * No step-up to open the page: it shows no patient. The changes that send
  * calls or money somewhere new ask for one when they are made.
@@ -40,7 +43,7 @@ export default async function SettingsPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ connect?: string | string[] }>;
+  searchParams: Promise<{ connect?: string | string[]; calendar?: string | string[] }>;
 }) {
   const { slug } = await params;
   const portal = await requirePortal(slug);
@@ -66,7 +69,14 @@ export default async function SettingsPage({
     actor: page.actorContext,
     now,
   });
-  const { connect } = await searchParams;
+  const { connect, calendar } = await searchParams;
+  const calendarCard = await readCalendarCard({
+    slug: portal.clinicSlug,
+    clinicId: portal.clinicId,
+    settings: page.state.settings,
+    actor: page.actorContext,
+    outcome: calendar,
+  });
   const factors = await readSignInFactors(portal.userId, await sessionBinding(portal));
   const tz = page.state.clinic.timezone;
   const settingsPath = `/c/${portal.clinicSlug}/settings`;
@@ -79,7 +89,7 @@ export default async function SettingsPage({
         <div className="mt-6 grid gap-6">
           <ChannelsCard view={view} />
           <TalkCard view={view} />
-          <CalendarCard view={view} />
+          <CalendarCard card={calendarCard} timeZone={page.state.clinic.timezone} now={now} />
           <PaymentsCard view={view} connectOutcome={typeof connect === "string" ? connect : null} />
           <SafetyNetCard view={view} />
           <AlertsCard view={view} />

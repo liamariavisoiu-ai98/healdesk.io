@@ -8,8 +8,8 @@ import { DisconnectPayments } from "./DisconnectPayments";
 
 /**
  * Settings' cards (plan Part F2's card table, in its order): Channels, How
- * AYA talks, Calendar, Payments, Safety net and Alerts. Sign-in is its own
- * file. Server components: each card is static text around the client
+ * AYA talks, Calendar, Payments, Safety net and Alerts. Calendar and Sign-in
+ * are their own files. Server components: each card is static text around the client
  * controls in ./controls.tsx, which save as they change.
  *
  * Only what the clinic bought is shown (spec: "bought channels only"), and a
@@ -169,57 +169,6 @@ export function TalkCard({ view }: { view: SettingsView }) {
           />
         </>
       ) : null}
-    </Card>
-  );
-}
-
-// -----------------------------------------------------------------------------
-// Calendar
-// -----------------------------------------------------------------------------
-
-/**
- * Read-only until the calendar backend lands: its connect flow, the
- * Auto-confirm writer (`setAutoConfirm`, behind a step-up) and the provider
- * functions are the calendar session's (docs/design/google-calendar-2026-10-05.md
- * §2), and before its C19 no clinic can connect at all. So the card says how
- * bookings work today and offers no button that would go nowhere. The booking
- * system is the wizard's own screen, which works today.
- */
-export function CalendarCard({ view }: { view: SettingsView }) {
-  const { calendar } = view;
-  return (
-    <Card id="calendar" title="Calendar">
-      <div className="py-3">
-        <p className="font-semibold">Connected calendar</p>
-        <p className="text-muted mt-1 text-sm">
-          Not connected yet. Bookings arrive as requests your team confirms.
-        </p>
-      </div>
-      <div className="py-3">
-        <p className="font-semibold">Where bookings live today</p>
-        <p className="text-muted mt-1 text-sm">
-          {calendar.bookingSystem ?? "Not said yet."}{" "}
-          <a href={`/c/${view.slug}/setup?s=calendar`} className="text-ink font-semibold underline">
-            Change
-          </a>
-        </p>
-      </div>
-      <div className="py-3">
-        <p className="font-semibold">
-          Auto-confirm bookings: {calendar.autoConfirm ? "On" : "Off"}
-        </p>
-        <p className="text-muted mt-1 text-sm">
-          {calendar.rightNow} On, AYA books straight into your calendar; off, every booking is a
-          request your team approves. It can be switched once your calendar is connected.
-        </p>
-      </div>
-      <div className="py-3">
-        <p className="font-semibold">Booking detail: one shared calendar</p>
-        <p className="text-muted mt-1 text-sm">
-          AYA books into one calendar and your team assigns the provider. Named providers need a
-          connected calendar.
-        </p>
-      </div>
     </Card>
   );
 }

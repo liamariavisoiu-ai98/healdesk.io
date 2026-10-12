@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
+import { GOOGLE_CALENDAR_DISCLOSURE } from "@healdesk/catalog";
+
 import { isBuiltSection, type PortalSection } from "@/lib/portal/nav";
 import { SETUP_SCREENS } from "@/lib/setup/screen-ids";
 
@@ -49,8 +51,15 @@ export function brokenLinks(html: string, slug: string): string[] {
   return problems;
 }
 
+/** The links Google's data-use notice carries itself, the only ones off this app a page may have. */
+const NOTICE_LINKS: ReadonlySet<string> = new Set([
+  GOOGLE_CALENDAR_DISCLOSURE.privacyHref,
+  GOOGLE_CALENDAR_DISCLOSURE.limitedUse.href,
+]);
+
 function linkProblem(href: string, slug: string, ids: Set<string>): string | null {
   if (href.startsWith("#")) return ids.has(href.slice(1)) ? null : "no element with that id";
+  if (NOTICE_LINKS.has(href)) return null;
   if (href.startsWith("mailto:") || /^tel:\+[1-9]\d{6,14}$/.test(href)) return null;
   const url = new URL(href, "https://app.healdesk.test");
   if (url.origin !== "https://app.healdesk.test") return "a link off this app";

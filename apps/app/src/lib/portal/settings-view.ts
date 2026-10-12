@@ -9,7 +9,6 @@ import {
   audienceFor,
   FORWARDING_PASS_THROUGH_DAYS,
   forwardingInstructions,
-  getBookingSystem,
   isCarrier,
   type CallRouting,
   type Carrier,
@@ -24,7 +23,6 @@ import { getDepositSettings } from "@/lib/billing/deposits";
 import { GRACE_DAYS } from "@/lib/billing/events";
 import { getBillingSummary } from "@/lib/billing/summary";
 import { disclosureFor } from "@/lib/compliance/disclosure";
-import { calendarStep, rightNowLine } from "@/lib/setup/calendar";
 import { channelNextStep, channelStatusWord, setupSentence } from "@/lib/setup/channels";
 import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
 import { formatPhone } from "@/lib/setup/help";
@@ -41,7 +39,8 @@ import { SETTING_CHANNELS, type SettingKey } from "./settings";
  * every switch with its current value, its one line and, while the channels
  * it governs are not answering, "Applies when … opens". Read from the setup
  * state the page already has and one tenant transaction for the deposit
- * switches and the phone line's carrier. Business data only.
+ * switches and the phone line's carrier. Business data only. The Calendar
+ * card reads its own (settings-calendar.ts).
  */
 
 export type SettingsView = {
@@ -78,12 +77,6 @@ export type SettingsView = {
     languageOptions: { id: string; label: string }[];
     suggestAddOns: boolean;
     mentionPromotions: boolean;
-  };
-  calendar: {
-    rightNow: string;
-    bookingSystem: string | null;
-    autoConfirm: boolean;
-    bookingDetail: "generic" | "named_provider";
   };
   payments: {
     connectAvailable: boolean;
@@ -142,7 +135,6 @@ export async function readSettingsView(input: {
     return { deposits, carrier: phone?.carrier ?? null, phoneSystem: phone?.phoneSystem ?? null };
   });
   const summary = await getBillingSummary(state.clinic.id, { now });
-  const step = await calendarStep(state.clinic.id);
   const finished = wizardFinished(state.screens, state.progress);
   const { settings, clinic, knowledge } = state;
 
@@ -207,14 +199,6 @@ export async function readSettingsView(input: {
       })),
       suggestAddOns: settings.suggestAddOns,
       mentionPromotions: settings.mentionPromotions,
-    },
-    calendar: {
-      rightNow: rightNowLine(step),
-      bookingSystem: settings.bookingSystem
-        ? (getBookingSystem(settings.bookingSystem)?.label ?? null)
-        : null,
-      autoConfirm: settings.autoConfirmBookings,
-      bookingDetail: settings.bookingDetail,
     },
     payments: {
       connectAvailable: connectConfigured(),

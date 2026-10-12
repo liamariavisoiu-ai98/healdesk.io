@@ -936,8 +936,8 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * been delivered by then (agreement-changes.md § 12.11, item 8).
    *
    * Ending it, and the refund, are the owner's rule of 12 October 2026, which
-   * BAA 1.3.0's Term clause (third paragraph) and the Terms (§ 15, from
-   * LEGAL_VERSION 2026-10-12.1) state too (dpa.md, gap 17): every termination
+   * BAA 1.3.0's Term clause (third paragraph) and the Terms (§ 15, in the
+   * next legal version, on legal/130-pages) state too (dpa.md, gap 17): every termination
    * ends the Services and stops the Fees the same day; a refund only where
    * Practice terminates for healdesk's violation of a material term or under
    * the Subcontractors clause, and only of the prorated unused part of the

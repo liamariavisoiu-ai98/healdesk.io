@@ -454,7 +454,8 @@ Added on 7 October 2026, read at origin/main c926414:
     only the objection, which "without penalty" promises, and left its
     termination for a material breach without a refund term. The owner
     decided the rule on 12 October 2026, for the BAA and the DPA alike, and
-    Terms § 15 states it for a DPA practice from LEGAL_VERSION 2026-10-12.1.
+    Terms § 15 states it for a DPA practice in the next legal version (the
+    legal/130-pages branch, not yet published).
     The Term clause's second paragraph now says it, in 1.3.0's words where
     they fit: terminating the agreement, however it is terminated, ends the
     Services that day and no Fees accrue after it; where Practice terminates

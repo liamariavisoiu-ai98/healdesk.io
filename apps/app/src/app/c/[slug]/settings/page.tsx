@@ -73,6 +73,7 @@ export default async function SettingsPage({
   const calendarCard = await readCalendarCard({
     slug: portal.clinicSlug,
     clinicId: portal.clinicId,
+    clinicName: page.state.clinic.name,
     settings: page.state.settings,
     actor: page.actorContext,
     outcome: calendar,

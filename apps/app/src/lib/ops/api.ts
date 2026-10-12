@@ -5,6 +5,7 @@ import { and, desc, eq, gt, isNull, ne, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import {
+  AMENDMENT_TARGET_KINDS,
   appointments,
   auditLog,
   baaAcceptances,
@@ -14,6 +15,7 @@ import {
   providerConnections,
   reportDeliveries,
   scheduledJobs,
+  type AmendmentTargetKind,
   type PhiBasis,
 } from "@/db/schema";
 import {
@@ -94,6 +96,8 @@ import {
   type ErasureCounts,
   type ErasureVendorStepId,
 } from "@/lib/patient-rights/erasure";
+import { AMENDMENT_MAX_LENGTH, appendAmendment } from "@/lib/patient-rights/amendments";
+import { amendContact } from "@/lib/patient-rights/export";
 import { listConnections } from "@/lib/connections/store";
 import { selfCheckCredentialKey, type CredentialKeySelfCheck } from "@/lib/crypto/envelope";
 import { credentialKeyConfiguration, type CredentialKeyConfiguration } from "@/lib/crypto/kms";
@@ -315,6 +319,13 @@ const OPERATIONS = [
   // stored by apps/web and never sent back. The answer is counts and a date.
   "erasePerson",
   "markErasureVendorDeleted",
+  // Amendments on Practice's direction (lib/patient-rights/amendments.ts and
+  // export.ts; BAA 1.3.0 clause 14(b), release gate 8). Like erasePerson, they
+  // take patient details in, the amendment's words or a contact's corrected
+  // details, read and used in this request, never stored by apps/web and
+  // never sent back. The answer is an id and a date.
+  "amendRecord",
+  "amendContact",
   // The billing panel (lib/ops/billing.ts; build spec §7 E, R35): one clinic's
   // subscription, usage, switches and the billing engine's ledgers, and the
   // support actions on them. Ids, counts, cents and codes; never a payload.
@@ -409,6 +420,8 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "markVoiceVendorDataDeleted",
   "erasePerson",
   "markErasureVendorDeleted",
+  "amendRecord",
+  "amendContact",
   // The billing panel's writes. getClinicBilling and previewRefund are reads:
   // the preview asks Stripe and writes nothing but its audit row.
   "setOverageMode",
@@ -916,6 +929,10 @@ export async function runOperation(
       return opErasePerson(args, operator);
     case "markErasureVendorDeleted":
       return opMarkErasureVendorDeleted(args, operator);
+    case "amendRecord":
+      return opAmendRecord(args, operator);
+    case "amendContact":
+      return opAmendContact(args, operator);
     case "getClinicBilling":
       return opGetClinicBilling(args, operator);
     case "previewRefund":
@@ -3723,6 +3740,151 @@ async function opMarkErasureVendorDeleted(args: Record<string, unknown>, operato
   if (outcome === "already_stamped") return care.error("That step is already recorded.");
   await audit(operator, "erasure_vendor_step_recorded", { clinicSlug: clinic.slug, erasureId, step });
   return care.updated();
+}
+
+// -----------------------------------------------------------------------------
+// Amendments on Practice's direction
+// -----------------------------------------------------------------------------
+
+export type AmendRecordOutcome =
+  | { status: "amended"; amendmentId: string; recordedAt: string }
+  | { status: "error"; message: string };
+
+const amend = {
+  error: (message: string) => ok({ status: "error", message } satisfies AmendRecordOutcome),
+};
+
+/** The text as sent, untrimmed of nothing but its ends, or undefined; never truncated. */
+function rawText(args: Record<string, unknown>, key: string): string | undefined {
+  const value = args[key];
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
+/** When Practice directed it: a past moment, or now when omitted. */
+function pastMoment(value: string | undefined): Date | undefined | { error: string } {
+  if (!value) return undefined;
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime()) || at.getTime() > Date.now() + 60_000) {
+    return { error: "When did the practice ask? A past date and time." };
+  }
+  return at;
+}
+
+/**
+ * Append Practice's amendment to a booking request or a conversation that
+ * must stay as it was made (BAA 1.3.0 clause 14(b); docs/handover.md,
+ * "Amendments"). The operator names the record by the id the patient's
+ * export gives it. The amendment's words are read from the signed request
+ * and stored in record_amendments only: no log line, audit row or reply
+ * carries them, and the reply is the amendment's id and when it was
+ * appended. Every later export carries it beside the record.
+ */
+async function opAmendRecord(args: Record<string, unknown>, operator: Operator): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return amend.error("No such clinic.");
+  if (clinic.destroyedAt) return amend.error("This clinic's data has already been destroyed.");
+  const kind = stringArg(args, "targetKind", 40);
+  if (!kind || !(AMENDMENT_TARGET_KINDS as readonly string[]).includes(kind)) {
+    return amend.error("Which kind of record: a booking request or a conversation?");
+  }
+  const targetId = stringArg(args, "targetId");
+  if (!targetId || !UUID_SHAPED.test(targetId)) {
+    return amend.error("Which record? Give its id from the patient's export.");
+  }
+  const text = rawText(args, "amendment");
+  if (!text) return amend.error("Give the amendment as the practice directed it.");
+  if (text.length > AMENDMENT_MAX_LENGTH) {
+    return amend.error(`An amendment is at most ${AMENDMENT_MAX_LENGTH} characters.`);
+  }
+  const requestedBy = whoAsked(stringArg(args, "requestedBy", 200));
+  if (typeof requestedBy !== "string") return amend.error(requestedBy.error);
+  const requestedAt = pastMoment(stringArg(args, "requestedAt", 40));
+  if (requestedAt && !(requestedAt instanceof Date)) return amend.error(requestedAt.error);
+
+  const outcome = await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    (tx) =>
+      appendAmendment(tx, {
+        target: { kind: kind as AmendmentTargetKind, id: targetId },
+        amendment: text,
+        requestedBy,
+        requestedAt,
+        recordedBy: operator.email,
+      }),
+  );
+  if (outcome.status === "not_found") {
+    return amend.error(`No such ${kind === "booking_request" ? "booking request" : "conversation"} at this clinic.`);
+  }
+  await audit(operator, "record_amended", { clinicSlug: clinic.slug, amendmentId: outcome.id, targetKind: kind });
+  return ok({
+    status: "amended",
+    amendmentId: outcome.id,
+    recordedAt: outcome.recordedAt.toISOString(),
+  } satisfies AmendRecordOutcome);
+}
+
+export type AmendContactOutcome = { status: "corrected" } | { status: "error"; message: string };
+
+const correct = {
+  error: (message: string) => ok({ status: "error", message } satisfies AmendContactOutcome),
+};
+
+/**
+ * Correct a contact's name, number or address in place, on Practice's
+ * direction (BAA 1.3.0 clause 14(b): "Where the record can be changed,
+ * healdesk corrects its own copy"; `amendContact` in
+ * lib/patient-rights/export.ts). The operator names the contact by the id the
+ * patient's export gives it. The corrected details are read from the signed
+ * request and written to the contact only; the audit row says which fields
+ * changed and who asked, and the reply says only that it was done.
+ */
+async function opAmendContact(args: Record<string, unknown>, operator: Operator): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return correct.error("No such clinic.");
+  if (clinic.destroyedAt) return correct.error("This clinic's data has already been destroyed.");
+  const contactId = stringArg(args, "contactId");
+  if (!contactId || !UUID_SHAPED.test(contactId)) {
+    return correct.error("Which contact? Give its id from the patient's export.");
+  }
+  const changes: { fullName?: string; phone?: string; email?: string } = {};
+  const fullName = rawText(args, "fullName");
+  if (fullName !== undefined) {
+    if (fullName.length > 200) return correct.error("A name is at most 200 characters.");
+    changes.fullName = fullName;
+  }
+  const rawPhone = rawText(args, "phone");
+  if (rawPhone !== undefined) {
+    const phone = toE164(rawPhone);
+    if (!phone) {
+      return correct.error("That is not a telephone number we can store. Give it in international form: +1 and ten digits for a US number.");
+    }
+    changes.phone = phone;
+  }
+  const rawEmail = rawText(args, "email");
+  if (rawEmail !== undefined) {
+    const email = rawEmail.toLowerCase();
+    if (email.length > MAX_EMAIL_LENGTH || !EMAIL_SHAPED.test(email)) return correct.error("That is not an email address.");
+    changes.email = email;
+  }
+  if (Object.keys(changes).length === 0) {
+    return correct.error("Give the corrected name, telephone number or email address.");
+  }
+  const requestedBy = whoAsked(stringArg(args, "requestedBy", 200));
+  if (typeof requestedBy !== "string") return correct.error(requestedBy.error);
+
+  const found = await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    (tx) => amendContact(tx, contactId, changes, requestedBy),
+  );
+  if (!found) return correct.error("No such contact at this clinic.");
+  await audit(operator, "contact_corrected", {
+    clinicSlug: clinic.slug,
+    contactId,
+    fields: Object.keys(changes).join(","),
+  });
+  return ok({ status: "corrected" } satisfies AmendContactOutcome);
 }
 
 

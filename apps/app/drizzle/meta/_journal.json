@@ -421,6 +421,13 @@
       "when": 1791439445964,
       "tag": "0059_erasure_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1791790362755,
+      "tag": "0060_record_amendments",
+      "breakpoints": true
     }
   ]
 }

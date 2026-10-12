@@ -449,6 +449,40 @@ into `suppressions`, which was the do-not-contact list. Destruction at offboardi
 deletes the clinic's records with the rest. The `person data erased` log line (clinic,
 request id, count) is the record outside the database.
 
+### Amendments
+
+BAA 1.3.0's clause 14(b) and the DPA's Clients' requests clause: healdesk incorporates any
+amendment the practice directs. Where the record can be changed, we correct our own
+copy; where a record must stay as it was made, a booking request or the record of a
+conversation, we append the amendment to it and link the two, and every later use and
+export of that record carries it.
+
+1. **Who may direct one.** The practice, from its notice address, verified as for a
+   deletion request. A patient who asks us directly is passed to the practice within
+   five business days (docs/incident-response.md, "Patient rights requests").
+2. **Find the record.** Produce the patient's export (`npm run patient-export`) and read
+   the id of the contact, booking request or conversation the practice means. Ask the
+   practice, never the patient, when it is not clear which.
+3. **Record it.** `/admin/ops/<clinic>/care` → "Amendments":
+   - "Correct a contact" for a name, number or address: it changes the contact row in
+     place (`amendContact`), and the audit row says which fields changed and who asked,
+     not what they said;
+   - "Append an amendment" for a booking request or a conversation: the practice's
+     words, who asked by role or ticket, and when it asked. It is written to
+     `record_amendments` (`amendRecord`, `apps/app/src/lib/patient-rights/amendments.ts`)
+     and never changed afterwards; a later correction is another amendment beside it.
+   Both go through the signed ops envelope. apps/web keeps nothing typed; the reply is an
+   id and a time.
+4. **The deadline.** Ten business days from the practice's request.
+5. **The reply.** On the practice's own thread: the date it was done, and that every
+   export of the record now carries the amendment. A fresh export shows it under
+   `amendments` beside the request or conversation.
+
+An amendment lives exactly as long as the record it amends: the erasure, the purge and
+destruction delete it with that record, in the same function, and nothing deletes it
+on its own (drizzle/0060). The portal (M5) must show amendments beside every record it
+shows or exports.
+
 ### Restoring
 
 Restore from the host's physical snapshot or point-in-time recovery, or from a full

@@ -961,6 +961,9 @@ export const conversations = pgTable(
     // Clinic-first: under RLS every query carries clinic_id, so a lookup by FK
     // alone would index-scan then re-filter. That's the common path, not the rare one.
     index("conversations_contact_idx").on(t.clinicId, t.contactId),
+    // The target of record_amendments' (clinic_id, conversation_id) key, which
+    // is what keeps an amendment on a record of its own clinic (drizzle/0060).
+    unique("conversations_clinic_id_unique").on(t.clinicId, t.id),
   ],
 );
 
@@ -1640,6 +1643,9 @@ export const bookingRequests = pgTable(
       .where(sql`${t.vendorCallId} is not null`),
     // The thread a Meta request lives on, for the window check.
     index("booking_requests_thread_idx").on(t.clinicId, t.platform, t.senderId),
+    // The target of record_amendments' (clinic_id, booking_request_id) key,
+    // which is what keeps an amendment on a record of its own clinic (0060).
+    unique("booking_requests_clinic_id_unique").on(t.clinicId, t.id),
   ],
 );
 
@@ -2424,6 +2430,97 @@ export const erasureRequests = pgTable(
       "erasure_requests_vendor_steps_check",
       sql`jsonb_typeof(${t.vendorSteps}) = 'object' and (${t.vendorSteps} - 'retell') = '{}'::jsonb`,
     ),
+  ],
+);
+
+/** What an amendment is appended to: a record that must stay as it was made. */
+export const AMENDMENT_TARGET_KINDS = ["booking_request", "conversation"] as const;
+export type AmendmentTargetKind = (typeof AMENDMENT_TARGET_KINDS)[number];
+
+/**
+ * An amendment Practice directed to a record that must stay as it was made
+ * (BAA 1.3.0 clause 14(b), 45 CFR 164.526(c)(1); the DPA's Clients' requests
+ * clause; release gate 8, PT-17). A booking request's facts never change (the
+ * no-rewrite trigger, 0039 and 0041) and a conversation is the record of what
+ * was said, so neither is edited: the amendment is appended beside it and
+ * linked to it, and every later use and export of the record carries it
+ * (lib/patient-rights/amendments.ts).
+ *
+ * `amendment` is Practice's words about a patient: PHI, so tenant RLS and the
+ * BAA gate. Each target is a foreign key that carries clinic_id with the
+ * record's id, so an amendment can only point at a record of its own clinic.
+ * Append-only (drizzle/0060): the runtime role may INSERT and SELECT, no role
+ * may UPDATE, `recorded_at` is the database's clock at the insert, and the
+ * foreign keys have no delete action, so an amendment leaves only with the
+ * record it amends, inside the functions that delete that record (erasure,
+ * the purge, destruction).
+ */
+export const recordAmendments = pgTable(
+  "record_amendments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    targetKind: text("target_kind").$type<AmendmentTargetKind>().notNull(),
+    /** Set exactly when target_kind is 'booking_request'. */
+    bookingRequestId: uuid("booking_request_id"),
+    /** Set exactly when target_kind is 'conversation'. */
+    conversationId: uuid("conversation_id"),
+    /** The amendment as Practice directed it. PHI. Never logged, audited or echoed back. */
+    amendment: text("amendment").notNull(),
+    /** Who asked, by role or ticket ("the practice, ticket 1182"); never the patient. */
+    requestedBy: text("requested_by").notNull(),
+    /** When Practice directed it; never after recorded_at. */
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull(),
+    /** Who appended it: the operator's address, or (M5) the portal member. */
+    recordedBy: text("recorded_by").notNull(),
+    /** When it was appended, by the database's clock (record_amendments_guard). */
+    recordedAt: timestamp("recorded_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+  },
+  (t) => [
+    index("record_amendments_request_idx")
+      .on(t.clinicId, t.bookingRequestId)
+      .where(sql`${t.bookingRequestId} is not null`),
+    index("record_amendments_conversation_idx")
+      .on(t.clinicId, t.conversationId)
+      .where(sql`${t.conversationId} is not null`),
+    // Composite, so an amendment cannot point at another clinic's record, and
+    // no delete action, so a record cannot go while an amendment of it stays.
+    foreignKey({
+      name: "record_amendments_booking_request_fk",
+      columns: [t.clinicId, t.bookingRequestId],
+      foreignColumns: [bookingRequests.clinicId, bookingRequests.id],
+    }),
+    foreignKey({
+      name: "record_amendments_conversation_fk",
+      columns: [t.clinicId, t.conversationId],
+      foreignColumns: [conversations.clinicId, conversations.id],
+    }),
+    check(
+      "record_amendments_target_kind_check",
+      sql`${t.targetKind} in ('booking_request', 'conversation')`,
+    ),
+    check(
+      "record_amendments_target_check",
+      sql`(${t.targetKind} = 'booking_request' and ${t.bookingRequestId} is not null and ${t.conversationId} is null)
+        or (${t.targetKind} = 'conversation' and ${t.conversationId} is not null and ${t.bookingRequestId} is null)`,
+    ),
+    check(
+      "record_amendments_amendment_check",
+      sql`char_length(btrim(${t.amendment})) between 1 and 4000`,
+    ),
+    check(
+      "record_amendments_requested_by_check",
+      sql`char_length(btrim(${t.requestedBy})) between 2 and 200`,
+    ),
+    check(
+      "record_amendments_recorded_by_check",
+      sql`char_length(btrim(${t.recordedBy})) between 1 and 320`,
+    ),
+    check("record_amendments_requested_check", sql`${t.requestedAt} <= ${t.recordedAt}`),
   ],
 );
 
@@ -5009,4 +5106,5 @@ export const TENANT_SCOPED_TABLES = [
   "clinic_setup_screens",
   "clinic_settings_history",
   "erasure_requests",
+  "record_amendments",
 ] as const;

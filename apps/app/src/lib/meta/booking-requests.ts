@@ -23,6 +23,7 @@ import { planRescheduleOutreach, type RescheduleOutreach } from "@/lib/booking/r
 import { PublicUrlError, publicUrl } from "@/lib/public-url";
 import { describeError, log } from "@/lib/log";
 import { listClinics } from "@/lib/ops/clinics";
+import { amendmentsFor } from "@/lib/patient-rights/amendments";
 import { getTransport, type EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
@@ -584,6 +585,13 @@ export type ResolvedBookingRequest = {
   calendarWrite: { status: CalendarWriteStatus; error: string | null } | null;
   /** §G.1: whether a Meta line could still reach them; null for a phone request. */
   metaWindowOpen: boolean | null;
+  /**
+   * The practice's amendments to this request, oldest first
+   * (record_amendments, lib/patient-rights/amendments.ts). The request stays
+   * as it was made; BAA 1.3.0's clause 14(b) has every later use of it carry
+   * them, this view included.
+   */
+  amendments: { text: string; recordedAt: Date }[];
 };
 
 /**
@@ -638,6 +646,7 @@ export async function resolveBookingRequest(token: string, request?: RequestCont
     }
     tx.audit.record({ action: "read", resourceType: "booking_request", resourceId: row.id, metadata: { outcome: "opened", status: row.status } });
 
+    const amended = (await amendmentsFor(tx, "booking_request", [row.id])).get(row.id) ?? [];
     const open = row.status === "requested" || row.status === "accepted" || row.status === "rescheduling";
     let calendar: ResolvedBookingRequest["calendar"] = null;
     if (open && (await writableConnection(tx))) {
@@ -668,6 +677,7 @@ export async function resolveBookingRequest(token: string, request?: RequestCont
       calendar,
       calendarWrite: row.calendarWriteStatus ? { status: row.calendarWriteStatus, error: row.calendarWriteError ?? null } : null,
       metaWindowOpen: row.channel === "meta" ? row.lastInboundAt !== null && row.lastInboundAt.getTime() + META_WINDOW_MS > Date.now() : null,
+      amendments: amended.map((a) => ({ text: a.amendment, recordedAt: a.recordedAt })),
     };
   });
 }

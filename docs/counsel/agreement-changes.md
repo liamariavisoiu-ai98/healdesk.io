@@ -545,7 +545,7 @@ down. On 6 October 2026:
 | Payments: healdesk may send a link in website chat or on Instagram, Messenger or WhatsApp, through Practice's own processor; on a call none, and the deposit is flagged for staff; a link, and what healdesk sends the processor, carry only an amount, a generic description and a reference number; no payer details kept from the processor's notice | On a call: `depositLine` in `apps/app/src/lib/voice/tools.ts` states the deposit and sends nothing. Links: nothing yet; deposit links are package D, which is paused | On a call, yes; links, no (package D; § 12.14, gate 10) |
 | Payments: healdesk never takes card numbers | Nothing in `apps/app` asks for, parses or stores a card number, and 1.2.1's minimum-necessary clause says the same. One a patient volunteers would sit in the conversation transcript like any other words; the audit weighs that against "never takes" | Yes, by absence |
 | State law: processes patient information only on Practice's documented instructions (this agreement and the portal settings) and for purposes a–i; does not sell or share it as 1798.140 defines the words; combines it with other sources only for security and fraud | Nothing in the code sells, shares or combines it across clinics (identifier references are keyed per clinic). The portal the instructions name is not built yet (the funnel session builds it) | By design |
-| State law: gives Practice what it needs for a consumer's access, deletion or correction request within ten business days; deletes one person's information within ten business days, raw copies from other services included, and from backups within 35 days after | Operator tools in `apps/app/src/lib/patient-rights/export.ts`: `exportPatient` (access) and `amendContact` (correction). Since 8 October 2026 the care page's "Delete a person" (ops `erasePerson`, `apps/app/src/lib/patient-rights/erasure.ts`) deletes one person, their raw payloads, the Meta requests they sent and their messaging threads included, records the request without their number, and shows each subcontractor step outstanding with its ten-business-day deadline; backups age out at the host's 35 days (gate 18) | Deletion, yes (§ 12.14, gate 6); correction, gate 8 |
+| State law: gives Practice what it needs for a consumer's access, deletion or correction request within ten business days; deletes one person's information within ten business days, raw copies from other services included, and from backups within 35 days after | Operator tools in `apps/app/src/lib/patient-rights/export.ts`: `exportPatient` (access) and `amendContact` (correction), and since 12 October 2026 the care page's "Amendments" (ops `amendRecord`, `amendContact`), which appends an amendment beside a booking request or a conversation (`record_amendments`) that both exports carry. Since 8 October 2026 the care page's "Delete a person" (ops `erasePerson`, `apps/app/src/lib/patient-rights/erasure.ts`) deletes one person, their raw payloads, the Meta requests they sent and their messaging threads included, records the request without their number, and shows each subcontractor step outstanding with its ten-business-day deadline; backups age out at the host's 35 days (gate 18) | Deletion, yes (§ 12.14, gate 6); correction, yes (gate 8) |
 | State law: tells Practice if healdesk can no longer meet these obligations; lets it stop and remedy unauthorised use; provides compliance documents on request | Operating processes, none written down | No (a written process) |
 
 The release audit checks each row against the code. No clause promises a
@@ -1483,7 +1483,47 @@ these is closed, by code, a page, a signed paper or a host setting, and
    booking request or conversation it amends, carried by `exportPatient`,
    `exportClinic` and the portal export. The DPA's clause 13 promises the
    same, as a correction, so its release waits on this gate too (`dpa.md`,
-   gap 22).
+   gap 22). Done on 12 October 2026 (`drizzle/0060_record_amendments.sql`,
+   `apps/app/src/lib/patient-rights/amendments.ts`, pinned by
+   `tests/record-amendments.test.ts`):
+   - `record_amendments` holds each amendment: the record it amends (a
+     booking request or a conversation, by `target_kind` and exactly one
+     foreign key), Practice's words, who asked by role or ticket, when
+     Practice directed it, who appended it, and when, stamped by the
+     database. Each foreign key carries `clinic_id` with the record's id, so
+     an amendment can only point at a record of its own clinic. Tenant RLS,
+     FORCEd, `TENANT_SCOPED_TABLES`, and the BAA gate.
+   - Append-only: the runtime role holds INSERT and SELECT only, a trigger
+     refuses any UPDATE by any role, and the foreign keys have no delete
+     action, so a record cannot be deleted around its amendment.
+   - Writers: the care page's "Amendments" section, through the signed ops
+     envelope: "Append an amendment" (`amendRecord`) and "Correct a contact"
+     (`amendContact`, which corrects a contact in place, the record that can
+     change). The words go up in the signed body and nowhere else; no audit
+     row, log line or reply carries them. The portal (M5) calls
+     `appendAmendment` with its member as the recorder.
+   - Exports and uses: `exportPatient` and `exportClinic` carry each
+     amendment beside the request or conversation it amends (`amendments`,
+     oldest first), and the accounting of disclosures shows each being
+     written. The desk's view of a booking request (`/booking/<token>`)
+     lists its amendments under the request. The portal's export, and any
+     screen of it that shows a request or a conversation, must do the same
+     (the note in `amendments.ts`).
+   - Removal: an amendment goes with its record and at no other time, inside
+     the function that deletes that record: erasure (`app_erase_contacts`,
+     redefined on 0054's body, still taking only the people's own requests
+     and failing with nothing removed if anything else refers to them; and
+     `app_erase_thread_requests`), the purge (`app_purge_booking_requests`,
+     redefined with 0058's UTC pin, and the new
+     `app_purge_conversation_amendments`, under the same record-clock floor),
+     and destruction (the new `app_destroy_record_amendments`, on
+     `app_destruction_due`); `app_mark_clinic_destroyed` refuses while one
+     remains.
+   - docs/handover.md has the "Amendments" runbook, and
+     `docs/incident-response.md` points to it.
+   - Left: nothing in v1 shows a conversation's record to anyone but the
+     operator's export yet; the portal's transcript view (M5) must show the
+     conversation's amendments beside it.
 9. **Retention (PT-28).** The nightly purge switched on for every 1.3.0
    clinic (0032 ships it off), and extended to webhook events that are never
    processed. Done in drizzle/0054 and `lib/retention/purge.ts`: the purge

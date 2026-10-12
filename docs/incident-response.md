@@ -186,16 +186,17 @@ produce the bundle.
    never as a plain email attachment and never through the ops console, which
    lives in the app that holds no PHI. Delete the local copy once receipt is
    confirmed.
-4. For an amendment, correct the row with `amendContact()` (a script call or
-   a one-line `tsx` invocation on the app host) where the record can change;
-   the audit row records which fields changed, not what they said. Where a
-   record must stay as it was made (a booking request's times and service are
-   frozen from creation, and its collected fields once it is decided; a
-   conversation's record of what was said), append the amendment with the
-   amendment record and link it, so every export carries it (BAA 1.3.0 clause
-   14(b), 45 CFR 164.526(c)(1)). Until that amendment record is built (a
-   release gate for 1.3.0), tell the clinic which record cannot be changed in
-   place, and keep the incident's summary in ids, as always.
+4. For an amendment, use the care page's "Amendments" section
+   (`docs/handover.md`, "Amendments"). Where the record can change (a
+   contact's name, number or address), "Correct a contact" corrects it in
+   place; the audit row records which fields changed, not what they said.
+   Where a record must stay as it was made (a booking request's times and
+   service are frozen from creation, and its collected fields once it is
+   decided; a conversation's record of what was said), "Append an amendment"
+   appends the practice's words beside it and links the two, so every later
+   export carries it (BAA 1.3.0 clause 14(b), 45 CFR 164.526(c)(1)). Name the
+   record by the id in the patient's export, and keep the incident's summary
+   in ids, as always.
 5. Resolve the incident with the date delivered.
 
 The same script with `--all` produces the whole-clinic return bundle at

@@ -119,6 +119,21 @@ export default async function BookingRequestPage({ params, searchParams }: { par
           ))}
         </dl>
       ) : null}
+      {req.amendments.length ? (
+        // The practice's amendments: the request stays as it was made, and
+        // every later use of it carries them (BAA 1.3.0 clause 14(b)).
+        <div className="mt-3 grid gap-2 rounded-2xl border border-[color:var(--color-line)] p-5 text-[15px]">
+          <p className="text-[13px] font-bold tracking-[0.06em] text-[color:var(--color-muted)] uppercase">Amended at your practice&rsquo;s direction</p>
+          {req.amendments.map((a, i) => (
+            <p key={i}>
+              {a.text}{" "}
+              <span className="text-[13px] text-[color:var(--color-muted)]">
+                ({a.recordedAt.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })})
+              </span>
+            </p>
+          ))}
+        </div>
+      ) : null}
 
       {direct ? (
         <Decided req={req} query={query} />

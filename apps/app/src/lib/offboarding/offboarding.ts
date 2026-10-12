@@ -134,9 +134,11 @@ import { withTenant } from "@/lib/tenant";
  *
  * ## What goes, and what stays
  *
- * Every patient row, the keyed hashes of who messaged the clinic, its closed
- * days, its connections, its suppressions, consent records and contact
- * attempts, and the records of its deletion requests (erasure_requests). Those three were kept until BAA 1.3.0's release gate 7 as the
+ * Every patient row, the amendments Practice directed to them
+ * (record_amendments), the keyed hashes of who messaged the clinic, its
+ * closed days, its connections, the records of its deletion requests
+ * (erasure_requests), and its suppressions, consent records and contact
+ * attempts. Those last three were kept until BAA 1.3.0's release gate 7 as the
  * TCPA evidence that an outbound contact was lawful; v1 contacts no one
  * first, so there is nothing for them to evidence, and every agreement's
  * return-or-destroy clause reaches them (1.3.0's Term clause keeps only the
@@ -476,8 +478,9 @@ export type DestructionResult = { clinicId: string; deleted: Record<string, numb
  * Every patient row for one clinic, booking requests and slot holds
  * included, the hashes of who messaged it, its closed days, its setup
  * progress, its providers, its suppressions, consent records and contact
- * attempts, and the records of its deletion requests, gone. Audit,
- * agreements, calendar elections and billing stay.
+ * attempts, the records of its deletion requests, and the amendments
+ * Practice directed, gone. Audit, agreements, calendar elections and billing
+ * stay.
  */
 export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult> {
   const c = tx.clinicId;
@@ -491,6 +494,12 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   await del("slot_holds", () => tx.db.delete(slotHolds).where(eq(slotHolds.clinicId, c)).returning({ id: slotHolds.id }));
   await del("reconciliation_exceptions", () => tx.db.delete(reconciliationExceptions).where(eq(reconciliationExceptions.clinicId, c)).returning({ id: reconciliationExceptions.id }));
   await del("transactions", () => tx.db.delete(transactions).where(eq(transactions.clinicId, c)).returning({ id: transactions.id }));
+  // The amendments Practice directed (drizzle/0060), before the requests and
+  // conversations they amend: neither can go while one remains, and the app
+  // role cannot delete one, so app_destroy_record_amendments() deletes every
+  // one of this tenant's, on the requests' own floor.
+  const amendments = await tx.db.execute<{ n: number }>(sql`select app_destroy_record_amendments(${c}::uuid) as n`);
+  deleted.record_amendments = amendments.rows[0]?.n ?? 0;
   // Booking requests before the appointments: a confirmed request must keep
   // its appointment (CHECK, 0039) and cannot be rewritten (trigger, 0041), so
   // its appointment cannot go while it stands, and waiting for the contact's

@@ -60,12 +60,14 @@ import { readSynthflowPayload } from "@/lib/voice/synthflow-payload";
  * `eraseContact` (lib/retention/purge.ts), for each number and address the
  * request names: the contacts, their own booking requests whatever the desk
  * decided, their appointments, their calls and the calls that produced their
- * appointments, payments matched to them, and the drafts carrying their
- * number. Then what it does not reach:
+ * appointments, payments matched to them, the drafts carrying their
+ * number, and every amendment of the requests and calls it deletes
+ * (record_amendments, lib/patient-rights/amendments.ts). Then what it does
+ * not reach:
  *
- *   - the Meta booking requests they sent naming someone else's number
- *     (app_erase_thread_requests; the person the request names stays, and goes
- *     with the purge once nothing of theirs is left);
+ *   - the Meta booking requests they sent naming someone else's number, with
+ *     their amendments (app_erase_thread_requests; the person the request
+ *     names stays, and goes with the purge once nothing of theirs is left);
  *   - their drafts on those threads, and the threads themselves (chat_threads);
  *   - the raw payloads other services sent about them (webhook_events): every
  *     voice payload of their calls, and any payload carrying their number or
@@ -154,6 +156,8 @@ export type ErasureCounts = {
   suppressions: number;
   consentRecords: number;
   contactAttempts: number;
+  /** Amendments of the requests and conversations deleted (record_amendments, drizzle/0060). */
+  amendments: number;
 };
 
 function noCounts(): ErasureCounts {
@@ -170,6 +174,7 @@ function noCounts(): ErasureCounts {
     suppressions: 0,
     consentRecords: 0,
     contactAttempts: 0,
+    amendments: 0,
   };
 }
 
@@ -399,6 +404,7 @@ function add(counts: ErasureCounts, contact: ErasureResult): void {
   counts.conversations += contact.conversationsDeleted;
   counts.transactions += contact.transactionsDeleted;
   counts.drafts += contact.draftsDeleted;
+  counts.amendments += contact.amendmentsDeleted;
 }
 
 /** The deletes, in the order the foreign keys need, all bounded by `before`. */
@@ -422,12 +428,14 @@ async function eraseSurveyed(
   for (const email of asked.emails)
     add(counts, await eraseContact(tx, { email, requestedBy, before }));
 
-  // The Meta requests they sent naming someone else's number.
+  // The Meta requests they sent naming someone else's number, with any
+  // amendment of them.
   if (s.threads.length) {
-    const result = await tx.db.execute<{ n: number }>(
-      sql`select app_erase_thread_requests(${textArray(s.threads)}, ${before.toISOString()}::timestamptz) as n`,
+    const result = await tx.db.execute<{ requests_deleted: number; amendments_deleted: number }>(
+      sql`select * from app_erase_thread_requests(${textArray(s.threads)}, ${before.toISOString()}::timestamptz)`,
     );
-    counts.threadRequests = result.rows[0]?.n ?? 0;
+    counts.threadRequests = result.rows[0]?.requests_deleted ?? 0;
+    counts.amendments += result.rows[0]?.amendments_deleted ?? 0;
   }
 
   // Their drafts on their threads (eraseContact took the ones carrying their number).

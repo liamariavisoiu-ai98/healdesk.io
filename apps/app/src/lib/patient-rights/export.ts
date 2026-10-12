@@ -13,6 +13,8 @@ import {
 } from "@/db/schema";
 import type { TenantTx } from "@/lib/tenant";
 
+import { amendmentsFor, withAmendments, type RecordAmendment } from "./amendments";
+
 /**
  * The patient-rights export: everything held about one person, in one
  * bundle, with the accounting of disclosures beside it.
@@ -27,20 +29,30 @@ import type { TenantTx } from "@/lib/tenant";
  * Its own audit row is written for the export itself: producing a bundle is
  * an access, and the next accounting request must show this one.
  *
+ * Each booking request and conversation carries its amendments beside it
+ * (`amendments`, oldest first; lib/patient-rights/amendments.ts), as BAA
+ * 1.3.0's clause 14(b) promises: "Every later use and export of that record
+ * then carries the amendment." So does the whole clinic's bundle. The
+ * portal's export (M5) must do the same, and so must any screen that shows a
+ * request or a conversation.
+ *
  * Operator-only, on purpose. The covered entity validates the request; we
  * produce the bundle. Never a self-serve clinic feature.
  */
+/** A record as exported: the row, and every amendment Practice directed to it beside it. */
+export type Amended<T> = T & { amendments: RecordAmendment[] };
+
 export type PatientBundle = {
   producedAt: string;
   contacts: (typeof contacts.$inferSelect)[];
-  conversations: (typeof conversations.$inferSelect)[];
+  conversations: Amended<typeof conversations.$inferSelect>[];
   appointments: (typeof appointments.$inferSelect)[];
   transactions: (typeof transactions.$inferSelect)[];
   consentRecords: (typeof consentRecords.$inferSelect)[];
   suppressions: (typeof suppressions.$inferSelect)[];
   contactAttempts: (typeof contactAttempts.$inferSelect)[];
   /** Booking requests from any channel, handed to the desk on the manual booking path; the token digest is not included. */
-  bookingRequests: Omit<typeof bookingRequests.$inferSelect, "tokenHash">[];
+  bookingRequests: Amended<Omit<typeof bookingRequests.$inferSelect, "tokenHash">>[];
   /** Every audit row that touched any of the ids above: the accounting of disclosures. */
   accountingOfDisclosures: (typeof auditLog.$inferSelect)[];
 };
@@ -88,6 +100,8 @@ export async function exportPatient(
   const bookings = ids.length
     ? (await tx.db.select().from(bookingRequests).where(and(eq(bookingRequests.clinicId, tx.clinicId), inArray(bookingRequests.contactId, ids)))).map(withoutDigest)
     : [];
+  const conversationAmendments = await amendmentsFor(tx, "conversation", convos.map((c) => c.id));
+  const bookingAmendments = await amendmentsFor(tx, "booking_request", bookings.map((b) => b.id));
 
   const everyId = [
     ...ids,
@@ -96,6 +110,7 @@ export async function exportPatient(
     ...txns.map((t) => t.id),
     ...consents.map((c) => c.id),
     ...bookings.map((b) => b.id),
+    ...[...conversationAmendments.values(), ...bookingAmendments.values()].flat().map((a) => a.id),
   ];
   const accounting = everyId.length
     ? await tx.db
@@ -123,25 +138,29 @@ export async function exportPatient(
   return {
     producedAt: new Date().toISOString(),
     contacts: found,
-    conversations: convos,
+    conversations: withAmendments(convos, conversationAmendments),
     appointments: appts,
     transactions: txns,
     consentRecords: consents,
     suppressions: supp,
     contactAttempts: attempts,
-    bookingRequests: bookings,
+    bookingRequests: withAmendments(bookings, bookingAmendments),
     accountingOfDisclosures: accounting,
   };
 }
 
 /**
- * Amendment: a real correction, with the prior value in the audit trail.
+ * Amendment where the record can be changed: a real correction.
  *
- * The clause promises the copy is corrected, not annotated. So the row
- * changes, and what it used to say is recorded on the audit row's metadata
- * — which is itself PHI-scanned, so the prior value is stored under a key
- * the scanner allows, as a hash and a length, not the text. The text of the
- * old value lives nowhere after this: that is the point of amending.
+ * BAA 1.3.0's clause 14(b): "Where the record can be changed, healdesk
+ * corrects its own copy." A contact's name, number and address are that
+ * kind of record, so the row changes, and the audit row says which fields
+ * changed and who asked, never what they said: a "prior" that carried the
+ * old name would keep the wrong data the amendment exists to remove. The
+ * records that must stay as they were made (a booking request, a
+ * conversation) take an appended amendment instead
+ * (lib/patient-rights/amendments.ts). The operator's path is the ops
+ * envelope's `amendContact`; the portal's comes with M5.
  */
 export async function amendContact(
   tx: TenantTx,
@@ -193,6 +212,8 @@ export async function exportClinic(tx: TenantTx, requestedBy: string): Promise<P
   const supp = await tx.db.select().from(suppressions).where(eq(suppressions.clinicId, c));
   const attempts = await tx.db.select().from(contactAttempts).where(eq(contactAttempts.clinicId, c));
   const bookings = (await tx.db.select().from(bookingRequests).where(eq(bookingRequests.clinicId, c))).map(withoutDigest);
+  const conversationAmendments = await amendmentsFor(tx, "conversation", convos.map((v) => v.id));
+  const bookingAmendments = await amendmentsFor(tx, "booking_request", bookings.map((b) => b.id));
   const accounting = await tx.db.select().from(auditLog).where(eq(auditLog.clinicId, c));
 
   const rows = found.length + convos.length + appts.length + txns.length + consents.length;
@@ -207,13 +228,13 @@ export async function exportClinic(tx: TenantTx, requestedBy: string): Promise<P
   return {
     producedAt: new Date().toISOString(),
     contacts: found,
-    conversations: convos,
+    conversations: withAmendments(convos, conversationAmendments),
     appointments: appts,
     transactions: txns,
     consentRecords: consents,
     suppressions: supp,
     contactAttempts: attempts,
-    bookingRequests: bookings,
+    bookingRequests: withAmendments(bookings, bookingAmendments),
     accountingOfDisclosures: accounting,
   };
 }

@@ -44,6 +44,8 @@ const ACTIONS: Actions = {
   markVoiceVendorDataDeleted: NOT_IN_A_RENDER,
   erasePerson: NOT_IN_A_RENDER,
   markErasureVendorDeleted: NOT_IN_A_RENDER,
+  amendRecord: NOT_IN_A_RENDER,
+  amendContact: NOT_IN_A_RENDER,
 };
 
 function leaving(

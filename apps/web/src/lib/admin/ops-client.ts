@@ -178,6 +178,11 @@ type OperatorOp =
   // up in the signed body and are never stored, logged or sent back here.
   | "erasePerson"
   | "markErasureVendorDeleted"
+  // Amendments on the practice's direction (BAA 1.3.0 release gate 8). The
+  // amendment's words and a contact's corrected details go up in the signed
+  // body and are never stored, logged or sent back here.
+  | "amendRecord"
+  | "amendContact"
   // The billing panel (build spec §7 E, R35).
   | "getClinicBilling"
   | "setOverageMode"
@@ -2475,6 +2480,55 @@ export function erasePerson(
 
 export function markErasureVendorDeleted(clinicId: string, erasureId: string, step: string, how: string) {
   return careWrite("markErasureVendorDeleted", { clinicId, erasureId, step, how });
+}
+
+export type AmendRecordOutcome =
+  | { status: "amended"; amendmentId: string; recordedAt: string }
+  | { status: "refused"; message: string };
+
+/**
+ * Append the practice's amendment to a booking request or a conversation
+ * (docs/handover.md, "Amendments"). The words travel in the signed body to
+ * apps/app and nowhere else; the reply is the amendment's id and when it was
+ * appended.
+ */
+export function amendRecord(
+  clinicId: string,
+  input: {
+    targetKind: "booking_request" | "conversation";
+    targetId: string;
+    amendment: string;
+    requestedBy: string;
+    requestedAt?: string;
+  },
+): Promise<OpsResult<AmendRecordOutcome>> {
+  return callOps("amendRecord", "write", { clinicId, ...input }, (value) => {
+    const data = object(value, "amendRecord");
+    if (state(data, "amendRecord") !== "amended") return refusal(data, "amendRecord");
+    return {
+      status: "amended",
+      amendmentId: id(data.amendmentId, "amendRecord.amendmentId"),
+      recordedAt: instant(data.recordedAt, "amendRecord.recordedAt").at,
+    };
+  });
+}
+
+export type AmendContactOutcome = { status: "corrected" } | { status: "refused"; message: string };
+
+/**
+ * Correct a contact's name, number or address in place, on the practice's
+ * direction. The corrected details travel in the signed body to apps/app and
+ * nowhere else; the reply says only that it was done.
+ */
+export function amendContact(
+  clinicId: string,
+  input: { contactId: string; fullName?: string; phone?: string; email?: string; requestedBy: string },
+): Promise<OpsResult<AmendContactOutcome>> {
+  return callOps("amendContact", "write", { clinicId, ...input }, (value) => {
+    const data = object(value, "amendContact");
+    if (state(data, "amendContact") !== "corrected") return refusal(data, "amendContact");
+    return { status: "corrected" };
+  });
 }
 
 export type OpenIncidentOutcome =

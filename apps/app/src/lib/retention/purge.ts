@@ -9,6 +9,7 @@ import {
   conversations,
   metaBookingDrafts,
   reconciliationExceptions,
+  recordAmendments,
   syncRuns,
   transactions,
   webhookEvents,
@@ -59,7 +60,9 @@ import type { TenantTx } from "@/lib/tenant";
  * remaining request still holds waits for the night the request goes. A Meta
  * draft abandoned for a day goes here too, as a backstop to the sweep the
  * clinic's next Meta message runs, and a messaging thread (chat_threads)
- * once its last message is past the record clock.
+ * once its last message is past the record clock. An amendment Practice
+ * directed (record_amendments, lib/patient-rights/amendments.ts) goes the
+ * night the booking request or conversation it amends goes, and never before.
  *
  * ## What the record clock never purges, and why
  *
@@ -240,10 +243,28 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     result.appointmentsDeleted = gone.length;
   }
 
+  // A conversation's amendments go first, the night it does: the runtime
+  // role may delete a conversation but not an amendment, and no conversation
+  // goes while one of its amendments remains (record_amendments, a foreign
+  // key with no delete action, drizzle/0060). Through
+  // app_purge_conversation_amendments(), at the earlier of this job's cutoff
+  // and the database's own, as the booking requests above, whose amendments
+  // go inside app_purge_booking_requests(). A conversation still amended
+  // after it (a job clock ahead of the database's, or a clock shortened in
+  // the last day) waits for the night its amendment goes.
+  await tx.db.execute(
+    sql`select app_purge_conversation_amendments(least(${recordBefore}::timestamptz, app_record_cutoff()))`,
+  );
   const oldConversations = await tx.db
     .select({ id: conversations.id })
     .from(conversations)
-    .where(and(eq(conversations.clinicId, tx.clinicId), lt(conversations.startedAt, recordBefore)));
+    .where(
+      and(
+        eq(conversations.clinicId, tx.clinicId),
+        lt(conversations.startedAt, recordBefore),
+        sql`not exists (select 1 from ${recordAmendments} ra where ra.conversation_id = ${conversations.id})`,
+      ),
+    );
   const conversationIds = oldConversations.map((r) => r.id);
   if (conversationIds.length) {
     await tx.db
@@ -381,6 +402,8 @@ export type ErasureResult = {
   appointmentsDeleted: number;
   transactionsDeleted: number;
   draftsDeleted: number;
+  /** Amendments of the requests and conversations deleted (drizzle/0060). */
+  amendmentsDeleted: number;
 };
 
 /**
@@ -431,6 +454,7 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
     appointmentsDeleted: 0,
     transactionsDeleted: 0,
     draftsDeleted: 0,
+    amendmentsDeleted: 0,
   };
 
   if (ids.length) {
@@ -487,12 +511,16 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
     // app_erase_contacts() does it as their owner. It takes the people in the
     // same call and fails with nothing removed if anything else still refers
     // to them, someone else's request on one of their appointments included,
-    // so a request leaves only with the person it names.
+    // so a request leaves only with the person it names. The amendments of
+    // the requests and conversations it deletes go first, in the same call
+    // (record_amendments, drizzle/0060): an amendment leaves only with what
+    // it amends.
     const [erased] = (
       await tx.db.execute<{
         requests_deleted: number;
         appointments_deleted: number;
         conversations_deleted: number;
+        amendments_deleted: number;
       }>(
         sql`select * from app_erase_contacts(array[${sql.join(
           ids.map((id) => sql`${id}`),
@@ -503,6 +531,7 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
     result.bookingRequestsDeleted = erased?.requests_deleted ?? 0;
     result.appointmentsDeleted = erased?.appointments_deleted ?? 0;
     result.conversationsDeleted = erased?.conversations_deleted ?? 0;
+    result.amendmentsDeleted = erased?.amendments_deleted ?? 0;
   }
 
   // A half-collected Meta draft has no contact, only the number typed into
@@ -536,6 +565,7 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
       appointments: result.appointmentsDeleted,
       transactions: result.transactionsDeleted,
       drafts: result.draftsDeleted,
+      amendments: result.amendmentsDeleted,
     },
   });
 

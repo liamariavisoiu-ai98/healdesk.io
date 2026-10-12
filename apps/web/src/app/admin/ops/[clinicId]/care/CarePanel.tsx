@@ -4,6 +4,8 @@ import { useState, useTransition } from "react";
 
 import { INCIDENT_CLASSES, type IncidentClass } from "@/lib/admin/incident-classes";
 import type {
+  AmendContactOutcome,
+  AmendRecordOutcome,
   CareOutcome,
   CareView,
   ErasePersonOutcome,
@@ -32,6 +34,20 @@ type Actions = {
     receivedAt?: string;
   }) => Promise<OpsResult<ErasePersonOutcome>>;
   markErasureVendorDeleted: (erasureId: string, step: string, how: string) => Promise<OpsResult<CareOutcome>>;
+  amendRecord: (input: {
+    targetKind: "booking_request" | "conversation";
+    targetId: string;
+    amendment: string;
+    requestedBy: string;
+    requestedAt?: string;
+  }) => Promise<OpsResult<AmendRecordOutcome>>;
+  amendContact: (input: {
+    contactId: string;
+    fullName?: string;
+    phone?: string;
+    email?: string;
+    requestedBy: string;
+  }) => Promise<OpsResult<AmendContactOutcome>>;
 };
 
 // The clocks apps/app computes (lib/incidents/incidents.ts): BAA 1.3.0 gives
@@ -45,7 +61,12 @@ const CLASS_LABELS: Record<IncidentClass, string> = {
 };
 
 function describe(
-  result: OpsResult<CareOutcome> | OpsResult<OpenIncidentOutcome> | OpsResult<ErasePersonOutcome>,
+  result:
+    | OpsResult<CareOutcome>
+    | OpsResult<OpenIncidentOutcome>
+    | OpsResult<ErasePersonOutcome>
+    | OpsResult<AmendRecordOutcome>
+    | OpsResult<AmendContactOutcome>,
 ): string | null {
   if (!result.ok) return result.message;
   if (result.data.status === "refused") return result.data.message;
@@ -140,6 +161,10 @@ export function CarePanel({ view, actions }: { view: OpsResult<CareView>; action
 
       <Section title={`Deletion requests — ${v.deletionRequests.length}`}>
         <DeletionRequests view={v} actions={actions} />
+      </Section>
+
+      <Section title="Amendments">
+        <Amendments actions={actions} />
       </Section>
 
       <Section title="Offboarding">
@@ -278,6 +303,153 @@ function DeletionRequests({ view, actions }: { view: CareView; actions: Actions 
         {problem ? <p className="text-red-deep text-xs">{problem}</p> : null}
         {done ? <p className="text-done text-xs">{done}</p> : null}
       </form>
+    </div>
+  );
+}
+
+/**
+ * The practice's amendments (docs/handover.md, "Amendments"). A booking
+ * request or a conversation must stay as it was made, so the amendment is
+ * appended beside it and every later export carries it; a contact's name,
+ * number or address is corrected in place. The record is named by the id the
+ * patient's export gives it. What is typed here is sent once in the signed
+ * request and kept nowhere on this side; the forms clear when it is done.
+ */
+function Amendments({ actions }: { actions: Actions }) {
+  const [pending, start] = useTransition();
+  const [problem, setProblem] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const field = (f: FormData, name: string) => String(f.get(name) ?? "").trim();
+  return (
+    <div className="text-sm">
+      <p className="text-muted">
+        When the practice directs an amendment, record it here within ten business days of its request. Find the record&rsquo;s
+        id in the patient&rsquo;s export (docs/handover.md, &ldquo;Amendments&rdquo;). Never type a patient&rsquo;s name in
+        &ldquo;who asked&rdquo;.
+      </p>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          const form = event.currentTarget;
+          const f = new FormData(form);
+          const received = field(f, "requestedAt");
+          start(async () => {
+            setProblem(null);
+            setDone(null);
+            const result = await actions.amendRecord({
+              targetKind: field(f, "targetKind") === "conversation" ? "conversation" : "booking_request",
+              targetId: field(f, "targetId"),
+              amendment: field(f, "amendment"),
+              requestedBy: field(f, "requestedBy"),
+              ...(received ? { requestedAt: new Date(received).toISOString() } : {}),
+            });
+            const message = describe(result);
+            setProblem(message);
+            if (!message && result.ok && result.data.status === "amended") {
+              form.reset();
+              setDone(`Amendment appended at ${result.data.recordedAt}. Every export of the record now carries it.`);
+            }
+          });
+        }}
+        className="mt-4 grid gap-3"
+      >
+        <p className="text-xs font-bold uppercase">Append an amendment to a booking request or a conversation</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="text-sm">
+            <span className="text-muted block text-xs font-bold uppercase">Record</span>
+            <select name="targetKind" className="border-line mt-1 w-full rounded-lg border px-3 py-2">
+              <option value="booking_request">Booking request</option>
+              <option value="conversation">Conversation</option>
+            </select>
+          </label>
+          <label className="text-sm">
+            <span className="text-muted block text-xs font-bold uppercase">Its id, from the export</span>
+            <input name="targetId" required autoComplete="off" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          </label>
+          <label className="text-sm sm:col-span-2">
+            <span className="text-muted block text-xs font-bold uppercase">The amendment, as the practice directed it</span>
+            <textarea
+              name="amendment"
+              required
+              maxLength={4000}
+              rows={3}
+              className="border-line mt-1 w-full rounded-lg border px-3 py-2"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="text-muted block text-xs font-bold uppercase">Who asked — role or ticket, never a name</span>
+            <input name="requestedBy" required maxLength={200} className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          </label>
+          <label className="text-sm">
+            <span className="text-muted block text-xs font-bold uppercase">The practice asked (optional; default now)</span>
+            <input name="requestedAt" type="datetime-local" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          </label>
+        </div>
+        <div>
+          <button type="submit" disabled={pending} className="rounded-full bg-black px-4 py-2 text-xs font-bold text-white">
+            Append the amendment
+          </button>
+        </div>
+      </form>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          const form = event.currentTarget;
+          const f = new FormData(form);
+          const fullName = field(f, "fullName");
+          const phone = field(f, "phone");
+          const email = field(f, "email");
+          start(async () => {
+            setProblem(null);
+            setDone(null);
+            const result = await actions.amendContact({
+              contactId: field(f, "contactId"),
+              ...(fullName ? { fullName } : {}),
+              ...(phone ? { phone } : {}),
+              ...(email ? { email } : {}),
+              requestedBy: field(f, "requestedBy"),
+            });
+            const message = describe(result);
+            setProblem(message);
+            if (!message && result.ok && result.data.status === "corrected") {
+              form.reset();
+              setDone("Contact corrected.");
+            }
+          });
+        }}
+        className="mt-6 grid gap-3"
+      >
+        <p className="text-xs font-bold uppercase">Correct a contact</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="text-sm">
+            <span className="text-muted block text-xs font-bold uppercase">Contact id, from the export</span>
+            <input name="contactId" required autoComplete="off" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          </label>
+          <label className="text-sm">
+            <span className="text-muted block text-xs font-bold uppercase">Who asked — role or ticket, never a name</span>
+            <input name="requestedBy" required maxLength={200} className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          </label>
+          <label className="text-sm">
+            <span className="text-muted block text-xs font-bold uppercase">Corrected name</span>
+            <input name="fullName" autoComplete="off" maxLength={200} className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          </label>
+          <label className="text-sm">
+            <span className="text-muted block text-xs font-bold uppercase">Corrected telephone number</span>
+            <input name="phone" type="tel" autoComplete="off" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          </label>
+          <label className="text-sm">
+            <span className="text-muted block text-xs font-bold uppercase">Corrected email address</span>
+            <input name="email" type="email" autoComplete="off" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          </label>
+        </div>
+        <div>
+          <button type="submit" disabled={pending} className="rounded-full bg-black px-4 py-2 text-xs font-bold text-white">
+            Correct the contact
+          </button>
+        </div>
+      </form>
+      {problem ? <p className="text-red-deep mt-3 text-xs">{problem}</p> : null}
+      {done ? <p className="text-done mt-3 text-xs">{done}</p> : null}
     </div>
   );
 }

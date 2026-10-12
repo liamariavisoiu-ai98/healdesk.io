@@ -5,6 +5,8 @@ import { notFound, redirect } from "next/navigation";
 import { requireOperator } from "@/lib/admin/operator";
 import {
   addReportRecipient as addRecipientUpstream,
+  amendContact as amendContactUpstream,
+  amendRecord as amendRecordUpstream,
   erasePerson as erasePersonUpstream,
   fetchClinicCare,
   markErasureVendorDeleted as erasureVendorUpstream,
@@ -30,11 +32,11 @@ import { CarePanel } from "./CarePanel";
  * dates, the rule they follow and two operator records. The one thing that IS
  * a patient — the export — is a script on the app host
  * (docs/incident-response.md), and this page only records that it was handed
- * over, and that the voice vendor's copy was deleted. A deletion request is
- * the one form here that takes a patient's number or address: it passes
- * through the server action to apps/app in the signed request and is kept
- * nowhere on this side, and what the page shows of a request afterwards is
- * who asked, the dates and the counts.
+ * over, and that the voice vendor's copy was deleted. Three forms here take
+ * a patient's details: a deletion request, and the practice's two kinds of
+ * amendment. Each passes through its server action to apps/app in the signed
+ * request and is kept nowhere on this side, and what the page shows
+ * afterwards is who asked, the dates and the counts.
  */
 
 export const metadata: Metadata = { title: "Care" };
@@ -113,6 +115,29 @@ export default async function CarePage({ params }: { params: Promise<{ clinicId:
     revalidatePath(path);
     return result;
   }
+  // The amendment's words and a contact's corrected details pass through
+  // these actions to apps/app in the signed request and are kept nowhere on
+  // this side.
+  async function amendRecord(input: {
+    targetKind: "booking_request" | "conversation";
+    targetId: string;
+    amendment: string;
+    requestedBy: string;
+    requestedAt?: string;
+  }) {
+    "use server";
+    return amendRecordUpstream(clinicId, input);
+  }
+  async function amendContact(input: {
+    contactId: string;
+    fullName?: string;
+    phone?: string;
+    email?: string;
+    requestedBy: string;
+  }) {
+    "use server";
+    return amendContactUpstream(clinicId, input);
+  }
 
   return (
     <CarePanel
@@ -128,6 +153,8 @@ export default async function CarePage({ params }: { params: Promise<{ clinicId:
         markVoiceVendorDataDeleted,
         erasePerson,
         markErasureVendorDeleted,
+        amendRecord,
+        amendContact,
       }}
     />
   );

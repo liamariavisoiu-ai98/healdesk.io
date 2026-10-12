@@ -86,6 +86,14 @@ import { openMetaConversation, type MetaConversation } from "./greeting";
  * reply opens with it: a repeated warning costs a sentence, a missing one
  * breaks the promise.
  *
+ * The greeting is the only one a reply carries (BAA 1.3.0 gate 20). The
+ * prompt tells the model never to greet, introduce itself or say what it is
+ * unless asked, and where the greeting goes in front of the model's own text,
+ * a bare salutation or a self-introduction leading that text comes off first
+ * (stripOwnGreeting), so a first reply never reads "Hi! I'm an AI assistant
+ * for … Hi there! …". A fixed line goes in as written, and so does every
+ * later reply.
+ *
  * It asks no consent question and no opt-in, and sends nothing once the
  * conversation is over: v1 is inbound only, so the call-back consent and the
  * WhatsApp template opt-in of 23 September 2026 (§D.2, §G.2) were removed.
@@ -209,7 +217,10 @@ export function requiredMetaFieldsLine(requirements: readonly BookingField[]): s
  * The system prompt. The practice's menu is in it so the model can tell what
  * the person asked about, but no service name is a fact it may state: it
  * says "that" and gives the price (the one Meta rule, (2) and (5)), and the
- * guard refuses a reply that names one anyway.
+ * guard refuses a reply that names one anyway. It asks for no greeting: the
+ * model sees one message and cannot tell a first reply from a later one, and
+ * answerFrontDoor opens the first with metaChannelGreeting() (gate 20;
+ * stripOwnGreeting takes off a greeting the model writes anyway).
  */
 export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
   const menu = facts.services.length
@@ -229,7 +240,7 @@ export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
     `You are the messaging assistant for ${facts.clinicName}, a healthcare practice. You are answering a direct message on a social platform that is NOT a secure channel for health information.`,
     "",
     "You may ONLY do these things:",
-    "1. Greet the person warmly and briefly.",
+    '1. Start your reply with the substance. Never greet the person (no "Hi", "Hello" or "Hey"), and never introduce yourself or say what you are unless they ask: the code puts the channel\'s opening line in front of your reply wherever one is owed, and that line already greets them and says you are an AI assistant.',
     "2. Answer PUBLIC questions from the facts below: hours, location, parking, and whether the practice offers something the person asks about and its published price, without ever naming it.",
     `3. Move the person to a secure channel to discuss anything personal: the phone${facts.phone ? ` (${facts.phone})` : ""}${facts.websiteHint ? ` or the website (${facts.websiteHint})` : ""}.`,
     `4. If the person wants to book, take a BOOKING REQUEST for the practice to confirm by phone. Ask only for: their first name, a phone number the practice can call, a preferred day or time, and — once you have that — up to two other times that could also work. ${requiredMetaFieldsLine(facts.requirements)}. Ask for whichever are still missing, one message at a time. Never ask why they are visiting or which treatment they want, and never repeat their phone number back.`,
@@ -708,6 +719,78 @@ function withoutPhrase(text: string, phrase: string): string {
   return out;
 }
 
+/** One of the five salutations the backstop strips, as a whole word. */
+const SALUTATION = String.raw`(?:(?:[Hh]i|[Hh]ello)(?:\s+there)?|[Hh]ey)(?![\p{L}\p{N}'’-])`;
+/** A word of the name a salutation may carry: capitalised, two letters or more, never a title such as "Dr", whose full stop ends no sentence. */
+const NAME_WORD = String.raw`(?!(?:Dr|Mr|Mrs|Ms|Mx|Prof|Sr|Jr|St)\b)\p{Lu}[\p{L}'’-]+`;
+/** Where a bare salutation ends: "!" or "." (one or more) before a space or the end, or nothing more on its line. */
+const OWN_SENTENCE_END = String.raw`(?:[.!]+(?=\s|$)|,?(?=[ \t]*(?:\n|$)))`;
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Rule 2 of stripOwnGreeting: a sentence that does nothing but introduce the assistant. */
+function selfIntroduction(clinicName: string): string {
+  const clinic = clinicName.trim().split(/\s+/).filter(Boolean).map(escapeRegExp).join(String.raw`\s+`);
+  const whose = clinic ? String.raw`(?:an?|the|your|${clinic}['’]s?)` : String.raw`(?:an?|the|your)`;
+  const kind = String.raw`(?:(?:AI|AI-powered|[Aa]utomated|[Vv]irtual|[Dd]igital|[Mm]essaging|[Cc]hat)\s+)*`;
+  const place = clinic ? String.raw`(?:${clinic}|the\s+(?:practice|clinic))` : String.raw`the\s+(?:practice|clinic)`;
+  const forWhom = String.raw`(?:\s+here)?(?:\s+(?:for|at|with|from)\s+${place})?`;
+  const notHuman = String.raw`(?:,?\s+(?:and\s+)?not\s+a\s+(?:real\s+)?(?:person|human))?`;
+  return String.raw`(?:I['’]m|I\s+am)\s+${whose}\s+${kind}[Aa]ssistant${forWhom}${notHuman}(?:[.!]+(?=\s|$)|$)`;
+}
+
+/**
+ * The backstop for BAA 1.3.0 release gate 20 (docs/counsel/agreement-changes.md
+ * §12.14). A first reply opens with metaChannelGreeting(), so a greeting the
+ * model writes as well says hello twice, and sometimes says twice that it is
+ * an AI assistant. The prompt asks for none; this takes off the one a model
+ * writes anyway. It runs on the model's text only, and only where the
+ * greeting goes in front of it (openWithGreeting).
+ *
+ * The rule, at the very start of the text and nowhere else:
+ *
+ *   1. A bare salutation comes off: "Hi", "Hello", "Hey", "Hi there" or
+ *      "Hello there" (capital or small h), with or without a name of one or
+ *      two capitalised words, that is a sentence of its own: it ends in "!"
+ *      or "." (one or more) and then a space or the end, or nothing more is
+ *      on its line. "Hi! We're open until 6" loses "Hi!". A salutation that
+ *      runs on into its sentence is not bare, so "Hey, that's…" and "Hi,
+ *      we're open…" keep every word, and so does "Highlights…", which holds
+ *      no salutation at all.
+ *   2. Then, or on its own, a self-introduction comes off: a sentence of
+ *      "I'm" or "I am"; "a", "an", "the", "your" or the clinic's possessive;
+ *      any of "AI", "AI-powered", "automated", "virtual", "digital",
+ *      "messaging" and "chat"; "assistant"; optionally "here" and "for",
+ *      "at", "with" or "from" the clinic or the practice; optionally "not a
+ *      (real) person" or "human"; and its end. A salutation run straight
+ *      into one ("Hi, I'm the AI assistant for …") comes off with it. A
+ *      sentence that says anything more ("I'm an AI assistant, so I can't
+ *      …") is kept whole.
+ *
+ * Only whole sentences come off, so what is left starts where the model
+ * started its next one, and may be nothing.
+ */
+export function stripOwnGreeting(text: string, clinicName: string): string {
+  const intro = selfIntroduction(clinicName);
+  const leading = new RegExp(
+    String.raw`^\s*(?:${SALUTATION}(?:,?\s+${NAME_WORD}(?:\s+${NAME_WORD})?)?(?:${OWN_SENTENCE_END}|\s*[,—–-]?(?=\s*${intro}))\s*)?(?:${intro}\s*)?`,
+    "u",
+  );
+  const match = leading.exec(text);
+  return match && match[0].trim() ? text.slice(match[0].length) : text;
+}
+
+/**
+ * The text of a reply that carries the greeting: metaChannelGreeting(), then
+ * the reply. The model's text loses a greeting of its own first
+ * (stripOwnGreeting), and a reply that was nothing else becomes the greeting
+ * alone. A fixed line goes in as written.
+ */
+export function openWithGreeting(greeting: string, reply: { text: string; source: FrontDoorAnswer["source"] }, clinicName: string): string {
+  const body = reply.source === "model" ? stripOwnGreeting(reply.text, clinicName) : reply.text;
+  return body ? `${greeting} ${body}` : greeting;
+}
+
 /** The model's structured answer. Anything that is not the expected JSON is read as a plain reply. */
 export type ModelReply = {
   reply: string;
@@ -968,12 +1051,13 @@ export async function answerFrontDoor(
   }
 
   // The first reply of the conversation opens with the greeting, in front of
-  // whatever passed the guard or replaced it. The record waits for the send:
-  // the caller writes it only once the reply has gone out.
+  // whatever passed the guard or replaced it, and is the only greeting in it:
+  // the model's text loses one of its own (gate 20). The record waits for the
+  // send: the caller writes it only once the reply has gone out.
   let greetingToRecord: MetaConversation | null = null;
   if (!conversation || conversation.greet) {
     const greeting = metaChannelGreeting({ clinicName: facts.clinicName, channel: DISCLOSURE_CHANNEL[input.platform] });
-    answer = { ...answer, text: `${greeting} ${answer.text}`, greeted: true };
+    answer = { ...answer, text: openWithGreeting(greeting, answer, facts.clinicName), greeted: true };
     greetingToRecord = conversation;
   }
 
@@ -1032,4 +1116,43 @@ export function probeVerdict(raw: string, context: GuardContext = {}): { ok: boo
   if (!guard.ok) return { ok: false, reason: guard.reason };
   const handsOff = /\b(call|phone|website|book online|a person|the practice|the team|front desk)\b/i.test(reply);
   return handsOff ? { ok: true, reason: null } : { ok: false, reason: "no hand-off" };
+}
+
+/** A reply's sentences, for the counts below: split after ".", "!" or "?" and at line breaks. */
+function lineSentencesOf(text: string): string[] {
+  return text.split(/(?<=[.!?])\s+|\n+/).map((s) => s.trim()).filter(Boolean);
+}
+
+/** A sentence that opens with a greeting: any salutation, not only the five the backstop strips. */
+const OPENS_WITH_GREETING = /^[^\p{L}\p{N}]*(?:hi|hiya|hello|hey|howdy|greetings|good\s+(?:morning|afternoon|evening)|welcome)(?![\p{L}\p{N}])/iu;
+/** A sentence in which the assistant says it is an AI, an automated or virtual assistant, or a bot. */
+const SAYS_IT_IS_AI = /\b(?:AI|automated|virtual|digital|messaging|chat)[\s-]+(?:assistant|bot)\b|\bchatbot\b|\b(?:I['’]m|I\s+am)\s+(?:(?:just|only)\s+)?(?:an?\s+|the\s+|your\s+)?(?:AI|bot|robot|assistant)\b|\bas\s+an\s+AI\b/iu;
+/** A message asking what it is talking to, which the prompt answers ("If asked, say you are an automated assistant"). */
+const ASKS_WHAT_IT_IS = /\b(?:real\s+person|a\s+person|human|bot|robot|AI|automated|machine)\b/i;
+
+/**
+ * The QA gate's check for BAA 1.3.0 release gate 20: the reply as
+ * answerFrontDoor sends it as the first of a conversation (openWithGreeting)
+ * holds no greeting and no AI self-introduction besides the channel's own.
+ * Any salutation opening a sentence counts, not only the five the backstop
+ * strips, and so does any sentence saying it is an AI, automated or virtual
+ * assistant or a bot, as the prompt's rule 1 forbids, except in reply to a
+ * person who asked what they are talking to: the prompt tells the model to
+ * say so then, and an answer is not an introduction. `stripped` says the
+ * backstop took a greeting off the model's text: the reply passes, but the
+ * prompt alone did not hold.
+ */
+export function firstReplyVerdict(
+  raw: string,
+  input: { clinicName: string; platform: MetaPlatform; inbound: string },
+): { ok: boolean; reason: string | null; sent: string; stripped: boolean } {
+  const { reply } = parseModelReply(raw);
+  const greeting = metaChannelGreeting({ clinicName: input.clinicName, channel: DISCLOSURE_CHANNEL[input.platform] });
+  const sent = openWithGreeting(greeting, { text: reply, source: "model" }, input.clinicName);
+  const stripped = stripOwnGreeting(reply, input.clinicName) !== reply;
+  const more = (pattern: RegExp) =>
+    lineSentencesOf(sent).filter((s) => pattern.test(s)).length > lineSentencesOf(greeting).filter((s) => pattern.test(s)).length;
+  if (more(OPENS_WITH_GREETING)) return { ok: false, reason: "a second greeting", sent, stripped };
+  if (!ASKS_WHAT_IT_IS.test(input.inbound) && more(SAYS_IT_IS_AI)) return { ok: false, reason: "a second AI self-introduction", sent, stripped };
+  return { ok: true, reason: null, sent, stripped };
 }

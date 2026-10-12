@@ -9,10 +9,13 @@ import { attachMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta
 import {
   FRONT_DOOR_PROBES,
   answerFrontDoor,
+  firstReplyVerdict,
   frontDoorFacts,
   guardReply,
   handoffLine,
+  openWithGreeting,
   screenInbound,
+  stripOwnGreeting,
   urgentLine,
   type FrontDoorResponder,
   type MetaPlatform,
@@ -51,6 +54,12 @@ import { inTenant, seedChannels, seedClinic } from "./setup/factories";
  * conversation, and its reply greets again. "First reply" means the first
  * the person gets: the greeting is recorded only once the reply carrying it
  * has gone out, so a reply dropped outside Meta's window leaves it owed.
+ *
+ * And release gate 20: that greeting is the only one a first reply carries.
+ * The prompt asks the model for none, and a bare salutation or a
+ * self-introduction leading the model's text comes off before the greeting
+ * goes in front (stripOwnGreeting); a later reply goes out as the model wrote
+ * it.
  */
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
@@ -154,6 +163,135 @@ describe("the screen, before any model", () => {
       ok: false,
       reason: "guidance",
     });
+  });
+});
+
+describe("one greeting on a first reply, the channel's (BAA 1.3.0 gate 20)", () => {
+  const CLINIC = "Radiance Med Spa";
+  const strip = (text: string) => stripOwnGreeting(text, CLINIC);
+
+  test("a bare salutation leading the model's text comes off, and so does a self-introduction", () => {
+    const cases: [string, string][] = [
+      ["Hi! We're open until 6.", "We're open until 6."],
+      ["Hi there! We open at 9.", "We open at 9."],
+      ["Hello there. We open at 9.", "We open at 9."],
+      ["Hello! We open at 9.", "We open at 9."],
+      ["Hey! We open at 9.", "We open at 9."],
+      ["hi!! We open at 9.", "We open at 9."],
+      // With a name, after a comma or not.
+      ["Hello, Maria! We open at 9.", "We open at 9."],
+      ["Hi Maria Lopez! We open at 9.", "We open at 9."],
+      ["Hey Maria. We open at 9.", "We open at 9."],
+      // Nothing more on its line.
+      ["Hi\nWe open at 9.", "We open at 9."],
+      ["Hi Maria,\n\nWe open at 9.", "We open at 9."],
+      // A self-introduction, after a bare salutation, run on from one, or alone.
+      [`Hi there! I'm the messaging assistant for ${CLINIC}. We open at 9.`, "We open at 9."],
+      [`Hi, I'm an AI assistant for ${CLINIC}. We open at 9.`, "We open at 9."],
+      [`Hello there — I'm the AI assistant here at ${CLINIC}! We open at 9.`, "We open at 9."],
+      [`I'm ${CLINIC}'s virtual assistant! We open at 9.`, "We open at 9."],
+      ["I’m an AI assistant for the practice. We open at 9.", "We open at 9."],
+      [
+        "I am an automated assistant, not a person. A person at the practice can help.",
+        "A person at the practice can help.",
+      ],
+      // A reply that was only a greeting leaves nothing.
+      ["Hi there!", ""],
+      [`Hi there! I'm the messaging assistant for ${CLINIC}.`, ""],
+    ];
+    for (const [reply, left] of cases) expect(strip(reply), reply).toBe(left);
+  });
+
+  test("nothing else comes off: a salutation running on into its sentence, a word that starts like one, a greeting later on, or a self-introduction that says more", () => {
+    for (const reply of [
+      "We open at 9. Call the practice to book.",
+      "Highlights: we open at 9.",
+      "Hey, that's a good question — call the practice to book.",
+      "Hey, That's a good question.",
+      "Hi, we're open until 6.",
+      "Hi there, thanks for reaching out! We open at 9.",
+      "Hello and welcome! We open at 9.",
+      // Not one of the five.
+      "Hey there! We open at 9.",
+      "Hiring? No, we open at 9.",
+      "Hi-five! We open at 9.",
+      "We open at 9. Hi!",
+      "Thanks for reaching out! We open at 9.",
+      // A title's full stop does not end the salutation.
+      "Hi Dr. Patel, we open at 9.",
+      "Hi Dr. Patel! We open at 9.",
+      "I'm an AI assistant, so I can't help with that here — call the practice.",
+      `I'm an AI assistant for ${CLINIC}, and I can pass a booking request on.`,
+      "I'm the AI assistant for another clinic. We open at 9.",
+      "No, I'm an automated assistant. Call the practice to talk to a person.",
+    ]) {
+      expect(strip(reply), reply).toBe(reply);
+    }
+  });
+
+  test("the greeting goes in front of the model's text less its own greeting, and of a fixed line as written", () => {
+    const greeting = greetingFor(CLINIC, "messenger");
+    const model = (text: string) => openWithGreeting(greeting, { text, source: "model" }, CLINIC);
+    expect(model("Hi! We're open until 6.")).toBe(`${greeting} We're open until 6.`);
+    expect(model("Hi there!")).toBe(greeting);
+    // The fixed lines are the code's, and go in whole: the urgent line's "I'm
+    // an AI assistant" is why the person is being moved.
+    const urgent = urgentLine({ clinicName: CLINIC, phone: PUBLISHED, urgentPhone: DIRECT });
+    expect(openWithGreeting(greeting, { text: urgent, source: "urgent" }, CLINIC)).toBe(
+      `${greeting} ${urgent}`,
+    );
+    const handoff = handoffLine({ clinicName: CLINIC, phone: PUBLISHED });
+    expect(openWithGreeting(greeting, { text: handoff, source: "handoff" }, CLINIC)).toBe(
+      `${greeting} ${handoff}`,
+    );
+  });
+
+  test("the QA gate's first-reply check: as sent, no second greeting and no second AI self-introduction, where an answer to 'are you a person?' is not one", () => {
+    const hours = FRONT_DOOR_PROBES.find((p) => p.id === "hours")!.text;
+    const verdict = (raw: string, inbound = hours) =>
+      firstReplyVerdict(raw, { clinicName: CLINIC, platform: "instagram", inbound });
+    expect(verdict(modelJson("We open at 9. Call the practice to book."))).toEqual({
+      ok: true,
+      reason: null,
+      sent: `${greetingFor(CLINIC, "instagram")} We open at 9. Call the practice to book.`,
+      stripped: false,
+    });
+    // What the backstop takes off passes, and the verdict says it was needed.
+    expect(verdict(modelJson("Hi there! We open at 9."))).toEqual({
+      ok: true,
+      reason: null,
+      sent: `${greetingFor(CLINIC, "instagram")} We open at 9.`,
+      stripped: true,
+    });
+    expect(verdict("Hello! We open at 9.")).toMatchObject({ ok: true, stripped: true });
+    // What it leaves, the check catches: any salutation opening a sentence.
+    const secondGreeting = { ok: false, reason: "a second greeting" };
+    for (const reply of [
+      "Hi there, thanks for reaching out! We open at 9.",
+      "Hey there! We open at 9.",
+      "Good morning! We open at 9.",
+      "Thanks! Hello and welcome. We open at 9.",
+      // Not stripped, since it runs on into its sentence, but a second "Hey" as sent.
+      "Hey, that's easy: we open at 9.",
+    ]) {
+      expect(verdict(modelJson(reply)), reply).toMatchObject(secondGreeting);
+    }
+    // And any sentence saying it is an AI assistant, unasked.
+    const secondIntroduction = { ok: false, reason: "a second AI self-introduction" };
+    for (const reply of [
+      `Thanks for your message! I'm the messaging assistant for ${CLINIC}. We open at 9.`,
+      "I'm an automated assistant, so I can't check that. Call the practice.",
+      "As an AI, I can't book you in, but the practice can: call them.",
+      "No, I'm an automated assistant. Call the practice.",
+    ]) {
+      expect(verdict(modelJson(reply)), reply).toMatchObject(secondIntroduction);
+    }
+    // Asked what it is, it says so, by the prompt's own rule: an answer, not an introduction.
+    const human = FRONT_DOOR_PROBES.find((p) => p.id === "human")!.text;
+    const answer = modelJson("No, I'm an automated assistant. A person at the practice can help.");
+    expect(verdict(answer, human)).toMatchObject({ ok: true });
+    const greeted = modelJson("Hello there, no. I'm an automated assistant.");
+    expect(verdict(greeted, human)).toMatchObject(secondGreeting);
   });
 });
 
@@ -932,5 +1070,61 @@ describeDb("the screen and the greeting, end to end", () => {
         greetingToRecord: null,
       });
     }
+  }, 60_000);
+
+  test("a model that greets anyway: the first reply carries one greeting, the channel's, and the second goes out as the model wrote it (BAA 1.3.0 gate 20)", async () => {
+    const pageId = "910000000000010";
+    const c = await doorOpen("screen-once", [{ platform: "messenger", externalId: pageId }]);
+    const greeting = greetingFor(c.clinicName, "messenger");
+    const responder = vi.fn<FrontDoorResponder>(async () => "Hi there! We open at 9.");
+    const thread = {
+      platform: "messenger" as const,
+      externalId: pageId,
+      senderId: "user-o1",
+      connectionId: null,
+    };
+    const t0 = new Date("2026-10-03T09:00:00Z");
+    const ask = (at: Date, input: { responder: FrontDoorResponder; senderId?: string }) =>
+      answerSent(c.clinicId, {
+        platform: "messenger",
+        text: "When do you open?",
+        responder: input.responder,
+        thread: { ...thread, senderId: input.senderId ?? thread.senderId },
+        now: at,
+      });
+
+    // The first reply: the channel's greeting, then the model's text without its own.
+    const first = (await ask(t0, { responder }))!;
+    expect(first).toMatchObject({
+      source: "model",
+      greeted: true,
+      text: `${greeting} We open at 9.`,
+    });
+    expect(first.text.match(/\b(?:Hi|Hello|Hey)\b/g)).toEqual(["Hi"]);
+    expect(first.text.match(/\bAI assistant\b/g)).toEqual(["AI assistant"]);
+
+    // The second reply of the conversation carries no greeting, and the
+    // model's text goes out exactly as it wrote it.
+    const second = (await ask(new Date(t0.getTime() + 60_000), { responder }))!;
+    expect(second).toMatchObject({
+      source: "model",
+      greeted: false,
+      text: "Hi there! We open at 9.",
+      greetingToRecord: null,
+    });
+    expect(responder).toHaveBeenCalledTimes(2);
+
+    // A self-introduction of the model's own comes off as well, by the clinic's name.
+    const introducing: FrontDoorResponder = async () =>
+      modelJson(`Hi, I'm the messaging assistant for ${c.clinicName}. We open at 9.`);
+    const other = (await ask(t0, { responder: introducing, senderId: "user-o2" }))!;
+    expect(other).toMatchObject({ greeted: true, text: `${greeting} We open at 9.` });
+
+    // The audit rows are a greeted reply's and a later one's, as ever.
+    expect(await frontDoorAudit(c.clinicId)).toEqual([
+      { platform: "messenger", source: "model", greeted: true },
+      { platform: "messenger", source: "model" },
+      { platform: "messenger", source: "model", greeted: true },
+    ]);
   }, 60_000);
 });

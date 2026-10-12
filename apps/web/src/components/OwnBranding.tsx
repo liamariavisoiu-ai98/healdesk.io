@@ -31,9 +31,13 @@ import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
  *     with a caret, showing what goes there (`useGhostAddress`; while the
  *     section is on screen, never with reduced motion);
  *   - Safari's blue focus ring breathes round it once the window is in view;
- *   - and what is in it, theirs or the example, is echoed live in the
- *     window's tab and in a greeting from AYA's chat in the page's corner,
- *     "Hi, I'm AYA on glowmedspa.com", before they press Show me.
+ *   - and what is in it, theirs or the example, is echoed live in a
+ *     greeting from AYA's chat in the page's corner, "Hi, I'm AYA on
+ *     glowmedspa.com", before they press Show me.
+ *
+ * The window has no tab bar (owner, 12 October 2026): its "Start Page" tab,
+ * and the echo of the address in it, were a second line of chrome between
+ * the address bar and the page.
  *
  * The first touch, a press or focus, stops the typing and the ring for
  * good; the echo follows what they type.
@@ -242,7 +246,7 @@ export function OwnBranding() {
   /** The empty address bar is typing its examples. */
   const typing = inView && !touched && !reduce && phase === "idle" && domain === "";
   const ghost = useGhostAddress(typing);
-  /** What the address bar holds, theirs or the example, for the tab and AYA's greeting. */
+  /** What the address bar holds, theirs or the example, for AYA's greeting. */
   const echo = hostOf(domain) || ghost;
 
   useEffect(() => {
@@ -357,10 +361,6 @@ export function OwnBranding() {
   };
 
   const colour = preview?.color ?? NEUTRAL;
-  const shownSite = phase === "shown" || phase === "email" || phase === "sending" || phase === "done";
-  /** The tab: what is in the address bar until their site is up, then its name. */
-  const tabTitle = shownSite ? name : echo;
-  const tabColour = shownSite ? colour : "#8e8e93";
   const ink = readableOn(colour);
   const initial = name.charAt(0).toUpperCase();
   const buttonLabel = phase === "reading" ? "Reading…" : phase === "sending" ? "Sending…" : phase === "done" ? "Sent" : phase === "idle" ? "Show me" : "Email it to me";
@@ -473,25 +473,6 @@ export function OwnBranding() {
           <span className="hidden w-[52px] shrink-0 sm:block" aria-hidden />
         </form>
 
-        {/* Safari's tab bar, one tab: named for what is in the address bar
-            as it is typed, and for their site once it is up. */}
-        <div aria-hidden className="relative z-20 flex h-[32px] items-center gap-2 border-b border-black/[0.08] bg-[#e4e4e7] px-2">
-          <span className="flex h-[24px] w-[min(280px,70%)] min-w-0 items-center gap-2 rounded-sm bg-[#f6f6f6] px-2.5 shadow-sm ring-1 ring-black/[0.06]">
-            {tabTitle ? (
-              <span className="grid size-[14px] shrink-0 place-items-center rounded-sm text-[9px] font-bold" style={{ background: tabColour, color: readableOn(tabColour) }}>
-                {tabTitle.charAt(0).toUpperCase()}
-              </span>
-            ) : (
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" className="size-[14px] shrink-0 text-[#8e8e93]">
-                <circle cx="8" cy="8" r="6.2" />
-                <path d="M1.8 8h12.4M8 1.8c1.8 1.9 2.6 3.9 2.6 6.2S9.8 12.3 8 14.2C6.2 12.3 5.4 10.3 5.4 8S6.2 3.7 8 1.8z" />
-              </svg>
-            )}
-            <span className="truncate text-[12.5px] font-medium text-[#1d1d1f]">{tabTitle || "Start Page"}</span>
-          </span>
-          <span className="text-[17px] leading-none text-[#8e8e93]">+</span>
-        </div>
-
         {/* The sheet: macOS asks its question from the top of the window it belongs to. */}
         <div
           role="dialog"
@@ -500,7 +481,7 @@ export function OwnBranding() {
           aria-hidden={!sheetOpen}
           inert={!sheetOpen}
           className={[
-            "absolute inset-x-0 top-[84px] z-10 mx-auto w-[min(440px,calc(100%-24px))] rounded-b-md border border-t-0 border-black/10 bg-white/95 px-5 pt-5 pb-4 shadow-lg backdrop-blur-xl transition-[transform,opacity] duration-base ease-out",
+            "absolute inset-x-0 top-[52px] z-10 mx-auto w-[min(440px,calc(100%-24px))] rounded-b-md border border-t-0 border-black/10 bg-white/95 px-5 pt-5 pb-4 shadow-lg backdrop-blur-xl transition-[transform,opacity] duration-base ease-out",
             sheetOpen ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-[110%] opacity-0",
           ].join(" ")}
           onKeyDown={(event) => {

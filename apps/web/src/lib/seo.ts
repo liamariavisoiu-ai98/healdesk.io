@@ -12,10 +12,12 @@ import { site } from "@/lib/site";
  * ## What is listed
  *
  * The public pages a stranger should be able to find: the homepage, the
- * calculator, pricing, contact, and the legal and trust pages. Every path here
- * exists on disk; a path is added in the same commit as its page so the
- * sitemap never has to be remembered later, which is how legal pages end up
- * unindexed for a year.
+ * calculator, contact, and the legal pages. Every path here exists on disk; a
+ * path is added in the same commit as its page so the sitemap never has to be
+ * remembered later, which is how legal pages end up unindexed for a year, and
+ * leaves in the same commit as its page. /pricing, /subprocessors and /trust
+ * left on 9 October 2026 (owner's decisions): /pricing and /trust redirect
+ * (next.config.ts), and a redirect is not a page to list.
  *
  * ## What is kept out
  *
@@ -30,12 +32,9 @@ import { site } from "@/lib/site";
  */
 export const PUBLIC_ROUTES = [
   { path: "/", changeFrequency: "weekly", priority: 1 },
-  { path: "/pricing", changeFrequency: "monthly", priority: 0.9 },
   { path: "/contact", changeFrequency: "monthly", priority: 0.7 },
   { path: "/privacy", changeFrequency: "yearly", priority: 0.3 },
   { path: "/terms", changeFrequency: "yearly", priority: 0.3 },
-  { path: "/subprocessors", changeFrequency: "monthly", priority: 0.3 },
-  { path: "/trust", changeFrequency: "monthly", priority: 0.5 },
   { path: "/why-wait", changeFrequency: "monthly", priority: 0.8 },
   // The deletion instructions Meta's App Review asks for, linked from the
   // footer and from privacy § 13.

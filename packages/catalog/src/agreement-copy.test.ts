@@ -36,9 +36,10 @@ describe("AGREEMENT_COPY", () => {
     expect(baa.kind).toBe("baa");
     expect(baa.title).toBe("Business Associate Agreement");
     expect(baa.currentVersion).toBe(CURRENT_BAA_VERSION);
-    // 1.2.1, the version signed until the release, shows BAA_EXPLAINER, bullets and all.
+    // 1.2.2, the version signed until the release, shows BAA_EXPLAINER, bullets and all, as 1.2.1 did.
+    expect(baa.explainer("1.2.2")).toBe(BAA_EXPLAINER);
+    expect(baa.explainer("1.2.2").terms).toBe(BAA_EXPLAINER.terms);
     expect(baa.explainer("1.2.1")).toBe(BAA_EXPLAINER);
-    expect(baa.explainer("1.2.1").terms).toBe(BAA_EXPLAINER.terms);
     expect(baa.explainer(baa.currentVersion)).toBe(BAA_EXPLAINER);
     expect(baa.clauseNote).toBe(clauseExplainer);
     expect(baa.assentLabel).toBe(BAA_ASSENT_LABEL);
@@ -133,8 +134,11 @@ describe("AGREEMENT_COPY", () => {
       }
     }
     const bullets = DPA_EXPLAINER.terms.map((t) => t.plain).join("\n");
-    // The 24-hour rule and "without penalty", as the clauses now state them.
-    expect(bullets).toContain("within 24 hours at most, of any misuse, security incident or breach");
+    // The spec's 60-day rule and "without penalty", as the clauses now state them.
+    expect(bullets).toContain(
+      "Tell you of any misuse, security incident or breach without unreasonable delay, and in no case later than 60 calendar days after discovery",
+    );
+    expect(bullets).not.toMatch(/24 hours at most|immediately/);
     expect(bullets).not.toMatch(/five (business|calendar) days/);
     expect(bullets).toContain("so you can end the agreement without penalty if you object");
     expect(dpaClauseExplainer(CURRENT_DPA_VERSION, "subcontractors")?.plain).toContain(

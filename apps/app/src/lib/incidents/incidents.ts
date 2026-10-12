@@ -7,23 +7,26 @@ import type { TenantTx } from "@/lib/tenant";
  * Incidents: the BAA's promises as rows with deadlines.
  *
  * The agreement (packages/catalog/src/baa.ts, "Reporting breaches and
- * security incidents") commits healdesk to tell the clinic, immediately
- * following discovery and in any case WITHIN 24 HOURS of it, of:
+ * security incidents") commits healdesk to tell the clinic of:
  *
  *   a. any use or disclosure of PHI the agreement does not permit;
  *   b. any breach of unsecured PHI;
  *   c. any security incident, a state-law breach of security included.
  *
- * That is BAA 1.3.0's one rule for every practice, covered entity or not
- * (docs/counsel/agreement-changes.md §12.14, release gate 5, PT-14). BAA
- * 1.2.1 allowed five business days for (a) and (c) and five calendar days
- * for (b); 24 hours meets those as well, so every clinic gets the 24-hour
- * clock whichever version it signed, and the runbook works to it
- * (docs/incident-response.md). For a breach at a clinic that is not a
+ * Since BAA 1.2.2 (owner, 9 October 2026), and in the 1.3.0 and DPA drafts,
+ * it promises each "without unreasonable delay and in no case later than 60
+ * calendar days" after discovery, the product spec's wording. The clock this
+ * file keeps is stricter, and stays so on purpose: 24 hours from discovery
+ * for all three classes at every clinic, whichever version it signed, as an
+ * operating target the agreements no longer state (docs/incident-response.md).
+ * It meets every version's promise, and a covered clinic's own sixty-day
+ * clock to notify patients may run from our discovery, so a report near our
+ * outer limit could leave it no time. For a breach at a clinic that is not a
  * covered entity, a state law can ask for notice "immediately following
- * discovery" as well, as California's does of a business holding data for
- * its owner (Cal. Civ. Code 1798.82(b)). Here that is also 24 hours from
- * discovery, and whichever of the two clocks is earlier is the one kept.
+ * discovery", as California's does of a business holding data for its owner
+ * (Cal. Civ. Code 1798.82(b)); the 24 hours is what meets that now, since the
+ * agreement no longer says it, and whichever of the two clocks is earlier is
+ * the one kept.
  *
  * A clock that lives in someone's memory is a clock that is missed. Opening
  * an incident computes `notify_by` from the class, the discovery time and
@@ -48,7 +51,7 @@ export type IncidentClass = "security_incident" | "improper_use_or_disclosure" |
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** The agreement's deadline for (a), (b) and (c): within 24 hours of discovery. */
+/** Our deadline for (a), (b) and (c), stricter than the agreement's: 24 hours from discovery. */
 const REPORT_WITHIN_MS = DAY_MS;
 
 /** "Immediately following discovery", as a deadline the console can show. */

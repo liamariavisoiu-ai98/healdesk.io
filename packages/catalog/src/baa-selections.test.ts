@@ -39,7 +39,7 @@ const render = (selections: BaaSelections, version: string) =>
 describe("which templates ask the calendar questions", () => {
   test("1.3.0 does; every earlier version does not", () => {
     expect(templateReadsCalendarAccount(getBaaTemplate("1.3.0")!)).toBe(true);
-    for (const version of ["1.2.1", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"]) {
+    for (const version of ["1.2.2", "1.2.1", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"]) {
       expect(templateReadsCalendarAccount(getBaaTemplate(version)!), version).toBe(false);
     }
     // While 1.3.0 is a draft the offered template asks nothing new.
@@ -80,11 +80,11 @@ describe("selections for a template before 1.3.0", () => {
   });
 
   test("name every platform today's checkout offers, in the bytes its signers saw", () => {
-    // The live picker offers every `platforms` entry, and signs 1.2.1 naming
+    // The live picker offers every `platforms` entry, and signs 1.2.2 naming
     // it. Zenoti, PatientNow, Acuity and Vagaro have no v1 booking system, so
     // only the platform id the picker sent can name them.
     for (const platform of platforms) {
-      for (const version of ["1.2.1", "1.2.0"]) {
+      for (const version of ["1.2.2", "1.2.1", "1.2.0"]) {
         const built = buildBaaSelections(
           input({
             bookingSystem: null,
@@ -106,7 +106,7 @@ describe("selections for a template before 1.3.0", () => {
   test("name a booking system's phase-two platform when no platform id is given", () => {
     for (const system of BOOKING_SYSTEMS) {
       const platformId = system.phaseTwoPlatformId ?? NO_PLATFORM_ID;
-      for (const version of ["1.2.1", "1.2.0"]) {
+      for (const version of ["1.2.2", "1.2.1", "1.2.0"]) {
         expect(render(old(system.id), version).hash, `${version}/${system.id}`).toBe(
           render(legacy(platformId), version).hash,
         );

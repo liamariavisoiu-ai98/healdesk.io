@@ -5,12 +5,13 @@ import { SUBPROCESSORS } from "@/lib/subprocessors";
 
 /**
  * The Google Calendar disclosure names who the free times it reads reach
- * (packages/catalog/src/google-calendar-disclosure.ts), and this website's
- * subprocessor register is the public list of who handles patient
- * information. The two describe the same vendors to the same practice, so
- * they are tied here: a recipient the register does not list as handling
- * patient information would be a disclosure to a vendor the practice was
- * never told about, and a business associate agreement the register still
+ * (packages/catalog/src/google-calendar-disclosure.ts), and the subprocessor
+ * register is the internal list of who handles patient information, the one
+ * a clinic is given on request (it stopped being published on 9 October
+ * 2026). The two describe the same vendors to the same practice, so they are
+ * tied here: a recipient the register does not list as handling patient
+ * information would be a disclosure to a vendor the practice was never told
+ * about, and a business associate agreement the register still
  * shows as unsigned cannot be described as signed.
  */
 describe("the Google Calendar disclosure and the subprocessor register", () => {

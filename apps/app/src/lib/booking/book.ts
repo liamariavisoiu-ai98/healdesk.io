@@ -466,7 +466,7 @@ function callOf(
     fields: input.fields,
     providerId: "providerId" in input ? (input.providerId ?? null) : null,
     budgetMs: "budgetMs" in input ? input.budgetMs : 0,
-    holderRef: holderRefOf(input.holderKey),
+    holderRef: holderRefOf(clinicId, input.holderKey),
     ...checked,
   };
 }

@@ -30,16 +30,16 @@ export function Brand({ className = "" }: { className?: string }) {
 }
 
 /**
- * Wordmark on the left, one link and two calls to action on the right.
+ * Wordmark on the left, two links and two calls to action on the right.
  *
- * Pricing and contact still live in the footer; "Why wait?" is the one link
+ * Contact lives in the footer; "Why wait?" is the one page link
  * that earned a place here, because the page behind it is the argument for
  * buying now and the calculator it holds used to interrupt the homepage. The
  * navbar carries the purchase flow as its PRIMARY action, with the demo as
  * secondary. Until this existed the homepage had no path to checkout at all:
  * AYA's own prompt told her to point at a "Make It Yours" button that only
- * exists on /pricing, so a prospect she had just convinced had to find the
- * footer to buy.
+ * existed on the old /pricing page, so a prospect she had just convinced had
+ * to find the footer to buy.
  *
  * "Get in touch" (6 October 2026, the owner's) sits beside it as the outlined
  * secondary button, opening a call booking over the page (GetInTouch.tsx).
@@ -56,7 +56,7 @@ export function Brand({ className = "" }: { className?: string }) {
 export function Nav() {
   const pathname = usePathname();
   const onHome = pathname === "/";
-  // A bare "#aya" on /pricing scrolls to nothing, and a "/#aya" on the homepage
+  // A bare "#aya" on /why-wait scrolls to nothing, and a "/#aya" on the homepage
   // makes Next run a route transition instead of letting CSS smooth-scroll do it.
   const demoHref = onHome ? site.cta.secondary.href : `/${site.cta.secondary.href}`;
 
@@ -78,14 +78,14 @@ export function Nav() {
             {item.label}
           </a>
         ))}
+        {/* A hairline between the two text links (owner, 9 October 2026),
+            shown wherever they are. */}
+        <span aria-hidden className="bg-line-strong hidden h-5 w-px shrink-0 min-[700px]:block" />
         <a
           href={demoHref}
-          className="text-muted hover:text-ink hidden text-[16.8px] font-semibold whitespace-nowrap transition-colors min-[700px]:inline-flex min-[700px]:items-center min-[700px]:gap-1.5"
+          className="text-muted hover:text-ink hidden text-[16.8px] font-semibold whitespace-nowrap transition-colors min-[700px]:inline-flex"
         >
           {site.cta.secondary.label}
-          <span aria-hidden className="text-[0.85em] opacity-60">
-            ↓
-          </span>
         </a>
 
         <GetInTouch className="ml-auto min-[700px]:ml-0" />

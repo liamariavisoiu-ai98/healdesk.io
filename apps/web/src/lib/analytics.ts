@@ -45,6 +45,9 @@ export const EVENTS = {
   contact_submitted: [],
   setup_requested: ["has_website"],
   call_requested: [],
+  // The homepage's "See it in your own branding": a demo of their own asked
+  // for. Never the website or the address typed, only that it happened.
+  own_demo_requested: [],
   // "Get in touch": the Calendly modal opened, and a call booked in it. The
   // booking's own payload names the invitee and never leaves GetInTouch.tsx.
   meeting_opened: [],

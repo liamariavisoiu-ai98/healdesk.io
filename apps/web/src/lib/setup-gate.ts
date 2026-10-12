@@ -1,5 +1,5 @@
 import { demoSlugFromCookieHeader } from "@/lib/demo/attribution";
-import { getDemoSession, type DemoSession } from "@/lib/demo/sessions";
+import { getDemoSession, isSelfServeDemo, type DemoSession } from "@/lib/demo/sessions";
 import { cohortCreditLive, findLeadById } from "@/lib/leads";
 import { checkoutMode } from "@/lib/checkout-mode";
 import { findSetupRequest } from "@/lib/setup-requests";
@@ -118,10 +118,21 @@ export function refuseOtherEmail(request: SetupRequest, field: string): Response
  * browser's word: it must exist, be built, and not have been bought already.
  * The purchase is not bound to the demo's email, because the operator may
  * not have had the owner's own address when building it.
+ *
+ * A demo the visitor asked for on the homepage (`isSelfServeDemo`, since
+ * 9 October 2026) is not an invitation: nobody chose that buyer, and the
+ * pilot gate exists so that someone does. Its "Book Onboarding" leads to
+ * "Tell us about your clinic" like any other uninvited visit, and the setup
+ * link that follows lets them buy, demo offer and all.
  */
 export async function demoInvitation(cookieHeader: string | null): Promise<DemoSession | null> {
   const slug = demoSlugFromCookieHeader(cookieHeader);
   if (!slug) return null;
   const session = await getDemoSession(slug);
-  return session && session.status === "ready" && !session.claimed ? session : null;
+  return session && invitesToBuy(session) ? session : null;
+}
+
+/** A built, unbought demo that an operator made: the test /get-started applies to the same cookie. */
+export function invitesToBuy(session: DemoSession): boolean {
+  return session.status === "ready" && !session.claimed && !isSelfServeDemo(session);
 }

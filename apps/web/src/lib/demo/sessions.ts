@@ -122,6 +122,20 @@ export function profileOf(session: DemoSession): ClinicProfile | null {
   return session.profile ? normalizeProfile(session.profile, session.clinicName) : null;
 }
 
+/**
+ * `createdBy` on a demo a visitor asked for themselves, from the homepage's
+ * "See it in your own branding" (api/own-demo). Every other value is an
+ * operator's doing: their console address, or "webhook" for automation they
+ * run once they have read a reply. The difference matters at checkout, where
+ * a demo the operator built counts as an invitation and a self-serve one
+ * does not (lib/setup-gate.ts).
+ */
+export const SELF_SERVE_DEMO = "homepage";
+
+export function isSelfServeDemo(session: Pick<DemoSession, "createdBy">): boolean {
+  return session.createdBy === SELF_SERVE_DEMO;
+}
+
 /** The name to show: the site's own if it gave one, else what the operator typed. */
 export function displayName(session: DemoSession): string {
   const profile = profileOf(session);

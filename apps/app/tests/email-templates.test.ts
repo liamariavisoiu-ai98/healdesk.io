@@ -333,7 +333,7 @@ describe("ops alerts beyond the fixture", () => {
     ).toMatchSnapshot();
   });
 
-  // BAA 1.2.1 gives the export "on request", but Terms §7 promises every
+  // BAA 1.2.2 and 1.2.1 give the export "on request", but Terms §7 promises every
   // leaving practice one within thirty days of the end and the canceled email
   // tells it one is coming, so it has no reason to ask. The data goes at day
   // 29 whatever the export, so an alert telling ops to deliver only "any export

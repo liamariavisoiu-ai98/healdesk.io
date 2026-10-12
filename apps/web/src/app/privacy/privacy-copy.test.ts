@@ -1,6 +1,10 @@
+import { TRANSCRIPT_RETENTION_DAYS } from "@healdesk/catalog";
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
+
+import { ENTITY } from "@/lib/legal";
+import { PROCESSOR_CATEGORIES, SUBPROCESSORS, WEBSITE_PROCESSING } from "@/lib/subprocessors";
 
 import PrivacyPage from "./page";
 
@@ -46,5 +50,60 @@ describe("the website read at checkout", () => {
     expect(text).toContain(
       "What was read from them, once you press Pay: kept with your purchase, and deleted 14 days after you last pressed Pay if the purchase is not completed, otherwise 90 days after your account is created.",
     );
+  });
+});
+
+/**
+ * Section 5 describes this website's vendors by what they do, never by name
+ * (owner, 9 October 2026), from WEBSITE_PROCESSING in src/lib/subprocessors.ts.
+ * That list is written by hand, so it is tied to the internal register here:
+ * every kind of vendor that serves this website has a row, and no row
+ * outlives the last vendor of its kind.
+ */
+describe("who processes visitor data, by category", () => {
+  const text = pageText();
+
+  test("covers exactly the kinds of vendor the register has serving this website", () => {
+    const fromRegister = new Set(
+      SUBPROCESSORS.filter((vendor) => vendor.scope !== "product").map((vendor) => vendor.category),
+    );
+    const described = WEBSITE_PROCESSING.map((row) => row.category);
+    expect(new Set(described).size, "a category is described twice").toBe(described.length);
+    expect(new Set(described)).toEqual(fromRegister);
+  });
+
+  test("prints every row", () => {
+    for (const row of WEBSITE_PROCESSING) {
+      expect(text).toContain(`${PROCESSOR_CATEGORIES[row.category]} ${row.purpose} ${row.receives}`);
+    }
+  });
+
+  test("says the patient-information subcontractors are listed for clinics on request", () => {
+    expect(text).toContain(
+      "The list of the subcontractors that handle patient information is given to clinics on request, under the Business Associate Agreement.",
+    );
+    expect(text).not.toContain("/subprocessors");
+  });
+});
+
+describe("the product's commitments the policy repeats", () => {
+  const text = pageText();
+
+  test("the breach clock is the spec's, not five days", () => {
+    expect(text).toContain(
+      "is reported to the clinic without unreasonable delay and in no case later than 60 calendar days after discovery",
+    );
+    expect(text).not.toMatch(/five (?:calendar|business) days/);
+  });
+
+  test("transcripts are deleted automatically after the agreement's period, or sooner", () => {
+    expect(text).toContain(
+      `each conversation and its transcript is deleted automatically ${TRANSCRIPT_RETENTION_DAYS} days after it took place, or sooner if the clinic chooses a shorter period`,
+    );
+  });
+
+  test("every address is the one address", () => {
+    expect(text).toContain(ENTITY.email);
+    expect(text.match(/[\w.+-]+@healdesk\.io/g)?.every((address) => address === ENTITY.email)).toBe(true);
   });
 });

@@ -385,7 +385,12 @@ function RatingHeader({ summary }: { summary: ReviewSummary }) {
       className="flex flex-wrap items-end justify-center gap-x-16 gap-y-8 text-center sm:text-left"
     >
       <div className="w-full sm:w-auto">
-        <h2 className="font-figure text-brand-gradient inline-block text-[clamp(67.2px,9.6vw,100.8px)] leading-[0.86] font-semibold tracking-[-0.04em]">
+        {/* Padded, and pulled back by the same amount so nothing moves. The
+            figure is gradient text, painted only inside the heading's own box,
+            and the tight tracking set that box's right edge inside the bowl of
+            the 9, which came out shaved flat ("not full", owner, 9 October
+            2026). The padding gives every glyph room inside the box. */}
+        <h2 className="font-figure text-brand-gradient -mx-[0.08em] -my-[0.12em] inline-block px-[0.08em] py-[0.12em] text-[clamp(67.2px,9.6vw,100.8px)] leading-[0.86] font-semibold tracking-[-0.04em]">
           <span className="sr-only">Rated </span>
           {average.toFixed(1)}
           <span className="sr-only"> out of 5</span>

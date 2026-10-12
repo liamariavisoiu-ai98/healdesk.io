@@ -1,7 +1,7 @@
 import { isAfterHours, parseOpeningHours } from "@/lib/clinic/opening-hours";
 import { billableVoiceMinutes, resolveBookingRequirements, type BookingField } from "@healdesk/catalog";
 import { toE164 } from "@healdesk/connectors";
-import { and, eq, isNotNull, isNull, or } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import { unsafeDb, type Transaction } from "@/db";
 import { bookingRequests, clinics, clinicSettings, contacts, conversations } from "@/db/schema";
@@ -152,7 +152,8 @@ export type IngestResult = {
    * The booking request this call produced, where it produced one. Never an
    * appointment: a call that ends in a request leaves the appointment to the
    * desk's confirmation (lib/meta/booking-requests.ts); a call on which the
-   * assistant booked directly links the request the tool route wrote.
+   * booking engine booked or took a request links what it logged (the first,
+   * where the caller asked for more than one).
    */
   bookingRequestId: string | null;
 };
@@ -493,12 +494,13 @@ export async function ingestCall(
 
       // A retrying vendor must get the same answer, including the same
       // request. Looking it up rather than returning null keeps the reply
-      // truthful, and re-inserting would ask the desk twice. A direct
-      // booking's request carries the vendor's call id.
+      // truthful, and re-inserting would ask the desk twice. A request the
+      // booking engine logged on the call carries the call's booking key.
       const [priorRequest] = await tx.db
         .select({ id: bookingRequests.id })
         .from(bookingRequests)
-        .where(and(eq(bookingRequests.clinicId, event.clinicId), or(eq(bookingRequests.conversationId, existing!.id), eq(bookingRequests.vendorCallId, externalCallId))))
+        .where(and(eq(bookingRequests.clinicId, event.clinicId), or(eq(bookingRequests.conversationId, existing!.id), keyedToCall(externalCallId))))
+        .orderBy(asc(bookingRequests.createdAt))
         .limit(1);
 
       return {
@@ -527,18 +529,22 @@ export async function ingestCall(
      * satisfy it would be worse than recording no booking at all.
      */
     let bookingRequestId: string | null = null;
-    // §E.4: the assistant booked directly on this call through the tool
-    // route, which inserted the request with the vendor's call id. Link the
-    // conversation (set-once) and do not create a second request.
-    const [direct] = await tx.db
-      .select({ id: bookingRequests.id })
+    // The booking engine (lib/booking/engine.ts) logged this call's
+    // bookings and requests while the call was up, under the call's booking
+    // keys: link each to the conversation (set-once) and create no second
+    // request. The clinic was alerted when each was committed (the design
+    // record's §6), so there is nothing to make sure of here.
+    const onCall = await tx.db
+      .select({ id: bookingRequests.id, bookedVia: bookingRequests.bookedVia })
       .from(bookingRequests)
-      .where(and(eq(bookingRequests.clinicId, tx.clinicId), eq(bookingRequests.vendorCallId, externalCallId)))
-      .limit(1);
-    if (direct) {
-      bookingRequestId = direct.id;
-      await linkConversationOnce(tx, direct.id, row.id);
-      tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: direct.id, metadata: { outcome: "conversation_linked", via: "agent_direct" } });
+      .where(and(eq(bookingRequests.clinicId, tx.clinicId), keyedToCall(externalCallId)))
+      .orderBy(asc(bookingRequests.createdAt));
+    if (onCall.length > 0) {
+      bookingRequestId = onCall[0]!.id;
+      for (const request of onCall) {
+        await linkConversationOnce(tx, request.id, row.id);
+        tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: request.id, metadata: { outcome: "conversation_linked", via: request.bookedVia } });
+      }
     } else {
       const requirements = resolveBookingRequirements(clinic.specialty, clinic.bookingRequirements ?? null);
       const request = bookingRequestFrom(event, contactId, clinic.timezone, requirements);
@@ -619,6 +625,17 @@ export async function ingestCall(
 }
 
 /**
+ * The requests the booking engine logged on this call, by their booking key
+ * (the design record's §6): the Synthflow harness keys a call's one booking
+ * or request by the call id itself, and the Retell process by
+ * "retell:" + call id + ":" + n, one for each booking the caller asked for.
+ * starts_with, not LIKE: a call id's underscores are LIKE wildcards.
+ */
+function keyedToCall(externalCallId: string) {
+  return or(eq(bookingRequests.vendorCallId, externalCallId), sql`starts_with(${bookingRequests.vendorCallId}, ${`retell:${externalCallId}:`})`);
+}
+
+/**
  * `booking_requests.conversation_id` is set-once (0040 trigger): null → uuid
  * is permitted exactly once, so the guard here keeps a replayed webhook from
  * tripping the trigger on a row that is already linked.
@@ -637,8 +654,8 @@ async function linkConversationOnce(tx: TenantTx, requestId: string, conversatio
  * identifier a phone call supplies. Deliberately does NOT overwrite a name that
  * already exists: a name read out of the clinic's own booking system is better
  * evidence than one a caller mumbled to a voice agent. Shared with the
- * direct-booking tool (lib/voice/tools.ts), which books the same caller on
- * the same call, so one number is one contact whichever path wrote it first.
+ * booking engine (lib/booking/book.ts), which books the same caller on the
+ * same call, so one number is one contact whichever path wrote it first.
  */
 export async function upsertCallerContact(
   db: Transaction,

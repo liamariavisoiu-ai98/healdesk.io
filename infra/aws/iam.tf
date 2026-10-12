@@ -351,11 +351,12 @@ resource "aws_iam_role" "github_deploy" {
 
 locals {
   task_families = {
-    web          = "${local.name}-web"
-    worker       = "${local.name}-worker"
-    migrate      = "${local.name}-migrate"
-    db_bootstrap = "${local.name}-db-bootstrap"
-    destroy_due  = "${local.name}-destroy-due"
+    web            = "${local.name}-web"
+    worker         = "${local.name}-worker"
+    migrate        = "${local.name}-migrate"
+    db_bootstrap   = "${local.name}-db-bootstrap"
+    destroy_due    = "${local.name}-destroy-due"
+    patient_export = local.export_task_family
   }
 
   task_definition_arn_prefix = "arn:aws:ecs:${var.region}:${local.account_id}:task-definition"
@@ -464,6 +465,7 @@ data "aws_iam_policy_document" "github_deploy" {
       aws_iam_role.ecs_execution.arn,
       aws_iam_role.app_task.arn,
       aws_iam_role.db_admin_task.arn,
+      aws_iam_role.export_task.arn,
     ]
 
     condition {

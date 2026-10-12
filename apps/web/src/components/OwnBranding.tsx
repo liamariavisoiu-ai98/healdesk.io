@@ -67,11 +67,15 @@ import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
  * ## What happens on send
  *
  * api/own-demo records the request and builds the demo after answering, with
- * the same pipeline as the operator's console (lib/demo/build.ts), and the
- * link goes to the address given, never back to this page: the address has to
- * be real for the demo to be seen. The team hears about every request at
- * hello@ (lib/demo/own-demo.ts). The window then shows Safari's blue loading
- * line over the visitor's site and says where the link will arrive.
+ * the same pipeline as the operator's console (lib/demo/build.ts), and
+ * answers with the demo's private link. The link opens in a new tab (owner,
+ * 12 October 2026): the demo's own page says it is being built, refreshes
+ * itself, and becomes the demo when it is ready. The same link goes to the
+ * address given once it is. The tab is opened blank inside the click, before
+ * the request, because a popup blocker allows a new tab only from the click
+ * itself; it is pointed at the demo when the answer comes, and closed if the
+ * request fails. Should it be blocked anyway, the window offers the link.
+ * The team hears about every request at hello@ (lib/demo/own-demo.ts).
  *
  * Nothing typed here is tracked: the analytics event says only that a demo
  * was asked for (lib/analytics.ts). The preview keeps nothing (the Privacy
@@ -132,6 +136,31 @@ function cleanPreview(data: unknown, host: string): Preview {
 }
 
 type Read = { refused: string } | { preview: Preview };
+
+/** The demo link api/own-demo answers with: a page of ours under /demo/, and nothing else is opened. */
+const DEMO_LINK = /^https?:\/\/[^/\s]+\/demo\/[a-z0-9-]{1,80}$/;
+
+function demoLinkFrom(data: unknown): string | null {
+  const url = (data as { url?: unknown } | null)?.url;
+  return typeof url === "string" && DEMO_LINK.test(url) ? url : null;
+}
+
+/**
+ * A blank tab, opened while the click still counts as the visitor's own, so
+ * no popup blocker stops it. Null if one did anyway. It is cut off from this
+ * page before anything is loaded into it.
+ */
+function openBlankTab(): Window | null {
+  try {
+    const tab = window.open("", "_blank");
+    if (!tab) return null;
+    tab.opener = null;
+    tab.document.title = `Building your ${site.agent}…`;
+    return tab;
+  } catch {
+    return null;
+  }
+}
 
 /** Ask for the preview. Everything but "that is not a public website" becomes a bare preview. */
 async function readSite(domain: string, host: string): Promise<Read> {
@@ -226,6 +255,10 @@ export function OwnBranding() {
   const [domainError, setDomainError] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
+  /** Their demo's private link, once api/own-demo has recorded it. */
+  const [demoLink, setDemoLink] = useState<string | null>(null);
+  /** The new tab opened and was sent to the demo; if not, the window's link is the way in. */
+  const [tabOpened, setTabOpened] = useState(false);
   /** The greeting has replaced the dots. */
   const [greeted, setGreeted] = useState(false);
   const domainRef = useRef<HTMLInputElement>(null);
@@ -286,6 +319,8 @@ export function OwnBranding() {
   const reset = () => {
     request.current += 1;
     setPreview(null);
+    setDemoLink(null);
+    setTabOpened(false);
     setPhase("idle");
   };
 
@@ -333,6 +368,8 @@ export function OwnBranding() {
     if (phase === "sending") return;
     setEmailError(null);
     setPhase("sending");
+    // Before the request, while the click is still the visitor's: see openBlankTab.
+    const tab = openBlankTab();
     try {
       const response = await fetch("/api/own-demo", {
         method: "POST",
@@ -341,6 +378,7 @@ export function OwnBranding() {
       });
       const data = (await response.json().catch(() => null)) as { error?: string; field?: string } | null;
       if (!response.ok) {
+        tab?.close();
         const message = data?.error ?? "Something went wrong. Try again.";
         if (data?.field === "domain") {
           setDomainError(message);
@@ -352,9 +390,24 @@ export function OwnBranding() {
         }
         return;
       }
+      const link = demoLinkFrom(data);
+      let opened = false;
+      if (link && tab && !tab.closed) {
+        try {
+          tab.location.href = link;
+          opened = true;
+        } catch {
+          tab.close();
+        }
+      } else {
+        tab?.close();
+      }
+      setDemoLink(link);
+      setTabOpened(opened);
       track("own_demo_requested");
       setPhase("done");
     } catch {
+      tab?.close();
       setEmailError("Network error. Try again.");
       setPhase("email");
     }
@@ -371,7 +424,7 @@ export function OwnBranding() {
       : phase === "shown" || phase === "email"
         ? `Showing ${host} with ${site.agent} on it.`
         : phase === "done"
-          ? `Building ${host}'s assistant. The link will be emailed to ${email.trim()}.`
+          ? `Building ${host}'s assistant. ${tabOpened ? "It is opening in a new tab, and the" : "The"} link will be emailed to ${email.trim()}.`
           : "";
 
   return (
@@ -496,8 +549,8 @@ export function OwnBranding() {
                   Send me my own free AI assistant in my own branding
                 </p>
                 <p className="mt-1 text-[13.5px] leading-snug text-[#6e6e73]">
-                  Built from <span className="font-semibold text-[#1d1d1f]">{host || "your website"}</span>. The link
-                  arrives by email when it&rsquo;s ready.
+                  Built from <span className="font-semibold text-[#1d1d1f]">{host || "your website"}</span>. It opens
+                  in a new tab, and the link comes by email too.
                 </p>
               </div>
             </div>
@@ -678,13 +731,25 @@ export function OwnBranding() {
                   Building {host}&rsquo;s assistant&hellip;
                 </p>
                 <p className="text-muted mx-auto mt-2 max-w-[44ch] text-[15.5px] font-medium">
-                  We&rsquo;ll email <span className="text-ink font-semibold">{email.trim()}</span> the link when it&rsquo;s
-                  ready. Questions:{" "}
+                  {tabOpened ? <>It&rsquo;s opening in a new tab. </> : null}
+                  We&rsquo;ll also email <span className="text-ink font-semibold">{email.trim()}</span> the link when
+                  it&rsquo;s ready. Questions:{" "}
                   <a href={`mailto:${site.email}`} className="text-ink font-semibold underline underline-offset-2">
                     {site.email}
                   </a>
                   .
                 </p>
+                {/* The way in when a popup blocker stopped the tab, and back to it after it is closed. */}
+                {demoLink ? (
+                  <a
+                    href={demoLink}
+                    target="_blank"
+                    rel="noopener"
+                    className="mt-5 inline-flex h-[34px] items-center rounded-sm bg-[#0071e3] px-4 text-[14.5px] font-semibold text-white shadow-sm transition-colors hover:bg-[#0077ed]"
+                  >
+                    Open your demo
+                  </a>
+                ) : null}
               </div>
             </div>
           ) : null}

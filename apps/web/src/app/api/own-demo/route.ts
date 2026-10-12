@@ -18,10 +18,16 @@ import { site } from "@/lib/site";
  *
  *   { "domain": "peachystudio.com", "email": "owner@peachystudio.com" }
  *
- * Answers 202 at once, with nothing in it but `ok`: the link goes to the
- * address, never to the browser, so the address has to be real for the demo
- * to be seen. The crawl, the model call and the email run after the
- * response (`after()`, inside `maxDuration`).
+ * Answers 202 at once with `{ ok, url }`, the demo's private link. The page
+ * opens it in a new tab (owner, 12 October 2026), where the demo's own
+ * holding screen shows the build and turns into the demo when it is ready,
+ * so the visitor is not left waiting on an email to see anything. The same
+ * link is still emailed once the demo is ready. The crawl, the model call and
+ * the email run after the response (`after()`, inside `maxDuration`).
+ *
+ * The link used to go to the address only, so that the address had to be
+ * real for the demo to be seen. It no longer has to be: the limits below are
+ * what bound the spend, and they are unchanged.
  *
  * The visitor asked for this, on our page, so the email that brings the link
  * is a reply, not outreach. Nothing here dials anyone.
@@ -133,7 +139,7 @@ export async function POST(request: Request): Promise<Response> {
     return refuse(422, result.error, { field: result.field === "leadEmail" ? "email" : "domain" });
   }
 
-  const { session } = result;
+  const { session, url } = result;
   after(() => buildSelfServeDemo(session));
-  return Response.json({ ok: true }, { status: 202 });
+  return Response.json({ ok: true, url }, { status: 202 });
 }

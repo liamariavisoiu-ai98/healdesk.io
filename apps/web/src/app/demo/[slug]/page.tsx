@@ -11,7 +11,15 @@ import { chatGreeting, demoModeLine } from "@/lib/demo/clinic-prompts";
 import { readableOn } from "@/lib/demo/colour";
 import { weekSchedule } from "@/lib/demo/opening-hours";
 import type { ClinicProfile } from "@/lib/demo/profile";
-import { displayName, getDemoSession, isDemoExpired, isDemoSlug, profileOf } from "@/lib/demo/sessions";
+import {
+  displayName,
+  getDemoSession,
+  isDemoBuildStalled,
+  isDemoExpired,
+  isDemoSlug,
+  isSelfServeDemo,
+  profileOf,
+} from "@/lib/demo/sessions";
 import { site } from "@/lib/site";
 
 /**
@@ -120,8 +128,12 @@ export default async function DemoPage({ params }: Props) {
       : null;
 
   // Building, being audited (lib/demo/audit.ts), or held or failed and the
-  // team is finishing it by hand. Only an audited demo is ever shown.
-  const inProgress = session.status === "building" || session.status === "auditing";
+  // team is finishing it by hand. Only an audited demo is ever shown. A build
+  // past its route's 300 s will never land, and its row says "building" for
+  // good, so it is the team's to finish too, and the page stops promising a
+  // minute or two: the homepage opens this page the moment a demo is asked
+  // for, so its visitor would otherwise watch that promise indefinitely.
+  const inProgress = (session.status === "building" || session.status === "auditing") && !isDemoBuildStalled(session);
   if (!profile || session.status !== "ready") {
     return (
       <Shell colour={colour}>
@@ -137,7 +149,9 @@ export default async function DemoPage({ params }: Props) {
           <p className="text-muted mt-3 text-[17px] font-medium">
             {inProgress
               ? "We're reading your website and setting up your voice and chat assistants. This usually takes a minute or two, and this page will update by itself."
-              : "Our team is putting the finishing touches on it. Check back shortly, or reply to our email and we'll let you know the moment it's ready."}
+              : isSelfServeDemo(session)
+                ? `Our team is putting the finishing touches on it, and we'll email you the moment it's ready. Questions: ${site.email}.`
+                : "Our team is putting the finishing touches on it. Check back shortly, or reply to our email and we'll let you know the moment it's ready."}
           </p>
         </main>
       </Shell>

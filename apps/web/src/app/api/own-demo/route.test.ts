@@ -49,11 +49,11 @@ describe("POST /api/own-demo", () => {
   });
   afterEach(() => vi.unstubAllEnvs());
 
-  it("records a self-serve demo from the domain, answers 202 with nothing in it, and builds after the response", async () => {
+  it("records a self-serve demo from the domain, answers 202 with the demo's link for the new tab, and builds after the response", async () => {
     const POST = await route();
     const response = await POST(post({ domain: " www.peachy-studio.com/about ", email: "Owner@Peachy.com " }));
     expect(response.status).toBe(202);
-    expect(await response.json()).toEqual({ ok: true });
+    expect(await response.json()).toEqual({ ok: true, url: "https://healdesk.io/demo/x" });
     expect(requestDemo).toHaveBeenCalledWith({
       clinicName: "Peachy Studio",
       websiteUrl: "https://www.peachy-studio.com/about",
@@ -71,6 +71,8 @@ describe("POST /api/own-demo", () => {
     const POST = await route();
     const response = await POST(post({ domain: "peachy.com", email: "a@b.co", company: "Acme" }));
     expect(response.status).toBe(202);
+    // No link: there is no demo to open.
+    expect(await response.json()).toEqual({ ok: true });
     expect(requestDemo).not.toHaveBeenCalled();
     expect(afterFns).toHaveLength(0);
   });

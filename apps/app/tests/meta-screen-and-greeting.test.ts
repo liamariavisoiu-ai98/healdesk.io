@@ -9,6 +9,7 @@ import { attachMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta
 import {
   FRONT_DOOR_PROBES,
   answerFrontDoor,
+  frontDoorFacts,
   guardReply,
   handoffLine,
   screenInbound,
@@ -30,7 +31,7 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import { inTenant, seedClinic } from "./setup/factories";
+import { inTenant, seedChannels, seedClinic } from "./setup/factories";
 
 /**
  * Release gate 4 of BAA 1.3.0 (docs/counsel/agreement-changes.md §12.14,
@@ -57,6 +58,8 @@ const ACTOR = { type: "service", serviceName: "test" } as const;
 const APP_SECRET = "meta-app-secret-for-screen-tests";
 const PUBLISHED = "+14155550142";
 const DIRECT = "+14155550143";
+/** The urgent-help number the setup wizard asks for (plan Part E, 2.5). */
+const URGENT = "+14155550144";
 const HOUR = 60 * 60 * 1000;
 
 const greetingFor = (clinicName: string, platform: MetaPlatform) =>
@@ -291,7 +294,7 @@ describeDb("the screen and the greeting, end to end", () => {
   async function doorOpen(
     label: string,
     channels: { platform: MetaPlatform; externalId: string }[],
-    opts: { directLine?: string } = {},
+    opts: { directLine?: string; urgentHelp?: string } = {},
   ) {
     const c = await seedClinic(label);
     // Weekdays 9 to 5: the opening and closing times the reply guard lets a
@@ -330,6 +333,15 @@ describeDb("the screen and the greeting, end to end", () => {
       }
       await setMetaFrontDoor(tx, true);
     });
+    if (opts.urgentHelp) {
+      await inTenant(c.clinicId, (client) =>
+        client.query(
+          `insert into clinic_settings (clinic_id, urgent_help_e164) values ($1, $2)
+           on conflict (clinic_id) do update set urgent_help_e164 = excluded.urgent_help_e164`,
+          [c.clinicId, opts.urgentHelp],
+        ),
+      );
+    }
     return { ...c, clinicName: `${label} Clinic` };
   }
 
@@ -558,10 +570,47 @@ describeDb("the screen and the greeting, end to end", () => {
     ]);
   }, 60_000);
 
+  test("the urgent line gives the practice's urgent-help number, else its default as the wizard resolves it", async () => {
+    // lib/setup/urgent.ts: the clinic's own urgent-help number; empty, the
+    // direct line for a practice with phone, the main number without.
+    const facts = (clinicId: string) =>
+      withTenant({ clinicId, actor: ACTOR }, (tx) => frontDoorFacts(tx));
+    const own = await doorOpen(
+      "urgent-own",
+      [{ platform: "messenger", externalId: "910000000000031" }],
+      {
+        directLine: DIRECT,
+        urgentHelp: URGENT,
+      },
+    );
+    expect((await facts(own.clinicId))?.urgentPhone).toBe(URGENT);
+
+    const withPhone = await doorOpen(
+      "urgent-phone",
+      [{ platform: "messenger", externalId: "910000000000032" }],
+      {
+        directLine: DIRECT,
+      },
+    );
+    await seedChannels(withPhone.clinicId, [{ channel: "voice" }]);
+    expect((await facts(withPhone.clinicId))?.urgentPhone).toBe(DIRECT);
+
+    // Chat only: the main number reaches the practice, since nothing forwards it to AYA.
+    const chatOnly = await doorOpen(
+      "urgent-chat",
+      [{ platform: "messenger", externalId: "910000000000033" }],
+      {
+        directLine: DIRECT,
+      },
+    );
+    expect((await facts(chatOnly.clinicId))?.urgentPhone).toBe(PUBLISHED);
+  }, 60_000);
+
   test("an urgent message gets the urgent line without the model, and a half-collected request is left as it was", async () => {
     const pageId = "910000000000002";
     const c = await doorOpen("screen-urgent", [{ platform: "messenger", externalId: pageId }], {
       directLine: DIRECT,
+      urgentHelp: URGENT,
     });
 
     // First, the person starts a booking request: the model's reply, with a name.
@@ -588,10 +637,10 @@ describeDb("the screen and the greeting, end to end", () => {
     const symptom = FRONT_DOOR_PROBES.find((p) => p.id === "symptom")!.text;
     await post(messengerEvent(`${symptom} My number is 415 555 0145.`, "user-u1", pageId));
     expect(responder).toHaveBeenCalledTimes(1);
-    const urgent = urgentLine({ clinicName: c.clinicName, phone: PUBLISHED, urgentPhone: DIRECT });
+    const urgent = urgentLine({ clinicName: c.clinicName, phone: PUBLISHED, urgentPhone: URGENT });
     expect(sent.at(-1)!.text).toBe(urgent);
     expect(urgent).toMatch(/If this is an emergency, call 911 now\./);
-    expect(urgent).toContain(DIRECT);
+    expect(urgent).toContain(URGENT);
 
     // The draft is exactly as it was: the urgent message's number is not in it.
     const draftAfter = await inTenant(c.clinicId, (client) =>
@@ -624,6 +673,7 @@ describeDb("the screen and the greeting, end to end", () => {
     const pageId = "910000000000006";
     const c = await doorOpen("screen-reaction", [{ platform: "messenger", externalId: pageId }], {
       directLine: DIRECT,
+      urgentHelp: URGENT,
     });
     const responder = vi.fn<FrontDoorResponder>(async () =>
       modelJson("We're open weekdays 9 to 5 — call the practice to book."),
@@ -638,7 +688,7 @@ describeDb("the screen and the greeting, end to end", () => {
     ];
     for (const text of messages) await post(messengerEvent(text, "user-x1", pageId));
     expect(responder).not.toHaveBeenCalled();
-    const urgent = urgentLine({ clinicName: c.clinicName, phone: PUBLISHED, urgentPhone: DIRECT });
+    const urgent = urgentLine({ clinicName: c.clinicName, phone: PUBLISHED, urgentPhone: URGENT });
     expect(sent.map((s) => s.text)).toEqual([
       `${greetingFor(c.clinicName, "messenger")} ${urgent}`,
       urgent,

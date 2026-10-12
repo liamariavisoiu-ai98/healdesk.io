@@ -1634,7 +1634,7 @@
   transition: opacity var(--duration-slow) var(--ease-standard);
 }
 
-/* The whole circle, faint: what makes three arcs read as three rings. */
+/* The whole circle, faint: what makes the arcs read as rings. */
 .portrait__ring {
   fill: none;
   stroke: rgb(23 42 58 / 0.1);
@@ -1841,19 +1841,21 @@
   transform: translate(0, -50%);
 }
 
-/* Stripe's sits too near the photo's right edge for a card beside it, so its
-   card opens above it, over the wall. */
+/* Stripe's sits at the photo's right edge, level with the phone line on the
+   left, too near it for a card beside it: its card opens above it, its right
+   edge in line with the logo's, so it grows back towards her over the wall. */
 @media (min-width: 1280px) {
   .portrait__node[data-card="above"] .portrait__card {
     top: auto;
     bottom: calc(100% + 12px);
-    left: 50%;
-    transform: translate(-50%, 6px) scale(0.96);
-    transform-origin: 50% 100%;
+    left: auto;
+    right: 0;
+    transform: translate(0, 6px) scale(0.96);
+    transform-origin: 100% 100%;
   }
 
   .portrait__node[data-card="above"][data-shown] .portrait__card {
-    transform: translate(-50%, 0);
+    transform: translate(0, 0);
   }
 }
 

@@ -40,22 +40,30 @@ export type LogoGroup = "messages" | "bookings" | "synced" | "payments";
 export const PHOTO = { width: 1672, height: 941 } as const;
 
 /**
- * The three orbits round her (the owner's pick of 9 October 2026, "three
- * orbits mixed with the chips that fan out"): true circles, about one point
- * under her chin, so they ring her head and pass beside her shoulders. The
- * owner asked on 12 October 2026 for perfect circles; the first version drew
+ * The circles round her (the owner's pick of 9 October 2026, "three orbits
+ * mixed with the chips that fan out"): true circles, about one point under
+ * her chin, so they ring her head and pass beside her shoulders. The owner
+ * asked on 12 October 2026 for perfect circles; the first version drew
  * flattened ovals. Each group has its own stretch of a circle, starting at
- * its chip; Bookings and the calendars synced with it share the inner one,
- * so the synced calendars stay exactly where they stood (12 October 2026). Angles are in degrees, clockwise from three o'clock,
- * as the screen draws them; `tail` is where the lit stretch fades out past the
- * last logo, and `dir` is which way along the circle the logos run from the
- * chip.
+ * its chip. Angles are in degrees, clockwise from three o'clock, as the
+ * screen draws them; `tail` is where the lit stretch fades out past the last
+ * logo.
+ *
+ * Two circles, each carrying a stretch on either side of her (owner, 12
+ * October 2026). There were three, and the outer one, which Messages & Calls
+ * needs on her left, ran on round her right with nothing on it, while
+ * Payments sat on a middle circle of its own: so the logos reached the
+ * screen's edge on the left and stopped well short of it on the right, and
+ * the whole arrangement leaned left of her. Payments now shares the outer
+ * circle, on her right, and the middle circle is gone: the logos reach as far
+ * on each side, centred on her.
  *
  * Messages & Calls (five logos) is on the outer circle because that is the
  * only one whose far left is clear of the copy's box; Bookings and the
- * synced calendars are on the inner and Payments on the middle. The places were found by search against
- * her face, the headset, the copy's box at every desktop size from 1280×720
- * to 2560×1440, the photo's edges and each other, then rounded, and
+ * synced calendars share the inner one, so the synced calendars stay exactly
+ * where they stood. The places were found by search against her face, the
+ * headset, the copy's box at every desktop size from 1280×720 to 2560×1440,
+ * the photo's edges and each other, then rounded, and
  * src/lib/integrations.test.ts pins the result.
  */
 export const ORBIT_CENTRE = { x: 827, y: 476 } as const;
@@ -80,7 +88,9 @@ export const ORBITS: readonly Orbit[] = [
   // stretch running on past HighLevel to where Bookings' tail used to be.
   { group: "bookings", title: "Bookings", r: 481, chip: -50.7, tail: -16 },
   { group: "synced", title: "Synced with Google", r: 481, chip: -12, tail: 52 },
-  { group: "payments", title: "Payments", r: 647, chip: 8, tail: 40 },
+  // Payments shares the outer circle with Messages & Calls, on her right,
+  // level with them, so the two sides reach as far from her.
+  { group: "payments", title: "Payments", r: 760, chip: -22, tail: 24 },
 ];
 
 export function orbitOf(group: LogoGroup): Orbit {
@@ -237,7 +247,7 @@ const LOGOS: readonly Omit<HeroLogo, "at">[] = [
     src: "/integrations/stripe.webp",
     mark: "Stripe",
     group: "payments",
-    angle: 26.6,
+    angle: 6,
     scene: "stripe",
     card: "above",
     showcase: [{ text: "Deposit paid" }, { text: "Slot confirmed" }],

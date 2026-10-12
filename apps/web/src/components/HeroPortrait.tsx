@@ -21,7 +21,7 @@ import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
 
 /**
  * The hero's picture: AYA, smiling, in the healdesk headset, and the logos of
- * the tools she works through on three orbits round her. The logos, their
+ * the tools she works through on two circles round her. The logos, their
  * orbits, what each shows and their trademark line are in
  * lib/integrations.ts; the sizes and the motion are in globals.css under
  * "The hero portrait", and the white veil that rises over the photo is
@@ -33,19 +33,20 @@ import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
  * little right of centre. Every place is a share of that box, so the
  * composition is the same at every size.
  *
- * ## Three orbits, and the chips that fan out (the owner's pick, 9 October)
+ * ## Orbits, and the chips that fan out (the owner's pick, 9 October)
  *
- * Three concentric circles ring her head (the owner asked on 12 October 2026
- * for true circles; they were ovals): Messages & Calls (website chat,
- * Instagram, Messenger, WhatsApp and her phone line) down the wall on her
- * left; on the right the inner circle carries Bookings (Google Calendar) and,
- * after it, the calendars synced with Google; Payments is low on the right. Each
- * circle is drawn whole and faint, so three rings read as three rings, with
- * its group's stretch lit from a chip with its title, and as the page opens
- * the logos fan out of their chip along the circle to their places,
- * then drift gently along it. Resting on a chip, or focusing it, lights its
- * orbit, dims the other two, spreads its logos a little and plays their
- * cards in turn; resting on a logo, focusing it or tapping it plays its own.
+ * Two concentric circles ring her head (the owner asked on 12 October 2026
+ * for true circles; they were ovals, and there were three): the outer one
+ * carries Messages & Calls (website chat, Instagram, Messenger, WhatsApp and
+ * her phone line) down the wall on her left and Payments on her right, level
+ * with them, so the logos reach as far on each side of her; the inner one
+ * carries Bookings (Google Calendar) and, after it, the calendars synced with
+ * Google. Each circle is drawn whole and faint, with each group's stretch lit
+ * from a chip with its title, and as the page opens the logos fan out of
+ * their chip along the circle to their places, then drift gently along it.
+ * Resting on a chip, or focusing it, lights its stretch, dims the others,
+ * spreads its logos a little and plays their cards in turn; resting on a
+ * logo, focusing it or tapping it plays its own.
  * Below 1280px there is no room for orbits beside the copy, so the logos keep
  * their places on the photo and the chips are a row under it.
  *

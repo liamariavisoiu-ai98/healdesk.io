@@ -7,6 +7,7 @@ import { clinicDefaultDepositUsd } from "@/lib/billing/deposits";
 import {
   KnowledgeError,
   neverSayWithDefaults,
+  type KnowledgeWriteOptions,
   readKnowledge,
   saveNeverSay,
   savePolicies,
@@ -113,6 +114,13 @@ export async function saveKnowledge(
   }
 }
 
+/**
+ * Knowledge's edits keep an existing approval of the agent's words: they
+ * apply at once, and AYA stays on while the practice questions check them
+ * again (Part F3). The wizard's own writes clear it (lib/setup/knowledge.ts).
+ */
+const PORTAL_WRITE: KnowledgeWriteOptions = { keepApproval: true };
+
 async function write(
   tx: TenantTx,
   section: KnowledgeSection,
@@ -138,7 +146,7 @@ async function write(
 
     case "policies": {
       const policies = validatePolicies(body.policies);
-      await savePolicies(tx, policies, now);
+      await savePolicies(tx, policies, now, PORTAL_WRITE);
       return policies.length === 1 ? "One policy saved." : `${policies.length} policies saved.`;
     }
 
@@ -152,7 +160,7 @@ async function write(
           ? { ...service, depositUsd: 0 }
           : service,
       );
-      await saveServices(tx, services, now);
+      await saveServices(tx, services, now, PORTAL_WRITE);
       return services.length === 1
         ? "One service saved. AYA quotes only the prices listed here."
         : `${services.length} services saved. AYA quotes only the prices listed here.`;
@@ -160,13 +168,13 @@ async function write(
 
     case "promotions": {
       const promotions = validatePromotions(body.promotions);
-      await savePromotions(tx, promotions, now);
+      await savePromotions(tx, promotions, now, PORTAL_WRITE);
       return promotions ? "Promotions saved." : "Promotions cleared: AYA has none to mention.";
     }
 
     case "quick_answers": {
       const answers = validateQuickAnswers(body.quickAnswers);
-      await saveQuickAnswers(tx, answers, now);
+      await saveQuickAnswers(tx, answers, now, PORTAL_WRITE);
       return answers.length === 1
         ? "One quick answer saved."
         : `${answers.length} quick answers saved.`;
@@ -174,7 +182,7 @@ async function write(
 
     case "never_say": {
       const phrases = validateNeverSay(body.neverSay);
-      await saveNeverSay(tx, phrases, now);
+      await saveNeverSay(tx, phrases, now, PORTAL_WRITE);
       return phrases.length === 1
         ? "One phrase AYA never says."
         : `${phrases.length} phrases AYA never says.`;
@@ -184,7 +192,7 @@ async function write(
       // The clinical defaults back at the top, with the clinic's own after them.
       const { neverSay } = await readKnowledge(tx.db, tx.clinicId);
       const restored = neverSayWithDefaults(neverSay);
-      await saveNeverSay(tx, restored, now);
+      await saveNeverSay(tx, restored, now, PORTAL_WRITE);
       return "The defaults are back on the never-say list, with your own phrases after them.";
     }
 
@@ -223,9 +231,11 @@ export async function readClinicDefaultDeposit(
 /**
  * M4's seam: a knowledge change asks for the practice questions to run again
  * (plan Part G), debounced, in the background. A failure there shows "We're
- * double-checking your change" on Home, calls notifyOps, and never takes AYA
- * offline. Nothing runs the questions in this build, so there is nothing to
- * ask for yet.
+ * double-checking your change" on Home, calls notifyOps with the existing
+ * `practice_question_failed` event, and never takes AYA offline. That alert
+ * belongs to the run that fails, not to the save: nothing has failed when a
+ * clinic saves, and nothing runs the questions in this build, so there is
+ * nothing to ask for or report yet.
  */
 export async function practiceQuestionsSeam(
   tx: TenantTx,

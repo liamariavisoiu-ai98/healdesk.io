@@ -225,8 +225,9 @@ export async function saveServices(
   tx: TenantTx,
   services: AgentService[],
   now: Date = new Date(),
+  options: KnowledgeWriteOptions = {},
 ): Promise<void> {
-  await writeAgentConfig(tx, { services }, now);
+  await writeAgentConfig(tx, { services }, now, options);
   tx.audit.record({
     action: "update",
     resourceType: "agent_config",
@@ -364,8 +365,9 @@ export async function savePolicies(
   tx: TenantTx,
   policies: string[],
   now: Date = new Date(),
+  options: KnowledgeWriteOptions = {},
 ): Promise<void> {
-  await writeAgentConfig(tx, { policies }, now);
+  await writeAgentConfig(tx, { policies }, now, options);
   tx.audit.record({
     action: "update",
     resourceType: "agent_config",
@@ -410,8 +412,9 @@ export async function savePromotions(
   tx: TenantTx,
   promotions: string | null,
   now: Date = new Date(),
+  options: KnowledgeWriteOptions = {},
 ): Promise<void> {
-  await writeAgentConfig(tx, { promotions }, now);
+  await writeAgentConfig(tx, { promotions }, now, options);
   tx.audit.record({
     action: "update",
     resourceType: "agent_config",
@@ -443,8 +446,9 @@ export async function saveQuickAnswers(
   tx: TenantTx,
   quickAnswers: KnowledgeAnswer[],
   now: Date = new Date(),
+  options: KnowledgeWriteOptions = {},
 ): Promise<void> {
-  await writeAgentConfig(tx, { quickAnswers }, now);
+  await writeAgentConfig(tx, { quickAnswers }, now, options);
   tx.audit.record({
     action: "update",
     resourceType: "agent_config",
@@ -479,8 +483,9 @@ export async function saveNeverSay(
   tx: TenantTx,
   neverSay: string[],
   now: Date = new Date(),
+  options: KnowledgeWriteOptions = {},
 ): Promise<void> {
-  await writeAgentConfig(tx, { neverSay }, now);
+  await writeAgentConfig(tx, { neverSay }, now, options);
   tx.audit.record({
     action: "update",
     resourceType: "agent_config",
@@ -493,6 +498,19 @@ export async function saveNeverSay(
 // The write
 // -----------------------------------------------------------------------------
 
+/**
+ * How a write treats the approval of the agent's words. The setup wizard
+ * clears it, as every edit before go-live always has, so an approval given
+ * on the onboarding call is given again after the clinic changes what was
+ * approved. Knowledge in the portal keeps it (`keepApproval`): its edits
+ * apply at once and never take AYA offline (plan Part F3), and a cleared
+ * approval would strip the Meta channels of the clinic's services and prices
+ * (lib/meta/front-door.ts) and turn direct booking into requests
+ * (lib/booking/mode.ts, agent_not_approved). The version still moves on, so
+ * the practice questions know there is something new to check.
+ */
+export type KnowledgeWriteOptions = { keepApproval?: boolean };
+
 type KnowledgeColumns = Partial<{
   services: AgentService[];
   policies: string[];
@@ -503,19 +521,24 @@ type KnowledgeColumns = Partial<{
 }>;
 
 /**
- * One write of the agent's words: the columns given, a new version, and the
- * approval cleared on the row and on the clinic, as every edit to them has
- * always done. The row exists from provisioning; a clinic made before
- * agent_configs gets its own here.
+ * One write of the agent's words: the columns given and a new version, with
+ * the approval cleared on the row and on the clinic unless the caller keeps
+ * it (KnowledgeWriteOptions). The row exists from provisioning; a clinic
+ * made before agent_configs gets its own here.
  */
-async function writeAgentConfig(tx: TenantTx, columns: KnowledgeColumns, now: Date): Promise<void> {
+async function writeAgentConfig(
+  tx: TenantTx,
+  columns: KnowledgeColumns,
+  now: Date,
+  options: KnowledgeWriteOptions = {},
+): Promise<void> {
+  const keep = options.keepApproval === true;
   const updated = await tx.db
     .update(agentConfigs)
     .set({
       ...columns,
       version: sql`${agentConfigs.version} + 1`,
-      approvedAt: null,
-      approvedByLabel: null,
+      ...(keep ? {} : { approvedAt: null, approvedByLabel: null }),
       updatedAt: now,
     })
     .where(eq(agentConfigs.clinicId, tx.clinicId))
@@ -523,6 +546,7 @@ async function writeAgentConfig(tx: TenantTx, columns: KnowledgeColumns, now: Da
   if (updated.length === 0) {
     throw new KnowledgeError("services", "This practice has no assistant configuration yet.");
   }
+  if (keep) return;
   await tx.db
     .update(clinics)
     .set({ agentApprovedAt: null, updatedAt: now })

@@ -319,6 +319,64 @@ describeDb("Knowledge", () => {
     });
   });
 
+  test("an edit keeps the approval of AYA's words, so a live clinic's Meta channels and direct booking carry on; the wizard's own edits still clear it", async () => {
+    const approval = async () =>
+      (
+        await inTenant(
+          clinic.clinicId,
+          async (c) =>
+            (
+              await c.query<{ version: number; approved: boolean; clinic_approved: boolean }>(
+                `select a.version, a.approved_at is not null as approved,
+                        cl.agent_approved_at is not null as clinic_approved
+                   from agent_configs a join clinics cl on cl.id = a.clinic_id
+                  where a.clinic_id = $1`,
+                [clinic.clinicId],
+              )
+            ).rows,
+        )
+      )[0]!;
+    const approve = () =>
+      inTenant(clinic.clinicId, async (c) => {
+        await c.query(
+          `update agent_configs set approved_at = now(), approved_by_label = 'Ops on the call' where clinic_id = $1`,
+          [clinic.clinicId],
+        );
+        await c.query(`update clinics set agent_approved_at = now() where id = $1`, [
+          clinic.clinicId,
+        ]);
+      });
+    await approve();
+    const before = await approval();
+    expect(before).toMatchObject({ approved: true, clinic_approved: true });
+
+    expect(await save("promotions", { promotions: "Free consultations in May." })).toMatchObject({
+      ok: true,
+    });
+    expect(
+      await save("prices", {
+        services: [{ name: "Peel", priceKind: "exact", price: 130, durationMinutes: 45 }],
+      }),
+    ).toMatchObject({ ok: true });
+    expect(await save("never_say_defaults", {})).toMatchObject({ ok: true });
+    expect(await approval()).toEqual({
+      version: before.version + 3,
+      approved: true,
+      clinic_approved: true,
+    });
+
+    // The wizard's services screen, before go-live, still asks for the
+    // approval to be given again.
+    const { saveServices, validateServices } = await import("@/lib/setup/knowledge");
+    await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
+      saveServices(
+        tx,
+        validateServices([{ name: "Peel", priceKind: "exact", price: 130 }], "med-spa"),
+      ),
+    );
+    expect(await approval()).toMatchObject({ approved: false, clinic_approved: false });
+  });
+
   test("never-say is the clinic's to edit, and Restore the defaults puts the clinical ones back first", async () => {
     expect((await knowledge()).neverSay).toEqual([...NEVER_SAY_DEFAULTS]);
     expect(await save("never_say", { neverSay: ["cheapest in town", "Cheapest in town"] })).toEqual(

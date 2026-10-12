@@ -4,11 +4,11 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 
 import { requireOperator } from "@/lib/admin/operator";
-import { requestDemo, runDemoBuild, sendDemoEmail } from "@/lib/demo/build";
-import { getDemoSession, isDemoSlug, updateDemoSession } from "@/lib/demo/sessions";
+import { releaseHeldDemo, requestDemo, runDemoBuild, sendDemoEmail } from "@/lib/demo/build";
+import { getDemoSession, isDemoBuildStalled, isDemoSlug, updateDemoSession } from "@/lib/demo/sessions";
 
 /**
- * The console's three actions on personalised demos. Each re-checks the
+ * The console's four actions on personalised demos. Each re-checks the
  * operator session itself: a server action is a public POST endpoint, and the
  * page that renders the form being guarded says nothing about who calls it.
  */
@@ -55,9 +55,27 @@ export async function retryDemoAction(form: FormData): Promise<void> {
   const slug = form.get("slug");
   if (!isDemoSlug(slug)) return;
   const session = await getDemoSession(slug, { fresh: true });
-  if (!session || session.status === "building") return;
-  await updateDemoSession(slug, { status: "building", buildNote: null });
+  if (!session) return;
+  // A build or audit in flight is left alone, unless it has outlived the
+  // route that ran it (cut off at 300 s) and will never finish.
+  const running = session.status === "building" || session.status === "auditing";
+  if (running && !isDemoBuildStalled(session)) return;
+  await updateDemoSession(slug, { status: "building", buildNote: null, buildStartedAt: new Date() });
   after(() => runDemoBuild(slug).then(() => undefined));
+  revalidatePath("/admin/demos");
+}
+
+/**
+ * Ship a held demo anyway. The operator has read the audit's findings and
+ * decided; the row records who released it, and the email the request asked
+ * for goes now.
+ */
+export async function releaseDemoAction(form: FormData): Promise<void> {
+  const operator = await requireOperator();
+  if (!operator) return;
+  const slug = form.get("slug");
+  if (!isDemoSlug(slug)) return;
+  await releaseHeldDemo(slug, operator);
   revalidatePath("/admin/demos");
 }
 

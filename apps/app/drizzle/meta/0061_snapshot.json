@@ -1,5 +1,5 @@
 {
-  "id": "1382ef05-b351-4cda-9c04-67918227281b",
+  "id": "8de5dd03-79c7-4867-91ce-0738c93fcc15",
   "prevId": "8eb69e65-65f3-4e90-8be4-460e8736811e",
   "version": "7",
   "dialect": "postgresql",
@@ -3415,6 +3415,27 @@
           "primaryKey": false,
           "notNull": true,
           "default": 90
+        },
+        "instagram_enabled": {
+          "name": "instagram_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "messenger_enabled": {
+          "name": "messenger_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "whatsapp_enabled": {
+          "name": "whatsapp_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
         },
         "updated_at": {
           "name": "updated_at",

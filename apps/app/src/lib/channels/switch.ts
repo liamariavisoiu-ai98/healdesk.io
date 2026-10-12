@@ -19,6 +19,10 @@ import type { TenantTx } from "@/lib/tenant";
  * lib/channels/state.ts). No step-up: the spec puts the step-up only where
  * calls and money go to a new place, and Off sends calls to the place the
  * clinic already chose. L15, the email a channel switched Off sends, is M6's.
+ *
+ * Settings has no switch for the Meta channel itself: it has one each for
+ * Instagram, Messenger and WhatsApp, and lib/channels/meta-platforms.ts sets
+ * the Meta channel's row through this function from theirs.
  */
 
 export class ChannelSwitchError extends Error {

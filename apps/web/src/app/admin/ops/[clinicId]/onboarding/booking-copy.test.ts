@@ -52,6 +52,7 @@ const ACTIONS: Actions = {
   startForwardingTest: NOT_IN_A_RENDER,
   attachMeta: NOT_IN_A_RENDER,
   setMeta: NOT_IN_A_RENDER,
+  setMetaPlatform: NOT_IN_A_RENDER,
   saveRequirements: NOT_IN_A_RENDER,
   resendSetupLink: NOT_IN_A_RENDER,
   confirmTimezone: NOT_IN_A_RENDER,
@@ -97,7 +98,10 @@ const COVERED: BookingView = {
   pendingAssistantWrites: 0,
 };
 
-function page(booking: BookingView | "unreadable" | null): string {
+function page(
+  booking: BookingView | "unreadable" | null,
+  platforms: OnboardingView["meta"]["platforms"] = null,
+): string {
   const view: OnboardingView = {
     clinic: {
       id: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
@@ -122,6 +126,7 @@ function page(booking: BookingView | "unreadable" | null): string {
     stripeConnect: { accountId: null, connectedAt: null, authorizeUrl: null },
     meta: {
       enabled: false,
+      platforms,
       channels: [],
       bookingRequests: { waiting: 0, accepted: 0, confirmed: 0, declined: 0 },
     },
@@ -300,5 +305,26 @@ describe("the calendar card", () => {
       "Broken: the practice must reconnect. Broken since 2026-10-11 22:10 UTC.",
     );
     expect(broken).toContain("Last error: invalid_grant");
+  });
+});
+
+describe("the Meta front door shows the clinic's own platform switches beneath it", () => {
+  /** The Meta section alone: from its title to the next section's. */
+  const metaSection = (said: string) =>
+    said.slice(said.indexOf("Meta front door —"), said.indexOf("Booking request fields"));
+
+  test("each platform's switch, as the clinic left it, under the front door that still gates them", () => {
+    const said = metaSection(page(COVERED, { instagram: true, messenger: false, whatsapp: true }));
+    expect(said).toContain("Meta front door — off");
+    expect(said).toContain("a message is answered only when the front door and its platform are both on");
+    expect(said).toContain("Instagram: on");
+    expect(said).toContain("Messenger: off");
+    expect(said).toContain("WhatsApp: on");
+  });
+
+  test("an apps/app that predates the switches shows none", () => {
+    const said = metaSection(page(COVERED, null));
+    expect(said).not.toMatch(/Instagram: (on|off)/);
+    expect(said).not.toContain("beneath the front door");
   });
 });

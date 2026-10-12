@@ -10,13 +10,15 @@ import {
   recordToRow,
   rowRange,
   rowToRecord,
+  type DemoAuditVerdict,
   type DemoSession,
+  type DemoSessionStatus,
 } from "@/lib/sheets/schema";
 import { site } from "@/lib/site";
 
 import { normalizeProfile, type ClinicProfile } from "./profile";
 
-export type { DemoSession } from "@/lib/sheets/schema";
+export type { DemoAuditVerdict, DemoSession, DemoSessionStatus } from "@/lib/sheets/schema";
 
 /**
  * The personalised demo's register: one `demo_sessions` row per demo, in the
@@ -90,6 +92,22 @@ export function demoUrl(slug: string): string {
   return `${site.url.replace(/\/$/, "")}/demo/${slug}`;
 }
 
+/**
+ * A build or an audit still running after this long has been cut off (the
+ * routes that run it stop at 300 s), so the console offers a retry for it.
+ */
+export const DEMO_BUILD_STALL_MS = 8 * 60 * 1000;
+
+const STATUSES: readonly DemoSessionStatus[] = ["building", "auditing", "ready", "held", "failed"];
+const VERDICTS: readonly DemoAuditVerdict[] = ["pass", "flagged", "held", "unavailable", "released"];
+
+/** Building or auditing, and past the point where the run that started it can still finish. */
+export function isDemoBuildStalled(session: DemoSession, now: number = Date.now()): boolean {
+  if (session.status !== "building" && session.status !== "auditing") return false;
+  const started = (session.buildStartedAt ?? session.createdAt).getTime();
+  return now - started > DEMO_BUILD_STALL_MS;
+}
+
 /** Usable now: built, and inside its week. */
 export function isDemoActive(session: DemoSession, now: number = Date.now()): boolean {
   return session.status === "ready" && session.expiresAt.getTime() > now;
@@ -133,7 +151,8 @@ type Located = { row: number; value: DemoSession };
 function decode(cells: readonly Cell[]): DemoSession {
   const r = rowToRecord(DEMO_SESSIONS, cells) as Record<string, unknown> & Partial<DemoSession>;
   const createdAt = r.createdAt ?? new Date(0);
-  const status = r.status === "ready" || r.status === "failed" ? r.status : "building";
+  const status = STATUSES.includes(r.status as DemoSessionStatus) ? (r.status as DemoSessionStatus) : "building";
+  const auditVerdict = VERDICTS.includes(r.auditVerdict as DemoAuditVerdict) ? (r.auditVerdict as DemoAuditVerdict) : null;
   return {
     ...(r as DemoSession),
     id: r.id ?? "",
@@ -145,6 +164,14 @@ function decode(cells: readonly Cell[]): DemoSession {
     // A row with its expiry blanked by hand is treated as expired, never as eternal.
     expiresAt: r.expiresAt ?? createdAt,
     claimed: r.claimed ?? false,
+    // Rows written before the audit columns existed decode with them empty.
+    buildStartedAt: r.buildStartedAt ?? null,
+    emailRequested: r.emailRequested ?? false,
+    auditVerdict,
+    auditScore: r.auditScore ?? null,
+    auditReport: r.auditReport ?? null,
+    auditedAt: r.auditedAt ?? null,
+    auditHash: r.auditHash ?? null,
   };
 }
 
@@ -222,6 +249,8 @@ export type NewDemo = {
   phoneE164?: string | null;
   niche?: string | null;
   createdBy?: string | null;
+  /** Email the link once the audit passes it. */
+  emailRequested?: boolean;
 };
 
 /** Append a `building` row and return it; the build fills it in. */
@@ -251,6 +280,13 @@ export async function createDemoSession(input: NewDemo, now: Date = new Date()):
     claimedAt: null,
     claimedPlan: null,
     emailSentAt: null,
+    buildStartedAt: now,
+    emailRequested: input.emailRequested ?? false,
+    auditVerdict: null,
+    auditScore: null,
+    auditReport: null,
+    auditedAt: null,
+    auditHash: null,
   };
   const client = await store();
   await client.appendRows(DEMO_SESSIONS.title, [recordToRow(DEMO_SESSIONS, session)]);

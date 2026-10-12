@@ -315,14 +315,9 @@ export function ChatDemo() {
       aiNotice={`Messages are answered by ${site.agent}, an AI assistant.`}
       error={error}
       composer={emailAsk}
-      footnote={
-        // Permanent, under the input. This site holds no patient information
-        // and the demo is for clinic staff, so the card says so where the
-        // typing happens (privacy § 2 says the same).
-        <p className="text-muted border-line border-t bg-white px-4 py-2 text-xs font-medium">
-          A demo for clinic staff. Please don&apos;t type patient information.
-        </p>
-      }
+      // The line under the field that said this is a demo for clinic staff,
+      // and not to type patient information, went at the owner's request on
+      // 12 October 2026. Privacy section 2 still says it.
     />
   );
 }

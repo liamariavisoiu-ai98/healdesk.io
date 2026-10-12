@@ -516,7 +516,8 @@
 }
 
 .niche-card--ready:hover .niche-card__video,
-.niche-card--ready:focus-visible .niche-card__video {
+.niche-card--ready:focus-visible .niche-card__video,
+.niche-card[data-expanded] .niche-card__video {
   opacity: 1;
 }
 
@@ -2244,7 +2245,10 @@
 .lockscreen {
   position: relative;
   isolation: isolate;
+  /* Clip, not hidden: hidden makes this a scroll container, and the open
+     card's sticky stage would then stick to it instead of to the screen. */
   overflow: hidden;
+  overflow: clip;
   border-radius: 34px;
   padding: clamp(28px, 4vw, 52px) clamp(14px, 3vw, 40px) 22px;
   color: #fff;
@@ -2492,16 +2496,14 @@
 
 /* --- Opened --------------------------------------------------------------- */
 
+/* Inside the lock screen, over its wall: its scrim, its corners. */
 .notice-layer {
-  position: fixed;
+  position: absolute;
   inset: 0;
-  z-index: 70;
-  display: grid;
-  place-items: center;
-  padding: 16px;
-  background: rgb(8 14 22 / 0.4);
-  -webkit-backdrop-filter: blur(24px) saturate(1.3);
-  backdrop-filter: blur(24px) saturate(1.3);
+  z-index: 6;
+  background: rgb(8 14 22 / 0.38);
+  -webkit-backdrop-filter: blur(20px) saturate(1.25);
+  backdrop-filter: blur(20px) saturate(1.25);
   animation: notice-scrim 420ms ease both;
 }
 
@@ -2511,7 +2513,28 @@
   }
 }
 
+/* The card is centred in what the visitor can see of the lock screen: under
+   the navbar (77px), and no taller than the screen. On a desktop the lock
+   screen is shorter than that and the card sits in its middle; on a phone it
+   is much taller, and the stage keeps the card in view as the page scrolls. */
+.notice-stage {
+  position: sticky;
+  top: 77px;
+  display: grid;
+  height: min(100%, calc(100svh - 77px));
+  place-items: center;
+  padding: 16px;
+}
+
+@media (min-width: 640px) {
+  /* Viewport units are drawn at 90% under the site's zoom. */
+  .notice-stage {
+    height: min(100%, calc(100svh / 0.9 - 77px));
+  }
+}
+
 .notice {
+  scroll-margin: 90px 0 16px;
   width: min(560px, 100%);
   max-height: 100%;
   overflow: auto;
@@ -2695,4 +2718,75 @@
   from {
     opacity: 0;
   }
+}
+
+/* =============================================================================
+   The specialties bento (NicheMosaic.tsx)
+   =============================================================================
+   Eight cards in a fixed map, one big, one tall and six small, where the card
+   a visitor is on opens in place (the owner, 12 October 2026): the grid's own
+   tracks grow under it and shrink away from the rest, so the cards are never
+   moved or re-ordered, only resized, and every size change is one CSS
+   transition. The first card is the open one until a visitor chooses another.
+   NicheMosaic writes the track sizes for each state into four custom
+   properties (--lg-cols, --lg-rows, --sm-cols, --sm-rows), one pair for each
+   of the two layouts, and the media query picks the pair, so the page paints
+   the right layout before any script has run.
+
+   Four across and three down from 1024px. Two across and five down below it:
+   there the big card is a wide banner and the tall one spans two rows. */
+
+.bento {
+  --bento-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  display: grid;
+  gap: 12px;
+  height: 1048px;
+  grid-template-columns: var(--sm-cols, 1fr 1fr);
+  grid-template-rows: var(--sm-rows, repeat(5, 1fr));
+  transition:
+    grid-template-columns 700ms var(--bento-ease),
+    grid-template-rows 700ms var(--bento-ease);
+}
+
+@media (min-width: 640px) {
+  .bento {
+    gap: 16px;
+    height: 1214px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .bento {
+    height: 700px;
+    grid-template-columns: var(--lg-cols, repeat(4, 1fr));
+    grid-template-rows: var(--lg-rows, repeat(3, 1fr));
+  }
+}
+
+.bento > li {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Two across. */
+.bento > :nth-child(1) { grid-area: 1 / 1 / 2 / 3; }
+.bento > :nth-child(2) { grid-area: 2 / 1 / 4 / 2; }
+.bento > :nth-child(3) { grid-area: 2 / 2 / 3 / 3; }
+.bento > :nth-child(4) { grid-area: 3 / 2 / 4 / 3; }
+.bento > :nth-child(5) { grid-area: 4 / 1 / 5 / 2; }
+.bento > :nth-child(6) { grid-area: 4 / 2 / 5 / 3; }
+.bento > :nth-child(7) { grid-area: 5 / 1 / 6 / 2; }
+.bento > :nth-child(8) { grid-area: 5 / 2 / 6 / 3; }
+
+@media (min-width: 1024px) {
+  /* Four across. */
+  .bento > :nth-child(1) { grid-area: 1 / 1 / 3 / 3; }
+  .bento > :nth-child(2) { grid-area: 1 / 3 / 3 / 4; }
+  .bento > :nth-child(3) { grid-area: 1 / 4 / 2 / 5; }
+  .bento > :nth-child(4) { grid-area: 2 / 4 / 3 / 5; }
+  .bento > :nth-child(5) { grid-area: 3 / 1 / 4 / 2; }
+  .bento > :nth-child(6) { grid-area: 3 / 2 / 4 / 3; }
+  .bento > :nth-child(7) { grid-area: 3 / 3 / 4 / 4; }
+  .bento > :nth-child(8) { grid-area: 3 / 4 / 4 / 5; }
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 /**
  * A card whose corner icon floods the tile on hover, revealing footage beneath.
@@ -67,6 +67,8 @@ export function CircleExpandCard({
   interactive = true,
   compact = false,
   floodScale = FLOOD_SCALE,
+  expanded = false,
+  live = true,
 }: {
   title: string;
   body: string;
@@ -104,8 +106,25 @@ export function CircleExpandCard({
    * card; a bento's big tile is wider than that, and needs more.
    */
   floodScale?: number;
+  /**
+   * Open without a pointer on it: the description showing, the footage
+   * playing, the title at its large size. The bento keeps one card open at a
+   * time (the first by default, the one a visitor is on otherwise); the
+   * colour flood and the turned arrow stay the pointer's own.
+   */
+  expanded?: boolean;
+  /**
+   * Whether an open card may fetch and play its footage: false until the
+   * bento is near the screen, so a card that is open by default costs nothing
+   * to a visitor who never scrolls to it.
+   */
+  live?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  /** A pointer is on the card, which keeps its footage running whatever `expanded` says. */
+  const pointed = useRef(false);
+  /** `expanded`, for the pointer's handlers, which must not close footage an open card is playing. */
+  const expandedRef = useRef(expanded);
 
   /**
    * Start the footage.
@@ -118,6 +137,7 @@ export function CircleExpandCard({
    * has data, so the next hover is a plain play() on a ready element.
    */
   const enter = useCallback(() => {
+    pointed.current = true;
     if (!interactive) return;
     // Autoplay policy allows this because the element is muted. The rejection
     // is still caught: a blocked play() is an unhandled promise rejection, and
@@ -126,13 +146,27 @@ export function CircleExpandCard({
   }, [interactive]);
 
   const leave = useCallback(() => {
+    pointed.current = false;
     const el = videoRef.current;
-    if (!el) return;
+    if (!el || expandedRef.current) return;
     el.pause();
     // Back to the top, so the next hover replays the push-in from the start
     // rather than picking it up halfway.
     el.currentTime = 0;
   }, []);
+
+  // An open card plays its footage; one that closes puts it back at the start.
+  useEffect(() => {
+    expandedRef.current = expanded;
+    const el = videoRef.current;
+    if (!el) return;
+    if (expanded && live) {
+      void el.play().catch(() => {});
+    } else if (!pointed.current) {
+      el.pause();
+      el.currentTime = 0;
+    }
+  }, [expanded, live]);
 
   return (
     <button
@@ -143,11 +177,12 @@ export function CircleExpandCard({
       onMouseLeave={leave}
       onFocus={enter}
       onBlur={leave}
+      data-expanded={expanded ? "" : undefined}
       style={{ ["--flood" as string]: floodScale }}
       className={[
         "niche-card absolute inset-0 flex cursor-pointer flex-col justify-end",
         "isolate overflow-hidden rounded-[24px] text-left",
-        compact ? "p-4 sm:p-5" : "p-6",
+        compact && !expanded ? "p-4 sm:p-5" : "p-6",
         interactive ? "niche-card--ready group" : "",
       ].join(" ")}
     >
@@ -190,8 +225,8 @@ export function CircleExpandCard({
 
       <span
         className={[
-          "font-display relative block leading-[1.08] font-medium tracking-[-0.025em] text-white",
-          compact ? "text-[19px] sm:text-[24px]" : "text-[31.2px]",
+          "font-display relative block leading-[1.08] font-medium tracking-[-0.025em] text-white transition-[font-size] duration-500 ease-panel",
+          compact && !expanded ? "text-[19px] sm:text-[24px]" : "text-[26px] sm:text-[31.2px]",
         ].join(" ")}
       >
         {title}
@@ -208,13 +243,13 @@ export function CircleExpandCard({
       */}
       <span
         aria-hidden={false}
-        className="relative grid grid-rows-[0fr] transition-[grid-template-rows] duration-[450ms] ease-panel group-hover:grid-rows-[1fr] group-focus-visible:grid-rows-[1fr]"
+        className="relative grid grid-rows-[0fr] transition-[grid-template-rows] duration-[450ms] ease-panel group-hover:grid-rows-[1fr] group-focus-visible:grid-rows-[1fr] group-data-[expanded]:grid-rows-[1fr]"
       >
         <span className="overflow-hidden">
           <span
             className={[
-              "mt-2 block leading-[1.45] font-medium text-white/85 opacity-0 transition-opacity duration-300 group-hover:opacity-100 group-focus-visible:opacity-100",
-              compact ? "text-[15.6px]" : "text-[16.2px]",
+              "mt-2 block leading-[1.45] font-medium text-white/85 opacity-0 transition-opacity duration-300 group-hover:opacity-100 group-focus-visible:opacity-100 group-data-[expanded]:opacity-100",
+              compact && !expanded ? "text-[15.6px]" : "text-[16.2px]",
             ].join(" ")}
           >
             {body}

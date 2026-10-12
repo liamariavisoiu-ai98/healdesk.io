@@ -137,12 +137,12 @@ const LOGOS: readonly Omit<HeroLogo, "at">[] = [
   // The owner's file is Facebook's "f"; the channel it stands for is Messenger.
   { name: "Messenger", src: "/integrations/facebook.webp", mark: "Facebook", group: "messages", angle: -175.6, showcase: MESSAGE },
   { name: "WhatsApp", src: "/integrations/whatsapp.webp", mark: "WhatsApp", group: "messages", angle: -185.9, showcase: MESSAGE },
-  // The clinic's own line, forwarded to her (owner, 9 October 2026). A
-  // handset drawn for this site, nobody's mark.
+  // The clinic's own line, forwarded to her (owner, 9 October 2026), drawn as
+  // the iPhone's Phone icon (owner, 12 October 2026), which makes it Apple's.
   {
     name: "phone line",
     src: "/integrations/phone-line.svg",
-    mark: null,
+    mark: "Apple",
     group: "messages",
     angle: -196.2,
     showcase: [{ text: "Call answered 9:41 PM" }, { text: "Consultation booked" }],
@@ -208,6 +208,7 @@ export const LABEL =
 export const TRADEMARKS =
   "Google Calendar is a trademark of Google LLC; Cal.com of Cal.com, Inc.; " +
   "Calendly of Calendly, LLC; HighLevel of HighLevel LLC; Stripe of " +
-  "Stripe, Inc.; and Facebook, Instagram, Messenger and WhatsApp of Meta " +
-  "Platforms, Inc. Their logos show what healdesk works with and do not " +
-  "imply any endorsement.";
+  "Stripe, Inc.; Facebook, Instagram, Messenger and WhatsApp of Meta " +
+  "Platforms, Inc.; and the Phone icon, here for the phone line, of Apple " +
+  "Inc. Their logos show what healdesk works with and do not imply any " +
+  "endorsement.";

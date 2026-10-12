@@ -43,11 +43,17 @@ import { REDUCED_MOTION } from "@/lib/use-media-query";
  * thumbnail into the photograph, and a short pop where it has not. Escape,
  * the Close button or a press outside closes it back into place.
  *
+ * The card opens inside the lock screen's own frame, not over the page (owner,
+ * 12 October 2026): the scrim is the lock screen's, clipped by its rounded
+ * corners, and the card is centred in a sticky stage, so on a phone, where the
+ * lock screen is taller than the screen, it still opens where the visitor is
+ * looking. A press anywhere outside the card closes it.
+ *
  * It is not a native <dialog>: a dialog's backdrop is not part of what a view
- * transition captures, so the scrim would pop in after the card had grown.
- * Instead this is its own overlay, with the roles a dialog gets (modal, named,
- * focus kept inside it and returned to the notification), and the screen
- * behind it made inert.
+ * transition captures, so the scrim would pop in after the card had grown, and
+ * a dialog cannot be confined to a box. Instead this is its own overlay, with
+ * the roles a dialog gets (modal, named, focus kept inside it and returned to
+ * the notification), and the screen behind it made inert.
  *
  * The section header is unchanged: centred eyebrow, the gradient hairline,
  * a serif heading, as the specialties have.
@@ -162,6 +168,12 @@ export function Outcomes() {
     if (!openId) return;
     const root = sheet.current;
     root?.querySelector<HTMLElement>("[data-initial-focus]")?.focus({ preventScroll: true });
+    // If the lock screen is only part-way into view, the card may sit partly
+    // off the screen; bring in exactly as much as it needs (scroll-margin on
+    // .notice keeps it clear of the navbar).
+    const id = window.setTimeout(() => {
+      root?.scrollIntoView({ block: "nearest", behavior: prefersReducedMotion() ? "auto" : "smooth" });
+    }, 80);
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -181,8 +193,18 @@ export function Outcomes() {
         first.focus();
       }
     };
+    // A press anywhere outside the card, on the lock screen's scrim or on the
+    // page beyond it, puts it away, as it does on a phone.
+    const onDown = (event: PointerEvent) => {
+      if (root && !root.contains(event.target as Node)) close();
+    };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onDown);
+    return () => {
+      window.clearTimeout(id);
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onDown);
+    };
   }, [openId, close]);
 
   const outcome = openId ? OUTCOMES.find((o) => o.id === openId) : undefined;
@@ -252,50 +274,50 @@ export function Outcomes() {
             </svg>
           </span>
         </div>
-      </div>
 
-      {outcome ? (
-        <div
-          className="notice-layer"
-          data-pop={typeof document.startViewTransition === "function" ? undefined : ""}
-          onPointerDown={(event) => event.target === event.currentTarget && close()}
-        >
-          <div ref={sheet} className="notice" role="dialog" aria-modal="true" aria-labelledby="notice-title" style={{ viewTransitionName: CARD }}>
-            <div className="notice__head">
-              <img src="/icon.png" alt="" width={30} height={30} className="notice__icon" />
-              <span className="notice__app">healdesk</span>
-              <span className="notice__time">{outcome.time}</span>
+        {/* Inside the lock screen: its own scrim, its own corners. */}
+        {outcome ? (
+          <div className="notice-layer" data-pop={typeof document.startViewTransition === "function" ? undefined : ""}>
+            <div className="notice-stage">
+            <div ref={sheet} className="notice" role="dialog" aria-modal="true" aria-labelledby="notice-title" style={{ viewTransitionName: CARD }}>
+              <div className="notice__head">
+                <img src="/icon.png" alt="" width={30} height={30} className="notice__icon" />
+                <span className="notice__app">healdesk</span>
+                <span className="notice__time">{outcome.time}</span>
+              </div>
+              <img
+                src={outcome.still}
+                alt=""
+                width={720}
+                height={990}
+                className="notice__photo"
+                style={{ viewTransitionName: PHOTO }}
+              />
+              <div className="notice__body">
+                <h3 id="notice-title" className="notice__title">
+                  {outcome.title}
+                </h3>
+                <p className="notice__line">{outcome.line}</p>
+                <p className="notice__detail">{outcome.detail}</p>
+              </div>
+              <div className="notice__actions">
+                <a
+                  href="#aya"
+                  className="notice__button notice__button--primary"
+                  onClick={() => setOpenId(null)}
+                >
+                  Talk to AYA
+                </a>
+                <button type="button" className="notice__button" data-initial-focus onClick={close}>
+                  Close
+                </button>
+              </div>
             </div>
-            <img
-              src={outcome.still}
-              alt=""
-              width={720}
-              height={990}
-              className="notice__photo"
-              style={{ viewTransitionName: PHOTO }}
-            />
-            <div className="notice__body">
-              <h3 id="notice-title" className="notice__title">
-                {outcome.title}
-              </h3>
-              <p className="notice__line">{outcome.line}</p>
-              <p className="notice__detail">{outcome.detail}</p>
-            </div>
-            <div className="notice__actions">
-              <a
-                href="#aya"
-                className="notice__button notice__button--primary"
-                onClick={() => setOpenId(null)}
-              >
-                Talk to AYA
-              </a>
-              <button type="button" className="notice__button" data-initial-focus onClick={close}>
-                Close
-              </button>
             </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
+
     </section>
   );
 }

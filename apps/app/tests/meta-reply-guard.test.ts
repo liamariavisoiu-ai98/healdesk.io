@@ -155,12 +155,54 @@ describe("the reply guard: appointment details", () => {
       ok: false,
       reason: "an appointment time",
     });
-    // "from" and "until" make a sentence about the hours, as "open" does.
-    expect(guardReply("The front desk is in from 9.", CLINIC)).toEqual({ ok: true });
-    expect(guardReply("The front desk is in from 3.", CLINIC)).toEqual({
+    // The clinic must be what is open: "the front desk is open" is its
+    // hours, "the front desk is in" is not (the C19 re-audit's B3).
+    expect(guardReply("The front desk is open from 9.", CLINIC)).toEqual({ ok: true });
+    expect(guardReply("The front desk is in from 9.", CLINIC)).toEqual({
       ok: false,
       reason: "an appointment time",
     });
+  });
+
+  // The C19 re-audit's B3: an hours word in a sentence that isn't the
+  // clinic's hours, and day and time forms the guard didn't read.
+  test.each([
+    "Your visit can be Tuesday from 9am.",
+    "We have availability Tuesday from 9am.",
+    "There's availability on the 14th from 9am.",
+    "We have Tuesday open.",
+    "Thanks, noted: 2 in the afternoon.",
+    "Thanks, noted: two in the afternoon.",
+    "Thanks, noted: the afternoon of the third.",
+    "Noted: the first, in the morning.",
+    "2 in the afternoon",
+    "the afternoon of the third",
+    "We have you for Tuesday.",
+    "We have Tuesday morning free.",
+    "Tuesday looks clear from 9am.",
+    "I can pass along that you'd like Tuesday afternoon.",
+    "Got it, mornings.",
+    "We'll be open Tuesday from 9am if you'd like to come then.",
+    "Thanks, I've noted 2.",
+    "Thanks, I've noted your time of 2.",
+  ])("refuses, from the re-audit: %j", (reply) => {
+    const verdict = guardReply(reply, CLINIC);
+    expect(verdict.ok, reply).toBe(false);
+    expect(verdict.ok ? null : verdict.reason).toMatch(
+      /^(an appointment (time|date|day)|a booking confirmation)$/,
+    );
+  });
+
+  test.each([
+    "We're open Tuesday from 9am.",
+    "We are open until 5pm today.",
+    "Our hours are 9am to 5pm on weekdays.",
+    "The clinic opens at 9am on Saturdays and closes at 2pm.",
+    "We close at 5pm on Fridays.",
+    "Thank you! We're open Monday to Friday, 9am to 5pm.",
+    "Good morning! Call the practice to book.",
+  ])("passes, the clinic's hours: %j", (reply) => {
+    expect(guardReply(reply, CLINIC)).toEqual({ ok: true });
   });
 
   // The verification of 3a6de11: phrasings the sentence rules let through.

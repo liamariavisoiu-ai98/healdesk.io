@@ -460,11 +460,16 @@ function appointmentDetail(reply: string, published: readonly number[]): string 
   const allowed = new Set(published);
   for (const sentence of sentencesOf(reply)) {
     const date = DATE_IN_REPLY.some((pattern) => pattern.test(sentence));
-    const day = WEEKDAY.test(sentence) || RELATIVE_DAY.test(sentence);
+    const day =
+      WEEKDAY.test(sentence) || RELATIVE_DAY.test(sentence) || PART_OF_DAY.test(sentence);
     const times = clockTimes(sentence);
     if (!date && !day && times.length === 0) continue;
     const named = date ? "an appointment date" : day ? "an appointment day" : "an appointment time";
-    if (booking || !HOURS_CUE.test(sentence)) return named;
+    // The sentence must be the clinic's hours: its subject the clinic ("we're
+    // open", "our hours", "the clinic opens"), and nobody in it but the
+    // clinic ("your visit can be Tuesday", "we have you down for Tuesday").
+    if (booking || !CLINIC_HOURS.some((pattern) => pattern.test(sentence))) return named;
+    if (YOU.test(sentence.replace(/\bthank you\b/gi, " "))) return named;
     // "The 22nd is open", "Tuesday is free": a day or a time on offer, not
     // the clinic's hours, unless the clinic is what is open.
     if (AVAILABLE.test(sentence) && !CLINIC_IS_OPEN.test(sentence)) return named;
@@ -483,6 +488,26 @@ function sentencesOf(reply: string): string[] {
 /** A day of the week, by name or a long abbreviation. "Sat", "Sun" and "Wed" are words too often to count. */
 const WEEKDAY = /\b(mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|sundays?|tues|weds|thurs)\b/i;
 
+/** A part of the day, on its own ("Got it, mornings."), but not a greeting ("Good morning"). */
+const PART_OF_DAY = /(?<!\bgood )\b(mornings?|afternoons?|evenings?|nights?|lunchtime)\b/i;
+
+/** The person, in a sentence that names a day or a time: whose appointment it would be. */
+const YOU = /\b(you|your|you['’](?:re|ll|ve|d))\b/i;
+
+/**
+ * A sentence whose subject is the clinic and its hours: "we're open", "we
+ * open at 9", "we close", "the clinic opens", "the front desk is open",
+ * "our hours", "Saturday hours", "opening times", "Hours:", "a late
+ * opening". Nothing else may name a day or a time.
+ */
+const CLINIC_HOURS: readonly RegExp[] = [
+  /\b(?:we|we['’]re|we are|we['’]ll be|we will be|(?:the|our) (?:practice|clinic|office|surgery|studio|spa|front desk|reception|doors?)(?: is| are|['’]s| will be)?|reception(?: is|['’]s)?)\s+(?:also |still |usually |normally |only |now |then )?(?:open|opens|opened|close|closes|closed|closing|shut)\b/i,
+  /\b(?:our|the (?:practice|clinic|office)['’]?s?|(?:mon|tues|wednes|thurs|fri|satur|sun)days?|weekday|weekend|business) (?:opening )?(?:hours|times)\b/i,
+  /\bopening (?:hours|times)\b/i,
+  /^\s*hours\s*:/i,
+  /\b(?:a|our) late opening\b/i,
+];
+
 /** A day named by its distance from today. */
 const RELATIVE_DAY =
   /\b(today|tonight|tomorrow|tmrw|(this|next) (week|weekend|month)|this (morning|afternoon|evening)|later today)\b/i;
@@ -494,7 +519,7 @@ const RELATIVE_DAY =
  * a day or a time.
  */
 const BOOKING_CUE =
-  /\b(book|books|booked|booking|confirm|confirms|confirmed|confirmation|reserve|reserves|reserved|reservation|pencil|pencils|pencil(l)?ed|down for|see you|seeing you|expect you|expecting you|schedule|scheduled|slots?|an opening|openings|appointments?|fit you in|squeeze you in|come in|come by|pop in)\b/i;
+  /\b(book|books|booked|booking|confirm|confirms|confirmed|confirmation|reserve|reserves|reserved|reservation|pencil|pencils|pencil(l)?ed|down for|see you|seeing you|expect you|expecting you|schedule|scheduled|slots?|an opening|openings|appointments?|fit you in|squeeze you in|come in|come by|pop in|visits?|visiting|availability|available|note|noted|noting|pass (?:on|along))\b/i;
 
 /**
  * "Call the practice to book", "to make an appointment": the hand-off every
@@ -511,8 +536,6 @@ const AVAILABLE = /\b(is|are|'s|'re)\s+(still\s+|now\s+|also\s+)?(open|free|avai
 const CLINIC_IS_OPEN =
   /\b(we|it|reception|(the|our)\s+(practice|clinic|office|surgery|studio|spa|front desk|reception|doors?))\s*(is|are|'s|'re)\s+(still\s+|now\s+|also\s+)?(open|available)\b/i;
 
-/** Words that make a sentence about the clinic's opening hours ("a late opening on Thursdays until 8pm"). */
-const HOURS_CUE = /\b(open|opens|opened|opening|close|closes|closed|closing|hours|until|till|from)\b/i;
 
 const MONTH =
   "(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\\.?(?![a-z])";
@@ -549,6 +572,10 @@ const DATE_IN_REPLY: readonly RegExp[] = [
   new RegExp(`\\b${MONTH_WORDS}\\s+(?:the\\s+)?${DAY_WORD}\\b`, "i"),
   new RegExp(`\\b${DAY_WORD}\\s+(?:of\\s+)?${MONTH_WORDS}`, "i"),
   new RegExp(`\\bthe\\s+${HIGH_ORDINAL}\\b`, "i"),
+  // A low ordinal is a date beside a part of the day: "the afternoon of the
+  // third", "the first, in the morning", "the 3rd, afternoon".
+  new RegExp(`\\b(?:morning|afternoon|evening|night) of the\\s+(?:${UNIT_ORDINAL}|\\d{1,2}(?:st|nd|rd|th)?)\\b`, "i"),
+  new RegExp(`\\bthe\\s+(?:${UNIT_ORDINAL}|\\d{1,2}(?:st|nd|rd|th))\\b,?\\s+(?:in the\\s+)?(?:morning|afternoon|evening)\\b`, "i"),
 ];
 
 const HOUR_WORDS: Readonly<Record<string, number>> = {
@@ -688,9 +715,14 @@ function clockTimes(reply: string): number[][] {
     const minutes = minutesOf(m[2]!);
     if (minutes !== null) found.push(readings(HOUR_WORDS[m[1]!]!, minutes, undefined));
   }
+  // "2 in the afternoon", "nine in the morning".
+  for (const m of text.matchAll(new RegExp(`\\b(\\d{1,2}|${CLOCK_HOUR_WORD.slice(1, -1)})(?:\\s+o'?clock)?\\s+in the (morning|afternoon|evening)\\b`, "g"))) {
+    const hour = hourOf(m[1]!);
+    if (hour !== null) found.push(readings(hour, 0, m[2] === "morning" ? "am" : "pm"));
+  }
   // A bare hour led into by a word for a time. Digits only: "one" is "speak
   // to one of our team" far more often than it is an hour.
-  const lead = /\b(?:at|from|until|till|til|to|by|after|before|around|between|and|or)\s+(\d{1,2})\b(?![:.]?\d)(?!\s*[ap]\.?m\b)(?!h\b)/g;
+  const lead = /\b(?:at|from|until|till|til|to|by|after|before|around|between|and|or|for|noted|time of)\s+(\d{1,2})\b(?![:.]?\d)(?!\s*[ap]\.?m\b)(?!h\b)/g;
   for (const m of text.matchAll(lead)) {
     const after = text.slice(m.index! + m[0].length);
     if (NOT_AN_HOUR.test(after) || /^\s*o'?clock/.test(after) || STREET_AFTER.test(after)) continue;

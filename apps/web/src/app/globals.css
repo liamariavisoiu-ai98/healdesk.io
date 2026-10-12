@@ -693,15 +693,43 @@
   transform: rotate(180deg);
 }
 
+/*
+ * The footage comes in slowly (owner, 12 October 2026: it cut in, at full
+ * speed, the moment the pointer landed). It fades up over a second on an
+ * ease that starts gently, while CircleExpandCard eases its speed up from a
+ * fifth; and the picture, still and footage together so the two never part,
+ * pushes in by a few percent over a long deceleration, which is what makes
+ * it read as a camera move rather than a switch. Going is quicker than
+ * coming, so a pointer passing over the bento does not leave a trail of
+ * cards still fading out, and the rewind waits until it has gone.
+ */
+.niche-card__still,
+.niche-card__video {
+  transform: scale(1);
+  transition: transform var(--duration-slower) var(--ease-out);
+}
+
 .niche-card__video {
   opacity: 0;
-  transition: opacity var(--duration-slow) var(--ease-standard);
+  transition:
+    opacity var(--duration-slow) var(--ease-standard),
+    transform var(--duration-slower) var(--ease-out);
+}
+
+.niche-card--ready:hover :is(.niche-card__still, .niche-card__video),
+.niche-card--ready:focus-visible :is(.niche-card__still, .niche-card__video),
+.niche-card[data-expanded] :is(.niche-card__still, .niche-card__video) {
+  transform: scale(1.04);
+  transition: transform calc(var(--duration-slower) * 3) var(--ease-out);
 }
 
 .niche-card--ready:hover .niche-card__video,
 .niche-card--ready:focus-visible .niche-card__video,
 .niche-card[data-expanded] .niche-card__video {
   opacity: 1;
+  transition:
+    opacity calc(var(--duration-slower) * 1.4) var(--ease-in-out),
+    transform calc(var(--duration-slower) * 3) var(--ease-out);
 }
 
 /* Sits above the flood, under the copy. Without it, white text over 72% red
@@ -723,8 +751,14 @@
      instant and complete rather than a 0.01ms sweep. */
   .niche-card__flood,
   .niche-card__video,
-  .niche-card__arrow {
-    transition: none;
+  .niche-card__arrow,
+  .niche-card__still {
+    transition: none !important;
+  }
+
+  .niche-card__still,
+  .niche-card__video {
+    transform: none !important;
   }
 }
 

@@ -6,6 +6,7 @@ import {
   PAYMENTS_CLAUSE_BODY,
   PAYMENTS_CLAUSE_HEADING,
   STATE_LAW_CLAUSE_HEADING,
+  TRANSCRIPT_RETENTION_DAYS,
   stateLawClauseBody,
 } from "./baa";
 import {
@@ -559,8 +560,18 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * (booking-requirements.ts: the locked four and the five a practice may
    * switch on), stated as a ceiling, plus the animal's name and species the
    * owner allowed for a veterinary practice on 6 October 2026. Email is not
-   * on it: the catalogue excludes it. Then who receives Client Information,
-   * by category, which the state-law terms ask a processor to limit.
+   * on it: the catalogue excludes it. Then how long healdesk keeps what it
+   * holds during the term, and who receives Client Information, by category,
+   * which the state-law terms ask a processor to limit.
+   *
+   * The periods are BAA 1.3.0 clause 11's, in this document's words, and the
+   * nightly purge's (apps/app src/lib/retention/purge.ts), which runs for
+   * every DPA practice whatever its switch (purgeIsPromised, release gate 9).
+   * Until 12 October 2026 the DPA stated none during the term (dpa.md, gap
+   * 2) while its practices were purged at 90 days. Where 1.3.0 says
+   * "Practice may shorten these periods in its portal", this says what the
+   * portal does: its Settings shortens transcripts, to 30 or 7 days, and no
+   * other period (clinic_settings.transcript_retention_days).
    */
   {
     id: "minimum-necessary",
@@ -584,6 +595,20 @@ const CLAUSES_1_0: readonly DpaClause[] = [
           `number. On every channel its opening line says that it is an AI assistant and, on a ` +
           `call, that the call is transcribed; Practice cannot switch that statement off or edit ` +
           `it out. No call audio is kept at all.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `healdesk keeps each conversation, with its transcript, for ${TRANSCRIPT_RETENTION_DAYS} ` +
+          `days after it took place, and each appointment record for ${TRANSCRIPT_RETENTION_DAYS} ` +
+          `days after the appointment's time. It keeps each booking request for ` +
+          `${TRANSCRIPT_RETENTION_DAYS} days after the latest of when it was made, the time it was ` +
+          `confirmed for and its appointment's time. A client's contact details are kept while any ` +
+          `conversation, appointment record or booking request of theirs is kept, and in any case ` +
+          `until ${TRANSCRIPT_RETENTION_DAYS} days after the last time those details were recorded ` +
+          `or changed. Practice may shorten the period for transcripts in its portal. A backup copy ` +
+          `of anything healdesk deletes expires within ${BACKUP_RETENTION_DAYS} days of the ` +
+          `deletion. The clause headed "Term, termination, and what happens to the information" ` +
+          `governs what is held after the Services end.`,
       ) +
       "\n\n" +
       wrap(

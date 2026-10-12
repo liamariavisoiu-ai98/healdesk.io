@@ -167,8 +167,9 @@ export type PurgeResult = {
 /**
  * The BAA versions written before the purge's periods were promised as the
  * purge runs them. Every version after them, released or not, and every DPA,
- * states them (BAA 1.3.0 clause 11; the DPA's retention clause), so a new
- * version is purged nightly from the day it is signed unless it is added
+ * states them (BAA 1.3.0 clause 11; the DPA's "Minimum necessary" clause,
+ * which states them since 12 October 2026, docs/counsel/dpa.md gap 2), so a
+ * new version is purged nightly from the day it is signed unless it is added
  * here, by a decision recorded beside it.
  */
 export const BAA_VERSIONS_BEFORE_THE_PURGE_PROMISE: ReadonlySet<string> = new Set([

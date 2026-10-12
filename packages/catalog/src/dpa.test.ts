@@ -11,6 +11,7 @@ import {
   prepareBaa,
   STATE_LAW_CLAUSE_HEADING,
   stateLawClauseBody,
+  TRANSCRIPT_RETENTION_DAYS,
   type BaaVariables,
 } from "./baa";
 import {
@@ -98,14 +99,14 @@ const VARIANTS: Record<string, Partial<DpaVariables>> = {
 
 /** variant → sha256 of the assembled text. Frozen from the draft; see the header. */
 const GOLDEN: Record<string, string> = {
-  sample: "db155c8f30dbfb63c78e731aedc80faa66f415abcf6acbbfe78877adf872f40e",
-  notcovered_live_covered: "51b63ae44edc558dc0907be89251e49528ceb816a475bedeecccfd45eeb8c488",
-  notcovered_live_uncovered: "f5ac2dd9f7b22475f940178791c7245777bbb6aefe8fea9fb0aa0198ed3146d8",
-  notcovered_live_personal: "7e5125934f0d1a735788c2692713b2b7853594b02ad7c40f4ae8eb4cf22b6a83",
-  notcovered_notused_other: "9d9e4e7441b30dc7b78488f50044d0810c0206e6f911e7f02557877cc305f09c",
-  vet_live_covered: "8a6abccd98716590d2083026adb9f484b91b44ea18ee538da0bbd39c1f565398",
-  vet_live_personal: "d11b4a188879f5b39e23bcd9bfa32a40adfd58caef3f2932bd31a95a8180fd46",
-  vet_notused_mindbody: "9fef53f48b5394217424ed607611cbb5d053974665dd54dc8cd55a059eb10391",
+  sample: "4eab8af181b000f0a22da31e486c2aa682aeec2d691c0008b36b37351f5f6a19",
+  notcovered_live_covered: "9b85d8f29a6e0fb77faca80ceeb4913412599dd70c7b291e6c8822768901fb29",
+  notcovered_live_uncovered: "f92231b2ea3c89642dd9d8555fb65e800f90ddbdca9afd3261d88e87c261c5db",
+  notcovered_live_personal: "e91cc4035460a7540855ceda9ee71876b9383ac7d38f8dbf02d2589923f033a1",
+  notcovered_notused_other: "8e3bab54df2bd7a24ecfd05910581ccf69d6161aa7a4a6c90405c43fb0ce41e5",
+  vet_live_covered: "6207cdaf003b091bf09b609a920e0ac8de24154781f7902bd5831df7ecfac065",
+  vet_live_personal: "1130ef7585ba1f382ee76e8006b3b988ce174feefd971ad917a66784822d0258",
+  vet_notused_mindbody: "fa9ebacbf5597ffac7be362e6b84ceb654ed9daac5c698941b598c4170587443",
 };
 
 const template = () => currentDpaTemplate();
@@ -793,6 +794,30 @@ describe("the DPA's pre-release text", () => {
     expect(unwrap(section(text, "Term, termination, and what happens to the information"))).not.toMatch(
       /except the telephone number/,
     );
+  });
+});
+
+describe("retention during the term", () => {
+  // BAA 1.3.0 clause 11's periods, which the nightly purge runs for every
+  // DPA practice; until 12 October 2026 the DPA stated none (dpa.md, gap 2).
+  test("states the purge's periods, and what the portal can shorten, on every variant", () => {
+    for (const [name, overrides] of Object.entries(VARIANTS)) {
+      const minimum = unwrap(
+        section(render(overrides).text, "Minimum necessary, and who receives Client Information"),
+      );
+      expect(minimum, name).toContain(
+        `healdesk keeps each conversation, with its transcript, for ${TRANSCRIPT_RETENTION_DAYS} days after it took place, and each appointment record for ${TRANSCRIPT_RETENTION_DAYS} days after the appointment's time.`,
+      );
+      expect(minimum, name).toContain(
+        `It keeps each booking request for ${TRANSCRIPT_RETENTION_DAYS} days after the latest of when it was made, the time it was confirmed for and its appointment's time.`,
+      );
+      // Only what the portal does: its Settings shortens transcripts alone.
+      expect(minimum, name).toContain("Practice may shorten the period for transcripts in its portal.");
+      expect(minimum, name).not.toMatch(/shorten these periods/);
+      expect(minimum, name).toContain(
+        `A backup copy of anything healdesk deletes expires within ${BACKUP_RETENTION_DAYS} days of the deletion.`,
+      );
+    }
   });
 });
 

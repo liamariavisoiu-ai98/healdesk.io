@@ -310,25 +310,27 @@ Added on 7 October 2026, read at origin/main c926414:
    longer behind its switch for a DPA practice: since 12 October 2026 a
    clinic on the DPA or BAA 1.3.0 or later is purged every night whatever
    the `retention-purge` switch says (gate 9).
-2. **Retention during the term.** BAA 1.2.1 (A5) says healdesk "keeps
-   transcripts and conversation records for 90 days, which Practice may
-   shorten in its portal". Since main's 0048 the code agrees on the number:
-   `clinics.retention_record_days` defaults to 90, and every clinic left at
-   the old 730 was moved to 90. What is still untrue: nothing in the
-   application can shorten either setting (no portal control, no ops
-   operation), and the `retention-purge` job is seeded off, so nothing is
-   deleted at 90 days either. (12 October 2026: a DPA practice is purged every
-   night whatever the switch says, gate 9, so the 90 days are kept for it.
-   The portal's Settings has a transcript control, 90, 30 or 7 days
-   (`clinic_settings.transcript_retention_days`), and since the same day
-   the purge reads it: it shortens the transcript clock, never lengthens it
-   past the clinic's own, and reaches no other record. The other periods
-   have no portal control.) The DPA states no period during the term, only
-   "no call audio is kept at all", although the spec wants a stated period
-   for data handled as PHI. Before the release the owner decides: state "90
-   days" once the purge runs for live clinics (and "which Practice may
-   shorten" only once the portal control exists), regenerating the hashes,
-   or release without a period.
+2. **Retention during the term: resolved** (12 October 2026). BAA 1.2.1
+   (A5) says healdesk "keeps transcripts and conversation records for 90
+   days, which Practice may shorten in its portal", and 1.3.0's clause 11
+   states each period. The DPA stated none during the term, only "no call
+   audio is kept at all", while a DPA practice was purged nightly at 90 days
+   (gate 9; `purgeIsPromised`). Clause 10, "Minimum necessary", now states
+   the purge's periods in 1.3.0's terms: a conversation with its transcript,
+   and an appointment record, 90 days after it took place or its time; a
+   booking request 90 days after the latest of its dates; a client's contact
+   details while any of those is kept and in any case 90 days after they were
+   last recorded or changed; backup copies within 35 days of a deletion; and
+   the Term clause for after the Services end. Where 1.3.0 says "Practice may
+   shorten these periods in its portal", the DPA says what the portal does:
+   "Practice may shorten the period for transcripts in its portal". The
+   portal's Settings has that control, 90, 30 or 7 days
+   (`clinic_settings.transcript_retention_days`), and the purge reads it: it
+   shortens the transcript clock, never lengthens it past the clinic's own,
+   and reaches no other record. No portal control shortens the other
+   periods, so 1.3.0's "these periods" says more than the portal does; that
+   is reported for the BAA's owner. `docs/dpa-v1.0.0.txt` and the golden
+   hashes were regenerated; no BAA hash moved.
 3. **Deletion on request: resolved** (12 October 2026, BAA 1.3.0 release gate
    6). `eraseContact` had no caller. The care page's "Delete a person" (ops
    `erasePerson`) now runs it and deletes what it did not reach: the
@@ -552,7 +554,8 @@ its trigger.
 - [ ] The calendar election able to amend a DPA (gap 6): the form is
       drafted (`calendar-election-dpa/1.0.0`); its release, and election
       rows that take it through `calendarElectionFor`, remain.
-- [ ] Gap 2 resolved, or the text changed to match. (Gaps 3 and 5 are
+- [x] Gap 2 resolved: the DPA states the purge's periods, and that the
+      portal shortens transcripts (12 October 2026). (Gaps 3 and 5 are
       resolved.)
 - [x] Corrections have code behind them (gap 22): gate 8's amendment record,
       appended to and linked with the booking request, conversation or

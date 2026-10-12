@@ -398,10 +398,12 @@ offboarding and then stays open for the day (or the thirty) commits a change who
 has already run, holding the clinic's row locked all that time. The long-transaction
 alarm in the AWS list is what catches it, and only half of it is built (see there).
 `retention-purge` runs both nightly and writes one audit row per clinic with counts.
-The same purge deletes a messaging thread (`chat_threads`) once its last message is past
-the record clock, a vendor payload (`webhook_events`) thirty days after it arrived once
-processed (or at the record clock, if shorter) and at the record clock if it was never
-processed, and an amendment with the record it amends. `lib/retention/purge.ts` lists
+The same purge deletes a messaging thread (`chat_threads`) thirty days after its last
+message (sooner if the record clock or the portal's transcript period is shorter), a
+vendor payload (`webhook_events`) thirty days after it arrived once processed (or at the
+record clock, if shorter) and at the record clock if it was never processed, and either
+kind of payload no later than the transcript period, since a call's payload carries its
+transcript, and an amendment with the record it amends. `lib/retention/purge.ts` lists
 each period as BAA 1.3.0's clause 11 states it.
 
 Which clinics: a clinic on BAA 1.3.0 or later, or the DPA, is purged every night whether

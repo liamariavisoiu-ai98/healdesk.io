@@ -212,6 +212,41 @@ describeDb("retention purge", () => {
     expect(await left(ninety.clinicId)).toEqual(["done-8", "never-8"]);
   });
 
+  test("an idle messaging thread goes after thirty days, or sooner with a shorter transcript clock", async () => {
+    // A thread is the keyed trace that a person wrote to the clinic. Only
+    // billing-housekeeping, which ships off, swept it at thirty days; the
+    // purge kept it to the record clock, ninety, whatever the transcripts'
+    // seven (second review, 12 October 2026).
+    const quiet = async (label: string, settingDays: number | null) => {
+      const c = await seedClinic(label);
+      if (settingDays !== null) {
+        await inTenant(c.clinicId, (client) =>
+          client.query(`insert into clinic_settings (clinic_id, transcript_retention_days) values ($1, $2)`, [
+            c.clinicId,
+            settingDays,
+          ]),
+        );
+      }
+      await inTenant(c.clinicId, async (client) => {
+        for (const days of [40, 20, 8, 3]) {
+          await client.query(
+            `insert into chat_threads (clinic_id, channel, party_ref, conversation_id, conversation_started_at, last_inbound_at)
+             values ($1, 'instagram', $2, gen_random_uuid(), $3, $3)`,
+            [c.clinicId, `v1:${String(days).padStart(64, "0")}`, new Date(now.getTime() - days * DAY)],
+          );
+        }
+      });
+      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => purgeClinic(tx, now));
+      return inTenant(c.clinicId, async (client) =>
+        (
+          await client.query<{ last: Date }>(`select last_inbound_at as last from chat_threads order by last_inbound_at`)
+        ).rows.map((r) => Math.round((now.getTime() - r.last.getTime()) / DAY)),
+      );
+    };
+    expect(await quiet("threads-default", null)).toEqual([20, 8, 3]);
+    expect(await quiet("threads-transcripts-7", 7)).toEqual([3]);
+  });
+
   test("the per-clinic window is honoured", async () => {
     const c = await seedClinic("purgeShort");
     await getMigratorPool().query(

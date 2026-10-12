@@ -17,6 +17,7 @@ import {
   transactions,
   webhookEvents,
 } from "@/db/schema";
+import { CHAT_THREAD_IDLE_RETENTION_DAYS } from "@/lib/billing/housekeeping";
 import { DRAFT_TTL_HOURS } from "@/lib/meta/booking-requests";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -82,7 +83,8 @@ import type { TenantTx } from "@/lib/tenant";
  *     made, the time it was confirmed for and its appointment's time;
  *   - a contact: while any of those of theirs is kept, and in any case the
  *     record clock after it was last written;
- *   - a messaging thread: the record clock after its last message;
+ *   - a messaging thread: thirty days after its last message, or the record
+ *     clock or the transcript clock if either is shorter;
  *   - an amendment Practice directed: with the request, appointment or
  *     conversation it amends, and never before;
  *   - a vendor payload (webhook_events), the raw copy of a call or a
@@ -498,18 +500,27 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ senderId: metaBookingDrafts.senderId });
   result.draftsDeleted = drafts.length;
 
-  // 7. Messaging threads quiet for the whole record clock. A thread is a
-  //    keyed reference to the sender's platform id (for WhatsApp, their
-  //    number) and when they last wrote, kept to count conversations and to
-  //    know whose first reply has carried the opening line. BAA 1.3.0's
-  //    clause 11 keeps a person's contact details "until 90 days after the
-  //    last time those details were recorded"; a thread's last message is
-  //    that time. Nothing is lost by it: a message after a day's silence
-  //    starts a new conversation, and its first reply the opening line,
-  //    whether or not the thread is still there.
+  // 7. Messaging threads gone quiet. A thread is a keyed reference to the
+  //    sender's platform id (for WhatsApp, their number) and when they last
+  //    wrote, kept to count conversations and to know whose first reply has
+  //    carried the opening line. It goes after thirty days of silence
+  //    (CHAT_THREAD_IDLE_RETENTION_DAYS, which billing-housekeeping also
+  //    sweeps, but that job ships switched off), or at the record clock or
+  //    the transcript clock when either is shorter: a thread is the trace of
+  //    a conversation, and outlives neither its record nor its transcript
+  //    (second review, 12 October 2026). BAA 1.3.0's clause 11 keeps a
+  //    person's contact details "until 90 days after the last time those
+  //    details were recorded"; a thread's last message is that time, so this
+  //    is never later. Nothing is lost by it: a message after a day's
+  //    silence starts a new conversation, and its first reply the opening
+  //    line, whether or not the thread is still there.
+  const threadsBefore = daysAgo(
+    now,
+    Math.min(CHAT_THREAD_IDLE_RETENTION_DAYS, clinic.recordDays, transcriptDays),
+  );
   const quietThreads = await tx.db
     .delete(chatThreads)
-    .where(and(eq(chatThreads.clinicId, tx.clinicId), lt(chatThreads.lastInboundAt, recordBefore)))
+    .where(and(eq(chatThreads.clinicId, tx.clinicId), lt(chatThreads.lastInboundAt, threadsBefore)))
     .returning({ ref: chatThreads.partyRef });
   result.chatThreadsDeleted = quietThreads.length;
 
